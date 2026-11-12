@@ -257,7 +257,7 @@ final class ImportedArticleLockTest extends TestCase
         $this->assertSame(403, $response->getStatusCode());
         $this->assertStringContainsString('lecture seule', $response->getBody());
         $this->assertSame($before, $this->snapshot());
-        $this->assertSame(0, $this->countOf('SELECT COUNT(*) FROM scheduled_actions'));
+        $this->assertSame(0, $this->rowCountOf('SELECT COUNT(*) FROM scheduled_actions'));
     }
 
     public function testDeletionIsRefused(): void
@@ -553,11 +553,11 @@ final class ImportedArticleLockTest extends TestCase
                     . ' WHERE form_id = ? ORDER BY id',
                 $this->formId
             ),
-            'responses' => $this->countOf('SELECT COUNT(*) FROM news_form_responses'),
+            'responses' => $this->rowCountOf('SELECT COUNT(*) FROM news_form_responses'),
         ];
     }
 
-    private function countOf(string $sql): int
+    private function rowCountOf(string $sql): int
     {
         $statement = $this->pdo->prepare($sql);
         $statement->execute();
