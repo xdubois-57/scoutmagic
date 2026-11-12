@@ -1,0 +1,117 @@
+{
+    "format": "scoutmagic-news-history",
+    "format_version": "1.0.0",
+    "source": {
+        "installation_id": "ancien-site-unite-exemple",
+        "name": "Ancien site de l'unité d'exemple"
+    },
+    "export_id": "2026-11-08-cas-invalides",
+    "exported_at": "2026-11-08T14:30:00+01:00",
+    "files": [
+        {
+            "path": "articles/a-brouillon.json",
+            "sha256": "2a2308775af7f8d1741552ab9816c61026d10ce0b75f7cfb1e762af2cb0e72fc",
+            "size": 132
+        },
+        {
+            "path": "articles/a-date-impossible.json",
+            "sha256": "cb8f2364b0f89e4f34b16786971ed056df454427345ca967a59a8c369f66306f",
+            "size": 115
+        },
+        {
+            "path": "articles/a-futur.json",
+            "sha256": "fdb3b9df14893a2d6d449ebfe501b09a381c441ad293012ce325b858e35974e7",
+            "size": 121
+        },
+        {
+            "path": "articles/a-id-numerique.json",
+            "sha256": "0e5fe70950b45ad74806307741c7e8f6c4f73b425323e80379b98a0a3274b421",
+            "size": 107
+        },
+        {
+            "path": "articles/a-pas-du-json.json",
+            "sha256": "0c3a06086b2547865eb24417dbc13254470f7b8ff4c6961ecb92ab6b8ca4025a",
+            "size": 12
+        },
+        {
+            "path": "articles/a-resume-long.json",
+            "sha256": "1ebb2f73f7148a8c80959d070009a145f419aeb42db59be654440cc2c502d8d5",
+            "size": 434
+        },
+        {
+            "path": "articles/a-resume-nombre.json",
+            "sha256": "be7454b3e1a3fec74b4960a1c920b52543da8500bff0c07a7bbb9edba3195e80",
+            "size": 136
+        },
+        {
+            "path": "articles/a-sans-fuseau.json",
+            "sha256": "7a7e50aa09d646cb1f36a197807572acacfe5464bc000b0c976b70dd863e35fb",
+            "size": 101
+        },
+        {
+            "path": "articles/a-sans-titre.json",
+            "sha256": "a155bf6b22adb26ccd898ddee1f43efa63706465bed119ddc6eb2c57b935b719",
+            "size": 97
+        },
+        {
+            "path": "articles/a-valide.json",
+            "sha256": "5cb28172fe259f4f49da1b2c505c93152218f07d48d2c94b700a24de7bd49524",
+            "size": 232
+        },
+        {
+            "path": "articles/autre-nom.json",
+            "sha256": "dfe1aea483ea528d1dfc314962851d6cfff14873b249bbf43d1d3577ae1e1175",
+            "size": 112
+        },
+        {
+            "path": "export/journal.csv",
+            "sha256": "9916947c61be93b4ae493e6776fa7c347a246a95954eeb18f34e6094faab3bf8",
+            "size": 16
+        },
+        {
+            "path": "forms/f-libelle-html.json",
+            "sha256": "fdec168043fa028415ee8192a6868b57f12bb03a5011cfc48fea858c46acf3cf",
+            "size": 174
+        },
+        {
+            "path": "forms/f-orphelin.json",
+            "sha256": "80467d5c962e82b4641be51079b44e62796574d6d06d6d8d440edbc7c6ebfe21",
+            "size": 175
+        },
+        {
+            "path": "forms/f-sans-actualite.json",
+            "sha256": "9749f891e2c096c44e62b6f02fd17841ea18c59cf71ae52298b3409da2f19469",
+            "size": 182
+        },
+        {
+            "path": "forms/f-sans-options.json",
+            "sha256": "ff4c21c9e36ffc98dd8b69ce7d84f08fd80b9f6831ffa93a14125d2302b01bef",
+            "size": 188
+        },
+        {
+            "path": "forms/f-sans-question.json",
+            "sha256": "8e33b9ce19f6646dce5592a93a59a89b995d6196d85952356a901ce6922e59a8",
+            "size": 182
+        },
+        {
+            "path": "forms/f-type-inconnu.json",
+            "sha256": "ede28f203b1c464efbfe1861d6bea22ecb2a1beddc8b4bd1b67618b3540dfa48",
+            "size": 170
+        },
+        {
+            "path": "forms/f-valide-1.json",
+            "sha256": "82887339726e5a780fb8bed286946412b226dc6c52e1a6bbea62380001e5fce0",
+            "size": 201
+        },
+        {
+            "path": "forms/f-valide-2.json",
+            "sha256": "89524636eb2d3c3c9d38899ae8a4dbc2121fd6dbf6a32b3af642abfc62423651",
+            "size": 178
+        },
+        {
+            "path": "responses/f-0412.jsonl",
+            "sha256": "3fc858da179caa39a0e7265215f52e97333a24eb8644e148a514a9122260b82f",
+            "size": 62
+        }
+    ]
+}

@@ -99,8 +99,28 @@ final class Article
         public readonly ?string $summary = null,
         public readonly ?int $imageFileId = null,
         public readonly string $status = self::STATUS_PUBLISHED,
-        public readonly ?string $publishedAt = null
+        public readonly ?string $publishedAt = null,
+        /**
+         * When the data migration module wrote this article from the
+         * unit's previous site (D11) — null for every article written
+         * here. Set once, never cleared: see {@see self::isImported()}.
+         */
+        public readonly ?string $importedAt = null,
+        /** `<format>:<installation id>` of the archive it came from. */
+        public readonly ?string $importSource = null
     ) {
+    }
+
+    /**
+     * Whether this article is history imported from the previous site, and
+     * so read-only for everybody (chantier « Migration de données », D11):
+     * no edit, publication, scheduling, return to draft or deletion, no
+     * change to its form, no response. Read from this module's own column,
+     * so the lock holds with the data migration module disabled.
+     */
+    public function isImported(): bool
+    {
+        return $this->importedAt !== null;
     }
 
     /**

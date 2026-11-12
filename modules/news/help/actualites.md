@@ -53,3 +53,9 @@ publique ne montre pas tout.
 Un code QR qui mène à « Cette actualité n'est pas encore en ligne » est
 celui d'un article préparé à l'avance : il s'ouvrira dès sa
 publication.
+
+## Les actualités « Importé »
+
+Une actualité marquée « Importé » vient de l'ancien site de l'unité. Elle
+se lit comme les autres, mais c'est un élément historique : son
+formulaire est fermé et ses réponses d'origine n'ont pas été reprises.
