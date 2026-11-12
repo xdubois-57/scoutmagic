@@ -24,22 +24,61 @@ namespace Core\Security;
  * still owns the real secret check (password_verify() against the token
  * hash, in verifyMagicLink()); this class only makes sure the device
  * collecting the resulting session is the one that started the flow.
+ *
+ * **The session cookie alone is not enough either** (issue #1115). Two
+ * holders of one session cookie — a shared computer, a copied cookie —
+ * would otherwise race for the confirmed link: whichever polled first
+ * collected the session (and, since issue #1115, the ten-minute window
+ * to add a passkey or a device). remember() therefore also mints a poll
+ * token that only the page which asked for the link receives, in the
+ * JSON answer, and keeps nothing but its SHA-256. The page holds it in
+ * memory — no cookie, no storage — and sends it with every poll
+ * (`X-Magic-Link-Poll-Token`); pollTokenMatches() is the check. A page
+ * reloaded or closed loses it, and asks for a new link.
  */
 final class PendingMagicLink
 {
     private const SESSION_KEY = '_pending_magic_link';
     private const GENERATION_KEY = '_pending_magic_link_generation';
+    private const POLL_TOKEN_KEY = '_pending_magic_link_poll_token';
+
+    /** The request header the waiting page sends its poll token in. */
+    public const POLL_TOKEN_HEADER = 'HTTP_X_MAGIC_LINK_POLL_TOKEN';
 
     /**
      * Called when a magic link has just been issued for this session —
      * including when no account matched (AuthService::requestMagicLink()
      * creates the row and reports success either way, for no enumeration),
      * so this stays indistinguishable from the matched case.
+     *
+     * Returns the poll token, for the requesting page only: 32 random
+     * bytes, hex-encoded. The session keeps its SHA-256 — at that entropy
+     * a fast hash is as safe as any, and the comparison is constant-time.
      */
-    public static function remember(int $magicLinkId, ?string $generation = null): void
+    public static function remember(int $magicLinkId, ?string $generation = null): string
     {
+        $pollToken = bin2hex(random_bytes(32));
+
         SessionStore::set(self::SESSION_KEY, $magicLinkId);
         SessionStore::set(self::GENERATION_KEY, $generation);
+        SessionStore::set(self::POLL_TOKEN_KEY, hash('sha256', $pollToken));
+
+        return $pollToken;
+    }
+
+    /**
+     * Whether $pollToken is the one remember() handed the page that asked
+     * for the pending link. False with no pending link, and for a pending
+     * link stored before the token existed — that page asks again.
+     */
+    public static function pollTokenMatches(?string $pollToken): bool
+    {
+        $stored = SessionStore::get(self::POLL_TOKEN_KEY);
+        if (!is_string($stored) || !is_string($pollToken)) {
+            return false;
+        }
+
+        return hash_equals($stored, hash('sha256', $pollToken));
     }
 
     /**
@@ -71,5 +110,6 @@ final class PendingMagicLink
     {
         SessionStore::remove(self::SESSION_KEY);
         SessionStore::remove(self::GENERATION_KEY);
+        SessionStore::remove(self::POLL_TOKEN_KEY);
     }
 }

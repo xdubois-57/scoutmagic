@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Core\Security;
 
 use Core\Security\AuthSession;
+use Core\Security\RecentAuthentication;
 use PHPUnit\Framework\TestCase;
 
 class AuthSessionTest extends TestCase
@@ -100,6 +101,124 @@ class AuthSessionTest extends TestCase
         $newId = session_id();
 
         $this->assertNotSame($oldId, $newId);
+    }
+
+    // --- when the session last proved who it is (issue #1115) ----------
+
+    public function testLoginRecordsTheMomentOfAuthentication(): void
+    {
+        $this->startTestSession();
+        $before = time();
+
+        AuthSession::login(42, 'test@example.com', 'admin');
+
+        $this->assertNotNull(AuthSession::authenticatedAt());
+        $this->assertGreaterThanOrEqual($before, AuthSession::authenticatedAt());
+        $this->assertSame(AuthSession::getIssuedAt(), AuthSession::authenticatedAt());
+    }
+
+    public function testAuthenticatedWithinIsInclusiveAtTheBoundaryAndFalsePastIt(): void
+    {
+        $this->startTestSession();
+        AuthSession::login(42, 'test@example.com', 'admin');
+        $at = (int) AuthSession::authenticatedAt();
+
+        $this->assertTrue(AuthSession::authenticatedWithin(600, $at));
+        $this->assertTrue(AuthSession::authenticatedWithin(600, $at + 599));
+        $this->assertTrue(AuthSession::authenticatedWithin(600, $at + 600));
+        $this->assertFalse(AuthSession::authenticatedWithin(600, $at + 601));
+    }
+
+    public function testAStampInTheFutureProvesNothing(): void
+    {
+        $this->startTestSession();
+        AuthSession::login(42, 'test@example.com', 'admin');
+        $at = (int) AuthSession::authenticatedAt();
+
+        $this->assertFalse(AuthSession::authenticatedWithin(600, $at - 1));
+    }
+
+    public function testASessionPredatingTheFieldIsNeverRecent(): void
+    {
+        $this->startTestSession();
+        AuthSession::login(42, 'test@example.com', 'admin');
+        unset($_SESSION['_auth']['authenticated_at']);
+
+        $this->assertNull(AuthSession::authenticatedAt());
+        $this->assertFalse(AuthSession::authenticatedWithin(600));
+    }
+
+    public function testNobodySignedInIsNeverRecent(): void
+    {
+        $this->startTestSession();
+
+        $this->assertNull(AuthSession::authenticatedAt());
+        $this->assertFalse(AuthSession::authenticatedWithin(600));
+
+        $sessionId = session_id();
+        AuthSession::markAuthenticatedNow();
+        $this->assertNull(AuthSession::authenticatedAt());
+        $this->assertSame($sessionId, session_id());
+    }
+
+    /**
+     * refreshIssuedAt() keeps the tab signed in after a password change;
+     * it is not a proof of identity (a FIRST password proves nothing), so
+     * it leaves the last authentication where it was.
+     */
+    public function testRefreshingTheIssuedStampIsNotAFreshAuthentication(): void
+    {
+        $this->startTestSession();
+        AuthSession::login(42, 'test@example.com', 'admin');
+        $old = time() - 3600;
+        $_SESSION['_auth']['issued_at'] = $old;
+        $_SESSION['_auth']['authenticated_at'] = $old;
+
+        AuthSession::refreshIssuedAt();
+
+        $this->assertGreaterThan($old, AuthSession::getIssuedAt());
+        $this->assertSame($old, AuthSession::authenticatedAt());
+        $this->assertFalse(AuthSession::authenticatedWithin(600));
+    }
+
+    /**
+     * A fresh window rotates the session id, as a login does: a copy of
+     * the old cookie must not share in the right to add a passkey or a
+     * device credential. Everything held in the session stays.
+     */
+    public function testMarkingAuthenticatedNowRotatesTheIdAndRefreshesOnlyThatStamp(): void
+    {
+        $this->startTestSession();
+        AuthSession::login(42, 'test@example.com', 'admin');
+        $old = time() - 3600;
+        $_SESSION['_auth']['issued_at'] = $old;
+        $_SESSION['_auth']['authenticated_at'] = $old;
+        $sessionId = session_id();
+
+        AuthSession::markAuthenticatedNow();
+
+        $this->assertNotSame($sessionId, session_id());
+        $this->assertSame($old, AuthSession::getIssuedAt());
+        $this->assertTrue(AuthSession::authenticatedWithin(600));
+        $this->assertSame(42, AuthSession::getUserAccountId());
+    }
+
+    public function testRecentAuthenticationUsesTheTenMinuteWindow(): void
+    {
+        $this->startTestSession();
+        AuthSession::login(42, 'test@example.com', 'admin');
+        $at = (int) AuthSession::authenticatedAt();
+
+        $this->assertSame(600, RecentAuthentication::WINDOW_SECONDS);
+        $this->assertTrue(RecentAuthentication::isRecent($at + 600));
+        $this->assertFalse(RecentAuthentication::isRecent($at + 601));
+    }
+
+    public function testTheReauthenticationLinkKeepsOnlyASafeReturnPath(): void
+    {
+        $this->assertSame('/login?return=%2Faccount&reauth=1', RecentAuthentication::loginUrl('/account'));
+        $this->assertSame('/login?reauth=1', RecentAuthentication::loginUrl('https://evil.example/'));
+        $this->assertSame('/login?reauth=1', RecentAuthentication::loginUrl('//evil.example/'));
     }
 
     private function startTestSession(): void
