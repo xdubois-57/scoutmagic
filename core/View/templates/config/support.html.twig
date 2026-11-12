@@ -606,8 +606,11 @@
                 <span class="small">Génération en cours…</span>
             </output>
 
-            <a class="btn btn-primary{% if not package_file_id %} d-none{% endif %}" id="support-package-download"
-               href="{% if package_file_id %}{{ file_url(package_file_id) }}{% else %}#{% endif %}">
+            {# Empty for a package file that no longer exists (the setting
+               can outlive it): hidden, rather than a link to this page. #}
+            {% set package_url = package_file_id ? file_url(package_file_id) : '' %}
+            <a class="btn btn-primary{% if not package_url %} d-none{% endif %}" id="support-package-download"
+               href="{{ package_url ?: '#' }}">
                 Télécharger l'archive
             </a>
         </div>

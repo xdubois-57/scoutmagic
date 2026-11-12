@@ -23,8 +23,14 @@
   follow. There is one now, and tests/Core/View/UxConventionsTest.php
   refuses to let another one get away.
 
+  **No address, no link.** `file_url()` is empty for a file that no
+  longer exists (a reference left behind by a purge, issue #1109). An
+  empty href resolves to the current page, so with « download » the
+  button would save this page under the file's name: nothing is rendered
+  instead.
+
   Parameters:
-    href        the file's URL
+    href        the file's URL; nothing is rendered when it is empty
     label       the link text; empty for a link reduced to its icon,
                 in which case `aria_label` is required — an icon has no
                 name (design.md §7.4)
@@ -51,6 +57,7 @@
   link has no visible label (the icon-only case, where there is no read
   word to say) nor when the caller already included it.
 #}
+{%- if href -%}
 {%- set accessible_name = (aria_label is defined and aria_label) ? aria_label : '' -%}
 {%- if accessible_name and label and label not in accessible_name -%}
     {%- set accessible_name = label ~ ' — ' ~ accessible_name -%}
@@ -64,3 +71,4 @@
     {%- if icon is defined and icon %}<i class="bi bi-{{ icon }}" aria-hidden="true"></i>{% if label %} {% endif %}{% endif -%}
     {{ label }}
 </a>
+{%- endif -%}

@@ -359,6 +359,27 @@ class SupportControllerTest extends TestCase
         $this->assertSame(substr_count($between, '<output'), substr_count($between, '</output>'));
     }
 
+    /**
+     * Issue #1109: the setting can outlive the package file it names. With
+     * no address to give, the button stays hidden rather than pointing at
+     * this very page.
+     */
+    public function testAPackageWhoseFileIsGoneOffersNoDownload(): void
+    {
+        $this->settings->setInternal(\Core\Support\SupportPackageState::FILE_ID, '987654');
+        \Core\File\FilePublicIds::useRepository(new \Core\File\FileRepository($this->pdo));
+        try {
+            $body = $this->controller->index(new Request('GET', '/config/support', [], [], [], []), [])->getBody();
+        } finally {
+            \Core\File\FilePublicIds::useRepository(null);
+        }
+
+        $this->assertMatchesRegularExpression(
+            '~<a class="btn btn-primary d-none" id="support-package-download"\s+href="#">~',
+            $body
+        );
+    }
+
     // ── The measurement window (CHANTIER-performance §6) ────────────────
 
     public function testThePageOffersToMeasureAndSaysWhatItRecordsAndWhatItCannot(): void
