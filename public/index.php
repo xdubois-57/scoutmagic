@@ -2812,6 +2812,38 @@ $memberExportService = new \Core\Member\Export\MemberExportService();
 // Create file services
 $storagePath = dirname(__DIR__) . '/storage';
 $fileRepository = new FileRepository($pdo);
+// Every address /files/… is built from the file's opaque public id
+// (Core\File\FilePublicIds, issue #1109); file_url() resolves it here.
+\Core\File\FilePublicIds::useRepository($fileRepository);
+// Files that predate the column get theirs, a bounded batch per request
+// until none is left — then the setting stops the check for good. The
+// numeric address keeps answering for a file until it has one.
+if ($settingService->get('files_public_ids_backfilled') !== '1') {
+    $settingService->register(
+        'files_public_ids_backfilled',
+        '0',
+        'boolean',
+        'Identifiants opaques des fichiers attribués',
+        'Indique si chaque fichier existant a reçu son identifiant opaque.',
+        null,
+        null,
+        null,
+        false,
+        999
+    );
+
+    $filesBackfillBatch = 500;
+    $filesBackfilled = 0;
+    do {
+        $filesBackfilledNow = $fileRepository->backfillPublicIds($filesBackfillBatch);
+        $filesBackfilled += $filesBackfilledNow;
+    } while ($filesBackfilledNow === $filesBackfillBatch && $filesBackfilled < 10 * $filesBackfillBatch);
+
+    if ($filesBackfilledNow < $filesBackfillBatch) {
+        $settingRepo->updateValue(null, 'files_public_ids_backfilled', '1');
+        $settingService->clearCache();
+    }
+}
 // The shared "attached document" invariant (Core\File\AttachedFileRemover):
 // row first, bytes second, bytes only when the module owns them and nobody
 // else points at them. Camps and Locations both use this one instance.

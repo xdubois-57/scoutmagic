@@ -127,7 +127,11 @@ class FileOwnershipCheckerWiringTest extends TestCase
         // register nothing and change nothing, which is why they are
         // allowed to be public here. Anything that could ADD a checker
         // after construction would break the ordering contract above, and
-        // that is what this list exists to refuse.
-        $this->assertSame(['__construct', 'check', 'isIndexable', 'isStaffBypass'], $publicMethods);
+        // that is what this list exists to refuse. fileIdForPublicId()
+        // (issue #1109) only reads a row's id and decides nothing.
+        $this->assertSame(
+            ['__construct', 'check', 'fileIdForPublicId', 'isIndexable', 'isStaffBypass'],
+            $publicMethods
+        );
     }
 }

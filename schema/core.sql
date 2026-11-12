@@ -260,7 +260,15 @@ CREATE TABLE files (
     owner_id INT UNSIGNED NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     created_by INT UNSIGNED,
+    -- The opaque identifier the file is served under, /files/{public_id}
+    -- (Core\File\FilePublicIds, issue #1109): 128 random bits, never
+    -- derived from id, so an address can no longer be guessed by counting.
+    -- Nullable only for rows that predate it, until the backfill in
+    -- public/index.php reaches them; utf8mb4_bin so « a » and « A » stay two
+    -- different ids.
+    public_id CHAR(22) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NULL,
     UNIQUE INDEX idx_path (relative_path),
+    UNIQUE INDEX idx_file_public_id (public_id),
     INDEX idx_file_owner (owner_type, owner_id),
     CONSTRAINT fk_file_created_by FOREIGN KEY (created_by) REFERENCES user_accounts(id) ON DELETE SET NULL,
     CONSTRAINT fk_file_owner_member FOREIGN KEY (owner_member_id) REFERENCES members(id) ON DELETE CASCADE

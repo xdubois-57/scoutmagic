@@ -57,7 +57,8 @@ class FileControllerTest extends TestCase
             owner_type TEXT,
             owner_id INTEGER,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            created_by INTEGER
+            created_by INTEGER,
+            public_id TEXT UNIQUE
         )');
         $this->pdo->exec('CREATE TABLE event_log (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -667,6 +668,111 @@ class FileControllerTest extends TestCase
                 (string) ($response->getHeaders()['Content-Disposition'] ?? '')
             );
         }
+    }
+
+    /**
+     * Issue #1109: the file is served under its opaque public id, through
+     * the same guard.
+     */
+    public function testServeAnswersTheOpaqueAddress(): void
+    {
+        $id = $this->seedImage();
+        $this->pdo->prepare('UPDATE files SET public_id = ? WHERE id = ?')->execute([str_repeat('A', 22), $id]);
+        $controller = $this->publicController();
+
+        $response = $controller->serve(new Request('GET', '/files/x', [], [], [], []), ['id' => str_repeat('A', 22)]);
+
+        $this->assertSame(200, $response->getStatusCode());
+    }
+
+    /**
+     * An unknown or malformed opaque id is a 404 before the guard: nothing
+     * is journalled as a refusal, and no guess reaches a file.
+     *
+     * @return iterable<string, array{0: string}>
+     */
+    public static function segmentsThatNameNoFile(): iterable
+    {
+        yield 'an unknown public id' => [str_repeat('Z', 22)];
+        yield 'a malformed value' => ['abc.def'];
+        yield 'a public id one character short' => [str_repeat('A', 21)];
+        yield 'a number followed by letters' => ['1abc'];
+        yield 'a negative number' => ['-1'];
+        yield 'zero' => ['0'];
+        yield 'empty' => [''];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('segmentsThatNameNoFile')]
+    public function testASegmentThatNamesNoFileIsA404(string $segment): void
+    {
+        $id = $this->seedImage();
+        $this->pdo->prepare('UPDATE files SET public_id = ? WHERE id = ?')->execute([str_repeat('A', 22), $id]);
+        $controller = $this->publicController();
+
+        $serve = $controller->serve(new Request('GET', '/files/x', [], [], [], []), ['id' => $segment]);
+        $variant = $controller->variant(
+            new Request('GET', '/files/x/md', [], [], [], []),
+            ['id' => $segment, 'variant' => 'md']
+        );
+        $thumbnail = $controller->thumbnail(
+            new Request('GET', '/files/x/thumbnail', [], [], [], []),
+            ['id' => $segment]
+        );
+
+        $this->assertSame([404, 404, 404], [
+            $serve->getStatusCode(),
+            $variant->getStatusCode(),
+            $thumbnail->getStatusCode(),
+        ]);
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM event_log')->fetchColumn());
+    }
+
+    /**
+     * A refusal on the opaque address journals the numeric id, never the
+     * public one: the journal must not become a list of working addresses.
+     */
+    public function testARefusalOnTheOpaqueAddressJournalsTheNumericIdOnly(): void
+    {
+        $id = $this->fileRepository->create('secret.pdf', 'secret.pdf', 'application/pdf', 1, 'superadmin', null, null);
+        $public = (string) $this->fileRepository->findById($id)?->publicId;
+        $this->controller->setJournalService(new JournalService(new JournalRepository($this->pdo)));
+
+        $response = $this->controller->serve(new Request('GET', '/files/x', [], [], [], []), ['id' => $public]);
+
+        $this->assertSame(403, $response->getStatusCode());
+        $context = (string) $this->pdo->query("SELECT context FROM event_log WHERE event_type = 'file_access_denied'")
+            ->fetchColumn();
+        $this->assertSame($id, json_decode($context, true)['file_id']);
+        $this->assertStringNotContainsString($public, $context);
+    }
+
+    /**
+     * Transition only (removed by the last lot of #1109): the numeric
+     * address still answers through the same guard.
+     */
+    public function testTheNumericAddressStillAnswersDuringTheTransition(): void
+    {
+        $id = $this->seedImage();
+
+        $response = $this->publicController()->serve(
+            new Request('GET', '/files/' . $id, [], [], [], []),
+            ['id' => (string) $id]
+        );
+
+        $this->assertSame(200, $response->getStatusCode());
+    }
+
+    private function publicController(): FileController
+    {
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+
+        return new FileController(
+            new Environment(new ArrayLoader(self::REFUSAL_TEMPLATE)),
+            new FileAccessGuard($this->fileRepository, Role::PUBLIC),
+            $this->storagePath,
+            new EncryptedFileStorageService($this->fileRepository, $encryption, $this->storagePath),
+            $this->imageVariantService
+        );
     }
 
     private function seedImage(): int
