@@ -12,6 +12,7 @@ namespace Core\Maintenance\Portable;
 use Core\Maintenance\BackupException;
 use Core\Maintenance\BackupService;
 use Core\Security\SecretManager;
+use Core\View\CompiledTemplateCache;
 use Core\Statistics\InstallationIdentityService;
 
 /**
@@ -384,6 +385,10 @@ final class PortableRestore
                 . 'sur le dossier du site.'
             );
         }
+
+        // Whatever the guards above let through, no compiled template
+        // survives a restore (issue #1103).
+        CompiledTemplateCache::clear($this->basePath);
     }
 
     /**

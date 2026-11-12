@@ -463,6 +463,76 @@ final class PortableArchiveRefusalTest extends TestCase
     }
 
     /**
+     * **A name is judged as the filesystem reads it** (issue #1103).
+     *
+     * The forbidden-tree refusal above compares text prefixes, and
+     * `storage/./temp/…` or `storage//keys/…` share none with the trees
+     * they name — while `ZipArchive::extractTo()` collapses both and writes
+     * exactly there. Each of these was accepted for extraction before.
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('nonCanonicalNames')]
+    public function testANameThatIsNotCanonicalIsRefused(string $name): void
+    {
+        $archive = $this->open(['extraEntry' => $name]);
+
+        try {
+            $archive->restorableEntries();
+            $this->fail('An archive naming ' . $name . ' was accepted.');
+        } catch (BackupException $e) {
+            $this->assertStringContainsString('chemin non autorisé', $e->getMessage());
+        } finally {
+            $archive->close();
+        }
+    }
+
+    /** @return iterable<string, array{string}> */
+    public static function nonCanonicalNames(): iterable
+    {
+        yield 'dot segment into the compiled templates' => ['storage/./temp/twig_cache/intrus.php'];
+        yield 'empty segment into the keys' => ['storage//keys/master.key'];
+        yield 'dot segment into the keys' => ['storage/./keys/master.key'];
+        yield 'dot then climb back into the keys' => ['storage/uploads/./../keys/master.key'];
+        yield 'case variant behind a dot segment' => ['storage/./Temp/twig_cache/intrus.php'];
+        yield 'empty segment inside a data tree' => ['storage/uploads//doc.pdf'];
+    }
+
+    /**
+     * **Nothing a web server or PHP would run is written, and the archive
+     * still restores** (issue #1103). Under `storage/` the unit's data has
+     * opaque names, so a PHP file or an `.htaccess` there is never data —
+     * but the site archives a deny-all `.htaccess` it placed itself, so
+     * these are left out rather than refusing an archive it produced.
+     */
+    public function testAFileAWebServerWouldRunIsLeftOutOfTheRestore(): void
+    {
+        foreach ([
+            'storage/uploads/.htaccess',
+            'storage/uploads/.user.ini',
+            'storage/uploads/photo.php.jpg',
+            'storage/uploads/script.PHTML',
+            'storage/uploads/outil.phar',
+            'storage/restore/incoming/.htaccess',
+        ] as $name) {
+            $archive = $this->open(['extraEntry' => $name]);
+
+            $entries = $archive->restorableEntries();
+
+            $this->assertNotContains($name, $entries, $name . ' would have been extracted.');
+            $this->assertContains('storage/uploads/doc.pdf', $entries, 'the data beside it must still restore');
+            $archive->close();
+        }
+    }
+
+    /** A data file whose name merely contains the letters is still data. */
+    public function testADataFileWhoseNameMerelyContainsPhpIsRestored(): void
+    {
+        $archive = $this->open(['extraEntry' => 'storage/uploads/graphique-php.pdf.enc']);
+
+        $this->assertContains('storage/uploads/graphique-php.pdf.enc', $archive->restorableEntries());
+        $archive->close();
+    }
+
+    /**
      * **An archive that simply does not mention its keys.**
      *
      * Checking the digests of whatever a manifest lists says nothing about

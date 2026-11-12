@@ -20,6 +20,7 @@ use Core\Storage\DirectorySize;
 use Core\Storage\DirectoryWalk;
 use Core\Storage\DiskBudget;
 use Core\Storage\Location\DeclaredStorageDirectories;
+use Core\View\CompiledTemplateCache;
 
 /**
  * Mechanical backup/restore operations (Configuration > Maintenance,
@@ -708,6 +709,10 @@ class BackupService implements BackupServiceInterface
         // goes, which is the honest cost of not having the list.
         clearstatcache(true);
         OpcodeCache::reset();
+
+        // And the compiled templates, for the same reason and one more: a
+        // file there is PHP the next page runs (issue #1103).
+        CompiledTemplateCache::clear($this->basePath);
     }
 
     /**
