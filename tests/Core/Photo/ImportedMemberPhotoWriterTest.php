@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Tests\Core\Photo;
 
+use Core\File\AttachedFileRemover;
 use Core\File\FileRepository;
 use Core\File\UploadHandler;
 use Core\Import\AgeBranchRepository;
@@ -42,6 +43,8 @@ final class ImportedMemberPhotoWriterTest extends TestCase
     private \PDO $pdo;
     private string $tmpDir;
     private ImportedMemberPhotoWriter $writer;
+    private PhotoIngestionService $ingestion;
+    private AttachedFileRemover $remover;
     private ImageVariantService $variants;
     private int $memberId;
     private int $yearId;
@@ -64,7 +67,7 @@ final class ImportedMemberPhotoWriterTest extends TestCase
         $settings->register('pwa_icon_version', '1', 'number', 'x', 'x', null, null, null, false);
         $this->variants = new ImageVariantService($files, new ImageVariantProcessor(), $this->tmpDir);
 
-        $ingestion = new PhotoIngestionService(
+        $this->ingestion = $ingestion = new PhotoIngestionService(
             $uploadHandler,
             new EditableContentService(new EditableContentRepository($this->pdo)),
             new MemberPhotoService(new MemberPhotoRepository($this->pdo)),
@@ -76,7 +79,8 @@ final class ImportedMemberPhotoWriterTest extends TestCase
             $this->variants,
             new AccountPhotoService(new AccountPhotoRepository($this->pdo), $files, $this->tmpDir),
         );
-        $this->writer = new ImportedMemberPhotoWriter($ingestion, new MemberPhotoRepository($this->pdo));
+        $this->remover = new AttachedFileRemover($files, $this->tmpDir);
+        $this->writer = new ImportedMemberPhotoWriter($ingestion, new MemberPhotoRepository($this->pdo), $this->remover);
 
         $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('DESK-1')");
         $this->memberId = (int) $this->pdo->lastInsertId();
@@ -186,6 +190,84 @@ final class ImportedMemberPhotoWriterTest extends TestCase
         $this->writer->write($this->memberId, $this->yearId, self::image('jpg'), 'a.jpg', null);
 
         $this->assertSame($before, glob(sys_get_temp_dir() . '/member_photo_import_*') ?: []);
+    }
+
+    /**
+     * Issue #1158: another path gives the member that year's photo between
+     * the inspection of the row and its write. The photo is stored first, and
+     * only then does the insert find the slot taken — so the image and its
+     * thumbnail are already on disk when the row is refused. They must not
+     * stay there: no row points at them, no screen shows them, nothing would
+     * ever delete them, and a run of such refusals eats the disk budget.
+     */
+    public function testALostRaceLeavesNeitherTheImageNorItsThumbnailOnDisk(): void
+    {
+        // The slot is taken by this photo, stored for another year, a moment
+        // before the writer's own insert.
+        $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date) VALUES ('2021-2022', '2021-09-01', '2022-08-31')");
+        $otherYearId = (int) $this->pdo->lastInsertId();
+        $taker = $this->writer->write($this->memberId, $otherYearId, self::image('png'), 'autre.png', null);
+        $this->assertNotNull($taker);
+
+        $racing = new class ($this->pdo, $taker) extends MemberPhotoRepository {
+            public function __construct(private \PDO $handle, private int $takerFileId)
+            {
+                parent::__construct($handle);
+            }
+
+            public function insertIfAbsent(int $memberId, int $scoutYearId, int $fileId, ?int $createdBy): bool
+            {
+                $this->handle->prepare(
+                    'INSERT INTO member_photos (member_id, scout_year_id, file_id, created_by) VALUES (?, ?, ?, NULL)'
+                )->execute([$memberId, $scoutYearId, $this->takerFileId]);
+
+                return parent::insertIfAbsent($memberId, $scoutYearId, $fileId, $createdBy);
+            }
+        };
+        $writer = new ImportedMemberPhotoWriter($this->ingestion, $racing, $this->remover);
+
+        $filesOnDiskBefore = self::filesUnder($this->tmpDir);
+        $filesRowsBefore = (int) $this->pdo->query('SELECT COUNT(*) FROM files')->fetchColumn();
+
+        $this->assertNull($writer->write($this->memberId, $this->yearId, self::image('jpg'), 'perdue.jpg', null));
+
+        $this->assertSame($filesOnDiskBefore, self::filesUnder($this->tmpDir), 'The image or its thumbnail stayed on disk.');
+        $this->assertSame($filesRowsBefore, (int) $this->pdo->query('SELECT COUNT(*) FROM files')->fetchColumn(), 'A files row was left behind.');
+        // The photo that won the slot is untouched.
+        $this->assertSame($taker, (int) $this->pdo->query(
+            'SELECT file_id FROM member_photos WHERE scout_year_id = ' . $this->yearId
+        )->fetchColumn());
+        $this->assertNotSame([], $filesOnDiskBefore, 'The winning photo\'s own files are gone: the comparison above proves nothing.');
+    }
+
+    public function testAWonSlotKeepsItsFiles(): void
+    {
+        $fileId = $this->writer->write($this->memberId, $this->yearId, self::image('jpg'), 'a.jpg', null);
+
+        $this->assertNotNull($fileId);
+        $this->assertNotSame([], self::filesUnder($this->tmpDir));
+        $this->assertSame(1, (int) $this->pdo->query('SELECT COUNT(*) FROM files')->fetchColumn());
+    }
+
+    /**
+     * Every file below a directory, as sorted relative paths.
+     *
+     * @return list<string>
+     */
+    private static function filesUnder(string $directory): array
+    {
+        $found = [];
+        $iterator = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($directory, \FilesystemIterator::SKIP_DOTS)
+        );
+        foreach ($iterator as $file) {
+            if ($file->isFile()) {
+                $found[] = substr($file->getPathname(), strlen($directory) + 1);
+            }
+        }
+        sort($found);
+
+        return $found;
     }
 
     private function account(): int
