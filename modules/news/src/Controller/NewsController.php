@@ -1232,6 +1232,40 @@ class NewsController extends AbstractController
         // checkbox was ticked).
         $context['fields_override'] = $this->extractFields($request);
 
+        // The form's own settings, as submitted (issue #1140). The template
+        // reads them off the SAVED form — which is, for a new article, no
+        // form at all — so without this every refusal sent the author back
+        // to the stored values or the defaults: tickets switched off, dates
+        // reset, the Finances choice gone. The saved form is left alone for
+        // everything that is about what exists (its id, whether responses
+        // came in, the ICS already sent); only what the author is editing
+        // is replaced.
+        $settings = $this->extractFormSettings($request, $context['visibility_value']);
+        $saved = $context['form'] instanceof NewsForm ? $context['form'] : null;
+        $context['form_settings'] = new NewsForm(
+            $saved->id ?? 0,
+            $saved->newsArticleId ?? ($article->id ?? 0),
+            $settings['access'],
+            $settings['response_limit'],
+            $settings['opens_at'],
+            $settings['closes_at'],
+            $settings['is_force_closed'],
+            $settings['response_role_min'],
+            $settings['digest_email'],
+            $settings['issues_ticket'],
+            $settings['event_date'],
+            $settings['event_location'],
+            $saved->lastDigestSentAt ?? null,
+            $settings['finance_account_id'],
+            $saved->createdAt ?? '',
+            $settings['finance_category_id']
+        );
+        // Those two dates are not read off the form but off these
+        // defaults, which stand in for an unset value: a date the author
+        // cleared has to come back cleared, not as today.
+        $context['default_opens_at'] = $settings['opens_at'] ?? '';
+        $context['default_closes_at'] = $settings['closes_at'] ?? '';
+
         return $context;
     }
 
