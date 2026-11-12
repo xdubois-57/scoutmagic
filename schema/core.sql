@@ -264,9 +264,13 @@ CREATE TABLE files (
     -- (Core\File\FilePublicIds, issue #1109): 128 random bits, never
     -- derived from id, so an address can no longer be guessed by counting.
     -- Nullable only for rows that predate it, until the backfill in
-    -- public/index.php reaches them; utf8mb4_bin so « a » and « A » stay two
-    -- different ids.
-    public_id CHAR(22) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NULL,
+    -- public/index.php reaches them. The column takes the table's collation,
+    -- which folds case — the schema comparator carries no per-column
+    -- collation — so the lookup compares exactly in PHP
+    -- (FileRepository::findByPublicId()), and the unique index is
+    -- case-insensitive: a collision would need two 128-bit draws equal but
+    -- for case, which is not worth guarding against.
+    public_id CHAR(22) NULL,
     UNIQUE INDEX idx_path (relative_path),
     UNIQUE INDEX idx_file_public_id (public_id),
     INDEX idx_file_owner (owner_type, owner_id),
