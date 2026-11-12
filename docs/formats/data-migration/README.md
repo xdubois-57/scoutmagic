@@ -20,7 +20,7 @@ majeure.
 
 | Import (titre à l'écran) | `format` du manifeste | `format_version` décrite | Module requis | Document |
 |---|---|---|---|---|
-| Calendrier (fichier ICS) | — (fichier iCalendar, RFC 5545, lu à une adresse web) | — | Calendrier (`calendar`) | aucun : la source est un formulaire, pas un ZIP. Voir `specifications.md` §49 |
+| Calendrier (fichier ICS) | — (fichier iCalendar, RFC 5545, lu à une adresse web) | — | Calendrier (`calendar`) | aucun : la source est un formulaire, pas un ZIP. Voir `specifications.md` §49.8 et l'aide « Copier le calendrier de l'ancien site » |
 | Historique des courriels | `scoutmagic.email-history` | `1.0.0` | Envoi de mails (`mass_mail`) | [`email-history.md`](email-history.md) |
 | Actualités et formulaires | `scoutmagic-news-history` | `1.0.0` | Actualités (`news`) | [`news-history.md`](news-history.md) |
 | Photos des membres | `scoutmagic-member-photos` | `1.0.0` | aucun (fonction du cœur) | [`member-photos.md`](member-photos.md) |
