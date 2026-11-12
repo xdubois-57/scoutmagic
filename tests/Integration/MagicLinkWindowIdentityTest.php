@@ -61,6 +61,8 @@ class MagicLinkWindowIdentityTest extends TestCase
     private ?array $sentMail = null;
     /** The code the requesting window was shown for the last link. */
     private ?string $matchCode = null;
+    /** The poll token only the requesting page holds (issue #1115). */
+    private string $pollToken = '';
 
     protected function setUp(): void
     {
@@ -358,7 +360,14 @@ class MagicLinkWindowIdentityTest extends TestCase
     private function poll(int $magicLinkId): bool
     {
         $response = $this->controller->pollMagicLink(
-            new Request('GET', '/auth/poll/' . $magicLinkId, [], [], [], []),
+            new Request(
+                'GET',
+                '/auth/poll/' . $magicLinkId,
+                [],
+                [],
+                [],
+                [\Core\Security\PendingMagicLink::POLL_TOKEN_HEADER => $this->pollToken]
+            ),
             ['id' => (string) $magicLinkId]
         );
 
@@ -390,6 +399,7 @@ class MagicLinkWindowIdentityTest extends TestCase
         $body = json_decode($response->getBody(), true);
         $this->assertTrue($body['success'], 'magic link request refused: ' . ($body['error'] ?? ''));
         $this->matchCode = (string) $body['match_code'];
+        $this->pollToken = (string) ($body['poll_token'] ?? '');
         $this->assertMatchesRegularExpression('/^\d{6}$/', $this->matchCode);
 
         return (int) $body['poll_id'];

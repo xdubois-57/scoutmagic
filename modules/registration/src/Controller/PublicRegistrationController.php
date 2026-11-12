@@ -19,9 +19,9 @@ use Core\ScoutYear\ScoutYearResolver;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\Security\HumanCheck\HumanCheckService;
-use Core\Service\DateInput;
 use Modules\Registration\Repository\AgeBracketRepository;
 use Modules\Registration\Repository\RegistrationRequest;
+use Modules\Registration\Service\RegistrationRequestValidator;
 use Modules\Registration\Service\RegistrationService;
 use Modules\Registration\Service\RegistrationSubmissionReceipt;
 use Modules\Registration\Repository\ReenrollmentRepository;
@@ -38,30 +38,6 @@ class PublicRegistrationController extends AbstractController
      * Core\Security\HumanCheck form key.
      */
     private const HUMAN_CHECK_FORM_KEY = 'registration_form';
-
-    /**
-     * Server-side length ceilings, matching the form's own `maxlength`
-     * attributes. The columns are encrypted BLOBs, so nothing truncates on
-     * the SQL side either: without this, a POST carrying hundreds of
-     * kilobytes of "remarques" was accepted and encrypted as-is. The
-     * browser attribute is a convenience, never the boundary.
-     *
-     * @var array<string, int>
-     */
-    private const MAX_LENGTHS = [
-        'parent_name' => 150,
-        'child_last_name' => 100,
-        'child_first_name' => 100,
-        'street' => 200,
-        'number' => 20,
-        'postal_code' => 20,
-        'city' => 100,
-        'email' => 254, // RFC 5321's maximum path length
-        'phone1' => 30,
-        'phone2' => 30,
-        'remarks' => 2000,
-        'previous_unit_name' => 150,
-    ];
 
     public function __construct(
         protected Environment $twig,
@@ -419,68 +395,22 @@ class PublicRegistrationController extends AbstractController
     }
 
     /**
-     * @param array<string, mixed> $fields
+     * The rules are the module's (Service\RegistrationRequestValidator),
+     * shared with the import of an old site's requests; the sentences are
+     * this form's own, and so are its two extra questions — the privacy
+     * policy accepted here, and an answer about a previous unit, which
+     * this form always asks.
+     *
+     * @param array<string, ?string> $fields
      * @return array<string>
      */
     private function validate(array $fields, Request $request): array
     {
-        $errors = [];
-
-        foreach (['parent_name', 'child_last_name', 'child_first_name', 'street', 'number', 'postal_code', 'city',
-            'phone1'] as $key) {
-            if ($fields[$key] === '') {
-                $errors[] = 'Merci de compléter tous les champs obligatoires.';
-                break;
-            }
-        }
-
-        // Desk's own three values (issue #871): F, H for a boy, X. The Desk
-        // import refuses anything else (#854), so a request carries the
-        // same letters a member imported from Desk does.
-        if (!in_array($fields['gender'], ['F', 'H', 'X'], true)) {
-            $errors[] = 'Genre invalide.';
-        }
-
-        if (!DateInput::isIso($fields['birth_date'])) {
-            $errors[] = 'Date de naissance invalide.';
-        }
-
-        if (filter_var($fields['email'], FILTER_VALIDATE_EMAIL) === false) {
-            $errors[] = 'Adresse email invalide.';
-        }
-
-        if ($request->getBody('rgpd_accepted') === null) {
-            $errors[] = 'Merci d\'accepter la politique de confidentialité.';
-        }
-
-        // Issue #331 — both halves of the question, and the second one only
-        // when the first says « oui ». The unit the child comes from is what
-        // changes the chief's encoding procedure in Desk, so a « oui » with
-        // no unit named is a request nobody can act on.
-        if (!in_array(
-            $fields['previous_unit_answer'],
-            [RegistrationRequest::PREVIOUS_UNIT_NO, RegistrationRequest::PREVIOUS_UNIT_YES],
+        return RegistrationRequestValidator::formMessages((new RegistrationRequestValidator())->violations(
+            $fields,
+            $request->getBody('rgpd_accepted') !== null,
             true
-        )) {
-            $errors[] = 'Merci d\'indiquer si cette personne fait ou a fait partie d\'une autre unité Les Scouts.';
-        } elseif (
-            $fields['previous_unit_answer'] === RegistrationRequest::PREVIOUS_UNIT_YES
-            && ($fields['previous_unit_name'] ?? null) === null
-        ) {
-            $errors[] = 'Merci d\'indiquer de quelle unité il s\'agit.';
-        }
-
-        foreach (self::MAX_LENGTHS as $key => $max) {
-            if ($fields[$key] !== null && mb_strlen((string) $fields[$key]) > $max) {
-                // One generic message, same style as the errors above — the
-                // form marks the limits, so naming the field adds nothing a
-                // legitimate visitor needs.
-                $errors[] = 'Un des champs dépasse la longueur autorisée.';
-                break;
-            }
-        }
-
-        return array_values(array_unique($errors));
+        ));
     }
 
     /**

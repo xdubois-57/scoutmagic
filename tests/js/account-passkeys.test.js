@@ -257,6 +257,62 @@ describe('account-passkeys.js', () => {
             expect(window.location.reload).not.toHaveBeenCalled();
         });
 
+        // Issue #1115: a session whose last login is over ten minutes old
+        // is refused with {error, reauth_url} and HTTP 403.
+        const REAUTH = {
+            success: false,
+            error: 'Pour votre sécurité, cette action demande une connexion de moins de 10 minutes.',
+            reauth_url: '/login?return=%2Faccount&reauth=1',
+        };
+
+        it('offers to sign in again when the options are refused for an old login', async () => {
+            global.fetch = vi.fn(() => jsonResponse(REAUTH, 403));
+            await boot();
+            await clickTwice();
+
+            await vi.waitFor(() => expect(window.location.href).toBe(REAUTH.reauth_url));
+            expect(window.ScoutMagicConfirm.ask).toHaveBeenCalledWith(expect.objectContaining({
+                message: REAUTH.error,
+                confirmLabel: 'Me reconnecter',
+            }));
+            expect(create).not.toHaveBeenCalled();
+            expect(window.ScoutMagicToast.show).not.toHaveBeenCalled();
+        });
+
+        it('stays on the page when the owner declines to sign in again', async () => {
+            global.fetch = vi.fn(() => jsonResponse(REAUTH, 403));
+            window.ScoutMagicConfirm.ask = vi.fn(() => Promise.resolve(false));
+            await boot();
+            await clickTwice();
+
+            await vi.waitFor(() => expect(window.ScoutMagicConfirm.ask).toHaveBeenCalled());
+            await new Promise((resolve) => setTimeout(resolve, 0));
+            expect(window.location.href).toBe('/account');
+        });
+
+        it('offers the same way out when the registration itself is refused', async () => {
+            global.fetch = vi.fn((url) =>
+                String(url).includes('register-options')
+                    ? jsonResponse(registerOptions())
+                    : jsonResponse(REAUTH, 403)
+            );
+            await boot();
+            await clickTwice();
+
+            await vi.waitFor(() => expect(window.location.href).toBe(REAUTH.reauth_url));
+            expect(window.location.reload).not.toHaveBeenCalled();
+        });
+
+        it('never follows a reauth_url that is not the login page', async () => {
+            global.fetch = vi.fn(() => jsonResponse({ ...REAUTH, reauth_url: 'https://evil.example/login?x' }, 403));
+            await boot();
+            await clickTwice();
+
+            await vi.waitFor(() => expect(window.ScoutMagicToast.show).toHaveBeenCalled());
+            expect(window.ScoutMagicConfirm.ask).not.toHaveBeenCalled();
+            expect(window.location.href).toBe('/account');
+        });
+
         it('stops before WebAuthn when the options request fails', async () => {
             global.fetch = vi.fn(() => Promise.reject(new Error('offline')));
             await boot();

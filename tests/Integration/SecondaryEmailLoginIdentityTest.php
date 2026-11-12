@@ -76,6 +76,8 @@ class SecondaryEmailLoginIdentityTest extends TestCase
     private ?array $sentMail = null;
     /** The code the requesting window was shown for the last link (issue #1099). */
     private ?string $matchCode = null;
+    /** The poll token only the requesting page holds (issue #1115). */
+    private string $pollToken = '';
 
     protected function setUp(): void
     {
@@ -253,7 +255,14 @@ class SecondaryEmailLoginIdentityTest extends TestCase
         $_SESSION = $deviceA;
         $this->assertFalse(AuthSession::isAuthenticated());
 
-        $response = $this->controller->pollMagicLink(new Request('GET', '/auth/poll/' . $magicLinkId, [], [], [], []), ['id' => (string) $magicLinkId]);
+        $response = $this->controller->pollMagicLink(new Request(
+                'GET',
+                '/auth/poll/' . $magicLinkId,
+                [],
+                [],
+                [],
+                [\Core\Security\PendingMagicLink::POLL_TOKEN_HEADER => $this->pollToken]
+            ), ['id' => (string) $magicLinkId]);
 
         $this->assertTrue(json_decode($response->getBody(), true)['confirmed']);
         $this->assertSame(self::SECONDARY_EMAIL, AuthSession::getEmail());
@@ -373,6 +382,7 @@ class SecondaryEmailLoginIdentityTest extends TestCase
         $this->assertTrue($body['success'], 'magic link request refused: ' . ($body['error'] ?? ''));
 
         $this->matchCode = (string) ($body['match_code'] ?? '');
+        $this->pollToken = (string) ($body['poll_token'] ?? '');
 
         return (int) $body['poll_id'];
     }
