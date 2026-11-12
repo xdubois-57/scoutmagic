@@ -80,6 +80,8 @@ class MassMailPageTest extends TestCase
     private \PDO $pdo;
     private MassMailController $controller;
     private MassMailService $massMailService;
+    /** @var array<int|string, mixed> what $massMailService was built from */
+    private array $massMailServiceArguments;
     private AudienceRepository $audienceRepository;
     private MailingListService $listService;
     private ListBlockRepository $blockRepository;
@@ -155,7 +157,7 @@ class MassMailPageTest extends TestCase
         $mailService->method('getDefaultSender')
             ->willReturn(['address' => 'unite@test.be', 'name' => 'Test Unité']);
 
-        $this->massMailService = new MassMailService(
+        $this->massMailServiceArguments = [
             new EmailRepository($this->pdo),
             new DeliveryRepository($this->pdo, $encryption),
             new TargetRepository($this->pdo),
@@ -175,8 +177,10 @@ class MassMailPageTest extends TestCase
             $this->audienceRepository,
             new MemberResolutionRepository($this->pdo, $encryption),
             new SuppressedAddressRepository($this->pdo),
-            new MergeRenderer()
-        );
+            new MergeRenderer(),
+            'importedEmails' => new \Modules\MassMail\Repository\ImportedEmailRepository($this->pdo, $encryption),
+        ];
+        $this->massMailService = new MassMailService(...$this->massMailServiceArguments);
 
         $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
         $twig = TwigFactory::create($templateDir, false, ['mass_mail' => dirname(__DIR__, 4) . '/modules/mass_mail/views']);
@@ -1777,5 +1781,290 @@ class MassMailPageTest extends TestCase
         $response = $this->controller->show($this->get('/mass-mail/' . $draft->id), ['id' => (string) $draft->id]);
 
         self::assertSame(200, $response->getStatusCode());
+    }
+
+
+    // -----------------------------------------------------------------
+    // An email imported from a former site (data_migration, lot C, D11)
+    // -----------------------------------------------------------------
+
+    /**
+     * Written through mass_mail's own import interface and nothing of the
+     * data_migration module — the state of a site that disabled it after
+     * its migration. The keys are this harness's (setUp()).
+     *
+     * @return array{email_id: int, accepted: int, unknown: int, attachment: int}
+     */
+    private function importedEmail(): array
+    {
+        $this->pdo->prepare(
+            "INSERT INTO sections (desk_code, age_branch_id, name) SELECT 'STAFFDU', age_branch_id, 'Staff d''U' "
+                . 'FROM sections WHERE id = ?'
+        )->execute([$this->sectionId]);
+        $pdf = \Tests\Modules\MassMail\ImportedEmailFixture::pdf();
+        try {
+            $emailId = \Tests\Modules\MassMail\ImportedEmailFixture::service($this->pdo, sys_get_temp_dir())->import(
+                \Tests\Modules\MassMail\ImportedEmailFixture::email(
+                    'c-page',
+                    null,
+                    [],
+                    [new \Modules\MassMail\Api\ImportedAttachment($pdf, 'programme.pdf')]
+                )
+            )->emailId;
+        } finally {
+            @unlink($pdf);
+        }
+        $ids = [];
+        $delivery = $this->pdo->prepare('SELECT id FROM mass_mail_deliveries WHERE email_id = ? AND status = ?');
+        foreach (['sent' => 'accepted', 'unknown' => 'unknown'] as $status => $key) {
+            $delivery->execute([$emailId, $status]);
+            $ids[$key] = (int) $delivery->fetchColumn();
+            $delivery->closeCursor();
+        }
+        $attachment = $this->pdo->prepare('SELECT id FROM mass_mail_attachments WHERE email_id = ?');
+        $attachment->execute([$emailId]);
+
+        return [
+            'email_id' => $emailId,
+            'accepted' => $ids['accepted'],
+            'unknown' => $ids['unknown'],
+            'attachment' => (int) $attachment->fetchColumn(),
+        ];
+    }
+
+    public function testAnImportedEmailPageIsReadOnlyWithItsBannerAndOriginalSender(): void
+    {
+        $imported = $this->importedEmail();
+
+        $body = (string) $this->controller->show(
+            $this->get('/mass-mail/' . $imported['email_id']),
+            ['id' => (string) $imported['email_id']]
+        )->getBody();
+
+        $this->assertStringContainsString('Élément historique en lecture seule', $body);
+        $this->assertStringContainsString('>Importé<', $body);
+        $this->assertStringContainsString('Éclaireurs 99e Exempleville &lt;eclaireurs@exemple.test&gt;', $body);
+        $this->assertStringContainsString('« Parents des Éclaireurs » (nom d&#039;origine)', $body);
+        $this->assertStringContainsString('programme.pdf', $body);
+        // Nothing to act with: no form posting to the email, no status
+        // button, no attachment control.
+        $this->assertStringNotContainsString('id="mm-compose-form"', $body);
+        $this->assertStringNotContainsString('/status"', $body);
+        $this->assertStringNotContainsString('/attachments"', $body);
+        $this->assertStringNotContainsString('mass-mail-compose.js', $body);
+    }
+
+    public function testTheListBadgesAnImportedEmailWithItsSenderAndList(): void
+    {
+        $this->importedEmail();
+
+        $body = (string) $this->controller->index($this->get('/mass-mail'), [])->getBody();
+
+        $this->assertStringContainsString('>Importé<', $body);
+        $this->assertStringContainsString('De : Éclaireurs 99e Exempleville &lt;eclaireurs@exemple.test&gt;', $body);
+        $this->assertStringContainsString('Liste « Parents des Éclaireurs » (nom d\'origine)', $body);
+        $this->assertStringNotContainsString('/delete"', $body);
+    }
+
+    public function testTheTrackingOfAnImportedEmailShowsTheOriginalStatusesAndNoResend(): void
+    {
+        $imported = $this->importedEmail();
+
+        $body = (string) $this->controller->tracking(
+            $this->get('/mass-mail/' . $imported['email_id'] . '/tracking'),
+            ['id' => (string) $imported['email_id']]
+        )->getBody();
+
+        $this->assertStringContainsString('Élément historique en lecture seule', $body);
+        $this->assertStringContainsString('Accepté par le serveur d&#039;envoi', $body);
+        $this->assertStringContainsString('>Inconnu<', $body);
+        $this->assertStringNotContainsString('Remis', $body);
+        $this->assertStringNotContainsString('mmt-resend-btn', $body);
+        $this->assertStringNotContainsString('Renvoyer', $body);
+    }
+
+    public function testTheRecipientsPageOfAnImportedEmailRecomputesNothing(): void
+    {
+        $imported = $this->importedEmail();
+        // The recount is observed, not inferred from the page: a flash it
+        // set would already be consumed by the render, and one that
+        // succeeded would change nothing visible.
+        $guarded = new class (...$this->massMailServiceArguments) extends MassMailService {
+            public function estimateRecipientCount(int $id): array
+            {
+                throw new \LogicException('estimateRecipientCount() ran for an imported email.');
+            }
+        };
+        $controller = clone $this->controller;
+        (new \ReflectionProperty(MassMailController::class, 'massMailService'))->setValue($controller, $guarded);
+
+        $response = $controller->recipients(
+            $this->get('/mass-mail/' . $imported['email_id'] . '/recipients'),
+            ['id' => (string) $imported['email_id']]
+        );
+
+        $this->assertSame(200, $response->getStatusCode());
+        $body = (string) $response->getBody();
+        $this->assertStringContainsString('ses destinataires ne sont pas recalculés', $body);
+        $this->assertStringContainsString('« Parents des Éclaireurs » (nom d&#039;origine)', $body);
+    }
+
+    public function testResendingAMessageOfAnImportedEmailIsRefusedByTheServer(): void
+    {
+        $imported = $this->importedEmail();
+
+        foreach ([$imported['accepted'], $imported['unknown']] as $deliveryId) {
+            $request = new \Tests\RequestWithInput(
+                'POST',
+                '/mass-mail/deliveries/' . $deliveryId . '/resend',
+                [],
+                [],
+                [],
+                [],
+                (string) json_encode(['_csrf_token' => CsrfGuard::generateToken()])
+            );
+            $response = $this->controller->resend($request, ['id' => (string) $deliveryId]);
+
+            $this->assertSame(422, $response->getStatusCode());
+            $refusal = json_decode((string) $response->getBody(), true);
+            $this->assertStringContainsString('importé de l', (string) ($refusal['error'] ?? ''));
+        }
+        $this->assertSame(
+            0,
+            (int) $this->pdo->query("SELECT COUNT(*) FROM mass_mail_deliveries WHERE status = 'pending'")->fetchColumn()
+        );
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM scheduled_actions')->fetchColumn());
+    }
+
+    public function testSavingDeletingAndTheAttachmentsOfAnImportedEmailAreRefused(): void
+    {
+        $imported = $this->importedEmail();
+        $id = (string) $imported['email_id'];
+
+        $save = $this->controller->save($this->post([
+            '_csrf_token' => CsrfGuard::generateToken(),
+            'section_id' => (string) $this->sectionId,
+            'list' => 'default_section:' . $this->sectionId,
+            'scout_year_ids' => [(string) $this->scoutYearId],
+            'subject' => 'Réécrit',
+            'body_html' => '<p>Réécrit</p>',
+        ]), ['id' => $id]);
+        $this->assertSame(422, $save->getStatusCode());
+
+        $this->controller->delete($this->post(['_csrf_token' => CsrfGuard::generateToken()]), ['id' => $id]);
+        $this->assertStringContainsString('importé de l', (string) (FlashMessage::get()['message'] ?? ''));
+
+        $_FILES['file'] = $this->uploadablePdf();
+        $this->controller->uploadAttachment($this->post(['_csrf_token' => CsrfGuard::generateToken()]), ['id' => $id]);
+        $this->assertStringContainsString('importé de l', (string) (FlashMessage::get()['message'] ?? ''));
+
+        $this->controller->deleteAttachment(
+            $this->post(['_csrf_token' => CsrfGuard::generateToken(), 'email_id' => $id]),
+            ['id' => (string) $imported['attachment']]
+        );
+        $this->assertStringContainsString('importé de l', (string) (FlashMessage::get()['message'] ?? ''));
+
+        $this->controller->changeStatus(
+            $this->post(['_csrf_token' => CsrfGuard::generateToken(), 'action' => 'start_sending']),
+            ['id' => $id]
+        );
+        $this->assertStringContainsString('importé de l', (string) (FlashMessage::get()['message'] ?? ''));
+
+        $email = $this->massMailService->findById($imported['email_id']);
+        $this->assertSame("Infos camp d'été 2024", $email?->subject);
+        $this->assertSame(Email::STATUS_SENT, $email?->status);
+        $this->assertSame(
+            1,
+            (int) $this->pdo->query("SELECT COUNT(*) FROM mass_mail_attachments WHERE email_id = {$id}")->fetchColumn()
+        );
+    }
+
+    /**
+     * Every route the lot changed, on an imported email, through the real
+     * Router and guard at the `role_min` module.json declares for it.
+     *
+     * @return array<string, array{string, string, string}> method, path, action
+     */
+    public static function importedEmailRouteProvider(): array
+    {
+        $wanted = [
+            'show',
+            'save',
+            'recipients',
+            'delete',
+            'uploadAttachment',
+            'deleteAttachment',
+            'tracking',
+            'resend',
+            'index',
+        ];
+        $manifest = \Core\Module\ModuleManifest::fromFile(dirname(__DIR__, 4) . '/modules/mass_mail/module.json');
+        $cases = [];
+        foreach ($manifest->routes as $route) {
+            if (str_ends_with($route['controller'], 'MassMailController')
+                && in_array($route['action'], $wanted, true)
+            ) {
+                $cases["{$route['method']} {$route['path']}"] = [$route['method'], $route['path'], $route['action']];
+            }
+        }
+
+        return $cases;
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('importedEmailRouteProvider')]
+    public function testAChiefPassesTheGuardOfTheImportedEmailRoutes(string $method, string $path, string $action): void
+    {
+        $this->assertSame('chief', $this->declaredRoleMin($method, $path));
+        $response = $this->routeOnImported($method, $path, $action, 'chief');
+
+        $this->assertNotSame(403, $response->getStatusCode(), "{$method} {$path}");
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('importedEmailRouteProvider')]
+    public function testAnIntendantIsRefusedTheImportedEmailRoutes(string $method, string $path, string $action): void
+    {
+        $response = $this->routeOnImported($method, $path, $action, 'intendant');
+
+        $this->assertSame(403, $response->getStatusCode(), "{$method} {$path}");
+    }
+
+    private function declaredRoleMin(string $method, string $path): string
+    {
+        $manifest = \Core\Module\ModuleManifest::fromFile(dirname(__DIR__, 4) . '/modules/mass_mail/module.json');
+        foreach ($manifest->routes as $route) {
+            if ($route['method'] === $method && $route['path'] === $path) {
+                return $route['role_min'];
+            }
+        }
+
+        return '';
+    }
+
+    private function routeOnImported(string $method, string $path, string $action, string $role): \Core\Http\Response
+    {
+        $imported = $this->importedEmail();
+        $id = match ($action) {
+            'deleteAttachment' => $imported['attachment'],
+            'resend' => $imported['accepted'],
+            default => $imported['email_id'],
+        };
+        AuthSession::login($this->accountId, $role . '@test.com', $role);
+
+        $router = new Router();
+        $router->addRoute($method, $path, MassMailController::class, $action, $this->declaredRoleMin($method, $path));
+        $configFile = sys_get_temp_dir() . '/test_mass_mail_config_' . uniqid() . '.php';
+        file_put_contents($configFile, "<?php\nreturn ['site_name' => 'Test', 'debug' => false];");
+        $frontController = new FrontController($router, $this->twig, new AppConfig($configFile));
+        $frontController->registerController(MassMailController::class, $this->controller);
+
+        return $frontController->handle(new \Tests\RequestWithInput(
+            $method,
+            str_replace('{id}', (string) $id, $path),
+            [],
+            ['_csrf_token' => CsrfGuard::generateToken(), 'email_id' => (string) $imported['email_id']],
+            [],
+            [],
+            (string) json_encode(['_csrf_token' => CsrfGuard::generateToken()])
+        ));
     }
 }

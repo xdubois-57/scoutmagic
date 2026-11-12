@@ -36,7 +36,8 @@ class TargetRepository
     private const ENTRY_SELECT = "SELECT t.id AS id, t.email_id AS email_id, t.member_id AS member_id,
                 t.scout_year_id AS scout_year_id, t.audience_row_id AS audience_row_id,
                 t.created_at AS created_at, e.subject AS subject, e.body_html AS body_html,
-                e.list_type AS list_type, s.name AS section_name,
+                e.list_type AS list_type, s.name AS section_name, e.imported_at AS imported_at,
+                CASE WHEN e.imported_at IS NOT NULL THEN e.sent_at END AS imported_sent_at,
                 (SELECT MIN(d.sent_at) FROM mass_mail_delivery_targets dt
                     JOIN mass_mail_deliveries d ON d.id = dt.delivery_id
                     WHERE dt.target_id = t.id AND d.status = 'sent') AS first_sent_at,
@@ -45,7 +46,13 @@ class TargetRepository
                     WHERE dt.target_id = t.id AND d.status = 'sent') AS sent_count,
                 (SELECT COUNT(*) FROM mass_mail_delivery_targets dt
                     JOIN mass_mail_deliveries d ON d.id = dt.delivery_id
-                    WHERE dt.target_id = t.id AND d.status = 'pending') AS pending_count
+                    WHERE dt.target_id = t.id AND d.status = 'pending') AS pending_count,
+                (SELECT COUNT(*) FROM mass_mail_delivery_targets dt
+                    JOIN mass_mail_deliveries d ON d.id = dt.delivery_id
+                    WHERE dt.target_id = t.id AND d.status = 'error') AS error_count,
+                (SELECT COUNT(*) FROM mass_mail_delivery_targets dt
+                    JOIN mass_mail_deliveries d ON d.id = dt.delivery_id
+                    WHERE dt.target_id = t.id AND d.status = 'unknown') AS unknown_count
          FROM mass_mail_targets t
          JOIN mass_mail_emails e ON e.id = t.email_id
          JOIN sections s ON s.id = e.section_id";
@@ -113,7 +120,7 @@ class TargetRepository
      * @return array<int, array{
      *     id: int, email_id: int, member_id: int, scout_year_id: int|null, audience_row_id: int|null,
      *     subject: string, body_html: string, list_type: string, section_name: string,
-     *     sent_at: string, not_sent: bool
+     *     sent_at: string, not_sent: bool, imported: bool, failed: bool
      * }>
      */
     public function findRecentEntriesForMember(int $memberId, int $limit): array
@@ -122,7 +129,8 @@ class TargetRepository
             'SELECT * FROM (' . self::ENTRY_SELECT
                 . " WHERE t.member_id = ? AND e.status IN ('sending', 'sent')) x"
                 . self::SHOWN
-                . ' ORDER BY COALESCE(x.first_sent_at, x.created_at) DESC, x.id DESC LIMIT ' . max(0, $limit)
+                . ' ORDER BY COALESCE(x.imported_sent_at, x.first_sent_at, x.created_at) DESC, x.id DESC LIMIT '
+                . max(0, $limit)
         );
         $stmt->execute([$memberId]);
 
@@ -137,7 +145,7 @@ class TargetRepository
      * @return array{
      *     id: int, email_id: int, member_id: int, scout_year_id: int|null, audience_row_id: int|null,
      *     subject: string, body_html: string, list_type: string, section_name: string,
-     *     sent_at: string, not_sent: bool
+     *     sent_at: string, not_sent: bool, imported: bool, failed: bool
      * }|null
      */
     public function findEntryForMember(int $targetId, int $memberId): ?array
@@ -198,12 +206,20 @@ class TargetRepository
      * @return array{
      *     id: int, email_id: int, member_id: int, scout_year_id: int|null, audience_row_id: int|null,
      *     subject: string, body_html: string, list_type: string, section_name: string,
-     *     sent_at: string, not_sent: bool
+     *     sent_at: string, not_sent: bool, imported: bool, failed: bool
      * }
      */
     private function hydrateEntry(array $row): array
     {
-        $notSent = (int) $row['sent_count'] === 0;
+        // An email imported from a former site is never « Non envoyée »:
+        // what became of its messages is often unknown, and an unknown is
+        // not a failure. It is dated by its historical sending.
+        $imported = $row['imported_at'] !== null;
+        $notSent = !$imported && (int) $row['sent_count'] === 0;
+        // What the former site DID record as a failure, though: every
+        // message of the member in error, none sent and none of unknown fate.
+        $failed = $imported && (int) $row['sent_count'] === 0 && (int) $row['unknown_count'] === 0
+            && (int) $row['error_count'] > 0;
 
         return [
             'id' => (int) $row['id'],
@@ -216,8 +232,12 @@ class TargetRepository
             'list_type' => (string) $row['list_type'],
             'section_name' => (string) $row['section_name'],
             // The date the entry is sorted and shown by.
-            'sent_at' => $notSent ? (string) $row['created_at'] : (string) $row['first_sent_at'],
+            'sent_at' => $imported
+                ? (string) ($row['imported_sent_at'] ?? $row['created_at'])
+                : ($notSent ? (string) $row['created_at'] : (string) $row['first_sent_at']),
             'not_sent' => $notSent,
+            'imported' => $imported,
+            'failed' => $failed,
         ];
     }
 

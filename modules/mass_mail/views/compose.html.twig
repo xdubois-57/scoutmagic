@@ -22,8 +22,21 @@
                 status: email.status == 'draft' ? 'draft' : (email.status == 'test' ? 'pending' : (email.status == 'sending' ? 'in_progress' : 'done')),
                 label: email.status == 'draft' ? 'Brouillon' : (email.status == 'test' ? 'Test' : (email.status == 'sending' ? 'Envoi en cours' : 'Envoyé')),
             } only %}
+            {% if email.importedAt %}
+                {% include '@mass_mail/partials/_imported_badge.html.twig' only %}
+            {% endif %}
         </p>
     {% endif %}
+
+    {# An email imported from a former site has nothing to compose and
+       nothing to act with: its own read-only view, then nothing else. #}
+    {% if email and email.importedAt %}
+        {% include '@mass_mail/partials/_imported_email.html.twig' with {
+            email: email,
+            sender: original_sender,
+            attachments: attachments,
+        } only %}
+    {% else %}
 
     {% if submit_error %}
         <div class="alert alert-danger" role="alert">{{ submit_error }}</div>
@@ -418,9 +431,11 @@
         {% endif %}
     </div>
     {% endif %}
+    {% endif %}
 {% endblock %}
 
 {% block scripts %}
+{% if not (email and email.importedAt) %}
 {# Server data as a JSON island — data to the parser, so a column header
    or a list name carrying a tag-closing sequence cannot end the block in
    the middle of an object literal. Read through ScoutMagicApi.pageData().
@@ -436,4 +451,5 @@
    to — the same file the gallery and « Nouveau reçu » load. #}
 <script src="{{ asset('/assets/js/drop-zone.js') }}" defer></script>
 <script src="{{ asset('/assets/js/mass-mail-compose.js') }}" defer></script>
+{% endif %}
 {% endblock %}
