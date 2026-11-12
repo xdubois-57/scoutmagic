@@ -1236,9 +1236,11 @@ suivent ensuite les règles du module qui les accueille ; (d) que le site garde,
 correspondance entre les références de l'ancien site et les éléments importés, et que le bilan ne montre jamais le nom
 d'une personne ; (e) qu'aucun courriel ni aucune notification n'est envoyé par un import ; (f) le paragraphe « Copie
 d'un calendrier en ligne » : l'import ICS télécharge une seule fois le fichier de l'agenda dont l'adresse est indiquée,
-seule requête sortante du module, qui n'envoie aucune donnée de l'unité au serveur de cet agenda, et l'adresse n'est
-pas conservée (seulement une empreinte). Si "calendar" ne figure PAS dans la liste des modules actifs, retire ce
-paragraphe et la mention des événements de calendrier. Ce module n'introduit
+sans envoyer aucune donnée de l'unité au serveur de cet agenda, et l'adresse n'est pas conservée (seulement une
+empreinte). Si "calendar" ne figure PAS dans la liste des modules actifs, retire ce paragraphe et la mention des
+événements de calendrier ; (g) si "gallery" est aussi actif, le paragraphe « Galeries photo » : la page de chaque album
+importé est consultée une fois sur le site qui l'héberge, comme pour un album externe ajouté à la main, sans aucune
+donnée de membre ; si "gallery" n'est pas actif, retire ce paragraphe. Ce module n'introduit
 **aucun sous-traitant** et ne fait **aucun appel à une IA** : ne l'ajoute ni en section 4 ni en section 5.2.
 
 34. **Assistant d'aide (fonctionnalité du cœur du site, section 2.8)** : Cette section ne dépend d'aucun module — elle

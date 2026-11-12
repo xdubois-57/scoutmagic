@@ -131,6 +131,77 @@ class DeviceAuthenticatorTest extends TestCase
         $stmt->execute([$this->memberYearId, $functionId, $sectionId]);
     }
 
+    /**
+     * Issue #1115, end to end: someone holding a stolen session registers a
+     * passkey and mints a device credential; the holder resets their
+     * password by link without keeping either. Neither gets back in — the
+     * device is refused by the very authenticator CardDAV uses, the passkey
+     * no longer exists for the login to find.
+     */
+    public function testAPasswordResetLocksOutAnAttackersDeviceAndPasskey(): void
+    {
+        $passkeys = new \Core\Security\WebAuthnCredentialRepository($this->pdo);
+        $attackerKey = random_bytes(32);
+        $passkeys->create($this->accountId, $attackerKey, 'pk', 'Pas le mien');
+        $this->assertNotNull($this->authenticator->authenticate($this->header()));
+
+        [$reset, $tokenId, $rawToken] = $this->resetServiceWithToken();
+        $this->assertTrue($reset->resetPassword($tokenId, $rawToken, 'MyNewSecureP@ss1'));
+
+        $this->assertNull($this->authenticator->authenticate($this->header()));
+        $this->assertNull($passkeys->findByCredentialId($attackerKey));
+    }
+
+    /**
+     * The holder recognised the device and unticked it: it keeps working.
+     */
+    public function testAPasswordResetKeepsADeviceTheHolderChoseToKeep(): void
+    {
+        $deviceId = $this->repository->findAllForAccount($this->accountId)[0]->id;
+
+        [$reset, $tokenId, $rawToken] = $this->resetServiceWithToken();
+        $this->assertTrue($reset->resetPassword($tokenId, $rawToken, 'MyNewSecureP@ss1', [], [$deviceId]));
+
+        $this->assertNotNull($this->authenticator->authenticate($this->header()));
+    }
+
+    /**
+     * @return array{0: \Core\Security\PasswordResetService, 1: int, 2: string}
+     */
+    private function resetServiceWithToken(): array
+    {
+        $connection = $this->createStub(\Core\Database\Connection::class);
+        $connection->method('getPdo')->willReturn($this->pdo);
+        $reset = new \Core\Security\PasswordResetService(
+            $connection,
+            $this->enc,
+            $this->createStub(\Core\Mail\MailService::class),
+            \Tests\Core\Mail\Template\EmailTemplateRendererFactory::overTestDatabase(
+                $this->pdo,
+                \Tests\TestTwig::create()
+            ),
+            'https://example.com',
+            'Test Unit'
+        );
+        $reset->setAccessRevoker(new \Core\Security\AccountAccessRevoker(
+            new \Core\Security\WebAuthnCredentialRepository($this->pdo),
+            $this->repository,
+            new JournalService(new JournalRepository($this->pdo))
+        ));
+
+        $rawToken = bin2hex(random_bytes(32));
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO password_reset_tokens (email_blind_index, token_hash, expires_at) VALUES (?, ?, ?)'
+        );
+        $stmt->execute([
+            $this->enc->blindIndex(self::EMAIL, 'email'),
+            password_hash($rawToken, PASSWORD_DEFAULT),
+            (new \DateTimeImmutable('+60 minutes'))->format('Y-m-d H:i:s'),
+        ]);
+
+        return [$reset, (int) $this->pdo->lastInsertId(), $rawToken];
+    }
+
     private function header(?string $email = null, ?string $secret = null): string
     {
         return 'Basic ' . base64_encode(($email ?? self::EMAIL) . ':' . ($secret ?? $this->secret));

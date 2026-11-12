@@ -6066,6 +6066,16 @@ than ten minutes ago (`Core\Security\RecentAuthentication`, issue #1115,
 `SECURITY.md` §2): a credential outlives the session that made it, so a
 stolen session must not be able to make one.
 
+**A password reset and « Déconnecter partout » revoke them.**
+`Core\Security\AccountAccessRevoker` takes back an account's passkeys
+and live device credentials in one gesture (issue #1115): on a reset by
+link, all of them except those the holder unticked on the reset page; on
+« Déconnecter partout » (`POST /account/sign-out-everywhere`), all of them,
+together with every session. It is told what to *keep*, never what to
+revoke, so a form missing its list revokes everything (`SECURITY.md` §2).
+A device credential is revoked as everywhere else (the row stays); a
+passkey is deleted.
+
 **The rule that does not bend: the role is re-resolved on EVERY request.**
 `DeviceAuthenticator` never lets a credential authorise anything by
 itself. It says which account is asking; the account's role is then

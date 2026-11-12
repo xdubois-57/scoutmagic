@@ -18,6 +18,9 @@ use Core\Security\PasswordPolicy;
 use Core\Security\PasswordResetService;
 use Twig\Environment;
 
+/**
+ * @phpstan-import-type LiveAccesses from \Core\Security\AccountAccessRevoker
+ */
 class PasswordResetController extends AbstractController
 {
     /**
@@ -121,9 +124,18 @@ class PasswordResetController extends AbstractController
         $id = (int) ($params['id'] ?? 0);
         $token = (string) $request->getBody('token', '');
 
-        $valid = $id > 0 && $token !== '' && $this->passwordResetService->checkToken($id, $token);
+        $accesses = $id > 0 && $token !== ''
+            ? $this->passwordResetService->liveAccessesForToken($id, $token)
+            : null;
 
-        return $this->json(['valid' => $valid]);
+        if ($accesses === null) {
+            return $this->json(['valid' => false]);
+        }
+
+        // The passkeys and devices the form offers to take back, each
+        // ticked by default (issue #1115): the maintainer's decision is a
+        // list the holder can untick, not a silent sweep.
+        return $this->json(['valid' => true] + $accesses);
     }
 
     /**
@@ -158,7 +170,11 @@ class PasswordResetController extends AbstractController
             return $this->redirect($backUrl);
         }
 
-        if (!$this->passwordResetService->resetPassword($id, $token, $newPassword)) {
+        $keepPasskeyIds = $this->keptIds($request, 'passkeys');
+        $keepDeviceIds = $this->keptIds($request, 'devices');
+        $before = $this->passwordResetService->liveAccessesForToken($id, $token);
+
+        if (!$this->passwordResetService->resetPassword($id, $token, $newPassword, $keepPasskeyIds, $keepDeviceIds)) {
             FlashMessage::set(
                 'error',
                 'Ce lien de réinitialisation n\'est plus valide. Veuillez en demander un nouveau.'
@@ -167,7 +183,63 @@ class PasswordResetController extends AbstractController
         }
 
         AuthSession::logout();
-        FlashMessage::set('success', 'Votre mot de passe a été réinitialisé. Vous pouvez maintenant vous connecter.');
+        FlashMessage::set('success', $this->successMessage($before, $keepPasskeyIds, $keepDeviceIds));
         return $this->redirect('/login');
+    }
+
+    /**
+     * What the holder chose to keep: the identifiers the form listed
+     * (`listed_<kind>[]`) whose « révoquer » box came back unticked
+     * (`revoke_<kind>[]`). Named this way round so that a form arriving
+     * without its list — no JavaScript, a tampered request — keeps nothing
+     * (Core\Security\AccountAccessRevoker).
+     *
+     * @return list<int>
+     */
+    private function keptIds(Request $request, string $kind): array
+    {
+        $listed = $this->intList($request->getBody('listed_' . $kind, []));
+        $revoked = $this->intList($request->getBody('revoke_' . $kind, []));
+
+        return array_values(array_diff($listed, $revoked));
+    }
+
+    /**
+     * @return list<int>
+     */
+    private function intList(mixed $value): array
+    {
+        if (!is_array($value)) {
+            return [];
+        }
+
+        $ids = [];
+        foreach ($value as $item) {
+            if (is_string($item) && ctype_digit($item) && (int) $item > 0) {
+                $ids[] = (int) $item;
+            }
+        }
+
+        return array_values(array_unique($ids));
+    }
+
+    /**
+     * @param LiveAccesses|null $before
+     * @param list<int> $keepPasskeyIds
+     * @param list<int> $keepDeviceIds
+     */
+    private function successMessage(?array $before, array $keepPasskeyIds, array $keepDeviceIds): string
+    {
+        $message = 'Votre mot de passe a été réinitialisé. Vous pouvez maintenant vous connecter.';
+
+        $revokedPasskeys = array_diff(array_column($before['passkeys'] ?? [], 'id'), $keepPasskeyIds);
+        $revokedDevices = array_diff(array_column($before['devices'] ?? [], 'id'), $keepDeviceIds);
+
+        if ($revokedPasskeys !== [] || $revokedDevices !== []) {
+            $message .= ' Pour votre sécurité, les clés numériques et appareils synchronisés que vous n\'avez pas'
+                . ' gardés ont été déconnectés ; vous pouvez les réenregistrer depuis « Mon compte ».';
+        }
+
+        return $message;
     }
 }

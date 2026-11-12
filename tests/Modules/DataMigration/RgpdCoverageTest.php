@@ -32,6 +32,8 @@ final class RgpdCoverageTest extends TestCase
         $this->assertStringContainsString('au plus tard <strong>24 heures</strong>', $page);
         $this->assertStringContainsString('<li><strong>Fichiers déposés pour la migration de données</strong>', $page);
         $this->assertStringContainsString('<strong>jamais le nom d\'une personne</strong>', $page);
+        // The gallery import reads each album's page on its host (lot F).
+        $this->assertStringContainsString('<p><strong>Galeries photo</strong> : pour chaque album importé', $page);
     }
 
     /**

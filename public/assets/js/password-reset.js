@@ -43,6 +43,87 @@
         el.classList.remove('d-none');
     }
 
+    /**
+     * The account's passkeys and synchronised devices, each ticked for
+     * revocation (issue #1115). Every row carries a hidden `listed_<kind>[]`
+     * beside its `revoke_<kind>[]` box: the server keeps only what was
+     * listed AND came back unticked, so whatever this function fails to
+     * draw is revoked, never kept.
+     *
+     * @param {{passkeys?: Array<{id: number, label: string}>, devices?: Array<{id: number, label: string}>}} data
+     */
+    function listAccesses(data) {
+        var fieldset = document.getElementById('reset-accesses');
+        var list = document.getElementById('reset-access-list');
+        var all = /** @type {HTMLInputElement|null} */ (document.getElementById('reset-revoke-all'));
+        if (!fieldset || !list || !all) {
+            return;
+        }
+        var master = all;
+
+        /** @type {HTMLInputElement[]} */
+        var boxes = [];
+        /**
+         * @param {Array<{id: number, label: string}>|undefined} items
+         * @param {string} kind
+         * @param {string} prefix
+         */
+        function addRows(items, kind, prefix) {
+            (Array.isArray(items) ? items : []).forEach(function (item) {
+                var id = String(item.id);
+                var li = document.createElement('li');
+                li.className = 'form-check';
+
+                var listed = document.createElement('input');
+                listed.type = 'hidden';
+                listed.name = 'listed_' + kind + '[]';
+                listed.value = id;
+
+                var box = document.createElement('input');
+                box.type = 'checkbox';
+                box.className = 'form-check-input';
+                box.name = 'revoke_' + kind + '[]';
+                box.value = id;
+                box.id = 'reset-revoke-' + kind + '-' + id;
+                box.checked = true;
+
+                var label = document.createElement('label');
+                label.className = 'form-check-label';
+                label.htmlFor = box.id;
+                // textContent: a label is whatever its owner typed.
+                label.textContent = prefix + (item.label || 'sans nom');
+
+                li.append(listed, box, label);
+                list.appendChild(li);
+                boxes.push(box);
+            });
+        }
+
+        list.replaceChildren();
+        addRows(data.passkeys, 'passkeys', 'Clé numérique : ');
+        addRows(data.devices, 'devices', 'Appareil synchronisé : ');
+
+        // Nothing to revoke: the fieldset stays hidden, as rendered.
+        if (boxes.length === 0) {
+            return;
+        }
+
+        function syncMaster() {
+            var ticked = boxes.filter(function (b) { return b.checked; }).length;
+            master.checked = ticked === boxes.length;
+            master.indeterminate = ticked > 0 && ticked < boxes.length;
+        }
+
+        master.checked = true;
+        master.indeterminate = false;
+        master.onchange = function () {
+            boxes.forEach(function (b) { b.checked = master.checked; });
+            master.indeterminate = false;
+        };
+        boxes.forEach(function (b) { b.addEventListener('change', syncMaster); });
+        fieldset.classList.remove('d-none');
+    }
+
     // The fragment never left the browser — read it, then strip it from
     // the address bar so it doesn't linger in history or get shared by
     // accident (someone sending « look at this page » sends the token).
@@ -78,6 +159,7 @@
                 return;
             }
             tokenField.value = token;
+            listAccesses(data);
             show(panel);
         })
         .catch(function () {
