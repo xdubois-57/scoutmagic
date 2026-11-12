@@ -12,6 +12,7 @@ use PHPUnit\Framework\TestCase;
  * initials rule and the shape of what it renders, without a Twig
  * environment or a database.
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class PersonAvatarTest extends TestCase
 {
     public function testAFirstNameAndASurnameGiveOneLetterEach(): void
@@ -64,6 +65,27 @@ class PersonAvatarTest extends TestCase
         $this->assertStringContainsString('src="/files/77/thumb"', $html);
         $this->assertStringContainsString('alt="Marie Dupont"', $html);
         $this->assertStringContainsString('rounded-circle', $html);
+    }
+
+    /**
+     * Issue #1109: the thumbnail is addressed by the file's opaque id.
+     */
+    public function testThePhotoIsAddressedByItsOpaqueId(): void
+    {
+        $pdo = \Tests\DatabaseTestHelper::createTestDatabase();
+        $files = new \Core\File\FileRepository($pdo);
+        \Core\File\FilePublicIds::useRepository($files);
+        try {
+            $id = $files->create('me.jpg', 'me.jpg', 'image/jpeg', 1, 'identified', null, null);
+            $public = (string) $files->findById($id)?->publicId;
+
+            $html = PersonAvatar::render('Marie Dupont', $id, 32);
+
+            $this->assertStringContainsString('src="/files/' . $public . '/thumb"', $html);
+            $this->assertStringNotContainsString('/files/' . $id . '/', $html);
+        } finally {
+            \Core\File\FilePublicIds::useRepository(null);
+        }
     }
 
     /**

@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Core\View;
 
+use Core\File\FilePublicIds;
 use Core\Maintenance\VersionFile;
 use Twig\Environment;
 use Twig\Loader\FilesystemLoader;
@@ -113,7 +114,7 @@ class TwigFactory
         ): string {
             // The opaque address (Core\File\FilePublicIds, issue #1109):
             // callers keep passing the numeric id they have.
-            return \Core\File\FilePublicIds::urlFor($id, $variant);
+            return FilePublicIds::urlFor($id, $variant);
         }));
 
         // Register editable() function — renders editable content.
@@ -179,11 +180,15 @@ class TwigFactory
             $configMode = $environment->getGlobals()['config_mode'] ?? false;
 
             $fileId = $service !== null ? $service->get($key) : null;
-            $hasImage = $fileId !== null && $fileId !== '';
+            // The stored value is a bare id with no foreign key: it can
+            // outlive its file (#1109). No address means no image — the
+            // placeholder, never an `<img src="">` pointing at this page.
+            $url = $fileId !== null && $fileId !== '' ? FilePublicIds::urlFor((int) $fileId, 'md') : '';
+            $hasImage = $url !== '';
 
             if ($configMode) {
                 $img = $hasImage
-                    ? '<img src="/files/' . (int) $fileId . '/md" alt="' . htmlspecialchars(
+                    ? '<img src="' . $url . '" alt="' . htmlspecialchars(
                         $alt,
                         ENT_QUOTES
                     ) . '" class="' . htmlspecialchars($cssClass, ENT_QUOTES) . '">'
@@ -208,7 +213,7 @@ class TwigFactory
                 // page's hero — usually the largest paint on the page —
                 // and lazy-loading the LCP image delays it for no saving
                 // (there is one editable image per page, not dozens).
-                return '<img src="/files/' . (int) $fileId . '/md" alt="' . htmlspecialchars(
+                return '<img src="' . $url . '" alt="' . htmlspecialchars(
                     $alt,
                     ENT_QUOTES
                 ) . '" class="' . htmlspecialchars($cssClass, ENT_QUOTES) . '" decoding="async">';
@@ -248,7 +253,7 @@ class TwigFactory
                 // loading="lazy": the trombinoscope and rosters render one
                 // of these per member, each /files/… request a full
                 // application boot — only the visible ones should fire.
-                $img = '<img src="/files/' . $fileId . '/thumb" alt="' . htmlspecialchars(
+                $img = '<img src="' . FilePublicIds::urlFor((int) $fileId, 'thumb') . '" alt="' . htmlspecialchars(
                     $alt,
                     ENT_QUOTES
                 ) . '" class="' . htmlspecialchars($cssClass, ENT_QUOTES) . '" loading="lazy" decoding="async">';
@@ -366,7 +371,7 @@ class TwigFactory
             if ($configMode && $scoutYearId > 0) {
                 $key = $sectionId . ':' . $scoutYearId;
                 if ($fileId !== null) {
-                    $img = '<img src="/files/' . $fileId . '/md" alt="' . htmlspecialchars(
+                    $img = '<img src="' . FilePublicIds::urlFor((int) $fileId, 'md') . '" alt="' . htmlspecialchars(
                         $alt,
                         ENT_QUOTES
                     ) . '" class="' . htmlspecialchars($cssClass, ENT_QUOTES) . '" style="' . $imgStyle . '">';
@@ -392,7 +397,7 @@ class TwigFactory
             if ($fileId !== null) {
                 // loading="lazy" is safe against layout shift here: the
                 // aspect-ratio style reserves the box before the bytes land.
-                return '<img src="/files/' . $fileId . '/md" alt="' . htmlspecialchars(
+                return '<img src="' . FilePublicIds::urlFor((int) $fileId, 'md') . '" alt="' . htmlspecialchars(
                     $alt,
                     ENT_QUOTES
                 ) . '" class="' . htmlspecialchars(

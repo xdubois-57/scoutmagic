@@ -356,4 +356,37 @@ class TwigFactoryTest extends TestCase
 
         $this->assertSame('', $html);
     }
+
+    /**
+     * Issue #1109: an editable image's stored value is a bare id with no
+     * foreign key, so it can outlive its file. With no address to give,
+     * the placeholder and « Ajouter » are rendered in config mode, and
+     * nothing outside it — never an `<img src="">` pointing at the page.
+     */
+    public function testEditableImageWhoseFileIsGoneFallsBackToThePlaceholder(): void
+    {
+        $twig = TwigFactory::create(dirname(__DIR__, 3) . '/core/View/templates');
+        $service = $this->createStub(EditableContentService::class);
+        $service->method('get')->willReturn('987654');
+        $twig->addGlobal('_editable_content_service', $service);
+        $files = $this->createStub(\Core\File\FileRepository::class);
+        $files->method('publicIdsFor')->willReturn([]);
+        $files->method('mintPublicIdsFor')->willReturn([]);
+        \Core\File\FilePublicIds::useRepository($files);
+        try {
+            $twig->addGlobal('config_mode', true);
+            $configHtml = ($this->editableImageFunction($twig))('home.hero');
+            $twig = TwigFactory::create(dirname(__DIR__, 3) . '/core/View/templates');
+            $twig->addGlobal('_editable_content_service', $service);
+            $twig->addGlobal('config_mode', false);
+            $publicHtml = ($this->editableImageFunction($twig))('home.hero');
+        } finally {
+            \Core\File\FilePublicIds::useRepository(null);
+        }
+
+        $this->assertStringNotContainsString('<img', $configHtml);
+        $this->assertStringContainsString('Cliquer pour ajouter une image', $configHtml);
+        $this->assertStringContainsString('Ajouter', $configHtml);
+        $this->assertSame('', $publicHtml);
+    }
 }

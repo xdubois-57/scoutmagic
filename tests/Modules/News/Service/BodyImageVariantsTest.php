@@ -15,25 +15,29 @@ use PHPUnit\Framework\TestCase;
  * The images of an article's text, pointed at their `md` rendition (#883):
  * only originals, only where the rendition exists, nothing else touched.
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 final class BodyImageVariantsTest extends TestCase
 {
     public function testAnOriginalWithAMediumRenditionIsPointedAtIt(): void
     {
-        $html = '<p>Avant<img src="/files/12" alt="Feu de camp" width="400">après</p>';
+        [$id, $public] = $this->file('a.jpg');
+        $html = '<p>Avant<img src="/files/' . $public . '" alt="Feu de camp" width="400">après</p>';
 
         $this->assertSame(
-            '<p>Avant<img src="/files/12/md" alt="Feu de camp" width="400">après</p>',
-            BodyImageVariants::rewrite($html, static fn (int $id): bool => $id === 12)
+            '<p>Avant<img src="/files/' . $public . '/md" alt="Feu de camp" width="400">après</p>',
+            BodyImageVariants::rewrite($html, static fn (int $fileId): bool => $fileId === $id)
         );
     }
 
     public function testAnOriginalWithoutOneIsLeftAlone(): void
     {
-        $html = '<img src="/files/12"><img src="/files/13">';
+        [$id, $public] = $this->file('a.jpg');
+        [, $other] = $this->file('b.jpg');
+        $html = '<img src="/files/' . $public . '"><img src="/files/' . $other . '">';
 
         $this->assertSame(
-            '<img src="/files/12/md"><img src="/files/13">',
-            BodyImageVariants::rewrite($html, static fn (int $id): bool => $id === 12)
+            '<img src="/files/' . $public . '/md"><img src="/files/' . $other . '">',
+            BodyImageVariants::rewrite($html, static fn (int $fileId): bool => $fileId === $id)
         );
     }
 
@@ -57,5 +61,47 @@ final class BodyImageVariantsTest extends TestCase
         $html = '<img alt="x" src="/files/12/md">';
 
         $this->assertSame($html, BodyImageVariants::rewrite($html, static fn (): bool => true));
+    }
+
+    /**
+     * Issue #1109: an image is named by its opaque id; one that names no
+     * file is left alone without asking, and a sequential address — which
+     * names nothing any more — is not an original either.
+     */
+    public function testAnUnknownOrSequentialAddressIsLeftAlone(): void
+    {
+        $asked = [];
+        $hasMedium = static function (int $fileId) use (&$asked): bool {
+            $asked[] = $fileId;
+
+            return true;
+        };
+        $html = '<img src="/files/' . str_repeat('Q', 22) . '"><img src="/files/12">';
+
+        $this->assertSame($html, BodyImageVariants::rewrite($html, $hasMedium));
+        $this->assertSame([], $asked);
+    }
+
+    protected function setUp(): void
+    {
+        $this->files = new \Core\File\FileRepository(\Tests\DatabaseTestHelper::createTestDatabase());
+        \Core\File\FilePublicIds::useRepository($this->files);
+    }
+
+    protected function tearDown(): void
+    {
+        \Core\File\FilePublicIds::useRepository(null);
+    }
+
+    private \Core\File\FileRepository $files;
+
+    /**
+     * @return array{0: int, 1: string}
+     */
+    private function file(string $path): array
+    {
+        $id = $this->files->create($path, $path, 'image/jpeg', 1, 'public', null, null);
+
+        return [$id, (string) $this->files->findById($id)?->publicId];
     }
 }

@@ -1460,7 +1460,7 @@ class MaintenanceController extends AbstractController
         return $this->json([
             'status' => $backup->status,
             'error_message' => $backup->errorMessage,
-            'download_url' => $backup->fileId !== null ? '/files/' . $backup->fileId : null,
+            'download_url' => $backup->fileId !== null ? \Core\File\FilePublicIds::urlFor($backup->fileId) : null,
         ]);
     }
 

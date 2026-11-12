@@ -170,7 +170,7 @@
                 </a>
                 {% if ticket.archive_file_id %}
                     {% include 'partials/file_link.html.twig' with {
-                        href: '/files/' ~ ticket.archive_file_id,
+                        href: file_url(ticket.archive_file_id),
                         label: "L'archive transmise seule",
                         classes: 'btn btn-outline-secondary',
                     } only %}
@@ -178,7 +178,7 @@
             </div>
         {% elseif ticket.archive_file_id %}
             {% include 'partials/file_link.html.twig' with {
-                href: '/files/' ~ ticket.archive_file_id,
+                href: file_url(ticket.archive_file_id),
                 label: "Télécharger l'archive",
                 classes: 'btn btn-outline-primary',
             } only %}

@@ -24,7 +24,12 @@ namespace Core\File;
  *   from `files.id`, never written to the journal.
  * - **Where it comes from**: `FileRepository::create()` mints it with the
  *   row; rows that predate the column get one from a scheduled task
- *   (`Core\File\Task\BackfillFilePublicIdsHandler`), a slice per cron pass.
+ *   (`Core\File\Task\BackfillFilePublicIdsHandler`), a slice per cron pass,
+ *   or sooner from the first page that names them (`prime()`), so an
+ *   existing file always has an address.
+ * - **The sequential address is gone**: `/files/123` names nothing, and
+ *   nothing stored was rewritten — the site was still in its test phase
+ *   when this changed, so no existing content had to survive it.
  * - **How addresses are built**: `urlFor()`, which `file_url()` in Twig
  *   calls. It still takes the numeric id every caller already has, and
  *   resolves it through the repository it was given, once per id per
@@ -91,14 +96,20 @@ final class FilePublicIds
         }
 
         $found = self::$repository->publicIdsFor(array_values($missing));
+        $without = array_values(array_diff_key($missing, $found));
+        if ($without !== []) {
+            // Files that predate the column and the backfill has not
+            // reached yet: minted now, so an existing file always has an
+            // address and an empty one means there is no such file.
+            $found += self::$repository->mintPublicIdsFor($without);
+        }
         foreach ($missing as $id) {
             self::$resolved[$id] = $found[$id] ?? null;
         }
     }
 
     /**
-     * The public id of file $fileId, or null when there is no such file or
-     * it has none yet.
+     * The public id of file $fileId, or null when there is no such file.
      */
     public static function forFileId(int $fileId): ?string
     {
@@ -112,12 +123,38 @@ final class FilePublicIds
     }
 
     /**
+     * The numeric id of the file served under $publicId, or null for none
+     * or a malformed value — for code that reads stored addresses back
+     * (an article's body images). Remembered for the request, both ways.
+     */
+    public static function fileIdOf(string $publicId): ?int
+    {
+        if (self::$repository === null || !self::isWellFormed($publicId)) {
+            return null;
+        }
+
+        $known = array_search($publicId, self::$resolved, true);
+        if (is_int($known)) {
+            return $known;
+        }
+
+        $id = self::$repository->findByPublicId($publicId)?->id;
+        if ($id !== null) {
+            self::$resolved[$id] = $publicId;
+        }
+
+        return $id;
+    }
+
+    /**
      * The address of file $fileId: `/files/{public_id}`, plus `/{variant}`
-     * when given. Empty for no file.
+     * when given. Empty only when there is no such file: one that predates
+     * the column is given its public id on the way (`prime()`).
      *
-     * Falls back to the numeric address while a file has no public id yet
-     * (before the backfill has reached it, or with no repository wired):
-     * the numeric route still answers during the transition.
+     * With no repository wired at all (a unit test rendering a template),
+     * the numeric address is printed so a test can still read which file
+     * a page names; production always wires one (`public/index.php`), and
+     * the route answers that address 404.
      */
     public static function urlFor(int|string|null $fileId, ?string $variant = null): string
     {
@@ -128,6 +165,27 @@ final class FilePublicIds
 
         $suffix = $variant !== null ? '/' . $variant : '';
 
-        return '/files/' . (self::forFileId($id) ?? (string) $id) . $suffix;
+        if (self::$repository === null) {
+            return '/files/' . $id . $suffix;
+        }
+
+        $publicId = self::forFileId($id);
+
+        return $publicId === null ? '' : self::addressOf($publicId, $variant);
+    }
+
+    /**
+     * The address of the file served under $publicId — for code that
+     * already holds the public id (a seeder reading the row it just
+     * created) and must not build the address by hand. Empty for a value
+     * that cannot be a public id.
+     */
+    public static function addressOf(string $publicId, ?string $variant = null): string
+    {
+        if (!self::isWellFormed($publicId)) {
+            return '';
+        }
+
+        return '/files/' . $publicId . ($variant !== null ? '/' . $variant : '');
     }
 }

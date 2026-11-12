@@ -104,14 +104,35 @@ class FilePublicIdsTest extends TestCase
     }
 
     /**
-     * Transition only: a file not yet reached by the backfill keeps its
-     * numeric address, which the route still answers.
+     * A file that predates the column is given its public id by the first
+     * page that names it, rather than an empty address — the sequential
+     * one is gone, and a page must never link to nowhere.
      */
-    public function testAFileWithoutAPublicIdYetKeepsItsNumericAddress(): void
+    public function testAFileWithoutAPublicIdIsGivenOneByThePageThatNamesIt(): void
     {
         $id = $this->insertLegacyFile('legacy.jpg');
 
-        $this->assertSame('/files/' . $id . '/thumb', FilePublicIds::urlFor($id, 'thumb'));
+        $url = FilePublicIds::urlFor($id, 'thumb');
+
+        $stored = $this->repository->findById($id)?->publicId;
+        $this->assertNotNull($stored);
+        $this->assertSame('/files/' . $stored . '/thumb', $url);
+    }
+
+    public function testMintingSkipsFilesThatHaveOneAndFilesThatDoNotExist(): void
+    {
+        $kept = $this->repository->create('k.jpg', 'k.jpg', 'image/jpeg', 1, 'public', null, null);
+        $before = $this->repository->findById($kept)?->publicId;
+        $legacy = $this->insertLegacyFile('l.jpg');
+
+        $found = $this->repository->mintPublicIdsFor([$kept, $legacy, 9999, 0]);
+
+        $keys = array_keys($found);
+        sort($keys);
+        $this->assertSame([$kept, $legacy], $keys);
+        $this->assertSame($before, $found[$kept]);
+        $this->assertTrue(FilePublicIds::isWellFormed($found[$legacy]));
+        $this->assertSame([], $this->repository->mintPublicIdsFor([]));
     }
 
     public function testPrimeResolvesAPageInOneQueryAndRemembersMisses(): void
@@ -128,7 +149,17 @@ class FilePublicIdsTest extends TestCase
         foreach ($ids as $id) {
             $this->assertMatchesRegularExpression('#^/files/[A-Za-z0-9_-]{22}$#', FilePublicIds::urlFor($id));
         }
-        $this->assertSame('/files/9999', FilePublicIds::urlFor(9999));
+        $this->assertSame('', FilePublicIds::urlFor(9999));
+    }
+
+    public function testAddressOfBuildsFromAPublicIdAndRefusesAnythingElse(): void
+    {
+        $public = FilePublicIds::generate();
+
+        $this->assertSame('/files/' . $public, FilePublicIds::addressOf($public));
+        $this->assertSame('/files/' . $public . '/md', FilePublicIds::addressOf($public, 'md'));
+        $this->assertSame('', FilePublicIds::addressOf('123'));
+        $this->assertSame('', FilePublicIds::addressOf('"><script>'));
     }
 
     public function testWithoutARepositoryAddressesStayNumeric(): void

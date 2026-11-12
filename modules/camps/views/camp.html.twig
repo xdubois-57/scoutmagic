@@ -283,7 +283,7 @@
                     <div class="col">
                         <div class="card h-100 overflow-hidden">
                             {% if link.imageFileId %}
-                                <img src="/files/{{ link.imageFileId }}" alt="" class="card-img-top"
+                                <img src="{{ file_url(link.imageFileId) }}" alt="" class="card-img-top"
                                      style="max-height: 8rem; object-fit: cover;">
                             {% endif %}
                             <div class="card-body">

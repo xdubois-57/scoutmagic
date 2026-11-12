@@ -2240,14 +2240,20 @@ class NewsIntegrationTest extends TestCase
         [$controller, $fileRepository, $variantService] = $this->controllerWithImageVariants();
 
         $_FILES['image'] = $this->fakeUploadedImage();
-        $response = $controller->uploadBodyImage(new Request('POST', '/news/images/upload', [], [
-            '_csrf_token' => CsrfGuard::generateToken(),
-        ], [], []), []);
+        // Issue #1109: the address handed to the editor is the opaque one.
+        \Core\File\FilePublicIds::useRepository($fileRepository);
+        try {
+            $response = $controller->uploadBodyImage(new Request('POST', '/news/images/upload', [], [
+                '_csrf_token' => CsrfGuard::generateToken(),
+            ], [], []), []);
+        } finally {
+            \Core\File\FilePublicIds::useRepository(null);
+        }
 
         $payload = json_decode($response->getBody(), true);
         $this->assertTrue($payload['success']);
-        $this->assertMatchesRegularExpression('~^/files/(\d+)/md$~', $payload['url']);
-        $file = $fileRepository->findById((int) explode('/', $payload['url'])[2]);
+        $this->assertMatchesRegularExpression('~^/files/[A-Za-z0-9_-]{22}/md$~', $payload['url']);
+        $file = $fileRepository->findByPublicId(explode('/', $payload['url'])[2]);
         $this->assertNotNull($file);
         $this->assertNotNull($variantService->resolvePath($file->relativePath, 'thumb'));
         $this->assertNotNull($variantService->resolvePath($file->relativePath, 'md'));
@@ -2267,6 +2273,10 @@ class NewsIntegrationTest extends TestCase
         $variantService->generate($withMedium, 'md');
         $withoutMedium = $uploadHandler->handle($this->fakeUploadedImage(), 'news/images', ['image/jpeg'], 1_000_000, 'public', 'news', $this->chiefAccountId);
 
+        $withMediumPublic = (string) $fileRepository->findById($withMedium)?->publicId;
+        $withoutMediumPublic = (string) $fileRepository->findById($withoutMedium)?->publicId;
+        \Core\File\FilePublicIds::useRepository($fileRepository);
+
         $_FILES['image'] = $this->fakeUploadedImage();
         $controller->store(new Request('POST', '/news', [], [
             '_csrf_token' => CsrfGuard::generateToken(),
@@ -2280,16 +2290,24 @@ class NewsIntegrationTest extends TestCase
             'fields_json' => json_encode([[
                 'id' => null, 'field_type' => 'text', 'label' => null, 'is_required' => false,
                 'options_source' => null, 'options_manual' => null, 'capacity_max' => null, 'price_per_unit' => null,
-                'confirmation_text' => '<p><img src="/files/' . $withMedium . '" alt="Feu"><img src="/files/' . $withoutMedium . '" alt="Tente"></p>',
+                'confirmation_text' => '<p><img src="/files/' . $withMediumPublic . '" alt="Feu">'
+                    . '<img src="/files/' . $withoutMediumPublic . '" alt="Tente"></p>',
             ]]),
         ], [], []), []);
         $articleId = $this->articleRepository->findAll()[0]->id;
 
-        $html = $controller->show(new Request('GET', '/news/' . $articleId, [], [], [], []), ['id' => (string) $articleId])->getBody();
+        try {
+            $html = $controller->show(
+                new Request('GET', '/news/' . $articleId, [], [], [], []),
+                ['id' => (string) $articleId]
+            )->getBody();
+        } finally {
+            \Core\File\FilePublicIds::useRepository(null);
+        }
 
-        $this->assertStringContainsString('src="/files/' . $withMedium . '/md"', $html);
-        $this->assertStringContainsString('src="/files/' . $withoutMedium . '"', $html);
-        $this->assertStringNotContainsString('src="/files/' . $withMedium . '"', $html);
+        $this->assertStringContainsString('src="/files/' . $withMediumPublic . '/md"', $html);
+        $this->assertStringContainsString('src="/files/' . $withoutMediumPublic . '"', $html);
+        $this->assertStringNotContainsString('src="/files/' . $withMediumPublic . '"', $html);
     }
 
     /**

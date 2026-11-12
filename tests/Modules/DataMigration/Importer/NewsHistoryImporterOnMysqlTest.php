@@ -84,6 +84,9 @@ final class NewsHistoryImporterOnMysqlTest extends TestCase
 
         $journal = new JournalService(new JournalRepository($this->pdo));
         $files = new FileRepository($this->pdo);
+        // Issue #1109: body images are addressed by their opaque id, as in
+        // production.
+        \Core\File\FilePublicIds::useRepository($files);
         $this->articles = new ArticleRepository($this->pdo);
         $mappings = new ItemMappingRepository($this->pdo);
         $this->importer = new NewsHistoryImporter(
@@ -115,6 +118,7 @@ final class NewsHistoryImporterOnMysqlTest extends TestCase
 
     protected function tearDown(): void
     {
+        \Core\File\FilePublicIds::useRepository(null);
         foreach ($this->zips as $zip) {
             @unlink($zip);
         }
@@ -194,7 +198,7 @@ final class NewsHistoryImporterOnMysqlTest extends TestCase
         $types = $this->pdo->query('SELECT field_type FROM news_form_fields WHERE form_id = ' . (int) $form['id'] . ' ORDER BY sort_order')->fetchAll(\PDO::FETCH_COLUMN);
         $this->assertSame(['text', 'text', 'number', 'number', 'radio', 'long_text'], $types);
         $body = (string) $this->pdo->query('SELECT confirmation_text FROM news_form_fields WHERE form_id = ' . (int) $form['id'] . ' AND sort_order = 0')->fetchColumn();
-        $this->assertMatchesRegularExpression('~<img[^>]*src="/files/\d+"~', $body);
+        $this->assertMatchesRegularExpression('~<img[^>]*src="/files/[A-Za-z0-9_-]{22}"~', $body);
         $this->assertStringNotContainsString('media/', $body);
 
         $this->assertSame(0, $this->rows('news_form_responses'));

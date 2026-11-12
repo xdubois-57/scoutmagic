@@ -36,6 +36,22 @@
     const escapeHtml = api.escapeHtml;
 
     /**
+     * A file address the server handed this script, checked where it is
+     * written into the page (issue #1109): only `/files/{opaque id}` and
+     * its renditions pass, so no other scheme or host can ever reach an
+     * href or a src. Empty for anything else — the file then shows as
+     * unavailable rather than as a link to nowhere.
+     *
+     * @param {unknown} url
+     * @returns {string}
+     */
+    function fileUrl(url) {
+        return typeof url === 'string' && /^\/files\/[A-Za-z0-9_-]{22}(?:\/(?:thumbnail|thumb|md))?$/.test(url)
+            ? url
+            : '';
+    }
+
+    /**
      * @param {string} id
      * @returns {HTMLElement}
      */
@@ -225,15 +241,21 @@
     const attachmentsModal = window.bootstrap ? new window.bootstrap.Modal(attachmentsModalEl) : null;
 
     /**
-     * @param {{mime_type: string, file_id: number}} a
+     * @param {{mime_type: string, file_url: string, thumbnail_url: string}} a
      * @returns {string}
      */
     function attachmentThumbnailHtml(a) {
+        const src = a.mime_type === 'application/pdf' ? fileUrl(a.thumbnail_url) : fileUrl(a.file_url);
+        if (src === '') {
+            return '<div class="d-flex align-items-center justify-content-center bg-body-secondary rounded" style="width:64px;height:64px;">'
+                + '<i class="bi bi-file-earmark-x fs-4" aria-hidden="true"></i>'
+                + '<span class="visually-hidden">Fichier indisponible</span></div>';
+        }
         if (a.mime_type.startsWith('image/')) {
-            return '<img src="/files/' + a.file_id + '" alt="" class="rounded pdf-thumbnail" style="width:64px;height:64px;object-fit:cover;">';
+            return '<img src="' + escapeHtml(src) + '" alt="" class="rounded pdf-thumbnail" style="width:64px;height:64px;object-fit:cover;">';
         }
         if (a.mime_type === 'application/pdf') {
-            return '<img src="/files/' + a.file_id + '/thumbnail" alt="" class="rounded pdf-thumbnail" style="width:64px;height:64px;object-fit:cover;">';
+            return '<img src="' + escapeHtml(src) + '" alt="" class="rounded pdf-thumbnail" style="width:64px;height:64px;object-fit:cover;">';
         }
         return '<div class="d-flex align-items-center justify-content-center bg-body-secondary rounded" style="width:64px;height:64px;"><i class="bi bi-file-earmark fs-4"></i></div>';
     }
@@ -253,7 +275,10 @@
         data.attachments.forEach(a => {
             const row = document.createElement('div');
             row.className = 'd-flex align-items-center gap-2 border rounded p-2';
-            let info = '<a href="/files/' + a.file_id + '" target="_blank" rel="noopener" class="fw-semibold">' + escapeHtml(a.original_filename) + '</a>';
+            let info = fileUrl(a.file_url) === ''
+                ? '<span class="fw-semibold">' + escapeHtml(a.original_filename) + '</span>'
+                : '<a href="' + escapeHtml(fileUrl(a.file_url)) + '" target="_blank" rel="noopener" class="fw-semibold">'
+                    + escapeHtml(a.original_filename) + '</a>';
             const suggested = [];
             if (a.suggested_amount) {
                 suggested.push(formatAmountEur(a.suggested_amount));

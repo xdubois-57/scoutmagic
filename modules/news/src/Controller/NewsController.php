@@ -307,7 +307,7 @@ class NewsController extends AbstractController
 
         return $this->json([
             'success' => true,
-            'url' => '/files/' . $fileId . ($this->hasMediumRendition($fileId) ? '/md' : ''),
+            'url' => \Core\File\FilePublicIds::urlFor($fileId, $this->hasMediumRendition($fileId) ? 'md' : null),
         ]);
     }
 
@@ -833,6 +833,9 @@ class NewsController extends AbstractController
      */
     private function socialMetaContext(Article $article): array
     {
+        $coverUrl = $article->imageFileId !== null
+            ? \Core\File\FilePublicIds::urlFor($article->imageFileId)
+            : '';
         $baseUrl = rtrim((string) ($this->settingService->get('base_url') ?: ''), '/');
 
         return [
@@ -844,7 +847,9 @@ class NewsController extends AbstractController
             'og_url' => $article->shortUrlCode !== null
                 ? $baseUrl . '/s/' . $article->shortUrlCode
                 : $baseUrl . '/news/' . $article->id,
-            'og_image_url' => $article->imageFileId !== null ? $baseUrl . '/files/' . $article->imageFileId : null,
+            // No opaque address yet (issue #1109): no image, rather than
+            // the site's own root offered as one.
+            'og_image_url' => $coverUrl !== '' ? $baseUrl . $coverUrl : null,
         ];
     }
 
