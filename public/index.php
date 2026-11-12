@@ -13219,6 +13219,10 @@ if ($isEnabled('data_migration')) {
         $memberRepo,
         new \Core\Security\HtmlSanitizer()
     ));
+    $dataMigrationImporters->add(new \Modules\DataMigration\Importer\MemberPhotosImporter(
+        $memberRepo,
+        new \Core\Photo\ImportedMemberPhotoWriter($photoIngestionService, new MemberPhotoRepository($pdo))
+    ));
 
     $dataMigrationRuns = new \Modules\DataMigration\Repository\RunRepository($pdo, $encryptionService);
     $dataMigrationStorage = new \Modules\DataMigration\Service\UploadStorage($storagePath);
