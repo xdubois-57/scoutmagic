@@ -580,6 +580,20 @@ class UserAccountRepository
     }
 
     /**
+     * End every session already issued for this account, and nothing
+     * else — « Déconnecter partout » on « Mon compte » (issue #1115). The
+     * same sessions_valid_from stamp updatePasswordHash() and deactivate()
+     * write, without changing the password or the account's state;
+     * SessionRevalidator drops each of those sessions on its next click.
+     */
+    public function revokeSessions(int $id): void
+    {
+        $now = (new \DateTimeImmutable())->format('Y-m-d H:i:s');
+        $stmt = $this->pdo->prepare('UPDATE user_accounts SET sessions_valid_from = ? WHERE id = ?');
+        $stmt->execute([$now, $id]);
+    }
+
+    /**
      * Give the access back. Deliberately does NOT touch
      * sessions_valid_from: the sessions that stamp revoked are gone for
      * good, and re-stamping it on the way back in would revoke sessions

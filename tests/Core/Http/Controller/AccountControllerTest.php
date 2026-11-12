@@ -905,6 +905,118 @@ class AccountControllerTest extends TestCase
         $this->assertTrue(json_decode($response->getBody(), true)['success']);
     }
 
+    /**
+     * « Déconnecter partout » (issue #1115): every passkey removed, every
+     * device revoked, every session — this one included — ended, and the
+     * holder sent to the login page.
+     */
+    public function testSignOutEverywhereTakesBackSessionsPasskeysAndDevices(): void
+    {
+        $devices = new \Core\Contact\Device\DeviceCredentialRepository($this->pdo);
+        $this->webAuthnRepo->create($this->userId, random_bytes(32), random_bytes(64), 'Clé');
+        $device = $devices->create($this->userId, 'Téléphone', 's')->id;
+        $before = $this->userRepo->findById($this->userId)?->sessionsValidFrom;
+
+        $response = $this->controllerWithRevoker($devices)->signOutEverywhere(
+            new Request(
+                'POST',
+                '/account/sign-out-everywhere',
+                [],
+                ['_csrf_token' => CsrfGuard::generateToken()],
+                [],
+                []
+            ),
+            []
+        );
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('/login', $response->getHeaders()['Location']);
+        $this->assertSame([], $this->webAuthnRepo->findByUserAccountId($this->userId));
+        $this->assertTrue($devices->findById($device)?->isRevoked());
+        $this->assertNull($before);
+        $this->assertNotNull($this->userRepo->findById($this->userId)?->sessionsValidFrom);
+        $this->assertFalse(AuthSession::isAuthenticated());
+        $this->assertContains('account_accesses_revoked', $this->journaledEvents());
+    }
+
+    public function testSignOutEverywhereRefusesAMissingCsrfTokenAndChangesNothing(): void
+    {
+        $devices = new \Core\Contact\Device\DeviceCredentialRepository($this->pdo);
+        $this->webAuthnRepo->create($this->userId, random_bytes(32), random_bytes(64), 'Clé');
+        CsrfGuard::generateToken();
+
+        $this->controllerWithRevoker($devices)->signOutEverywhere(
+            new Request('POST', '/account/sign-out-everywhere', [], ['_csrf_token' => 'wrong'], [], []),
+            []
+        );
+
+        $this->assertCount(1, $this->webAuthnRepo->findByUserAccountId($this->userId));
+        $this->assertNull($this->userRepo->findById($this->userId)?->sessionsValidFrom);
+        $this->assertTrue(AuthSession::isAuthenticated());
+    }
+
+    /**
+     * Not gated on a recent login: it only ever takes access away.
+     */
+    public function testSignOutEverywhereWorksWithAStaleLogin(): void
+    {
+        $this->makeLastLoginStale();
+        $this->webAuthnRepo->create($this->userId, random_bytes(32), random_bytes(64), 'Clé');
+
+        $this->controllerWithRevoker(new \Core\Contact\Device\DeviceCredentialRepository($this->pdo))
+            ->signOutEverywhere(
+                new Request('POST', '/x', [], ['_csrf_token' => CsrfGuard::generateToken()], [], []),
+                []
+            );
+
+        $this->assertSame([], $this->webAuthnRepo->findByUserAccountId($this->userId));
+    }
+
+    /**
+     * With no revoker wired, the sessions still end.
+     */
+    public function testSignOutEverywhereWithoutARevokerStillEndsTheSessions(): void
+    {
+        $this->controller->signOutEverywhere(
+            new Request('POST', '/x', [], ['_csrf_token' => CsrfGuard::generateToken()], [], []),
+            []
+        );
+
+        $this->assertNotNull($this->userRepo->findById($this->userId)?->sessionsValidFrom);
+        $this->assertFalse(AuthSession::isAuthenticated());
+    }
+
+    public function testSignOutEverywhereSendsAnAnonymousVisitorToTheLoginPage(): void
+    {
+        AuthSession::logout();
+
+        $response = $this->controller->signOutEverywhere(new Request('POST', '/x', [], [], [], []), []);
+
+        $this->assertSame('/login', $response->getHeaders()['Location']);
+    }
+
+    private function controllerWithRevoker(\Core\Contact\Device\DeviceCredentialRepository $devices): AccountController
+    {
+        $twig = $this->createStub(Environment::class);
+        $twig->method('render')->willReturn('<html></html>');
+
+        return new AccountController(
+            $twig,
+            $this->userRepo,
+            $this->webAuthnRepo,
+            new WebAuthnService($this->webAuthnRepo, $this->userRepo, 'localhost', 'Test Scout', 'https://localhost'),
+            null,
+            null,
+            null,
+            null,
+            new \Core\Security\AccountAccessRevoker(
+                $this->webAuthnRepo,
+                $devices,
+                new \Core\Journal\JournalService(new \Core\Journal\JournalRepository($this->pdo))
+            )
+        );
+    }
+
     private function makeLastLoginStale(): void
     {
         $_SESSION['_auth']['authenticated_at'] = time() - RecentAuthentication::WINDOW_SECONDS - 1;
