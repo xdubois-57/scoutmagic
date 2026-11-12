@@ -722,6 +722,29 @@ final class PortableArchive
     }
 
     /**
+     * Whether the archive carries anything under `storage/` at all —
+     * before any entry is vetted or left out.
+     *
+     * The question {@see restorableEntries()} cannot answer on its own: an
+     * empty list means either an archive with no site files, which is not
+     * one of ours, or one whose every storage file was a file a web server
+     * would run and was left out — a site whose `storage/` held nothing but
+     * the deny-all `.htaccess` it wrote itself. The first is refused; the
+     * second restores its database and keys and extracts nothing.
+     */
+    public function hasStorageMembers(): bool
+    {
+        for ($i = 0; $i < $this->zip->numFiles; $i++) {
+            $name = $this->zip->getNameIndex($i);
+            if ($name !== false && str_starts_with(str_replace('\\', '/', $name), self::RESTORED_TREE)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * Whether $name is spelled the one way the filesystem will read it:
      * slash-separated, with no empty, `.` or `..` segment and no control
      * character. A single trailing slash is allowed — that is a directory

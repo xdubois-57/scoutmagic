@@ -31,14 +31,26 @@ final class CompiledTemplateCacheTest extends TestCase
 
     protected function tearDown(): void
     {
+        $this->removeTree($this->base);
+    }
+
+    private function removeTree(string $dir): void
+    {
+        if (is_link($dir)) {
+            unlink($dir);
+            return;
+        }
+        if (!is_dir($dir)) {
+            return;
+        }
         $items = new \RecursiveIteratorIterator(
-            new \RecursiveDirectoryIterator($this->base, \FilesystemIterator::SKIP_DOTS),
+            new \RecursiveDirectoryIterator($dir, \FilesystemIterator::SKIP_DOTS),
             \RecursiveIteratorIterator::CHILD_FIRST
         );
         foreach ($items as $item) {
-            $item->isDir() ? rmdir((string) $item) : unlink((string) $item);
+            $item->isDir() && !$item->isLink() ? rmdir((string) $item) : unlink((string) $item);
         }
-        rmdir($this->base);
+        rmdir($dir);
     }
 
     public function testEveryCompiledTemplateIsRemoved(): void
@@ -53,6 +65,24 @@ final class CompiledTemplateCacheTest extends TestCase
         CompiledTemplateCache::clear($this->base . '/');
 
         $this->assertFileExists($this->base . '/storage/temp/autre.txt');
+    }
+
+    /**
+     * A link standing in for the cache directory is removed as a link, and
+     * what it points at is left alone (CodeRabbit on #1175): is_dir()
+     * follows it, and walking it would empty a directory outside the cache.
+     */
+    public function testALinkedCacheRootIsUnlinkedAndItsTargetKept(): void
+    {
+        $this->removeTree($this->base . '/storage/temp/twig_cache');
+        mkdir($this->base . '/elsewhere', 0755, true);
+        file_put_contents($this->base . '/elsewhere/sentinel.txt', 'keep me');
+        symlink($this->base . '/elsewhere', $this->base . '/storage/temp/twig_cache');
+
+        CompiledTemplateCache::clear($this->base);
+
+        $this->assertFalse(is_link($this->base . '/storage/temp/twig_cache'));
+        $this->assertFileExists($this->base . '/elsewhere/sentinel.txt');
     }
 
     public function testAnInstallationWithoutACacheIsLeftAsItIs(): void

@@ -26,6 +26,14 @@ final class CompiledTemplateCache
     public static function clear(string $basePath): void
     {
         $dir = rtrim($basePath, '/') . '/storage/temp/twig_cache';
+
+        // A link in place of the directory is removed as a link: is_dir()
+        // follows it, and walking it would empty whatever it points at —
+        // outside the cache, possibly outside the site.
+        if (is_link($dir)) {
+            unlink($dir);
+            return;
+        }
         if (!is_dir($dir)) {
             return;
         }

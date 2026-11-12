@@ -523,6 +523,54 @@ final class PortableArchiveRefusalTest extends TestCase
         }
     }
 
+    /**
+     * **An archive whose only site file was left out still restores**
+     * (CodeRabbit on #1175). A site whose `storage/` held nothing but the
+     * deny-all `.htaccess` it wrote itself produces exactly this archive: its
+     * plan is empty because of the filter, not because it carries nothing,
+     * so the database and the keys restore and nothing is extracted — while
+     * an archive with no site file at all is still not one of ours.
+     */
+    public function testAnArchiveWhoseOnlySiteFileWasLeftOutRestoresWithoutExtracting(): void
+    {
+        $base = $this->tempPath() . '_site';
+        mkdir($base . '/storage/temp/twig_cache/v', 0755, true);
+        file_put_contents($base . '/storage/temp/twig_cache/v/compiled.php', '<?php // compiled');
+        $archive = $this->open(['noData' => true, 'extraEntry' => 'storage/restore/incoming/.htaccess']);
+
+        try {
+            $this->assertSame([], $archive->restorableEntries());
+            $this->assertTrue($archive->hasStorageMembers());
+
+            (new \Core\Maintenance\Portable\PortableRestore($base, $base . '/storage'))->extractFiles($archive);
+
+            $this->assertFileDoesNotExist($base . '/storage/restore/incoming/.htaccess');
+            $this->assertDirectoryDoesNotExist($base . '/storage/temp/twig_cache');
+        } finally {
+            $archive->close();
+            \Core\View\CompiledTemplateCache::clear($base);
+            @rmdir($base . '/storage/temp');
+            @rmdir($base . '/storage');
+            @rmdir($base);
+        }
+    }
+
+    public function testAnArchiveWithNoSiteFileAtAllIsStillRefused(): void
+    {
+        $base = $this->tempPath() . '_site';
+        $archive = $this->open(['noData' => true]);
+
+        try {
+            $this->assertFalse($archive->hasStorageMembers());
+            (new \Core\Maintenance\Portable\PortableRestore($base, $base . '/storage'))->extractFiles($archive);
+            $this->fail('An archive carrying no site file was accepted.');
+        } catch (BackupException $e) {
+            $this->assertStringContainsString('aucun fichier à restaurer', $e->getMessage());
+        } finally {
+            $archive->close();
+        }
+    }
+
     /** A data file whose name merely contains the letters is still data. */
     public function testADataFileWhoseNameMerelyContainsPhpIsRestored(): void
     {
@@ -634,7 +682,9 @@ final class PortableArchiveRefusalTest extends TestCase
             // digest walk visits the dump too.
             $members['database.sql'] = ['sha256' => hash('sha256', $dump), 'bytes' => strlen($dump)];
         }
-        $this->addEncrypted($zip, 'storage/uploads/doc.pdf', 'des octets', $password);
+        if (($options['noData'] ?? false) !== true) {
+            $this->addEncrypted($zip, 'storage/uploads/doc.pdf', 'des octets', $password);
+        }
 
         if (is_string($options['extraEntry'] ?? null)) {
             $this->addEncrypted($zip, $options['extraEntry'], 'des octets', $password);
