@@ -9898,6 +9898,13 @@ if ($isEnabled('gallery')) {
             $galleryAlbumActions
         )
     );
+    // The data migration's « Galeries photo » import (Api\ExternalAlbumWriter):
+    // external albums created without the « Nouvel album » notification.
+    $galleryExternalAlbumWriterForOthers = new \Modules\Gallery\Service\ExternalAlbumImportService(
+        $galleryAlbumRepo,
+        new \Modules\Gallery\Service\OgImageStore($uploadHandler),
+        $settingService
+    );
     $galleryShareSourceForOthers = new \Modules\Gallery\Service\AlbumShareSourceService(
         $galleryAlbumService,
         $galleryMediaRepo,
@@ -13224,10 +13231,16 @@ if ($isEnabled('data_migration')) {
     );
     // One line per import (vague 2 of the chantier), kept alphabetical by key:
     // $dataMigrationImporters->add(new \Modules\DataMigration\Importer\…Importer(…));
+    $dataMigrationSections = new \Modules\DataMigration\Service\SectionByDeskCode($sectionService);
     $dataMigrationImporters->add(new \Modules\DataMigration\Importer\CampPlacesImporter($campsPlaceImportWriterForOthers ?? null));
     $dataMigrationImporters->add(new \Modules\DataMigration\Importer\MemberPhotosImporter(
         $memberRepo,
         new \Core\Photo\ImportedMemberPhotoWriter($photoIngestionService, new MemberPhotoRepository($pdo))
+    ));
+    $dataMigrationImporters->add(new \Modules\DataMigration\Importer\GalleryLinksImporter(
+        $galleryExternalAlbumWriterForOthers ?? null,
+        $dataMigrationSections,
+        $linkPreviewService
     ));
     $dataMigrationImporters->add(new \Modules\DataMigration\Importer\RegistrationRequestsImporter(
         $registrationRequestImportForOthers ?? null,
