@@ -2,13 +2,13 @@
 id: importer-des-actualites
 title: Reprendre les actualités de l'ancien site
 summary: Importer les anciennes actualités et leurs formulaires, en lecture seule et sans les réponses.
-category: Espace chefs d'U
-role_min: admin
+category: Configuration
+role_min: superadmin
 discovery: off
 question: Comment reprendre les actualités de notre ancien site ?
 question: Pourquoi les actualités importées ne peuvent-elles pas être modifiées ?
 question: Les réponses aux anciens formulaires sont-elles reprises ?
-paths: /admin/migration-donnees/actualites
+paths: /config/migration-donnees/actualites
 related: migration-de-donnees, publier-une-actualite
 ---
 
