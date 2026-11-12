@@ -918,6 +918,45 @@ class RegistrationRequestControllerTest extends TestCase
     }
 
     /**
+     * Chantier #1142, D2: a request imported with a decision its old site
+     * had told the family shows « Communiquée par l'ancien site », says no
+     * e-mail left this site, offers no button — and refuses a send posted
+     * anyway: nothing is owed, and the server, not the page, decides.
+     */
+    public function testADecisionCommunicatedByTheOldSiteShowsItsBadgeAndSendsNothing(): void
+    {
+        $id = $this->acceptedRequest();
+        $this->writeBodies();
+        (new DecisionEmailRepository($this->pdo))->insertCommunicatedElsewhere(
+            $id,
+            'accepted',
+            new \DateTimeImmutable('2026-11-03 10:00:00'),
+            new \DateTimeImmutable()
+        );
+
+        $block = $this->emailBlock($id);
+
+        $this->assertStringContainsString(
+            '<span class="badge text-bg-info">Communiquée par l&#039;ancien site</span>',
+            $block
+        );
+        $this->assertStringContainsString(
+            "Décision du 03/11/2026. Aucun courriel n'est parti de ScoutMagic. "
+                . 'La famille voit la décision sur sa page de suivi.',
+            $block
+        );
+        $this->assertStringNotContainsString('/e-mail/', $block);
+        $this->assertStringContainsString("<span class=\"fw-semibold\">Communiquée par l'ancien site</span>", $block);
+
+        foreach (['sendNow', 'retry', 'resend'] as $action) {
+            $this->emailAction($id, $action);
+            $this->assertSame('error', \Core\Http\FlashMessage::get()['type'] ?? null, $action);
+        }
+        $this->assertSame([], $this->sentMails);
+        $this->assertSame(['communicated_elsewhere'], $this->states($id));
+    }
+
+    /**
      * « Envoyer maintenant » sends the e-mail of the current decision once,
      * in copy to the unit, and says so; a second one posted afterwards —
      * a late double click, a form sent again — is refused, never turned

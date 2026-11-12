@@ -150,6 +150,12 @@ final class RequestExportService
         if ($sentAt !== null) {
             return $sentAt->format('d/m/Y');
         }
+        // Chantier #1142, D2: told by the old site the request came from.
+        if ($registrationRequest->decisionCommunicatedElsewhere
+            && DecisionEmail::decisionForStatus($registrationRequest->status) !== null
+        ) {
+            return 'Communiquée par l\'ancien site';
+        }
 
         return DecisionEmail::decisionForStatus($registrationRequest->status) !== null ? 'Non envoyé' : '';
     }
