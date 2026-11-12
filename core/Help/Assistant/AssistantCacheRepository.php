@@ -57,7 +57,12 @@ class AssistantCacheRepository
 
         // A new key namespace also makes pre-fix, context-blind rows unreachable.
         return hash('sha256', (string) json_encode([
-            'route-context-v1', $normalised, $role, $appVersion, $routePattern, $routeTopicIds,
+            'route-context-v1',
+            $normalised,
+            $role,
+            $appVersion,
+            $routePattern,
+            $routeTopicIds,
         ], JSON_THROW_ON_ERROR));
     }
 
