@@ -98,7 +98,7 @@ class UrlMetadataFetcher
      * The body of an iCalendar file (RFC 5545) at $url, or null — for
      * every reason at once, as everywhere in this class: an unsafe target
      * at any hop, a network error, a status other than 200, a content
-     * type other than `text/calendar`, or a body over MAX_CALENDAR_BYTES.
+     * type that is a web page or an image, or a body over MAX_CALENDAR_BYTES.
      *
      * Over the ceiling is refused, never cut: the other two downloads keep
      * the first bytes of an oversized answer, which is harmless for a page
@@ -420,15 +420,20 @@ class UrlMetadataFetcher
     }
 
     /**
-     * `text/calendar` only. Unlike a page or an image, an absent header is
-     * not given the benefit of the doubt: a server that does not say what
-     * it sends is more often answering with an error page or a login form
-     * than with a calendar, and the import would then read nothing out of
-     * it while telling the administrator the address worked.
+     * Anything but a type that is clearly not a calendar: a web page or an
+     * image. Servers label ICS files loosely — a raw file host answers
+     * `text/plain`, some CMS plugins `application/octet-stream` or nothing
+     * at all — and the form takes nothing but an address, so refusing on
+     * the header would leave such a calendar with no way in. The body is
+     * what proves a calendar: IcsEventReader refuses a file whose first
+     * line is not `BEGIN:VCALENDAR`, so an error page or a login form
+     * served under a vague type is still turned away, with its reason.
      */
     private function looksLikeCalendar(string $contentType): bool
     {
-        return strtolower(trim(explode(';', $contentType)[0])) === 'text/calendar';
+        $type = strtolower(trim(explode(';', $contentType)[0]));
+
+        return $type !== 'text/html' && $type !== 'application/xhtml+xml' && !str_starts_with($type, 'image/');
     }
 
     /**

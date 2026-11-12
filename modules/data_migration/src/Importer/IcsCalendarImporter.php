@@ -29,8 +29,9 @@ use Modules\DataMigration\Ics\IcsUnreadableException;
  * JSON line per event in the run's workspace. Everything after that is the
  * module's shared path, reading those lines.
  *
- * The deduplication key is (hash of the address, `ics`, `event`, UID): the
- * same address imported again finds its events « déjà présents ». The
+ * The deduplication key is (hash of the address, `ics`, `event`, hash of
+ * the UID): the same address imported again finds its events « déjà
+ * présents ». The
  * address itself is not kept — it may carry a private calendar's secret —
  * only its hash and the host it pointed to.
  */
@@ -255,8 +256,8 @@ final class IcsCalendarImporter implements FormSourceImporter
             if (str_starts_with($tag, self::TAG_DESTINATION)) {
                 $notes[] = PreviewNote::info(sprintf(
                     $count > 1
-                        ? '%d événements ajoutés au calendrier « %s ».'
-                        : '%d événement ajouté au calendrier « %s ».',
+                        ? '%d événements à importer dans le calendrier « %s ».'
+                        : '%d événement à importer dans le calendrier « %s ».',
                     $count,
                     substr($tag, strlen(self::TAG_DESTINATION))
                 ));
@@ -354,12 +355,15 @@ final class IcsCalendarImporter implements FormSourceImporter
     }
 
     /**
-     * The UID as the deduplication key's source id: itself up to the
-     * column's 190 bytes, a hash of it beyond — still one id per UID.
+     * The deduplication key's source id: a SHA-256 of the UID, never the
+     * UID itself. A UID may carry an address (`alice@example.test`), and
+     * the correspondence is kept without limit and holds no personal data
+     * (specifications.md §49.4). Still one id per UID, and 71 bytes fit the
+     * column whatever the UID's length.
      */
     public static function sourceId(string $uid): string
     {
-        return strlen($uid) <= SourceItem::MAX_ID_BYTES ? $uid : 'sha256:' . hash('sha256', $uid);
+        return 'sha256:' . hash('sha256', $uid);
     }
 
     /**

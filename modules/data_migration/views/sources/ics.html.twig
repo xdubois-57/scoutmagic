@@ -12,32 +12,46 @@
     <p class="mb-0">Les événements sont copiés une fois. Ce qui changera plus tard à cette adresse n'arrivera pas dans ScoutMagic.</p>
 </div>
 
-<div class="mb-3">
-    <label class="form-label" for="ics-address">Adresse du calendrier (ICS)</label>
-    <input type="url" class="form-control" id="ics-address" name="address" required maxlength="2000"
-           placeholder="https://…/basic.ics" autocomplete="off" spellcheck="false" aria-describedby="ics-address-help">
-    <div class="form-text" id="ics-address-help">L'adresse publique ou secrète du fichier ICS, telle que votre ancien agenda la donne. Les adresses webcal:// sont acceptées.</div>
-</div>
+{% include 'partials/form_field.html.twig' with {
+    field_id: 'ics-address',
+    field_name: 'address',
+    label: 'Adresse du calendrier (ICS)',
+    type: 'url',
+    required: true,
+    maxlength: 2000,
+    placeholder: 'https://…/basic.ics',
+    autocomplete: 'off',
+    help: 'L\'adresse publique ou secrète du fichier ICS, telle que votre ancien agenda la donne. Les adresses webcal:// sont acceptées.',
+} only %}
 
-<div class="mb-3">
-    <label class="form-label" for="ics-calendar">Calendrier de destination</label>
-    {% if ics_calendars is empty %}
+{% if ics_calendars is empty %}
+    {# No control to render: the partial needs one, so this branch stays by hand. #}
+    <div class="mb-3">
+        <div class="form-label">Calendrier de destination</div>
         <p class="text-body-secondary mb-0" id="ics-calendar">Vous ne pouvez modifier aucun calendrier. Demandez l'accès à un calendrier avant d'importer.</p>
-    {% else %}
-        <select class="form-select" id="ics-calendar" name="calendar" required aria-describedby="ics-calendar-help">
-            {% for calendar in ics_calendars %}
-                <option value="{{ calendar.id }}">{{ calendar.label }}</option>
-            {% endfor %}
-        </select>
-        <div class="form-text" id="ics-calendar-help">Seuls les calendriers que vous pouvez modifier sont proposés.</div>
-    {% endif %}
-</div>
+    </div>
+{% else %}
+    {% include 'partials/form_field.html.twig' with {
+        field_id: 'ics-calendar',
+        field_name: 'calendar',
+        label: 'Calendrier de destination',
+        type: 'select',
+        required: true,
+        options: ics_calendars|map(c => { value: c.id, label: c.label }),
+        help: 'Seuls les calendriers que vous pouvez modifier sont proposés.',
+    } only %}
+{% endif %}
 
-<div class="mb-3">
-    <label class="form-label" for="ics-min-date">Importer les événements à partir du</label>
-    <input type="date" class="form-control w-auto" id="ics-min-date" name="min_date" value="{{ ics_default_min_date }}" required aria-describedby="ics-min-date-help">
-    <div class="form-text" id="ics-min-date-help">Par défaut, deux ans avant aujourd'hui.</div>
-</div>
+{% include 'partials/form_field.html.twig' with {
+    field_id: 'ics-min-date',
+    field_name: 'min_date',
+    label: 'Importer les événements à partir du',
+    type: 'date',
+    value: ics_default_min_date,
+    required: true,
+    control_class_extra: 'w-auto',
+    help: 'Par défaut, deux ans avant aujourd\'hui.',
+} only %}
 
 <div class="alert alert-warning" role="note">
     <strong>Les événements récurrents ne sont pas importés</strong>, ni leurs occurrences modifiées. Recréez-les dans ScoutMagic si besoin.

@@ -59,19 +59,41 @@ final class UrlMetadataFetcherCalendarTest extends TestCase
     {
         return [
             'a web page' => ['text/html; charset=utf-8'],
-            'no content type' => [''],
-            'plain text' => ['text/plain'],
+            'an XHTML page' => ['application/xhtml+xml'],
             'an image' => ['image/png'],
         ];
     }
 
     #[DataProvider('notACalendar')]
-    public function testAnythingButTextCalendarIsRefused(string $contentType): void
+    public function testAWebPageOrAnImageIsRefused(string $contentType): void
+    {
+        $fetcher = self::answering([self::ok(self::ICS, $contentType)]);
+
+        $this->assertNull($fetcher->fetchCalendar('https://agenda.example/basic.ics'));
+    }
+
+    /**
+     * Servers label ICS files loosely; the body is what IcsEventReader
+     * judges (it must open with BEGIN:VCALENDAR), so a vague type passes.
+     *
+     * @return array<string, array{0: string}>
+     */
+    public static function looselyLabelledCalendar(): array
+    {
+        return [
+            'no content type' => [''],
+            'plain text, as a raw file host serves it' => ['text/plain; charset=utf-8'],
+            'a download' => ['application/octet-stream'],
+        ];
+    }
+
+    #[DataProvider('looselyLabelledCalendar')]
+    public function testACalendarUnderAVagueTypeIsReturned(string $contentType): void
     {
         $headers = $contentType === '' ? [] : ['content-type' => $contentType];
         $fetcher = self::answering([['status' => 200, 'headers' => $headers, 'body' => self::ICS]]);
 
-        $this->assertNull($fetcher->fetchCalendar('https://agenda.example/basic.ics'));
+        $this->assertSame(self::ICS, $fetcher->fetchCalendar('https://agenda.example/basic.ics'));
     }
 
     public function testAnErrorStatusIsRefused(): void

@@ -107,11 +107,17 @@ final class IcsCalendarImportPageTest extends TestCase
     {
         $response = $this->submit('https://agenda.exemple.test/absent.ics');
 
-        $this->assertSame(302, $response->getStatusCode());
-        $flash = FlashMessage::get() ?? $this->fail('No message for the form.');
-        $this->assertSame('error', $flash['type']);
-        $this->assertStringContainsString('Le calendrier n\'a pas pu être téléchargé.', $flash['message']);
+        $location = $response->getHeaders()['Location'] ?? null;
+        $this->assertSame([302, self::PAGE . '?nouveau=1'], [$response->getStatusCode(), $location]);
         $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM data_migration_runs')->fetchColumn());
+
+        // Followed, not read off the session: the layout is what shows the
+        // message, and it consumes it (base.html.twig, get_flash()).
+        $form = $this->page((string) $location);
+        $this->assertStringContainsString('alert alert-danger', $form);
+        $this->assertStringContainsString('Le calendrier n&#039;a pas pu être téléchargé.', $form);
+        $this->assertStringContainsString('name="address"', $form);
+        $this->assertNull(FlashMessage::get(), 'The page did not consume the message.');
     }
 
     public function testTheCalendarIsReadPreviewedImportedAndReported(): void
@@ -121,7 +127,7 @@ final class IcsCalendarImportPageTest extends TestCase
 
         $preview = $this->page(self::PAGE);
         $this->assertStringContainsString('Le calendrier de agenda.exemple.test est valable.', $preview);
-        $this->assertStringContainsString('7 événements ajoutés au calendrier « Animateurs ».', $preview);
+        $this->assertStringContainsString('7 événements à importer dans le calendrier « Animateurs ».', $preview);
         $this->assertStringContainsString('Les heures sont converties à l&#039;heure de Bruxelles.', $preview);
         $this->assertStringContainsString('1 événement antérieur à la date minimale : non importé.', $preview);
         $this->assertStringContainsString('Aucune notification, aucun rappel pour les événements passés.', $preview);
@@ -239,7 +245,10 @@ final class IcsCalendarImportPageTest extends TestCase
         );
 
         try {
-            return $frontController->handle(new Request($method, $path, [], $body, [], []));
+            [$route, $queryString] = array_pad(explode('?', $path, 2), 2, '');
+            parse_str($queryString, $query);
+
+            return $frontController->handle(new Request($method, $route, $query, $body, [], []));
         } finally {
             @unlink($configFile);
         }

@@ -111,7 +111,7 @@ final class IcsCalendarImporterTest extends TestCase
             'Calendrier de destination',
             'Seuls les calendriers que vous pouvez modifier sont proposés.',
             'Importer les événements à partir du',
-            'Par défaut, deux ans avant aujourd\'hui.',
+            'Par défaut, deux ans avant aujourd&#039;hui.',
             'Les événements récurrents ne sont pas importés',
             'Lire le calendrier',
             'name="address"',
@@ -122,6 +122,9 @@ final class IcsCalendarImporterTest extends TestCase
         ] as $expected) {
             $this->assertStringContainsString($expected, $html);
         }
+        // Through the shared form_field partial: its required marker on
+        // each of the three fields (design.md §7.9).
+        $this->assertSame(3, substr_count($html, '<span class="text-danger" aria-hidden="true">*</span>'));
 
         $none = $twig->render($this->importer->sourceFormTemplate(), $this->importer->sourceFormContext(99));
         $this->assertStringContainsString('Vous ne pouvez modifier aucun calendrier.', $none);
@@ -288,7 +291,7 @@ final class IcsCalendarImporterTest extends TestCase
 
         $this->assertSame([6, 7], array_keys($items));
         $this->assertSame('event', $items[6]->kind);
-        $this->assertSame('hike-2026-04-10@exemple.test', $items[6]->sourceId);
+        $this->assertSame('sha256:' . hash('sha256', 'hike-2026-04-10@exemple.test'), $items[6]->sourceId);
     }
 
     public function testAnAccountThatLostTheCalendarImportsNothingMore(): void
@@ -342,7 +345,18 @@ final class IcsCalendarImporterTest extends TestCase
         $this->assertSame(IcsCalendarImporter::sourceId($uid), IcsCalendarImporter::sourceId($uid));
         $this->assertSame('sha256:' . hash('sha256', $uid), IcsCalendarImporter::sourceId($uid));
         $this->assertLessThanOrEqual(SourceItem::MAX_ID_BYTES, strlen(IcsCalendarImporter::sourceId($uid)));
-        $this->assertSame('court@x', IcsCalendarImporter::sourceId('court@x'));
+    }
+
+    /**
+     * The correspondence is kept without limit and holds no personal data
+     * (§49.4), and a UID may be an address: even a short one is hashed.
+     */
+    public function testAShortUidIsHashedToo(): void
+    {
+        $this->assertSame(
+            'sha256:' . hash('sha256', 'alice@exemple.test'),
+            IcsCalendarImporter::sourceId('alice@exemple.test')
+        );
     }
 
     /**
@@ -369,7 +383,7 @@ final class IcsCalendarImporterTest extends TestCase
         $texts = array_map(static fn (PreviewNote $n): string => $n->level . ' ' . $n->text, $notes);
 
         $this->assertSame([
-            'info 288 événements ajoutés au calendrier « Animateurs ».',
+            'info 288 événements à importer dans le calendrier « Animateurs ».',
             'info Les heures sont converties à l\'heure de Bruxelles. '
                 . 'Les événements sans heure deviennent « toute la journée ».',
             'info 61 événements antérieurs à la date minimale : non importés.',

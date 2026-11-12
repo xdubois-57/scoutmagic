@@ -139,6 +139,19 @@ final class IcsCalendarImportOnMysqlTest extends TestCase
                 'SELECT installation_id, format, source_kind, target_type FROM data_migration_items LIMIT 1'
             )->fetch(\PDO::FETCH_ASSOC) ?: [])
         );
+        // Kept without limit and free of personal data (§49.4): a hash of
+        // each UID, never the UID, which may be an address.
+        $sourceIds = $this->pdo->query('SELECT source_id FROM data_migration_items')->fetchAll(\PDO::FETCH_COLUMN);
+        $this->assertSame(
+            [7, []],
+            [
+                count($sourceIds),
+                array_values(array_filter(
+                    $sourceIds,
+                    static fn (mixed $id): bool => preg_match('/^sha256:[0-9a-f]{64}$/', (string) $id) !== 1
+                )),
+            ]
+        );
     }
 
     /**
