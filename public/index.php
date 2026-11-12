@@ -11499,6 +11499,11 @@ if ($isEnabled('retro')) {
     $schedulerService->seed('retro', 'purge_rate_limits', 'daily', new DateTimeImmutable());
 }
 
+// The registration module's import write contract (Api\RequestImportWriter,
+// chantier #1142 lot H), for data_migration's block further down; null
+// while the module is off.
+$registrationRequestImportForOthers = null;
+
 // Re-registers calendar's event-facing services/controllers with the
 // optional retro event-link lookup, now that $retroBoardService exists
 // (retro's own block above needs $calendarService already built, so it
@@ -11647,6 +11652,15 @@ if ($isEnabled('registration')) {
     // common trunk above, whatever this module's state.
     $registrationStatusService = new \Modules\Registration\Service\RequestStatusService(
         $registrationRequestRepo,
+        $journalService
+    );
+    // Files an old site's requests with no side effect (chantier #1142,
+    // lot H): the same repositories as the public form, none of its e-mails.
+    $registrationRequestImportForOthers = new \Modules\Registration\Service\RequestImportService(
+        $registrationRequestRepo,
+        $registrationDecisionEmailRepo,
+        $registrationSecondaryEmailRepo,
+        $settingService,
         $journalService
     );
     $registrationDecisionEmailService = new \Modules\Registration\Service\DecisionEmailService(
@@ -13222,6 +13236,13 @@ if ($isEnabled('data_migration')) {
     $dataMigrationImporters->add(new \Modules\DataMigration\Importer\MemberPhotosImporter(
         $memberRepo,
         new \Core\Photo\ImportedMemberPhotoWriter($photoIngestionService, new MemberPhotoRepository($pdo))
+    ));
+    $dataMigrationImporters->add(new \Modules\DataMigration\Importer\RegistrationRequestsImporter(
+        $registrationRequestImportForOthers ?? null,
+        $scoutYearService,
+        new \Modules\DataMigration\Service\SectionByDeskCode($sectionService),
+        new \Core\Import\MemberRepository($pdo),
+        new \Core\Import\FeeCategoryRepository($pdo)
     ));
 
     $dataMigrationRuns = new \Modules\DataMigration\Repository\RunRepository($pdo, $encryptionService);

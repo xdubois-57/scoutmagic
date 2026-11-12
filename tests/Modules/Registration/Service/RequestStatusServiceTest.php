@@ -187,6 +187,29 @@ class RequestStatusServiceTest extends TestCase
         $this->assertSame('pending', $this->service->visibleStatus($encoded));
     }
 
+    /**
+     * Chantier #1142, D2: a decision the old site had told the family is
+     * visible at once — and only while it stays the request's decision.
+     */
+    public function testADecisionCommunicatedByTheOldSiteIsVisibleWithoutAnEmail(): void
+    {
+        $request = $this->createRequest();
+        $this->requestRepository->updateStatus($request->id, 'accepted', null);
+        (new \Modules\Registration\Repository\DecisionEmailRepository($this->pdo))->insertCommunicatedElsewhere(
+            $request->id,
+            'accepted',
+            null,
+            new \DateTimeImmutable()
+        );
+
+        $accepted = $this->requestRepository->findById($request->id);
+        $this->assertNull($accepted?->decisionEmailSentAt);
+        $this->assertSame('accepted', $this->service->visibleStatus($accepted));
+
+        $this->service->refuse($accepted, RegistrationRequest::REFUSAL_OTHER);
+        $this->assertSame('pending', $this->service->visibleStatus($this->requestRepository->findById($request->id)));
+    }
+
     public function testVisibleStatusHidesRefusalUntilEmailSent(): void
     {
         $request = $this->createRequest();

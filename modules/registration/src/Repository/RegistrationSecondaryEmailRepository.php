@@ -51,6 +51,41 @@ class RegistrationSecondaryEmailRepository
         return (int) $this->pdo->lastInsertId();
     }
 
+    /**
+     * A secondary address brought over from an old site with its request
+     * (chantier #1142, lot H), in the state it had there — and no other
+     * write: no confirmation token, since none was sent and none will be
+     * by the import, and no `last_confirmation_sent_at`, which would claim
+     * this site sent one. A `pending` address stays unconfirmed until the
+     * family asks for a confirmation through the usual page; a `valid`
+     * one was confirmed on the old site, at a date this site does not know
+     * (`confirmed_at` stays NULL).
+     *
+     * @throws \InvalidArgumentException for a state other than pending or valid
+     */
+    public function createImported(int $registrationRequestId, string $email, string $status): int
+    {
+        $states = [RegistrationSecondaryEmail::STATUS_PENDING, RegistrationSecondaryEmail::STATUS_VALID];
+        if (!in_array($status, $states, true)) {
+            throw new \InvalidArgumentException('An imported secondary address is pending or valid.');
+        }
+
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO registration_secondary_emails (
+                registration_request_id, email_encrypted, email_blind_index, status, created_at
+             ) VALUES (?, ?, ?, ?, ?)'
+        );
+        $stmt->execute([
+            $registrationRequestId,
+            $this->encryption->encrypt($email, 'registration_secondary_emails.email'),
+            $this->encryption->blindIndex(RegistrationRequestRepository::normalizeEmail($email), 'registration_email'),
+            $status,
+            (new \DateTimeImmutable())->format('Y-m-d H:i:s'),
+        ]);
+
+        return (int) $this->pdo->lastInsertId();
+    }
+
     public function findById(int $id): ?RegistrationSecondaryEmail
     {
         $stmt = $this->pdo->prepare('SELECT * FROM registration_secondary_emails WHERE id = ?');

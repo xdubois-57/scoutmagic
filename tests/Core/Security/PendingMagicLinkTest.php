@@ -83,4 +83,51 @@ class PendingMagicLinkTest extends TestCase
 
         $this->assertFalse(PendingMagicLink::matches(11));
     }
+
+    /**
+     * Issue #1115: the poll token is the page's, not the session's — fresh
+     * on every remember(), never stored in clear, matched exactly.
+     */
+    public function testThePollTokenMatchesOnlyItselfAndIsStoredHashed(): void
+    {
+        $token = PendingMagicLink::remember(12);
+
+        $this->assertMatchesRegularExpression('/^[0-9a-f]{64}$/', $token);
+        $this->assertTrue(PendingMagicLink::pollTokenMatches($token));
+        $this->assertFalse(PendingMagicLink::pollTokenMatches(strtoupper($token)));
+        $this->assertFalse(PendingMagicLink::pollTokenMatches(substr($token, 1)));
+        $this->assertFalse(PendingMagicLink::pollTokenMatches(''));
+        $this->assertFalse(PendingMagicLink::pollTokenMatches(null));
+        $this->assertStringNotContainsString($token, serialize($_SESSION));
+    }
+
+    public function testEachRememberMintsANewTokenAndRetiresTheOld(): void
+    {
+        $first = PendingMagicLink::remember(13);
+        $second = PendingMagicLink::remember(14);
+
+        $this->assertNotSame($first, $second);
+        $this->assertFalse(PendingMagicLink::pollTokenMatches($first));
+        $this->assertTrue(PendingMagicLink::pollTokenMatches($second));
+    }
+
+    public function testForgetRetiresThePollToken(): void
+    {
+        $token = PendingMagicLink::remember(15);
+        PendingMagicLink::forget();
+
+        $this->assertFalse(PendingMagicLink::pollTokenMatches($token));
+    }
+
+    /**
+     * A pending link stored before the token existed has none: no value
+     * matches it, and that page asks for a new link.
+     */
+    public function testAPendingLinkWithoutATokenMatchesNoToken(): void
+    {
+        $_SESSION['_pending_magic_link'] = 16;
+
+        $this->assertFalse(PendingMagicLink::pollTokenMatches(hash('sha256', '')));
+        $this->assertFalse(PendingMagicLink::pollTokenMatches('anything'));
+    }
 }

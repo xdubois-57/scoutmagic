@@ -10,6 +10,7 @@ use Tests\RequestWithInput;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\Security\EncryptionService;
+use Core\Security\RecentAuthentication;
 use Core\Security\UserAccountRepository;
 use Core\Security\WebAuthnCredentialRepository;
 use Core\Security\WebAuthnService;
@@ -722,6 +723,191 @@ class AccountControllerTest extends TestCase
         $this->assertFalse(json_decode($response->getBody(), true)['success']);
         $this->assertSame([], $this->alertsSent);
         $this->assertSame([], $this->journaledEvents());
+    }
+
+    // --- a new way in needs a recent login (#1115) ---------------------
+
+    public function testAFirstPasswordIsRefusedWhenTheLastLoginIsTooOld(): void
+    {
+        $this->makeLastLoginStale();
+        $controller = $this->controllerWithAlerts();
+
+        $response = $controller->updatePassword(new Request('POST', '/account/password', [], [
+            '_csrf_token' => CsrfGuard::generateToken(),
+            'new_password' => 'MySecureP@ss1',
+            'confirm_password' => 'MySecureP@ss1',
+        ], [], []), []);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('/login?return=%2Faccount&reauth=1', $response->getHeaders()['Location'] ?? null);
+        $this->assertFalse($this->userRepo->hasPassword($this->userId));
+        $this->assertNull($this->userRepo->findById($this->userId)->sessionsValidFrom);
+        $this->assertSame([], $this->alertsSent);
+        $this->assertSame([], $this->journaledEvents());
+    }
+
+    public function testAFirstPasswordIsAcceptedRightAfterALogin(): void
+    {
+        $_SESSION['_auth']['authenticated_at'] = time() - RecentAuthentication::WINDOW_SECONDS + 5;
+        $controller = $this->controllerWithAlerts();
+
+        $response = $controller->updatePassword(new Request('POST', '/account/password', [], [
+            '_csrf_token' => CsrfGuard::generateToken(),
+            'new_password' => 'MySecureP@ss1',
+            'confirm_password' => 'MySecureP@ss1',
+        ], [], []), []);
+
+        $this->assertSame('/account', $response->getHeaders()['Location'] ?? null);
+        $this->assertTrue($this->userRepo->hasPassword($this->userId));
+        $this->assertSame(['password_set'], $this->journaledEvents());
+    }
+
+    /**
+     * Setting a first password proves nothing about who typed it, so it
+     * must not extend the window it was let through by.
+     */
+    public function testSettingAFirstPasswordDoesNotRefreshTheLastLogin(): void
+    {
+        $at = time() - 120;
+        $_SESSION['_auth']['authenticated_at'] = $at;
+
+        $this->controller->updatePassword(new Request('POST', '/account/password', [], [
+            '_csrf_token' => CsrfGuard::generateToken(),
+            'new_password' => 'MySecureP@ss1',
+            'confirm_password' => 'MySecureP@ss1',
+        ], [], []), []);
+
+        $this->assertTrue($this->userRepo->hasPassword($this->userId));
+        $this->assertSame($at, AuthSession::authenticatedAt());
+    }
+
+    /**
+     * A CHANGE asks for the current password, which is the proof: it goes
+     * through however old the login is, and counts as a fresh one.
+     */
+    public function testAPasswordChangeWithTheCurrentPasswordWorksHoweverOldTheLogin(): void
+    {
+        $this->userRepo->updatePasswordHash($this->userId, password_hash('OldPassword', PASSWORD_DEFAULT));
+        $this->makeLastLoginStale();
+        $controller = $this->controllerWithAlerts();
+
+        $response = $controller->updatePassword(new Request('POST', '/account/password', [], [
+            '_csrf_token' => CsrfGuard::generateToken(),
+            'current_password' => 'OldPassword',
+            'new_password' => 'NewSecureP@ss1',
+            'confirm_password' => 'NewSecureP@ss1',
+        ], [], []), []);
+
+        $this->assertSame('/account', $response->getHeaders()['Location'] ?? null);
+        $account = $this->userRepo->findById($this->userId);
+        $this->assertTrue(password_verify('NewSecureP@ss1', (string) $account->passwordHash));
+        $this->assertSame(['password_changed'], $this->journaledEvents());
+        $this->assertTrue(RecentAuthentication::isRecent());
+    }
+
+    public function testAWrongCurrentPasswordIsNoFreshProof(): void
+    {
+        $this->userRepo->updatePasswordHash($this->userId, password_hash('OldPassword', PASSWORD_DEFAULT));
+        $this->makeLastLoginStale();
+
+        $this->controller->updatePassword(new Request('POST', '/account/password', [], [
+            '_csrf_token' => CsrfGuard::generateToken(),
+            'current_password' => 'WrongPassword',
+            'new_password' => 'NewSecureP@ss1',
+            'confirm_password' => 'NewSecureP@ss1',
+        ], [], []), []);
+
+        $this->assertFalse(RecentAuthentication::isRecent());
+    }
+
+    public function testPasskeyOptionsAreRefusedWhenTheLastLoginIsTooOld(): void
+    {
+        $this->makeLastLoginStale();
+        $webAuthn = $this->createMock(WebAuthnService::class);
+        $webAuthn->expects($this->never())->method('generateRegistrationOptions');
+        $controller = $this->controllerWithAlerts($webAuthn);
+
+        $response = $controller->passkeyRegisterOptions(
+            new Request('GET', '/account/passkey/register-options', [], [], [], []),
+            []
+        );
+
+        $this->assertSame(403, $response->getStatusCode());
+        $this->assertSame(
+            [
+                'success' => false,
+                'error' => RecentAuthentication::MESSAGE,
+                'reauth_url' => '/login?return=%2Faccount&reauth=1',
+            ],
+            json_decode($response->getBody(), true)
+        );
+    }
+
+    public function testPasskeyOptionsAreServedRightAfterALogin(): void
+    {
+        $response = $this->controller->passkeyRegisterOptions(
+            new Request('GET', '/account/passkey/register-options', [], [], [], []),
+            []
+        );
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertArrayHasKey('challenge', json_decode($response->getBody(), true));
+    }
+
+    public function testPasskeyRegistrationIsRefusedWhenTheLastLoginIsTooOld(): void
+    {
+        $this->makeLastLoginStale();
+        $webAuthn = $this->createMock(WebAuthnService::class);
+        $webAuthn->expects($this->never())->method('verifyRegistration');
+        $controller = $this->controllerWithAlerts($webAuthn);
+
+        $response = $controller->passkeyRegister($this->makeJsonRequest(
+            ['device_label' => 'Clé USB bleue'],
+            ['HTTP_X_CSRF_TOKEN' => CsrfGuard::generateToken()]
+        ), []);
+
+        $this->assertSame(403, $response->getStatusCode());
+        $payload = json_decode($response->getBody(), true);
+        $this->assertFalse($payload['success']);
+        $this->assertSame('/login?return=%2Faccount&reauth=1', $payload['reauth_url']);
+        $this->assertSame([], $this->alertsSent);
+        $this->assertSame([], $this->journaledEvents());
+    }
+
+    public function testPasskeyRegistrationGoesThroughRightAfterALogin(): void
+    {
+        $_SESSION['_auth']['authenticated_at'] = time() - RecentAuthentication::WINDOW_SECONDS + 5;
+        $webAuthn = $this->createStub(WebAuthnService::class);
+        $webAuthn->method('verifyRegistration')->willReturn(42);
+        $controller = $this->controllerWithAlerts($webAuthn);
+
+        $response = $controller->passkeyRegister($this->makeJsonRequest(
+            ['device_label' => 'Clé USB bleue'],
+            ['HTTP_X_CSRF_TOKEN' => CsrfGuard::generateToken()]
+        ), []);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertTrue(json_decode($response->getBody(), true)['success']);
+        $this->assertSame(['passkey_registered'], $this->journaledEvents());
+    }
+
+    /** Removing a key takes a way in away; it is not gated. */
+    public function testRemovingAPasskeyIsNotGatedByTheLastLogin(): void
+    {
+        $id = $this->webAuthnRepo->create($this->userId, random_bytes(32), random_bytes(64), 'Clé USB bleue');
+        $this->makeLastLoginStale();
+
+        $response = $this->controller->passkeyDelete(
+            $this->makeJsonRequest(['id' => $id], ['HTTP_X_CSRF_TOKEN' => CsrfGuard::generateToken()]),
+            []
+        );
+
+        $this->assertTrue(json_decode($response->getBody(), true)['success']);
+    }
+
+    private function makeLastLoginStale(): void
+    {
+        $_SESSION['_auth']['authenticated_at'] = time() - RecentAuthentication::WINDOW_SECONDS - 1;
     }
 
     /** @var list<array{to: string, text: string}> */

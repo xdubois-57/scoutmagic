@@ -35,6 +35,11 @@ use Modules\Registration\Repository\RegistrationRequest;
  *   `interrupted` set — « Envoi interrompu »: whether it left is unknown,
  *   and begin() records it as interrupted when the retry starts (the same
  *   bound, so the button the page offers is one begin() accepts);
+ * - `communicated_elsewhere` — « Communiquée par l'ancien site » (chantier
+ *   #1142, D2): the request was imported, with a decision its old site had
+ *   already told the family, and nothing of this site has been tried for
+ *   it since. The family sees the decision; no button, since no e-mail is
+ *   owed;
  * - `cancelled` — « Annulé suite à un changement de décision »: the last
  *   e-mail planned was cancelled by a change of decision and none is
  *   planned for the new one; « Envoyer maintenant »;
@@ -48,6 +53,7 @@ final class DecisionEmailPanel
     public const STATE_SENT = 'sent';
     public const STATE_FAILED = 'failed';
     public const STATE_CANCELLED = 'cancelled';
+    public const STATE_COMMUNICATED_ELSEWHERE = 'communicated_elsewhere';
 
     public const ACTION_SEND_NOW = 'send_now';
     public const ACTION_RETRY = 'retry';
@@ -125,6 +131,8 @@ final class DecisionEmailPanel
                 => [self::STATE_FAILED, $latest->attemptedAt, [self::ACTION_RETRY]],
             $latest->state === DecisionEmail::STATE_FAILED
                 => [self::STATE_FAILED, $latest->failedAt, [self::ACTION_RETRY]],
+            $latest->isCommunicatedElsewhere()
+                => [self::STATE_COMMUNICATED_ELSEWHERE, $latest->communicatedAt, []],
             // A current row is never cancelled — only a change of decision
             // cancels, and that supersedes the row in the same write.
             default => [self::STATE_CANCELLED, $latest->cancelledAt, [self::ACTION_SEND_NOW]],
@@ -197,6 +205,10 @@ final class DecisionEmailPanel
                 DecisionEmail::STATE_SENT => [DecisionEmailEvent::SENT, $email->sentAt],
                 DecisionEmail::STATE_FAILED => [DecisionEmailEvent::FAILED, $email->failedAt],
                 DecisionEmail::STATE_CANCELLED => [DecisionEmailEvent::CANCELLED, $email->cancelledAt],
+                DecisionEmail::STATE_COMMUNICATED_ELSEWHERE => [
+                    DecisionEmailEvent::COMMUNICATED_ELSEWHERE,
+                    $email->communicatedAt,
+                ],
                 DecisionEmail::STATE_SENDING => [
                     self::isStale($email, $staleBefore) ? DecisionEmailEvent::INTERRUPTED : DecisionEmailEvent::SENDING,
                     $email->attemptedAt,
