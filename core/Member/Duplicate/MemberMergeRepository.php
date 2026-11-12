@@ -139,6 +139,18 @@ class MemberMergeRepository
                 $this->repoint($table, $column, $duplicateMemberId, $keptMemberId);
             }
 
+            // The photos just moved to the kept member; their files' owner
+            // follows, or the parents linked to the kept member could no
+            // longer open their own child's original (issue #1108). A
+            // generic files.owner_id is not a member reference in general —
+            // only this owner type makes it one.
+            $stmt = $this->pdo->prepare('UPDATE files SET owner_id = ? WHERE owner_type = ? AND owner_id = ?');
+            $stmt->execute([
+                $keptMemberId,
+                \Core\Photo\PersonPhotoOwnershipChecker::OWNER_MEMBER,
+                $duplicateMemberId,
+            ]);
+
             $stmt = $this->pdo->prepare(
                 'UPDATE members SET merged_into_member_id = ?, merged_at = ? WHERE id = ?'
             );

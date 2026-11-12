@@ -160,6 +160,7 @@ class MemberPhotoRepository
             }
             throw $e;
         }
+        $this->claimFile($fileId, $memberId);
 
         return true;
     }
@@ -177,6 +178,7 @@ class MemberPhotoRepository
             $update = $this->pdo->prepare('UPDATE member_photos SET file_id = ?, created_by = ?, created_at = ? WHERE '
                 . 'id = ?');
             $update->execute([$fileId, $createdBy, date('Y-m-d H:i:s'), (int) $existingId]);
+            $this->claimFile($fileId, $memberId);
             return;
         }
 
@@ -184,5 +186,45 @@ class MemberPhotoRepository
             'INSERT INTO member_photos (member_id, scout_year_id, file_id, created_by) VALUES (?, ?, ?, ?)'
         );
         $insert->execute([$memberId, $scoutYearId, $fileId, $createdBy]);
+        $this->claimFile($fileId, $memberId);
+    }
+
+    /**
+     * Stamps the owner every photo file used to lack (issue #1108), the
+     * moment it becomes this member's photo — both ways a photo is linked
+     * end here, upload and import alike, so neither can forget. The
+     * original is then served only through
+     * Core\Photo\PersonPhotoOwnershipChecker; its reduced renditions keep
+     * the file's role_min.
+     */
+    private function claimFile(int $fileId, int $memberId): void
+    {
+        $this->pdo->prepare('UPDATE files SET owner_type = ?, owner_id = ? WHERE id = ?')
+            ->execute([PersonPhotoOwnershipChecker::OWNER_MEMBER, $memberId, $fileId]);
+    }
+
+    /**
+     * The same stamp, once, on every photo linked before it existed —
+     * called from public/index.php behind a settings flag. Set-based, like
+     * AttachmentRepository::backfillFileOwnership(): one statement for the
+     * whole roster, never a loop. A file somehow linked to two members
+     * takes the lower id; that is not a state the site produces.
+     *
+     * Only rows with no owner type are touched, so a replay is a no-op.
+     *
+     * @return int how many files were stamped
+     */
+    public function backfillFileOwnership(): int
+    {
+        $stmt = $this->pdo->prepare(
+            'UPDATE files
+                SET owner_type = ?,
+                    owner_id = (SELECT MIN(mp.member_id) FROM member_photos mp WHERE mp.file_id = files.id)
+              WHERE owner_type IS NULL
+                AND id IN (SELECT file_id FROM member_photos)'
+        );
+        $stmt->execute([PersonPhotoOwnershipChecker::OWNER_MEMBER]);
+
+        return $stmt->rowCount();
     }
 }

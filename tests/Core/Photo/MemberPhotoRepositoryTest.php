@@ -40,6 +40,75 @@ class MemberPhotoRepositoryTest extends TestCase
         $this->fileIdB = $this->createFile('b.jpg');
     }
 
+    /**
+     * Issue #1108: linking a photo stamps its file with its member, so the
+     * original is served only through PersonPhotoOwnershipChecker. Both
+     * ways a photo is linked — the upload's upsert and the import's
+     * insertIfAbsent() — and a replacement too.
+     */
+    public function testLinkingAPhotoMakesTheMemberItsFilesOwner(): void
+    {
+        $this->repository->upsert($this->memberId, $this->yearNewId, $this->fileIdA, null);
+        $this->assertSame(['member_photo', $this->memberId], $this->ownerOf($this->fileIdA));
+
+        $this->repository->upsert($this->memberId, $this->yearNewId, $this->fileIdB, null);
+        $this->assertSame(['member_photo', $this->memberId], $this->ownerOf($this->fileIdB));
+
+        $imported = $this->createFile('c.jpg');
+        $this->assertTrue($this->repository->insertIfAbsent($this->memberId, $this->yearOldId, $imported, null));
+        $this->assertSame(['member_photo', $this->memberId], $this->ownerOf($imported));
+    }
+
+    /** A refused import claims nothing: the file it stored belongs to no member. */
+    public function testARefusedImportDoesNotClaimItsFile(): void
+    {
+        $this->repository->upsert($this->memberId, $this->yearNewId, $this->fileIdA, null);
+
+        $this->assertFalse($this->repository->insertIfAbsent($this->memberId, $this->yearNewId, $this->fileIdB, null));
+        $this->assertSame([null, null], $this->ownerOf($this->fileIdB));
+    }
+
+    /**
+     * The one-time stamp for photos linked before it existed: every member
+     * photo file without an owner gets its member, and nothing else moves.
+     */
+    public function testBackfillStampsEveryUnownedMemberPhotoAndNothingElse(): void
+    {
+        $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('DESK2')");
+        $otherMember = (int) $this->pdo->lastInsertId();
+        $this->linkWithoutOwner($this->memberId, $this->yearOldId, $this->fileIdA);
+        $this->linkWithoutOwner($otherMember, $this->yearOldId, $this->fileIdB);
+        $unrelated = $this->createFile('logo.jpg');
+        $alreadyOwned = $this->createFile('doc.jpg');
+        $this->pdo->prepare("UPDATE files SET owner_type = 'section_document', owner_id = 5 WHERE id = ?")
+            ->execute([$alreadyOwned]);
+        $this->linkWithoutOwner($this->memberId, $this->yearMidId, $alreadyOwned);
+
+        $this->assertSame(2, $this->repository->backfillFileOwnership());
+
+        $this->assertSame(['member_photo', $this->memberId], $this->ownerOf($this->fileIdA));
+        $this->assertSame(['member_photo', $otherMember], $this->ownerOf($this->fileIdB));
+        $this->assertSame([null, null], $this->ownerOf($unrelated));
+        $this->assertSame(['section_document', 5], $this->ownerOf($alreadyOwned));
+        $this->assertSame(0, $this->repository->backfillFileOwnership(), 'a replay changes nothing');
+    }
+
+    private function linkWithoutOwner(int $memberId, int $scoutYearId, int $fileId): void
+    {
+        $this->pdo->prepare('INSERT INTO member_photos (member_id, scout_year_id, file_id) VALUES (?, ?, ?)')
+            ->execute([$memberId, $scoutYearId, $fileId]);
+    }
+
+    /** @return array{0: ?string, 1: ?int} */
+    private function ownerOf(int $fileId): array
+    {
+        $stmt = $this->pdo->prepare('SELECT owner_type, owner_id FROM files WHERE id = ?');
+        $stmt->execute([$fileId]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+        return [$row['owner_type'] ?? null, $row['owner_id'] === null ? null : (int) $row['owner_id']];
+    }
+
     private function createScoutYear(string $label, string $startDate): int
     {
         $stmt = $this->pdo->prepare(

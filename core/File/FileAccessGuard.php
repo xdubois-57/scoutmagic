@@ -77,8 +77,16 @@ class FileAccessGuard
      * discovered. Two bounds keep it narrow: it stops at `admin`, and
      * `FileController` journals every such opening at `security` level
      * (identifiers only) — the audit trail is what replaces the wall.
+     *
+     * **$rendition names what is being served**: null for the original,
+     * `thumb` or `md` for a derivative (issue #1108). Only the owner_type
+     * registry reads it, and only a checker implementing
+     * {@see ReducedRenditionPolicyInterface} can let a derivative through
+     * on `role_min` alone — `role_min` and owner_member_id never depend on
+     * it. A caller that does not say gets the original's rule, which is the
+     * stricter one.
      */
-    public function check(int $fileId): ?FileRecord
+    public function check(int $fileId, ?string $rendition = null): ?FileRecord
     {
         $file = $this->fileRepository->findById($fileId);
 
@@ -106,7 +114,7 @@ class FileAccessGuard
             // two independently and assignOwner() sets the owner after
             // the fact, so the row is one missing argument away.
             if ($file->ownerId === null
-                || !$this->isAllowedByRegistry($file->ownerType, $file->ownerId)
+                || !$this->isAllowedByRegistry($file->ownerType, $file->ownerId, $rendition)
             ) {
                 return null;
             }
@@ -178,10 +186,17 @@ class FileAccessGuard
         return $this->currentRole->hasAccess(Role::fromString(self::STAFF_BYPASS_ROLE));
     }
 
-    private function isAllowedByRegistry(string $ownerType, int $ownerId): bool
+    private function isAllowedByRegistry(string $ownerType, int $ownerId, ?string $rendition): bool
     {
         foreach ($this->ownershipCheckers as $checker) {
             if ($checker->supports($ownerType)) {
+                if ($rendition !== null
+                    && $checker instanceof ReducedRenditionPolicyInterface
+                    && $checker->allowsReducedRendition($ownerId)
+                ) {
+                    return true;
+                }
+
                 return $checker->isAllowed($ownerId, $this->currentRole, $this->linkedMemberIds);
             }
         }

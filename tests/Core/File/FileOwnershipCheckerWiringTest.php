@@ -73,10 +73,21 @@ class FileOwnershipCheckerWiringTest extends TestCase
         );
 
         // Core's own checkers seed that array where their dependencies
-        // exist — the section documents one, and the Desk import's kept
-        // CSV (Core\Import\DeskImportFileOwnershipChecker).
-        $seed = '$fileOwnershipCheckers = [$sectionDocumentOwnershipChecker, new \\Core\\Import\\DeskImportFileOwnershipChecker()];';
-        $this->assertStringContainsString($seed, $this->indexPhp);
+        // exist — the section documents one, the Desk import's kept CSV
+        // (Core\Import\DeskImportFileOwnershipChecker), and a person's
+        // photo, one instance per owner type (issue #1108). The photo
+        // checkers are core's, so no module can leave them unwired: a file
+        // carrying their owner type with no checker would be refused to
+        // everyone, thumbnail included.
+        $seed = '$fileOwnershipCheckers = [';
+        $this->assertMatchesRegularExpression(
+            '/\$fileOwnershipCheckers = \[\s*\$sectionDocumentOwnershipChecker,'
+            . '\s*new \\\\Core\\\\Import\\\\DeskImportFileOwnershipChecker\(\),'
+            . '\s*\\\\Core\\\\Photo\\\\PersonPhotoOwnershipChecker::forMemberPhotos\(\),'
+            . '\s*\\\\Core\\\\Photo\\\\PersonPhotoOwnershipChecker::forAccountPhotos\(AuthSession::getUserAccountId\(\)\),'
+            . '\s*\];/',
+            $this->indexPhp
+        );
         $this->assertLessThan(
             $this->offsetOf('new FileAccessGuard('),
             $this->offsetOf($seed),
