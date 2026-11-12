@@ -143,9 +143,10 @@ animateurs » → `chief`.
   de l'ancien site, par exemple — est **retirée** : l'ancien site ne restera
   pas en ligne. Exportez les images, ne les liez pas.
 - Types admis, d'après le **contenu** du fichier et non son nom : JPEG,
-  PNG, WebP, GIF. Taille : **5 Mo au plus** par image.
-- Une image illisible, absente de l'archive, d'un autre type, trop lourde
-  ou mal nommée n'est **pas importée**, mais son actualité l'est, sans elle.
+  PNG, WebP, GIF. Taille : **5 Mo au plus** par image, et **50 mégapixels
+  au plus** (largeur × hauteur).
+- Une image illisible, absente de l'archive, d'un autre type, trop lourde,
+  trop grande ou mal nommée n'est **pas importée**, mais son actualité l'est, sans elle.
   L'aperçu compte ces images.
 - Les images sont réencodées à l'import (les métadonnées EXIF, dont la
   position GPS, sont supprimées) et des vignettes sont produites.
@@ -266,6 +267,7 @@ tout fichier.
 | Taille décompressée d'un fichier | 16 Mio |
 | Taille d'un fichier `.json` lu (actualité, formulaire) | 8 Mio |
 | Taille d'une image importée | 5 Mo (au-delà, l'image est laissée de côté) |
+| Dimensions d'une image importée | 50 mégapixels (au-delà, l'image est laissée de côté) |
 | Taille décompressée totale | 3 Gio |
 | Taille de l'archive déposée | 2 Gio |
 | Titre | 255 caractères |

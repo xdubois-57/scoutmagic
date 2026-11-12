@@ -30,8 +30,7 @@ use PHPUnit\Framework\TestCase;
 use Tests\Core\Mail\Template\EmailTemplateRendererFactory;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\News\NewsTestHelper;
-use Twig\Environment;
-use Twig\Loader\ArrayLoader;
+use Tests\TestTwig;
 
 /**
  * The news module's write contract for the data migration (chantier
@@ -147,10 +146,7 @@ final class NewsImportWriterTest extends TestCase
             $responses,
             $this->articles,
             $mail,
-            EmailTemplateRendererFactory::shippedOnlyForModule(new Environment(new ArrayLoader([
-                '@news/email/digest.html.twig' => 'html',
-                '@news/email/digest.text.twig' => 'text',
-            ])), 'news'),
+            EmailTemplateRendererFactory::shippedOnlyForModule(TestTwig::create(['news']), 'news'),
             'Test Unit',
             'https://example.com'
         ))->sendPendingDigests();

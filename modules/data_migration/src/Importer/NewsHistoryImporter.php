@@ -92,6 +92,9 @@ final class NewsHistoryImporter implements Importer
     public const TAG_IMAGE_LEFT_OUT = 'image_left_out';
     public const TAG_RESPONSES_LEFT_OUT = 'responses_left_out';
 
+    /** The whole archive, once decompressed. */
+    private const MAX_UNPACKED_BYTES = 3 * 1024 * 1024 * 1024;
+
     /**
      * Per opened source: for each article id, the path of the first form of
      * the archive that would be imported for it — the one that wins, a
@@ -101,11 +104,20 @@ final class NewsHistoryImporter implements Importer
      */
     private \WeakMap $firstForms;
 
+    /**
+     * Per opened source: whether each image path was found usable, so that
+     * an image an article and its form both name is read and checked once.
+     *
+     * @var \WeakMap<ImportSource, array<string, bool>>
+     */
+    private \WeakMap $usableImages;
+
     public function __construct(
         private ?NewsImportWriterInterface $writer,
         private ItemMappingRepository $mappings
     ) {
         $this->firstForms = new \WeakMap();
+        $this->usableImages = new \WeakMap();
     }
 
     public function key(): string
@@ -142,7 +154,7 @@ final class NewsHistoryImporter implements Importer
             new ArchiveLimits(
                 50000,
                 16 * 1024 * 1024,
-                3 * 1024 * 1024 * 1024,
+                self::MAX_UNPACKED_BYTES,
                 // `''`: the format's own `media/<sha256>`; csv and jsonl: a
                 // responses export tolerated, and never read.
                 ['json', 'jsonl', 'csv', '', 'jpg', 'jpeg', 'png', 'webp', 'gif']
@@ -300,10 +312,12 @@ final class NewsHistoryImporter implements Importer
             $notes[] = PreviewNote::warning(
                 self::counted(
                     $leftOut,
-                    'image est illisible, absente du fichier ou trop lourde',
-                    'images sont illisibles, absentes du fichier ou trop lourdes'
+                    'image est illisible, absente du fichier, d\'un type non accepté, trop lourde (plus de 5 Mo) '
+                        . 'ou trop grande (plus de 50 mégapixels)',
+                    'images sont illisibles, absentes du fichier, d\'un type non accepté, trop lourdes (plus de 5 Mo) '
+                        . 'ou trop grandes (plus de 50 mégapixels)'
                 )
-                . ' (plus de 5 Mo). '
+                . '. '
                 . ($leftOut > 1
                     ? 'Leur actualité est importée sans elles.'
                     : 'Son actualité est importée sans elle.')
@@ -592,7 +606,21 @@ final class NewsHistoryImporter implements Importer
      */
     private function usableImage(ImportSource $source, mixed $path): bool
     {
-        if (!is_string($path) || preg_match(self::MEDIA_PATH, $path, $match) !== 1) {
+        if (!is_string($path)) {
+            return false;
+        }
+        $known = $this->usableImages[$source] ?? [];
+        if (!array_key_exists($path, $known)) {
+            $known[$path] = $this->checkImage($source, $path);
+            $this->usableImages[$source] = $known;
+        }
+
+        return $known[$path];
+    }
+
+    private function checkImage(ImportSource $source, string $path): bool
+    {
+        if (preg_match(self::MEDIA_PATH, $path, $match) !== 1) {
             return false;
         }
         $archive = $source->archive();
@@ -603,6 +631,11 @@ final class NewsHistoryImporter implements Importer
         if ($inventoried !== $match[1]) {
             return false;
         }
+        // Heavier than 5 MB by the inventory: left out without reading it.
+        $declared = $source->manifest?->files[$path]['size'] ?? null;
+        if (is_int($declared) && $declared > NewsImportWriterInterface::MAX_IMAGE_BYTES) {
+            return false;
+        }
 
         // The whole image, at most 5 MB: its dimensions can sit behind a
         // large EXIF block, past any fixed head.
@@ -611,9 +644,14 @@ final class NewsHistoryImporter implements Importer
             $archive->stream($path, static function (string $chunk) use (&$bytes): void {
                 $bytes .= $chunk;
             }, NewsImportWriterInterface::MAX_IMAGE_BYTES);
-        } catch (ArchiveRejectedException) {
-            // Heavier than the ceiling: this image is left out, the article
-            // is not.
+        } catch (ArchiveRejectedException $e) {
+            // The archive's own budget is not this image's fault: that
+            // stays an error. Heavier than 5 MB, though, the image is left
+            // out and its article is not.
+            if ($archive->measuredTotal() > self::MAX_UNPACKED_BYTES) {
+                throw $e;
+            }
+
             return false;
         }
 

@@ -897,7 +897,9 @@ class NewsController extends AbstractController
                 )) ? null : ($form->isOpen() ? 'open' : 'closed'),
                 'can_edit' => $currentAccountId !== null && !$article->isImported(),
                 'is_imported' => $article->isImported(),
-                'author_name' => $author->firstName ?? $author?->email,
+                // An imported article names no author: its account is the
+                // one who ran the import, not who wrote it.
+                'author_name' => $article->isImported() ? null : ($author->firstName ?? $author?->email),
             ];
         }, $articles);
     }

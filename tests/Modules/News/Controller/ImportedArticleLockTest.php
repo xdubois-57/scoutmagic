@@ -294,7 +294,7 @@ final class ImportedArticleLockTest extends TestCase
     public function testTheFormTakesNoResponseEvenWereItsRowReopened(): void
     {
         // Somebody reopens the row by hand: the article's lock still holds.
-        $this->pdo->exec('UPDATE news_forms SET is_force_closed = 0 WHERE id = ' . $this->formId);
+        $this->pdo->prepare('UPDATE news_forms SET is_force_closed = 0 WHERE id = ?')->execute([$this->formId]);
 
         $response = $this->formController->submit(new Request('POST', '/news/' . $this->importedId . '/form/submit', [], [
             '_csrf_token' => CsrfGuard::generateToken(),
@@ -539,10 +539,32 @@ final class ImportedArticleLockTest extends TestCase
     private function snapshot(): array
     {
         return [
-            'article' => $this->pdo->query('SELECT title, summary, visibility, status, published_at, image_file_id, imported_at FROM news_articles WHERE id = ' . $this->importedId)->fetch(\PDO::FETCH_ASSOC),
-            'form' => $this->pdo->query('SELECT is_force_closed, digest_email, issues_ticket, finance_account_id FROM news_forms WHERE id = ' . $this->formId)->fetch(\PDO::FETCH_ASSOC),
-            'fields' => $this->pdo->query('SELECT id, sort_order, field_type, label, confirmation_text FROM news_form_fields WHERE form_id = ' . $this->formId . ' ORDER BY id')->fetchAll(\PDO::FETCH_ASSOC),
+            'article' => $this->rows(
+                'SELECT title, summary, visibility, status, published_at, image_file_id, imported_at'
+                    . ' FROM news_articles WHERE id = ?',
+                $this->importedId
+            )[0] ?? false,
+            'form' => $this->rows(
+                'SELECT is_force_closed, digest_email, issues_ticket, finance_account_id FROM news_forms WHERE id = ?',
+                $this->formId
+            )[0] ?? false,
+            'fields' => $this->rows(
+                'SELECT id, sort_order, field_type, label, confirmation_text FROM news_form_fields'
+                    . ' WHERE form_id = ? ORDER BY id',
+                $this->formId
+            ),
             'responses' => (int) $this->pdo->query('SELECT COUNT(*) FROM news_form_responses')->fetchColumn(),
         ];
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    private function rows(string $sql, int $id): array
+    {
+        $statement = $this->pdo->prepare($sql);
+        $statement->execute([$id]);
+
+        return $statement->fetchAll(\PDO::FETCH_ASSOC);
     }
 }
