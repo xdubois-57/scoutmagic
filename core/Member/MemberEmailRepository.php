@@ -157,17 +157,29 @@ class MemberEmailRepository
     }
 
     /**
-     * Every member_id with at least one currently-'valid' row matching
-     * this email's blind index — Core\Security\RoleResolver's extension
-     * point for login-by-secondary-email. A 'pending'/'inactive' row must
-     * never resolve a login.
+     * Every member_id with at least one currently-'valid' 'manual' row
+     * matching this email's blind index — Core\Security\RoleResolver's
+     * extension point for login-by-secondary-email. A 'pending'/'inactive'
+     * row must never resolve a login.
+     *
+     * **Nor must a 'desk' row** (issue #1100). One is only a status
+     * override for an address Desk imported, written the first time a
+     * mailing resolves it (findOrCreateDeskOverride()), and it outlives a
+     * later change of that address in Desk. Counting it here made the
+     * FORMER address a login of its own for ever: linked to the member,
+     * holding its health record, inheriting its role — after the unit had
+     * changed the address precisely to cut it off. The CURRENT Desk
+     * address needs no row to log in: it is matched on member_years
+     * directly, per scout year, which is the only place that says which
+     * address Desk gives a member that year.
      *
      * @return int[]
      */
     public function findMemberIdsByValidBlindIndex(string $blindIndex): array
     {
         $stmt = $this->pdo->prepare(
-            "SELECT DISTINCT member_id FROM member_emails WHERE email_blind_index = ? AND status = 'valid'"
+            "SELECT DISTINCT member_id FROM member_emails
+             WHERE email_blind_index = ? AND status = 'valid' AND source = 'manual'"
         );
         $stmt->execute([$blindIndex]);
 
@@ -175,8 +187,9 @@ class MemberEmailRepository
     }
 
     /**
-     * Every currently-'valid' row matching this blind index, decrypted —
-     * the plaintext twin of findMemberIdsByValidBlindIndex(), for the one
+     * Every currently-'valid' 'manual' row matching this blind index,
+     * decrypted — the plaintext twin of findMemberIdsByValidBlindIndex(),
+     * under the same rule (a 'desk' row is no identity), for the one
      * caller that needs the address itself and not just the members it
      * reaches: Core\Security\AuthService, which gives a secondary address
      * logging in for the first time its own user_accounts row and has
@@ -187,7 +200,8 @@ class MemberEmailRepository
     public function findValidByBlindIndex(string $blindIndex): array
     {
         $stmt = $this->pdo->prepare(
-            "SELECT * FROM member_emails WHERE email_blind_index = ? AND status = 'valid' ORDER BY id"
+            "SELECT * FROM member_emails
+             WHERE email_blind_index = ? AND status = 'valid' AND source = 'manual' ORDER BY id"
         );
         $stmt->execute([$blindIndex]);
 
@@ -253,9 +267,13 @@ class MemberEmailRepository
      * member_emails comment) — lazily materialized only when mass-mail
      * resolution or an unsubscribe action first needs one to exist,
      * defaulting to 'valid' (the Desk address is otherwise always usable).
-     * Never created at Desk import time and never synced afterwards — a
-     * later change of the member's Desk address simply starts fresh with
-     * no row here.
+     * Never created at Desk import time. A later change of the member's
+     * Desk address starts fresh with no row here, and the row of the
+     * former address is deleted by the next import
+     * (deleteStaleDeskOverrides()) — until then it grants nothing, since
+     * no login or access lookup reads a 'desk' row (issue #1100). This is
+     * not rare: it happens to every member whose address changes after
+     * they received one mailing.
      */
     public function findOrCreateDeskOverride(int $memberId, string $email): MemberEmail
     {
@@ -278,6 +296,53 @@ class MemberEmailRepository
         $created = $this->findById($id);
         \assert($created !== null);
         return $created;
+    }
+
+    /**
+     * Deletes every 'desk' row whose address is no longer the Desk address
+     * of its member in the current scout year nor in any year that has not
+     * ended on $today — the leftovers of a Desk address that changed
+     * (issue #1100). Returns how many went.
+     *
+     * Deleted rather than set 'inactive': an 'inactive' row on an address
+     * that becomes the member's Desk address again would silently refuse
+     * that address its login (RoleResolver reads the pair), and a 'desk'
+     * row carries nothing else worth keeping — group-mail consent and
+     * bounces are recorded per address, elsewhere. A mailing that went to
+     * the row keeps its delivery (mass_mail_deliveries.member_email_id is
+     * ON DELETE SET NULL).
+     *
+     * Every year not yet ended, and not only the one an import targets:
+     * while two years are open (the staff year being prepared beside the
+     * public one), an address changed for next year is still this year's,
+     * and its row — an 'inactive' one above all — still applies to it. And
+     * the current year whatever its dates: a unit that has not opened the
+     * next year yet in September still lives in one whose end date has
+     * passed.
+     *
+     * Called at the end of every Desk import (Core\Import\
+     * DeskImportService) and once on every installation from
+     * public/index.php, for the rows written before this existed. A
+     * correlated subquery the engine decides:
+     * MemberEmailRepositoryOnMysqlTest holds it on the production engine.
+     */
+    public function deleteStaleDeskOverrides(\DateTimeImmutable $today): int
+    {
+        $stmt = $this->pdo->prepare(
+            "DELETE FROM member_emails
+             WHERE source = 'desk'
+               AND NOT EXISTS (
+                   SELECT 1
+                     FROM member_years my
+                     JOIN scout_years sy ON sy.id = my.scout_year_id
+                    WHERE my.member_id = member_emails.member_id
+                      AND my.email_blind_index = member_emails.email_blind_index
+                      AND (sy.is_current = 1 OR sy.end_date >= ?)
+               )"
+        );
+        $stmt->execute([$today->format('Y-m-d')]);
+
+        return $stmt->rowCount();
     }
 
     public function markValid(int $id): void

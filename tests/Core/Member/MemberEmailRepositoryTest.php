@@ -105,6 +105,158 @@ class MemberEmailRepositoryTest extends TestCase
         );
     }
 
+    /**
+     * Issue #1100. A 'desk' row is the status override a mailing writes for
+     * a member's Desk address, and it outlives a change of that address in
+     * Desk: counting it made the FORMER address a login, an access and a
+     * role of its own. Neither login lookup reads one, whatever its status.
+     */
+    public function testTheLoginLookupsIgnoreADeskRow(): void
+    {
+        $this->insertDesk(4, 'former@test.com', MemberEmail::STATUS_VALID);
+
+        $this->assertSame([], $this->repository->findMemberIdsByValidBlindIndex($this->blindIndex('former@test.com')));
+        $this->assertSame([], $this->repository->findValidByBlindIndex($this->blindIndex('former@test.com')));
+    }
+
+    /**
+     * ...while a confirmed secondary address of the same member, and the
+     * same address confirmed by hand on another member, still resolve.
+     */
+    public function testTheLoginLookupsStillResolveAConfirmedManualAddress(): void
+    {
+        $this->insertDesk(4, 'shared@test.com', MemberEmail::STATUS_VALID);
+        $this->insert(5, 'shared@test.com', MemberEmail::STATUS_VALID);
+        $this->insert(4, 'alias@test.com', MemberEmail::STATUS_VALID);
+
+        $this->assertSame([5], $this->repository->findMemberIdsByValidBlindIndex($this->blindIndex('shared@test.com')));
+        $this->assertSame(
+            [5],
+            array_map(
+                static fn(MemberEmail $row) => $row->memberId,
+                $this->repository->findValidByBlindIndex($this->blindIndex('shared@test.com'))
+            )
+        );
+        $this->assertSame([4], $this->repository->findMemberIdsByValidBlindIndex($this->blindIndex('alias@test.com')));
+    }
+
+    /**
+     * The cleanup of issue #1100: a 'desk' row whose address is no longer
+     * the member's Desk address in any year still open goes; the row of the
+     * address Desk gives the member today stays, with its status.
+     */
+    public function testDeleteStaleDeskOverridesDeletesTheRowOfAFormerDeskAddressOnly(): void
+    {
+        $yearId = $this->scoutYear('2026-08-01', '2027-07-31');
+        $this->memberYear(4, $yearId, 'current@test.com');
+        $this->insertDesk(4, 'former@test.com', MemberEmail::STATUS_VALID);
+        $this->insertDesk(4, 'current@test.com', MemberEmail::STATUS_INACTIVE);
+        $this->insert(4, 'alias@test.com', MemberEmail::STATUS_VALID);
+
+        $this->assertSame(1, $this->repository->deleteStaleDeskOverrides(new \DateTimeImmutable('2026-11-12')));
+
+        $this->assertNull($this->repository->findByMemberAndEmail(4, 'former@test.com'));
+        $this->assertSame(
+            MemberEmail::STATUS_INACTIVE,
+            $this->repository->findByMemberAndEmail(4, 'current@test.com')?->status
+        );
+        $this->assertNotNull($this->repository->findByMemberAndEmail(4, 'alias@test.com'));
+    }
+
+    /**
+     * The address of another member does not keep a row alive: the match is
+     * on the row's own member.
+     */
+    public function testDeleteStaleDeskOverridesMatchesTheRowsOwnMember(): void
+    {
+        $yearId = $this->scoutYear('2026-08-01', '2027-07-31');
+        $this->memberYear(5, $yearId, 'parent@test.com');
+        $this->insertDesk(4, 'parent@test.com', MemberEmail::STATUS_VALID);
+
+        $this->assertSame(1, $this->repository->deleteStaleDeskOverrides(new \DateTimeImmutable('2026-11-12')));
+        $this->assertNull($this->repository->findByMemberAndEmail(4, 'parent@test.com'));
+    }
+
+    /**
+     * While two years are open, an address changed for next year is still
+     * this year's: its row — an 'inactive' one above all — still applies to
+     * it and stays. An ended year keeps nothing alive.
+     */
+    public function testDeleteStaleDeskOverridesKeepsTheAddressOfEveryYearNotYetEnded(): void
+    {
+        $ended = $this->scoutYear('2025-08-01', '2026-07-31');
+        $current = $this->scoutYear('2026-08-01', '2027-07-31');
+        $next = $this->scoutYear('2027-08-01', '2028-07-31');
+        $this->memberYear(4, $ended, 'oldest@test.com');
+        $this->memberYear(4, $current, 'this-year@test.com');
+        $this->memberYear(4, $next, 'next-year@test.com');
+        $this->insertDesk(4, 'oldest@test.com', MemberEmail::STATUS_VALID);
+        $this->insertDesk(4, 'this-year@test.com', MemberEmail::STATUS_INACTIVE);
+        $this->insertDesk(4, 'next-year@test.com', MemberEmail::STATUS_VALID);
+
+        $this->assertSame(1, $this->repository->deleteStaleDeskOverrides(new \DateTimeImmutable('2027-07-31')));
+
+        $this->assertNull($this->repository->findByMemberAndEmail(4, 'oldest@test.com'));
+        $this->assertNotNull($this->repository->findByMemberAndEmail(4, 'this-year@test.com'));
+        $this->assertNotNull($this->repository->findByMemberAndEmail(4, 'next-year@test.com'));
+    }
+
+    /**
+     * A unit that has not opened the next year yet lives, in September, in
+     * a current year whose end date has passed: its addresses are still
+     * the ones Desk gives, and their rows stay.
+     */
+    public function testDeleteStaleDeskOverridesKeepsTheAddressOfTheCurrentYearPastItsEndDate(): void
+    {
+        $current = $this->scoutYear('2025-08-01', '2026-07-31', true);
+        $this->memberYear(4, $current, 'current@test.com');
+        $this->insertDesk(4, 'current@test.com', MemberEmail::STATUS_INACTIVE);
+        $this->insertDesk(4, 'former@test.com', MemberEmail::STATUS_VALID);
+
+        $this->assertSame(1, $this->repository->deleteStaleDeskOverrides(new \DateTimeImmutable('2026-09-15')));
+
+        $this->assertNotNull($this->repository->findByMemberAndEmail(4, 'current@test.com'));
+        $this->assertNull($this->repository->findByMemberAndEmail(4, 'former@test.com'));
+    }
+
+    private function insertDesk(int $memberId, string $email, string $status): void
+    {
+        $this->pdo->prepare(
+            "INSERT INTO member_emails (member_id, email_encrypted, email_blind_index, source, status)
+             VALUES (?, ?, ?, 'desk', ?)"
+        )->execute([
+            $memberId,
+            $this->encryption->encrypt($email, 'member_emails.email'),
+            $this->blindIndex($email),
+            $status,
+        ]);
+    }
+
+    private function scoutYear(string $start, string $end, bool $isCurrent = false): int
+    {
+        $this->pdo->prepare(
+            'INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES (?, ?, ?, ?)'
+        )->execute([substr($start, 0, 4) . '-' . substr($end, 0, 4), $start, $end, $isCurrent ? 1 : 0]);
+
+        return (int) $this->pdo->lastInsertId();
+    }
+
+    private function memberYear(int $memberId, int $scoutYearId, string $email): void
+    {
+        $this->pdo->prepare(
+            'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted,
+                email_encrypted, email_blind_index)
+             VALUES (?, ?, ?, ?, ?, ?)'
+        )->execute([
+            $memberId,
+            $scoutYearId,
+            $this->encryption->encrypt('Prénom', 'member_years.first_name'),
+            $this->encryption->encrypt('Nom', 'member_years.last_name'),
+            $this->encryption->encrypt($email, 'member_years.email'),
+            $this->blindIndex($email),
+        ]);
+    }
+
     private function insert(int $memberId, string $email, string $status): void
     {
         $stmt = $this->pdo->prepare(

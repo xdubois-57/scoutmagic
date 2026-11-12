@@ -58,6 +58,9 @@ site — elle n'est pas supprimée et revient dès qu'un import lui redonne
 des membres. Tout se fait d'un bloc : en cas d'erreur, rien n'est
 appliqué à moitié.
 
+Corriger l'adresse e-mail d'un membre dans Desk puis importer retire à
+l'ancienne adresse tout accès à sa fiche, session ouverte comprise.
+
 ## Les nouvelles fonctions
 
 À leur première apparition, même lors d'un import ultérieur, les fonctions
