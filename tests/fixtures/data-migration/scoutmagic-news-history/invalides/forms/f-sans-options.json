@@ -1,0 +1,11 @@
+{
+    "id": "f-sans-options",
+    "article_id": "a-valide",
+    "fields": [
+        {
+            "type": "radio",
+            "label": "Menu",
+            "options": []
+        }
+    ]
+}

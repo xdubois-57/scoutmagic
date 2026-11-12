@@ -1,0 +1,42 @@
+{
+    "format": "scoutmagic-news-history",
+    "format_version": "1.0.0",
+    "source": {
+        "installation_id": "ancien-site-unite-exemple",
+        "name": "Ancien site de l'unité d'exemple"
+    },
+    "export_id": "2026-11-08-actualites",
+    "exported_at": "2026-11-08T14:30:00+01:00",
+    "files": [
+        {
+            "path": "articles/a-1187.json",
+            "sha256": "85fa349f7c717142198c68c00988df67b7d11229e4de125d4bc249f9134782ba",
+            "size": 664
+        },
+        {
+            "path": "articles/a-1201.json",
+            "sha256": "c26ffe2acdaef0b68ac0a644b3ad33d7d274a80fbb4ebcf4ee0b848f421c269b",
+            "size": 292
+        },
+        {
+            "path": "articles/a-1302.json",
+            "sha256": "8ad2a3b57c5d31cfbcaeb8e77925a906afd04c5f79c3bda0a8a101a8c270f801",
+            "size": 278
+        },
+        {
+            "path": "forms/f-0412.json",
+            "sha256": "978c634828b9554a6dac9758467843916c2759eaf3203e0a6b9e0f87a5a20896",
+            "size": 718
+        },
+        {
+            "path": "media/0355f882d8f3479805bc3d5a46261e0c4df2148d94a853e3c27cbb21db764158.png",
+            "sha256": "0355f882d8f3479805bc3d5a46261e0c4df2148d94a853e3c27cbb21db764158",
+            "size": 307
+        },
+        {
+            "path": "media/ed4160dce6a2404eaa50cefd9d57cc3bdc02de5c2e5a80eeebc62bf1e16cfcd2",
+            "sha256": "ed4160dce6a2404eaa50cefd9d57cc3bdc02de5c2e5a80eeebc62bf1e16cfcd2",
+            "size": 2337
+        }
+    ]
+}

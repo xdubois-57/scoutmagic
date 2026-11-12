@@ -9532,6 +9532,9 @@ if (isset($financeCampaignControllerFactory)) {
 // the one and registers into the other.
 $newsArticleActions = null;
 $newsShareSourceForOthers = null;
+// The write contract of the data migration's « Actualités et formulaires »
+// import (chantier « Migration de données », lot D): null while news is off.
+$newsImportWriterForOthers = null;
 if ($isEnabled('news')) {
     \Core\Debug\RequestTimeline::mark('module_news');
     $newsArticleActions = new \Modules\News\Service\ArticleActionRegistry();
@@ -9663,6 +9666,20 @@ if ($isEnabled('news')) {
     $newsShareSourceForOthers = new \Modules\News\Service\ArticleShareSourceService(
         $newsArticleService,
         $settingService
+    );
+    // History from the unit's previous site, without a side effect: no
+    // notice, no digest, no ticket (Api\NewsImportWriterInterface). The
+    // shared upload handler, so the disk quota applies (DiskBudget).
+    $newsImportWriterForOthers = new \Modules\News\Service\NewsImportWriter(
+        $newsArticleRepo,
+        $newsFormRepo,
+        $newsFieldRepo,
+        $shortUrlService,
+        $fileRepository,
+        $uploadHandler,
+        $storagePath,
+        $journalService,
+        $imageVariantService
     );
 
     // One-shot backfill of thumb/md derivatives for article images uploaded
@@ -13253,6 +13270,10 @@ if ($isEnabled('data_migration')) {
     // One line per import (vague 2 of the chantier), kept alphabetical by key:
     // $dataMigrationImporters->add(new \Modules\DataMigration\Importer\…Importer(…));
     $dataMigrationSections = new \Modules\DataMigration\Service\SectionByDeskCode($sectionService);
+    $dataMigrationImporters->add(new \Modules\DataMigration\Importer\NewsHistoryImporter(
+        $newsImportWriterForOthers ?? null,
+        new \Modules\DataMigration\Repository\ItemMappingRepository($pdo)
+    ));
     $dataMigrationImporters->add(new \Modules\DataMigration\Importer\CampPlacesImporter($campsPlaceImportWriterForOthers ?? null));
     $dataMigrationImporters->add(new \Modules\DataMigration\Importer\EmailHistoryImporter(
         $massMailHistoryImportForOthers ?? null,

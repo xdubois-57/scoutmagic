@@ -427,6 +427,14 @@ class NewsController extends AbstractController
             return $this->forbidden(self::NOT_THE_AUTHOR_MESSAGE, $request);
         }
 
+        // An imported article has no editor (D11): its page says why, and
+        // every route that would change it refuses on its own below.
+        if ($article->isImported()) {
+            FlashMessage::set('warning', ArticleService::IMPORTED_READ_ONLY_MESSAGE);
+
+            return $this->redirect('/news/' . $article->id);
+        }
+
         $context = $this->editorContext($article);
         $context['preview'] = (string) $request->getQuery('tab', '') === 'preview';
 
@@ -453,6 +461,14 @@ class NewsController extends AbstractController
         $accountId = (int) AuthSession::getUserAccountId();
         if (!$this->articleService->canEdit($article, $role, $accountId)) {
             return $this->forbidden(self::NOT_THE_AUTHOR_MESSAGE, $request);
+        }
+
+        // Refused before anything is read from the request, let alone
+        // written (D11): an upload of a new cover would otherwise land in
+        // `files` before the service refuses the save. Every intent goes
+        // through here — saving, publishing, scheduling, back to draft.
+        if ($article->isImported()) {
+            return $this->forbidden(ArticleService::IMPORTED_READ_ONLY_MESSAGE, $request);
         }
 
         $visibility = (string) $request->getBody('visibility', Article::VISIBILITY_PUBLIC);
@@ -534,6 +550,11 @@ class NewsController extends AbstractController
         $accountId = (int) AuthSession::getUserAccountId();
         if (!$this->articleService->canEdit($article, $role, $accountId)) {
             return $this->json(['success' => false, 'error' => 'Accès refusé.'], 403);
+        }
+
+        // Refused here first, and by the service again (D11).
+        if ($article->isImported()) {
+            return $this->json(['success' => false, 'error' => ArticleService::IMPORTED_READ_ONLY_MESSAGE], 409);
         }
 
         try {
@@ -676,13 +697,17 @@ class NewsController extends AbstractController
             'scheduled_for' => $article->publishedAt !== null
                 ? PublicationWording::longDateTime($article->publishedAt)
                 : '',
-            'can_edit' => $this->articleService->canEdit(
+            // No editor for an imported article (D11), so no way into one.
+            'can_edit' => !$article->isImported() && $this->articleService->canEdit(
                 $article,
                 $role,
                 (int) AuthSession::getUserAccountId()
             ),
             'breadcrumb_current' => $article->title,
-            'author_name' => $author->firstName ?? $author?->email,
+            // An imported article's author is whoever ran the import, not
+            // whoever wrote it on the old site: the page names nobody.
+            'author_name' => $article->isImported() ? null : ($author->firstName ?? $author?->email),
+            ...$this->importedContext($article, $fields),
             'form' => $form,
             'fields' => $this->fieldsForTemplate($fields, $memberOptions),
             'has_real_input' => $hasRealInput,
@@ -742,6 +767,44 @@ class NewsController extends AbstractController
         return $this->render('@news/not_online.html.twig', [
             'scheduled_for' => $scheduledFor,
         ])->setStatusCode(404);
+    }
+
+    /**
+     * The read-only half of an imported article's page (D11, maquette
+     * « Marques Importé » — Actualités): the date it was imported, who may
+     * read it, and the labels of its form's questions, shown closed with
+     * the mention that no response was brought over.
+     *
+     * @param FormField[] $fields
+     * @return array{is_imported: bool, imported_on: string, audience_line: string, imported_questions: list<string>}
+     */
+    private function importedContext(Article $article, array $fields): array
+    {
+        if (!$article->isImported()) {
+            return ['is_imported' => false, 'imported_on' => '', 'audience_line' => '', 'imported_questions' => []];
+        }
+
+        $questions = [];
+        foreach ($fields as $field) {
+            if (!$field->isNonInput() && $field->label !== null && $field->label !== '') {
+                $questions[] = $field->label;
+            }
+        }
+
+        return [
+            'is_imported' => true,
+            'imported_on' => (string) $article->importedAt,
+            'audience_line' => self::visibleTo(PublicationWording::audience($article->visibility)),
+            'imported_questions' => $questions,
+        ];
+    }
+
+    /** « Visible des membres connectés », « Visible de tout le monde ». */
+    private static function visibleTo(string $audience): string
+    {
+        return str_starts_with($audience, 'les ')
+            ? 'Visible des ' . substr($audience, 4)
+            : 'Visible de ' . $audience;
     }
 
     private function renderSocialPreview(Article $article): Response
@@ -826,9 +889,17 @@ class NewsController extends AbstractController
                 // stripped-body excerpt, so the list never shows leftover
                 // multi-paragraph formatting.
                 'excerpt' => $article->summary,
-                'form_badge' => $form === null ? null : ($form->isOpen() ? 'open' : 'closed'),
-                'can_edit' => $currentAccountId !== null,
-                'author_name' => $author->firstName ?? $author?->email,
+                // An imported article's form is closed for good, and it
+                // usually holds nothing but the article's text: the badge
+                // says « Formulaire fermé » only when there were questions.
+                'form_badge' => $form === null || ($article->isImported() && !$this->hasRealInputField(
+                    $this->formService->getFields($form->id)
+                )) ? null : ($form->isOpen() ? 'open' : 'closed'),
+                'can_edit' => $currentAccountId !== null && !$article->isImported(),
+                'is_imported' => $article->isImported(),
+                // An imported article names no author: its account is the
+                // one who ran the import, not who wrote it.
+                'author_name' => $article->isImported() ? null : ($author->firstName ?? $author?->email),
             ];
         }, $articles);
     }

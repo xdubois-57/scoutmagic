@@ -119,6 +119,13 @@ class FormService
      */
     public function save(int $articleId, array $settings, array $fields): NewsForm
     {
+        // An imported article's form is history like the article (D11):
+        // closed for good, its questions as the old site had them.
+        $article = $this->articleService->findById($articleId);
+        if ($article !== null) {
+            ArticleService::assertNotImported($article);
+        }
+
         $access = $settings['access'] === NewsForm::ACCESS_PUBLIC
             ? NewsForm::ACCESS_PUBLIC
             : NewsForm::ACCESS_IDENTIFIED;
@@ -308,6 +315,12 @@ class FormService
      */
     public function reorderFields(int $formId, array $orderedFieldIds): void
     {
+        $form = $this->formRepository->findById($formId);
+        $article = $form !== null ? $this->articleService->findById($form->newsArticleId) : null;
+        if ($article !== null) {
+            ArticleService::assertNotImported($article);
+        }
+
         $existingIds = array_map(fn(FormField $f) => $f->id, $this->fieldRepository->findByFormId($formId));
         $validIds = array_values(array_intersect($orderedFieldIds, $existingIds));
 
