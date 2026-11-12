@@ -4083,7 +4083,7 @@ Chantier : `docs/chantiers/CHANTIER-locations-incidents.md`, §2.6 (issue #980).
 
 ## 49. Migration de données (module data_migration)
 
-Le module reprend **une fois**, lors de l'adoption du site, des données que l'unité tenait sur son ancien site. Il est désactivé par défaut et ne dépend d'aucun autre module : chaque import dépend du sien. Ce chapitre décrit le socle commun (chantier « Migration de données », lot A) ; les sept imports y ajoutent chacun leur section au fil de la vague 2.
+Le module reprend **une fois**, lors de l'adoption du site, des données que l'unité tenait sur son ancien site. Il est désactivé par défaut et ne dépend d'aucun autre module : chaque import dépend du sien. Ce chapitre décrit le socle commun (§49.1 à §49.4), puis chacun des sept imports (§49.5 à §49.11) ; l'index des formats d'archive, avec leur version et le module que chacun requiert, est `docs/formats/data-migration/README.md`. Désactiver le module, une fois la migration faite, ne supprime rien de ce qui a été importé et ne lève aucun verrou : la marque « Importé » des actualités et des courriels appartient à leur module (§49.7, §49.11).
 
 ### 49.1 Accès et disponibilité
 
