@@ -2034,7 +2034,7 @@ Another module may own an album that gallery merely stores — a discussion grou
 
 ### 33.6 Notification, and what is out of scope
 
-**Creating an album** notifies every identified member (in-app and push on by default, email off), never its own creator — there is deliberately no per-section targeting, the same simplification the calendar module makes for its events. The notification carries the album's title and opens the gallery, so a member the album is not scoped to lands on a list without it rather than on a page they may not read. Adding media to an existing album notifies nobody. Neither does an album brought in by the data migration's « Galeries photo » import (§49.6): hundreds of historical albums arriving at once are not news.
+**Creating an album** notifies every identified member (in-app and push on by default, email off), never its own creator — there is deliberately no per-section targeting, the same simplification the calendar module makes for its events. The notification carries the album's title and opens the gallery, so a member the album is not scoped to lands on a list without it rather than on a page they may not read. Adding media to an existing album notifies nobody. Neither does an album brought in by the data migration's « Galeries photo » import (§49.9): hundreds of historical albums arriving at once are not news.
 
 No public album. No per-album storage choice for animateurs. No image editing beyond the automatic resizing and transcoding. No face recognition, no tagging of people, ever.
 
@@ -4117,7 +4117,18 @@ Disponible quand le module Camps est actif. L'archive (format `scoutmagic-camp-p
 - **Coordonnées.** La latitude et la longitude sont contrôlées ensemble : si une seule est donnée, ou si l'une sort de ses bornes, les deux sont écartées et le lieu est créé quand même. Les coordonnées reprises sont marquées manuelles : le géocodage automatique ne les remplace jamais. Aucun géocodage n'a lieu pendant l'import ; un lieu sans coordonnées suit ensuite le géocodage habituel.
 - Un lieu importé reste modifiable, archivable et fusionnable normalement dans Camps (§26).
 
-### 49.6 Galeries photo (import `galeries`)
+### 49.6 Photos des membres
+
+Import « Photos des membres », adresse `/admin/migration-donnees/photos`. Fonction du cœur : il est proposé dès que le module est actif, sans autre module requis. Format `scoutmagic-member-photos` 1.x, décrit pour les exporteurs dans `docs/formats/data-migration/member-photos.md`.
+
+- **Une ligne de `photos.jsonl`, une photo** : un membre par son identifiant Desk (`desk_id`), une année par son libellé, une image `images/<sha256>.<extension>` (JPEG, PNG ou WebP).
+- **Membre** cherché par son identifiant Desk, anciens identifiants des fiches fusionnées compris. Introuvable : la photo est ignorée (« Membre introuvable dans ScoutMagic ») et aucun membre n'est créé.
+- **Année** : une année passée absente du site est proposée à la création dans l'aperçu (§49.2) ; les photos d'une année non cochée sont ignorées.
+- **Jamais d'écrasement.** Un membre qui a déjà une photo pour l'année la garde : la ligne compte parmi les « Déjà présents », et l'aperçu dit combien d'animés sont dans ce cas. Si le fichier vise plusieurs fois le même membre et la même année, seule la première ligne dont l'image est valide est prise ; les suivantes sont ignorées.
+- **Contrôles** : l'empreinte annoncée par la ligne est celle que le manifeste a vérifiée ; le type réel de l'image (et non son nom), 10 Mo au plus, 16 mégapixels et 10 000 pixels de côté au plus, et une image qui se décode. Sinon la photo est ignorée avec son motif (« Image illisible »…).
+- **Le traitement normal des photos de membre** : orientation appliquée, métadonnées supprimées, réencodage, vignette, fichier réservé aux visiteurs connectés. La photo s'affiche au trombinoscope et sur la fiche comme une photo ajoutée à la main, sans marque ni écran d'historique. Les photos de compte, de section et les albums ne sont pas touchés.
+- **Limites** : 4 000 images par archive (le manifeste les inventorie toutes) ; au-delà, plusieurs archives du même site, qui se dédoublonnent entre elles.
+### 49.9 Galeries photo (import `galeries`)
 
 Disponible si le module `gallery` est actif. L'archive (format `scoutmagic-gallery-links` 1.0.0, documenté dans `docs/formats/data-migration/gallery-links.md`) liste dans `albums.jsonl` les albums que l'ancien site montrait par un lien. Chacun devient un **album externe** ordinaire de la Galerie (§33), sans badge ni verrou ; aucune photo n'est copiée.
 
