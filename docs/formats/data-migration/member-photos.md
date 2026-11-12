@@ -11,7 +11,7 @@ ScoutMagic.
 |---|---|
 | Identifiant du format (`format`) | `scoutmagic-member-photos` |
 | Version décrite (`format_version`) | `1.0.0` — ScoutMagic lit toute version `1.x.x` |
-| Import dans ScoutMagic | Espace chefs d'U › Migration de données › **Photos des membres** |
+| Import dans ScoutMagic | Configuration › Migration de données › **Photos des membres** |
 | Module requis | Aucun : les photos des membres sont une fonction du cœur, l'import est proposé dès que « Migration de données » est activé |
 | Type d'objet (`source_kind`) | `photo` |
 

@@ -2,12 +2,12 @@
 id: migration-galeries-photo
 title: Reprendre les galeries photo de l'ancien site
 summary: Les albums montrés par un lien deviennent des albums externes de la Galerie, sans notification.
-category: Espace chefs d'U
-role_min: admin
+category: Configuration
+role_min: superadmin
 discovery: off
 question: Comment reprendre les albums photo de notre ancien site ?
 question: Pourquoi un album de l'ancien site a-t-il été ignoré ?
-paths: /admin/migration-donnees/galeries
+paths: /config/migration-donnees/galeries
 ---
 
 L'import « Galeries photo » reprend les albums que l'ancien site montrait par un lien (Google Photos, Flickr…). Chacun devient un album externe de la Galerie ; aucune photo n'est copiée. Il n'est proposé que si le module Photos est activé.
