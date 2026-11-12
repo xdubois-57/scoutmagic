@@ -30,14 +30,16 @@ use Twig\Environment;
  * « Migration de données » — the home page and the one shared page every
  * import runs on (chantier « Migration de données », lot A).
  *
- * Every route is `role_min: admin`. Every route that names an import asks
+ * Every route is `role_min: superadmin`, in the Configuration menu: the
+ * maintainer's design decision, since an import rewrites the unit's whole
+ * history at once. Every route that names an import asks
  * {@see ImporterRegistry::find()} first, and an import whose module is off
  * is a 404 — at its address, at its AJAX endpoints and for every slice,
  * not only on the home page (spec §2.1).
  */
 class DataMigrationController extends AbstractController
 {
-    public const PATH = '/admin/migration-donnees';
+    public const PATH = '/config/migration-donnees';
 
     /**
      * @param array<string, string> $moduleNames enabled module id => its name
@@ -51,7 +53,7 @@ class DataMigrationController extends AbstractController
     }
 
     /**
-     * GET /admin/migration-donnees
+     * GET /config/migration-donnees
      *
      * @param array<string, string> $params
      */
@@ -87,7 +89,7 @@ class DataMigrationController extends AbstractController
     }
 
     /**
-     * GET /admin/migration-donnees/{importer} — the shared six-step page.
+     * GET /config/migration-donnees/{importer} — the shared six-step page.
      *
      * @param array<string, string> $params
      */
@@ -109,7 +111,7 @@ class DataMigrationController extends AbstractController
     }
 
     /**
-     * POST /admin/migration-donnees/{importer}/depot (AJAX) — one fragment
+     * POST /config/migration-donnees/{importer}/depot (AJAX) — one fragment
      * of the archive (Core\File\ChunkedUploadStore, SECURITY.md §29). With
      * no file and `probe=1`, answers how many bytes this session already
      * sent under that id, so a page reopened resumes the deposit.
@@ -159,7 +161,7 @@ class DataMigrationController extends AbstractController
     }
 
     /**
-     * POST /admin/migration-donnees/{importer}/source — step 1 of an import
+     * POST /config/migration-donnees/{importer}/source — step 1 of an import
      * whose source is a form (the ICS calendar).
      *
      * @param array<string, string> $params
@@ -187,7 +189,7 @@ class DataMigrationController extends AbstractController
     }
 
     /**
-     * POST /admin/migration-donnees/{importer}/avancer (AJAX) — one slice
+     * POST /config/migration-donnees/{importer}/avancer (AJAX) — one slice
      * of about five seconds, the page's poll driving the work.
      *
      * @param array<string, string> $params
@@ -211,7 +213,7 @@ class DataMigrationController extends AbstractController
     }
 
     /**
-     * POST /admin/migration-donnees/{importer}/confirmer — step 4.
+     * POST /config/migration-donnees/{importer}/confirmer — step 4.
      *
      * @param array<string, string> $params
      */
@@ -227,7 +229,7 @@ class DataMigrationController extends AbstractController
     }
 
     /**
-     * POST /admin/migration-donnees/{importer}/pause
+     * POST /config/migration-donnees/{importer}/pause
      *
      * @param array<string, string> $params
      */
@@ -239,7 +241,7 @@ class DataMigrationController extends AbstractController
     }
 
     /**
-     * POST /admin/migration-donnees/{importer}/reprendre
+     * POST /config/migration-donnees/{importer}/reprendre
      *
      * @param array<string, string> $params
      */
@@ -251,7 +253,7 @@ class DataMigrationController extends AbstractController
     }
 
     /**
-     * POST /admin/migration-donnees/{importer}/abandonner — D9.
+     * POST /config/migration-donnees/{importer}/abandonner — D9.
      *
      * @param array<string, string> $params
      */
@@ -266,7 +268,7 @@ class DataMigrationController extends AbstractController
     }
 
     /**
-     * POST /admin/migration-donnees/{importer}/relancer
+     * POST /config/migration-donnees/{importer}/relancer
      *
      * @param array<string, string> $params
      */

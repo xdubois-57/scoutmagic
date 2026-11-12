@@ -4250,6 +4250,14 @@ $router->addRoute(
 );
 $router->addRoute('POST', '/account/passkey/register', AccountController::class, 'passkeyRegister', 'identified');
 $router->addRoute('POST', '/account/passkey/delete', AccountController::class, 'passkeyDelete', 'identified');
+// « Déconnecter partout » (issue #1115): sessions, passkeys and devices.
+$router->addRoute(
+    'POST',
+    '/account/sign-out-everywhere',
+    AccountController::class,
+    'signOutEverywhere',
+    'identified'
+);
 $router->addRoute('POST', '/account/photo/delete', AccountController::class, 'deletePhoto', 'identified');
 // « Synchroniser mes contacts » (Core\Contact\Device, ARCHITECTURE.md
 // §8.117). `role_min: admin` and not `identified` like the rest of Mon
@@ -6768,6 +6776,15 @@ $accountSecurityAlertService = new \Core\Security\AccountSecurityAlertService(
     $journalService,
     $notificationService
 );
+// Takes back an account's passkeys and device credentials (issue #1115):
+// on a password reset, except those the holder chose to keep, and all of
+// them on « Déconnecter partout ».
+$accountAccessRevoker = new \Core\Security\AccountAccessRevoker(
+    $webAuthnCredentialRepo,
+    new \Core\Contact\Device\DeviceCredentialRepository($pdo),
+    $journalService
+);
+$passwordResetService->setAccessRevoker($accountAccessRevoker);
 $frontController->registerController(
     AccountController::class,
     new AccountController(
@@ -6778,7 +6795,8 @@ $frontController->registerController(
         $accountPhotoService,
         $seenHelpTopicRepository,
         $personalSignatureService,
-        $accountSecurityAlertService
+        $accountSecurityAlertService,
+        $accountAccessRevoker
     )
 );
 $frontController->registerController(
@@ -9285,6 +9303,7 @@ if ($isEnabled('mass_mail')) {
     $massMailDeliveryRepo = new \Modules\MassMail\Repository\DeliveryRepository($pdo, $encryptionService);
     $massMailTargetRepo = new \Modules\MassMail\Repository\TargetRepository($pdo);
     $massMailAttachmentRepo = new \Modules\MassMail\Repository\EmailAttachmentRepository($pdo);
+    $massMailImportedEmailRepo = new \Modules\MassMail\Repository\ImportedEmailRepository($pdo, $encryptionService);
     $massMailFunctionRepo = new \Core\Import\FunctionRepository($pdo);
     $massMailAudienceRepo = new \Modules\MassMail\Repository\AudienceRepository($pdo, $encryptionService);
     $massMailSuppressedRepo = new \Modules\MassMail\Repository\SuppressedAddressRepository($pdo);
@@ -9374,7 +9393,26 @@ if ($isEnabled('mass_mail')) {
         // written to through a custom list either.
         new \Core\Mail\Feedback\Bounce\BounceService(
             new \Core\Mail\Feedback\Bounce\BounceStateRepository($pdo, $encryptionService)
-        )
+        ),
+        // The original sender of an email imported from a former site,
+        // shown as is (data_migration, D6). Display only: the read-only
+        // lock is the email's own imported_at.
+        $massMailImportedEmailRepo
+    );
+
+    // The import interface of the « Historique des courriels » migration
+    // (data_migration, lot C): writes an email of a former site with no
+    // send, no pending message, no notification. Consumed by the
+    // data_migration block below, null when this module is disabled.
+    $massMailHistoryImportForOthers = new \Modules\MassMail\Service\EmailHistoryImportService(
+        $massMailImportedEmailRepo,
+        $massMailDeliveryRepo,
+        $massMailTargetRepo,
+        $massMailAttachmentRepo,
+        $massMailResolutionRepo,
+        $uploadHandler,
+        new \Core\Security\HtmlSanitizer(),
+        $journalService
     );
 
     $massMailDraftForOthers = new \Modules\MassMail\Service\MergeDraftService(
@@ -9879,6 +9917,13 @@ if ($isEnabled('gallery')) {
             $scoutYearResolver,
             $galleryAlbumActions
         )
+    );
+    // The data migration's « Galeries photo » import (Api\ExternalAlbumWriter):
+    // external albums created without the « Nouvel album » notification.
+    $galleryExternalAlbumWriterForOthers = new \Modules\Gallery\Service\ExternalAlbumImportService(
+        $galleryAlbumRepo,
+        new \Modules\Gallery\Service\OgImageStore($uploadHandler),
+        $settingService
     );
     $galleryShareSourceForOthers = new \Modules\Gallery\Service\AlbumShareSourceService(
         $galleryAlbumService,
@@ -12191,7 +12236,8 @@ if ($isEnabled('registration')) {
             // written to through a custom list either.
             new \Core\Mail\Feedback\Bounce\BounceService(
                 new \Core\Mail\Feedback\Bounce\BounceStateRepository($pdo, $encryptionService)
-            )
+            ),
+            new \Modules\MassMail\Repository\ImportedEmailRepository($pdo, $encryptionService)
         );
         $frontController->registerController(
             \Modules\MassMail\Controller\MassMailController::class,
@@ -13206,10 +13252,21 @@ if ($isEnabled('data_migration')) {
     );
     // One line per import (vague 2 of the chantier), kept alphabetical by key:
     // $dataMigrationImporters->add(new \Modules\DataMigration\Importer\…Importer(…));
+    $dataMigrationSections = new \Modules\DataMigration\Service\SectionByDeskCode($sectionService);
     $dataMigrationImporters->add(new \Modules\DataMigration\Importer\CampPlacesImporter($campsPlaceImportWriterForOthers ?? null));
+    $dataMigrationImporters->add(new \Modules\DataMigration\Importer\EmailHistoryImporter(
+        $massMailHistoryImportForOthers ?? null,
+        $memberRepo,
+        new \Core\Security\HtmlSanitizer()
+    ));
     $dataMigrationImporters->add(new \Modules\DataMigration\Importer\MemberPhotosImporter(
         $memberRepo,
         new \Core\Photo\ImportedMemberPhotoWriter($photoIngestionService, new MemberPhotoRepository($pdo))
+    ));
+    $dataMigrationImporters->add(new \Modules\DataMigration\Importer\GalleryLinksImporter(
+        $galleryExternalAlbumWriterForOthers ?? null,
+        $dataMigrationSections,
+        $linkPreviewService
     ));
     $dataMigrationImporters->add(new \Modules\DataMigration\Importer\RegistrationRequestsImporter(
         $registrationRequestImportForOthers ?? null,

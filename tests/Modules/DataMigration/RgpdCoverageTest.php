@@ -32,6 +32,11 @@ final class RgpdCoverageTest extends TestCase
         $this->assertStringContainsString('au plus tard <strong>24 heures</strong>', $page);
         $this->assertStringContainsString('<li><strong>Fichiers déposés pour la migration de données</strong>', $page);
         $this->assertStringContainsString('<strong>jamais le nom d\'une personne</strong>', $page);
+        // Only the site's administrator reaches the page (Configuration menu).
+        $this->assertStringContainsString('Le fichier déposé par l\'administrateur du site', $page);
+        $this->assertStringNotContainsString('déposé par un chef d\'unité', $page);
+        // The gallery import reads each album's page on its host (lot F).
+        $this->assertStringContainsString('<p><strong>Galeries photo</strong> : pour chaque album importé', $page);
     }
 
     public function testThePromptTellsTheModelWhatToKeepAndWhenToRemoveIt(): void
@@ -40,6 +45,24 @@ final class RgpdCoverageTest extends TestCase
 
         $this->assertStringContainsString('**Module Migration de données (module data_migration)**', $prompt);
         $this->assertStringContainsString('retire entièrement la sous-section "Module Migration de données"', $prompt);
+        $this->assertStringContainsString('par l\'administrateur du site seul', $prompt);
+    }
+
+    /**
+     * The email history import stores personal data in mass_mail that no
+     * native send does: the sender as the former site recorded it.
+     */
+    public function testTheImportedEmailsAndTheirOriginalSenderAreDescribed(): void
+    {
+        $page = self::read('core/View/rgpd_default.html');
+        $prompt = self::read('core/View/RgpdContentService.php');
+
+        $this->assertStringContainsString('<strong>Courriels importés de l\'ancien site</strong>', $page);
+        $this->assertStringContainsString(
+            '<strong>adresse et le nom de son expéditeur d\'origine</strong> (chiffrés au repos)',
+            $page,
+        );
+        $this->assertStringContainsString('« Courriels importés de l\'ancien site »', $prompt);
     }
 
     public function testThePromisedDurationIsTheOneThePurgeApplies(): void

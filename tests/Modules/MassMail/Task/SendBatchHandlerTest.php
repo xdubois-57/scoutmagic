@@ -380,6 +380,32 @@ class SendBatchHandlerTest extends TestCase
         $this->assertSame(1, (int) $stmt->fetchColumn());
     }
 
+    /**
+     * An email imported from a former site is never sent from here (D11):
+     * its import writes no pending message, and « Renvoyer » is refused. A
+     * pending one could only be a fault, and it fails explicitly — neither
+     * sent nor left to block the queue.
+     */
+    public function testAPendingMessageOfAnImportedEmailIsFailedRatherThanSent(): void
+    {
+        $this->pdo->prepare(
+            "UPDATE mass_mail_emails SET list_type = 'imported', imported_at = '2026-11-09 10:00:00' WHERE id = ?"
+        )->execute([$this->emailId]);
+
+        $mailService = $this->createMock(MailService::class);
+        $mailService->expects($this->never())->method('send');
+        (new SendBatchHandler())->handle([], $this->buildContext($mailService));
+
+        $stmt = $this->pdo->prepare('SELECT DISTINCT status FROM mass_mail_deliveries ORDER BY status');
+        $stmt->execute();
+        $statuses = $stmt->fetchAll(\PDO::FETCH_COLUMN);
+        $this->assertContains('error', $statuses);
+        $this->assertNotContains('sent', $statuses);
+        $stmt = $this->pdo->prepare('SELECT error_message FROM mass_mail_deliveries WHERE status = ? LIMIT 1');
+        $stmt->execute(['error']);
+        $this->assertSame('Courriel importé, jamais envoyé', $stmt->fetchColumn());
+    }
+
     public function testDoesNotRescheduleWhenNoPendingRemain(): void
     {
         // Shrink to 1 recipient so a single batch (size 2) drains everything.

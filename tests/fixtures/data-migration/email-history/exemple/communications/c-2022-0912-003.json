@@ -1,0 +1,22 @@
+{
+    "id": "c-2022-0912-003",
+    "sent_at": "2022-09-12T20:00:00+02:00",
+    "subject": "Cotisation {{Annee}}",
+    "sender": {
+        "address": "tresorerie@exemple.test",
+        "name": "Trésorerie"
+    },
+    "body": {
+        "html": "content/59c20fb909b3bea799f8fc9032c6a8d5426638f88e86bd026bfc5d5b988b802c.html"
+    },
+    "mail_merge": true,
+    "recipients": [
+        {
+            "address": "famille.alpha@exemple.test",
+            "status": "accepted",
+            "desk_ids": [
+                "900001"
+            ]
+        }
+    ]
+}

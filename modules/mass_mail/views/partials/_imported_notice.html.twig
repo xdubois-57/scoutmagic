@@ -1,0 +1,19 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{#
+  The banner of an email imported from a former site (chantier « Migration
+  de données », decision D11), on each of its three pages. The server
+  refuses every action it names whatever the page shows
+  (Service\MassMailService::refuseImported()).
+
+  Usage:
+  {% include '@mass_mail/partials/_imported_notice.html.twig' with {
+      imported_at: email.importedAt,
+  } only %}
+#}
+<div class="alert alert-imported" role="note" id="mm-imported-notice">
+    <strong>Élément historique en lecture seule</strong>
+    <span class="d-block small">Importé le {{ imported_at|date_fr }}. Ce courriel ne peut pas être modifié, supprimé ni renvoyé.</span>
+</div>

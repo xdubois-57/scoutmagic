@@ -67,6 +67,50 @@ class AlbumRepositoryTest extends TestCase
         $this->assertNull($album->sectionId);
     }
 
+    public function testExternalAlbumsAreFoundByAddressPrefixWithWildcardsTakenLiterally(): void
+    {
+        $exact = $this->repository->create(
+            Album::TYPE_EXTERNAL,
+            'A',
+            null,
+            '2026-06-01',
+            null,
+            $this->scoutYearId,
+            'https://example.com/a_1%#x',
+            null,
+            $this->authorId
+        );
+        $this->repository->create(
+            Album::TYPE_EXTERNAL,
+            'B',
+            null,
+            '2026-06-01',
+            null,
+            $this->scoutYearId,
+            'https://example.com/ab1',
+            null,
+            $this->authorId
+        );
+        $this->repository->create(
+            Album::TYPE_LOCAL,
+            'C',
+            null,
+            '2026-06-01',
+            null,
+            $this->scoutYearId,
+            null,
+            null,
+            $this->authorId
+        );
+
+        $this->assertSame(
+            [['id' => $exact, 'external_url' => 'https://example.com/a_1%#x']],
+            $this->repository->findExternalByUrlPrefix('https://example.com/a_1%')
+        );
+        $this->assertCount(2, $this->repository->findExternalByUrlPrefix('https://example.com/a'));
+        $this->assertSame([], $this->repository->findExternalByUrlPrefix('https://example.com/a!'));
+    }
+
     public function testUpdateChangesFields(): void
     {
         $id = $this->repository->create(Album::TYPE_LOCAL, 'Titre', null, '2026-01-01', $this->sectionId, $this->scoutYearId, null, null, $this->authorId);

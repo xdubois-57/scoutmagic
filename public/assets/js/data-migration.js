@@ -76,7 +76,7 @@
      */
     function isMigrationUrl(url) {
         return typeof url === 'string'
-            && /^\/admin\/migration-donnees\/[a-z0-9-]{1,50}(\/(depot|avancer))?$/.test(url);
+            && /^\/config\/migration-donnees\/[a-z0-9-]{1,50}(\/(depot|avancer))?$/.test(url);
     }
 
     /**
