@@ -125,6 +125,46 @@ class MemberPhotoRepository
     }
 
     /**
+     * Whether the member has a photo of that exact scout year — not an
+     * earlier one carried over, which is what every other read here
+     * resolves.
+     */
+    public function hasPhotoForYear(int $memberId, int $scoutYearId): bool
+    {
+        $stmt = $this->pdo->prepare('SELECT 1 FROM member_photos WHERE member_id = ? AND scout_year_id = ?');
+        $stmt->execute([$memberId, $scoutYearId]);
+
+        return $stmt->fetchColumn() !== false;
+    }
+
+    /**
+     * Create the photo for a member at a given scout year only when that
+     * year has none — never replacing one, unlike {@see upsert()}. Returns
+     * false when the slot was already taken.
+     *
+     * Decided by the UNIQUE index (member_id, scout_year_id) rather than by
+     * a SELECT first, so a photo added by somebody else between a check and
+     * this write is still never overwritten. On MySQL and MariaDB a refused
+     * duplicate rolls back only its own statement, so a caller inside a
+     * transaction keeps it.
+     */
+    public function insertIfAbsent(int $memberId, int $scoutYearId, int $fileId, ?int $createdBy): bool
+    {
+        try {
+            $this->pdo->prepare(
+                'INSERT INTO member_photos (member_id, scout_year_id, file_id, created_by) VALUES (?, ?, ?, ?)'
+            )->execute([$memberId, $scoutYearId, $fileId, $createdBy]);
+        } catch (\PDOException $e) {
+            if (\Core\Database\ConstraintViolation::isDuplicateKey($e)) {
+                return false;
+            }
+            throw $e;
+        }
+
+        return true;
+    }
+
+    /**
      * Create or replace the photo for a member at a given scout year.
      */
     public function upsert(int $memberId, int $scoutYearId, int $fileId, ?int $createdBy): void
