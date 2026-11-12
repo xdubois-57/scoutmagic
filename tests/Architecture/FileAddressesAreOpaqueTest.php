@@ -41,7 +41,7 @@ final class FileAddressesAreOpaqueTest extends TestCase
         $root = dirname(__DIR__, 2);
         $offenders = [];
 
-        foreach (['core', 'modules', 'public'] as $top) {
+        foreach (['core', 'modules', 'public', 'scripts', 'tests/fixtures'] as $top) {
             $files = new \RecursiveIteratorIterator(
                 new \RecursiveDirectoryIterator($root . '/' . $top, \FilesystemIterator::SKIP_DOTS)
             );

@@ -171,6 +171,21 @@ final class FilePublicIds
 
         $publicId = self::forFileId($id);
 
-        return $publicId === null ? '' : '/files/' . $publicId . $suffix;
+        return $publicId === null ? '' : self::addressOf($publicId, $variant);
+    }
+
+    /**
+     * The address of the file served under $publicId — for code that
+     * already holds the public id (a seeder reading the row it just
+     * created) and must not build the address by hand. Empty for a value
+     * that cannot be a public id.
+     */
+    public static function addressOf(string $publicId, ?string $variant = null): string
+    {
+        if (!self::isWellFormed($publicId)) {
+            return '';
+        }
+
+        return '/files/' . $publicId . ($variant !== null ? '/' . $variant : '');
     }
 }

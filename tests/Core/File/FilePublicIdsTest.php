@@ -152,6 +152,16 @@ class FilePublicIdsTest extends TestCase
         $this->assertSame('', FilePublicIds::urlFor(9999));
     }
 
+    public function testAddressOfBuildsFromAPublicIdAndRefusesAnythingElse(): void
+    {
+        $public = FilePublicIds::generate();
+
+        $this->assertSame('/files/' . $public, FilePublicIds::addressOf($public));
+        $this->assertSame('/files/' . $public . '/md', FilePublicIds::addressOf($public, 'md'));
+        $this->assertSame('', FilePublicIds::addressOf('123'));
+        $this->assertSame('', FilePublicIds::addressOf('"><script>'));
+    }
+
     public function testWithoutARepositoryAddressesStayNumeric(): void
     {
         FilePublicIds::useRepository(null);
