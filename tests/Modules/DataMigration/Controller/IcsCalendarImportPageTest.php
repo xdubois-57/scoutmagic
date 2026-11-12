@@ -150,9 +150,9 @@ final class IcsCalendarImportPageTest extends TestCase
     {
         return $this->handle('POST', self::PAGE . '/source', [
             '_csrf_token' => CsrfGuard::generateToken(),
-            'adresse' => $address,
-            'calendrier' => (string) $this->stack->calendarId,
-            'date_minimale' => '2024-11-11',
+            'address' => $address,
+            'calendar' => (string) $this->stack->calendarId,
+            'min_date' => '2024-11-11',
         ]);
     }
 

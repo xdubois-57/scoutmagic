@@ -112,7 +112,7 @@ final class IcsCalendarImporter implements FormSourceImporter
 
     public function acceptSource(array $fields, string $workspace, int $userAccountId): AcceptedSource
     {
-        $address = self::normalisedAddress((string) ($fields['adresse'] ?? ''));
+        $address = self::normalisedAddress((string) ($fields['address'] ?? ''));
         $host = $address !== null ? parse_url($address, PHP_URL_HOST) : null;
         if ($address === null || !is_string($host) || $host === '') {
             throw new SourceRejectedException(
@@ -120,7 +120,7 @@ final class IcsCalendarImporter implements FormSourceImporter
             );
         }
 
-        $calendarId = IntegerInput::id($fields['calendrier'] ?? null);
+        $calendarId = IntegerInput::id($fields['calendar'] ?? null);
         $calendar = null;
         foreach ($this->writer()->writableCalendars($userAccountId) as $candidate) {
             if ($candidate->id === $calendarId) {
@@ -131,7 +131,7 @@ final class IcsCalendarImporter implements FormSourceImporter
             throw new SourceRejectedException('Choisissez un calendrier de destination que vous pouvez modifier.');
         }
 
-        $minDate = trim((string) ($fields['date_minimale'] ?? ''));
+        $minDate = trim((string) ($fields['min_date'] ?? ''));
         if (!DateInput::isIso($minDate)) {
             throw new SourceRejectedException('Indiquez une date valide à partir de laquelle importer les événements.');
         }

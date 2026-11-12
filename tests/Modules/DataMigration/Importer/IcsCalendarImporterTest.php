@@ -114,9 +114,9 @@ final class IcsCalendarImporterTest extends TestCase
             'Par défaut, deux ans avant aujourd\'hui.',
             'Les événements récurrents ne sont pas importés',
             'Lire le calendrier',
-            'name="adresse"',
-            'name="calendrier"',
-            'name="date_minimale"',
+            'name="address"',
+            'name="calendar"',
+            'name="min_date"',
             'value="2024-11-11"',
             '<option value="5">Louveteaux</option>',
         ] as $expected) {
@@ -125,7 +125,7 @@ final class IcsCalendarImporterTest extends TestCase
 
         $none = $twig->render($this->importer->sourceFormTemplate(), $this->importer->sourceFormContext(99));
         $this->assertStringContainsString('Vous ne pouvez modifier aucun calendrier.', $none);
-        $this->assertStringNotContainsString('name="calendrier"', $none);
+        $this->assertStringNotContainsString('name="calendar"', $none);
     }
 
     public function testAnAcceptedSourceKeepsTheEventsButNotTheAddress(): void
@@ -163,28 +163,28 @@ final class IcsCalendarImporterTest extends TestCase
      */
     public static function refusedForms(): array
     {
-        $ok = ['adresse' => self::ADDRESS, 'calendrier' => '5', 'date_minimale' => '2024-11-11'];
+        $ok = ['address' => self::ADDRESS, 'calendar' => '5', 'min_date' => '2024-11-11'];
 
         return [
-            'no address' => [['adresse' => ''] + $ok, 'l\'adresse complète du calendrier'],
+            'no address' => [['address' => ''] + $ok, 'l\'adresse complète du calendrier'],
             'not a web address' => [
-                ['adresse' => 'ftp://agenda.exemple.test/a.ics'] + $ok,
+                ['address' => 'ftp://agenda.exemple.test/a.ics'] + $ok,
                 'l\'adresse complète du calendrier',
             ],
-            'no host' => [['adresse' => 'https://'] + $ok, 'l\'adresse complète du calendrier'],
+            'no host' => [['address' => 'https://'] + $ok, 'l\'adresse complète du calendrier'],
             'a calendar of somebody else' => [
-                ['calendrier' => '4'] + $ok,
+                ['calendar' => '4'] + $ok,
                 'un calendrier de destination que vous pouvez modifier',
             ],
-            'no calendar' => [['calendrier' => ''] + $ok, 'un calendrier de destination que vous pouvez modifier'],
-            'no date' => [['date_minimale' => ''] + $ok, 'une date valide'],
-            'an impossible date' => [['date_minimale' => '2024-02-30'] + $ok, 'une date valide'],
+            'no calendar' => [['calendar' => ''] + $ok, 'un calendrier de destination que vous pouvez modifier'],
+            'no date' => [['min_date' => ''] + $ok, 'une date valide'],
+            'an impossible date' => [['min_date' => '2024-02-30'] + $ok, 'une date valide'],
             'an address that does not answer' => [
-                ['adresse' => 'https://agenda.exemple.test/absent.ics'] + $ok,
+                ['address' => 'https://agenda.exemple.test/absent.ics'] + $ok,
                 'n\'a pas pu être téléchargé',
             ],
             'a page that is not a calendar' => [
-                ['adresse' => 'https://agenda.exemple.test/page.html'] + $ok,
+                ['address' => 'https://agenda.exemple.test/page.html'] + $ok,
                 'n\'est pas un calendrier ICS lisible',
             ],
         ];
@@ -209,7 +209,7 @@ final class IcsCalendarImporterTest extends TestCase
     {
         try {
             $this->importer->acceptSource(
-                ['adresse' => self::ADDRESS, 'calendrier' => '4', 'date_minimale' => '2024-11-11'],
+                ['address' => self::ADDRESS, 'calendar' => '4', 'min_date' => '2024-11-11'],
                 $this->workspace,
                 self::ACCOUNT
             );
@@ -391,7 +391,7 @@ final class IcsCalendarImporterTest extends TestCase
     private function accept(string $address, string $minDate = '2024-11-11'): AcceptedSource
     {
         return $this->importer->acceptSource(
-            ['adresse' => $address, 'calendrier' => '5', 'date_minimale' => $minDate, '_csrf_token' => 'x'],
+            ['address' => $address, 'calendar' => '5', 'min_date' => $minDate, '_csrf_token' => 'x'],
             $this->workspace,
             self::ACCOUNT
         );

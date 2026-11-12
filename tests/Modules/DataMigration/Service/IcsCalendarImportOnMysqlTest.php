@@ -259,7 +259,7 @@ final class IcsCalendarImportOnMysqlTest extends TestCase
     {
         return $this->service->acceptForm(
             $this->importer,
-            ['adresse' => $address, 'calendrier' => (string) $this->calendarId, 'date_minimale' => '2024-11-11'],
+            ['address' => $address, 'calendar' => (string) $this->calendarId, 'min_date' => '2024-11-11'],
             $this->adminId
         );
     }
