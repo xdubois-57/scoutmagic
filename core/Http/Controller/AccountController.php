@@ -13,6 +13,7 @@ use Core\Http\FlashMessage;
 use Core\Http\Request;
 use Core\Http\Response;
 use Core\Photo\AccountPhotoService;
+use Core\Security\AccountAccessRevoker;
 use Core\Security\AccountSecurityAlertService;
 use Core\Security\AccountSecurityChange;
 use Core\Security\AuthSession;
@@ -50,7 +51,11 @@ class AccountController extends AbstractController
         // as it did before issue #1115. Production always wires it — it is
         // what tells the holder that a stolen session just gave itself a
         // way back in.
-        private ?AccountSecurityAlertService $securityAlerts = null
+        private ?AccountSecurityAlertService $securityAlerts = null,
+        // Same rule: with none, « Déconnecter partout » still ends every
+        // session but leaves passkeys and devices in place. Production
+        // always wires it (issue #1115).
+        private ?AccountAccessRevoker $accessRevoker = null
     ) {
     }
 
@@ -375,6 +380,44 @@ class AccountController extends AbstractController
         $this->securityAlerts?->report($userId, AccountSecurityChange::PasskeyAdded, $credentialId, $deviceLabel);
 
         return $this->json(['success' => true]);
+    }
+
+    /**
+     * POST /account/sign-out-everywhere — « Déconnecter partout » (issue
+     * #1115): every session of the account ends, this one included, every
+     * passkey is removed and every device credential revoked, in one
+     * gesture. What a holder does on an alert about an access they did not
+     * add.
+     *
+     * Deliberately not gated on a recent login
+     * (Core\Security\RecentAuthentication): it only ever takes access
+     * away, and an attacker running it achieves nothing the holder cannot
+     * undo by signing back in.
+     *
+     * @param array<string, string> $params
+     */
+    public function signOutEverywhere(Request $request, array $params): Response
+    {
+        $userId = AuthSession::getUserAccountId();
+        if ($userId === null) {
+            return $this->redirect('/login');
+        }
+
+        if (($guard = $this->guardCsrf($request, '/account')) !== null) {
+            return $guard;
+        }
+
+        $this->accessRevoker?->revoke($userId, [], [], AccountAccessRevoker::REASON_SIGN_OUT_EVERYWHERE, $userId);
+        $this->userAccountRepo->revokeSessions($userId);
+        AuthSession::logout();
+
+        FlashMessage::set(
+            'success',
+            'Déconnexion partout effectuée : sessions fermées, clés numériques retirées et appareils'
+                . ' synchronisés déconnectés. Reconnectez-vous pour continuer.'
+        );
+
+        return $this->redirect('/login');
     }
 
     /**

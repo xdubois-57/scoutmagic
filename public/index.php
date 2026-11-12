@@ -4250,6 +4250,14 @@ $router->addRoute(
 );
 $router->addRoute('POST', '/account/passkey/register', AccountController::class, 'passkeyRegister', 'identified');
 $router->addRoute('POST', '/account/passkey/delete', AccountController::class, 'passkeyDelete', 'identified');
+// « Déconnecter partout » (issue #1115): sessions, passkeys and devices.
+$router->addRoute(
+    'POST',
+    '/account/sign-out-everywhere',
+    AccountController::class,
+    'signOutEverywhere',
+    'identified'
+);
 $router->addRoute('POST', '/account/photo/delete', AccountController::class, 'deletePhoto', 'identified');
 // « Synchroniser mes contacts » (Core\Contact\Device, ARCHITECTURE.md
 // §8.117). `role_min: admin` and not `identified` like the rest of Mon
@@ -6768,6 +6776,15 @@ $accountSecurityAlertService = new \Core\Security\AccountSecurityAlertService(
     $journalService,
     $notificationService
 );
+// Takes back an account's passkeys and device credentials (issue #1115):
+// on a password reset, except those the holder chose to keep, and all of
+// them on « Déconnecter partout ».
+$accountAccessRevoker = new \Core\Security\AccountAccessRevoker(
+    $webAuthnCredentialRepo,
+    new \Core\Contact\Device\DeviceCredentialRepository($pdo),
+    $journalService
+);
+$passwordResetService->setAccessRevoker($accountAccessRevoker);
 $frontController->registerController(
     AccountController::class,
     new AccountController(
@@ -6778,7 +6795,8 @@ $frontController->registerController(
         $accountPhotoService,
         $seenHelpTopicRepository,
         $personalSignatureService,
-        $accountSecurityAlertService
+        $accountSecurityAlertService,
+        $accountAccessRevoker
     )
 );
 $frontController->registerController(
