@@ -235,7 +235,7 @@ const PASS_CONCURRENCY = 2;
 // pass which keeps failing does not keep its first copies unchecked.
 const PASS_RESUME_WITHIN_MS = 60 * 60 * 1000;
 const MANIFEST_URL = '/api/offline/manifest';
-const IMAGE_VARIANT_PATH = /^\/files\/\d+\/(thumb|md)$/;
+const IMAGE_VARIANT_PATH = /^\/files\/(?:[A-Za-z0-9_-]{22}|\d+)\/(thumb|md)$/;
 
 function storeOfflineConfig(data) {
     return caches.open(CONFIG_CACHE_NAME).then(function (cache) {
@@ -963,7 +963,7 @@ function imagesOf(cache, pages) {
  */
 function imageVariantsIn(html) {
     const urls = [];
-    const pattern = /\/files\/\d+\/(?:thumb|md)(?![\w/.-])/g;
+    const pattern = /\/files\/(?:[A-Za-z0-9_-]{22}|\d+)\/(?:thumb|md)(?![\w/.-])/g;
     let match;
     while ((match = pattern.exec(html)) !== null) {
         urls.push(match[0]);

@@ -488,7 +488,8 @@ class DatabaseTestHelper
             owner_type TEXT,
             owner_id INTEGER,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            created_by INTEGER
+            created_by INTEGER,
+            public_id TEXT UNIQUE
         )');
 
         $pdo->exec('CREATE TABLE webauthn_credentials (

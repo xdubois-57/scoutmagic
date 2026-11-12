@@ -225,8 +225,8 @@
     "/departs/{member_year_id}": {
       "member_year_id": "1"
     },
-    "/files/{id}": {
-      "id": "1",
+    "/files/{file}": {
+      "file": "1",
       "variant": "thumbnail"
     },
     "/document/{token}": {

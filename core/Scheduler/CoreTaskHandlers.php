@@ -58,6 +58,8 @@ final class CoreTaskHandlers
             'purge_notifications' => \Core\Notification\Task\PurgeNotificationsHandler::class,
             'purge_human_check_rate_limits' => \Core\Security\HumanCheck\Task\PurgeHumanCheckRateLimitsHandler::class,
             'purge_expired_magic_links' => \Core\Security\Task\PurgeExpiredMagicLinksHandler::class,
+            \Core\File\Task\BackfillFilePublicIdsHandler::TASK_KEY =>
+                \Core\File\Task\BackfillFilePublicIdsHandler::class,
             \Core\Help\Assistant\Task\PurgeHelpAssistantHandler::TASK_KEY =>
                 \Core\Help\Assistant\Task\PurgeHelpAssistantHandler::class,
             // What the carpool map's address lookup keeps (#642).

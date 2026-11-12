@@ -166,7 +166,8 @@ test('the list is held offline without being opened, with its images, and nothin
         expect(held).toContain('/chefs/staffs');
         expect(held).toContain('/aide/installer-application');
         expect(held, 'a page off the list was cached').not.toContain('/news/manage');
-        expect(held.some((path) => /^\/files\/\d+$/.test(path)), 'an original file was cached').toBe(false);
+        // Any original, addressed by its opaque id (issue #1109) or by a number.
+        expect(held.some((path) => /^\/files\/[^/]+$/.test(path)), 'an original file was cached').toBe(false);
 
         // The same launch asks for no second pass: each page finds the
         // launch done and asks nothing, even once idle — when it would ask.

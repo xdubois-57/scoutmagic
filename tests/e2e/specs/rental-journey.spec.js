@@ -514,8 +514,8 @@ test.describe('Rentals — one booking from the request to the deposit back', ()
         const phoneIncident = phone.locator('li[id^="incident-"]', { hasText: DAMAGE });
         const incidentAnchor = await phoneIncident.getAttribute('id');
         await expect(phoneIncident.locator('figure img[src$="/thumb"]')).toHaveCount(2);
-        await expect(phoneIncident.getByRole('link', { name: `Vue 1 — ${DAMAGE}` })).toHaveAttribute('href', /\/files\/\d+$/);
-        await expect(phoneIncident.getByRole('link', { name: `Vue 2 — ${DAMAGE}` })).toHaveAttribute('href', /\/files\/\d+$/);
+        await expect(phoneIncident.getByRole('link', { name: `Vue 1 — ${DAMAGE}` })).toHaveAttribute('href', /\/files\/[A-Za-z0-9_-]{22}$/);
+        await expect(phoneIncident.getByRole('link', { name: `Vue 2 — ${DAMAGE}` })).toHaveAttribute('href', /\/files\/[A-Za-z0-9_-]{22}$/);
         await phoneIncident.locator('input[name="awaiting"]').fill(DAMAGE_AWAITING);
         await phoneIncident.locator('input[name="reference"]').fill(DAMAGE_REFERENCE);
         await submitAndRefresh(phone, '/mes-locations/incident-decision',

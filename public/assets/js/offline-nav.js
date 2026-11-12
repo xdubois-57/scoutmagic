@@ -44,7 +44,7 @@
         return;
     }
 
-    var IMAGE_VARIANT_PATH = /^\/files\/\d+\/(thumb|md)$/;
+    var IMAGE_VARIANT_PATH = /^\/files\/(?:[A-Za-z0-9_-]{22}|\d+)\/(thumb|md)$/;
     var DAY_MS = 24 * 60 * 60 * 1000;
     // The device clock against the server's Date header — the same bounded
     // tolerance as public/sw.js's cachedCopy().

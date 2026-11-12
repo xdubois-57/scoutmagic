@@ -2812,6 +2812,33 @@ $memberExportService = new \Core\Member\Export\MemberExportService();
 // Create file services
 $storagePath = dirname(__DIR__) . '/storage';
 $fileRepository = new FileRepository($pdo);
+// Every address /files/… is built from the file's opaque public id
+// (Core\File\FilePublicIds, issue #1109); file_url() resolves it here.
+\Core\File\FilePublicIds::useRepository($fileRepository);
+// Files that predate the column get theirs from a task, a slice per cron
+// pass (Core\File\Task\BackfillFilePublicIdsHandler) — never inline on a
+// request. Seeded once here; the handler sets the flag when none is left,
+// which keeps this to a settings-cache read on every later request.
+if ($settingService->get(\Core\File\Task\BackfillFilePublicIdsHandler::DONE_FLAG) !== '1') {
+    $settingService->register(
+        \Core\File\Task\BackfillFilePublicIdsHandler::DONE_FLAG,
+        '0',
+        'boolean',
+        'Identifiants opaques des fichiers attribués',
+        'Indicateur interne : chaque fichier existant a reçu son identifiant opaque.',
+        null,
+        null,
+        null,
+        false,
+        999
+    );
+    $schedulerService->seed(
+        'core',
+        \Core\File\Task\BackfillFilePublicIdsHandler::TASK_KEY,
+        \Core\File\Task\BackfillFilePublicIdsHandler::REFERENCE,
+        new DateTimeImmutable()
+    );
+}
 // The shared "attached document" invariant (Core\File\AttachedFileRemover):
 // row first, bytes second, bytes only when the module owns them and nobody
 // else points at them. Camps and Locations both use this one instance.
@@ -5100,15 +5127,18 @@ $router->addRoute('POST', '/cookies/accept-all', CookieController::class, 'accep
 $router->addRoute('POST', '/cookies/reject-all', CookieController::class, 'rejectAll', 'public');
 
 // File serving
-$router->addRoute('GET', '/files/{id}', FileController::class, 'serve', 'public');
-$router->addRoute('GET', '/files/{id}/thumbnail', FileController::class, 'thumbnail', 'public');
+// {file}, not {id}: the segment is the file's opaque public id (issue
+// #1109), and Router::placeholderPattern() holds an id-named placeholder
+// to digits.
+$router->addRoute('GET', '/files/{file}', FileController::class, 'serve', 'public');
+$router->addRoute('GET', '/files/{file}/thumbnail', FileController::class, 'thumbnail', 'public');
 // Registered after the literal /thumbnail route above so that path stays
 // reachable — Router::resolve() matches in registration order and a
 // {variant} wildcard would otherwise happily swallow it too. Serves a
 // pre-generated derivative (Core\Photo\ImageVariantService) through the
 // same FileAccessGuard/journal path as serve() — see
 // Core\Http\Controller\FileController::variant()'s own docblock.
-$router->addRoute('GET', '/files/{id}/{variant}', FileController::class, 'variant', 'public');
+$router->addRoute('GET', '/files/{file}/{variant}', FileController::class, 'variant', 'public');
 // Offline mode pre-download manifest — every page/image URL it lists is
 // guarded exactly like any other request once actually fetched; this
 // endpoint itself only lists candidates. role_min: public — see

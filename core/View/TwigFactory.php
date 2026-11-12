@@ -111,11 +111,9 @@ class TwigFactory
             int|string|null $id,
             ?string $variant = null
         ): string {
-            if ($id === null || $id === '' || $id === 0) {
-                return '';
-            }
-            $suffix = $variant !== null ? '/' . $variant : '';
-            return '/files/' . (int) $id . $suffix;
+            // The opaque address (Core\File\FilePublicIds, issue #1109):
+            // callers keep passing the numeric id they have.
+            return \Core\File\FilePublicIds::urlFor($id, $variant);
         }));
 
         // Register editable() function — renders editable content.

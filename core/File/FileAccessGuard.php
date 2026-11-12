@@ -42,6 +42,16 @@ class FileAccessGuard
     public const STAFF_BYPASS_ROLE = 'admin';
 
     /**
+     * The numeric id of the file served under $publicId, or null when there
+     * is none (issue #1109). Deliberately no access decision: check() makes
+     * it, on the id this returns, exactly as it does for every other caller.
+     */
+    public function fileIdForPublicId(string $publicId): ?int
+    {
+        return $this->fileRepository->findByPublicId($publicId)?->id;
+    }
+
+    /**
      * Check if the current user can access a file.
      * Returns the file record if allowed, null if denied or not found.
      *
