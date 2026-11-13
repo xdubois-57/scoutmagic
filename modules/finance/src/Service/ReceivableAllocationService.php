@@ -1390,9 +1390,9 @@ class ReceivableAllocationService
      * unallocated remainder of the credits that named the first
      * receivable, so those credits are the ones allocated to the second —
      * oldest first, and never past what either side has left. Both
-     * receivables must sit on the same account, which
-     * Service\ReceivableAllocationService::allocate() enforces for each
-     * step.
+     * receivables must sit on the same account: transferUnderLocks()
+     * refuses otherwise, and every step's allocateUnderLocks() checks the
+     * movement's account against the receivable's.
      *
      * @throws FinanceException
      */
