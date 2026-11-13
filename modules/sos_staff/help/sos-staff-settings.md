@@ -6,10 +6,8 @@ category: Espace chefs d'U
 role_min: admin
 question: Comment changer le numéro par défaut du téléphone d'urgence ?
 question: Pourquoi le bouton Enregistrer du numéro par défaut est-il grisé ?
-question: Pourquoi le numéro par défaut choisi n'est-il plus utilisé ?
-question: Pourquoi un membre du Staff d'U n'est-il pas proposé ?
 paths: /admin/sos/reglages
-related: sos-staff, sos-staff-redirection, config-sos, actions-planifiees
+related: sos-staff, sos-staff-default-number, sos-staff-redirection, config-sos, actions-planifiees
 ---
 
 L'onglet **Réglages** regroupe trois réglages du téléphone d'urgence.
@@ -17,8 +15,8 @@ L'onglet **Réglages** regroupe trois réglages du téléphone d'urgence.
 Trois réglages, qui s'enregistrent d'eux-mêmes sauf le premier :
 
 - le **numéro par défaut**, utilisé les jours sans garde attribuée — seuls
-  les membres du Staff d'U dont le GSM est un numéro valide sont proposés.
-  Le bouton « Enregistrer » ne s'active que si vous changez réellement la
+  les membres du Staff d'U dont le GSM est un numéro valide sont proposés
+  (voir « Le numéro par défaut et les GSM du Staff d'U »). Le bouton « Enregistrer » ne s'active que si vous changez réellement la
   valeur. Si
   la journée en cours n'a pas de garde, un avertissement vous prévient que
   l'enregistrement redirige les appels immédiatement ;
@@ -38,32 +36,6 @@ Un contrôle ou une reprise qui trouve le renvoi déjà correct ne crée pas
 de nouvelle notification. C'est aussi le cas si deux personnes ont le
 même numéro : aucun nouveau changement de renvoi n'a eu lieu. Une reprise
 de la tâche d'envoi ne réexpédie pas les emails déjà pris en charge.
-
-## Quand la personne choisie quitte le Staff d'U
-
-Le numéro par défaut que vous avez choisi n'est utilisé que tant que la
-personne fait partie du Staff d'U de l'année, avec un GSM valide. Si elle
-change de fonction, quitte l'unité ou si son GSM n'est plus utilisable,
-le site revient au choix automatique : le ou la responsable du Staff d'U,
-sinon le premier membre du Staff d'U. Il n'attend pas l'échec d'une
-bascule pour le faire.
-
-Un avertissement sur cette page et un point d'attention disent qui avait
-été choisi et vers qui la redirection est désormais prévue les jours
-sans garde. Pour les faire
-disparaître, enregistrez le membre affiché (le bouton reste actif) ou
-choisissez-en un autre.
-
-## Le format des GSM dans Desk
-
-Le site lit le GSM tel qu'il est saisi dans Desk : « 0470 12 34 56 »,
-« 0470/12.34.56 », « +32 470 12 34 56 » ou « 0032470123456 » désignent le
-même numéro, et le site l'envoie toujours sous la même forme à
-l'opérateur. Un numéro sans indicatif, sans le 0 initial ou avec un
-chiffre en trop ou en moins n'est pas un numéro valide. La personne
-n'apparaît alors ni dans le planning ni dans le choix du numéro par
-défaut. Un avertissement la nomme sur cette page, ainsi qu'un point
-d'attention. Corrigez le GSM dans Desk, puis réimportez.
 
 ## Si un email de garde n'arrive pas
 
