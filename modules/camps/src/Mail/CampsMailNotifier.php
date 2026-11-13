@@ -25,6 +25,10 @@ use Modules\Camps\Service\ReviewNotificationService;
  */
 class CampsMailNotifier
 {
+    /** Added to a notification about a message whose sender nobody vouched for (issue #1121). */
+    public const UNVERIFIED_SENDER = 'Son expéditeur n\'a pas été vérifié par le serveur de réception : '
+        . 'ne vous fiez pas à l\'adresse affichée.';
+
     public const TYPE_PROPOSITION = 'camps.mail_proposition';
 
     public const TYPE_STAY_CREATED = 'camps.stay_from_mail';
@@ -38,8 +42,11 @@ class CampsMailNotifier
     /**
      * @param Camp[] $camps the stays proposed, in the order the consumer ranked them
      * @param array<int, string> $labels camp id => how a chief names the stay
+     * @param bool $senderVerified false when the receiving server did not
+     *                             vouch for the sender (issue #1121): the
+     *                             notification says so
      */
-    public function proposed(array $camps, array $labels): void
+    public function proposed(array $camps, array $labels, bool $senderVerified): void
     {
         if ($camps === []) {
             return;
@@ -57,12 +64,13 @@ class CampsMailNotifier
             $recipients,
             [
                 'title' => 'Un message attend votre décision — Camps',
-                'body' => count($named) === 1
+                'body' => (count($named) === 1
                     ? 'Un e-mail reçu pourrait concerner le séjour « ' . $named[0]
                         . ' ». Confirmez ou écartez la proposition sur l\'écran du courrier des camps.'
                     : 'Un e-mail reçu pourrait concerner l\'un de ces séjours : « '
                         . implode(' », « ', $named)
-                        . ' ». Le site n\'en a choisi aucun : tranchez sur l\'écran du courrier des camps.',
+                        . ' ». Le site n\'en a choisi aucun : tranchez sur l\'écran du courrier des camps.')
+                    . ($senderVerified ? '' : ' ' . self::UNVERIFIED_SENDER),
                 'url' => '/chefs/camps/courrier',
             ]
         );

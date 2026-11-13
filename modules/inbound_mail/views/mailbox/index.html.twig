@@ -91,6 +91,7 @@
                     <div class="d-flex flex-wrap align-items-baseline gap-2 small text-body-secondary">
                         <span>{{ message.sentAt|datetime_fr }}</span>
                         <span class="fw-medium text-body">{{ message.fromName ?: message.fromEmail }}</span>
+                        {% include '@inbound_mail/partials/sender_badge.html.twig' with { message: message } only %}
                         {% if message.isBulk %}
                             <span class="badge text-bg-light">automatique</span>
                         {% endif %}

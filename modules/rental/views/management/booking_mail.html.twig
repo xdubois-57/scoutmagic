@@ -137,7 +137,9 @@
                                             <span class="badge bg-body-tertiary border text-body-secondary me-1">{{ message.isSent() ? 'Envoyé' : 'Reçu' }}</span>
                                             {{ message.subject ?: 'Sans objet' }}
                                         </div>
-                                        <div class="small text-body-secondary">{{ counterpart }}</div>
+                                        <div class="small text-body-secondary">{{ counterpart }}
+                                            {% include '@inbound_mail/partials/sender_badge.html.twig'
+                                                with { message: message } only %}</div>
                                         {# How it was filed, when that is a guess: a message
                                            matched on the sender's address alone may still be
                                            somebody else's (§22.9). #}
@@ -167,10 +169,12 @@
 
                                 <div class="d-flex flex-wrap gap-2 mt-3">
                                     {% if entry.has_body %}
+                                        {% set dialog_meta = counterpart ~ ' · ' ~ message.sentAt|datetime_fr
+                                            ~ (message.senderUnverified ? ' · Expéditeur non vérifié' : '') %}
                                         <button type="button" class="btn btn-outline-secondary btn-sm"
                                                 data-mail-message-open="mail-message-body-{{ message.id }}"
                                                 data-mail-message-title="{{ message.subject ?: 'Sans objet' }}"
-                                                data-mail-message-meta="{{ counterpart }} · {{ message.sentAt|datetime_fr }}">
+                                                data-mail-message-meta="{{ dialog_meta }}">
                                             <i class="bi bi-envelope-open" aria-hidden="true"></i> Lire le message
                                         </button>
                                     {% endif %}

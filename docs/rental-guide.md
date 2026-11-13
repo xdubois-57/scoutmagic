@@ -379,14 +379,27 @@ aucune réservation, et personne n'a de tri à faire.
 
 Quand un e-mail est rattaché à une réservation, ses gestionnaires
 reçoivent une notification « Nouveau message du locataire », qui mène à
-la page « Courrier ». Chacun a sa **pastille de non-lus** : « Courrier (2) »
+la page « Courrier ».
+
+**« Expéditeur non vérifié ».** N'importe qui peut écrire l'adresse d'un
+locataire comme expéditeur d'un e-mail. Quand le serveur qui reçoit le
+courrier de l'unité n'a pas pu confirmer que le message vient bien de
+cette adresse, le message est quand même rattaché, mais il porte ce
+marquage sur la page Courrier, et la notification devient « Message non
+vérifié se présentant comme le locataire ». Beaucoup de messages
+légitimes le portent (de petits fournisseurs de messagerie ne publient pas
+de quoi le vérifier) : ce n'est pas une preuve de fraude, c'est une raison
+de ne pas agir sur sa seule foi — un changement de compte bancaire ou une
+annulation se confirment par téléphone. Un tel message ne fait jamais
+apprendre son adresse à la réservation, même si vous le rattachez à la
+main. Chacun a sa **pastille de non-lus** : « Courrier (2) »
 dans les onglets de la réservation, et un encadré « Nouveaux messages »
 sur la vue d'ensemble du bien. Elle retombe quand **vous** ouvrez la page,
 pas quand un autre gestionnaire l'ouvre.
 
 Une pièce jointe — d'un e-mail reçu comme d'un e-mail envoyé depuis la
 boîte de l'unité — devient un document de la réservation quand c'est un
-PDF, un fichier Word ou une photo, en « Non classé » et en visibilité
+PDF, un fichier Word (`.docx`) ou une photo, en « Non classé » et en visibilité
 interne — jamais présumée être le contrat signé. Vous la reclassez en un
 clic. Un fichier que la réservation a déjà, comme le contrat généré puis
 renvoyé à la main, n'est pas ajouté une seconde fois. Les autres fichiers

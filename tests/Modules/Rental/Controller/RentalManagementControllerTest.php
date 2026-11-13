@@ -907,6 +907,11 @@ class RentalManagementControllerTest extends TestCase
         $this->assertStringContainsString('Lire le message', $body);
         // Filed on the reference here: certain, so no warning.
         $this->assertStringNotContainsString('Rattachement incertain', $body);
+        // Built with no verdict, so nobody vouched for its sender (issue
+        // #1121): said on the card AND in the « Lire le message » dialog,
+        // where the manager actually reads it.
+        $this->assertStringContainsString('Expéditeur non vérifié</span>', $body);
+        $this->assertMatchesRegularExpression('/data-mail-message-meta="[^"]*· Expéditeur non vérifié"/u', $body);
         foreach (['Rattacher', 'Écarter', "Relancer l'analyse", 'Propositions', '/mes-locations/courrier/rattacher'] as $gone) {
             $this->assertStringNotContainsString($gone, $body);
         }

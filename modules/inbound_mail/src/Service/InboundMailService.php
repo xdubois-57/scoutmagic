@@ -969,7 +969,10 @@ class InboundMailService implements InboundMailInterface
             rawHeaders: $message->rawHeaders,
             mailboxDedicatedTo: $dedicatedTo,
             addressedTo: $this->replyAddresses?->resolve($message->toEmails),
-            direction: $message->direction
+            direction: $message->direction,
+            // The verdict stored on arrival: the header block it came from
+            // is usually gone by now (issue #1121).
+            senderVerified: $message->senderVerified
         );
     }
 }

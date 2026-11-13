@@ -6,6 +6,7 @@ namespace Tests\Modules\InboundMail\Service;
 
 use Modules\InboundMail\Client\FetchedAttachment;
 use Modules\InboundMail\Service\AttachmentPolicy;
+use Modules\InboundMail\Api\AttachmentOmission;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -65,6 +66,116 @@ class AttachmentPolicyTest extends TestCase
         $attachment = new FetchedAttachment('photo.jpg', 'image/jpeg', "#!/bin/sh\nrm -rf /\n");
 
         $this->assertFalse($this->policy->accepts($attachment, ''));
+    }
+
+    /**
+     * Issue #1121: the binary Office formats of before 2007 carry macros in
+     * the same file as the text. The list is the boundary twice over — the
+     * sniffed type is checked against it here, and UploadHandler is handed
+     * the same list — so it is the list that must not hold them.
+     */
+    public function testTheLegacyBinaryOfficeFormatsAreNotAdmitted(): void
+    {
+        foreach (['application/msword', 'application/vnd.ms-excel'] as $legacy) {
+            $this->assertNotContains($legacy, $this->policy->allowedMimeTypes());
+        }
+        // Their successors still are.
+        $this->assertContains(
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            $this->policy->allowedMimeTypes()
+        );
+        $this->assertContains('application/vnd.oasis.opendocument.spreadsheet', $this->policy->allowedMimeTypes());
+    }
+
+    /**
+     * finfo reports a macro-enabled `.docm` as a plain `.docx` — it looks
+     * for a `word/` entry, not for the macro project beside it. The package
+     * is opened, and a VBA part refuses it (issue #1121).
+     */
+    public function testAWordPackageCarryingMacrosIsRefusedWhileAPlainOneIsKept(): void
+    {
+        $plain = new FetchedAttachment('contrat.docx', 'application/octet-stream', self::ooxml(withMacros: false));
+        $macro = new FetchedAttachment('contrat.docx', 'application/octet-stream', self::ooxml(withMacros: true));
+
+        $this->assertNull($this->policy->omissionFor($plain));
+        $this->assertSame(AttachmentOmission::MIME_REJECTED, $this->policy->omissionFor($macro));
+    }
+
+    /**
+     * The three ways a package could make the content-type check look the
+     * other way, each refused (issue #1121, review of #1195): no content
+     * types at all, content types too large to read whole, and a macro
+     * part renamed but still declared.
+     */
+    public function testAPackageTheContentTypesCannotClearIsRefused(): void
+    {
+        $noTypes = self::ooxml(withMacros: false, contentTypes: null);
+        $padded = self::ooxml(
+            withMacros: false,
+            contentTypes: '<Types>' . str_repeat('<Default Extension="x" ContentType="a/b"/>', 8000)
+                . '<Override PartName="/word/document.xml" ContentType="application/vnd.ms-word.document.'
+                . 'macroEnabled.main+xml"/></Types>'
+        );
+        $renamed = self::ooxml(
+            withMacros: false,
+            contentTypes: '<Types><Override PartName="/word/innocent.bin"'
+                . ' ContentType="application/vnd.ms-office.vbaProject"/></Types>',
+            extraPart: 'word/innocent.bin'
+        );
+
+        $encoded = self::ooxml(
+            withMacros: false,
+            contentTypes: '<Types><Override PartName="/word/innocent.bin"'
+                . ' ContentType="application/vnd.ms-office.vba&#80;roject"/></Types>',
+            extraPart: 'word/innocent.bin'
+        );
+
+        $cases = [
+            'no content types' => $noTypes,
+            'padded' => $padded,
+            'renamed macro part' => $renamed,
+            'declaration hidden behind a character reference' => $encoded,
+        ];
+        foreach ($cases as $case => $bytes) {
+            $this->assertSame(
+                AttachmentOmission::MIME_REJECTED,
+                $this->policy->omissionFor(new FetchedAttachment('contrat.docx', 'application/octet-stream', $bytes)),
+                $case
+            );
+        }
+    }
+
+    private static function ooxml(
+        bool $withMacros,
+        ?string $contentTypes = '',
+        ?string $extraPart = null
+    ): string {
+        $path = (string) tempnam(sys_get_temp_dir(), 'docx');
+        $zip = new \ZipArchive();
+        $zip->open($path, \ZipArchive::OVERWRITE);
+        if ($contentTypes !== null) {
+            $zip->addFromString('[Content_Types].xml', $contentTypes !== '' ? $contentTypes : (
+                '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+                . '<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.'
+                . 'wordprocessingml.document.main+xml"/></Types>'
+            ));
+        }
+        // The layout of a real Word file: libmagic recognises a package
+        // by its entries, and reports a two-entry zip as a plain zip.
+        $zip->addFromString('_rels/.rels', '<Relationships/>');
+        $zip->addFromString('word/document.xml', '<w:document/>');
+        $zip->addFromString('word/styles.xml', '<w:styles/>');
+        if ($withMacros) {
+            $zip->addFromString('word/vbaProject.bin', 'VBA');
+        }
+        if ($extraPart !== null) {
+            $zip->addFromString($extraPart, 'VBA');
+        }
+        $zip->close();
+        $bytes = (string) file_get_contents($path);
+        unlink($path);
+
+        return $bytes;
     }
 
     public function testTheDeclaredTypeAloneNeverAdmitsAnything(): void

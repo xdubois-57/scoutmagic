@@ -279,9 +279,17 @@ class RentalMessageConsumerTest extends TestCase
         string $body = 'Bonjour,',
         array $extraHeaders = [],
         string $date = 'Mon, 12 Jul 2027 09:30:00 +0200',
-        string $messageId = 'msg-1@example.be'
+        string $messageId = 'msg-1@example.be',
+        bool $authenticated = true
     ): void {
-        $headers = array_merge([
+        // What the receiving server writes on top of a message whose
+        // sender it could vouch for (issue #1121). Every scenario but the
+        // ones about forgery is about a genuine renter.
+        $verdict = $authenticated
+            ? ['Authentication-Results' => 'mx.unite.be; dmarc=pass header.from='
+                . substr($from, strrpos($from, '@') + 1)]
+            : [];
+        $headers = array_merge($verdict, [
             'From' => 'Jeanne Martin <' . $from . '>',
             'To' => 'locations@unite.be',
             'Subject' => $subject,
@@ -298,6 +306,39 @@ class RentalMessageConsumerTest extends TestCase
         $mailbox = $this->mailboxRepository->findById($this->mailboxId);
         $this->assertNotNull($mailbox);
         $this->syncService->syncMailbox($mailbox, new \DateTimeImmutable('2027-07-12 10:00:00'));
+    }
+
+    // ── The sender nobody vouched for (issue #1121) ─────────────────────
+
+    public function testTheVerdictOfTheReceivingServerIsStoredWithTheMessage(): void
+    {
+        $this->createBooking();
+        $this->deliver(10, 'Re: Votre réservation [LOC-K7Q2M4]', messageId: 'a@example.be');
+        $this->deliver(11, 'Re: Votre réservation [LOC-K7Q2M4]', messageId: 'b@example.be', authenticated: false);
+
+        $this->sync();
+
+        $verdicts = $this->pdo->query('SELECT sender_verified FROM inbound_messages ORDER BY imap_uid')
+            ->fetchAll(\PDO::FETCH_COLUMN);
+        $this->assertSame([1, 0], array_map('intval', $verdicts));
+    }
+
+    /**
+     * The audited forgery: anybody may write the renter's address in
+     * `From:`. The message may still be filed — the manager sees it marked
+     * — but a decision about it never teaches the booking that address.
+     */
+    public function testAManualAssociationOfAnUnverifiedMessageTeachesNothing(): void
+    {
+        $booking = $this->createBooking();
+        $this->deliver(10, 'Nouvelle adresse pour la caution', from: 'tresorier@groupe.example', authenticated: false);
+        $this->sync();
+        [$messageId] = $this->storedMessageIds();
+
+        $this->inboundMail->attach(RentalMessageConsumer::CONSUMER_ID, $booking->reference, $messageId, 7);
+
+        $this->assertSame([], $this->bookingRepository->otherRenterEmails($booking->id));
+        $this->assertTrue($this->communicationService->timeline($booking)[0]->senderUnverified());
     }
 
     // ── Level 1: the reference (§7.6) ───────────────────────────────────
@@ -1133,7 +1174,8 @@ class RentalMessageConsumerTest extends TestCase
         $booking = $this->createBooking();
         $message = new \Modules\InboundMail\Api\InboundMessage(
             41, $this->mailboxId, '', '', LinkOrigin::AI, 'Les clés', 'tresorier@groupe.example', null,
-            'a@b', null, new \DateTimeImmutable('2027-07-02 09:30:00'), '', ''
+            'a@b', null, new \DateTimeImmutable('2027-07-02 09:30:00'), '', '',
+            senderVerified: true
         );
 
         $this->plainConsumer()->onLinked(
@@ -1144,6 +1186,23 @@ class RentalMessageConsumerTest extends TestCase
         $others = $this->bookingRepository->otherRenterEmails($booking->id);
         $this->assertCount(1, $others);
         $this->assertSame(41, $others[0]->learnedFromMessageId);
+    }
+
+    /** Issue #1121: the model picking a booking for a forged sender teaches it nothing. */
+    public function testAnAiDecisionAboutAnUnverifiedSenderTeachesNothing(): void
+    {
+        $booking = $this->createBooking();
+        $message = new \Modules\InboundMail\Api\InboundMessage(
+            41, $this->mailboxId, '', '', LinkOrigin::AI, 'Les clés', 'tresorier@groupe.example', null,
+            'a@b', null, new \DateTimeImmutable('2027-07-02 09:30:00'), '', ''
+        );
+
+        $this->plainConsumer()->onLinked(
+            $message,
+            new MessageLink(RentalMessageConsumer::CONSUMER_ID, $booking->reference, LinkOrigin::AI)
+        );
+
+        $this->assertSame([], $this->bookingRepository->otherRenterEmails($booking->id));
     }
 
     public function testASentMessageTeachesItsRecipientOnlyWhenThereIsOne(): void
@@ -1209,6 +1268,38 @@ class RentalMessageConsumerTest extends TestCase
 
         // And once the second goes too, nothing teaches it any more.
         $this->assertTrue($this->communicationService->detach($booking, $second));
+        $this->assertSame([], $this->bookingRepository->otherRenterEmails($booking->id));
+    }
+
+    /**
+     * Issue #1121: a message nobody vouched for teaches nothing, so it
+     * cannot keep alive an address its verified twin taught once that one
+     * is detached — a forged `From:` would otherwise inherit the address.
+     */
+    public function testAnUnverifiedMessageDoesNotInheritAnAddressWhenItsTeacherIsDetached(): void
+    {
+        $booking = $this->createBooking();
+        $this->deliver(
+            10,
+            'Question sur la caution',
+            from: 'tresorier@groupe.example',
+            messageId: 'one@groupe.example'
+        );
+        $this->deliver(
+            11,
+            'Nouveau compte pour la caution',
+            from: 'tresorier@groupe.example',
+            messageId: 'two@groupe.example',
+            authenticated: false
+        );
+        $this->sync();
+        [$first, $second] = $this->storedMessageIds();
+        $this->inboundMail->attach(RentalMessageConsumer::CONSUMER_ID, $booking->reference, $first, 7);
+        $this->pdo->prepare("UPDATE inbound_message_links SET link_origin = 'manual' WHERE message_id = ?")
+            ->execute([$second]);
+
+        $this->assertTrue($this->communicationService->detach($booking, $first));
+
         $this->assertSame([], $this->bookingRepository->otherRenterEmails($booking->id));
     }
 
@@ -1682,7 +1773,6 @@ class RentalMessageConsumerTest extends TestCase
     {
         return [
             'PDF' => ['application/pdf'],
-            'Word' => ['application/msword'],
             'Word (docx)' => ['application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
             'a photo' => ['image/jpeg'],
         ];

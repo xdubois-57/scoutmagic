@@ -9,6 +9,7 @@
     {{ message.displayFrom }} · {{ message.sentAt|datetime_fr }} ·
     reçu dans {{ mailboxes[message.mailboxId]|default('une boîte supprimée depuis') }}
     {% if message.isBulk %}<span class="badge text-bg-light">automatique</span>{% endif %}
+    {% include '@inbound_mail/partials/sender_badge.html.twig' with { message: message } only %}
 </p>
 
 {% if message.toEmails is not empty %}

@@ -213,7 +213,7 @@ class FinanceMessageConsumer implements
             }
         }
 
-        $this->notifier->proposed($labels);
+        $this->notifier->proposed($labels, !$message->senderUnverified());
     }
 
     public function consumerId(): string

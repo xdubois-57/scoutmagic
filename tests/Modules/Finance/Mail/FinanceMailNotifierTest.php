@@ -86,7 +86,7 @@ class FinanceMailNotifierTest extends TestCase
                 => str_contains($payload['body'], 'compte « Compte courant »') && $payload['url'] === '/finance/receipts')
         );
 
-        $this->notifier($notifications)->proposed(['Compte courant']);
+        $this->notifier($notifications)->proposed(['Compte courant'], true);
     }
 
     public function testSeveralAccountsAreAllNamed(): void
@@ -99,7 +99,22 @@ class FinanceMailNotifierTest extends TestCase
             $this->callback(static fn(array $payload): bool => str_contains($payload['body'], '« Louveteaux », « Compte inconnu »'))
         );
 
-        $this->notifier($notifications)->proposed(['Louveteaux', 'Compte inconnu']);
+        $this->notifier($notifications)->proposed(['Louveteaux', 'Compte inconnu'], true);
+    }
+
+    /** Issue #1121: a proposition about a message whose sender nobody vouched for says so. */
+    public function testAPropositionAboutAnUnverifiedSenderSaysSo(): void
+    {
+        $this->treasurer('tresorier@unite.be');
+        $notifications = $this->createMock(NotificationService::class);
+        $notifications->expects($this->once())->method('dispatch')->with(
+            $this->anything(),
+            $this->anything(),
+            $this->callback(static fn(array $payload): bool
+                => str_ends_with($payload['body'], FinanceMailNotifier::UNVERIFIED_SENDER))
+        );
+
+        $this->notifier($notifications)->proposed(['Compte courant'], false);
     }
 
     public function testNoTreasurerOnTheSiteMeansNobodyIsTold(): void
@@ -108,6 +123,6 @@ class FinanceMailNotifierTest extends TestCase
         $notifications = $this->createMock(NotificationService::class);
         $notifications->expects($this->never())->method('dispatch');
 
-        $this->notifier($notifications)->proposed(['Compte courant']);
+        $this->notifier($notifications)->proposed(['Compte courant'], true);
     }
 }

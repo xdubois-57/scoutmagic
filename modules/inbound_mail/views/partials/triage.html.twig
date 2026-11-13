@@ -110,7 +110,9 @@
                     <div class="d-flex justify-content-between align-items-start gap-2 flex-wrap">
                         <div class="min-w-0">
                             <div class="fw-semibold">{{ row.message.subject ?: 'Sans objet' }}</div>
-                            <div class="small text-body-secondary">{{ row.message.displayFrom() }}</div>
+                            <div class="small text-body-secondary">{{ row.message.displayFrom() }}
+                                {% include '@inbound_mail/partials/sender_badge.html.twig'
+                                    with { message: row.message } only %}</div>
                         </div>
                         <span class="small text-body-secondary text-nowrap">
                             {{ row.message.sentAt|date_fr }}
@@ -125,10 +127,12 @@
                            (mail-message-dialog.js): no HTML string travels
                            through an attribute or innerHTML. #}
                         <div class="small text-body-secondary text-truncate mt-2">{{ row.excerpt }}</div>
+                        {% set dialog_meta = row.message.displayFrom() ~ ' · ' ~ row.message.sentAt|datetime_fr
+                            ~ (row.message.senderUnverified ? ' · Expéditeur non vérifié' : '') %}
                         <button type="button" class="btn btn-link btn-sm p-0 mt-1"
                                 data-mail-message-open="mail-message-body-{{ row.message.id }}"
                                 data-mail-message-title="{{ row.message.subject ?: 'Sans objet' }}"
-                                data-mail-message-meta="{{ row.message.displayFrom() }} · {{ row.message.sentAt|datetime_fr }}">
+                                data-mail-message-meta="{{ dialog_meta }}">
                             <i class="bi bi-envelope-open" aria-hidden="true"></i>
                             Lire le message
                         </button>

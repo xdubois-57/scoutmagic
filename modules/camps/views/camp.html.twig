@@ -369,7 +369,9 @@
                             <span class="d-inline-flex flex-wrap justify-content-between gap-2 w-100 align-top" style="width: calc(100% - 1.5rem) !important">
                                 <span class="min-w-0">
                                     <span class="fw-semibold">{{ message.subject ?: 'Sans objet' }}</span>
-                                    <span class="d-block small text-body-secondary">{{ message.displayFrom() }}</span>
+                                    <span class="d-block small text-body-secondary">{{ message.displayFrom() }}
+                                        {% include '@inbound_mail/partials/sender_badge.html.twig'
+                                            with { message: message } only %}</span>
                                 </span>
                                 <span class="small text-body-secondary text-nowrap">{{ message.sentAt|date_fr }}</span>
                             </span>
