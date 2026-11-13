@@ -879,10 +879,11 @@ class ReceivableAllocationService
             throw new FinanceException("Ce mouvement est un débit : il ne peut pas régler une créance.");
         }
 
-        $existing = $this->allocationRepository->findPair($transactionId, $receivableId, $this->currentReads());
+        $current = $this->currentReads();
+        $existing = $this->allocationRepository->findPair($transactionId, $receivableId, $current);
         $ownShare = $existing !== null ? max(0, $existing->amountCents) : 0;
 
-        $remainingDue = $receivable->amountDueCents - ($this->allocatedCents($receivableId, $this->currentReads()) - $ownShare);
+        $remainingDue = $receivable->amountDueCents - ($this->allocatedCents($receivableId, $current) - $ownShare);
         if ($amountCents > $remainingDue) {
             throw new FinanceException(sprintf(
                 'Cette créance n\'attend plus que %s €. Une créance n\'absorbe jamais plus que ce qu\'elle doit : '
@@ -891,7 +892,8 @@ class ReceivableAllocationService
             ));
         }
 
-        $remainingOnTransaction = self::toCents($transaction->amount) - ($this->usedCents($transactionId, $this->currentReads()) - $ownShare);
+        $remainingOnTransaction = self::toCents($transaction->amount)
+            - ($this->usedCents($transactionId, $current) - $ownShare);
         if ($amountCents > $remainingOnTransaction) {
             throw new FinanceException(sprintf(
                 'Il ne reste que %s € à répartir sur ce mouvement.',
