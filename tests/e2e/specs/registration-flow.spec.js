@@ -308,12 +308,18 @@ test('a family registers a child, follows the mailed tracking link, and the admi
         // bearer link: the child's first name and a status — and none of
         // the personal data the family typed a minute ago.
         // ---------------------------------------------------------------
-        // Matched on the child's (run-unique) first name as well as the
-        // address, so the message found is THIS submission's receipt.
+        // The family is anonymous, so the receipt names « votre enfant »
+        // and carries nothing they typed (issue #1114, SECURITY.md §16):
+        // it is matched on the address and that wording, and the
+        // run-unique first name must be absent from every part of it.
         const receipt = await waitForMail(
-            (message) => message.to.includes(FAMILY_EMAIL) && message.text.includes(CHILD_FIRST_NAME),
-            { description: `a registration receipt for ${CHILD_FIRST_NAME} addressed to ${FAMILY_EMAIL}` },
+            (message) => message.to.includes(FAMILY_EMAIL) && message.text.includes('votre enfant'),
+            { description: `an anonymous registration receipt addressed to ${FAMILY_EMAIL}` },
         );
+        // `text` is every body part, HTML and plain text together.
+        for (const [part, content] of [['subject', receipt.subject], ['body', receipt.text]]) {
+            expect(content, `the anonymous receipt's ${part} echoes no typed name`).not.toContain(CHILD_FIRST_NAME);
+        }
         expect(receipt.raw, 'the receipt carries the unit in copy, as saved on « Réglages »')
             .toMatch(new RegExp(`^Cc:\\s*${UNIT_COPY_EMAIL.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*$`, 'mi'));
         const trackingUrl = linkFromMail(receipt, '/inscriptions/suivi/');
