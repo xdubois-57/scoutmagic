@@ -127,11 +127,16 @@ CREATE TABLE retro_votes (
 -- one-way HMAC as retro_votes.voter_hash (never the raw cookie/session
 -- value), since even a short-lived link between a raw identifier and a
 -- timestamped action stream is exactly the correlation risk the module's
--- anonymity guarantee exists to avoid.
+-- anonymity guarantee exists to avoid. 'board_ai_shorten' and
+-- 'board_ai_moderation' rows count a public board's two daily AI budgets
+-- (issue #1128): their identifier_hash is the board's, not a visitor's,
+-- and they are kept a day rather than hours.
+-- Every value Service\RateLimitService::ACTION_TYPES lists must be here —
+-- 'shorten' was missing, and every « Raccourcir » failed on the INSERT.
 CREATE TABLE retro_rate_limits (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     identifier_hash VARCHAR(64) NOT NULL,
-    action_type ENUM('comment', 'vote') NOT NULL,
+    action_type ENUM('comment', 'vote', 'shorten', 'board_ai_shorten', 'board_ai_moderation') NOT NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_retro_rate_limits_lookup (identifier_hash, action_type, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

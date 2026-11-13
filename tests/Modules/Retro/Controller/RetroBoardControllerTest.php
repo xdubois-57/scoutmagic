@@ -687,6 +687,33 @@ class RetroBoardControllerTest extends TestCase
     }
 
     /**
+     * Issue #1128: a visitor with many addresses is many visitors, so a
+     * public board's AI calls have a daily ceiling of their own — past it
+     * « Raccourcir » is refused for a newcomer too, before the LLM.
+     */
+    public function testShortenIsRefusedOnceThePublicBoardHasSpentItsDailyAiBudget(): void
+    {
+        $this->rebuildControllerWithModeration($this->alwaysAvailableModeration(0));
+        [$boardId, $token] = $this->createBoard();
+        $board = $this->boardRepository->findById($boardId);
+        $this->assertNotNull($board);
+        $budget = RateLimitService::BOARD_AI_SHORTEN;
+        for ($i = 0; $i < RateLimitService::BOARD_AI_DAILY_BUDGETS[$budget]; $i++) {
+            $this->rateLimitService->checkAndRecordBoardAiCall($board, $budget);
+        }
+
+        $response = $this->controller->shorten(
+            $this->jsonRequest('/r/' . $token . '/shorten', ['_csrf_token' => $this->csrfToken(), 'body' => 'Un commentaire']),
+            ['token' => $token]
+        );
+
+        $this->assertSame(422, $response->getStatusCode());
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertFalse($decoded['success']);
+        $this->assertStringContainsString('limite du jour', (string) $decoded['error']);
+    }
+
+    /**
      * Issue #833: the ten /r/{token} routes, each called the way the board
      * page calls it.
      *
