@@ -228,6 +228,34 @@ class PresenceAnimeServiceTest extends TestCase
         $this->assertSame('Sep', $profile->months[0]->label);
     }
 
+    /**
+     * Issue #1124: an account that animated another section in a past year
+     * does not reach that section's animés by previewing the year — the
+     * sections it staffs are asked in the authorization year.
+     */
+    public function testAPreviewedYearsSectionGivesNoAccessToItsAnimes(): void
+    {
+        [$label, $start, $end] = DatabaseTestHelper::scoutYear(-3);
+        $pastYearId = PresencesTestHelper::createScoutYear($this->pdo, $label, $start, $end);
+        PresencesTestHelper::createMember(
+            $this->pdo, $this->encryption, $pastYearId,
+            'Akéla', 'Dupont', 'chief', $this->sectionB, 'akela@test.be'
+        );
+        $jeanne = PresencesTestHelper::createMember(
+            $this->pdo, $this->encryption, $pastYearId, 'Jeanne', 'Vanloqueren', 'animated', $this->sectionB
+        )['memberId'];
+
+        $this->assertNull($this->service->buildProfile(
+            $jeanne, 'akela@test.be', 'chief', $pastYearId, $this->scoutYearId
+        ));
+
+        // The same page with the past year deciding as well opens: what
+        // refuses it above is the year the decision is taken in.
+        $this->assertNotNull($this->service->buildProfile(
+            $jeanne, 'akela@test.be', 'chief', $pastYearId, $pastYearId
+        ));
+    }
+
     private function event(int $sectionId, string $monthDay, string $title = 'Réunion'): int
     {
         $this->calendars[$sectionId] ??= PresencesTestHelper::createSectionCalendar($this->pdo, $sectionId);

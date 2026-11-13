@@ -167,6 +167,7 @@ class GroupControllerTest extends TestCase
 
         $resolver = $this->createStub(ScoutYearResolver::class);
         $resolver->method('getEffectiveYear')->willReturn(new EffectiveScoutYear($this->currentYearId, '2025-2026', null));
+        $resolver->method('getAuthorizationYear')->willReturn(new EffectiveScoutYear($this->currentYearId, '2025-2026', null));
 
         $sectionService = $this->createStub(SectionService::class);
         $sectionService->method('getAllWithBranches')->willReturn([]);

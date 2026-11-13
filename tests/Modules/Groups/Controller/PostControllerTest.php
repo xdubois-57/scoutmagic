@@ -160,6 +160,7 @@ class PostControllerTest extends TestCase
 
         $resolver = $this->createStub(ScoutYearResolver::class);
         $resolver->method('getEffectiveYear')->willReturn(new EffectiveScoutYear($this->currentYearId, '2025-2026', null));
+        $resolver->method('getAuthorizationYear')->willReturn(new EffectiveScoutYear($this->currentYearId, '2025-2026', null));
 
         $activityService = new GroupActivityService($this->groupRepo, $this->postRepo);
         $postService = new PostService($this->postRepo, $activityService, GroupsTestHelper::rateLimitService($this->pdo));

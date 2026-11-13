@@ -10,6 +10,7 @@ use Core\Badge\MemberBadgeRepository;
 use Core\Config\SettingRepository;
 use Core\Config\SettingService;
 use Core\Config\ScoutYearService;
+use Core\ScoutYear\ScoutYearSession;
 use Core\Database\Connection;
 use Core\Http\Controller\FunctionsController;
 use Core\Http\Request;
@@ -389,6 +390,65 @@ class FunctionsControllerTest extends TestCase
         $stmt = $this->pdo->prepare('SELECT section_id FROM member_functions WHERE member_year_id = ?');
         $stmt->execute([$memberYearId]);
         $this->assertSame($staffduId, (int) $stmt->fetchColumn());
+    }
+
+    /**
+     * Issue #1124: the role is applied to the authorization year and to the
+     * year prepared after it — whose rows were imported before the role was
+     * confirmed, and which nothing else syncs before it goes live — and never
+     * to a past year, whichever year the session previews.
+     */
+    public function testARoleChangeReachesThePreparedYearButNoPastYear(): void
+    {
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+        $token = bin2hex(random_bytes(32));
+        $_SESSION['_csrf_token'] = $token;
+        $_SESSION['user'] = ['user_account_id' => 1, 'email' => 'admin@test.com', 'role' => 'admin'];
+
+        $years = new ScoutYearService($this->pdo);
+        $currentLabel = $this->scoutYearResolver->getCurrentPublicYear()['label'];
+        $nextYearId = $years->ensureYear(ScoutYearService::nextLabel($currentLabel));
+        $pastYearId = $years->ensureYear(ScoutYearService::previousLabel($currentLabel));
+        ScoutYearSession::setPreview($pastYearId);
+
+        $functionId = $this->functionRepo->create('CU', 'CU', 'identified', false);
+        $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('D1')");
+        $memberId = (int) $this->pdo->lastInsertId();
+        $rows = [];
+        foreach ([$this->scoutYearId, $nextYearId, $pastYearId] as $yearId) {
+            $this->pdo->prepare(
+                'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted)'
+                . ' VALUES (?, ?, ?, ?)'
+            )->execute([$memberId, $yearId, 'enc', 'enc']);
+            $rows[$yearId] = (int) $this->pdo->lastInsertId();
+            $this->pdo->prepare(
+                'INSERT INTO member_functions (member_year_id, function_id, section_id) VALUES (?, ?, NULL)'
+            )->execute([$rows[$yearId], $functionId]);
+        }
+
+        try {
+            $this->controller->update($this->createJsonRequest([
+                'function_id' => $functionId,
+                'role' => 'admin',
+                '_csrf_token' => $token,
+            ]), []);
+        } finally {
+            ScoutYearSession::clear();
+        }
+
+        $staffduId = $this->unitStaffSectionService->ensureSection();
+        $sectionOf = function (int $memberYearId): ?int {
+            $stmt = $this->pdo->prepare('SELECT section_id FROM member_functions WHERE member_year_id = ?');
+            $stmt->execute([$memberYearId]);
+            $value = $stmt->fetchColumn();
+
+            return $value === null ? null : (int) $value;
+        };
+        $this->assertSame($staffduId, $sectionOf($rows[$this->scoutYearId]), 'The authorization year is synced.');
+        $this->assertSame($staffduId, $sectionOf($rows[$nextYearId]), 'The prepared year is synced.');
+        $this->assertNull($sectionOf($rows[$pastYearId]), 'A past year is never rewritten, even previewed.');
     }
 
     public function testIndexRendersFlagsWhenProviderIsWired(): void

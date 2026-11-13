@@ -11,7 +11,6 @@ namespace Modules\Groups\Controller;
 use Core\Http\Controller\AbstractController;
 use Core\Http\Request;
 use Core\Http\Response;
-use Core\ScoutYear\ScoutYearSession;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Modules\Groups\Repository\DiscussionGroup;
@@ -357,8 +356,7 @@ class ReactionController extends AbstractController
         return $this->contextFactory->build(
             AuthSession::getEmail(),
             AuthSession::getRole(),
-            AuthSession::getUserAccountId(),
-            ScoutYearSession::getPreviewId()
+            AuthSession::getUserAccountId()
         );
     }
 }

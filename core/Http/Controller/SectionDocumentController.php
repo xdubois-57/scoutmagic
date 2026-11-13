@@ -275,26 +275,26 @@ class SectionDocumentController extends AbstractController
     }
 
     /**
-     * The sections this account is an animateur of, for the same effective
-     * scout year the Staffs page itself renders — so what the page offers
-     * and what this controller accepts can never disagree.
+     * The sections this account is an animateur of, in the authorization
+     * year (issue #1124) — never the previewed one. A preview is chosen by
+     * the very person it would authorise and accepts any year that ever
+     * existed: a chief who animated a section in 2019-2020 would get its
+     * documents back by previewing that year. The Staffs page offers its
+     * buttons from the same year (StaffsController), so what the page
+     * offers and what this controller accepts still agree.
      *
      * @return int[]
      */
     private function staffedSectionIds(): array
     {
         $role = AuthSession::getRole();
-        $effectiveYear = $this->scoutYearResolver->getEffectiveYear(
-            ScoutYearSession::getPreviewId(),
-            Role::fromString($role)
-        );
 
         return array_map(
             static fn(array $section): int => (int) $section['id'],
             $this->sectionStaffAuthorizationService->getStaffedSections(
                 AuthSession::getEmail() ?? '',
                 $role,
-                $effectiveYear->id
+                $this->scoutYearResolver->getAuthorizationYear()->id
             )
         );
     }
