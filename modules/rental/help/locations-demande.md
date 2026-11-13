@@ -68,7 +68,7 @@ renvoyez.
 Vous recevez immédiatement un accusé de réception par email, avec votre
 référence et un lien de suivi personnel. C'est par ce lien que vous
 verrez la réponse de l'unité, le prix et l'état de votre dossier.
-Envoyé sans être connecté, il commence par « Bonjour Madame, Monsieur » :
+Envoyé sans être connecté, il vous salue par « Madame, Monsieur » :
 il ne reprend rien de ce que vous avez tapé.
 
 Si cet email n'arrive pas, regardez dans les indésirables avant de

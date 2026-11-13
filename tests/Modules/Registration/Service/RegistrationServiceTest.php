@@ -739,6 +739,7 @@ class RegistrationServiceTest extends TestCase
 
         $this->mailService->expects($this->once())->method('send')
             ->willReturnCallback(function (...$args): void {
+                $this->assertSame('marie.dupont@example.com', $args[0]);
                 $this->assertSame('Demande pour votre enfant', $args[1]);
                 $this->assertStringContainsString('Merci pour votre enfant', $args[2]);
                 $this->assertStringNotContainsString('Léa', $args[2]);
