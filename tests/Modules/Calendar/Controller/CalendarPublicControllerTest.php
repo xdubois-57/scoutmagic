@@ -444,6 +444,60 @@ class CalendarPublicControllerTest extends TestCase
         $this->assertStringNotContainsString('Réunion chefs', $response->getBody());
     }
 
+    /**
+     * Issue #1124: « Mes évènements » holds the calendars of the sections the
+     * account animates in the authorization year. A chief who animated the
+     * Éclaireurs in 2019-2020 and previews that year does not get their
+     * calendar back in it.
+     */
+    public function testMyEventsIsNotBuiltInThePreviewedYear(): void
+    {
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+        $stmt = $this->pdo->prepare('INSERT INTO age_branches (desk_code, label, sort_order) VALUES (?, ?, ?)');
+        $stmt->execute(['ECL', 'Éclaireurs', 30]);
+        $branchId = (int) $this->pdo->lastInsertId();
+        $stmt = $this->pdo->prepare('INSERT INTO sections (desk_code, age_branch_id, name) VALUES (?, ?, ?)');
+        $stmt->execute(['ECL01', $branchId, 'Éclaireurs']);
+        $sectionId = (int) $this->pdo->lastInsertId();
+
+        $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date) VALUES ('2019-2020', '2019-09-01', '2020-08-31')");
+        $pastYearId = (int) $this->pdo->lastInsertId();
+        $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('DESK_PAST')");
+        $memberId = (int) $this->pdo->lastInsertId();
+        $this->pdo->prepare(
+            'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted, email_blind_index)'
+            . ' VALUES (?, ?, ?, ?, ?)'
+        )->execute([
+            $memberId,
+            $pastYearId,
+            $this->encryption->encrypt('Alice', 'member_years.first_name'),
+            $this->encryption->encrypt('Dupont', 'member_years.last_name'),
+            $this->encryption->blindIndex('chief@test.be', 'email'),
+        ]);
+        $memberYearId = (int) $this->pdo->lastInsertId();
+        $this->pdo->exec("INSERT OR IGNORE INTO functions (desk_code, label, role) VALUES ('chief', 'Animateur', 'chief')");
+        $functionId = (int) $this->pdo->query("SELECT id FROM functions WHERE desk_code = 'chief'")->fetchColumn();
+        $this->pdo->prepare('INSERT INTO member_functions (member_year_id, function_id, section_id) VALUES (?, ?, ?)')
+            ->execute([$memberYearId, $functionId, $sectionId]);
+
+        $this->calendarService->ensureSectionCalendars();
+        $calendar = $this->calendarRepository->findBySectionId($sectionId);
+        $this->eventRepository->create($calendar->id, 'Hike des Éclaireurs', '2099-01-01', null, null, null, null, null, null);
+
+        AuthSession::login(1, 'chief@test.be', 'chief');
+        \Core\ScoutYear\ScoutYearSession::setPreview($pastYearId);
+        try {
+            $body = (string) $this->controller->index(new Request('GET', '/calendar', ['calendar' => '0'], [], [], []), [])->getBody();
+        } finally {
+            \Core\ScoutYear\ScoutYearSession::clear();
+            AuthSession::logout();
+        }
+
+        $this->assertStringNotContainsString('Hike des Éclaireurs', $body);
+    }
+
     public function testIndexShowsPersonalLinkOnlyWhenAuthenticated(): void
     {
         if (session_status() === PHP_SESSION_NONE) {
