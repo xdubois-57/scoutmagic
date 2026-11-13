@@ -87,8 +87,10 @@ class RentalBookingService implements OccupancyProvider
         private ?RentalPaymentService $paymentService = null,
         /**
          * Which address a manager may add to « Autres adresses du
-         * locataire » (issue #1106). Null: only Staff d'U may add one, and
-         * only outside the unit's own — never a free field for everyone.
+         * locataire » (issue #1106). Null: only Staff d'U may add one —
+         * never a free field for everyone — but nothing then knows the
+         * unit's own addresses, so that refusal is the rule's alone.
+         * public/index.php always wires it.
          */
         private ?\Modules\Rental\Mail\OtherRenterEmailRule $otherEmailRule = null
     ) {
