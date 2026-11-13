@@ -108,8 +108,8 @@
             <p class="text-body-secondary small">
                 Laissez une valeur à zéro pour ne pas appliquer la règle. Pour la durée maximum et
                 l'horizon, un champ vide reprend la valeur par défaut ({{ constant('Modules\\Rental\\Availability\\BookingConstraints::DEFAULT_MAX_NIGHTS') }} nuits,
-                {{ constant('Modules\\Rental\\Availability\\BookingConstraints::DEFAULT_MAX_HORIZON_DAYS') }} jours) et zéro signifie « illimité » : une seule demande
-                peut alors bloquer tout le calendrier.
+                {{ constant('Modules\\Rental\\Availability\\BookingConstraints::DEFAULT_MAX_HORIZON_DAYS') }} jours) et zéro signifie « illimité ». Une demande ne bloque jamais d'elle-même plus de
+                {{ constant('Modules\\Rental\\Service\\RentalBookingService::AUTOMATIC_HOLD_MAX_NIGHTS') }} nuits.
             </p>
 
             <div class="row g-3">
