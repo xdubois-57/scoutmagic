@@ -199,14 +199,15 @@ final class WebServedArea
 
     /**
      * A path in its two spellings: as written (`.`, `..` and doubled
-     * slashes settled, no link followed) and canonical.
+     * slashes settled, no link followed) and canonical — both with `/` as
+     * the only separator, since everything after this splits on it.
      *
      * @return list<string>
      */
     private static function forms(string $path): array
     {
         return array_values(array_unique(array_filter(
-            [self::lexical($path), self::canonicalise($path)],
+            [self::lexical($path), self::slashes(self::canonicalise($path))],
             static fn (string $form): bool => $form !== ''
         )));
     }
