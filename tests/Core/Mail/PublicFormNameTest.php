@@ -26,6 +26,9 @@ class PublicFormNameTest extends TestCase
             'J. R. R. Tolkien',
             'Les Scouts de Nulle Part — SV025',
             'Marie (Mimi) Dupont',
+            'J.-P. Dupont',
+            'St.Gilles',
+            'Jean.Louis',
         ] as $name) {
             $this->assertNull(PublicFormName::violation($name), $name);
         }
@@ -47,8 +50,26 @@ class PublicFormNameTest extends TestCase
             'ftp://exemple.test',
             'www.exemple.test',
             'Jeanne WWW.exemple.test',
+            // A bare domain, with or without a path (CodeRabbit on #1179).
+            'Jeanne — consultez exemple.com',
+            'voir evil.be/login',
+            'EXEMPLE.COM',
+            'jean@exemple.be',
+            'bit.ly/abc',
         ] as $name) {
             $this->assertSame(PublicFormName::MESSAGE_WEB_ADDRESS, PublicFormName::violation($name), $name);
+        }
+    }
+
+    /**
+     * An invisible format character would split `www.` or `https://` for
+     * the check while the recipient's mail client still shows the address
+     * whole (review of #1179) — refused, not stripped.
+     */
+    public function testAnInvisibleFormatCharacterIsRefused(): void
+    {
+        foreach (["www\u{200B}.evil.test", "https\u{200B}://evil.test", "Jeanne\u{FEFF}", "Jeanne\u{2060}", "Jeanne\u{202E}"] as $name) {
+            $this->assertSame(PublicFormName::MESSAGE_INVISIBLE, PublicFormName::violation($name), json_encode($name));
         }
     }
 
