@@ -1339,4 +1339,39 @@ final class ClaudeReviewIsVerifiableTest extends TestCase
             );
         }
     }
+
+    /**
+     * **The status comment is looked up among a bot's comments, never among
+     * everybody's** (issue #1138).
+     *
+     * The status job finds « its » comment by the marker it writes, then
+     * REWRITES whatever it found with the workflow's token — which can edit
+     * any comment in the repository. Looked up in every comment, a person
+     * who types the marker on a pull request has their own comment
+     * overwritten by the review's status, or makes the status be written
+     * somewhere other than the bot's comment. The comment is the bot's:
+     * its author is of type `Bot`, which is also how
+     * `issue-fixed-comment.yml` and `external-sources-check.yml` already
+     * look for theirs.
+     */
+    public function testTheStatusCommentIsLookedUpAmongABotsCommentsOnly(): void
+    {
+        [, $status] = self::jobs();
+
+        $lookup = 'select(.user.type == \"Bot\") | select(.body | contains(\"${MARKER}\"))';
+        $this->assertStringContainsString(
+            $lookup,
+            $status,
+            'The status job searches every comment on the pull request for its marker, whoever wrote it, and '
+            . 'then overwrites the one it finds with a token that can edit any comment in the repository. Keep '
+            . 'only the comments whose author is a Bot.',
+        );
+
+        // And no second lookup by the marker that skipped the author.
+        $this->assertSame(
+            substr_count($status, 'contains(\"${MARKER}\")'),
+            substr_count($status, $lookup),
+            'A search for the status marker does not restrict itself to a bot\'s comments.',
+        );
+    }
 }
