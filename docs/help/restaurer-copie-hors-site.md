@@ -39,6 +39,13 @@ nouveau.
 S'il manque de place sur le serveur, le site refuse tout de suite et dit
 combien il en faut.
 
+## Qui peut écrire dans la destination
+
+Réservez l'écriture dans le dossier de destination au seul compte qui
+sert au site. Une personne qui peut y écrire, sans connaître la phrase
+de passe, peut glisser des fichiers dans une copie : retirez le partage
+à un ancien animateur dès son départ.
+
 ## Sur une installation neuve
 
 Téléchargez une copie depuis la destination, puis déposez-la dans

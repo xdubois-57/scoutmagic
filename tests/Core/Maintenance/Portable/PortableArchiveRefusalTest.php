@@ -463,6 +463,124 @@ final class PortableArchiveRefusalTest extends TestCase
     }
 
     /**
+     * **A name is judged as the filesystem reads it** (issue #1103).
+     *
+     * The forbidden-tree refusal above compares text prefixes, and
+     * `storage/./temp/…` or `storage//keys/…` share none with the trees
+     * they name — while `ZipArchive::extractTo()` collapses both and writes
+     * exactly there. Each of these was accepted for extraction before.
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('nonCanonicalNames')]
+    public function testANameThatIsNotCanonicalIsRefused(string $name): void
+    {
+        $archive = $this->open(['extraEntry' => $name]);
+
+        try {
+            $archive->restorableEntries();
+            $this->fail('An archive naming ' . $name . ' was accepted.');
+        } catch (BackupException $e) {
+            $this->assertStringContainsString('chemin non autorisé', $e->getMessage());
+        } finally {
+            $archive->close();
+        }
+    }
+
+    /** @return iterable<string, array{string}> */
+    public static function nonCanonicalNames(): iterable
+    {
+        yield 'dot segment into the compiled templates' => ['storage/./temp/twig_cache/intrus.php'];
+        yield 'empty segment into the keys' => ['storage//keys/master.key'];
+        yield 'dot segment into the keys' => ['storage/./keys/master.key'];
+        yield 'dot then climb back into the keys' => ['storage/uploads/./../keys/master.key'];
+        yield 'case variant behind a dot segment' => ['storage/./Temp/twig_cache/intrus.php'];
+        yield 'empty segment inside a data tree' => ['storage/uploads//doc.pdf'];
+    }
+
+    /**
+     * **Nothing a web server or PHP would run is written, and the archive
+     * still restores** (issue #1103). Under `storage/` the unit's data has
+     * opaque names, so a PHP file or an `.htaccess` there is never data —
+     * but the site archives a deny-all `.htaccess` it placed itself, so
+     * these are left out rather than refusing an archive it produced.
+     */
+    public function testAFileAWebServerWouldRunIsLeftOutOfTheRestore(): void
+    {
+        foreach ([
+            'storage/uploads/.htaccess',
+            'storage/uploads/.user.ini',
+            'storage/uploads/photo.php.jpg',
+            'storage/uploads/script.PHTML',
+            'storage/uploads/outil.phar',
+            'storage/restore/incoming/.htaccess',
+        ] as $name) {
+            $archive = $this->open(['extraEntry' => $name]);
+
+            $entries = $archive->restorableEntries();
+
+            $this->assertNotContains($name, $entries, $name . ' would have been extracted.');
+            $this->assertContains('storage/uploads/doc.pdf', $entries, 'the data beside it must still restore');
+            $archive->close();
+        }
+    }
+
+    /**
+     * **An archive whose only site file was left out still restores**
+     * (CodeRabbit on #1175). A site whose `storage/` held nothing but the
+     * deny-all `.htaccess` it wrote itself produces exactly this archive: its
+     * plan is empty because of the filter, not because it carries nothing,
+     * so the database and the keys restore and nothing is extracted — while
+     * an archive with no site file at all is still not one of ours.
+     */
+    public function testAnArchiveWhoseOnlySiteFileWasLeftOutRestoresWithoutExtracting(): void
+    {
+        $base = $this->tempPath() . '_site';
+        mkdir($base . '/storage/temp/twig_cache/v', 0755, true);
+        file_put_contents($base . '/storage/temp/twig_cache/v/compiled.php', '<?php // compiled');
+        $archive = $this->open(['noData' => true, 'extraEntry' => 'storage/restore/incoming/.htaccess']);
+
+        try {
+            $this->assertSame([], $archive->restorableEntries());
+            $this->assertTrue($archive->hasStorageMembers());
+
+            (new \Core\Maintenance\Portable\PortableRestore($base, $base . '/storage'))->extractFiles($archive);
+
+            $this->assertFileDoesNotExist($base . '/storage/restore/incoming/.htaccess');
+            $this->assertDirectoryDoesNotExist($base . '/storage/temp/twig_cache');
+        } finally {
+            $archive->close();
+            \Core\View\CompiledTemplateCache::clear($base);
+            @rmdir($base . '/storage/temp');
+            @rmdir($base . '/storage');
+            @rmdir($base);
+        }
+    }
+
+    public function testAnArchiveWithNoSiteFileAtAllIsStillRefused(): void
+    {
+        $base = $this->tempPath() . '_site';
+        $archive = $this->open(['noData' => true]);
+
+        try {
+            $this->assertFalse($archive->hasStorageMembers());
+            (new \Core\Maintenance\Portable\PortableRestore($base, $base . '/storage'))->extractFiles($archive);
+            $this->fail('An archive carrying no site file was accepted.');
+        } catch (BackupException $e) {
+            $this->assertStringContainsString('aucun fichier à restaurer', $e->getMessage());
+        } finally {
+            $archive->close();
+        }
+    }
+
+    /** A data file whose name merely contains the letters is still data. */
+    public function testADataFileWhoseNameMerelyContainsPhpIsRestored(): void
+    {
+        $archive = $this->open(['extraEntry' => 'storage/uploads/graphique-php.pdf.enc']);
+
+        $this->assertContains('storage/uploads/graphique-php.pdf.enc', $archive->restorableEntries());
+        $archive->close();
+    }
+
+    /**
      * **An archive that simply does not mention its keys.**
      *
      * Checking the digests of whatever a manifest lists says nothing about
@@ -564,7 +682,9 @@ final class PortableArchiveRefusalTest extends TestCase
             // digest walk visits the dump too.
             $members['database.sql'] = ['sha256' => hash('sha256', $dump), 'bytes' => strlen($dump)];
         }
-        $this->addEncrypted($zip, 'storage/uploads/doc.pdf', 'des octets', $password);
+        if (($options['noData'] ?? false) !== true) {
+            $this->addEncrypted($zip, 'storage/uploads/doc.pdf', 'des octets', $password);
+        }
 
         if (is_string($options['extraEntry'] ?? null)) {
             $this->addEncrypted($zip, $options['extraEntry'], 'des octets', $password);

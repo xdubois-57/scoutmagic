@@ -20,6 +20,7 @@ use Core\Storage\DirectorySize;
 use Core\Storage\DirectoryWalk;
 use Core\Storage\DiskBudget;
 use Core\Storage\Location\DeclaredStorageDirectories;
+use Core\View\CompiledTemplateCache;
 
 /**
  * Mechanical backup/restore operations (Configuration > Maintenance,
@@ -692,11 +693,20 @@ class BackupService implements BackupServiceInterface
         // database.sql — anything else means "this is not our backup".
         $this->assertArchiveEntriesAreSafe($zip);
 
-        $extracted = $zip->extractTo($this->basePath);
-        $zip->close();
+        // The compiled templates are emptied whatever happens next (issue
+        // #1103): extractTo() writes entry by entry and does not undo what
+        // it wrote before failing, so a failed extraction can have left a
+        // file in storage/temp/twig_cache — PHP the next page runs — and
+        // must not skip the step that removes it.
+        try {
+            $extracted = $zip->extractTo($this->basePath);
+            $zip->close();
 
-        if (!$extracted) {
-            throw new BackupException('L\'extraction de l\'archive a échoué (mot de passe incorrect ?).');
+            if (!$extracted) {
+                throw new BackupException('L\'extraction de l\'archive a échoué (mot de passe incorrect ?).');
+            }
+        } finally {
+            CompiledTemplateCache::clear($this->basePath);
         }
 
         // core/, modules/ and public/ have just been rewritten underneath a
