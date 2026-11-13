@@ -1140,9 +1140,15 @@ function bootstrapReleaseLock(string $path): void
 
 /**
  * @param array<string, mixed> $state
+ * @param (callable(): bool)|null $httpsProbe answers « can this host open an
+ *        HTTPS connection to GitHub ». Left null in production, which probes
+ *        for real (bootstrapDefaultHttpsProbe); a test whose subject is
+ *        something else in this step passes a fixed answer rather than
+ *        depend on the network of the machine it runs on — the same shape
+ *        as bootstrapStepResolve()'s $httpGet.
  * @return array<string, mixed>
  */
-function bootstrapStepPreflight(string $docRoot, array $state): array
+function bootstrapStepPreflight(string $docRoot, array $state, ?callable $httpsProbe = null): array
 {
     // Blocking (#719, B3), and first: nothing is installed — nor even
     // probed — before the site has been seen answering over HTTPS from
@@ -1154,7 +1160,7 @@ function bootstrapStepPreflight(string $docRoot, array $state): array
         bootstrapCheckLocation($_SERVER),
         bootstrapCheckPhpVersion(),
         bootstrapCheckZipExtension(),
-        bootstrapCheckOutboundHttps('bootstrapDefaultHttpsProbe'),
+        bootstrapCheckOutboundHttps($httpsProbe ?? 'bootstrapDefaultHttpsProbe'),
     ];
     foreach ($checks as $check) {
         if (!$check['ok']) {
@@ -2518,7 +2524,11 @@ function bootstrapPreviewPreflight(string $docRoot): array
     ];
 }
 
-function bootstrapHandleStepRequest(string $docRoot, string $stateFile): void
+/**
+ * @param (callable(): bool)|null $httpsProbe forwarded to step 1; null in
+ *        production (see bootstrapStepPreflight())
+ */
+function bootstrapHandleStepRequest(string $docRoot, string $stateFile, ?callable $httpsProbe = null): void
 {
     header('Content-Type: application/json; charset=utf-8');
     // See bootstrapSendJson() — every exit point below goes through it
@@ -2565,7 +2575,7 @@ function bootstrapHandleStepRequest(string $docRoot, string $stateFile): void
     try {
         switch ($step) {
             case 1:
-                $state = bootstrapStepPreflight($docRoot, $state);
+                $state = bootstrapStepPreflight($docRoot, $state, $httpsProbe);
                 break;
             case 2:
                 $state = bootstrapStepResolve($docRoot, $state);
