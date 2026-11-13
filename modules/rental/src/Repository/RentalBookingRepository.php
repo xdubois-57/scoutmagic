@@ -472,9 +472,12 @@ class RentalBookingRepository
     }
 
     /**
-     * The automatic holds running at $now, every asset, for the managers'
-     * attention point on long ones (issue #1114). Reference, asset and
-     * dates only — nothing about the renter.
+     * The automatic holds running at $now on requests nobody has answered
+     * yet, every asset, for the managers' attention point on long ones
+     * (issue #1114). Reference, asset and dates only — nothing about the
+     * renter. Answering a request keeps its hold's origin, so the status
+     * is what says it was examined: once a manager has asked a question,
+     * made a proposal or sent a contract, the dates are theirs to keep.
      *
      * @return list<array{id: int, asset_id: int, reference: string, arrival_date: string,
      *     departure_date: string, hold_until: string}>
@@ -484,11 +487,10 @@ class RentalBookingRepository
         $stmt = $this->pdo->prepare(
             'SELECT id, asset_id, reference, arrival_date, departure_date, hold_until
              FROM rental_bookings
-             WHERE hold_origin = ? AND hold_until > ?
-               AND status IN (?, ?, ?, ?)
+             WHERE hold_origin = ? AND hold_until > ? AND status = ?
              ORDER BY arrival_date ASC, id ASC'
         );
-        $stmt->execute([HoldOrigin::AUTOMATIC->value, $now->format('Y-m-d H:i:s'), ...self::PROVISIONAL_STATUSES]);
+        $stmt->execute([HoldOrigin::AUTOMATIC->value, $now->format('Y-m-d H:i:s'), BookingStatus::RECEIVED->value]);
 
         return array_map(
             static fn(array $row): array => [

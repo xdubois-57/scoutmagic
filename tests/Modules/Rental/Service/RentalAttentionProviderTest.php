@@ -310,6 +310,22 @@ class RentalAttentionProviderTest extends TestCase
         $this->assertSame([], $this->pointsTitled('Option automatique'));
     }
 
+    /**
+     * A request a manager has answered keeps its automatic hold, but its
+     * dates are no longer a stranger's: the point must not ask to release
+     * dates promised in a proposal or a contract already sent.
+     */
+    public function testAnAnsweredRequestStillOnItsAutomaticHoldRaisesNothing(): void
+    {
+        $this->landlordEverywhere();
+        $assetId = $this->asset('Le Chalet', 'chalet');
+        $this->heldRequest($assetId, 20, 'LOC-INF0RQ', 'automatic', 5, 'info_requested');
+        $this->heldRequest($assetId, 20, 'LOC-PR0P0S', 'automatic', 5, 'proposed');
+        $this->heldRequest($assetId, 20, 'LOC-C0NTRA', 'automatic', 5, 'contract_sent');
+
+        $this->assertSame([], $this->pointsTitled('Option automatique'));
+    }
+
     private function daysFromTodayFr(int $days): string
     {
         return AppClock::now()->modify("{$days} days")->format('d/m/Y');

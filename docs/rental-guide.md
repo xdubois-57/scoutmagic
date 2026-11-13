@@ -153,7 +153,8 @@ lui-même, et une même adresse e-mail, ou un même compte connecté, ne peut
 avoir que **deux blocages en cours** à la fois, tous biens confondus. La
 demande est enregistrée et vous parvient comme les autres ; c'est à vous
 de poser une option si elle mérite les dates. Un blocage automatique de
-plus de 14 nuits apparaît dans les points d'attention.
+plus de 14 nuits apparaît dans les points d'attention, tant que la
+demande attend votre première réponse.
 
 Chaque bien a aussi, par défaut, une **durée maximum de 30 nuits** et un
 **horizon de 548 jours** (18 mois) ; les biens qui n'avaient pas de
