@@ -107,6 +107,17 @@ class GitHubUrlValidatorTest extends TestCase
             'any nested ref through the API zipball' => [
                 'https://api.github.com/repos/owner/repo/zipball/refs/heads/main',
             ],
+            'API zipball of a commit sha (reaches the fork network)' => [
+                'https://api.github.com/repos/owner/repo/zipball/0123456789abcdef0123456789abcdef01234567',
+            ],
+            'API zipball of an all-digit sha (grindable to look like a number)' => [
+                'https://api.github.com/repos/owner/repo/zipball/1234567890123456789012345678901234567890',
+            ],
+            'API zipball of a short sha' => ['https://api.github.com/repos/owner/repo/zipball/a1b2c3d'],
+            'API zipball of a branch name' => ['https://api.github.com/repos/owner/repo/zipball/main'],
+            'API zipball of a ref with no dot, which no version has' => [
+                'https://api.github.com/repos/owner/repo/zipball/v1',
+            ],
             'API zipball with no ref at all' => ['https://api.github.com/repos/owner/repo/zipball/'],
             'API zipball with an empty ref segment' => ['https://api.github.com/repos/owner/repo/zipball//x'],
             'another API endpoint of the configured repository' => [
@@ -193,5 +204,40 @@ class GitHubUrlValidatorTest extends TestCase
         $asset = 'https://github.com/owner/repo/releases/download/asset/scoutmagic.zip';
 
         $this->assertTrue(GitHubUrlValidator::isAllowedForRepository($asset, 'owner', 'repo', 'v1.2.3'));
+    }
+
+    /**
+     * @return array<string, array{string}>
+     */
+    public static function tagsOfARelease(): array
+    {
+        return [
+            'v-prefixed' => ['v1.2.3'],
+            'bare' => ['1.2.3'],
+            'two components' => ['v1.2'],
+            'four components' => ['v1.2.3.4'],
+            'pre-release' => ['v1.2.3-rc.1'],
+            'build metadata' => ['v1.2.3+build.5'],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('tagsOfARelease')]
+    public function testAVersionTagIsAcceptedAsTheRefOfAnArchive(string $tag): void
+    {
+        $url = 'https://api.github.com/repos/owner/repo/zipball/' . $tag;
+
+        $this->assertTrue(GitHubUrlValidator::isAllowedForRepository($url, 'owner', 'repo'));
+        $this->assertTrue(GitHubUrlValidator::isAllowedForRepository($url, 'owner', 'repo', $tag));
+    }
+
+    public function testAShaIsRefusedEvenWhenTheCallerSaysItIsTheTag(): void
+    {
+        // Whoever signs a webhook event writes tag_name AND the link, so
+        // « the ref equals the tag » proves nothing when both are a sha.
+        $sha = '0123456789abcdef0123456789abcdef01234567';
+        $url = 'https://api.github.com/repos/owner/repo/zipball/' . $sha;
+
+        $this->assertFalse(GitHubUrlValidator::isAllowedForRepository($url, 'owner', 'repo', $sha));
+        $this->assertFalse(GitHubUrlValidator::isAllowedForRepository($url, 'owner', 'repo', null));
     }
 }

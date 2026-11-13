@@ -227,6 +227,7 @@ class GitHubWebhookService
         // The payload's own repository.full_name proves nothing about where
         // its download link points — whoever signs the event writes both.
         if ($downloadUrl === null) {
+            $this->settings->setInternal('update_download_url', '');
             return ['status' => 'ignored', 'reason' => 'no_download_url'];
         }
         if (!GitHubUrlValidator::isAllowedForRepository(
@@ -235,6 +236,11 @@ class GitHubWebhookService
             (string) ($this->settings->get('update_github_repo') ?: ''),
             $tagName
         )) {
+            // The version cache above has already moved on to this release.
+            // The address cached for the previous one must not stay behind:
+            // « Installer maintenant » would pair the new version with the
+            // old archive, and write the new number over older code.
+            $this->settings->setInternal('update_download_url', '');
             return ['status' => 'ignored', 'reason' => 'download_url_refused'];
         }
         $this->settings->setInternal('update_download_url', $downloadUrl);

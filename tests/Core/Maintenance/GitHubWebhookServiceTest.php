@@ -301,6 +301,74 @@ class GitHubWebhookServiceTest extends TestCase
         $this->assertSame(0, $count);
     }
 
+    public function testACommitShaIsNotAcceptedEvenWhenItIsBothTheTagAndTheArchiveRef(): void
+    {
+        $this->settings->set('auto_update_enabled', '1');
+        $this->settings->set('auto_update_level', 'major');
+        $this->settings->clearCache();
+
+        // Whoever signs the event writes tag_name and the link, so equality
+        // between them proves nothing; GitHub resolves a sha across the fork
+        // network, so this would fetch a commit a stranger pushed to a fork.
+        $sha = '99a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3';
+        $this->assertTrue(
+            \Core\Maintenance\VersionFile::isNewerThan($sha, \Core\Maintenance\VersionFile::read(sys_get_temp_dir())),
+            'precondition: the sha must pass the « is it newer » gate, or this test proves nothing'
+        );
+
+        $result = $this->service()->handleReleaseEvent($this->releasePayload($sha, [
+            'assets' => [],
+            'zipball_url' => 'https://api.github.com/repos/owner/repo/zipball/' . $sha,
+        ]));
+
+        $this->assertSame(['status' => 'ignored', 'reason' => 'download_url_refused'], $result);
+        $count = (int) $this->pdo->query("SELECT COUNT(*) FROM scheduled_actions")->fetchColumn();
+        $this->assertSame(0, $count);
+    }
+
+    public function testARefusedNewerReleaseDoesNotLeaveTheOlderDownloadUrlCached(): void
+    {
+        // Auto-update off: a genuine release only refreshes the caches the
+        // « Installer maintenant » button reads.
+        $this->settings->set('auto_update_enabled', '0');
+        $this->settings->clearCache();
+        $first = $this->service()->handleReleaseEvent($this->releasePayload('v2.5.0'));
+        $this->assertSame('auto_update_disabled', $first['reason']);
+        $this->settings->clearCache();
+        $this->assertSame(self::RELEASE_ASSET_URL, (string) $this->settings->get('update_download_url'));
+
+        // A newer release whose link is refused moves the version cache on.
+        // The address of the OLD archive must not stay behind, or the button
+        // would pair the new version with the old code and write the new
+        // number over it.
+        $second = $this->service()->handleReleaseEvent($this->releasePayload('v2.6.0', [
+            'assets' => [[
+                'name' => 'scoutmagic.zip',
+                'browser_download_url' => 'https://github.com/other/depot/releases/download/v2.6.0/x.zip',
+            ]],
+        ]));
+
+        $this->assertSame(['status' => 'ignored', 'reason' => 'download_url_refused'], $second);
+        $this->settings->clearCache();
+        $this->assertSame('2.6.0', (string) $this->settings->get('update_latest_version'));
+        $this->assertSame('', (string) $this->settings->get('update_download_url'));
+    }
+
+    public function testANewerReleaseWithNoDownloadUrlDoesNotLeaveTheOlderOneCachedEither(): void
+    {
+        $this->settings->set('auto_update_enabled', '0');
+        $this->settings->clearCache();
+        $this->service()->handleReleaseEvent($this->releasePayload('v2.5.0'));
+        $this->settings->clearCache();
+        $this->assertSame(self::RELEASE_ASSET_URL, (string) $this->settings->get('update_download_url'));
+
+        $result = $this->service()->handleReleaseEvent($this->releasePayload('v2.6.0', ['assets' => []]));
+
+        $this->assertSame(['status' => 'ignored', 'reason' => 'no_download_url'], $result);
+        $this->settings->clearCache();
+        $this->assertSame('', (string) $this->settings->get('update_download_url'));
+    }
+
     public function testAGenuineReleaseOfTheConfiguredRepositoryStillInstalls(): void
     {
         $this->settings->set('auto_update_enabled', '1');

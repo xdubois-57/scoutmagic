@@ -60,6 +60,14 @@ final class GitHubUrlValidator
     }
 
     /**
+     * What a release's tag looks like: a version, with at least one dot, and
+     * nothing else. A commit sha has no dot, so it can never match — which
+     * matters because GitHub resolves a sha in the ref position across the
+     * whole fork network, i.e. to a commit a stranger pushed to their fork.
+     */
+    private const RELEASE_TAG_PATTERN = '/^[vV]?\d+\.\d+(?:\.\d+)*(?:[-+][0-9A-Za-z][0-9A-Za-z.+-]*)?$/';
+
+    /**
      * Whether $url is an https download URL for a release of
      * github.com/{owner}/{repo}.
      *
@@ -68,13 +76,15 @@ final class GitHubUrlValidator
      *  - a release asset, `github.com/{o}/{r}/releases/download/…` — a path
      *    that GitHub serves only for files attached to a release of that
      *    repository;
-     *  - the API zipball of a release, `api.github.com/repos/{o}/{r}/zipball/{ref}`
-     *    with exactly ONE path segment as the ref. A longer ref is how GitHub
-     *    names a pull request's head (`refs/pull/{n}/head`), whose content is
-     *    written by whoever opened it from a fork: it lives in the repository's
-     *    namespace but is not something the repository published. When $tag is
-     *    given, that segment must BE the release's tag — a commit sha, which
-     *    GitHub also resolves across the fork network, is never a version.
+     *  - the API zipball of a release, `api.github.com/repos/{o}/{r}/zipball/{ref}`,
+     *    whose ref is exactly ONE path segment AND looks like a version tag
+     *    (RELEASE_TAG_PATTERN). A longer ref is how GitHub names a pull
+     *    request's head (`refs/pull/{n}/head`) and a bare sha reaches a
+     *    commit of a fork: in both the content is written by whoever opened
+     *    the pull request or pushed the fork, not published by the
+     *    repository. When $tag is given the ref must also BE that tag, which
+     *    on its own would not be enough: whoever signs the event writes
+     *    `tag_name` and the link both.
      *
      * Not accepted: `codeload.github.com` (nothing hands the updater one as a
      * first URL — it is only ever where the API redirects to, which
@@ -82,11 +92,7 @@ final class GitHubUrlValidator
      * (`objects.…`, `release-assets.…`), which name no repository.
      *
      * Owner and repository compare case-insensitively, as GitHub does, and
-     * each prefix ends on a slash so `repo-evil` is not `repo`. A path that
-     * could step out of the prefix — a `.` / `..` segment, or an encoded dot,
-     * slash or backslash — is refused outright, as are userinfo and any port
-     * but 443: the point of the check is that the text it read is the address
-     * that gets fetched.
+     * each prefix ends on a slash so `repo-evil` is not `repo`.
      */
     public static function isAllowedForRepository(string $url, string $owner, string $repo, ?string $tag = null): bool
     {
@@ -95,46 +101,67 @@ final class GitHubUrlValidator
         if ($owner === '' || $repo === '' || str_contains($owner, '/') || str_contains($repo, '/')) {
             return false;
         }
-        if (!self::isAllowed($url)) {
+
+        $parts = self::fetchableParts($url);
+        if ($parts === null) {
             return false;
         }
 
+        return match (strtolower((string) ($parts['host'] ?? ''))) {
+            'github.com' => str_starts_with(strtolower((string) $parts['path']), "/{$owner}/{$repo}/releases/download/"),
+            'api.github.com' => self::isReleaseZipball((string) $parts['path'], $owner, $repo, $tag),
+            default => false,
+        };
+    }
+
+    /**
+     * The parts of an allowlisted URL whose text can be trusted to be the
+     * address that gets fetched, or null.
+     *
+     * A path that could step out of a prefix — a `.` / `..` segment, or an
+     * encoded dot, slash or backslash — is refused outright, as are userinfo
+     * and any port but 443.
+     *
+     * @return array<string, mixed>|null
+     */
+    private static function fetchableParts(string $url): ?array
+    {
+        if (!self::isAllowed($url)) {
+            return null;
+        }
         $parts = parse_url($url);
         if (!is_array($parts) || isset($parts['user']) || isset($parts['pass'])) {
-            return false;
+            return null;
         }
         if (isset($parts['port']) && $parts['port'] !== 443) {
-            return false;
+            return null;
         }
 
         $path = (string) ($parts['path'] ?? '');
         if (preg_match('#%(2e|2f|5c)#i', $path) === 1 || str_contains($path, '\\')) {
+            return null;
+        }
+        if (array_intersect(explode('/', $path), ['.', '..']) !== []) {
+            return null;
+        }
+        $parts['path'] = $path;
+
+        return $parts;
+    }
+
+    private static function isReleaseZipball(string $path, string $owner, string $repo, ?string $tag): bool
+    {
+        $prefix = "/repos/{$owner}/{$repo}/zipball/";
+        if (!str_starts_with(strtolower($path), $prefix)) {
             return false;
         }
-        foreach (explode('/', $path) as $segment) {
-            if ($segment === '.' || $segment === '..') {
-                return false;
-            }
-        }
-        $lowerPath = strtolower($path);
 
-        switch (strtolower((string) ($parts['host'] ?? ''))) {
-            case 'github.com':
-                return str_starts_with($lowerPath, "/{$owner}/{$repo}/releases/download/");
-            case 'api.github.com':
-                $prefix = "/repos/{$owner}/{$repo}/zipball/";
-                if (!str_starts_with($lowerPath, $prefix)) {
-                    return false;
-                }
-                // The ref keeps its own case: tags are case-sensitive.
-                $ref = substr($path, strlen($prefix));
-                if ($ref === '' || str_contains($ref, '/')) {
-                    return false;
-                }
-
-                return $tag === null || $ref === $tag;
-            default:
-                return false;
+        // The ref keeps its own case: tags are case-sensitive.
+        $ref = substr($path, strlen($prefix));
+        if (preg_match(self::RELEASE_TAG_PATTERN, $ref) !== 1) {
+            return false;
         }
+
+        return $tag === null || $ref === $tag;
     }
 }
