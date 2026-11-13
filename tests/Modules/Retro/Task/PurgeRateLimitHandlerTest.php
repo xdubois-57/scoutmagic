@@ -73,15 +73,15 @@ class PurgeRateLimitHandlerTest extends TestCase
         $twelveHoursAgo = (new \DateTimeImmutable('-12 hours'))->format('Y-m-d H:i:s');
         $twoDaysAgo = (new \DateTimeImmutable('-2 days'))->format('Y-m-d H:i:s');
         $stmt->execute(['visitor', 'shorten', $twelveHoursAgo]);
-        $stmt->execute(['board', 'board_ai_call', $twelveHoursAgo]);
-        $stmt->execute(['old-board', 'board_ai_call', $twoDaysAgo]);
+        $stmt->execute(['board', 'board_ai_moderation', $twelveHoursAgo]);
+        $stmt->execute(['old-board', 'board_ai_moderation', $twoDaysAgo]);
 
         (new PurgeRateLimitHandler())->handle([], $this->context);
 
         $since = '2000-01-01 00:00:00';
         $this->assertSame(0, $this->repository->countSince('visitor', 'shorten', $since));
-        $this->assertSame(1, $this->repository->countSince('board', 'board_ai_call', $since));
-        $this->assertSame(0, $this->repository->countSince('old-board', 'board_ai_call', $since));
+        $this->assertSame(1, $this->repository->countSince('board', 'board_ai_moderation', $since));
+        $this->assertSame(0, $this->repository->countSince('old-board', 'board_ai_moderation', $since));
     }
 
     public function testReschedulesItselfForTheNextDay(): void

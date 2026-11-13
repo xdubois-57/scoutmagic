@@ -62,13 +62,13 @@ class RateLimitRepositoryTest extends TestCase
     {
         $stmt = $this->pdo->prepare('INSERT INTO retro_rate_limits (identifier_hash, action_type, created_at) VALUES (?, ?, ?)');
         $stmt->execute(['visitor', 'comment', '2020-01-01 00:00:00']);
-        $stmt->execute(['board', 'board_ai_call', '2020-01-01 00:00:00']);
+        $stmt->execute(['board', 'board_ai_moderation', '2020-01-01 00:00:00']);
 
-        $deleted = $this->repository->deleteOlderThan('2021-01-01 00:00:00', ['board_ai_call']);
+        $deleted = $this->repository->deleteOlderThan('2021-01-01 00:00:00', ['board_ai_moderation']);
 
         $this->assertSame(1, $deleted);
         $since = '2000-01-01 00:00:00';
         $this->assertSame(0, $this->repository->countSince('visitor', 'comment', $since));
-        $this->assertSame(1, $this->repository->countSince('board', 'board_ai_call', $since));
+        $this->assertSame(1, $this->repository->countSince('board', 'board_ai_moderation', $since));
     }
 }

@@ -43,7 +43,7 @@ class PurgeRateLimitHandler implements TaskHandlerInterface
         $repository = new RateLimitRepository($pdo);
 
         $cutoff = (new \DateTimeImmutable('-' . self::RETENTION_HOURS . ' hours'))->format('Y-m-d H:i:s');
-        $repository->deleteOlderThan($cutoff, [RateLimitService::BOARD_AI_CALL]);
+        $repository->deleteOlderThan($cutoff, array_keys(RateLimitService::BOARD_AI_DAILY_BUDGETS));
         $budgetCutoff = (new \DateTimeImmutable('-' . self::BOARD_BUDGET_RETENTION_HOURS . ' hours'))
             ->format('Y-m-d H:i:s');
         $repository->deleteOlderThan($budgetCutoff);

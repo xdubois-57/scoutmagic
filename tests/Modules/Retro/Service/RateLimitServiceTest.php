@@ -232,48 +232,87 @@ class RateLimitServiceTest extends TestCase
     }
 
     /**
+     * @return array<string, array{string}>
+     */
+    public static function boardAiBudgets(): array
+    {
+        return [
+            'shorten' => [RateLimitService::BOARD_AI_SHORTEN],
+            'moderation' => [RateLimitService::BOARD_AI_MODERATION],
+        ];
+    }
+
+    private function spend(Board $board, string $budget): void
+    {
+        for ($i = 0; $i < RateLimitService::BOARD_AI_DAILY_BUDGETS[$budget]; $i++) {
+            $this->service->checkAndRecordBoardAiCall($board, $budget);
+        }
+    }
+
+    /**
      * Issue #1128: past its daily budget a public board refuses every paid
      * AI call, whichever address asks — the budget is the board's.
      */
-    public function testAPublicBoardRefusesAiCallsPastItsDailyBudget(): void
+    #[\PHPUnit\Framework\Attributes\DataProvider('boardAiBudgets')]
+    public function testAPublicBoardRefusesAiCallsPastItsDailyBudget(string $budget): void
     {
         $board = $this->board(1, 'public');
-        for ($i = 0; $i < RateLimitService::BOARD_AI_CALLS_PER_DAY; $i++) {
-            $this->service->checkAndRecordBoardAiCall($board);
-        }
+        $this->spend($board, $budget);
 
         try {
-            $this->service->checkAndRecordBoardAiCall($board);
+            $this->service->checkAndRecordBoardAiCall($board, $budget);
             $this->fail('Expected a RetroException.');
         } catch (RetroException $e) {
             $this->assertSame(RetroException::TYPE_RATE_LIMITED, $e->type);
         }
 
         // Another board has its own budget.
-        $this->service->checkAndRecordBoardAiCall($this->board(2, 'public'));
-        $this->assertSame(RateLimitService::BOARD_AI_CALLS_PER_DAY + 1, $this->recorded(RateLimitService::BOARD_AI_CALL));
+        $this->service->checkAndRecordBoardAiCall($this->board(2, 'public'), $budget);
+        $this->assertSame(RateLimitService::BOARD_AI_DAILY_BUDGETS[$budget] + 1, $this->recorded($budget));
+    }
+
+    /**
+     * Review of #1196: « Raccourcir » is open to anybody holding the link,
+     * moderation decides whether a comment can be posted at all. Draining
+     * the first must not shut the second.
+     */
+    public function testTheShortenAndModerationBudgetsAreSeparate(): void
+    {
+        $board = $this->board(1, 'public');
+        $this->spend($board, RateLimitService::BOARD_AI_SHORTEN);
+
+        $this->service->checkAndRecordBoardAiCall($board, RateLimitService::BOARD_AI_MODERATION);
+
+        $this->assertSame(1, $this->recorded(RateLimitService::BOARD_AI_MODERATION));
+    }
+
+    public function testAnUnknownBudgetIsAProgrammingError(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->service->checkAndRecordBoardAiCall($this->board(1, 'public'), 'shorten');
     }
 
     public function testTheBoardBudgetCountsOverADayNotTheVisitorWindow(): void
     {
+        $budget = RateLimitService::BOARD_AI_MODERATION;
         $board = $this->board(1, 'public');
-        $this->service->checkAndRecordBoardAiCall($board);
+        $this->service->checkAndRecordBoardAiCall($board, $budget);
         $hash = (string) $this->pdo->query('SELECT identifier_hash FROM retro_rate_limits')->fetchColumn();
         $this->pdo->exec('DELETE FROM retro_rate_limits');
 
         $insert = $this->pdo->prepare('INSERT INTO retro_rate_limits (identifier_hash, action_type, created_at) VALUES (?, ?, ?)');
         $twentyHoursAgo = (new \DateTimeImmutable('-20 hours'))->format('Y-m-d H:i:s');
-        for ($i = 0; $i < RateLimitService::BOARD_AI_CALLS_PER_DAY; $i++) {
-            $insert->execute([$hash, RateLimitService::BOARD_AI_CALL, $twentyHoursAgo]);
+        for ($i = 0; $i < RateLimitService::BOARD_AI_DAILY_BUDGETS[$budget]; $i++) {
+            $insert->execute([$hash, $budget, $twentyHoursAgo]);
         }
 
         $this->expectException(RetroException::class);
-        $this->service->checkAndRecordBoardAiCall($board);
+        $this->service->checkAndRecordBoardAiCall($board, $budget);
     }
 
     public function testTheBoardBudgetStoresNoBoardIdInClear(): void
     {
-        $this->service->checkAndRecordBoardAiCall($this->board(42, 'public'));
+        $this->service->checkAndRecordBoardAiCall($this->board(42, 'public'), RateLimitService::BOARD_AI_SHORTEN);
 
         $hash = (string) $this->pdo->query('SELECT identifier_hash FROM retro_rate_limits')->fetchColumn();
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
@@ -293,11 +332,12 @@ class RateLimitServiceTest extends TestCase
     public function testABoardThatIsNotPublicHasNoDailyBudget(string $accessMode): void
     {
         $board = $this->board(1, $accessMode);
-        for ($i = 0; $i <= RateLimitService::BOARD_AI_CALLS_PER_DAY; $i++) {
-            $this->service->checkAndRecordBoardAiCall($board);
+        foreach (array_keys(RateLimitService::BOARD_AI_DAILY_BUDGETS) as $budget) {
+            for ($i = 0; $i <= RateLimitService::BOARD_AI_DAILY_BUDGETS[$budget]; $i++) {
+                $this->service->checkAndRecordBoardAiCall($board, $budget);
+            }
+            $this->assertSame(0, $this->recorded($budget));
         }
-
-        $this->assertSame(0, $this->recorded(RateLimitService::BOARD_AI_CALL));
     }
 
     /**

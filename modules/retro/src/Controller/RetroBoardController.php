@@ -439,7 +439,7 @@ class RetroBoardController extends AbstractController
                 ),
                 'shorten'
             );
-            $this->rateLimitService->checkAndRecordBoardAiCall($board);
+            $this->rateLimitService->checkAndRecordBoardAiCall($board, RateLimitService::BOARD_AI_SHORTEN);
             $shortened = $this->moderationService->shorten($body, $board->maxCommentLength);
         } catch (RetroException $e) {
             return $this->json(['success' => false, 'error' => $e->getMessage()], 422);

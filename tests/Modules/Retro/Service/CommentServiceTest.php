@@ -229,10 +229,10 @@ class CommentServiceTest extends TestCase
         }
     }
 
-    private function spendBoardAiBudget(Board $board): void
+    private function spendBoardAiBudget(Board $board, string $budget = RateLimitService::BOARD_AI_MODERATION): void
     {
-        for ($i = 0; $i < RateLimitService::BOARD_AI_CALLS_PER_DAY; $i++) {
-            $this->rateLimitService->checkAndRecordBoardAiCall($board);
+        for ($i = 0; $i < RateLimitService::BOARD_AI_DAILY_BUDGETS[$budget]; $i++) {
+            $this->rateLimitService->checkAndRecordBoardAiCall($board, $budget);
         }
     }
 
@@ -272,8 +272,34 @@ class CommentServiceTest extends TestCase
         $service->postComment($board, 'good', 'Some text', $this->rateLimitService->identifierHash('192.0.2.1', null, 's'), 'enforced');
 
         $this->assertSame(1, (int) $this->pdo->query(
-            "SELECT COUNT(*) FROM retro_rate_limits WHERE action_type = 'board_ai_call'"
+            "SELECT COUNT(*) FROM retro_rate_limits WHERE action_type = 'board_ai_moderation'"
         )->fetchColumn());
+    }
+
+    /**
+     * Review of #1196: « Raccourcir » needs nothing but the link. Spending
+     * its whole budget must leave comment moderation — and so commenting —
+     * untouched.
+     */
+    public function testAnEmptiedShortenBudgetStillLetsCommentsThrough(): void
+    {
+        $moderationService = $this->createMock(ModerationService::class);
+        $moderationService->method('isAvailable')->willReturn(true);
+        $moderationService->expects($this->once())->method('moderate')
+            ->willReturn(['flagged' => false, 'reason' => null, 'suggestion' => null]);
+        $service = new CommentService(new CommentRepository($this->pdo), $moderationService, $this->rateLimitService);
+        $board = $this->createBoard();
+        $this->spendBoardAiBudget($board, RateLimitService::BOARD_AI_SHORTEN);
+
+        $comment = $service->postComment(
+            $board,
+            'good',
+            'Some text',
+            $this->rateLimitService->identifierHash('192.0.2.1', null, 's'),
+            'enforced'
+        );
+
+        $this->assertSame('Some text', $comment->body);
     }
 
     public function testABoardThatIsNotPublicHasNoDailyAiBudget(): void

@@ -81,7 +81,7 @@ class CommentService
             // can spend must not also switch moderation off. Without an
             // AI provider no call is made, so nothing is counted either.
             if ($this->moderationService->isAvailable()) {
-                $this->rateLimitService->checkAndRecordBoardAiCall($board);
+                $this->rateLimitService->checkAndRecordBoardAiCall($board, RateLimitService::BOARD_AI_MODERATION);
             }
             $result = $this->moderationService->moderate($body, $board->maxCommentLength);
             if ($result !== null && $result['flagged']) {

@@ -697,8 +697,9 @@ class RetroBoardControllerTest extends TestCase
         [$boardId, $token] = $this->createBoard();
         $board = $this->boardRepository->findById($boardId);
         $this->assertNotNull($board);
-        for ($i = 0; $i < RateLimitService::BOARD_AI_CALLS_PER_DAY; $i++) {
-            $this->rateLimitService->checkAndRecordBoardAiCall($board);
+        $budget = RateLimitService::BOARD_AI_SHORTEN;
+        for ($i = 0; $i < RateLimitService::BOARD_AI_DAILY_BUDGETS[$budget]; $i++) {
+            $this->rateLimitService->checkAndRecordBoardAiCall($board, $budget);
         }
 
         $response = $this->controller->shorten(
