@@ -46,9 +46,13 @@ declare(strict_types=1);
     putenv('TMPDIR=' . $runDirectory);
     $_ENV['TMPDIR'] = $runDirectory;
     if (sys_get_temp_dir() !== $runDirectory) {
+        // Refused, and nothing left behind by the refusal itself.
+        @rmdir($runDirectory);
         throw new RuntimeException(
-            'sys_get_temp_dir() was called before tests/bootstrap.php redirected it: the run would leave its '
-                . 'files in ' . sys_get_temp_dir() . ' (#1015).'
+            'tests/bootstrap.php could not redirect the temporary directory: sys_get_temp_dir() still answers '
+                . sys_get_temp_dir() . '. Either PHP is configured with sys_temp_dir (php.ini or -d), which '
+                . 'takes precedence over TMPDIR — remove it for the test run — or something called '
+                . 'sys_get_temp_dir() before this bootstrap, whose first answer PHP keeps (#1015).'
         );
     }
     define('SCOUTMAGIC_TEST_TEMP_DIR', $runDirectory);

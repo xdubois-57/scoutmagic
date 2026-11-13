@@ -50,4 +50,28 @@ final class TestTemporaryDirectoryTest extends TestCase
         $child = shell_exec(escapeshellarg(PHP_BINARY) . ' -r ' . escapeshellarg('echo sys_get_temp_dir();'));
         $this->assertSame($runDirectory, $child);
     }
+
+    /**
+     * The run's directory is gone once the run that made it ends — a
+     * read-only directory a test left inside it included (review of #1199).
+     * Played in a child process, which bootstraps, writes, and exits: this
+     * run's own directory cannot be watched disappearing from inside it.
+     */
+    public function testTheRunDirectoryIsRemovedWhenTheRunEnds(): void
+    {
+        $script = 'require ' . var_export(dirname(__DIR__) . '/bootstrap.php', true) . ';'
+            . '$dir = constant("SCOUTMAGIC_TEST_TEMP_DIR");'
+            . 'mkdir($dir . "/locked/inner", 0700, true);'
+            . 'file_put_contents($dir . "/locked/inner/left-behind.txt", "x");'
+            . 'chmod($dir . "/locked", 0500);'
+            . 'echo $dir;';
+        $output = [];
+        $exitCode = null;
+        exec(escapeshellarg(PHP_BINARY) . ' -r ' . escapeshellarg($script), $output, $exitCode);
+
+        $this->assertSame(0, $exitCode);
+        $childDirectory = implode('', $output);
+        $this->assertMatchesRegularExpression('#/scoutmagic-phpunit-\d+-[0-9a-f]{8}$#', $childDirectory);
+        $this->assertFalse(file_exists($childDirectory), 'The child run left its temporary directory behind.');
+    }
 }
