@@ -8681,6 +8681,35 @@ $financeSepaQrCodeForOthers = null;
 $financeStatementStatusForOthers = null;
 $financeAccountForOthers = null;
 
+// One-time stamp of the campaign workbooks stored before they had an owner
+// (issue #1111) — OUTSIDE the finance block on purpose. With the module
+// disabled, an unowned workbook would still be served at its flat
+// `intendant` floor (/files/{id} does not ask which module a file belongs
+// to); stamped, it is refused to everybody until the module and its
+// ownership checker come back. The finance tables exist whether or not
+// the module is enabled, since the whole declared schema is migrated.
+// Same shape as member_section_periods_backfilled.
+if ($settingService->get('finance_campaign_workbooks_owned') !== '1') {
+    $settingService->register(
+        'finance_campaign_workbooks_owned',
+        '0',
+        'boolean',
+        'Classeurs de campagne rattachés à leur compte',
+        'Indique si les classeurs sources des campagnes existantes ont reçu leur compte comme propriétaire.',
+        null,
+        null,
+        null,
+        false,
+        999
+    );
+
+    (new \Modules\Finance\Repository\CampaignRepository($pdo))
+        ->backfillSourceFileOwnership(\Modules\Finance\File\FinanceAccountOwnershipChecker::OWNER_TYPE);
+
+    $settingRepo->updateValue(null, 'finance_campaign_workbooks_owned', '1');
+    $settingService->clearCache();
+}
+
 if ($isEnabled('finance')) {
     \Core\Debug\RequestTimeline::mark('module_finance');
     $financeFiscalYearRepo = new \Modules\Finance\Repository\FiscalYearRepository($pdo, $scoutYearService);
@@ -9007,25 +9036,6 @@ if ($isEnabled('finance')) {
     // flag, and SettingService caches settings once per request, so every
     // run after the first costs one array lookup and no query.
     $financeReceiptService->ensureReceiptFileOwnership();
-    // The same for the account's other file, a campaign's source workbook
-    // (issue #1111) — its own flag, since the receipts' one is already set
-    // on every installation that has run the line above.
-    if ($settingService->get('campaign_source_file_ownership_backfilled', 'finance', '0') !== '1') {
-        (new \Modules\Finance\Repository\CampaignRepository($pdo))
-            ->backfillSourceFileOwnership(\Modules\Finance\File\FinanceAccountOwnershipChecker::OWNER_TYPE);
-        $settingService->register(
-            'campaign_source_file_ownership_backfilled',
-            '0',
-            'boolean',
-            'Classeurs de campagne rattachés à leur compte',
-            'Indicateur interne — ne pas modifier.',
-            'finance',
-            null,
-            null,
-            false
-        );
-        $settingService->setInternal('campaign_source_file_ownership_backfilled', '1', 'finance');
-    }
     $financeFirstReceiptResolver = new \Modules\Finance\Service\FirstReceiptResolver(
         $financeTransactionAttachmentRepo,
         $financeAttachmentRepo

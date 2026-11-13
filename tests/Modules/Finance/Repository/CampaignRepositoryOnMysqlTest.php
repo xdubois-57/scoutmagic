@@ -47,10 +47,13 @@ final class CampaignRepositoryOnMysqlTest extends TestCase
         $repository = new CampaignRepository($this->pdo);
         $this->assertSame(1, $repository->backfillSourceFileOwnership(FinanceAccountOwnershipChecker::OWNER_TYPE));
 
-        $owner = $this->pdo->query("SELECT owner_type, owner_id FROM files WHERE id = {$workbook}")->fetch(\PDO::FETCH_ASSOC);
+        $lookup = $this->pdo->prepare('SELECT owner_type, owner_id FROM files WHERE id = ?');
+        $lookup->execute([$workbook]);
+        $owner = $lookup->fetch(\PDO::FETCH_ASSOC);
         $this->assertSame(FinanceAccountOwnershipChecker::OWNER_TYPE, $owner['owner_type']);
         $this->assertSame($accountId, (int) $owner['owner_id']);
-        $this->assertFalse((bool) $this->pdo->query("SELECT owner_type FROM files WHERE id = {$unrelated}")->fetchColumn());
+        $lookup->execute([$unrelated]);
+        $this->assertNull($lookup->fetch(\PDO::FETCH_ASSOC)['owner_type']);
         $this->assertSame(0, $repository->backfillSourceFileOwnership(FinanceAccountOwnershipChecker::OWNER_TYPE));
     }
 
