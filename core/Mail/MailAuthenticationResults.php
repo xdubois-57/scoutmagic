@@ -135,7 +135,12 @@ final class MailAuthenticationResults
                 continue;
             }
             $domain = match ($result['method']) {
-                'spf' => self::domainOf($result['props']['smtp.mailfrom'] ?? $result['props']['smtp.helo'] ?? ''),
+                // Only the MAIL FROM identity: `smtp.helo` is whatever the
+                // sending client typed after EHLO, and falling back to it —
+                // when `smtp.mailfrom` was quoted and so emptied — would let
+                // the sender name any domain. `header.i` below is different:
+                // it is signed, and RFC 6376 keeps it within `header.d`.
+                'spf' => self::domainOf($result['props']['smtp.mailfrom'] ?? ''),
                 'dkim' => self::domainOf($result['props']['header.d'] ?? $result['props']['header.i'] ?? ''),
                 default => '',
             };

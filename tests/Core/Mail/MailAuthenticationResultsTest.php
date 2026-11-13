@@ -313,4 +313,17 @@ class MailAuthenticationResultsTest extends TestCase
             $this->assertFalse(MailAuthenticationResults::senderVerified($headers, 'locataire@exemple.be'), $headers);
         }
     }
+
+    /**
+     * `smtp.helo` is the sender's own EHLO text. With a quoted local part
+     * the real `smtp.mailfrom` reads as nothing — and must not fall back
+     * on the HELO name the sender chose.
+     */
+    public function testTheHeloNameNeverStandsInForTheMailFrom(): void
+    {
+        $headers = "Authentication-Results: mx.ovh.net; spf=pass"
+            . " smtp.mailfrom=\"a\"@attaquant.be smtp.helo=exemple.be\r\n";
+
+        $this->assertFalse(MailAuthenticationResults::senderVerified($headers, 'locataire@exemple.be'));
+    }
 }
