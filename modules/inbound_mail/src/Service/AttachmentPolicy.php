@@ -207,6 +207,11 @@ class AttachmentPolicy
                 }
                 $types = (string) stream_get_contents($stream, self::CONTENT_TYPES_READ);
                 fclose($stream);
+                // XML, not opaque text: `&#80;` is the `P` Word reads, so a
+                // character reference must not hide the word from us.
+                // Decoded rather than parsed — no XML parser, no external
+                // entities to resolve.
+                $types = html_entity_decode($types, ENT_QUOTES | ENT_XML1, 'UTF-8');
 
                 return stripos($types, 'macroEnabled') === false && stripos($types, 'vbaProject') === false;
             } finally {

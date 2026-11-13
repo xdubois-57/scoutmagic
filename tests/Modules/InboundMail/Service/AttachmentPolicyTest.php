@@ -123,7 +123,19 @@ class AttachmentPolicyTest extends TestCase
             extraPart: 'word/innocent.bin'
         );
 
-        $cases = ['no content types' => $noTypes, 'padded' => $padded, 'renamed macro part' => $renamed];
+        $encoded = self::ooxml(
+            withMacros: false,
+            contentTypes: '<Types><Override PartName="/word/innocent.bin"'
+                . ' ContentType="application/vnd.ms-office.vba&#80;roject"/></Types>',
+            extraPart: 'word/innocent.bin'
+        );
+
+        $cases = [
+            'no content types' => $noTypes,
+            'padded' => $padded,
+            'renamed macro part' => $renamed,
+            'declaration hidden behind a character reference' => $encoded,
+        ];
         foreach ($cases as $case => $bytes) {
             $this->assertSame(
                 AttachmentOmission::MIME_REJECTED,
