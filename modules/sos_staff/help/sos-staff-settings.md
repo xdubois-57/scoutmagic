@@ -7,7 +7,7 @@ role_min: admin
 question: Comment changer le numéro par défaut du téléphone d'urgence ?
 question: Pourquoi le bouton Enregistrer du numéro par défaut est-il grisé ?
 paths: /admin/sos/reglages
-related: sos-staff, sos-staff-redirection, config-sos, actions-planifiees
+related: sos-staff, sos-staff-default-number, sos-staff-redirection, config-sos, actions-planifiees
 ---
 
 L'onglet **Réglages** regroupe trois réglages du téléphone d'urgence.
@@ -15,8 +15,9 @@ L'onglet **Réglages** regroupe trois réglages du téléphone d'urgence.
 Trois réglages, qui s'enregistrent d'eux-mêmes sauf le premier :
 
 - le **numéro par défaut**, utilisé les jours sans garde attribuée — seuls
-  les membres dont un mobile est connu sont proposés. Le bouton
-  « Enregistrer » ne s'active que si vous changez réellement la valeur. Si
+  les membres du Staff d'U dont le GSM est un numéro valide sont proposés
+  (voir « Le numéro par défaut et les GSM du Staff d'U »). Le bouton « Enregistrer » ne s'active que si vous changez réellement la
+  valeur. Si
   la journée en cours n'a pas de garde, un avertissement vous prévient que
   l'enregistrement redirige les appels immédiatement ;
 - l'**heure de changement de garde** ;

@@ -15,6 +15,8 @@ use Core\Database\Connection;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Mail\MailService;
+use Core\Member\Repository\UnitStaffSectionRepository;
+use Core\Member\UnitStaffSectionService;
 use Core\Module\ModuleManager;
 use Core\Scheduler\SchedulerRepository;
 use Core\Scheduler\SchedulerRunner;
@@ -26,6 +28,8 @@ use Core\Security\UserAccountRepository;
 use Modules\SosStaff\Api\ForwardingState;
 use Modules\SosStaff\Api\PhoneProviderInterface;
 use Modules\SosStaff\Api\ProviderException;
+use Modules\SosStaff\Repository\OnCallAssignment;
+use Modules\SosStaff\Repository\OnCallRepository;
 use Modules\SosStaff\Repository\SosSettingsRepository;
 use Modules\SosStaff\Task\ApplyRedirectHandler;
 use Modules\SosStaff\Task\ReconcileRedirectHandler;
@@ -152,6 +156,53 @@ final class ReconcileRedirectHandlerTest extends TestCase
 
         self::assertSame([], $this->changes);
         self::assertSame([], $this->journal('redirect_drift_detected'));
+    }
+
+    /**
+     * Issue #1125: the operator answers in its own spelling (« 0032… ») — the
+     * line is where it should be, and the hourly check leaves it alone
+     * rather than « correcting » it every hour.
+     */
+    public function testALineOnTheRightNumberInTheOperatorsSpellingIsLeftAlone(): void
+    {
+        $this->forwarding = new ForwardingState(true, '0032470000099');
+        $this->queueNow(ReconcileRedirectHandler::REFERENCE_HOURLY, []);
+
+        $this->runner->processOverdue();
+
+        self::assertSame([], $this->changes);
+        self::assertSame([], $this->journal('redirect_drift_detected'));
+    }
+
+    /**
+     * Issue #1125, review of #1194: the member on duty has a Desk GSM that is
+     * no phone number. The hourly check leaves the line alone and alerts
+     * nobody — but it still reads the operator first, so a failure recorded
+     * for an earlier outage does not stay up, nor mute the next one's alert,
+     * for as long as Desk holds the wrong GSM.
+     */
+    public function testAnUnusableGsmOnDutyStillClearsAFailureTheOperatorGotOver(): void
+    {
+        $baloo = $this->member('baloo', '0470 12 34', 'baloo@example.test');
+        $repository = new OnCallRepository($this->pdo);
+        foreach (['yesterday', 'today'] as $day) {
+            $date = (new \DateTimeImmutable($day))->format('Y-m-d');
+            $repository->replaceRange($date, $date, [
+                new OnCallAssignment($baloo, $date, OnCallAssignment::STATE_ONCALL),
+            ]);
+        }
+        $this->settings->setInternal('redirect_last_failure_at', '2026-01-01 10:00:00', 'sos_staff');
+        $this->queueNow(ReconcileRedirectHandler::REFERENCE_HOURLY, []);
+
+        $this->runner->processOverdue();
+
+        self::assertSame([], $this->changes);
+        self::assertSame([], $this->mailedTo);
+        self::assertSame(
+            ['redirect_reconcile_unusable_number' => 'warning'],
+            $this->journal('redirect_reconcile_unusable_number')
+        );
+        self::assertSame('', $this->settings->get('redirect_last_failure_at', 'sos_staff', ''));
     }
 
     /**
@@ -315,16 +366,18 @@ final class ReconcileRedirectHandlerTest extends TestCase
             $this->encryption->blindIndex($email, 'email'),
         ]);
         $memberYear = (int) $this->pdo->lastInsertId();
-        // A chef d'unité: the alert's recipient.
+        // A chef d'unité: the alert's recipient — and a member of the Staff
+        // d'U, since only one of those may hold the default number (#1125).
         $this->pdo->exec(
             "INSERT OR IGNORE INTO functions (desk_code, label, role, confirmed) "
                 . "VALUES ('CU', 'Chef d''unité', 'admin', 1)"
         );
         $function = (int) $this->pdo->query("SELECT id FROM functions WHERE desk_code = 'CU'")->fetchColumn();
+        $staffdu = (new UnitStaffSectionService(new UnitStaffSectionRepository($this->pdo)))->ensureSection();
         $stmt = $this->pdo->prepare(
-            'INSERT INTO member_functions (member_year_id, function_id, is_main_function) VALUES (?, ?, 1)'
+            'INSERT INTO member_functions (member_year_id, function_id, section_id, is_main_function) VALUES (?, ?, ?, 1)'
         );
-        $stmt->execute([$memberYear, $function]);
+        $stmt->execute([$memberYear, $function, $staffdu]);
 
         return $id;
     }

@@ -68,7 +68,9 @@ class OvhTelephonyProviderTest extends TestCase
         $this->assertSame('https://eu.api.ovh.com/1.0/telephony/ba-123/line/0033100000000/options', $captured['url']);
         $decoded = json_decode((string) $captured['body'], true);
         $this->assertTrue($decoded['forwardUnconditional']);
-        $this->assertSame('+32470000000', $decoded['forwardUnconditionalNumber']);
+        // E.164 in, OVH's own international spelling out — the form of its
+        // line names, « 0033100000000 » above (issue #1125).
+        $this->assertSame('0032470000000', $decoded['forwardUnconditionalNumber']);
     }
 
     public function testTestConnectionReturnsTrueOnSuccess(): void

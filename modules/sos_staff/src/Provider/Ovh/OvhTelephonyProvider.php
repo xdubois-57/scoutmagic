@@ -51,8 +51,21 @@ class OvhTelephonyProvider implements PhoneProviderInterface
     {
         $this->requestOrFail(fn() => $this->client->put($this->optionsPath(), [
             'forwardUnconditional' => true,
-            'forwardUnconditionalNumber' => $number,
+            'forwardUnconditionalNumber' => self::toOvhFormat($number),
         ]));
+    }
+
+    /**
+     * E.164 (« +32470123456 ») as OVH writes international numbers
+     * (« 0032470123456 », the form of its own line names), issue #1125.
+     * The API types the field as a bare `phoneNumber` without saying which
+     * spelling it takes, so the adapter sends the one OVH itself uses; the
+     * read-back is compared as a number (Service\PhoneNumber::same()),
+     * whatever spelling OVH answers with.
+     */
+    public static function toOvhFormat(string $e164): string
+    {
+        return str_starts_with($e164, '+') ? '00' . substr($e164, 1) : $e164;
     }
 
     public function testConnection(): bool

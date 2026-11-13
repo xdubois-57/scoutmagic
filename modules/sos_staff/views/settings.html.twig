@@ -18,15 +18,48 @@
             <p class="text-body-secondary small">L'enregistrement est automatique — il n'y a pas de bouton « Enregistrer », sauf pour le numéro par défaut.</p>
             <div class="row g-3">
                 <div class="col-12 col-md-6">
+                    {# Issue #1125: a Desk GSM that is no phone number keeps
+                       its holder out of the default-number picker — said
+                       here, before a redirection to them would fail. #}
+                    {% if unusable_mobiles|default([]) is not empty %}
+                        <p class="text-warning-emphasis small" id="sos-unusable-mobiles">
+                            <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
+                            Le GSM enregistré dans Desk n'est pas un numéro de téléphone valide pour :
+                            {{ unusable_mobiles|map(member => member.label)|join(', ') }}.
+                            Ces personnes ne peuvent pas recevoir les appels du numéro SOS. Corrigez le GSM dans Desk, puis réimportez.
+                        </p>
+                    {% endif %}
+                    {# Issue #1125: the stored choice is no longer a Staff
+                       d'U member with a usable GSM this year. Outside the
+                       picker's branch on purpose (review of #1194): it must
+                       show even when nobody is left to pick. The select
+                       below, when there is one, shows the fallback, and
+                       « Enregistrer » stays available to confirm it. #}
+                    {% if default_number_stale_label %}
+                        <p class="text-warning-emphasis small mt-1 mb-0" id="default-number-stale-warning">
+                            <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
+                            {{ default_number_stale_label }} ne fait plus partie du Staff d'U de cette année avec un GSM utilisable : le numéro choisi n'est plus utilisé.
+                            {% if staff_options is not empty %}
+                                Les jours sans garde, le numéro de repli est celui de la personne sélectionnée ci-dessous. Enregistrez pour le confirmer, ou choisissez un autre membre.
+                            {% else %}
+                                Aucun autre membre du Staff d'U n'a de GSM valide : il n'y a plus de numéro de repli pour les jours sans garde.
+                            {% endif %}
+                        </p>
+                    {% endif %}
                     {% if staff_options is empty %}
                         {# A <label> pointing at a control that is not rendered
                            is a label for nothing — this branch has no select,
                            so it carries a heading instead. #}
                         <p class="form-label small mb-1">Numéro par défaut</p>
-                        <p class="text-danger small mb-0">
+                        <p class="text-danger small mb-0" id="default-number-none">
                             <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
-                            Aucun membre du Staff d'U n'a de numéro de mobile enregistré — impossible de définir un numéro par défaut.
-                            Complétez un numéro de mobile pour au moins un membre du Staff d'U.
+                            {% if unusable_mobiles|default([]) is not empty %}
+                                Aucun membre du Staff d'U n'a de GSM valide dans Desk — impossible de définir un numéro par défaut.
+                                Corrigez le GSM d'au moins un membre du Staff d'U dans Desk, puis réimportez.
+                            {% else %}
+                                Aucun membre du Staff d'U n'a de numéro de mobile enregistré — impossible de définir un numéro par défaut.
+                                Complétez un numéro de mobile pour au moins un membre du Staff d'U.
+                            {% endif %}
                         </p>
                     {% else %}
                         {#
@@ -47,7 +80,7 @@
                             {% include 'partials/form_field.html.twig' with {
                                 field_id: 'default-number-member', label: 'Numéro par défaut',
                                 type: 'select', size: 'sm', wrapper_class: 'flex-grow-1',
-                                data: { 'saved-value': default_number_selection_member_id },
+                                data: { 'saved-value': default_number_saved_member_id|default(default_number_selection_member_id) },
                                 options: staff_options|default([])|map(option => {
                                     value: option.member_id,
                                     label: option.label ~ ' (' ~ option.mobile ~ ')',

@@ -11,6 +11,7 @@ namespace Modules\SosStaff\Service;
 use Core\Config\SettingService;
 use Core\Service\DateInput;
 use Core\Import\MemberYearRepository;
+use Core\Member\MemberProfile;
 use Core\Member\SectionService;
 use Core\Member\UnitStaffSectionService;
 use Core\Module\SectionResponsableProvider;
@@ -116,29 +117,79 @@ class SosSettingsService
     }
 
     /**
-     * Staff d'U roster for the default-number dropdown (module spec §2.3)
-     * — only members with a known mobile number are listed, since a
-     * member with none can't usefully be picked as a redirect target.
+     * The Staff d'U roster with a known mobile (module spec §2.3): the
+     * columns of the duty planning, the order duties are resolved in, and
+     * the people a live line is matched against.
+     *
+     * A GSM that is no phone number keeps its holder here (review of #1194):
+     * the planning is saved by rewriting the whole month from this list, so
+     * dropping them would silently delete their recorded duties the next
+     * time anybody saved it. A duty planned on such a GSM is refused when
+     * the line has to move (RedirectService::apply(),
+     * RedirectReconciler::UNUSABLE_NUMBER) and named on the pages until
+     * Desk is corrected. Only the default number needs more:
+     * getDefaultNumberOptions().
      *
      * @return array<int, array{member_id: int, label: string, mobile: string}>
      */
     public function getStaffOptions(int $scoutYearId): array
     {
-        $staffduId = $this->unitStaffSectionService->ensureSection();
-        $profiles = $this->sectionService->getSectionStaff($staffduId, $scoutYearId);
-
-        $options = [];
-        foreach ($profiles as $profile) {
-            if ($profile->mobile === null || $profile->mobile === '') {
-                continue;
-            }
-            $options[] = [
+        return array_map(
+            static fn(MemberProfile $profile): array => [
                 'member_id' => $profile->memberId,
                 'label' => $profile->getDisplayNameFull(),
-                'mobile' => $profile->mobile,
-            ];
+                'mobile' => (string) $profile->mobile,
+            ],
+            $this->staffWithMobile($scoutYearId)
+        );
+    }
+
+    /**
+     * The members who may hold the default number: the Staff d'U roster
+     * whose mobile PhoneNumber can normalise (issue #1125). One Desk holds
+     * as « 0470 » or « 0470 12 34 5 » would only ever fail on the very days
+     * nobody is on duty; getStaffWithUnusableMobile() names them instead.
+     *
+     * @return array<int, array{member_id: int, label: string, mobile: string}>
+     */
+    public function getDefaultNumberOptions(int $scoutYearId): array
+    {
+        return array_values(array_filter(
+            $this->getStaffOptions($scoutYearId),
+            static fn(array $option): bool => PhoneNumber::normalize($option['mobile']) !== null
+        ));
+    }
+
+    /**
+     * The Staff d'U members whose Desk GSM is not a phone number this site
+     * can send to the operator (issue #1125) — named on the SOS page and as
+     * an attention point, before a redirection to them fails.
+     *
+     * @return array<int, array{member_id: int, label: string}>
+     */
+    public function getStaffWithUnusableMobile(int $scoutYearId): array
+    {
+        $unusable = [];
+        foreach ($this->staffWithMobile($scoutYearId) as $profile) {
+            if (PhoneNumber::normalize($profile->mobile) !== null) {
+                continue;
+            }
+            $unusable[] = ['member_id' => $profile->memberId, 'label' => $profile->getDisplayNameFull()];
         }
-        return $options;
+        return $unusable;
+    }
+
+    /**
+     * @return MemberProfile[]
+     */
+    private function staffWithMobile(int $scoutYearId): array
+    {
+        $staffduId = $this->unitStaffSectionService->ensureSection();
+
+        return array_values(array_filter(
+            $this->sectionService->getSectionStaff($staffduId, $scoutYearId),
+            static fn(MemberProfile $profile): bool => $profile->mobile !== null && $profile->mobile !== ''
+        ));
     }
 
     /**
@@ -169,7 +220,9 @@ class SosSettingsService
      * round trip through mobile-number resolution.
      *
      * Explicit admin choice (sos_settings.default_number_member_id) wins
-     * when set; otherwise auto-resolves to the Staff d'U section's
+     * when set and still one of getDefaultNumberOptions() for the year
+     * (issue #1125 — a choice is never re-asked of anybody, so it
+     * must not outlive the person's place in the Staff d'U); otherwise auto-resolves to the Staff d'U section's
      * designated "responsable" (Core\Module\SectionResponsableProvider —
      * the trombinoscope module, when enabled) or else the first Staff d'U
      * roster member — never persisted, so it naturally follows
@@ -185,7 +238,7 @@ class SosSettingsService
     public function resolveDefaultNumberMemberId(int $scoutYearId): ?int
     {
         $explicit = $this->settingsRepository->findDefaultNumberMemberId();
-        if ($explicit !== null) {
+        if ($explicit !== null && $this->isStaffOption($explicit, $scoutYearId)) {
             return $explicit;
         }
 
@@ -194,8 +247,40 @@ class SosSettingsService
             return $responsableId;
         }
 
-        $staffOptions = $this->getStaffOptions($scoutYearId);
+        $staffOptions = $this->getDefaultNumberOptions($scoutYearId);
         return $staffOptions[0]['member_id'] ?? null;
+    }
+
+    /**
+     * The member a chef d'unité chose as the default number, when that
+     * choice no longer holds (issue #1125): they left the Staff d'U, the
+     * unit, or their GSM is no longer usable. resolveDefaultNumberMemberId()
+     * then falls back as if nothing had been chosen; this is what says so
+     * — the attention point and the journal — until somebody confirms or
+     * changes the choice. Null when there is no choice, or it still holds.
+     *
+     * Asked live, like the rest of the resolution: a Desk import or a new
+     * scout year needs no hook of its own to be taken into account.
+     */
+    public function staleDefaultNumberMemberId(int $scoutYearId): ?int
+    {
+        $explicit = $this->settingsRepository->findDefaultNumberMemberId();
+        if ($explicit === null || $this->isStaffOption($explicit, $scoutYearId)) {
+            return null;
+        }
+
+        return $explicit;
+    }
+
+    private function isStaffOption(int $memberId, int $scoutYearId): bool
+    {
+        foreach ($this->getDefaultNumberOptions($scoutYearId) as $option) {
+            if ($option['member_id'] === $memberId) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function resolveSectionResponsableMemberId(int $scoutYearId): ?int
@@ -206,7 +291,7 @@ class SosSettingsService
 
         $staffduId = $this->unitStaffSectionService->ensureSection();
         $responsable = $this->sectionResponsableProvider->getResponsable($staffduId, $scoutYearId);
-        if ($responsable === null || $responsable->mobile === null || $responsable->mobile === '') {
+        if ($responsable === null || PhoneNumber::normalize($responsable->mobile) === null) {
             return null;
         }
 

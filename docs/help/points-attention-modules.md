@@ -52,6 +52,18 @@ Le module Intelligence artificielle signale **un fournisseur absent** et
 **un dernier appel en échec** : le point disparaît au prochain appel
 réussi, ou après un test de connexion réussi du fournisseur actif.
 
-Le module Téléphone d'urgence signale **un opérateur non configuré** et
-**un dernier changement de redirection en échec** : les appels arrivent
-peut-être encore chez la personne de garde précédente.
+Le module Téléphone d'urgence signale :
+
+- **un opérateur non configuré** ;
+- **un dernier changement de redirection en échec** : les appels arrivent
+  peut-être encore chez la personne de garde précédente ;
+- **un numéro par défaut choisi qui n'est plus valable** : la personne a
+  quitté le Staff d'U, n'a plus de fiche cette année, ou son GSM n'est
+  plus utilisable. Le point dit vers qui la redirection est prévue à sa
+  place les jours sans garde, ou qu'aucun autre numéro n'est utilisable.
+  Il disparaît quand vous confirmez ou changez le choix dans les
+  réglages ;
+- **un GSM du Staff d'U qui n'est pas un numéro de téléphone** dans
+  Desk : ces personnes ne peuvent pas recevoir les appels, ni de garde
+  ni comme numéro par défaut. Le point
+  disparaît après correction dans Desk et réimport.
