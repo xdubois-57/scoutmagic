@@ -64,5 +64,6 @@ Le module Téléphone d'urgence signale :
   Il disparaît quand vous confirmez ou changez le choix dans les
   réglages ;
 - **un GSM du Staff d'U qui n'est pas un numéro de téléphone** dans
-  Desk : ces personnes ne peuvent pas recevoir les appels. Le point
+  Desk : ces personnes ne peuvent pas recevoir les appels, ni de garde
+  ni comme numéro par défaut. Le point
   disparaît après correction dans Desk et réimport.

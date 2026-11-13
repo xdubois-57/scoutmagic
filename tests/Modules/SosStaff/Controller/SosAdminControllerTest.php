@@ -634,6 +634,50 @@ class SosAdminControllerTest extends TestCase
         $this->assertNotEmpty($scheduled);
     }
 
+    /**
+     * Review of #1194: a Staff d'U member whose Desk GSM is no phone number
+     * stays in the grid, and saving the month keeps their duties — the save
+     * rewrites the whole month from the roster, so dropping them from it
+     * would delete what was recorded for them without a word.
+     */
+    public function testSavingTheMonthKeepsTheDutiesOfAMemberWithAnUnusableGsm(): void
+    {
+        $this->now = new \DateTimeImmutable('2026-06-15 08:00:00');
+        $akela = $this->createStaffduMember('Akela', '+32470000001');
+        $baloo = $this->createStaffduMember('Baloo', '0470 12 34', 'Paul', 'Martin');
+
+        $response = $this->controller->saveOnCall(
+            $this->jsonRequest([
+                'year' => 2026,
+                'month' => 7,
+                'cells' => [
+                    ['member_id' => $akela, 'date' => '2026-07-05', 'state' => OnCallAssignment::STATE_ONCALL],
+                    ['member_id' => $baloo, 'date' => '2026-07-06', 'state' => OnCallAssignment::STATE_ONCALL],
+                ],
+                '_csrf_token' => $this->csrfToken(),
+            ]),
+            []
+        );
+
+        $this->assertTrue(json_decode($response->getBody(), true)['success']);
+        $kept = $this->onCallRepository->findForDate('2026-07-06');
+        $this->assertCount(1, $kept);
+        $this->assertSame($baloo, $kept[0]->memberId);
+    }
+
+    public function testThePlanningNamesAMemberWhoseGsmIsNoNumber(): void
+    {
+        $this->createStaffduMember('Akela', '+32470000001');
+        $this->createStaffduMember('Baloo', '0470 12 34', 'Paul', 'Martin');
+
+        $body = $this->planning();
+
+        $this->assertMatchesRegularExpression(
+            '/id="sos-planning-unusable-mobiles"[^>]*>.*Baloo \(Paul Martin\)/s',
+            $body
+        );
+    }
+
     public function testResavingTheGridDoesNotAccumulateStaleEntriesInThePlannedList(): void
     {
         // Re-saving cancels the previous month's pending transitions

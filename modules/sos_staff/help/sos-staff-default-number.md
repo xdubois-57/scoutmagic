@@ -5,7 +5,7 @@ summary: Quand le numéro par défaut choisi n'est plus utilisé, et pourquoi un
 category: Espace chefs d'U
 role_min: admin
 question: Pourquoi le numéro par défaut choisi n'est-il plus utilisé ?
-question: Pourquoi un membre du Staff d'U n'est-il pas proposé ?
+question: Pourquoi un membre du Staff d'U n'est-il pas proposé comme numéro par défaut ?
 paths: /admin/sos/reglages
 related: sos-staff-settings, sos-staff-redirection, points-attention-modules
 ---
@@ -31,6 +31,7 @@ Le site lit le GSM tel qu'il est saisi dans Desk : « 0470 12 34 56 »,
 même numéro, et le site l'envoie toujours sous la même forme à
 l'opérateur. Un numéro sans indicatif, sans le 0 initial ou avec un
 chiffre en trop ou en moins n'est pas un numéro valide. La personne
-n'apparaît alors ni dans le planning ni dans le choix du numéro par
-défaut. Un avertissement la nomme dans l'onglet **Réglages**, ainsi
-qu'un point d'attention. Corrigez le GSM dans Desk, puis réimportez.
+reste dans le planning, avec ses gardes, mais le numéro SOS ne peut pas
+lui être redirigé : une bascule vers elle est refusée, et elle ne peut
+pas être le numéro par défaut. Un avertissement la nomme dans les onglets
+**Planning** et **Réglages**, ainsi qu'un point d'attention. Corrigez le GSM dans Desk, puis réimportez.

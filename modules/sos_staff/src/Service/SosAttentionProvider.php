@@ -83,8 +83,8 @@ class SosAttentionProvider implements AttentionPointProvider
                     ? "Un GSM du Staff d'U n'est pas un numéro de téléphone valide"
                     : count($unusable) . " GSM du Staff d'U ne sont pas des numéros de téléphone valides",
                 why: 'Dans Desk : ' . implode(', ', array_column($unusable, 'label')) . '. Le numéro SOS ne '
-                    . "peut pas être redirigé vers ces personnes : elles n'apparaissent pas dans le planning de "
-                    . 'garde. Corrigez le GSM dans Desk, puis réimportez.',
+                    . 'peut pas être redirigé vers ces personnes : une garde qui leur est confiée est refusée, et '
+                    . "elles ne peuvent pas être le numéro par défaut. Corrigez le GSM dans Desk, puis réimportez.",
                 actionLabel: "Voir le téléphone d'urgence",
                 actionUrl: '/admin/sos',
                 severity: AttentionPoint::SEVERITY_ATTENTION

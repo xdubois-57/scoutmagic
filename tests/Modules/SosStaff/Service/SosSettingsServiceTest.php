@@ -369,15 +369,24 @@ class SosSettingsServiceTest extends TestCase
     }
 
     /**
-     * Issue #1125: a Desk GSM that is no phone number keeps its holder off
-     * every list a redirection is chosen from, and names them instead.
+     * Issue #1125: a Desk GSM that is no phone number keeps its holder out
+     * of the default number, and names them — but in the duty roster, whose
+     * whole-month save would otherwise delete their recorded duties (review
+     * of #1194).
      */
-    public function testAnUnusableGsmIsKeptOffTheOptionsAndNamed(): void
+    public function testAnUnusableGsmIsKeptOffTheDefaultNumberButNotOffTheRoster(): void
     {
         $akela = $this->createStaffduMember('Akela', '0470 12 34 56');
         $baloo = $this->createStaffduMember('Baloo', '0470 12 34');
 
-        $this->assertSame([$akela], array_column($this->service->getStaffOptions($this->scoutYearId), 'member_id'));
+        $this->assertSame(
+            [$akela],
+            array_column($this->service->getDefaultNumberOptions($this->scoutYearId), 'member_id')
+        );
+        $this->assertSame(
+            [$akela, $baloo],
+            array_column($this->service->getStaffOptions($this->scoutYearId), 'member_id')
+        );
         $this->assertSame(
             [$baloo],
             array_column($this->service->getStaffWithUnusableMobile($this->scoutYearId), 'member_id')

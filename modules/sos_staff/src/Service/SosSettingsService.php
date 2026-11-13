@@ -117,31 +117,47 @@ class SosSettingsService
     }
 
     /**
-     * Staff d'U roster for the default-number dropdown (module spec §2.3)
-     * — only members with a usable mobile number are listed, since a
-     * member with none can't usefully be picked as a redirect target.
+     * The Staff d'U roster with a known mobile (module spec §2.3): the
+     * columns of the duty planning, the order duties are resolved in, and
+     * the people a live line is matched against.
      *
-     * « Usable » is a mobile PhoneNumber can normalise (issue #1125): one
-     * Desk holds as « 0470 » or « 0470 12 34 5 » would only ever fail at the
-     * moment the line has to move. Those members are named instead by
-     * getStaffWithUnusableMobile(), so the page says why they are missing.
+     * A GSM that is no phone number keeps its holder here (review of #1194):
+     * the planning is saved by rewriting the whole month from this list, so
+     * dropping them would silently delete their recorded duties the next
+     * time anybody saved it. A duty planned on such a GSM is refused when
+     * the line has to move (RedirectService::apply(),
+     * RedirectReconciler::UNUSABLE_NUMBER) and named on the pages until
+     * Desk is corrected. Only the default number needs more:
+     * getDefaultNumberOptions().
      *
      * @return array<int, array{member_id: int, label: string, mobile: string}>
      */
     public function getStaffOptions(int $scoutYearId): array
     {
-        $options = [];
-        foreach ($this->staffWithMobile($scoutYearId) as $profile) {
-            if (PhoneNumber::normalize($profile->mobile) === null) {
-                continue;
-            }
-            $options[] = [
+        return array_map(
+            static fn(MemberProfile $profile): array => [
                 'member_id' => $profile->memberId,
                 'label' => $profile->getDisplayNameFull(),
                 'mobile' => (string) $profile->mobile,
-            ];
-        }
-        return $options;
+            ],
+            $this->staffWithMobile($scoutYearId)
+        );
+    }
+
+    /**
+     * The members who may hold the default number: the Staff d'U roster
+     * whose mobile PhoneNumber can normalise (issue #1125). One Desk holds
+     * as « 0470 » or « 0470 12 34 5 » would only ever fail on the very days
+     * nobody is on duty; getStaffWithUnusableMobile() names them instead.
+     *
+     * @return array<int, array{member_id: int, label: string, mobile: string}>
+     */
+    public function getDefaultNumberOptions(int $scoutYearId): array
+    {
+        return array_values(array_filter(
+            $this->getStaffOptions($scoutYearId),
+            static fn(array $option): bool => PhoneNumber::normalize($option['mobile']) !== null
+        ));
     }
 
     /**
@@ -204,8 +220,8 @@ class SosSettingsService
      * round trip through mobile-number resolution.
      *
      * Explicit admin choice (sos_settings.default_number_member_id) wins
-     * when set and still a Staff d'U member of the year with a usable
-     * mobile (issue #1125 — a choice is never re-asked of anybody, so it
+     * when set and still one of getDefaultNumberOptions() for the year
+     * (issue #1125 — a choice is never re-asked of anybody, so it
      * must not outlive the person's place in the Staff d'U); otherwise auto-resolves to the Staff d'U section's
      * designated "responsable" (Core\Module\SectionResponsableProvider —
      * the trombinoscope module, when enabled) or else the first Staff d'U
@@ -231,7 +247,7 @@ class SosSettingsService
             return $responsableId;
         }
 
-        $staffOptions = $this->getStaffOptions($scoutYearId);
+        $staffOptions = $this->getDefaultNumberOptions($scoutYearId);
         return $staffOptions[0]['member_id'] ?? null;
     }
 
@@ -258,7 +274,7 @@ class SosSettingsService
 
     private function isStaffOption(int $memberId, int $scoutYearId): bool
     {
-        foreach ($this->getStaffOptions($scoutYearId) as $option) {
+        foreach ($this->getDefaultNumberOptions($scoutYearId) as $option) {
             if ($option['member_id'] === $memberId) {
                 return true;
             }

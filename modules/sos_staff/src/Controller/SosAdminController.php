@@ -152,6 +152,10 @@ class SosAdminController extends AbstractController
             'sos_year_notice' => $this->yearNotice(),
             'staff_options' => $staffOptions,
             'default_number_label' => $this->labelFromOptions($staffOptions, $defaultMemberId),
+            // Issue #1125: they stay in the grid, their duties with them,
+            // but a redirection to them would be refused — said here, where
+            // a duty is given them.
+            'unusable_mobiles' => $this->settingsService->getStaffWithUnusableMobile($effectiveYear->id),
             'year' => $year,
             'month' => $month,
             'today' => $today,
@@ -189,8 +193,12 @@ class SosAdminController extends AbstractController
 
         $effectiveYear = $this->operationalYear();
 
-        $staffOptions = $this->settingsService->getStaffOptions($effectiveYear->id);
-        $orderedStaffMemberIds = array_column($staffOptions, 'member_id');
+        $orderedStaffMemberIds = array_column(
+            $this->settingsService->getStaffOptions($effectiveYear->id),
+            'member_id'
+        );
+        // Only who may hold the default number (issue #1125).
+        $staffOptions = $this->settingsService->getDefaultNumberOptions($effectiveYear->id);
 
         $selectedMemberId = $this->settingsService->resolveDefaultNumberMemberId($effectiveYear->id);
         $staleMemberId = $this->settingsService->staleDefaultNumberMemberId($effectiveYear->id);
@@ -596,7 +604,7 @@ class SosAdminController extends AbstractController
         $memberId = (int) $data['member_id'];
         $effectiveYear = $this->operationalYear();
         $isStaffOption = false;
-        foreach ($this->settingsService->getStaffOptions($effectiveYear->id) as $option) {
+        foreach ($this->settingsService->getDefaultNumberOptions($effectiveYear->id) as $option) {
             if ($option['member_id'] === $memberId) {
                 $isStaffOption = true;
                 break;
