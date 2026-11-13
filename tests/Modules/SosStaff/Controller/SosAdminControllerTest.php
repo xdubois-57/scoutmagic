@@ -1912,6 +1912,29 @@ class SosAdminControllerTest extends TestCase
         $this->assertSame([], $this->applyCalls);
     }
 
+    /**
+     * Review of #1194: the member on duty has a Desk GSM that is no phone
+     * number. The dashboard offers no correction, and the endpoint refuses
+     * one without calling apply() — which would alert every chef d'unité
+     * once per click.
+     */
+    public function testAnUnusableGsmOnDutyOffersNoCorrectionAndAlertsNobody(): void
+    {
+        $this->createStaffduMember('Akela', '+32470000001');
+        $baloo = $this->createStaffduMember('Baloo', '0470 12 34', 'Paul', 'Martin');
+        $this->putOnDuty($baloo);
+        $this->forwarding = new \Modules\SosStaff\Api\ForwardingState(true, '+32470000001');
+
+        $body = $this->dashboard();
+        $answer = $this->resynchronize();
+
+        $this->assertStringNotContainsString('data-redirect-action=', $body);
+        $this->assertSame(409, $answer['_status']);
+        $this->assertFalse($answer['success']);
+        $this->assertStringContainsString("n'est pas un numéro de téléphone valide", $answer['error']);
+        $this->assertSame([], $this->applyCalls);
+    }
+
     public function testAnUnreadableProviderRefusesTheCorrectionRatherThanGuessing(): void
     {
         $this->createStaffduMember('Akela', '+32470000001');

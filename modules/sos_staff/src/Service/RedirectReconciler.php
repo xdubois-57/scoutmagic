@@ -107,21 +107,6 @@ class RedirectReconciler
             return $outcome(self::NO_DESTINATION);
         }
 
-        if (PhoneNumber::normalize($expected['number']) === null) {
-            // The planned destination's GSM is no phone number (issue
-            // #1125). apply() would refuse it and alert every chef d'unité
-            // on every hourly pass; the attention point names the member
-            // until Desk is corrected, and the line stays where it is.
-            $this->journalService->log(
-                'sos_staff',
-                'redirect_reconcile_unusable_number',
-                'warning',
-                "Contrôle de la redirection SOS : le GSM du destinataire prévu n'est pas un numéro valide.",
-                ['trigger' => $trigger, 'expected_member_id' => $expected['member_id']]
-            );
-            return $outcome(self::UNUSABLE_NUMBER);
-        }
-
         try {
             $live = $provider->readForwardingState();
         } catch (ProviderException $e) {
@@ -137,6 +122,28 @@ class RedirectReconciler
             // attention point, same once-per-outage alert (review of #1135).
             $this->redirectService->reportUnreadableLine($scoutYearId);
             return $outcome(self::UNREADABLE);
+        }
+
+        if (PhoneNumber::normalize($expected['number']) === null) {
+            // The planned destination's GSM is no phone number (issue
+            // #1125). apply() would refuse it and alert every chef d'unité
+            // on every hourly pass; the attention point names the member
+            // until Desk is corrected, and the line stays where it is.
+            //
+            // Checked after the operator answered, not before (review of
+            // #1194): an operator that can be read is no longer in an
+            // outage, and a failure recorded for one earlier must not stay
+            // up — nor mute the alert of the next real outage — for as long
+            // as Desk holds the wrong GSM.
+            $this->settingsService->recordRedirectOutcome(false, $this->now());
+            $this->journalService->log(
+                'sos_staff',
+                'redirect_reconcile_unusable_number',
+                'warning',
+                "Contrôle de la redirection SOS : le GSM du destinataire prévu n'est pas un numéro valide.",
+                ['trigger' => $trigger, 'expected_member_id' => $expected['member_id']]
+            );
+            return $outcome(self::UNUSABLE_NUMBER);
         }
 
         if ($live->active && PhoneNumber::same($live->number, $expected['number'])) {

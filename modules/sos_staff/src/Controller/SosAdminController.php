@@ -277,6 +277,14 @@ class SosAdminController extends AbstractController
                 'error' => "Aucun destinataire valide : ni garde aujourd'hui, ni numéro par défaut utilisable.",
             ], 409);
         }
+        if (PhoneNumber::normalize($status['expected_number']) === null) {
+            return $this->json([
+                'success' => false,
+                'error' => 'Le GSM de ' . $this->destinationLabel($status['expected_member_id'], $scoutYearId)
+                    . " dans Desk n'est pas un numéro de téléphone valide : la redirection ne peut pas être "
+                    . 'corrigée depuis cette page. Corrigez le GSM dans Desk, puis réimportez.',
+            ], 409);
+        }
         if ($status['action'] === null) {
             // Someone else — or the scheduler — got there first. It was read
             // from the provider just now, so saying so is true.
@@ -369,7 +377,11 @@ class SosAdminController extends AbstractController
         $expectedNumber = $expected['number'];
 
         $action = null;
-        if ($live['error'] === null && $expectedNumber !== null) {
+        // A planned GSM that is no phone number is no misalignment a click
+        // can fix (review of #1194): offering « Resynchroniser » would refuse
+        // it and alert every chef d'unité once per click. The page and the
+        // attention point name the member instead.
+        if ($live['error'] === null && PhoneNumber::normalize($expectedNumber) !== null) {
             if (!$live['active']) {
                 $action = 'reactivate';
             } elseif (!PhoneNumber::same($live['number'], $expectedNumber)) {
