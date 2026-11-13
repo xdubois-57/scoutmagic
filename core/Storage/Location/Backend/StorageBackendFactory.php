@@ -201,10 +201,7 @@ class StorageBackendFactory
             // opened at all: nothing is written there any more, and nothing
             // already there is touched. The location's check reports this
             // message, and the « en erreur » attention point carries it.
-            $this->webServedArea ??= WebServedArea::forStoragePath($this->storagePath);
-            if ($this->webServedArea->serves($config->path)) {
-                throw new StorageLocationException(WebServedArea::SAVED_LOCATION_REFUSED);
-            }
+            $this->refuseIfServed($config->path);
 
             return rtrim($config->path, '/') !== '' ? rtrim($config->path, '/') : '/';
         }
@@ -226,6 +223,23 @@ class StorageBackendFactory
             }
         }
 
-        return rtrim($this->storagePath, '/') . '/' . trim($config->path, '/');
+        // A folder under `storage/` is protected in both layouts — unless a
+        // symbolic link under it leads into a served directory, which the
+        // form cannot create but a server set-up can.
+        $directory = rtrim($this->storagePath, '/') . '/' . trim($config->path, '/');
+        $this->refuseIfServed($directory);
+
+        return $directory;
+    }
+
+    /**
+     * @throws StorageLocationException when the web server serves $directory
+     */
+    private function refuseIfServed(string $directory): void
+    {
+        $this->webServedArea ??= WebServedArea::forStoragePath($this->storagePath);
+        if ($this->webServedArea->serves($directory)) {
+            throw new StorageLocationException(WebServedArea::SAVED_LOCATION_REFUSED);
+        }
     }
 }

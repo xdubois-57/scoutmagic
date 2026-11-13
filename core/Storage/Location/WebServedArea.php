@@ -59,11 +59,16 @@ final class WebServedArea
         . 'son contenu dans un dossier hors de la racine web, puis indiquez ce nouveau chemin sur sa fiche.';
 
     /**
-     * @param list<string> $servedRoots directories served whole (layout A's
-     *        public directory, the reported document root)
+     * Each directory is held in its two spellings — as written, and with
+     * its symbolic links resolved — because a path is compared in both
+     * ({@see serves()}).
+     *
+     * @param list<string> $projectRoots the installation's root
+     * @param list<string> $servedRoots  directories served whole (layout A's
+     *                                   public directory, the reported document root)
      */
     private function __construct(
-        private string $projectRoot,
+        private array $projectRoots,
         private bool $layoutB,
         private array $servedRoots
     ) {
@@ -84,7 +89,7 @@ final class WebServedArea
 
         $served = [];
         if ($publicDir !== null && $publicDir !== '') {
-            $served[] = self::canonicalise($publicDir);
+            $served[] = $publicDir;
         }
         if (!$layoutB) {
             // Layout A merges `public/`'s contents into a document root of
@@ -93,40 +98,71 @@ final class WebServedArea
             // the front controller and the scheduler entry point together.
             foreach (glob(rtrim($root, '/') . '/*/cron.php') ?: [] as $cron) {
                 if (is_file(dirname($cron) . '/index.php')) {
-                    $served[] = self::canonicalise(dirname($cron));
+                    $served[] = dirname($cron);
                 }
             }
         }
         if ($documentRoot !== null && trim($documentRoot) !== '') {
-            $served[] = self::canonicalise($documentRoot);
+            $served[] = $documentRoot;
         }
 
-        return new self($root, $layoutB, array_values(array_unique(array_filter(
-            $served,
-            static fn (string $dir): bool => $dir !== '' && $dir !== '/'
-        ))));
+        $servedForms = [];
+        foreach ($served as $dir) {
+            array_push($servedForms, ...self::forms($dir));
+        }
+
+        return new self(
+            self::forms($projectRoot),
+            $layoutB,
+            array_values(array_unique(array_filter(
+                $servedForms,
+                static fn (string $dir): bool => $dir !== '' && $dir !== '/'
+            )))
+        );
     }
 
-    /** For a caller that knows only where `storage/` is. */
+    /**
+     * For a caller that knows only where `storage/` is. The document root
+     * the web server reports is taken when there is one — a request — and
+     * is absent on the command line, where nothing reports it.
+     */
     public static function forStoragePath(string $storagePath): self
     {
-        return self::of(dirname(rtrim($storagePath, '/')));
+        $documentRoot = $_SERVER['DOCUMENT_ROOT'] ?? null;
+
+        return self::of(dirname(rtrim($storagePath, '/')), null, is_string($documentRoot) ? $documentRoot : null);
     }
 
     /**
      * Whether a file written under $path could be fetched straight from the
      * web server. Answers for a directory that does not exist yet, which is
      * the ordinary case when a location is being declared.
+     *
+     * **Compared as written and as resolved, and served if either is.** The
+     * resolved form catches a symbolic link from outside INTO a served
+     * directory; the written form catches the opposite, a link inside the
+     * served area pointing OUT (`<root>/photos -> /mnt/photos`), which the
+     * web server follows to serve `/mnt/photos` under `<root>/photos`.
      */
     public function serves(string $path): bool
     {
-        $candidate = self::canonicalise($path);
-        if ($candidate === '') {
-            return false;
+        foreach (self::forms($path) as $candidate) {
+            if ($this->servesForm($candidate)) {
+                return true;
+            }
         }
 
-        if ($this->layoutB && self::isUnder($candidate, $this->projectRoot)) {
-            return !$this->isProtectedInLayoutB($candidate);
+        return false;
+    }
+
+    private function servesForm(string $candidate): bool
+    {
+        if ($this->layoutB) {
+            foreach ($this->projectRoots as $root) {
+                if (self::isUnder($candidate, $root)) {
+                    return !self::isProtectedInLayoutB($candidate, $root);
+                }
+            }
         }
 
         foreach ($this->servedRoots as $root) {
@@ -138,25 +174,61 @@ final class WebServedArea
         return false;
     }
 
-    private function isProtectedInLayoutB(string $candidate): bool
+    private static function isProtectedInLayoutB(string $candidate, string $root): bool
     {
-        if ($candidate === $this->projectRoot) {
+        if ($candidate === $root) {
             return false;
         }
-        $relative = substr($candidate, strlen(rtrim($this->projectRoot, '/')) + 1);
-        $segments = explode('/', $relative);
+        $segments = explode('/', substr($candidate, strlen(rtrim($root, '/')) + 1));
 
         if (in_array($segments[0], self::PROTECTED_TOP_LEVEL, true)) {
             return true;
         }
-        // The `.htaccess` refuses any path with a dot-segment, at any depth.
-        foreach ($segments as $segment) {
+        // The `.htaccess` refuses any dot-segment at any depth — except a
+        // top-level `.well-known` (RFC 8615), which it serves like any
+        // other existing file. A `.well-known` deeper down is refused.
+        $checked = $segments[0] === '.well-known' ? array_slice($segments, 1) : $segments;
+        foreach ($checked as $segment) {
             if (str_starts_with($segment, '.')) {
                 return true;
             }
         }
 
         return false;
+    }
+
+    /**
+     * A path in its two spellings: as written (`.`, `..` and doubled
+     * slashes settled, no link followed) and canonical.
+     *
+     * @return list<string>
+     */
+    private static function forms(string $path): array
+    {
+        return array_values(array_unique(array_filter(
+            [self::lexical($path), self::canonicalise($path)],
+            static fn (string $form): bool => $form !== ''
+        )));
+    }
+
+    /** `.`, `..` and doubled slashes settled on the text alone. */
+    private static function lexical(string $path): string
+    {
+        $path = self::slashes($path);
+        $absolute = str_starts_with($path, '/');
+        $kept = [];
+        foreach (explode('/', $path) as $segment) {
+            if ($segment === '' || $segment === '.') {
+                continue;
+            }
+            if ($segment === '..') {
+                array_pop($kept);
+                continue;
+            }
+            $kept[] = $segment;
+        }
+
+        return ($absolute ? '/' : '') . implode('/', $kept);
     }
 
     private static function isLayoutB(string $root): bool
@@ -175,7 +247,20 @@ final class WebServedArea
 
     private static function isUnder(string $candidate, string $root): bool
     {
+        $candidate = self::slashes($candidate);
+        $root = self::slashes($root);
+
         return $candidate === $root || str_starts_with($candidate, rtrim($root, '/') . '/');
+    }
+
+    /**
+     * One separator, whatever the platform: `realpath()` answers with
+     * backslashes on Windows, and a prefix test on `/` would then never
+     * match.
+     */
+    private static function slashes(string $path): string
+    {
+        return DIRECTORY_SEPARATOR === '\\' ? str_replace('\\', '/', $path) : $path;
     }
 
     /**

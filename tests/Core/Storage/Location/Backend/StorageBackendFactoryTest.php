@@ -248,4 +248,52 @@ class StorageBackendFactoryTest extends TestCase
             $factory->create($this->localLocation(4, $root . '/storage/archives'))
         );
     }
+    /**
+     * A relative location is under `storage/`, which is protected — unless
+     * a symbolic link there leads into a served directory (review of
+     * #1197).
+     */
+    public function testARelativeLocationLinkedIntoAServedDirectoryIsNotOpened(): void
+    {
+        $root = $this->storagePath . '/install';
+        mkdir($root . '/storage', 0700, true);
+        mkdir($root . '/public', 0700, true);
+        mkdir($root . '/photos', 0700, true);
+        file_put_contents($root . '/index.php', '<?php');
+        file_put_contents($root . '/public/index.php', '<?php');
+        if (!@symlink($root . '/photos', $root . '/storage/gallery')) {
+            $this->markTestSkipped('This filesystem does not allow creating a symbolic link.');
+        }
+        $repository = new StorageLocationRepository(
+            DatabaseTestHelper::createTestDatabase(),
+            new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))
+        );
+        $factory = new StorageBackendFactory($repository, $root . '/storage');
+
+        $this->expectException(StorageLocationException::class);
+        $this->expectExceptionMessage('servi directement par le serveur web');
+        $factory->create($this->localLocation(5, 'gallery'));
+    }
+
+    /** The document root reported during a request counts too (review of #1197). */
+    public function testALocationUnderTheReportedDocumentRootIsNotOpened(): void
+    {
+        $docRoot = $this->storagePath . '/htdocs';
+        mkdir($docRoot, 0700, true);
+        $previous = $_SERVER['DOCUMENT_ROOT'] ?? null;
+        $_SERVER['DOCUMENT_ROOT'] = $docRoot;
+
+        try {
+            $this->factory->create($this->localLocation(6, $docRoot . '/photos'));
+            $this->fail('A folder under the reported document root was opened.');
+        } catch (StorageLocationException $e) {
+            $this->assertStringContainsString('servi directement par le serveur web', $e->getMessage());
+        } finally {
+            if ($previous === null) {
+                unset($_SERVER['DOCUMENT_ROOT']);
+            } else {
+                $_SERVER['DOCUMENT_ROOT'] = $previous;
+            }
+        }
+    }
 }

@@ -100,6 +100,7 @@ final class WebServedAreaTest extends TestCase
             'modules' => ['modules/gallery/photos'],
             'a dot-directory' => ['.photos'],
             'a dot-directory deeper down' => ['galerie/.cache'],
+            'a .well-known that is not at the top' => ['photos/.well-known'],
         ];
     }
 
@@ -197,5 +198,62 @@ final class WebServedAreaTest extends TestCase
         );
 
         $this->assertEqualsCanonicalizing(WebServedArea::PROTECTED_TOP_LEVEL, explode('|', $match[1]));
+    }
+    /**
+     * The `.htaccess` lets a top-level `/.well-known/` through its dot
+     * rule (RFC 8615), then serves what exists there (review of #1197).
+     */
+    public function testInLayoutBATopLevelWellKnownIsServed(): void
+    {
+        $this->makeLayoutB();
+
+        $this->assertTrue(WebServedArea::of($this->root)->serves($this->root . '/.well-known/photos'));
+    }
+
+    /**
+     * A symbolic link INSIDE the served area pointing OUT: the web server
+     * serves `/elsewhere` under `<root>/photos`, so the path as written
+     * counts, not only where it leads (review of #1197).
+     */
+    public function testALinkInsideTheServedAreaPointingOutIsServed(): void
+    {
+        $this->makeLayoutB();
+        $outside = sys_get_temp_dir() . '/scoutmagic-webarea-out-' . bin2hex(random_bytes(6));
+        mkdir($outside);
+        if (!@symlink($outside, $this->root . '/photos')) {
+            @rmdir($outside);
+            $this->markTestSkipped('This filesystem does not allow creating a symbolic link.');
+        }
+
+        try {
+            $this->assertTrue(WebServedArea::of($this->root)->serves($this->root . '/photos/2026'));
+            // The same directory, reached by its own name, is not served.
+            $this->assertFalse(WebServedArea::of($this->root)->serves($outside . '/2026'));
+        } finally {
+            @unlink($this->root . '/photos');
+            @rmdir($outside);
+        }
+    }
+
+    /**
+     * A caller that knows only `storage/` still gets the document root the
+     * web server reports, during a request (review of #1197).
+     */
+    public function testTheStoragePathOnlyCallerSeesTheReportedDocumentRoot(): void
+    {
+        $docRoot = $this->root . '/htdocs';
+        mkdir($docRoot);
+        $previous = $_SERVER['DOCUMENT_ROOT'] ?? null;
+        $_SERVER['DOCUMENT_ROOT'] = $docRoot;
+
+        try {
+            $this->assertTrue(WebServedArea::forStoragePath($this->root . '/storage')->serves($docRoot . '/photos'));
+        } finally {
+            if ($previous === null) {
+                unset($_SERVER['DOCUMENT_ROOT']);
+            } else {
+                $_SERVER['DOCUMENT_ROOT'] = $previous;
+            }
+        }
     }
 }
