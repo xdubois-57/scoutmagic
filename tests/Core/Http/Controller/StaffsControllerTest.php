@@ -657,6 +657,35 @@ class StaffsControllerTest extends TestCase
         $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM event_log')->fetchColumn());
     }
 
+    /**
+     * The Trésorier badge opens the account of every section its holder
+     * animates: a chief who shares only one of them cannot change it, while
+     * an ordinary badge only needs one section in common.
+     */
+    public function testTheTreasurerBadgeNeedsEverySectionItsHolderAnimates(): void
+    {
+        $balId = $this->createBranch('BAL', 'Baladins', 1);
+        $louId = $this->createBranch('LOU', 'Louveteaux', 2);
+        $shared = $this->createSection('BAL01', $balId);
+        $other = $this->createSection('LOU01', $louId);
+        $alice = $this->createMemberInSection($shared, 'Alice', 'chief', 'chief@test.be');
+        $bob = $this->createMemberInSection($shared, 'Bob', 'chief', 'bob@test.be');
+        $this->addFunction($bob, $other);
+        $treasurer = $this->treasurerBadge();
+        $ordinary = $this->badgeService->create('Communication');
+
+        $refused = $this->controller->toggleBadge($this->badgeToggle($bob, $treasurer->id), []);
+        $this->assertSame(403, $refused->getStatusCode(), 'Alice does not animate the Louveteaux');
+        $this->assertSame([], $this->badgeService->getBadgesForMemberYear($bob));
+
+        $accepted = $this->controller->toggleBadge($this->badgeToggle($bob, $ordinary->id), []);
+        $this->assertSame(200, $accepted->getStatusCode());
+
+        $this->addFunction($alice, $other);
+        $now = $this->controller->toggleBadge($this->badgeToggle($bob, $treasurer->id), []);
+        $this->assertSame(200, $now->getStatusCode(), 'animating both, Alice may');
+    }
+
     /** Within their own section a chief toggles a colleague's badge. */
     public function testAChiefTogglesABadgeOnTheStaffOfTheirOwnSection(): void
     {

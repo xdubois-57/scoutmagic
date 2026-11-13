@@ -290,6 +290,12 @@ class StaffsController extends AbstractController
      * A « Référent » badge only exists on Staff d'U members, so the section
      * that matters for it is Staff d'U itself, not some other section the
      * same person also animates.
+     *
+     * The Trésorier badge opens the account of EVERY section its holder
+     * animates (Modules\Finance\Service\TreasurerScopeService), so sharing
+     * one section is not enough: the caller must animate all of them, or a
+     * chief of A could open section B's account to a colleague who animates
+     * both. Any other badge only needs one section in common.
      */
     private function mayToggleBadgeOn(int $memberYearId, Badge $badge): bool
     {
@@ -312,7 +318,12 @@ class StaffsController extends AbstractController
             return $unitStaff !== null && in_array((int) $unitStaff['id'], $callerSectionIds, true);
         }
 
-        return array_intersect($this->sectionService->getAnimatedSectionIds($memberYearId), $callerSectionIds) !== [];
+        $targetSectionIds = $this->sectionService->getAnimatedSectionIds($memberYearId);
+        if ($badge->name === BadgeService::BADGE_TREASURER) {
+            return $targetSectionIds !== [] && array_diff($targetSectionIds, $callerSectionIds) === [];
+        }
+
+        return array_intersect($targetSectionIds, $callerSectionIds) !== [];
     }
 
     /**
