@@ -256,4 +256,31 @@ class MailAuthenticationResultsTest extends TestCase
 
         $this->assertTrue(MailAuthenticationResults::senderVerified($headers, 'locataire@exemple.be'));
     }
+
+    /**
+     * Microsoft 365 writes no authserv-id: the header starts with a result.
+     * That first result counts — a pass verifies, and a failing DMARC there
+     * still vetoes an aligned SPF pass after it.
+     */
+    public function testAHeaderWithoutAuthservIdIsReadFromItsFirstPart(): void
+    {
+        $pass = "Authentication-Results: dmarc=pass action=none header.from=exemple.be;"
+            . " spf=pass (sender IP is 192.0.2.1) smtp.mailfrom=exemple.be; compauth=pass reason=100\r\n";
+        $vetoed = "Authentication-Results: dmarc=fail action=quarantine header.from=exemple.be;"
+            . " spf=pass smtp.mailfrom=exemple.be\r\n";
+
+        $this->assertTrue(MailAuthenticationResults::senderVerified($pass, 'locataire@exemple.be'));
+        $this->assertFalse(MailAuthenticationResults::senderVerified($vetoed, 'locataire@exemple.be'));
+    }
+
+    /** A DMARC pass whose header.from cannot be read is no alignment — absent or quoted. */
+    public function testADmarcPassWithoutAReadableHeaderFromIsNotVerified(): void
+    {
+        foreach ([
+            "Authentication-Results: mx.example; dmarc=pass\r\n",
+            "Authentication-Results: mx.example; dmarc=pass header.from=\"attaquant.be\"\r\n",
+        ] as $headers) {
+            $this->assertFalse(MailAuthenticationResults::senderVerified($headers, 'locataire@exemple.be'), $headers);
+        }
+    }
 }

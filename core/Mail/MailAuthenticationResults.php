@@ -116,7 +116,9 @@ final class MailAuthenticationResults
         $dmarc = array_values(array_filter($results, static fn(array $r): bool => $r['method'] === 'dmarc'));
         if ($dmarc !== []) {
             foreach ($dmarc as $result) {
-                $headerFrom = $result['props']['header.from'] ?? $fromDomain;
+                // No readable header.from — absent, or quoted and so emptied by
+                // segments() — is no alignment, not an assumed one.
+                $headerFrom = $result['props']['header.from'] ?? '';
                 if ($result['verdict'] !== 'pass' || !self::aligned(self::domainOf($headerFrom), $fromDomain)) {
                     return false;
                 }
@@ -162,7 +164,11 @@ final class MailAuthenticationResults
     {
         $results = [];
 
-        foreach (array_slice(self::segments($header), 1) as $entry) {
+        // The first part is the authserv-id (`mx.google.com`) — except where
+        // a provider writes none and starts with a result, as Microsoft 365
+        // does: every part that reads as `method=result` is a result,
+        // whichever position it holds. A name never does.
+        foreach (self::segments($header) as $entry) {
             if (preg_match('/^\s*([a-z0-9-]+)\s*=\s*([a-z]+)\b(.*)$/is', $entry, $m) !== 1) {
                 continue;
             }
