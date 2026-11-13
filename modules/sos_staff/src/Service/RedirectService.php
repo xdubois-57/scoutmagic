@@ -106,8 +106,6 @@ class RedirectService
             throw new SosException($message);
         }
 
-        $this->journalIgnoredDefaultNumber($newMemberId, $scoutYearId);
-
         try {
             $current = $provider->readForwardingState();
             if ($current->active && PhoneNumber::same($current->number, $targetNumber)) {
@@ -156,6 +154,9 @@ class RedirectService
         }
 
         $this->logOutcome('success', 'Redirection modifiée.', $newMemberId);
+        // Only once the operator confirmed the line really moved: a failed or
+        // unchanged redirection is no fallback transition (review of #1194).
+        $this->journalIgnoredDefaultNumber($newMemberId, $scoutYearId);
         $this->settingsService->recordRedirectOutcome(false, AppClock::now());
         $this->notifyHandover($newMemberId, $previousMemberId, $scoutYearId);
     }
@@ -219,7 +220,8 @@ class RedirectService
     /**
      * A default number a chef d'unité chose, set aside because its holder
      * left the Staff d'U (issue #1125), is journaled when the line actually
-     * moves to the fallback — the attention point says it on the page.
+     * moved to the fallback, confirmed by the operator — the attention
+     * point says it on the page.
      */
     private function journalIgnoredDefaultNumber(?int $memberId, int $scoutYearId): void
     {

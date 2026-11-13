@@ -263,6 +263,45 @@ class RedirectServiceTest extends TestCase
         self::assertSame('info', $logged['redirect_success'] ?? null);
     }
 
+    /**
+     * Review of #1194: the fallback is journaled only once the line really
+     * moved — not when it was already there, not when the operator refused.
+     */
+    public function testAStaleDefaultIsNotJournaledWhenTheLineDidNotMove(): void
+    {
+        $provider = $this->createStub(PhoneProviderInterface::class);
+        $provider->method('readForwardingState')->willReturn(new ForwardingState(true, '+32470000002'));
+        $this->providerConfigService->method('getActiveProvider')->willReturn($provider);
+        $this->settingsService->method('getDefaultNumber')->willReturn('+32470000002');
+        $this->settingsService->method('staleDefaultNumberMemberId')->willReturn(7);
+
+        $logged = $this->recordJournal();
+        $this->service()->apply(null, null, 100);
+
+        self::assertSame('info', $logged['redirect_no_change'] ?? null);
+        self::assertArrayNotHasKey('default_number_ignored', $logged->getArrayCopy());
+    }
+
+    public function testAStaleDefaultIsNotJournaledWhenTheOperatorRefused(): void
+    {
+        $provider = $this->createStub(PhoneProviderInterface::class);
+        $provider->method('readForwardingState')->willReturn(new ForwardingState(true, '+32470000001'));
+        $provider->method('setForwarding')->willThrowException(new ProviderException('OVH indisponible'));
+        $this->providerConfigService->method('getActiveProvider')->willReturn($provider);
+        $this->settingsService->method('getDefaultNumber')->willReturn('+32470000002');
+        $this->settingsService->method('staleDefaultNumberMemberId')->willReturn(7);
+        $this->userAccountRepository->method('findStaffAndSuperAdminIds')->willReturn([]);
+
+        $logged = $this->recordJournal();
+        try {
+            $this->service()->apply(null, null, 100);
+            self::fail('Expected a SosException.');
+        } catch (SosException) {
+        }
+
+        self::assertArrayNotHasKey('default_number_ignored', $logged->getArrayCopy());
+    }
+
     public function testApplyThrowsWhenPostChangeVerificationFails(): void
     {
         $provider = $this->createStub(PhoneProviderInterface::class);
