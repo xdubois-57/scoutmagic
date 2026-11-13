@@ -251,6 +251,14 @@ class GitHubWebhookServiceTest extends TestCase
                 'assets' => [],
                 'zipball_url' => 'https://api.github.com/repos/other/depot/zipball/v9.9.9',
             ]],
+            'pull request head of the configured repository' => [[
+                'assets' => [],
+                'zipball_url' => 'https://api.github.com/repos/owner/repo/zipball/refs/pull/7/head',
+            ]],
+            'zipball of a ref that is not the release tag' => [[
+                'assets' => [],
+                'zipball_url' => 'https://api.github.com/repos/owner/repo/zipball/0123456789abcdef0123456789abcdef01234567',
+            ]],
         ];
     }
 

@@ -60,23 +60,35 @@ final class GitHubUrlValidator
     }
 
     /**
-     * Whether $url is an https download URL inside github.com/{owner}/{repo}.
+     * Whether $url is an https download URL for a release of
+     * github.com/{owner}/{repo}.
      *
-     * Only the three hosts an initial URL can live on are accepted, each with
-     * the path prefix GitHub gives that repository: a release asset
-     * (github.com/{o}/{r}/releases/download/…), an API zipball
-     * (api.github.com/repos/{o}/{r}/…) or a codeload archive
-     * (codeload.github.com/{o}/{r}/…). The asset hosts a redirect lands on
-     * name no repository, so they are never valid as a first URL. Owner and
-     * repository compare case-insensitively, as GitHub does, and the prefix
-     * ends on a slash so `repo-evil` is not `repo`.
+     * Only the two shapes a release really has are accepted, as a FIRST URL:
      *
-     * A path that could step out of the prefix — a `.` / `..` segment, or an
-     * encoded dot, slash or backslash — is refused outright, as are userinfo
-     * and any port but 443: the point of the check is that the text it read is
-     * the address that gets fetched.
+     *  - a release asset, `github.com/{o}/{r}/releases/download/…` — a path
+     *    that GitHub serves only for files attached to a release of that
+     *    repository;
+     *  - the API zipball of a release, `api.github.com/repos/{o}/{r}/zipball/{ref}`
+     *    with exactly ONE path segment as the ref. A longer ref is how GitHub
+     *    names a pull request's head (`refs/pull/{n}/head`), whose content is
+     *    written by whoever opened it from a fork: it lives in the repository's
+     *    namespace but is not something the repository published. When $tag is
+     *    given, that segment must BE the release's tag — a commit sha, which
+     *    GitHub also resolves across the fork network, is never a version.
+     *
+     * Not accepted: `codeload.github.com` (nothing hands the updater one as a
+     * first URL — it is only ever where the API redirects to, which
+     * isAllowed() checks hop by hop) and the asset hosts a redirect lands on
+     * (`objects.…`, `release-assets.…`), which name no repository.
+     *
+     * Owner and repository compare case-insensitively, as GitHub does, and
+     * each prefix ends on a slash so `repo-evil` is not `repo`. A path that
+     * could step out of the prefix — a `.` / `..` segment, or an encoded dot,
+     * slash or backslash — is refused outright, as are userinfo and any port
+     * but 443: the point of the check is that the text it read is the address
+     * that gets fetched.
      */
-    public static function isAllowedForRepository(string $url, string $owner, string $repo): bool
+    public static function isAllowedForRepository(string $url, string $owner, string $repo, ?string $tag = null): bool
     {
         $owner = strtolower(trim($owner));
         $repo = strtolower(trim($repo));
@@ -104,14 +116,25 @@ final class GitHubUrlValidator
                 return false;
             }
         }
+        $lowerPath = strtolower($path);
 
-        $prefix = match (strtolower((string) ($parts['host'] ?? ''))) {
-            'github.com' => "/{$owner}/{$repo}/releases/download/",
-            'api.github.com' => "/repos/{$owner}/{$repo}/",
-            'codeload.github.com' => "/{$owner}/{$repo}/",
-            default => null,
-        };
+        switch (strtolower((string) ($parts['host'] ?? ''))) {
+            case 'github.com':
+                return str_starts_with($lowerPath, "/{$owner}/{$repo}/releases/download/");
+            case 'api.github.com':
+                $prefix = "/repos/{$owner}/{$repo}/zipball/";
+                if (!str_starts_with($lowerPath, $prefix)) {
+                    return false;
+                }
+                // The ref keeps its own case: tags are case-sensitive.
+                $ref = substr($path, strlen($prefix));
+                if ($ref === '' || str_contains($ref, '/')) {
+                    return false;
+                }
 
-        return $prefix !== null && str_starts_with(strtolower($path), $prefix);
+                return $tag === null || $ref === $tag;
+            default:
+                return false;
+        }
     }
 }

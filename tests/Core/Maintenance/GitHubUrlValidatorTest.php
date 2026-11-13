@@ -72,7 +72,6 @@ class GitHubUrlValidatorTest extends TestCase
             'release asset' => ['https://github.com/owner/repo/releases/download/v1.2.3/scoutmagic.zip'],
             'dev artifact' => ['https://github.com/owner/repo/releases/download/dev-latest/scoutmagic-dev-a1b2c3d.zip'],
             'api zipball' => ['https://api.github.com/repos/owner/repo/zipball/v1.2.3'],
-            'codeload archive' => ['https://codeload.github.com/owner/repo/zip/refs/heads/main'],
             'repository casing is irrelevant (GitHub names are case-insensitive)' => [
                 'https://github.com/Owner/REPO/releases/download/v1.2.3/scoutmagic.zip',
             ],
@@ -99,6 +98,20 @@ class GitHubUrlValidatorTest extends TestCase
             'same owner, another repository' => ['https://github.com/owner/other/releases/download/v9.9.9/x.zip'],
             'zipball of another repository' => ['https://api.github.com/repos/other/depot/zipball/v9.9.9'],
             'codeload of another repository' => ['https://codeload.github.com/other/depot/zip/refs/heads/main'],
+            'codeload of the configured repository (only ever a redirect hop, never a first URL)' => [
+                'https://codeload.github.com/owner/repo/zip/refs/heads/main',
+            ],
+            'pull request head through the API zipball' => [
+                'https://api.github.com/repos/owner/repo/zipball/refs/pull/1/head',
+            ],
+            'any nested ref through the API zipball' => [
+                'https://api.github.com/repos/owner/repo/zipball/refs/heads/main',
+            ],
+            'API zipball with no ref at all' => ['https://api.github.com/repos/owner/repo/zipball/'],
+            'API zipball with an empty ref segment' => ['https://api.github.com/repos/owner/repo/zipball//x'],
+            'another API endpoint of the configured repository' => [
+                'https://api.github.com/repos/owner/repo/tarball/v1.2.3',
+            ],
             'repository name that only starts like the configured one' => [
                 'https://github.com/owner/repo-evil/releases/download/v1/x.zip',
             ],
@@ -149,5 +162,36 @@ class GitHubUrlValidatorTest extends TestCase
 
         $this->assertFalse(GitHubUrlValidator::isAllowedForRepository($url, 'owner/repo', 'releases'));
         $this->assertFalse(GitHubUrlValidator::isAllowedForRepository($url, 'owner', 'repo/releases'));
+    }
+
+    public function testAnArchiveRefMustBeTheReleaseTagWhenOneIsGiven(): void
+    {
+        $url = 'https://api.github.com/repos/owner/repo/zipball/v1.2.3';
+
+        $this->assertTrue(GitHubUrlValidator::isAllowedForRepository($url, 'owner', 'repo', 'v1.2.3'));
+        $this->assertFalse(
+            GitHubUrlValidator::isAllowedForRepository($url, 'owner', 'repo', 'v9.9.9'),
+            'a ref that is not the release being processed is refused'
+        );
+        $this->assertFalse(
+            GitHubUrlValidator::isAllowedForRepository($url, 'owner', 'repo', 'V1.2.3'),
+            'tags are case-sensitive, unlike owners and repositories'
+        );
+    }
+
+    public function testACommitShaIsNotTheTagOfARelease(): void
+    {
+        // GitHub resolves a commit sha across the whole fork network, so a
+        // sha in the ref position can name a fork's pull request commit.
+        $url = 'https://api.github.com/repos/owner/repo/zipball/0123456789abcdef0123456789abcdef01234567';
+
+        $this->assertFalse(GitHubUrlValidator::isAllowedForRepository($url, 'owner', 'repo', 'v1.2.3'));
+    }
+
+    public function testTheTagOnlyConstrainsTheApiZipball(): void
+    {
+        $asset = 'https://github.com/owner/repo/releases/download/asset/scoutmagic.zip';
+
+        $this->assertTrue(GitHubUrlValidator::isAllowedForRepository($asset, 'owner', 'repo', 'v1.2.3'));
     }
 }

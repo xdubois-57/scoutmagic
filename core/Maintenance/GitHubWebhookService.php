@@ -232,7 +232,8 @@ class GitHubWebhookService
         if (!GitHubUrlValidator::isAllowedForRepository(
             $downloadUrl,
             (string) ($this->settings->get('update_github_owner') ?: ''),
-            (string) ($this->settings->get('update_github_repo') ?: '')
+            (string) ($this->settings->get('update_github_repo') ?: ''),
+            $tagName
         )) {
             return ['status' => 'ignored', 'reason' => 'download_url_refused'];
         }
