@@ -6741,7 +6741,8 @@ $helpAssistantService = new \Core\Help\Assistant\AssistantService(
     new \Core\Help\Assistant\AssistantCacheRepository($pdo),
     $journalService,
     \Core\Maintenance\VersionFile::read(dirname(__DIR__)),
-    $llmConnectorForOthers
+    $llmConnectorForOthers,
+    $router
 );
 
 // The assistant's two surfaces (the panel's third state and

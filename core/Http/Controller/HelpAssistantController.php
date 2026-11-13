@@ -125,7 +125,7 @@ class HelpAssistantController extends AbstractController
         }
 
         $question = isset($body['question']) && is_string($body['question']) ? trim($body['question']) : '';
-        $currentPath = isset($body['path']) && is_string($body['path']) ? trim($body['path']) : '';
+        $currentPath = isset($body['path']) && is_string($body['path']) ? $body['path'] : '';
 
         try {
             $answer = $this->assistant->ask(

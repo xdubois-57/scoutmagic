@@ -11,6 +11,9 @@ namespace Core\Help\Assistant;
 use Core\Help\HelpException;
 use Core\Help\HelpService;
 use Core\Help\HelpTopic;
+use Core\Http\Controller\TextPageController;
+use Core\Http\Request;
+use Core\Http\Router;
 use Core\Journal\JournalService;
 use Core\Security\Role;
 use Modules\LlmConnector\Api\LlmConnectorInterface;
@@ -25,13 +28,13 @@ use Modules\LlmConnector\Api\LlmTier;
  * ---------------------------------------------------------------------
  * What it never does
  * ---------------------------------------------------------------------
- * **It never reads the database.** No member, no section, no amount, not
- * aggregated and not anonymised, ever enters a prompt. What it is given
- * is the shipped documentation and the question — which is why this whole
- * feature needed no RGPD change beyond naming the endpoint: nothing about
- * the unit leaves the installation that was not already in the release.
- * There is no tool-calling here and no SQL, deliberately, and adding
- * either would be a different feature with a different privacy answer.
+ * **It never reads unit records.** No member record, section list or
+ * amount is fetched, aggregated or anonymised to build a prompt. It is
+ * given shipped documentation and the reader's own question and recent
+ * exchanges. That free text can contain personal data; nothing else
+ * about the unit is fetched for the provider. There is no tool-calling
+ * and no SQL capability for the model. Adding either would be a different
+ * feature with a different privacy answer.
  *
  * **It never journals the question.** It is free text a human typed and
  * can hold a name, an address, an amount. The journal gets counters and
@@ -66,6 +69,9 @@ class AssistantService
 
     /** Longer than this and it is not a question, it is a paste. */
     public const MAX_QUESTION_LENGTH = 500;
+
+    /** A browser path is a hint, never arbitrary prompt text. */
+    public const MAX_PATH_LENGTH = 2048;
 
     /** Questions one account may ask per window. */
     public const QUOTA_PER_WINDOW = 20;
@@ -104,6 +110,7 @@ class AssistantService
         // null, the only name core ever autoloads is the Api\ interface,
         // and isAvailable() below answers false instead of throwing.
         private readonly ?LlmConnectorInterface $llmConnector = null,
+        private readonly ?Router $router = null,
     ) {
     }
 
@@ -182,8 +189,18 @@ class AssistantService
 
         // The cache is consulted BEFORE the quota is charged: serving an
         // answer that cost nothing must not spend somebody's allowance.
-        $fingerprint = AssistantCacheRepository::fingerprint($question, $role->value, $this->appVersion);
-        $cached = $this->cache->find($fingerprint);
+        $currentPath = $this->routePatternFor($currentPath);
+        $routeTopicIds = $currentPath === null ? [] : $routeTopicIds;
+        $fingerprint = $history === []
+            ? AssistantCacheRepository::fingerprint(
+                $question,
+                $role->value,
+                $this->appVersion,
+                $currentPath,
+                $routeTopicIds
+            )
+            : null;
+        $cached = $fingerprint !== null ? $this->cache->find($fingerprint) : null;
         if ($cached !== null) {
             $topics = $this->resolve($cached['topic_ids'], $role);
             $this->log($role, $topics, 0, 0, true);
@@ -200,7 +217,9 @@ class AssistantService
             // A real outcome, not an error: the corpus does not cover
             // this. Cached like any other answer — asking twice must not
             // cost twice just because the answer was "nothing".
-            $this->cache->store($fingerprint, '', []);
+            if ($fingerprint !== null) {
+                $this->cache->store($fingerprint, '', []);
+            }
             $this->log($role, [], $selectionTokens, 0, false);
 
             return new AssistantAnswer('', [], true);
@@ -208,10 +227,30 @@ class AssistantService
 
         [$text, $answerTokens] = $this->answer($question, $topics, $history);
 
-        $this->cache->store($fingerprint, $text, array_map(static fn (HelpTopic $t): string => $t->id, $topics));
+        if ($fingerprint !== null) {
+            $this->cache->store($fingerprint, $text, array_map(static fn (HelpTopic $t): string => $t->id, $topics));
+        }
         $this->log($role, $topics, $selectionTokens, $answerTokens, false);
 
         return new AssistantAnswer($text, $topics, false);
+    }
+
+    /** Resolve only known GET routes; never forward a path's parameter values. */
+    private function routePatternFor(?string $path): ?string
+    {
+        if ($path === null || strlen($path) > self::MAX_PATH_LENGTH
+            || !str_starts_with($path, '/') || preg_match('/[\\p{Cc}\\p{Z}?#]/u', $path) !== 0) {
+            return null;
+        }
+
+        $route = $this->router?->resolve(new Request('GET', $path, [], [], [], []));
+        // Text pages register literal paths from unit-entered titles, unlike
+        // the static route declarations. Their slugs must not leave the site.
+        if ($route?->controllerClass === TextPageController::class) {
+            return '/pages/{slug}';
+        }
+
+        return $route?->path;
     }
 
     /**
