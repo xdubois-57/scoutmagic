@@ -426,6 +426,13 @@ class SosAdminController extends AbstractController
             'redirect_action' => $status['action'],
             'redirect_expected_number' => $status['expected_number'],
             'redirect_expected_label' => $status['expected_label'],
+            // Who the planned destination is when their GSM is no phone
+            // number (review of #1194): no button to offer, but the block
+            // must say why rather than fall silent.
+            'redirect_unusable_label' => $status['expected_number'] !== null
+                    && PhoneNumber::normalize($status['expected_number']) === null
+                ? $this->destinationLabel($status['expected_member_id'], $this->operationalYear()->id)
+                : null,
         ];
     }
 

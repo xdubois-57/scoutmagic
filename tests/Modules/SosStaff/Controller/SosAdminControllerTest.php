@@ -1929,6 +1929,9 @@ class SosAdminControllerTest extends TestCase
         $answer = $this->resynchronize();
 
         $this->assertStringNotContainsString('data-redirect-action=', $body);
+        // Not silent either (review of #1194): the block names who and why.
+        $this->assertMatchesRegularExpression('/id="sos-redirect-unusable"[^>]*>.*Baloo \(Paul Martin\)/s', $body);
+        $this->assertStringNotContainsString('0470 12 34', $body);
         $this->assertSame(409, $answer['_status']);
         $this->assertFalse($answer['success']);
         $this->assertStringContainsString("n'est pas un numéro de téléphone valide", $answer['error']);
