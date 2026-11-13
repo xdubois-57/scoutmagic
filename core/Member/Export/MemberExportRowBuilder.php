@@ -13,6 +13,7 @@ use Core\Member\Movement\MemberMovementClassifierService;
 use Core\Member\Movement\MemberMovementResult;
 use Core\Member\Movement\MemberMovementStatus;
 use Core\Member\MemberEmailRepository;
+use Core\Member\SectionContactAccess;
 use Core\Member\SectionRosterEntry;
 use Core\Member\SectionRosterRepository;
 use Core\Member\SectionService;
@@ -43,19 +44,32 @@ final class MemberExportRowBuilder
     }
 
     /**
+     * The rows of $sectionIds, each section's contacts given only to a
+     * viewer $contactAccess lets see them (issue #1116): a row of any other
+     * section comes back withoutContacts(). Here, while the rows are built,
+     * and not in the spreadsheet writer, so no caller can export what the
+     * screen withholds. Required, so a new caller cannot forget it.
+     *
      * @param int[] $sectionIds
      * @return MemberExportRow[]
      */
-    public function buildForSections(array $sectionIds, int $scoutYearId): array
+    public function buildForSections(array $sectionIds, int $scoutYearId, SectionContactAccess $contactAccess): array
     {
         $entries = $this->rosterRepository->findRosterEntries($sectionIds, $scoutYearId);
 
-        return $this->buildRows(
+        $rows = $this->buildRows(
             $entries,
             $this->rosterRepository->findExportRecords(
                 array_map(fn(SectionRosterEntry $e) => $e->memberYearId, $entries)
             ),
             $scoutYearId
+        );
+
+        return array_map(
+            static fn(MemberExportRow $row): MemberExportRow => $contactAccess->seesContactsOf($row->sectionCode)
+                ? $row
+                : $row->withoutContacts(),
+            $rows
         );
     }
 

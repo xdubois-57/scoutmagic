@@ -16,6 +16,7 @@ use Core\Http\Response;
 use Core\Config\SettingService;
 use Core\Journal\JournalService;
 use Core\Member\MemberService;
+use Core\Member\SectionContactAccess;
 use Core\Member\SectionDocumentService;
 use Core\Member\SectionService;
 use Core\Member\SectionStaffAuthorizationService;
@@ -121,12 +122,13 @@ class StaffsController extends AbstractController
                 $canEditSection = $isChief && in_array((int) $currentSection['id'], $staffedSectionIds, true);
                 $staff = $this->sectionService->getSectionStaff($selectedSectionId, $scoutYearId);
 
-                // For intendants viewing a section they are not linked to: strip contact info
-                if (!$isChief) {
-                    $linkedSectionCodes = $this->getLinkedSectionCodes($linkedMembers);
-                    if (!in_array($currentSection['desk_code'], $linkedSectionCodes, true)) {
-                        $staff = $this->stripContactInfo($staff);
-                    }
+                // Below chief, a section none of this account's linked
+                // members belongs to is shown without contact details —
+                // the rule « Animés de la section » shares (issue #1116).
+                if (!SectionContactAccess::forViewer($currentRole, $linkedMembers)
+                    ->seesContactsOf((string) $currentSection['desk_code'])
+                ) {
+                    $staff = $this->stripContactInfo($staff);
                 }
             }
         }
@@ -393,31 +395,12 @@ class StaffsController extends AbstractController
         }
 
         // Intendant: filter to linked sections only
-        $linkedSectionCodes = $this->getLinkedSectionCodes($linkedMembers);
+        $linkedSectionCodes = SectionContactAccess::linkedSectionCodes($linkedMembers);
         return array_values(array_filter(
             $allSections,
             fn(array $s) =>
                 in_array($s['desk_code'], $linkedSectionCodes, true)
         ));
-    }
-
-    /**
-     * Get all section desk_codes from linked members' functions.
-     *
-     * @param \Core\Member\MemberProfile[] $linkedMembers
-     * @return string[]
-     */
-    private function getLinkedSectionCodes(array $linkedMembers): array
-    {
-        $codes = [];
-        foreach ($linkedMembers as $member) {
-            foreach ($member->functions as $fn) {
-                if ($fn->sectionCode !== null) {
-                    $codes[] = $fn->sectionCode;
-                }
-            }
-        }
-        return array_unique($codes);
     }
 
     /**

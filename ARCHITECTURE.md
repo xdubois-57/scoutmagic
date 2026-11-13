@@ -3137,6 +3137,22 @@ set. `AudienceImportService::TIERS_ALIASES`/`EMAIL_ALIASES` is the
 authoritative list — extend it there, in the importer, rather than
 renaming an export's headers and breaking its users' habits.
 
+**Whose contacts a page of the chiefs' area shows** (issue #1116):
+`Core\Member\SectionContactAccess` is the one rule « Staffs »
+(`StaffsController`) and « Animés de la section »
+(`SectionRosterController`, screen and export) both ask. From `chief` up,
+every section. Below, only the sections in which one of the account's
+linked members (`MemberService::getLinkedMembers()`, year shown) holds a
+function — the others are listed by name, function and section, never
+with an e-mail, a telephone, an address or a birth date. The roster page
+withholds them in the controller (`MemberRosterRow::withoutContacts()`),
+before Twig; the export inside `MemberExportRowBuilder::buildForSections()`,
+whose `SectionContactAccess` parameter is required, so a new caller cannot
+export what the screen withholds (`MemberExportRow::withoutContacts()`).
+The roll-call PDF carries no contact at all and needs neither. The export
+is journaled at `security` — a copy of personal data leaving the site —
+with `sections_without_contacts` beside the counters it already had.
+
 ### 8.62bis The page of one member, for the Staff d'Unité (`Core\Member\AdminMemberPageService`)
 
 `GET /admin/members/{id}` (`role_min: admin`, `Core\Member\Controller\MemberSearchController::show()`) — what the site knows about one person, on its own page. It used to render below the search results as `?member={id}`; the move makes the address shareable (that parameter dragged `q=` along, so a shared link replayed an unrelated search) and follows the convention every other dense per-person screen already uses.
