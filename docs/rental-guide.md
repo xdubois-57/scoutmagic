@@ -141,22 +141,24 @@ web : le formulaire refuse le reste avec une phrase qui le dit.
 
 Les dates sont **bloquées** pendant un délai réglable — 30 jours par
 défaut, jamais au-delà du début du séjour —, le temps que vous
-répondiez. Deux exceptions, pour qu'une seule demande ne puisse pas
-prendre tout le calendrier : un séjour de **plus de 30 nuits** ne bloque
-rien de lui-même, et une même adresse e-mail, ou un même compte connecté,
-ne peut avoir que **deux blocages en cours** à la fois, tous biens
-confondus. La demande est enregistrée et vous parvient comme les autres ;
-c'est à vous de poser une option si elle mérite les dates. Un blocage
-automatique de plus de 14 nuits apparaît dans les points d'attention.
-
-Chaque bien a aussi, par défaut, une **durée maximum de 30 nuits** et un
-**horizon de 548 jours** (18 mois) ; les biens qui n'avaient pas de
-limite les reçoivent à la mise à jour. « Illimité » reste possible en
-tapant 0 dans les réglages, en connaissance de cause. Ce blocage qui expire **ne refuse rien** : la demande reste en
+répondiez. Ce blocage qui expire **ne refuse rien** : la demande reste en
 attente, les dates redeviennent simplement libres pour les autres, et la
 page de la réservation vous en avertit. Vous recevez un rappel juste
 avant. Une **option**, elle, fait expirer la réservation si elle passe
 sans confirmation.
+
+Deux exceptions, pour qu'une seule demande ne puisse pas prendre tout le
+calendrier : un séjour de **plus de 30 nuits** ne bloque rien de
+lui-même, et une même adresse e-mail, ou un même compte connecté, ne peut
+avoir que **deux blocages en cours** à la fois, tous biens confondus. La
+demande est enregistrée et vous parvient comme les autres ; c'est à vous
+de poser une option si elle mérite les dates. Un blocage automatique de
+plus de 14 nuits apparaît dans les points d'attention.
+
+Chaque bien a aussi, par défaut, une **durée maximum de 30 nuits** et un
+**horizon de 548 jours** (18 mois) ; les biens qui n'avaient pas de
+limite les reçoivent à la mise à jour. « Illimité » reste possible en
+tapant 0 dans les réglages, en connaissance de cause.
 
 Vous recevez aussi une notification à chaque nouvelle demande — dans
 l'application, en push et par email, chaque canal se réglant dans vos
