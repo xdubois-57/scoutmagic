@@ -152,6 +152,37 @@ final class PortableBackupArchiveTest extends TestCase
         return $decoded;
     }
 
+    /**
+     * Issue #1103, format 3: every file of the tree a portable restore
+     * puts back is named in the encrypted manifest, with the digest and
+     * size of its bytes — and nothing else is, so a restore can refuse an
+     * entry somebody appended without the passphrase.
+     */
+    public function testEveryStorageFileInTheArchiveIsAManifestMemberWithItsDigest(): void
+    {
+        $zip = $this->buildArchive();
+        $members = $this->manifest($zip)['members'];
+        $this->assertIsArray($members);
+
+        $storageEntries = array_values(array_filter(
+            $this->entryNames($zip),
+            static fn (string $name): bool => str_starts_with($name, 'storage/')
+        ));
+        $this->assertContains('storage/uploads/doc.pdf', $storageEntries);
+        foreach ($storageEntries as $entry) {
+            $this->assertArrayHasKey($entry, $members, $entry . ' is in the archive but not in its manifest');
+            $this->assertSame(hash('sha256', $this->read($zip, $entry)), $members[$entry]['sha256'], $entry);
+            $this->assertSame(strlen($this->read($zip, $entry)), $members[$entry]['bytes'], $entry);
+        }
+
+        $declaredStorage = array_filter(
+            array_keys($members),
+            static fn (string $name): bool => str_starts_with($name, 'storage/')
+        );
+        $this->assertEqualsCanonicalizing($storageEntries, array_values($declaredStorage), 'a member names no entry');
+        $this->assertSame(PortableManifest::FORMAT_VERSION, $this->manifest($zip)['format_version']);
+    }
+
     public function testTheArchiveCarriesTheSecretsAndTheManifest(): void
     {
         $zip = $this->buildArchive();

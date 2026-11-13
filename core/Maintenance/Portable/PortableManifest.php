@@ -54,8 +54,26 @@ final class PortableManifest
      * choose the release to install before anything is uploaded. Archives
      * of format 1 are not supported: the site was in test, with no data to
      * carry over.
+     *
+     * 3 (#1103): every file of the restored tree (`storage/…`) is a member,
+     * with its SHA-256 and size, so an entry added without the passphrase
+     * is one the manifest does not name. Archives of format 2 are refused
+     * with a sentence of their own ({@see FORMAT_VERSION_WITHOUT_FILE_DIGESTS}).
      */
-    public const FORMAT_VERSION = 2;
+    public const FORMAT_VERSION = 3;
+
+    /**
+     * The last format whose `storage/` entries were not named: refused by
+     * a restore, which can tell them neither from entries a stranger
+     * appended nor from the original files (issue #1103).
+     */
+    public const FORMAT_VERSION_WITHOUT_FILE_DIGESTS = 2;
+
+    /** What a restore says to an archive of that format — the header check and the manifest's alike. */
+    public const REFUSED_WITHOUT_FILE_DIGESTS = 'Cette sauvegarde portable a été faite par une version de ScoutMagic '
+        . 'antérieure à l\'authentification de chacun de ses fichiers : elle ne peut plus être restaurée, car rien '
+        . 'ne distingue ses fichiers de fichiers ajoutés par un tiers. Rien n\'a été modifié. Faites une nouvelle '
+        . 'sauvegarde portable depuis le site d\'origine, s\'il est encore en service.';
 
     /**
      * The two files this archive carries and no other one does: where they
@@ -125,18 +143,19 @@ final class PortableManifest
     /**
      * The whole document.
      *
-     * **The file trees are described but not enumerated**, and that is a
-     * departure from "a digest of every member" worth stating plainly. A
-     * portable archive holds tens of thousands of files; a SHA-256 line
-     * for each would add a second full read of the site to a job that
-     * already reads all of it once, and produce a manifest larger than
-     * some of the files it describes. What it would buy is nearly nothing:
-     * the zip format already stores a CRC-32 per entry and verifies it on
-     * extraction, which is what catches the corruption that actually
-     * happens to an archive carried on a USB stick — and against an
-     * attacker who can rewrite an entry, a digest list sealed with the
-     * same passphrase as the entry is no barrier at all. The members that
-     * ARE listed are the ones a restore handles by name.
+     * **Every file a portable restore puts back is a member** (issue
+     * #1103, format 3): each `storage/…` entry with its SHA-256 and size,
+     * besides the dump and the sealed secrets. This used to be described
+     * but not enumerated, on the grounds that the zip's CRC-32 catches
+     * corruption and that a digest sealed with the same passphrase as the
+     * entry is no barrier to somebody who has it. The case that argument
+     * missed is the one that matters: somebody WITHOUT the passphrase —
+     * anybody able to write to the remote destination — can append an
+     * entry in clear, with a perfectly good CRC, and it was extracted. A
+     * manifest only the passphrase opens is what tells that entry apart.
+     * The price is the one stated then: a second read of each file, once
+     * when the archive is written and once before a restore writes
+     * anything — paid on the rare restore rather than risked on it.
      *
      * @return array<string, mixed>
      */
