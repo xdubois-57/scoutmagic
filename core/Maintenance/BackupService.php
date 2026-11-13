@@ -433,7 +433,13 @@ class BackupService implements BackupServiceInterface
                         $zip,
                         $this->basePath . '/' . $topDir,
                         $topDir,
-                        $archivePassword
+                        $archivePassword,
+                        // A portable archive lists every file of the tree a
+                        // portable restore puts back, with its digest, in
+                        // the encrypted manifest (issue #1103): an entry a
+                        // stranger slips into the archive is then one the
+                        // manifest does not name, and a restore refuses it.
+                        $topDir === 'storage' ? $manifest : null
                     );
                 }
             }
@@ -1012,11 +1018,20 @@ class BackupService implements BackupServiceInterface
         return $excluded;
     }
 
+    /**
+     * @param PortableManifest|null $listIn the manifest to record every file
+     *        in, with its SHA-256 and size — a portable archive's restored
+     *        tree (issue #1103). Read here, as the file is added; ZipArchive
+     *        reads it again when the archive is closed, so a file rewritten
+     *        in between is one a restore will refuse as damaged — the safe
+     *        direction for a backup.
+     */
     private function addDirectoryToZip(
         \ZipArchive $zip,
         string $sourceDir,
         string $zipPrefix,
-        ?string $encryptWithPassword = null
+        ?string $encryptWithPassword = null,
+        ?PortableManifest $listIn = null
     ): void {
         if (!is_dir($sourceDir)) {
             return;
@@ -1041,6 +1056,12 @@ class BackupService implements BackupServiceInterface
             } else {
                 $zip->addFile($absolutePath, $relativePath);
             }
+
+            $listIn?->addMember(
+                str_replace('\\', '/', $relativePath),
+                $this->digestOf($absolutePath),
+                (int) filesize($absolutePath)
+            );
         }
     }
 

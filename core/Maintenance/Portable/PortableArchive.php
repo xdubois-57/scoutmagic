@@ -161,6 +161,14 @@ final class PortableArchive
             if (!is_array($manifest) || ($manifest['format'] ?? null) !== PortableManifest::FORMAT) {
                 throw new BackupException('Le manifeste de cette sauvegarde portable est illisible.');
             }
+            // Format 2 is ours, but from before every file was named in the
+            // manifest (issue #1103): its storage entries cannot be told
+            // from ones a stranger added, so it is refused rather than
+            // restored on trust — the maintainer's choice, over restoring
+            // the database and keys alone.
+            if (($manifest['format_version'] ?? null) === PortableManifest::FORMAT_VERSION_WITHOUT_FILE_DIGESTS) {
+                throw new BackupException(PortableManifest::REFUSED_WITHOUT_FILE_DIGESTS);
+            }
             if (($manifest['format_version'] ?? null) !== PortableManifest::FORMAT_VERSION) {
                 throw new BackupException(
                     'Cette sauvegarde portable a été écrite dans un format que cette version ne sait pas lire. '
@@ -694,6 +702,24 @@ final class PortableArchive
                 && ((($attr >> 16) & 0xA000) === 0xA000)
             ) {
                 throw new BackupException('Archive de sauvegarde invalide (lien symbolique).');
+            }
+
+            // **Only what the encrypted manifest names** (issue #1103, part
+            // 2). Since format 3 every file of this tree is listed there
+            // with its digest, and verifyDeclaredMembers() checks each one
+            // before a byte is written. An entry the manifest does not name
+            // is one somebody added without the passphrase — anybody able
+            // to write to the remote destination can append one in clear,
+            // CRC and all — so the archive is refused whole, before
+            // extraction, rather than that entry quietly left out.
+            $declared = $this->manifest['members'] ?? [];
+            if (!is_array($declared) || !array_key_exists($name, $declared)) {
+                throw new BackupException(
+                    'Cette sauvegarde portable contient un fichier qu\'elle n\'annonce pas : elle a été modifiée '
+                    . 'après sa création. Rien n\'a été modifié. Restaurez une copie intacte.',
+                    0,
+                    new \RuntimeException('Undeclared portable entry: ' . $name)
+                );
             }
 
             // **Nothing a web server or PHP would execute is written**

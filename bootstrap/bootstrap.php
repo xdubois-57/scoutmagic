@@ -65,7 +65,7 @@ const BOOTSTRAP_INCOMING_DIR = 'storage/restore/incoming';
 const BOOTSTRAP_RESTORE_MODE_URL = '/setup?restauration=1';
 // The archive comment's format, as Core\Maintenance\Portable\PortableManifest writes it.
 const BOOTSTRAP_PORTABLE_FORMAT = 'scoutmagic-portable-backup';
-const BOOTSTRAP_PORTABLE_FORMAT_VERSION = 2;
+const BOOTSTRAP_PORTABLE_FORMAT_VERSION = 3;
 
 // =============================================================================
 // Preflight / environment

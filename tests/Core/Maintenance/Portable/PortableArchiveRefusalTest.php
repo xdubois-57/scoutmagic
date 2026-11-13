@@ -630,6 +630,69 @@ final class PortableArchiveRefusalTest extends TestCase
     }
 
     /** @param array<string, mixed> $options */
+    // ── Every storage file is authenticated (#1103, part 2) ──────────────
+
+    /**
+     * Somebody who can write to the remote destination but has no
+     * passphrase appends an entry in clear. Its CRC is perfectly good; what
+     * it lacks is a line in the manifest only the passphrase opens.
+     */
+    public function testAStorageEntryTheManifestDoesNotNameIsRefusedBeforeAnyWrite(): void
+    {
+        $archive = $this->open(['undeclaredEntry' => 'storage/uploads/ajout.pdf']);
+
+        try {
+            $archive->restorableEntries();
+            $this->fail('An entry the manifest does not name was accepted');
+        } catch (BackupException $e) {
+            $this->assertStringContainsString("qu'elle n'annonce pas", $e->getMessage());
+        } finally {
+            $archive->close();
+        }
+    }
+
+    /** An undeclared file a web server would run is refused, not merely left out: it is tampering. */
+    public function testAnUndeclaredHtaccessIsRefusedRatherThanLeftOut(): void
+    {
+        $archive = $this->open(['undeclaredEntry' => 'storage/uploads/.htaccess']);
+
+        $this->expectException(BackupException::class);
+        try {
+            $archive->restorableEntries();
+        } finally {
+            $archive->close();
+        }
+    }
+
+    /** A declared file whose bytes were swapped fails its digest, before anything is written. */
+    public function testADeclaredStorageEntryWhoseContentChangedIsRefused(): void
+    {
+        $archive = $this->open([
+            'extraMembers' => ['storage/uploads/doc.pdf' => ['sha256' => hash('sha256', 'autre chose'), 'bytes' => 10]],
+        ]);
+
+        $this->expectException(BackupException::class);
+        $this->expectExceptionMessage('endommagée');
+        try {
+            $archive->verifyDeclaredMembers();
+        } finally {
+            $archive->close();
+        }
+    }
+
+    /**
+     * Format 2 named none of its storage files: refused with a sentence of
+     * its own (the maintainer's choice on #1103), rather than « mettez le
+     * site à jour », which would not help.
+     */
+    public function testAnArchiveOfTheFormatWithoutFileDigestsIsRefusedSayingWhy(): void
+    {
+        $this->expectException(BackupException::class);
+        $this->expectExceptionMessage(PortableManifest::REFUSED_WITHOUT_FILE_DIGESTS);
+
+        $this->open(['format_version' => PortableManifest::FORMAT_VERSION_WITHOUT_FILE_DIGESTS]);
+    }
+
     private function open(array $options = []): PortableArchive
     {
         return PortableArchive::open($this->buildArchive($options), self::PASSPHRASE);
@@ -682,12 +745,21 @@ final class PortableArchiveRefusalTest extends TestCase
             // digest walk visits the dump too.
             $members['database.sql'] = ['sha256' => hash('sha256', $dump), 'bytes' => strlen($dump)];
         }
+        // Every storage file is declared with its digest, as the writer
+        // declares it since format 3 (issue #1103).
         if (($options['noData'] ?? false) !== true) {
             $this->addEncrypted($zip, 'storage/uploads/doc.pdf', 'des octets', $password);
+            $members['storage/uploads/doc.pdf'] = ['sha256' => hash('sha256', 'des octets'), 'bytes' => 10];
         }
 
         if (is_string($options['extraEntry'] ?? null)) {
             $this->addEncrypted($zip, $options['extraEntry'], 'des octets', $password);
+            $members[$options['extraEntry']] = ['sha256' => hash('sha256', 'des octets'), 'bytes' => 10];
+        }
+        // An entry the manifest does not name, the way somebody without the
+        // passphrase appends one: in clear, with a good CRC.
+        if (is_string($options['undeclaredEntry'] ?? null)) {
+            $this->assertTrue($zip->addFromString($options['undeclaredEntry'], 'des octets ajoutés'));
         }
         if (($options['traversal'] ?? false) === true) {
             $this->assertTrue($zip->addFromString('storage/../../evil.txt', 'des octets choisis ailleurs'));
@@ -711,7 +783,7 @@ final class PortableArchiveRefusalTest extends TestCase
             'installation_id' => 'aaaabbbbccccddddeeeeffff00001111',
             'includes_gallery' => false,
             'includes_secrets' => array_values(PortableManifest::SECRET_MEMBERS),
-            'members' => $options['members'] ?? ($members + (array) ($options['extraMembers'] ?? [])),
+            'members' => $options['members'] ?? array_replace($members, (array) ($options['extraMembers'] ?? [])),
         ];
         if (is_string($options['manifestPadding'] ?? null)) {
             $manifest['padding'] = $options['manifestPadding'];
