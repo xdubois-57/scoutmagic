@@ -2674,7 +2674,8 @@ through `bookingAction()` and `RentalBookingService`, recorded in the
 booking's history as `other_email_changed`). **Which address may be
 added is `Mail\OtherRenterEmailRule`'s** (issue #1106): a manager outside
 Staff d'U picks among the addresses on the booking's own mail
-(`seenAddresses()`, a list rather than a field), Staff d'U types one, and
+(`seenAddresses()`, a list rather than a field: the other side of each
+message only, so the unit's own alias never appears however it is named), Staff d'U types one, and
 nobody adds the unit's own — site sending, reply and contact addresses,
 the boxes this consumer reads, `+tag` ignored. **A typed address counts
 inside the booking's window only**: `addressMatch()` drops a booking that

@@ -29,7 +29,7 @@ use Modules\Rental\Repository\RentalBookingRepository;
  * So:
  * - **a manager who is not Staff d'U chooses among the addresses already
  *   on the booking's own mail** — the treasurer who answered in the
- *   thread, a partner copied by the renter. They never type one: what the
+ *   thread, or whom the unit wrote to. They never type one: what the
  *   booking's mail has not shown them, they have no business reading;
  * - **Staff d'U keeps the free field**: they may already read the unit's
  *   mail, and adding the renter's address before the box is opened is how
@@ -56,9 +56,18 @@ final class OtherRenterEmailRule
     }
 
     /**
-     * The addresses on the booking's own mail that may still be added:
-     * the senders and recipients of the messages filed under it, minus the
+     * The addresses on the booking's own mail that may still be added: the
+     * person on the other side of each message filed under it — the sender
+     * of a received one, the recipients of one the unit sent — minus the
      * renter's, the ones already added and the unit's own.
+     *
+     * **Only the other side.** The unit's side of a message — the
+     * recipients of what it received, the sender of what it sent — is the
+     * unit's own address, and it is very often an alias delivering into a
+     * box with another name, so the box's own address does not catch it.
+     * Taking only the other side keeps it out of the list whatever it is
+     * called, and any address seen on the unit's side is left out even when
+     * it also shows on the other.
      *
      * @return list<string>
      */
@@ -68,22 +77,32 @@ final class OtherRenterEmailRule
             return [];
         }
 
-        $seen = [];
+        $otherSide = [];
+        $unitSide = [];
         $messages = $this->inboundMail->findForReference(RentalMessageConsumer::CONSUMER_ID, $booking->reference);
         foreach ($messages as $message) {
-            foreach ([$message->fromEmail, ...$message->toEmails] as $address) {
-                $normalized = RentalBookingRepository::normalizeEmail($address);
-                if ($normalized !== '' && filter_var($normalized, FILTER_VALIDATE_EMAIL) !== false) {
-                    $seen[$normalized] = true;
-                }
+            $theirs = $message->isSent() ? $message->toEmails : [$message->fromEmail];
+            $ours = $message->isSent() ? [$message->fromEmail] : $message->toEmails;
+            foreach ($theirs as $address) {
+                $otherSide[RentalBookingRepository::normalizeEmail($address)] = true;
+            }
+            foreach ($ours as $address) {
+                $unitSide[self::withoutTag(RentalBookingRepository::normalizeEmail($address))] = true;
             }
         }
 
         $choices = [];
-        foreach (array_keys($seen) as $address) {
-            if (!$this->isUnitAddress($address) && !$this->bookingRepository->isAddressOfBooking($booking, $address)) {
-                $choices[] = $address;
+        foreach (array_keys($otherSide) as $address) {
+            $address = (string) $address;
+            if ($address === ''
+                || filter_var($address, FILTER_VALIDATE_EMAIL) === false
+                || isset($unitSide[self::withoutTag($address)])
+                || $this->isUnitAddress($address)
+                || $this->bookingRepository->isAddressOfBooking($booking, $address)
+            ) {
+                continue;
             }
+            $choices[] = $address;
         }
         sort($choices);
 

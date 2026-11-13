@@ -1047,10 +1047,30 @@ class RentalManagementControllerTest extends TestCase
     /**
      * The rule of « Autres adresses du locataire » (issue #1106) over a
      * box whose address is locations@unite.example, the booking's mail
-     * holding one message: from the group's treasurer, to the unit.
+     * holding two messages: one from the group's treasurer to the unit
+     * and the renter, and one the unit sent from its public alias
+     * (contact@scouts-alias.example, not the box's own address) to the
+     * group's president.
      */
     private function otherEmailRuleWithMail(): \Modules\Rental\Mail\OtherRenterEmailRule
     {
+        $sent = new \Modules\InboundMail\Api\InboundMessage(
+            id: 10,
+            mailboxId: 3,
+            consumerId: 'rental',
+            businessReference: 'LOC-K7Q2M4',
+            linkOrigin: \Modules\InboundMail\Api\LinkOrigin::THREAD,
+            subject: 'Re: La caution',
+            fromEmail: 'contact@scouts-alias.example',
+            fromName: 'Les Scouts',
+            messageId: '<m10@scouts-alias.example>',
+            inReplyTo: null,
+            sentAt: new \DateTimeImmutable('2027-06-02 10:00:00'),
+            bodyText: 'Bonjour,',
+            bodyHtml: '',
+            toEmails: ['president@groupe.example'],
+            direction: \Modules\InboundMail\Api\MessageDirection::SENT
+        );
         $message = new \Modules\InboundMail\Api\InboundMessage(
             id: 9,
             mailboxId: 3,
@@ -1065,10 +1085,10 @@ class RentalManagementControllerTest extends TestCase
             sentAt: new \DateTimeImmutable('2027-06-01 10:00:00'),
             bodyText: 'Bonjour,',
             bodyHtml: '',
-            toEmails: ['locations+loc-k7q2m4@unite.example', 'jeanne@example.be']
+            toEmails: ['locations+loc-k7q2m4@unite.example', 'jeanne@example.be', 'contact@scouts-alias.example']
         );
         $inbound = $this->createMock(\Modules\InboundMail\Api\InboundMailInterface::class);
-        $inbound->method('findForReference')->willReturn([$message]);
+        $inbound->method('findForReference')->willReturn([$message, $sent]);
         $inbound->method('probeAddressesFor')->willReturn(['locations@unite.example']);
 
         return new \Modules\Rental\Mail\OtherRenterEmailRule($this->bookingRepository, $inbound);
@@ -1228,6 +1248,22 @@ class RentalManagementControllerTest extends TestCase
         $this->assertSame(['tresorier@groupe.example'], array_map(static fn($o) => $o->email, $others));
     }
 
+    /**
+     * The unit's public alias is on the booking's mail, on the unit's side:
+     * a manager cannot add it, although no box is named after it.
+     */
+    public function testAManagerCannotAddTheAliasTheUnitWritesUnder(): void
+    {
+        $this->loginAsManager();
+        $this->withAuditedBookingService($this->otherEmailRuleWithMail());
+        $booking = $this->createBooking();
+
+        $this->addressPost('addOtherRenterEmail', $booking, ['email' => 'contact@scouts-alias.example']);
+
+        $this->assertSame('error', \Core\Http\FlashMessage::get()['type'] ?? null);
+        $this->assertSame([], $this->bookingRepository->otherRenterEmails($booking->id));
+    }
+
     /** Without the rule wired, nobody but Staff d'U adds anything: closed, not open. */
     public function testWithoutTheRuleAManagerAddsNothing(): void
     {
@@ -1281,10 +1317,15 @@ class RentalManagementControllerTest extends TestCase
         $body = (string) $this->filePage(BookingPage::MAIL, 'local-saint-georges', $booking->id)->getBody();
 
         $this->assertStringContainsString('data-other-renter-email-choices', $body);
+        // The other side of each message: the sender of a received one,
+        // the recipient of a sent one.
         $this->assertStringContainsString('<option value="tresorier@groupe.example">', $body);
-        // Neither the renter's own nor the unit's box is a choice.
+        $this->assertStringContainsString('<option value="president@groupe.example">', $body);
+        // Neither the renter's own nor the unit's side: its box, and the
+        // alias it receives and sends under, which no box is named after.
         $this->assertStringNotContainsString('<option value="jeanne@example.be">', $body);
         $this->assertStringNotContainsString('unite.example">', $body);
+        $this->assertStringNotContainsString('scouts-alias.example">', $body);
         $this->assertStringNotContainsString(self::OTHER_EMAIL_FREE_FIELD, $body);
     }
 
