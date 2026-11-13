@@ -180,7 +180,7 @@ class ExpectedReceivableRepository
     {
         $ownTransaction = !$this->pdo->inTransaction();
         if ($ownTransaction) {
-            $this->pdo->beginTransaction();
+            $this->beginReadCommitted();
         }
 
         try {
@@ -233,6 +233,28 @@ class ExpectedReceivableRepository
     }
 
     /**
+     * Opens a transaction that reads what is committed, not a snapshot
+     * (issue #1118).
+     *
+     * Under the engine's default, REPEATABLE READ, the first plain read
+     * of a transaction fixes what every later one sees. A writer that
+     * waits on a movement's lock would then resume and still count the
+     * allocations as they stood before it waited, missing the very
+     * write it waited for, and give the movement away twice. READ
+     * COMMITTED makes each read after a lock see what the lock's previous
+     * holder committed — the guarantee the locks exist for. Set for the
+     * next transaction only; SQLite serialises writers and has no such
+     * level.
+     */
+    private function beginReadCommitted(): void
+    {
+        if ($this->pdo->getAttribute(\PDO::ATTR_DRIVER_NAME) !== 'sqlite') {
+            $this->pdo->exec('SET TRANSACTION ISOLATION LEVEL READ COMMITTED');
+        }
+        $this->pdo->beginTransaction();
+    }
+
+    /**
      * $work in a transaction of its own, or in the one already open.
      *
      * @template T
@@ -245,7 +267,7 @@ class ExpectedReceivableRepository
             return $work();
         }
 
-        $this->pdo->beginTransaction();
+        $this->beginReadCommitted();
         try {
             $result = $work();
             $this->pdo->commit();

@@ -316,7 +316,7 @@ class ReceivableAllocationServiceTest extends TestCase
      * « Répartir » is all or nothing (issue #1118): the second line asks
      * more than its receivable still expects, so the first one — valid,
      * and written first — is rolled back with it, and the message names
-     * the line that failed.
+     * the line that failed by its communication.
      */
     public function testASplitWithOneRefusedLineWritesNoneOfIt(): void
     {
@@ -328,23 +328,41 @@ class ReceivableAllocationServiceTest extends TestCase
             $this->service->split($transactionId, [$lucie => 4500, $antoine => 4500], Role::INTENDANT, 7);
             $this->fail('a split with a refused line was accepted');
         } catch (FinanceException $e) {
-            $this->assertStringStartsWith("Rien n'a été réparti. Ligne « Antoine » :", $e->getMessage());
+            $this->assertStringStartsWith(
+                "Rien n'a été réparti. Ligne « +++123/4567/89025+++ » :",
+                $e->getMessage()
+            );
             $this->assertStringContainsString("n'attend plus que 30,00", $e->getMessage());
+            // The label often carries a member's name: never in an exception.
+            $this->assertStringNotContainsString('Antoine', $e->getMessage());
         }
 
         $this->assertSame([], $this->allocations->findByTransactionId($transactionId));
         $this->assertFalse($this->pdo->inTransaction(), 'the refused split left its transaction open');
     }
 
-    /** A line without a label is named by its communication. */
-    public function testARefusedLineWithoutALabelIsNamedByItsCommunication(): void
+    /**
+     * A surplus moves only between two receivables of the same account
+     * (issue #1118): the transfer reaches the allocation without
+     * requirePair(), so the invariant is held under the locks too.
+     */
+    public function testASurplusIsNeverMovedToAReceivableOnAnotherAccount(): void
     {
-        $first = $this->receivable(4500, '+++123/4567/89012+++');
-        $transactionId = $this->credit('Virement groupé', 30.00);
+        $from = $this->receivable(3825, '+++123/4567/89012+++');
+        $elsewhere = $this->receivable(4500, '+++123/4567/89025+++', $this->otherAccountId);
+        $credit = $this->credit('Virement arrondi +++123/4567/89012+++', 45.00);
+        $this->service->reconcileAccount($this->accountId);
+        $this->assertSame(675, $this->settlement($from)->amountOverpaidCents);
 
-        $this->expectException(FinanceException::class);
-        $this->expectExceptionMessage('Ligne « +++123/4567/89012+++ » : Il ne reste que 30,00');
-        $this->service->split($transactionId, [$first => 4500], Role::INTENDANT, 7);
+        try {
+            $this->service->transferOverpayment($from, $elsewhere, 675, Role::INTENDANT, 7);
+            $this->fail('a surplus was moved onto another account');
+        } catch (FinanceException $e) {
+            $this->assertStringContainsString('même compte', $e->getMessage());
+        }
+
+        $this->assertNull($this->allocations->findPair($credit, $elsewhere));
+        $this->assertSame(675, $this->settlement($from)->amountOverpaidCents);
     }
 
     public function testAllocatingMoreThanIsStillDueIsRefused(): void

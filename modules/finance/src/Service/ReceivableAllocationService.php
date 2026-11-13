@@ -262,6 +262,15 @@ class ReceivableAllocationService
                         fn (): ?array => $this->writeAutomaticPayment($receivable->id, $transaction)
                     );
                     if ($written === null) {
+                        // A person may have spoken about the pair since the
+                        // snapshot — a « pays nothing here » among others —
+                        // and the refunds below must see it.
+                        $pair = $this->allocationRepository->findPair($transaction->id, $receivable->id);
+                        if ($pair === null) {
+                            unset($existingByPair[$transaction->id][$receivable->id]);
+                        } else {
+                            $existingByPair[$transaction->id][$receivable->id] = $pair;
+                        }
                         continue;
                     }
 
@@ -786,9 +795,9 @@ class ReceivableAllocationService
      * transaction, holding every receivable in ascending id order and
      * then the movement — the order every other writer takes, so a split
      * and a single gesture never wait on each other in a circle. The first
-     * line refused rolls the others back, and the message names it: a
-     * partly-applied split would leave the treasurer guessing which lines
-     * took.
+     * line refused rolls the others back, and the message names it by its
+     * communication: a partly-applied split would leave the treasurer
+     * guessing which lines took.
      *
      * @param array<int, int> $amountCentsByReceivableId
      * @throws FinanceException
@@ -853,6 +862,15 @@ class ReceivableAllocationService
         if ($receivable === null || $transaction === null) {
             throw new FinanceException("Ce mouvement ou cette créance n'existe plus.");
         }
+        // requirePair()'s invariant, held here too: a surplus transfer
+        // reaches this without it, and an allocation never joins two
+        // accounts.
+        if ($transaction->accountId !== $receivable->accountId) {
+            throw new FinanceException(
+                "Ce mouvement et cette créance ne sont pas sur le même compte. L'argent doit d'abord être "
+                . 'viré sur le bon compte : rien ne s\'impute à distance.'
+            );
+        }
 
         if ($amountCents < 0) {
             throw new FinanceException('Une imputation ne peut pas être négative.');
@@ -901,12 +919,14 @@ class ReceivableAllocationService
         $this->recategorize([$transactionId]);
     }
 
-    /** How a line of « Répartir » is named in a refusal: its label, else its communication. */
+    /**
+     * How a line of « Répartir » is named in a refusal: its structured
+     * communication. Never its label, which often carries a member's name
+     * and has no place in an exception message.
+     */
     private static function lineName(ExpectedReceivable $receivable): string
     {
-        $label = trim((string) $receivable->label);
-
-        return $label !== '' ? $label : $receivable->communication;
+        return $receivable->communication;
     }
 
     /**
@@ -1417,6 +1437,12 @@ class ReceivableAllocationService
         $to = $this->receivableRepository->findById($toId);
         if ($from === null || $to === null) {
             throw new FinanceException("Cette créance n'existe pas.");
+        }
+        if ($from->accountId !== $to->accountId) {
+            throw new FinanceException(
+                "Ces deux créances ne sont pas sur le même compte : un trop-perçu ne s'impute qu'à une créance "
+                . 'du même compte.'
+            );
         }
 
         $surplus = $this->settlementFor($from)->amountOverpaidCents;

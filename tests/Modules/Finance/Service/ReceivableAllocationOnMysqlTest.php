@@ -138,6 +138,35 @@ final class ReceivableAllocationOnMysqlTest extends TestCase
         $this->assertSame([$named => 1500, $sibling => 4500], $this->allocatedOn($credit));
     }
 
+    /**
+     * The transaction a lock opens reads what is committed, not the
+     * snapshot its first read took (issue #1118). Under the engine's
+     * default, a writer that waited on a movement's lock would resume
+     * still counting the allocations as they were before it waited — the
+     * very write it waited for missing — and give the movement away twice.
+     */
+    public function testALockedTransactionSeesWhatAnotherCommittedAfterItsFirstRead(): void
+    {
+        $lucie = $this->receivable(4500, '+++123/4567/89012+++');
+        $antoine = $this->receivable(4500, '+++123/4567/89025+++');
+        $credit = $this->credit('Virement groupé', 60.00);
+        [, $otherService] = $this->secondConnection();
+
+        $seen = $this->receivables->withReceivableLocked(
+            $lucie,
+            function () use ($credit, $antoine, $otherService): int {
+                // The first plain read: under REPEATABLE READ, the snapshot.
+                $this->assertSame([], $this->allocations->findByTransactionId($credit));
+
+                $otherService->allocate($credit, $antoine, 4500, Role::INTENDANT, 8);
+
+                return count($this->allocations->findByTransactionId($credit));
+            }
+        );
+
+        $this->assertSame(1, $seen, "the second read did not see the other connection's committed allocation");
+    }
+
     /** « Répartir » on the real engine: a refused line rolls back the lines InnoDB had already written. */
     public function testARefusedSplitLineRollsBackTheOthersOnTheRealEngine(): void
     {
