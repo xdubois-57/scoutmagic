@@ -404,7 +404,13 @@ trésorier du groupe, un conjoint, une adresse de travail. Un e-mail venant
 de l'une d'elles, ou envoyé à l'une d'elles, est reconnu comme s'il
 s'agissait du locataire. Vous en ajoutez ou en retirez une ; chaque
 changement figure dans l'historique de la réservation, et les messages
-déjà rattachés restent quand vous en retirez une. Quand quelqu'un
+déjà rattachés restent quand vous en retirez une. Un gestionnaire qui
+n'est pas du staff d'unité choisit l'adresse dans une liste : celles qui
+apparaissent déjà dans le courrier de la réservation. Le staff d'unité
+peut en taper une autre. Une adresse de l'unité elle-même (sa boîte, son
+adresse d'envoi ou de contact) est toujours refusée, et une adresse tapée
+à la main ne rattache que les messages datés de la demande à 60 jours
+après le départ. Quand quelqu'un
 rattache un message à la main depuis le courrier général de l'unité, ou
 que l'IA tranche,
 l'adresse de l'expéditeur (ou le destinataire unique d'un e-mail envoyé)

@@ -84,7 +84,15 @@ class RentalBookingService implements OccupancyProvider
          * (issue #927). Null where nothing expires, or without Finance —
          * the service then raises and moves nothing anyway.
          */
-        private ?RentalPaymentService $paymentService = null
+        private ?RentalPaymentService $paymentService = null,
+        /**
+         * Which address a manager may add to « Autres adresses du
+         * locataire » (issue #1106). Null: only Staff d'U may add one —
+         * never a free field for everyone — but nothing then knows the
+         * unit's own addresses, so that refusal is the rule's alone.
+         * public/index.php always wires it.
+         */
+        private ?\Modules\Rental\Mail\OtherRenterEmailRule $otherEmailRule = null
     ) {
         $this->references = $references ?? BookingReference::secure();
     }
@@ -466,18 +474,33 @@ class RentalBookingService implements OccupancyProvider
 
     /**
      * A manager adds one of the « Autres adresses du locataire » (#720,
-     * step 5): mail from or to it is matched like the renter's own.
+     * step 5): mail from or to it is matched like the renter's own, within
+     * the booking's window. Staff d'U may type any address but the unit's
+     * own; any other manager only one already on the booking's mail
+     * (`OtherRenterEmailRule`, issue #1106).
      *
      * @throws RentalException
      */
-    public function addOtherRenterEmail(RentalBooking $booking, string $email, ?int $actorMemberId): void
-    {
+    public function addOtherRenterEmail(
+        RentalBooking $booking,
+        string $email,
+        ?int $actorMemberId,
+        bool $actorIsUnitStaff = false
+    ): void {
         $normalized = RentalBookingRepository::normalizeEmail($email);
         if ($normalized === '' || filter_var($normalized, FILTER_VALIDATE_EMAIL) === false) {
             throw new RentalException("Cette adresse e-mail n'est pas valide.");
         }
         if ($this->bookingRepository->isAddressOfBooking($booking, $normalized)) {
             throw new RentalException('Cette adresse est déjà celle du locataire pour cette réservation.');
+        }
+        // Issue #1106: an address added here files the unit's mail with it
+        // on this booking, for its managers to read.
+        $refusal = $this->otherEmailRule === null
+            ? ($actorIsUnitStaff ? null : "Seul le staff d'unité peut ajouter une adresse.")
+            : $this->otherEmailRule->refusal($booking, $normalized, $actorIsUnitStaff);
+        if ($refusal !== null) {
+            throw new RentalException($refusal);
         }
         if (!$this->bookingRepository->addRenterEmail($booking->id, $normalized)) {
             throw new RentalException("L'adresse n'a pas pu être ajoutée.");
@@ -491,6 +514,17 @@ class RentalBookingService implements OccupancyProvider
             null,
             $actorMemberId
         );
+    }
+
+    /**
+     * The addresses a manager who is not Staff d'U may choose from: the
+     * ones already on the booking's own mail (issue #1106).
+     *
+     * @return list<string>
+     */
+    public function otherRenterEmailChoices(RentalBooking $booking): array
+    {
+        return $this->otherEmailRule?->seenAddresses($booking) ?? [];
     }
 
     /**
