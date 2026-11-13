@@ -10406,7 +10406,10 @@ if ($isEnabled('groups')) {
     // file and only consumed at the very end, once every module block
     // that might append to it — this one included — has run.
     $galleryDelegatedAlbumAccessCheckers[] = new \Modules\Groups\Gallery\GroupDelegatedAlbumAccessChecker(
-        $groupsFileOwnershipChecker
+        $groupsFileOwnershipChecker,
+        $groupsGroupRepo,
+        $groupsAccessService,
+        $groupsPostMediaRepo
     );
 
     // And the name gallery's storage-administration page shows for that

@@ -72,16 +72,13 @@ class ReactionController extends AbstractController
             GroupSessionContext $context
         ) use ($params) {
             $post = $this->postRepository->findById((int) ($params['postId'] ?? 0));
-            if ($post === null || $post->groupId !== $group->id) {
-                return null;
-            }
             // Auto-hidden content is invisible to non-moderators on every
             // read path (the feed's SQL, and GroupController::post()'s deep
             // link) — so it must not be reactable either. Otherwise a member
             // could react to a post they cannot see, notifying its author
             // and bumping last_activity_at, which postpones the retention
             // purge of the very content moderation hid.
-            if ($post->isHidden() && !$this->accessService->canModerate($group, $context)) {
+            if ($post === null || !$this->accessService->canReachPost($group, $post, $context)) {
                 return null;
             }
 
@@ -128,14 +125,11 @@ class ReactionController extends AbstractController
             }
 
             // Same two-step ownership check as a post's, one level deeper:
-            // the reply's own post must belong to the authorised group.
+            // the reply's own post must belong to the authorised group. And
+            // the same rule as react(): neither a hidden reply nor a reply
+            // whose parent post is hidden is reactable by a non-moderator.
             $post = $this->postRepository->findById($reply->postId);
-            if ($post === null || $post->groupId !== $group->id) {
-                return null;
-            }
-            // Same rule as react(): neither a hidden reply nor a reply whose
-            // parent post is hidden is reactable by a non-moderator.
-            if (($reply->isHidden() || $post->isHidden()) && !$this->accessService->canModerate($group, $context)) {
+            if ($post === null || !$this->accessService->canReachReply($group, $post, $reply, $context)) {
                 return null;
             }
 
@@ -174,10 +168,7 @@ class ReactionController extends AbstractController
             GroupSessionContext $context
         ) use ($params) {
             $post = $this->postRepository->findById((int) ($params['postId'] ?? 0));
-            if ($post === null || $post->groupId !== $group->id) {
-                return null;
-            }
-            if ($post->isHidden() && !$this->accessService->canModerate($group, $context)) {
+            if ($post === null || !$this->accessService->canReachPost($group, $post, $context)) {
                 return null;
             }
 
@@ -204,11 +195,10 @@ class ReactionController extends AbstractController
                 return null;
             }
 
+            // A reply under a hidden post goes with it (issue #1119): its
+            // reactors are as hidden as the reply itself.
             $post = $this->postRepository->findById($reply->postId);
-            if ($post === null || $post->groupId !== $group->id) {
-                return null;
-            }
-            if ($reply->isHidden() && !$this->accessService->canModerate($group, $context)) {
+            if ($post === null || !$this->accessService->canReachReply($group, $post, $reply, $context)) {
                 return null;
             }
 

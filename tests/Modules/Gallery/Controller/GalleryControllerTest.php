@@ -26,6 +26,7 @@ use Modules\Gallery\Repository\MediaRepository;
 use Core\Storage\Location\StorageLocation;
 use Core\Storage\Location\StorageLocationRepository;
 use Modules\Gallery\Api\DelegatedAlbumAccessChecker;
+use Modules\Gallery\Api\DelegatedMediaAccessChecker;
 use Modules\Gallery\Service\AlbumService;
 use Modules\Gallery\Service\DelegatedAlbumAccessRegistry;
 use Modules\Gallery\Service\FfmpegAvailability;
@@ -375,6 +376,74 @@ class GalleryControllerTest extends TestCase
         );
 
         $this->assertSame(404, $response->getStatusCode());
+    }
+
+    /**
+     * Issue #1119: the owner can withhold ONE media of an album the reader
+     * may otherwise open — a group, the image of a post moderation hid —
+     * and the bytes are never read for it.
+     */
+    public function testServeMediaReturns404ForAMediaTheOwnerWithholds(): void
+    {
+        $albumId = $this->createDelegatedAlbum($this->locationId);
+        $mediaId = $this->createDoneMedia($albumId);
+        $backend = $this->createMock(\Core\Storage\Location\Backend\StorageBackendInterface::class);
+        $backend->expects($this->never())->method('get');
+        $this->storageBackendFactory->method('create')->willReturn($backend);
+        $controller = $this->controllerWithRegistry($this->withholdingRegistry($mediaId));
+
+        $response = $controller->serveMedia(
+            new Request('GET', '/gallery/media/' . $mediaId . '/thumb', [], [], [], []),
+            ['media_id' => (string) $mediaId, 'size' => 'thumb']
+        );
+
+        $this->assertSame(404, $response->getStatusCode());
+    }
+
+    public function testDownloadMediaReturns404ForAMediaTheOwnerWithholds(): void
+    {
+        $albumId = $this->createDelegatedAlbum($this->locationId);
+        $mediaId = $this->createDoneMedia($albumId);
+        $controller = $this->controllerWithRegistry($this->withholdingRegistry($mediaId));
+
+        $response = $controller->downloadMedia(
+            new Request('GET', '/gallery/media/' . $mediaId . '/download', [], [], [], []),
+            ['media_id' => (string) $mediaId]
+        );
+
+        $this->assertSame(404, $response->getStatusCode());
+    }
+
+    /** Allows the album, withholds the one media $withheld. */
+    private function withholdingRegistry(int $withheld): DelegatedAlbumAccessRegistry
+    {
+        return new DelegatedAlbumAccessRegistry([
+            new class ($withheld) implements DelegatedAlbumAccessChecker, DelegatedMediaAccessChecker {
+                public function __construct(private int $withheld)
+                {
+                }
+
+                public function supports(string $ownerType): bool
+                {
+                    return true;
+                }
+
+                public function isAllowed(int $ownerId, Role $currentRole, array $linkedMemberIds): bool
+                {
+                    return true;
+                }
+
+                public function isMediaAllowed(
+                    int $ownerId,
+                    int $mediaId,
+                    Role $currentRole,
+                    array $linkedMemberIds,
+                    ?int $userAccountId
+                ): bool {
+                    return $mediaId !== $this->withheld;
+                }
+            },
+        ]);
     }
 
     public function testServeMediaReturns404ForADelegatedAlbumWithAnUnregisteredOwnerType(): void

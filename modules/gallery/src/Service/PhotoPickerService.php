@@ -85,6 +85,9 @@ final class PhotoPickerService implements PhotoPickerInterface
 
         $photos = [];
         foreach ($picked as [$photo, $album, $isCover]) {
+            if (!$this->mayViewMedia($album, $photo, Role::fromString($role), $linkedMemberIds)) {
+                continue;
+            }
             $photos[] = new PickablePhoto(
                 $photo->id,
                 $album->displayTitle(),
@@ -105,7 +108,7 @@ final class PhotoPickerService implements PhotoPickerInterface
         }
         $album = $this->albums->findById($photo->albumId);
         if ($album === null || !$album->isLocal() || $album->isMigrating()
-            || !$this->mayView($album, Role::fromString($role), $linkedMemberIds)) {
+            || !$this->mayViewMedia($album, $photo, Role::fromString($role), $linkedMemberIds)) {
             return null;
         }
 
@@ -150,6 +153,31 @@ final class PhotoPickerService implements PhotoPickerInterface
 
         // The gallery's own rule for a chief: every ordinary album.
         return $role->hasAccess(Role::CHIEF);
+    }
+
+    /**
+     * mayView() for one photo: a delegated album's owner can withhold a
+     * single media of an album the reader may otherwise open — a group,
+     * the images of a post moderation hid (issue #1119). No login is
+     * passed, so a rule that needs one (a group moderator's) does not
+     * apply here: the picker never offers hidden content for reuse.
+     *
+     * @param array<int, int> $linkedMemberIds
+     */
+    private function mayViewMedia(Album $album, Media $photo, Role $role, array $linkedMemberIds): bool
+    {
+        if (!$album->isDelegated()) {
+            return $this->mayView($album, $role, $linkedMemberIds);
+        }
+
+        return ($this->delegatedAccess)()->isMediaAllowed(
+            (string) $album->ownerType,
+            (int) $album->ownerId,
+            $photo->id,
+            $role,
+            $linkedMemberIds,
+            null
+        );
     }
 
     private static function isPickable(Media $media): bool

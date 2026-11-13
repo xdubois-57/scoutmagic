@@ -12,6 +12,8 @@ use Core\Member\SectionMembershipRepository;
 use Modules\Groups\Repository\DiscussionGroup;
 use Modules\Groups\Repository\GroupMemberRepository;
 use Modules\Groups\Repository\GroupSectionRepository;
+use Modules\Groups\Repository\Post;
+use Modules\Groups\Repository\Reply;
 
 /**
  * Who may read, post in, and moderate a group.
@@ -211,6 +213,50 @@ class GroupAccessService
         }
 
         return false;
+    }
+
+    /**
+     * May this session reach this post at all — read it, vote on it,
+     * answer it, react to it, report it, edit or delete it, see its
+     * reactors or its images (issue #1119)?
+     *
+     * THE one rule every post-scoped path asks, so that none of them can
+     * forget it again: the post belongs to the group that was authorised
+     * (a post id from elsewhere is nobody's here), and content moderation
+     * has hidden is reachable by a moderator only — the feed's SQL already
+     * leaves it out for everyone else, so any other path that answered it
+     * would be the way around the hiding. A refusal is the module's usual
+     * 404: nothing confirms the post still exists.
+     *
+     * Hidden means hidden for its author too: they no longer see it in the
+     * feed either, so refusing them its actions takes nothing they had.
+     */
+    public function canReachPost(DiscussionGroup $group, Post $post, GroupSessionContext $context): bool
+    {
+        return $post->groupId === $group->id
+            && $this->canReachModeratedContent($group, $post->isHidden(), $context);
+    }
+
+    /**
+     * canReachPost() one level down: the reply hangs off that post, and
+     * neither the reply NOR its post is hidden — a reply under a hidden
+     * post goes with it (the feed's SQL drops both the same way).
+     */
+    public function canReachReply(DiscussionGroup $group, Post $post, Reply $reply, GroupSessionContext $context): bool
+    {
+        return $reply->postId === $post->id
+            && $post->groupId === $group->id
+            && $this->canReachModeratedContent($group, $post->isHidden() || $reply->isHidden(), $context);
+    }
+
+    /**
+     * The rule beneath both, for a caller that only knows whether the
+     * content is hidden — a gallery media of a hidden post or reply
+     * (Gallery\GroupDelegatedAlbumAccessChecker).
+     */
+    public function canReachModeratedContent(DiscussionGroup $group, bool $isHidden, GroupSessionContext $context): bool
+    {
+        return !$isHidden || $this->canModerate($group, $context);
     }
 
     /**

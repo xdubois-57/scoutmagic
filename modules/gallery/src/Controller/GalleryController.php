@@ -325,11 +325,13 @@ class GalleryController extends AbstractController
         if ($album->isDelegated()) {
             \assert($album->ownerType !== null && $album->ownerId !== null);
             $role = Role::fromString(AuthSession::getRole());
-            if (!$this->delegatedAlbumAccessRegistry->isAllowed(
+            if (!$this->delegatedAlbumAccessRegistry->isMediaAllowed(
                 $album->ownerType,
                 $album->ownerId,
+                $media->id,
                 $role,
-                $this->linkedMemberIds
+                $this->linkedMemberIds,
+                AuthSession::getUserAccountId()
             )) {
                 return new Response('Not Found', 404);
             }
@@ -629,12 +631,17 @@ class GalleryController extends AbstractController
     {
         \assert($album->ownerType !== null && $album->ownerId !== null);
 
+        // Per media, not only per album: an owner can withhold one media
+        // of an album its reader may otherwise open — a group, the images
+        // of a post moderation hid (issue #1119).
         $role = Role::fromString(AuthSession::getRole());
-        if (!$this->delegatedAlbumAccessRegistry->isAllowed(
+        if (!$this->delegatedAlbumAccessRegistry->isMediaAllowed(
             $album->ownerType,
             $album->ownerId,
+            $media->id,
             $role,
-            $this->linkedMemberIds
+            $this->linkedMemberIds,
+            AuthSession::getUserAccountId()
         )) {
             return new Response('Not Found', 404);
         }

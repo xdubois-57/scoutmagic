@@ -598,4 +598,21 @@ class ReactionControllerTest extends GroupsControllerTestCase
 
         $this->assertSame(404, $response->getStatusCode());
     }
+
+    /**
+     * Issue #1119: a reply goes with the post it answers — its reactors
+     * were still listed once only the POST was hidden.
+     */
+    public function testReplyReactorsIs404WhenOnlyThePostIsHidden(): void
+    {
+        $this->postRepo->setHiddenAt($this->postId, '2026-01-01 12:00:00');
+
+        $url = '/groups/' . $this->groupId . '/replies/' . $this->replyId . '/reactions';
+        $response = $this->controller([$this->memberId])->replyReactors(
+            new Request('GET', $url, [], [], [], []),
+            $this->params(null, $this->replyId)
+        );
+
+        $this->assertSame(404, $response->getStatusCode());
+    }
 }

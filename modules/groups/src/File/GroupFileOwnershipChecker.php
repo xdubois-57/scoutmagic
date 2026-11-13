@@ -59,6 +59,23 @@ class GroupFileOwnershipChecker implements FileOwnershipCheckerInterface
             return false;
         }
 
+        return $this->accessService->canRead($group, $this->contextFor($currentRole, $linkedMemberIds));
+    }
+
+    /**
+     * The session a file or media request is decided for, rebuilt from
+     * what the request carries — shared with Gallery\
+     * GroupDelegatedAlbumAccessChecker, whose per-media rule also needs
+     * the login ($userAccountId): moderating a group is a grant to one
+     * login, not to the members it reaches.
+     *
+     * @param array<int, int> $linkedMemberIds
+     */
+    public function contextFor(
+        Role $currentRole,
+        array $linkedMemberIds,
+        ?int $userAccountId = null
+    ): GroupSessionContext {
         // The effective year is re-resolved here rather than carried in,
         // for the same reason the rest of the module re-resolves it every
         // request: a file request is its own request, and a stale year
@@ -67,14 +84,12 @@ class GroupFileOwnershipChecker implements FileOwnershipCheckerInterface
         // through whatever year the visitor is currently browsing.
         $effectiveYear = $this->scoutYearResolver->getEffectiveYear(null, $currentRole);
 
-        $context = new GroupSessionContext(
-            null,
+        return new GroupSessionContext(
+            $userAccountId,
             $currentRole,
             array_values($linkedMemberIds),
             $effectiveYear->id,
             false
         );
-
-        return $this->accessService->canRead($group, $context);
     }
 }

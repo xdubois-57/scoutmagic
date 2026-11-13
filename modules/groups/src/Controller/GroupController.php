@@ -478,17 +478,11 @@ class GroupController extends AbstractController
 
         $post = $this->postRepository->findById((int) ($params['postId'] ?? 0));
         // A post id from another group is a 404, not someone else's post —
-        // the group in the URL is what was authorised.
-        if ($post === null || $post->groupId !== $group->id) {
-            return new Response('Not Found', 404);
-        }
-
-        // A hidden post is not reachable through its own deep link either,
-        // for anyone but a moderator: the notification that linked here
-        // predates the hiding, and following it must not become the way
-        // around it (prompt 9 — the hidden state is enforced in the query,
-        // and this is one more query).
-        if ($post->isHidden() && !$this->accessService->canModerate($group, $context)) {
+        // the group in the URL is what was authorised. And a hidden post is
+        // not reachable through its own deep link either, for anyone but a
+        // moderator: the notification that linked here predates the hiding,
+        // and following it must not become the way around it.
+        if ($post === null || !$this->accessService->canReachPost($group, $post, $context)) {
             return new Response('Not Found', 404);
         }
 
