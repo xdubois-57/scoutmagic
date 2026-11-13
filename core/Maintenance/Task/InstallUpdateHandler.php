@@ -147,6 +147,16 @@ class InstallUpdateHandler implements TaskHandlerInterface
             return;
         }
 
+        // Whose archive is this? Settled before anything else is done for
+        // it — the artifact probe below is itself a request to this URL, and
+        // the lock, the closing of other rows and the safety backup are
+        // work that a refusal must not cost. An address cached before the
+        // repository binding existed is exactly the case this stops.
+        if (!$this->downloadUrlBelongsToConfiguredRepository($downloadUrl, $context)) {
+            $this->refuseForeignDownloadUrl($historyId, $history, $downloadUrl, $context, $updateHistoryRepository);
+            return;
+        }
+
         // The artifact may not exist yet — see waitForArtifact()'s docblock.
         // Deliberately the FIRST thing after the status guard: it runs
         // while the row is still 'pending', before the install lock is
@@ -315,7 +325,7 @@ class InstallUpdateHandler implements TaskHandlerInterface
                     throw new UpdateException('Impossible de créer le dossier temporaire de mise à jour.');
                 }
                 $artifactPath = $tempDir . '/artifact.zip';
-                $this->download($downloadUrl, $artifactPath);
+                $this->download($downloadUrl, $artifactPath, $context);
 
                 $extractedDir = $tempDir . '/extracted';
                 mkdir($extractedDir, 0755, true);
@@ -1049,13 +1059,78 @@ class InstallUpdateHandler implements TaskHandlerInterface
      * legitimate chain is short, so cap it low and re-validate each hop. */
     private const MAX_DOWNLOAD_REDIRECTS = 5;
 
-    private function download(string $url, string $destPath): void
+    /**
+     * Whether $url belongs to a release of the repository the settings name
+     * (update_github_owner / update_github_repo), read now: the address
+     * travelled through a cache and a task payload since it was first
+     * checked, and one cached by an earlier version of this code was never
+     * bound to a repository at all.
+     */
+    private function downloadUrlBelongsToConfiguredRepository(string $url, TaskContext $context): bool
+    {
+        return \Core\Maintenance\GitHubUrlValidator::isAllowedForRepository(
+            $url,
+            (string) ($context->settings->get('update_github_owner') ?: ''),
+            (string) ($context->settings->get('update_github_repo') ?: '')
+        );
+    }
+
+    /**
+     * Ends an install whose address is not the configured repository's:
+     * terminal (never left 'pending', which would read « En cours » forever),
+     * journaled at `security` level, announced like any failed update, and
+     * nothing was touched.
+     */
+    private function refuseForeignDownloadUrl(
+        int $historyId,
+        UpdateHistory $history,
+        string $downloadUrl,
+        TaskContext $context,
+        UpdateHistoryRepository $updateHistoryRepository
+    ): void {
+        $updateHistoryRepository->markFailed(
+            $historyId,
+            'Installation refusée : l\'adresse de la mise à jour ne pointe pas vers une version du dépôt '
+            . 'configuré. Rien n\'a été modifié. Relancez la vérification des mises à jour depuis Configuration '
+            . '> Maintenance.'
+        );
+        $context->journal->log(
+            'core',
+            'update_failed',
+            'security',
+            'Installation de mise à jour refusée : l\'adresse de téléchargement n\'appartient pas '
+            . 'au dépôt configuré',
+            [
+                'history_id' => $historyId,
+                'version_to' => $history->versionTo,
+                'download_url' => $downloadUrl,
+            ],
+            $history->requestedBy
+        );
+        $this->announce(
+            $context,
+            $history,
+            'core.update_failed',
+            'Échec de la mise à jour',
+            'L\'adresse de la mise à jour ne pointe pas vers le dépôt configuré : rien n\'a été installé '
+            . 'ni modifié.'
+        );
+    }
+
+    private function download(string $url, string $destPath, TaskContext $context): void
     {
         // The artifact is unpacked over the live PHP tree, so it must come
         // from GitHub over https and nowhere else — refuse before the first
         // byte is fetched (see Core\Maintenance\GitHubUrlValidator).
         if (!\Core\Maintenance\GitHubUrlValidator::isAllowed($url)) {
             throw new UpdateException('URL de mise à jour refusée : la source doit être GitHub (https).');
+        }
+        // …and from the repository this site is configured to update from.
+        // handle() has already refused a foreign address before doing any
+        // work; this is the same question asked again at the one place that
+        // fetches, so no path that reaches download() can skip it.
+        if (!$this->downloadUrlBelongsToConfiguredRepository($url, $context)) {
+            throw new UpdateException('URL de mise à jour refusée : elle ne pointe pas vers le dépôt configuré.');
         }
 
         $deadline = microtime(true) + self::DOWNLOAD_RETRY_WINDOW_SECONDS;

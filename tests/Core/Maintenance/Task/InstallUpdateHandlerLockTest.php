@@ -45,6 +45,8 @@ class InstallUpdateHandlerLockTest extends TestCase
 {
     use UsesProductionEngine;
 
+    private const ARTIFACT_URL = 'https://github.com/owner/repo/releases/download/v1.1.0/a.zip';
+
     private ?Connection $connection = null;
     private ?\PDO $rival = null;
     private UpdateHistoryRepository $history;
@@ -86,6 +88,13 @@ class InstallUpdateHandlerLockTest extends TestCase
 
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $settings = new SettingService(new SettingRepository($pdo));
+        // The address handed to the handler below is a release asset of
+        // owner/repo; it is refused before the lock is ever asked for
+        // unless the settings name that repository.
+        $settings->register('update_github_owner', '', 'text', 'Owner', 'Owner');
+        $settings->register('update_github_repo', '', 'text', 'Repo', 'Repo');
+        $settings->set('update_github_owner', 'owner');
+        $settings->set('update_github_repo', 'repo');
         $journalService = new JournalService(new JournalRepository($pdo));
         $userAccountRepository = new UserAccountRepository($pdo, $encryption);
 
@@ -142,7 +151,7 @@ class InstallUpdateHandlerLockTest extends TestCase
 
         $historyId = $this->history->create('1.0.0', 'dev-loser', false, null);
         (new InstallUpdateHandler())->handle(
-            ['history_id' => $historyId, 'download_url' => 'https://example.test/a.zip', 'source_type' => 'branch'],
+            ['history_id' => $historyId, 'download_url' => self::ARTIFACT_URL, 'source_type' => 'branch'],
             $this->context
         );
 
@@ -166,7 +175,7 @@ class InstallUpdateHandlerLockTest extends TestCase
     {
         $historyId = $this->history->create('1.0.0', 'dev-first', false, null);
         (new InstallUpdateHandler())->handle(
-            ['history_id' => $historyId, 'download_url' => 'https://example.test/a.zip', 'source_type' => 'branch'],
+            ['history_id' => $historyId, 'download_url' => self::ARTIFACT_URL, 'source_type' => 'branch'],
             $this->context
         );
 

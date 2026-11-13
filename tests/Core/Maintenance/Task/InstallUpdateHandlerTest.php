@@ -44,6 +44,13 @@ use Tests\DatabaseTestHelper;
 #[\PHPUnit\Framework\Attributes\Group('database')]
 class InstallUpdateHandlerTest extends TestCase
 {
+    /**
+     * A genuine release asset of the repository the settings name
+     * (owner/repo, see setUp()): handle() refuses any other address before
+     * it does any work, so a test about what happens AFTER that must use one.
+     */
+    private const ARTIFACT_URL = 'https://github.com/owner/repo/releases/download/v1.1.0/scoutmagic.zip';
+
     private \PDO $pdo;
     private InstallUpdateHandler $handler;
     private UpdateHistoryRepository $updateHistoryRepository;
@@ -66,6 +73,10 @@ class InstallUpdateHandlerTest extends TestCase
         $settingRepository = new SettingRepository($this->pdo);
         $settings = new SettingService($settingRepository);
         $settings->register('site_version', '0.0.0', 'text', 'Version', 'Version', null, null, null, false);
+        $settings->register('update_github_owner', '', 'text', 'Owner', 'Owner');
+        $settings->register('update_github_repo', '', 'text', 'Repo', 'Repo');
+        $settings->set('update_github_owner', 'owner');
+        $settings->set('update_github_repo', 'repo');
 
         $this->storagePath = sys_get_temp_dir() . '/install_update_handler_test_' . uniqid();
         mkdir($this->storagePath, 0755, true);
@@ -100,7 +111,7 @@ class InstallUpdateHandlerTest extends TestCase
 
     public function testHandleNoOpsWhenHistoryIdIsMissing(): void
     {
-        $this->handler->handle(['download_url' => 'https://example.test/artifact.zip'], $this->context);
+        $this->handler->handle(['download_url' => self::ARTIFACT_URL], $this->context);
         $this->addToAssertionCount(1);
     }
 
@@ -115,7 +126,7 @@ class InstallUpdateHandlerTest extends TestCase
 
     public function testHandleNoOpsWhenHistoryDoesNotExist(): void
     {
-        $this->handler->handle(['history_id' => 999999, 'download_url' => 'https://example.test/artifact.zip'], $this->context);
+        $this->handler->handle(['history_id' => 999999, 'download_url' => self::ARTIFACT_URL], $this->context);
         $this->addToAssertionCount(1);
     }
 
@@ -124,16 +135,105 @@ class InstallUpdateHandlerTest extends TestCase
         $id = $this->updateHistoryRepository->create('1.0.0', '1.1.0', false, $this->userId);
         $this->updateHistoryRepository->markCompleted($id);
 
-        $this->handler->handle(['history_id' => $id, 'download_url' => 'https://example.test/artifact.zip'], $this->context);
+        $this->handler->handle(['history_id' => $id, 'download_url' => self::ARTIFACT_URL], $this->context);
 
         $this->assertSame('completed', $this->updateHistoryRepository->findById($id)->status);
+    }
+
+    /**
+     * @return array<string, array{string}>
+     */
+    public static function foreignDownloadUrls(): array
+    {
+        return [
+            'release asset of another repository' => ['https://github.com/other/depot/releases/download/v1.1.0/x.zip'],
+            'archive of a pull request of the configured repository' => [
+                'https://api.github.com/repos/owner/repo/zipball/refs/pull/7/head',
+            ],
+            'archive of a commit' => [
+                'https://api.github.com/repos/owner/repo/zipball/0123456789abcdef0123456789abcdef01234567',
+            ],
+            'off GitHub' => ['https://example.test/artifact.zip'],
+        ];
+    }
+
+    /**
+     * An address cached before the repository binding existed reaches the
+     * handler through a task payload. It is refused FIRST — before the
+     * artifact probe, the lock, the closing of other rows and the safety
+     * backup — and the row ends failed with its own message, not with the
+     * backup's.
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('foreignDownloadUrls')]
+    public function testHandleRefusesAForeignDownloadUrlBeforeDoingAnyWork(string $url): void
+    {
+        $stuckId = $this->updateHistoryRepository->create('1.0.0', 'dev-stuck', false, null);
+        $this->updateHistoryRepository->setStatus($stuckId, 'downloading');
+        $id = $this->updateHistoryRepository->create('1.0.0', '1.1.0', false, $this->userId);
+
+        $probing = new class extends InstallUpdateHandler {
+            public int $probes = 0;
+
+            protected function probeArtifactStatus(string $url): ?int
+            {
+                $this->probes++;
+
+                return 200;
+            }
+        };
+        $probing->handle(
+            ['history_id' => $id, 'download_url' => $url, 'artifact_wait_until' => time() + 600],
+            $this->context
+        );
+
+        $history = $this->updateHistoryRepository->findById($id);
+        $this->assertSame('failed', $history->status);
+        $this->assertStringContainsString('dépôt configuré', (string) $history->errorMessage);
+        $this->assertStringNotContainsString('sauvegarde', (string) $history->errorMessage);
+        $this->assertNull($history->backupId);
+        $this->assertSame(0, $probing->probes, 'the foreign address must not even be probed');
+        $this->assertSame(
+            'downloading',
+            $this->updateHistoryRepository->findById($stuckId)->status,
+            'no other row may be closed on behalf of an install that never started'
+        );
+        $this->assertSame(
+            0,
+            (int) $this->pdo->query('SELECT COUNT(*) FROM backups')->fetchColumn(),
+            'no safety backup may be taken for a refused address'
+        );
+
+        $logged = $this->pdo->query(
+            "SELECT level FROM event_log WHERE category = 'core' AND event_type = 'update_failed'"
+        )->fetchAll(\PDO::FETCH_COLUMN);
+        $this->assertContains('security', $logged);
+
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $notifications = (new NotificationRepository($this->pdo, $encryption))->findByUserAccountId($this->userId);
+        $this->assertCount(1, $notifications);
+        $this->assertSame('Échec de la mise à jour', $notifications[0]->title);
+    }
+
+    public function testHandleStillGoesPastTheRepositoryCheckForTheConfiguredRepository(): void
+    {
+        $id = $this->updateHistoryRepository->create('1.0.0', '1.1.0', false, $this->userId);
+
+        $this->handler->handle(['history_id' => $id, 'download_url' => self::ARTIFACT_URL], $this->context);
+
+        // Past the new check and into the work: it fails LATER, while
+        // preparing the safety backup (fake credentials, see the class
+        // docblock), with that step's message and not the refusal's.
+        $history = $this->updateHistoryRepository->findById($id);
+        $this->assertSame('failed', $history->status);
+        $this->assertStringNotContainsString('dépôt configuré', (string) $history->errorMessage);
+        $this->assertStringNotContainsString('Installation refusée', (string) $history->errorMessage);
     }
 
     public function testHandleMarksFailedAndNotifiesWhenTheSafetyBackupFails(): void
     {
         $id = $this->updateHistoryRepository->create('1.0.0', '1.1.0', false, $this->userId);
 
-        $this->handler->handle(['history_id' => $id, 'download_url' => 'https://example.test/artifact.zip'], $this->context);
+        $this->handler->handle(['history_id' => $id, 'download_url' => self::ARTIFACT_URL], $this->context);
 
         $history = $this->updateHistoryRepository->findById($id);
         $this->assertSame('failed', $history->status);
@@ -166,7 +266,7 @@ class InstallUpdateHandlerTest extends TestCase
         $this->updateHistoryRepository->setStatus($stuckId, 'downloading');
 
         $id = $this->updateHistoryRepository->create('1.0.0', '1.1.0', false, $this->userId);
-        $this->handler->handle(['history_id' => $id, 'download_url' => 'https://example.test/artifact.zip'], $this->context);
+        $this->handler->handle(['history_id' => $id, 'download_url' => self::ARTIFACT_URL], $this->context);
 
         $this->assertSame('failed', $this->updateHistoryRepository->findById($stuckId)->status);
     }
@@ -179,7 +279,7 @@ class InstallUpdateHandlerTest extends TestCase
         mkdir($tempDir, 0755, true);
         file_put_contents($tempDir . '/stray.txt', 'leftover from a previous crashed run');
 
-        $this->handler->handle(['history_id' => $id, 'download_url' => 'https://example.test/artifact.zip'], $this->context);
+        $this->handler->handle(['history_id' => $id, 'download_url' => self::ARTIFACT_URL], $this->context);
 
         $this->assertDirectoryDoesNotExist($tempDir);
     }
@@ -193,7 +293,7 @@ class InstallUpdateHandlerTest extends TestCase
         $id = $this->updateHistoryRepository->create('1.0.0', 'dev-a1b2c3d', false, $this->userId);
 
         $this->handler->handle(
-            ['history_id' => $id, 'download_url' => 'https://example.test/artifact.zip', 'source_type' => 'branch'],
+            ['history_id' => $id, 'download_url' => self::ARTIFACT_URL, 'source_type' => 'branch'],
             $this->context
         );
 
@@ -553,7 +653,7 @@ class InstallUpdateHandlerTest extends TestCase
 
         // A probe answering 404 would reschedule if it were consulted.
         $this->handlerProbing(404)->handle(
-            ['history_id' => $id, 'download_url' => 'https://example.test/artifact.zip'],
+            ['history_id' => $id, 'download_url' => self::ARTIFACT_URL],
             $this->context
         );
 
@@ -703,10 +803,85 @@ class InstallUpdateHandlerTest extends TestCase
         $this->expectException(UpdateException::class);
         $this->expectExceptionMessage('URL de mise à jour refusée');
         try {
-            $method->invoke($this->handler, 'https://evil.example/artifact.zip', $dest);
+            $method->invoke($this->handler, 'https://evil.example/artifact.zip', $dest, $this->context);
         } finally {
             $this->assertFileDoesNotExist($dest, 'a refused URL must never write the destination file');
         }
+    }
+
+    /**
+     * @return array<string, array{string}>
+     */
+    public static function downloadUrlsOfAnotherRepository(): array
+    {
+        return [
+            'release asset' => ['https://github.com/other/depot/releases/download/v9.9.9/x.zip'],
+            'zipball' => ['https://api.github.com/repos/other/depot/zipball/v9.9.9'],
+            'archive' => ['https://codeload.github.com/other/depot/zip/refs/heads/main'],
+        ];
+    }
+
+    /**
+     * An URL cached before the repository check existed (or written by any
+     * other path) is re-checked at the moment it would be fetched: a GitHub
+     * URL of a repository this site is not configured to update from is
+     * refused before the first byte, whatever put it there.
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('downloadUrlsOfAnotherRepository')]
+    public function testDownloadRefusesAGitHubUrlOfAnotherRepositoryBeforeFetching(string $url): void
+    {
+        $method = new \ReflectionMethod(InstallUpdateHandler::class, 'download');
+        $method->setAccessible(true);
+        $dest = $this->storagePath . '/temp/should_never_be_written.zip';
+
+        $this->expectException(UpdateException::class);
+        $this->expectExceptionMessage('dépôt configuré');
+        try {
+            $method->invoke($this->handler, $url, $dest, $this->context);
+        } finally {
+            $this->assertFileDoesNotExist($dest);
+        }
+    }
+
+    public function testDownloadRefusesEveryUrlWhenNoRepositoryIsConfigured(): void
+    {
+        $this->context->settings->set('update_github_owner', '');
+        $this->context->settings->set('update_github_repo', '');
+        $this->context->settings->clearCache();
+
+        $method = new \ReflectionMethod(InstallUpdateHandler::class, 'download');
+        $method->setAccessible(true);
+
+        $this->expectException(UpdateException::class);
+        $this->expectExceptionMessage('dépôt configuré');
+        $method->invoke(
+            $this->handler,
+            'https://github.com/owner/repo/releases/download/v1/x.zip',
+            $this->storagePath . '/temp/never.zip',
+            $this->context
+        );
+    }
+
+    public function testDownloadAcceptsTheConfiguredRepositoryPastTheUrlCheck(): void
+    {
+        $handler = new class extends InstallUpdateHandler {
+            protected function attemptDownload(string $url, string $destPath): array
+            {
+                return [true, 200, ''];
+            }
+        };
+        $method = new \ReflectionMethod(InstallUpdateHandler::class, 'download');
+        $method->setAccessible(true);
+
+        // Returns normally: the URL is the configured repository's, and the
+        // (stubbed) transport succeeds.
+        $method->invoke(
+            $handler,
+            'https://github.com/owner/repo/releases/download/v1/x.zip',
+            $this->storagePath . '/temp/ok.zip',
+            $this->context
+        );
+        $this->addToAssertionCount(1);
     }
 
     /**
@@ -1157,7 +1332,7 @@ class InstallUpdateHandlerTest extends TestCase
         $id = $this->updateHistoryRepository->create('1.0.0', 'dev-a1b2c3d', false, null);
 
         $this->handler->handle(
-            ['history_id' => $id, 'download_url' => 'https://example.test/artifact.zip', 'source_type' => 'branch'],
+            ['history_id' => $id, 'download_url' => self::ARTIFACT_URL, 'source_type' => 'branch'],
             $context
         );
 
@@ -1219,7 +1394,7 @@ class InstallUpdateHandlerTest extends TestCase
         $id = $this->updateHistoryRepository->create('1.0.0', 'dev-a1b2c3d', false, null);
 
         $this->handler->handle(
-            ['history_id' => $id, 'download_url' => 'https://example.test/artifact.zip', 'source_type' => 'branch'],
+            ['history_id' => $id, 'download_url' => self::ARTIFACT_URL, 'source_type' => 'branch'],
             $context
         );
 
@@ -1243,7 +1418,7 @@ class InstallUpdateHandlerTest extends TestCase
         [$superadminId, $context] = $this->superadminAndRoleAwareContext();
         $id = $this->updateHistoryRepository->create('1.0.0', '1.1.0', false, $this->userId);
 
-        $this->handler->handle(['history_id' => $id, 'download_url' => 'https://example.test/artifact.zip'], $context);
+        $this->handler->handle(['history_id' => $id, 'download_url' => self::ARTIFACT_URL], $context);
 
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $repository = new NotificationRepository($this->pdo, $encryption);
