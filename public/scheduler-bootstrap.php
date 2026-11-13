@@ -623,8 +623,7 @@ function scoutmagicBootstrapScheduler(
                     );
                     $financeTreasurerScope = new \Modules\Finance\Service\TreasurerScopeService(
                         \Core\Database\Connection::withPdo($pdo),
-                        new \Core\Badge\BadgeRepository($pdo),
-                        new \Core\Badge\MemberBadgeRepository($pdo)
+                        new \Core\Badge\BadgeRepository($pdo)
                     );
                     $financeFileStorage = new \Core\File\EncryptedFileStorageService(
                         $fileRepository,

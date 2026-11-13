@@ -412,7 +412,7 @@ class StaffsControllerTest extends TestCase
     {
         $branchId = $this->createBranch('BAL', 'Baladins', 1);
         $sectionId = $this->createSection('BAL01', $branchId, 'Ma section');
-        $this->createMemberInSection($sectionId, 'Alice', 'chief');
+        $this->createMemberInSection($sectionId, 'Alice', 'chief', 'chief@test.be');
         $this->badgeService->create('Communication');
 
         $request = new Request('GET', '/chefs/staffs', [], [], [], []);
@@ -429,7 +429,7 @@ class StaffsControllerTest extends TestCase
         // independent of the others.
         $branchId = $this->createBranch('BAL', 'Baladins', 1);
         $sectionId = $this->createSection('BAL01', $branchId, 'Ma section');
-        $memberYearId = $this->createMemberInSection($sectionId, 'Alice', 'chief');
+        $memberYearId = $this->createMemberInSection($sectionId, 'Alice', 'chief', 'chief@test.be');
         $assignedBadge = $this->badgeService->create('Communication');
         $unassignedBadge = $this->badgeService->create('Animation');
         $this->badgeService->toggleAssignment($memberYearId, $assignedBadge->id, 1);
@@ -459,7 +459,7 @@ class StaffsControllerTest extends TestCase
     {
         $branchId = $this->createBranch('BAL', 'Baladins', 1);
         $sectionId = $this->createSection('BAL01', $branchId);
-        $memberYearId = $this->createMemberInSection($sectionId, 'Alice', 'chief');
+        $memberYearId = $this->createMemberInSection($sectionId, 'Alice', 'chief', 'chief@test.be');
         $badge = $this->badgeService->create('Communication');
 
         $token = bin2hex(random_bytes(32));
@@ -499,7 +499,7 @@ class StaffsControllerTest extends TestCase
     {
         $branchId = $this->createBranch('BAL', 'Baladins', 1);
         $sectionId = $this->createSection('BAL01', $branchId);
-        $memberYearId = $this->createMemberInSection($sectionId, 'Alice', 'chief');
+        $memberYearId = $this->createMemberInSection($sectionId, 'Alice', 'chief', 'chief@test.be');
         $badge = $this->badgeService->create('Communication');
         $this->badgeService->setActive($badge->id, false);
 
@@ -609,23 +609,163 @@ class StaffsControllerTest extends TestCase
         $this->assertStringNotContainsString('aucune fonction d\'animateur ne vous est rattachée', $body);
     }
 
-    public function testTheBadgePickerStillFollowsTheRoleNotTheSection(): void
+    public function testTheBadgePickerFollowsTheSectionTheChiefAnimates(): void
     {
-        // IT-01 narrows the DOCUMENTS, deliberately not the badges: a chief
-        // keeps assigning badges in any section, exactly as before.
+        // Issue #1107: badges are given and taken only on the sections the
+        // chief animates. Another section's staff show their badges
+        // read-only.
         $balId = $this->createBranch('BAL', 'Baladins', 1);
         $louId = $this->createBranch('LOU', 'Louveteaux', 2);
         $own = $this->createSection('BAL01', $balId, 'Section Bal');
         $other = $this->createSection('LOU01', $louId, 'Section Lou');
-        $this->createMemberInSection($own, 'Alice', 'chief', 'chief@test.be');
+        $ownYearId = $this->createMemberInSection($own, 'Alice', 'chief', 'chief@test.be');
         $memberYearId = $this->createMemberInSection($other, 'Bob', 'chief', 'bob@test.be');
-        $this->badgeService->create('Communication');
+        $badge = $this->badgeService->create('Communication');
+        $this->badgeService->toggleAssignment($memberYearId, $badge->id, 1);
 
-        $request = new Request('GET', '/chefs/staffs', ['section' => (string) $other], [], [], []);
-        $body = $this->controller->index($request, [])->getBody();
+        $body = $this->staffsPage($other);
+        $this->assertStringNotContainsString('id="badge-picker-' . $memberYearId . '"', $body);
+        $this->assertStringContainsString('Communication', $body, 'the badge Bob wears is still shown');
 
-        $this->assertStringContainsString('id="badge-picker-' . $memberYearId . '"', $body);
-        $this->assertStringContainsString('Communication', $body);
+        $this->assertStringContainsString('id="badge-picker-' . $ownYearId . '"', $this->staffsPage($own));
+    }
+
+    /**
+     * Issue #1107 (audit SEC-009): a chief of one section can neither give
+     * nor take a badge on the staff of another — and nothing is written
+     * before the refusal.
+     */
+    public function testAChiefCannotToggleABadgeOnAnotherSectionsStaff(): void
+    {
+        $balId = $this->createBranch('BAL', 'Baladins', 1);
+        $louId = $this->createBranch('LOU', 'Louveteaux', 2);
+        $this->createMemberInSection($this->createSection('BAL01', $balId), 'Alice', 'chief', 'chief@test.be');
+        $other = $this->createSection('LOU01', $louId);
+        $treasurer = $this->createMemberInSection($other, 'Bob', 'chief', 'bob@test.be');
+        $stranger = $this->createMemberInSection($other, 'Carl', 'chief', 'carl@test.be');
+        $badge = $this->treasurerBadge();
+        $this->badgeService->toggleAssignment($treasurer, $badge->id, 1);
+
+        $takeAway = $this->controller->toggleBadge($this->badgeToggle($treasurer, $badge->id), []);
+        $give = $this->controller->toggleBadge($this->badgeToggle($stranger, $badge->id), []);
+
+        $this->assertSame(403, $takeAway->getStatusCode());
+        $this->assertSame(403, $give->getStatusCode());
+        $this->assertFalse(json_decode($give->getBody(), true)['success']);
+        $this->assertCount(1, $this->badgeService->getBadgesForMemberYear($treasurer), 'still the treasurer');
+        $this->assertSame([], $this->badgeService->getBadgesForMemberYear($stranger));
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM event_log')->fetchColumn());
+    }
+
+    /** Within their own section a chief toggles a colleague's badge. */
+    public function testAChiefTogglesABadgeOnTheStaffOfTheirOwnSection(): void
+    {
+        $own = $this->createSection('BAL01', $this->createBranch('BAL', 'Baladins', 1));
+        $this->createMemberInSection($own, 'Alice', 'chief', 'chief@test.be');
+        $colleague = $this->createMemberInSection($own, 'Bob', 'chief', 'bob@test.be');
+        $badge = $this->badgeService->create('Communication');
+
+        $response = $this->controller->toggleBadge($this->badgeToggle($colleague, $badge->id), []);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertCount(1, $this->badgeService->getBadgesForMemberYear($colleague));
+    }
+
+    /** A chef d'unité (admin) animates every section, as everywhere on this page. */
+    public function testAChefDUniteTogglesABadgeInAnySection(): void
+    {
+        AuthSession::login(3, 'admin@test.be', 'admin');
+        $section = $this->createSection('LOU01', $this->createBranch('LOU', 'Louveteaux', 2));
+        $memberYearId = $this->createMemberInSection($section, 'Bob', 'chief', 'bob@test.be');
+        $badge = $this->badgeService->create('Communication');
+
+        $response = $this->controller->toggleBadge($this->badgeToggle($memberYearId, $badge->id), []);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertCount(1, $this->badgeService->getBadgesForMemberYear($memberYearId));
+    }
+
+    /**
+     * A « Référent » badge lives on Staff d'U members only: what matters is
+     * animating Staff d'U, not another section the same person animates.
+     */
+    public function testAReferentBadgeNeedsTheCallerToAnimateStaffDU(): void
+    {
+        $balId = $this->createBranch('BAL', 'Baladins', 1);
+        $bal = $this->createSection('BAL01', $balId, 'Section Bal');
+        $unitStaff = $this->createSection(UnitStaffSectionService::DESK_CODE, $balId, "Staff d'U");
+        $alice = $this->createMemberInSection($bal, 'Alice', 'chief', 'chief@test.be');
+        $bob = $this->createMemberInSection($unitStaff, 'Bob', 'chief', 'bob@test.be');
+        $this->addFunction($bob, $bal);
+        $this->pdo->prepare("INSERT INTO badges (name, referent_section_id) VALUES ('Référent Bal', ?)")
+            ->execute([$bal]);
+        $referent = (int) $this->pdo->lastInsertId();
+
+        $refused = $this->controller->toggleBadge($this->badgeToggle($bob, $referent), []);
+        $this->assertSame(403, $refused->getStatusCode(), 'Alice animates Bob\'s Baladins, not his Staff d\'U');
+        $this->assertSame([], $this->badgeService->getBadgesForMemberYear($bob));
+
+        $this->addFunction($alice, $unitStaff);
+        $accepted = $this->controller->toggleBadge($this->badgeToggle($bob, $referent), []);
+        $this->assertSame(200, $accepted->getStatusCode());
+        $this->assertCount(1, $this->badgeService->getBadgesForMemberYear($bob));
+    }
+
+    /** Giving or taking the Trésorier badge goes to the security journal; other badges stay at info. */
+    public function testTheTreasurerBadgeIsJournalledAsSecurity(): void
+    {
+        $section = $this->createSection('BAL01', $this->createBranch('BAL', 'Baladins', 1));
+        $memberYearId = $this->createMemberInSection($section, 'Alice', 'chief', 'chief@test.be');
+        $treasurer = $this->treasurerBadge();
+        $other = $this->badgeService->create('Communication');
+
+        $this->controller->toggleBadge($this->badgeToggle($memberYearId, $treasurer->id), []);
+        $this->controller->toggleBadge($this->badgeToggle($memberYearId, $treasurer->id), []);
+        $this->controller->toggleBadge($this->badgeToggle($memberYearId, $other->id), []);
+
+        $rows = $this->pdo->query('SELECT event_type, level, context FROM event_log ORDER BY id')
+            ->fetchAll(\PDO::FETCH_ASSOC);
+        $this->assertSame(
+            [['badge_assigned', 'security'], ['badge_unassigned', 'security'], ['badge_assigned', 'info']],
+            array_map(static fn(array $row): array => [$row['event_type'], $row['level']], $rows)
+        );
+        $this->assertSame(
+            ['member_year_id' => $memberYearId, 'badge_id' => $treasurer->id],
+            json_decode((string) $rows[0]['context'], true),
+            'identifiers only'
+        );
+    }
+
+    private function treasurerBadge(): \Core\Badge\Badge
+    {
+        $this->badgeService->ensureDefaults();
+        foreach ($this->badgeService->getAll() as $badge) {
+            if ($badge->name === BadgeService::BADGE_TREASURER) {
+                return $badge;
+            }
+        }
+        $this->fail('the Trésorier badge is seeded by ensureDefaults()');
+    }
+
+    private function addFunction(int $memberYearId, int $sectionId): void
+    {
+        $this->pdo->prepare(
+            "INSERT INTO member_functions (member_year_id, function_id, section_id, age_branch_id, is_main_function)
+             SELECT ?, f.id, s.id, s.age_branch_id, 0 FROM functions f, sections s
+              WHERE f.desk_code = 'chief' AND s.id = ?"
+        )->execute([$memberYearId, $sectionId]);
+    }
+
+    private function badgeToggle(int $memberYearId, int $badgeId): Request
+    {
+        $token = bin2hex(random_bytes(32));
+        $_SESSION['_csrf_token'] = $token;
+
+        return $this->createJsonRequest([
+            'member_year_id' => $memberYearId,
+            'badge_id' => $badgeId,
+            '_csrf_token' => $token,
+        ]);
     }
 
     // --- Section totem (issue #722) ---

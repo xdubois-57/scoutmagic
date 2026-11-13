@@ -83,18 +83,12 @@ class AccountVisibility
      * sorting is, so that is who sees the pile — plus `admin`/`superadmin`,
      * who answer for the unit's finances as a whole exactly as above.
      *
-     * **A disabled badge rule falls back to the floor, and that is not an
-     * oversight.** A null scope means the unit has not switched the
-     * `Trésorier` rule on — which is every unit on the day it installs this
-     * version. Reading that null as "nobody is a treasurer" would lock a
-     * unit out of its own sorting pile until somebody thought to assign a
-     * badge nothing on the screen mentions. treasurerAllows() already
-     * treats the same null as "this condition narrows nothing"; answering
-     * differently here would make one null mean two things inside one
-     * class.
-     *
-     * An EMPTY scope is the opposite and denies: the rule is on, and this
-     * session is nobody's treasurer.
+     * **No treasurer, no pile (issue #1107).** A unit that has given the
+     * badge to nobody this year has nobody below `admin` sorting these:
+     * the chefs d'unité do, and FinanceAttentionProvider tells them the
+     * section accounts are uncovered. A null scope is only ever the
+     * system caller (TreasurerScope::systemCaller()), which is outside
+     * the question as in treasurerAllows().
      */
     public function isUnassignedReceiptVisibleTo(Role $role): bool
     {
@@ -123,11 +117,11 @@ class AccountVisibility
      * TreasurerScopeService deliberately knows nothing about roles, so the
      * rule lives here rather than being re-derived by each caller.
      *
-     * A null scope means the unit has not switched the rule on (nobody
-     * carries the `Trésorier` badge this year, or it is deactivated) and
-     * the module behaves exactly as it did before the rule existed. An
-     * EMPTY scope is the opposite and denies every section account: the
-     * rule is on and this session is nobody's treasurer.
+     * There is no « rule switched off » any more (issue #1107): nobody
+     * carrying the `Trésorier` badge this year, or the badge deactivated,
+     * is an EMPTY scope and denies every section account below `admin`.
+     * Only the system caller's null scope narrows nothing — a seeder or a
+     * scheduled task acting for the installation, never a person.
      */
     private function treasurerAllows(Account $account, Role $role): bool
     {

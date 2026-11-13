@@ -8726,8 +8726,7 @@ if ($isEnabled('finance')) {
     // a page load that never touches finance pays nothing for it.
     $financeTreasurerScopeService = new \Modules\Finance\Service\TreasurerScopeService(
         $connection,
-        $badgeRepository,
-        $memberBadgeRepository
+        $badgeRepository
     );
     $financeTreasurerScope = \Modules\Finance\Service\TreasurerScope::forSession(
         $financeTreasurerScopeService,
@@ -8998,6 +8997,13 @@ if ($isEnabled('finance')) {
             $attentionProviders[] = new \Modules\Finance\Service\FinanceAttentionProvider($inboundMailForOthers);
         }
     }
+
+    // « Des comptes de section n'ont pas de trésorier » (issue #1107):
+    // without a treasurer, only the chefs d'unité reach them.
+    $attentionProviders[] = new \Modules\Finance\Service\TreasurerCoverageAttentionProvider(
+        $financeAccountRepo,
+        $financeTreasurerScopeService
+    );
 
     // A receipt's FILE follows its account's rule too (ARCHITECTURE.md
     // §8.70): role_min alone is a hierarchical floor and cannot say "the

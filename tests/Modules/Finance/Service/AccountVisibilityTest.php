@@ -44,8 +44,7 @@ class AccountVisibilityTest extends TestCase
         $this->pdo = DatabaseTestHelper::createTestDatabase();
         $this->rule = new TreasurerScopeService(
             Connection::withPdo($this->pdo),
-            new BadgeRepository($this->pdo),
-            new MemberBadgeRepository($this->pdo)
+            new BadgeRepository($this->pdo)
         );
 
         $this->pdo->exec("INSERT INTO scout_years (id, label, start_date, end_date, is_current) VALUES (1, '2025-2026', '2025-09-01', '2026-08-31', 1)");
@@ -118,14 +117,32 @@ class AccountVisibilityTest extends TestCase
         $this->assertFalse($this->visibilityFor($member)->isVisibleTo($account, Role::INTENDANT));
     }
 
-    public function testWithTheRuleOffEveryIntendantKeepsEverySectionAccount(): void
+    /**
+     * No badge, no access (issue #1107, audit SEC-009): nobody carrying the
+     * badge this year no longer switches the rule off — taking it from
+     * every treasurer used to reopen every section's account to everyone.
+     * The unit's own money and the chef d'unité are unaffected.
+     */
+    public function testWithNoTreasurerASectionAccountIsTheChefsDUnitesAlone(): void
     {
-        // Nobody carries the badge: the state every installation is in the
-        // day it updates, and it must change nothing at all.
         $member = $this->plainAnimateur();
-        $account = $this->account(sectionId: $this->eclaireursId, roleMinView: 'intendant');
+        $section = $this->account(sectionId: $this->eclaireursId, roleMinView: 'intendant');
+        $unit = $this->account(sectionId: null, roleMinView: 'intendant');
 
-        $this->assertTrue($this->visibilityFor($member)->isVisibleTo($account, Role::INTENDANT));
+        $this->assertFalse($this->visibilityFor($member)->isVisibleTo($section, Role::INTENDANT));
+        $this->assertFalse($this->visibilityFor($member)->isVisibleTo($section, Role::CHIEF));
+        $this->assertTrue($this->visibilityFor($member)->isVisibleTo($section, Role::ADMIN));
+        $this->assertTrue($this->visibilityFor($member)->isVisibleTo($unit, Role::INTENDANT));
+    }
+
+    /** The system caller (seeder, scheduled task) is outside the question, never a person. */
+    public function testTheSystemCallerIsNotNarrowed(): void
+    {
+        $section = $this->account(sectionId: $this->eclaireursId, roleMinView: 'intendant');
+
+        $system = new AccountVisibility(TreasurerScope::systemCaller());
+
+        $this->assertTrue($system->isVisibleTo($section, Role::INTENDANT));
     }
 
     public function testAnUnknownAccountIsNeverVisible(): void
@@ -181,14 +198,13 @@ class AccountVisibilityTest extends TestCase
         $this->assertTrue($this->visibilityFor($notATreasurer)->isUnassignedReceiptVisibleTo(Role::ADMIN));
     }
 
-    public function testWithTheBadgeRuleOffTheSortingPileFallsBackToTheFloor(): void
+    public function testWithNoTreasurerTheSortingPileIsTheChefsDUnites(): void
     {
-        // No badge assigned this year — every installation on update day.
-        // Reading that as "nobody is a treasurer" would lock a unit out of
-        // its own pile until somebody assigned a badge no screen mentions.
+        // No badge assigned this year: nobody below admin sorts the pile.
         $notATreasurer = $this->plainAnimateur();
 
-        $this->assertTrue($this->visibilityFor($notATreasurer)->isUnassignedReceiptVisibleTo(Role::INTENDANT));
+        $this->assertFalse($this->visibilityFor($notATreasurer)->isUnassignedReceiptVisibleTo(Role::INTENDANT));
+        $this->assertTrue($this->visibilityFor($notATreasurer)->isUnassignedReceiptVisibleTo(Role::ADMIN));
     }
 
     public function testASessionThatResolvesToNoMemberIsNotATreasurer(): void

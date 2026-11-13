@@ -819,8 +819,7 @@ class FinanceMessageConsumerTest extends TestCase
             $this->accounts,
             new TreasurerScopeService(
                 \Core\Database\Connection::withPdo($this->pdo),
-                new \Core\Badge\BadgeRepository($this->pdo),
-                new \Core\Badge\MemberBadgeRepository($this->pdo)
+                new \Core\Badge\BadgeRepository($this->pdo)
             ),
             $this->pdo,
             $this->encryption,

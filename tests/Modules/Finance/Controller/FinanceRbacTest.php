@@ -148,8 +148,7 @@ class FinanceRbacTest extends TestCase
         // which is what every test above scopeToTreasurerOf() asserts.
         $this->treasurerScopeService = new \Modules\Finance\Service\TreasurerScopeService(
             Connection::withPdo($this->pdo),
-            new \Core\Badge\BadgeRepository($this->pdo),
-            new MemberBadgeRepository($this->pdo)
+            new \Core\Badge\BadgeRepository($this->pdo)
         );
         $this->accountVisibility = new \Modules\Finance\Service\AccountVisibility(
             \Modules\Finance\Service\TreasurerScope::systemCaller()

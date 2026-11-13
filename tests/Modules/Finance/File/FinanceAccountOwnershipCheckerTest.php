@@ -57,8 +57,7 @@ class FinanceAccountOwnershipCheckerTest extends TestCase
             new AccountRepository($this->pdo, $encryption),
             new TreasurerScopeService(
                 Connection::withPdo($this->pdo),
-                new BadgeRepository($this->pdo),
-                new MemberBadgeRepository($this->pdo)
+                new BadgeRepository($this->pdo)
             ),
             $this->scoutYearId
         );
@@ -127,13 +126,16 @@ class FinanceAccountOwnershipCheckerTest extends TestCase
         $this->assertNotNull($this->guardFor($this->plainAnimateur())->check($fileId));
     }
 
-    public function testWithNoBadgeAssignedTheFileIsServedExactlyAsBefore(): void
+    public function testWithNoBadgeAssignedASectionsReceiptIsRefusedBelowAdmin(): void
     {
         $account = $this->createAccount($this->eclaireursId);
         $fileId = $this->createReceiptFile($account);
 
-        // Rule off — the state of every installation on update day.
-        $this->assertNotNull($this->guardFor($this->plainAnimateur())->check($fileId));
+        // No badge, no access (issue #1107): nobody carrying the badge no
+        // longer switches the rule off, so a direct /files/ address is
+        // refused like the screens — and the chef d'unité keeps it.
+        $this->assertNull($this->guardFor($this->plainAnimateur())->check($fileId));
+        $this->assertNotNull($this->guardFor($this->plainAnimateur(), Role::ADMIN)->check($fileId));
     }
 
     public function testRoleMinIsStillCheckedFirstAndIndependently(): void
@@ -182,14 +184,13 @@ class FinanceAccountOwnershipCheckerTest extends TestCase
         $this->assertNull($this->guardFor($this->plainAnimateur())->check($fileId));
     }
 
-    public function testWithNoBadgeAssignedTheSortingPileFallsBackToTheFloor(): void
+    public function testWithNoBadgeAssignedTheSortingPileIsTheChefsDUnites(): void
     {
-        // Rule off — the state of every installation on update day. Reading
-        // that as "nobody is a treasurer" would lock a unit out of its own
-        // pile until somebody assigned a badge no screen mentions.
+        // No treasurer, no pile below admin (issue #1107).
         $fileId = $this->unassignedReceiptFile();
 
-        $this->assertNotNull($this->guardFor($this->plainAnimateur())->check($fileId));
+        $this->assertNull($this->guardFor($this->plainAnimateur())->check($fileId));
+        $this->assertNotNull($this->guardFor($this->plainAnimateur(), Role::ADMIN)->check($fileId));
     }
 
     public function testTheSortingPileStillRespectsTheRoleFloor(): void

@@ -133,7 +133,10 @@ class StaffsController extends AbstractController
             }
         }
 
-        $availableBadges = $isChief ? $this->badgeService->getActive() : [];
+        // Badges are given and taken only on the sections this account
+        // animates (issue #1107): elsewhere the page shows them read-only.
+        // UI only — toggleBadge() asks again, server-side.
+        $availableBadges = $canEditSection ? $this->badgeService->getActive() : [];
         // "Référent {section}" badges are only meaningful for Staff d'U
         // members — this page's staff list is always exactly the current
         // section's members, so simply hiding them from the picker on any
@@ -275,9 +278,48 @@ class StaffsController extends AbstractController
     }
 
     /**
+     * Whether this account may give or take a badge from this member year
+     * (issue #1107): only a member on the staff of a section the caller
+     * animates. Before, any chief could take the Trésorier badge off every
+     * treasurer of the unit — or give it to themselves.
+     *
+     * `admin`/`superadmin` animate every section, as everywhere on this
+     * page. The caller's sections are their OWN staffing, asked in the
+     * authorization year: never the preview year, which the caller picks.
+     *
+     * A « Référent » badge only exists on Staff d'U members, so the section
+     * that matters for it is Staff d'U itself, not some other section the
+     * same person also animates.
+     */
+    private function mayToggleBadgeOn(int $memberYearId, Badge $badge): bool
+    {
+        $role = Role::fromString(AuthSession::getRole());
+        if ($role->hasAccess(Role::ADMIN)) {
+            return true;
+        }
+        if (!$role->hasAccess(Role::CHIEF)) {
+            return false;
+        }
+
+        $callerSectionIds = $this->sectionStaffAuthorizationService->ownStaffedSectionIds(
+            AuthSession::getEmail() ?? '',
+            $this->scoutYearResolver->getAuthorizationYear()->id
+        );
+
+        if ($badge->referentSectionId !== null) {
+            $unitStaff = $this->sectionService->findByDeskCode(UnitStaffSectionService::DESK_CODE);
+
+            return $unitStaff !== null && in_array((int) $unitStaff['id'], $callerSectionIds, true);
+        }
+
+        return array_intersect($this->sectionService->getAnimatedSectionIds($memberYearId), $callerSectionIds) !== [];
+    }
+
+    /**
      * POST /chefs/staffs/badge-toggle — assign/unassign a badge to a staff
      * member for the current scout year (AJAX, JSON). Chief-only, same gate
-     * as updateSection().
+     * as updateSection() — and, since issue #1107, only on a member of a
+     * section the caller animates (mayToggleBadgeOn()).
      *
      * @param array<string, string> $params
      */
@@ -301,16 +343,30 @@ class StaffsController extends AbstractController
             return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
         }
 
+        $badge = $this->badgeService->findById($badgeId);
+        if ($badge === null) {
+            return $this->json(['success' => false, 'error' => 'Badge indisponible.'], 400);
+        }
+        if (!$this->mayToggleBadgeOn($memberYearId, $badge)) {
+            return $this->json([
+                'success' => false,
+                'error' => "Vous ne pouvez attribuer ou retirer un badge qu'aux membres des sections que vous animez.",
+            ], 403);
+        }
+
         try {
             $assigned = $this->badgeService->toggleAssignment($memberYearId, $badgeId, AuthSession::getUserAccountId());
         } catch (BadgeException $e) {
             return $this->json(['success' => false, 'error' => $e->getMessage()], 400);
         }
 
+        // The Trésorier badge opens a section's finance account (issue
+        // #1107): who gave it or took it away belongs in the security
+        // journal. Identifiers only.
         $this->journalService->log(
             'core',
             $assigned ? 'badge_assigned' : 'badge_unassigned',
-            'info',
+            $badge->name === BadgeService::BADGE_TREASURER ? 'security' : 'info',
             $assigned ? 'Badge attribué à un membre' : 'Badge retiré à un membre',
             ['member_year_id' => $memberYearId, 'badge_id' => $badgeId],
             AuthSession::getUserAccountId()
