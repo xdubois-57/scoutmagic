@@ -167,7 +167,8 @@ class ExpectedReceivableRepository
      * write, because a second decision on the same receivable waits for
      * the first one to commit. A person's payment attached or detached
      * (paymentFromCandidate(), detachPayment()) takes it too, first, in
-     * the same order. Joins a transaction already open on the
+     * the same order, and so does every allocation a person or the
+     * automatic pass writes (issue #1118). Joins a transaction already open on the
      * connection rather than nesting one. SQLite, the ordinary test
      * engine, serialises writers on its own and has no `FOR UPDATE`.
      *
@@ -199,6 +200,59 @@ class ExpectedReceivableRepository
             if ($ownTransaction) {
                 $this->pdo->rollBack();
             }
+            throw $e;
+        }
+    }
+
+    /**
+     * withReceivableLocked() over several receivables, taken in ascending
+     * id order inside one transaction (issue #1118) — « Répartir » and a
+     * surplus moved to another receivable hold every receivable they
+     * write before the movement, the order every other gesture takes, so
+     * two of them never wait on each other in a circle.
+     *
+     * @template T
+     * @param int[] $ids
+     * @param callable(): T $work
+     * @return T
+     */
+    public function withReceivablesLocked(array $ids, callable $work): mixed
+    {
+        $ids = array_values(array_unique(array_map('intval', $ids)));
+        sort($ids);
+        if ($ids === []) {
+            return $this->inTransaction($work);
+        }
+
+        $first = array_shift($ids);
+
+        return $this->withReceivableLocked(
+            $first,
+            fn (): mixed => $this->withReceivablesLocked($ids, $work)
+        );
+    }
+
+    /**
+     * $work in a transaction of its own, or in the one already open.
+     *
+     * @template T
+     * @param callable(): T $work
+     * @return T
+     */
+    private function inTransaction(callable $work): mixed
+    {
+        if ($this->pdo->inTransaction()) {
+            return $work();
+        }
+
+        $this->pdo->beginTransaction();
+        try {
+            $result = $work();
+            $this->pdo->commit();
+
+            return $result;
+        } catch (\Throwable $e) {
+            $this->pdo->rollBack();
             throw $e;
         }
     }

@@ -312,6 +312,41 @@ class ReceivableAllocationServiceTest extends TestCase
         $this->service->allocate($transactionId, $second, 4500, Role::INTENDANT, 7);
     }
 
+    /**
+     * « Répartir » is all or nothing (issue #1118): the second line asks
+     * more than its receivable still expects, so the first one — valid,
+     * and written first — is rolled back with it, and the message names
+     * the line that failed.
+     */
+    public function testASplitWithOneRefusedLineWritesNoneOfIt(): void
+    {
+        $lucie = $this->receivables->create('finance', 1, $this->accountId, 4500, '+++123/4567/89012+++', 'Lucie');
+        $antoine = $this->receivables->create('finance', 2, $this->accountId, 3000, '+++123/4567/89025+++', 'Antoine');
+        $transactionId = $this->credit('VANDENBRANDE M +++123/4567/89012+++', 90.00);
+
+        try {
+            $this->service->split($transactionId, [$lucie => 4500, $antoine => 4500], Role::INTENDANT, 7);
+            $this->fail('a split with a refused line was accepted');
+        } catch (FinanceException $e) {
+            $this->assertStringStartsWith("Rien n'a été réparti. Ligne « Antoine » :", $e->getMessage());
+            $this->assertStringContainsString("n'attend plus que 30,00", $e->getMessage());
+        }
+
+        $this->assertSame([], $this->allocations->findByTransactionId($transactionId));
+        $this->assertFalse($this->pdo->inTransaction(), 'the refused split left its transaction open');
+    }
+
+    /** A line without a label is named by its communication. */
+    public function testARefusedLineWithoutALabelIsNamedByItsCommunication(): void
+    {
+        $first = $this->receivable(4500, '+++123/4567/89012+++');
+        $transactionId = $this->credit('Virement groupé', 30.00);
+
+        $this->expectException(FinanceException::class);
+        $this->expectExceptionMessage('Ligne « +++123/4567/89012+++ » : Il ne reste que 30,00');
+        $this->service->split($transactionId, [$first => 4500], Role::INTENDANT, 7);
+    }
+
     public function testAllocatingMoreThanIsStillDueIsRefused(): void
     {
         $id = $this->receivable(4500, '+++123/4567/89012+++');
