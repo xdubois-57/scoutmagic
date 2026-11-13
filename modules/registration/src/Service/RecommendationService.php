@@ -580,6 +580,29 @@ class RecommendationService
     }
 
     /**
+     * The slot — branch × year in branch — $request falls into, the way
+     * forYear() places it in a queue; null when its year is not one the
+     * recommendation is computed for (waitlists off, a past year) or when
+     * no bracket covers the child's age. Those are exactly the requests the
+     * automatic acceptance never looks at.
+     *
+     * @return array{age_branch_id: int, year_in_branch: int}|null
+     */
+    public function slotOf(RegistrationRequest $request): ?array
+    {
+        $year = $this->resolveLiveYear($request->scoutYearId);
+        if ($year === null) {
+            return null;
+        }
+
+        return SlotMath::slotForBirthDate(
+            $this->ageBracketRepository->findAllOrdered(),
+            $request->birthDate,
+            MemberYearService::referenceYearFromScoutYearLabel((string) $year['label'])
+        );
+    }
+
+    /**
      * The year when recommendations are computed for it, null otherwise.
      *
      * @return array{id: int, label: string, start_date: string, end_date: string}|null

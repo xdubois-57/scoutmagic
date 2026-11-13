@@ -22,6 +22,9 @@ use Modules\Registration\Repository\RegistrationRequest;
 use Modules\Registration\Repository\RegistrationRequestRepository;
 use Modules\Registration\Repository\SlotCapacityRepository;
 use Modules\Registration\Service\AutomaticAcceptanceService;
+use Modules\Registration\Service\RegistrationException;
+use Modules\Registration\Service\RequestDecisionService;
+use Modules\Registration\Service\RequestStatusService;
 use Modules\Registration\Task\AutoAcceptRequestsHandler;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
@@ -223,6 +226,103 @@ class AutomaticAcceptanceServiceOnMysqlTest extends TestCase
         $this->assertSame(RegistrationRequest::STATUS_REFUSED, $this->statusOf($refused));
         $this->assertSame(RegistrationRequest::STATUS_ACCEPTED, $this->statusOf($next));
         $this->assertSame(0, $this->countRows('registration_decision_emails', "registration_request_id = {$refused}"));
+    }
+
+    /**
+     * Issue #919: a chief accepts B by hand, on another session, between the
+     * moment the pass recomputed the slot's queue and the moment it accepts
+     * A. Capacity 1: before the fix both were accepted and the slot ended
+     * one place over its capacity, by the automatic acceptance's doing. The
+     * acceptance by hand now needs the slot's lock, which the pass holds:
+     * it is refused at once, changes nothing, and the pass accepts A alone.
+     */
+    public function testAnAcceptanceByHandDuringThePassIsRefusedAndTheCapacityHolds(): void
+    {
+        (new SlotCapacityRepository($this->pdo))->upsert($this->louveteauxId, 1, 1);
+        $first = $this->file('Alix', self::LOU1_BIRTH, '2026-10-05 10:00:00');
+        $byHand = $this->file('Basile', self::LOU1_BIRTH, '2026-10-06 10:00:00');
+        $chief = $this->decisions($this->otherSession);
+        $chiefRequests = new RegistrationRequestRepository($this->otherSession, $this->encryption);
+        $refusal = null;
+        $hook = function (int $call, int $scoutYearId) use ($chief, $chiefRequests, $byHand, &$refusal): void {
+            if ($scoutYearId !== $this->targetYearId || $call !== 2) {
+                return;
+            }
+            $request = $chiefRequests->findById($byHand);
+            $this->assertNotNull($request);
+            try {
+                $chief->apply($request, RequestDecisionService::DECISION_ACCEPT);
+            } catch (RegistrationException $e) {
+                $refusal = $e->getMessage();
+            }
+        };
+
+        $this->assertSame(1, $this->service($this->pdo, $hook)->run()['accepted']);
+
+        $this->assertSame(RequestDecisionService::MESSAGE_AUTO_ACCEPT_BUSY, $refusal);
+        $this->assertSame(RegistrationRequest::STATUS_ACCEPTED, $this->statusOf($first));
+        $this->assertSame(RegistrationRequest::STATUS_PENDING, $this->statusOf($byHand));
+        $this->assertSame(1, $this->countRows(
+            'registration_requests',
+            "scout_year_id = {$this->targetYearId} AND status = 'accepted'"
+        ));
+    }
+
+    /**
+     * Outside a pass, an acceptance by hand goes through — from the dialog,
+     * whose decide() holds the lock across its whole transaction around the
+     * apply() it makes — and leaves the slot's lock free behind it.
+     */
+    public function testAnAcceptanceByHandOutsideAPassTakesTheSlotLockAndLeavesItFree(): void
+    {
+        $id = $this->file('Alix', self::LOU1_BIRTH, '2026-10-05 10:00:00');
+        // Inside decide()'s transaction, after the apply() it makes and
+        // before the commit — where it saves the note: a pass on this
+        // session cannot take the slot (review of #1198). A lock released
+        // by apply() on its way out, before decide() commits, fails here.
+        $heldBeforeTheCommit = null;
+        $beforeTheCommit = function () use (&$heldBeforeTheCommit): void {
+            $heldBeforeTheCommit = !$this->requests->acquireAutoAcceptLock(
+                $this->targetYearId,
+                $this->louveteauxId,
+                1
+            );
+        };
+        $chiefRequests = new class ($this->otherSession, $this->encryption, $beforeTheCommit)
+            extends RegistrationRequestRepository {
+            public function __construct(\PDO $pdo, EncryptionService $encryption, private \Closure $beforeTheCommit)
+            {
+                parent::__construct($pdo, $encryption);
+            }
+
+            public function updateInternalNotes(int $id, ?string $notes): void
+            {
+                ($this->beforeTheCommit)();
+                parent::updateInternalNotes($id, $notes);
+            }
+        };
+        $request = $chiefRequests->findById($id);
+        $this->assertNotNull($request);
+
+        $this->decisions($this->otherSession, $chiefRequests)
+            ->decide($request, RequestDecisionService::DECISION_ACCEPT, 'Acceptée à la main', null);
+
+        $this->assertTrue($heldBeforeTheCommit);
+        $this->assertSame(RegistrationRequest::STATUS_ACCEPTED, $this->statusOf($id));
+        $this->assertTrue($this->requests->acquireAutoAcceptLock($this->targetYearId, $this->louveteauxId, 1));
+    }
+
+    private function decisions(\PDO $session, ?RegistrationRequestRepository $requests = null): RequestDecisionService
+    {
+        $requests ??= new RegistrationRequestRepository($session, $this->encryption);
+
+        return RegistrationTestHelper::decisionService(
+            $session,
+            $this->encryption,
+            $this->settings($session),
+            new RequestStatusService($requests, new JournalService(new JournalRepository($session))),
+            $requests
+        );
     }
 
     /**

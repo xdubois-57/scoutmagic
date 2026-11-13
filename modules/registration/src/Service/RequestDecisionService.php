@@ -70,6 +70,23 @@ class RequestDecisionService
 
     private const MESSAGE_UNKNOWN_DECISION = 'Décision inconnue : choisissez « Accepter » ou « Refuser ».';
 
+    /**
+     * An acceptance by hand while the automatic acceptance is working on
+     * the same year of the journey (issue #919): nothing changed, and the
+     * pass is over within seconds.
+     */
+    public const MESSAGE_AUTO_ACCEPT_BUSY = "L'acceptation automatique traite en ce moment les demandes de cette "
+        . "année de parcours : rien n'a été modifié. Réessayez dans un instant.";
+
+    /**
+     * The slot locks this service holds right now, by name — so that the
+     * apply() decide() makes inside its transaction does not take the lock
+     * decide() already holds (underSlotLock()).
+     *
+     * @var array<string, true>
+     */
+    private array $slotLocksHeld = [];
+
     public function __construct(
         private RegistrationRequestRepository $requestRepository,
         private RequestStatusService $statusService,
@@ -244,7 +261,14 @@ class RequestDecisionService
             return $plannedFor;
         };
 
-        return $this->requestRepository->transactional($write);
+        // The slot's lock across the whole transaction, commit included
+        // (underSlotLock()): the apply() inside finds it already held.
+        return $this->underSlotLock(
+            $request,
+            $decision,
+            false,
+            fn (): ?\DateTimeImmutable => $this->requestRepository->transactional($write)
+        );
     }
 
     /**
@@ -288,23 +312,93 @@ class RequestDecisionService
             throw new \LogicException('Only an acceptance can be automatic: the site never refuses a request.');
         }
 
-        return $this->requestRepository->transactional(
-            function () use ($request, $decision, $refusalReason, $automatic): ?\DateTimeImmutable {
-                if ($decision === self::DECISION_ACCEPT) {
-                    $this->statusService->accept($request, $automatic);
-                } else {
-                    $this->statusService->refuse($request, (string) $refusalReason);
-                }
-
-                // The switch first: it is a cached setting, the year two
-                // queries — and a bulk refusal asks once per request.
-                if (!$this->automaticEmails->isEnabled() || !$this->isDecidableYear($request->scoutYearId)) {
-                    return null;
-                }
-
-                return $this->automaticEmails->plan($request, self::emailDecision($decision))?->dueAt;
+        $write = function () use ($request, $decision, $refusalReason, $automatic): ?\DateTimeImmutable {
+            if ($decision === self::DECISION_ACCEPT) {
+                $this->statusService->accept($request, $automatic);
+            } else {
+                $this->statusService->refuse($request, (string) $refusalReason);
             }
+
+            // The switch first: it is a cached setting, the year two
+            // queries — and a bulk refusal asks once per request.
+            if (!$this->automaticEmails->isEnabled() || !$this->isDecidableYear($request->scoutYearId)) {
+                return null;
+            }
+
+            return $this->automaticEmails->plan($request, self::emailDecision($decision))?->dueAt;
+        };
+
+        return $this->underSlotLock(
+            $request,
+            $decision,
+            $automatic,
+            fn (): ?\DateTimeImmutable => $this->requestRepository->transactional($write)
         );
+    }
+
+    /**
+     * Runs $work — the transaction of a decision — holding the slot's lock
+     * when it accepts a request by hand (issue #919).
+     *
+     * The automatic acceptance recomputes a slot's queue under that lock,
+     * then accepts the request it picked: an acceptance by hand of another
+     * request of the same slot, committed in between, was not seen, and the
+     * slot could end one place over its capacity — which the automatic
+     * acceptance must never cause. Taken here, the lock covers the whole
+     * transaction, commit included: the pass sees the acceptance or the
+     * acceptance waits for nothing and says so.
+     *
+     * **Never a wait** (Core\Database\AdvisoryLock): while a pass is working
+     * on that slot, the acceptance is refused at once with
+     * MESSAGE_AUTO_ACCEPT_BUSY and nothing changes; and a pass reaching a
+     * slot a person is deciding on leaves it to the next pass. The lock is
+     * taken once, by the outermost call — decide() holds it across its own
+     * transaction, around the apply() it makes. A refusal frees a place and
+     * an automatic acceptance already holds the lock: neither takes it.
+     *
+     * @template T
+     * @param callable(): T $work
+     * @return T
+     *
+     * @throws RegistrationException when a pass is working on the slot
+     */
+    private function underSlotLock(RegistrationRequest $request, string $decision, bool $automatic, callable $work): mixed
+    {
+        if ($decision !== self::DECISION_ACCEPT || $automatic) {
+            return $work();
+        }
+        $slot = $this->recommendationService->slotOf($request);
+        if ($slot === null) {
+            return $work();
+        }
+
+        $name = RegistrationRequestRepository::autoAcceptLockName(
+            $request->scoutYearId,
+            $slot['age_branch_id'],
+            $slot['year_in_branch']
+        );
+        if (isset($this->slotLocksHeld[$name])) {
+            return $work();
+        }
+        if (!$this->requestRepository->acquireAutoAcceptLock(
+            $request->scoutYearId,
+            $slot['age_branch_id'],
+            $slot['year_in_branch']
+        )) {
+            throw new RegistrationException(self::MESSAGE_AUTO_ACCEPT_BUSY);
+        }
+
+        $this->slotLocksHeld[$name] = true;
+        try {
+            return $work();
+        } finally {
+            unset($this->slotLocksHeld[$name]);
+            $this->requestRepository->releaseAutoAcceptLock(
+                $request->scoutYearId,
+                $slot['age_branch_id'],
+                $slot['year_in_branch']
+            );
+        }
     }
 
     /**
