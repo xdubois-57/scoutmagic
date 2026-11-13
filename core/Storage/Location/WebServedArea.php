@@ -184,11 +184,15 @@ final class WebServedArea
         if (in_array($segments[0], self::PROTECTED_TOP_LEVEL, true)) {
             return true;
         }
-        // The `.htaccess` refuses any dot-segment at any depth — except a
-        // top-level `.well-known` (RFC 8615), which it serves like any
-        // other existing file. A `.well-known` deeper down is refused.
-        $checked = $segments[0] === '.well-known' ? array_slice($segments, 1) : $segments;
-        foreach ($checked as $segment) {
+        // The `.htaccess` refuses any dot-segment at any depth — except
+        // under a top-level `.well-known` (RFC 8615): its condition skips
+        // the whole `/.well-known/` URI, dot-segments below it included, and
+        // what exists there is served as-is. A `.well-known` deeper down is
+        // refused like any other dot-directory.
+        if ($segments[0] === '.well-known') {
+            return false;
+        }
+        foreach ($segments as $segment) {
             if (str_starts_with($segment, '.')) {
                 return true;
             }

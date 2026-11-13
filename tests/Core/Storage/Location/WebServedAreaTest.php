@@ -208,6 +208,9 @@ final class WebServedAreaTest extends TestCase
         $this->makeLayoutB();
 
         $this->assertTrue(WebServedArea::of($this->root)->serves($this->root . '/.well-known/photos'));
+        // Its condition skips the whole `/.well-known/` URI, a dot-segment
+        // below it included.
+        $this->assertTrue(WebServedArea::of($this->root)->serves($this->root . '/.well-known/.photos'));
     }
 
     /**
