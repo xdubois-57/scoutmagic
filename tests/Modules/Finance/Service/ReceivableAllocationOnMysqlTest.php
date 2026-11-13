@@ -110,6 +110,43 @@ final class ReceivableAllocationOnMysqlTest extends TestCase
     }
 
     /**
+     * Two refunds recorded by hand at once, for a surplus of 15 €: the
+     * second waits on the receivable the first holds, then is told there
+     * is nothing left to give back. The surplus is never refunded twice.
+     */
+    public function testTwoRefundsOfOneSurplusNeverGiveBackMoreThanIt(): void
+    {
+        $receivable = $this->receivable(4500, '+++123/4567/89012+++');
+        $this->credit('Virement +++123/4567/89012+++', 60.00);
+        $this->service->reconcileAccount($this->accountId);
+        $first = $this->credit('Remboursement', -15.00);
+        $second = $this->credit('Remboursement bis', -15.00);
+        [$other, $otherService] = $this->secondConnection();
+
+        $this->pdo->beginTransaction();
+        $this->service->allocateRefund($first, $receivable, 1500, Role::INTENDANT, 7);
+
+        try {
+            $otherService->allocateRefund($second, $receivable, 1500, Role::INTENDANT, 8);
+            $this->fail('the second connection refunded a surplus the first one holds');
+        } catch (\PDOException $e) {
+            $this->assertStringContainsString('lock', strtolower($e->getMessage()));
+        }
+        $this->assertFalse($other->inTransaction(), 'the waiting attempt left its transaction open');
+
+        $this->pdo->commit();
+
+        try {
+            $otherService->allocateRefund($second, $receivable, 1500, Role::INTENDANT, 8);
+            $this->fail('the surplus was refunded twice');
+        } catch (FinanceException $e) {
+            $this->assertStringContainsString('Le trop-perçu de cette créance est de 0,00', $e->getMessage());
+        }
+
+        $this->assertSame([], $this->allocatedOn($second));
+    }
+
+    /**
      * The automatic pass — which also runs on an anonymous page read, the
      * payment QR — and a person's gesture on the same movement: the pass
      * re-checks its write under the same locks, so it waits for the

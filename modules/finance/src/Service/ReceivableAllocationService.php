@@ -265,7 +265,11 @@ class ReceivableAllocationService
                         // A person may have spoken about the pair since the
                         // snapshot — a « pays nothing here » among others —
                         // and the refunds below must see it.
-                        $pair = $this->allocationRepository->findPair($transaction->id, $receivable->id);
+                        $pair = $this->allocationRepository->findPair(
+                            $transaction->id,
+                            $receivable->id,
+                            $this->currentReads()
+                        );
                         if ($pair === null) {
                             unset($existingByPair[$transaction->id][$receivable->id]);
                         } else {
@@ -948,27 +952,71 @@ class ReceivableAllocationService
         ?int $actorUserAccountId
     ): void
     {
-        [$transaction, $receivable] = $this->requirePair($transactionId, $receivableId, $viewerRole);
+        $this->requirePair($transactionId, $receivableId, $viewerRole);
 
         if ($amountCents <= 0) {
             throw new FinanceException('Le montant remboursé doit être positif.');
         }
+
+        // Under the receivable's lock, then the debit's (issue #1118): two
+        // refunds recorded at once must not each fit under a surplus they
+        // then exceed together.
+        $this->receivableRepository->withReceivableLocked(
+            $receivableId,
+            function () use ($transactionId, $receivableId, $amountCents, $actorUserAccountId): void {
+                $this->refundUnderLocks($transactionId, $receivableId, $amountCents, $actorUserAccountId);
+            }
+        );
+    }
+
+    /**
+     * allocateRefund()'s work, while the caller holds the receivable's
+     * lock: the debit's is taken next, and both sides are read again.
+     *
+     * @throws FinanceException
+     */
+    private function refundUnderLocks(
+        int $transactionId,
+        int $receivableId,
+        int $amountCents,
+        ?int $actorUserAccountId
+    ): void {
+        $this->transactionRepository->lockForUpdate($transactionId);
+        $current = $this->currentReads();
+
+        $receivable = $this->receivableRepository->findById($receivableId, $current);
+        $transaction = $this->transactionRepository->findById($transactionId);
+        if ($receivable === null || $transaction === null) {
+            throw new FinanceException("Ce mouvement ou cette créance n'existe plus.");
+        }
         if ($transaction->amount >= 0) {
             throw new FinanceException("Un remboursement est un débit : ce mouvement n'en est pas un.");
         }
-        if ($amountCents > self::toCents(abs($transaction->amount))) {
+
+        $existing = $this->allocationRepository->findPair($transactionId, $receivableId, $current);
+        $ownShare = $existing !== null ? max(0, -$existing->amountCents) : 0;
+
+        $givenBack = 0;
+        foreach ($this->allocationRepository->findByTransactionId($transactionId, $current) as $allocation) {
+            if ($allocation->amountCents < 0) {
+                $givenBack -= $allocation->amountCents;
+            }
+        }
+        if ($amountCents > self::toCents(abs($transaction->amount)) - ($givenBack - $ownShare)) {
             throw new FinanceException('Ce mouvement ne porte pas un montant aussi élevé.');
         }
 
-        $settlement = $this->settlementFor($receivable);
-        if ($amountCents > $settlement->amountOverpaidCents) {
+        // The surplus as it stands, this pair's own refund put back: a
+        // correction of an existing refund is measured against what it
+        // replaces.
+        $surplus = $this->settlementFor($receivable)->amountOverpaidCents + $ownShare;
+        if ($amountCents > $surplus) {
             throw new FinanceException(sprintf(
                 'Le trop-perçu de cette créance est de %s €.',
-                self::euros($settlement->amountOverpaidCents)
+                self::euros($surplus)
             ));
         }
 
-        $existing = $this->allocationRepository->findPair($transactionId, $receivableId);
         if ($existing !== null) {
             $this->allocationRepository->update(
                 $existing->id,
