@@ -94,6 +94,15 @@
                 <h2 class="h5 mb-0">{{ block.section.name ?? block.section.desk_code }}</h2>
                 <span class="text-body-secondary small">{{ block.section.branch_name }}</span>
             </div>
+            {% if not block.contacts_shown %}
+                {# Issue #1116: below chief, only the sections of the account's
+                   linked members carry contacts — the rows arrive without them,
+                   this only says why. #}
+                <p class="small text-body-secondary mb-2">
+                    <i class="bi bi-lock" aria-hidden="true"></i>
+                    Coordonnées non affichées : aucun de vos membres liés n'est dans cette section.
+                </p>
+            {% endif %}
 
             {% for group in [
                 { key: 'animateurs', label: 'Animateurs', rows: block.animateurs },
@@ -152,7 +161,9 @@
                                                     <div><i class="bi bi-telephone text-body-secondary" aria-hidden="true"></i> <span class="visually-hidden">{{ number.label }} :</span> {{ phone(number.value) }}</div>
                                                 {% endfor %}
                                             {% endif %}
-                                            {% if member.emails|length == 0 and member.phones|length == 0 %}
+                                            {% if not block.contacts_shown %}
+                                                <span class="text-body-secondary">Non affichées</span>
+                                            {% elseif member.emails|length == 0 and member.phones|length == 0 %}
                                                 {% include 'partials/empty_state.html.twig' with {
                                                     message: 'Aucune coordonnée.',
                                                     compact: true,

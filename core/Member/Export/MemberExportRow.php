@@ -66,4 +66,49 @@ final class MemberExportRow
         public readonly ?string $previousBranchName
     ) {
     }
+
+    /**
+     * This row with no way to reach the person and no birth date — for a
+     * section the exporting viewer may not see the contacts of
+     * (Core\Member\SectionContactAccess, issue #1116). Everything the
+     * roll-call sheet prints stays: identity, section, functions.
+     */
+    public function withoutContacts(): self
+    {
+        return new self(
+            memberId: $this->memberId,
+            memberYearId: $this->memberYearId,
+            deskId: $this->deskId,
+            scoutYearLabel: $this->scoutYearLabel,
+            firstName: $this->firstName,
+            lastName: $this->lastName,
+            totem: $this->totem,
+            quali: $this->quali,
+            gender: $this->gender,
+            birthDate: null,
+            emails: [],
+            phones: [],
+            street: null,
+            number: null,
+            box: null,
+            postalCode: null,
+            city: null,
+            country: null,
+            sectionName: $this->sectionName,
+            sectionCode: $this->sectionCode,
+            branchName: $this->branchName,
+            roleBucketLabel: $this->roleBucketLabel,
+            functionLabels: $this->functionLabels,
+            isActive: $this->isActive,
+            scoutYearOffset: $this->scoutYearOffset,
+            formationLevel: $this->formationLevel,
+            supplementaryInsurance: $this->supplementaryInsurance,
+            leaving: $this->leaving,
+            leavingComment: $this->leavingComment,
+            handicap: $this->handicap,
+            movementStatusLabel: $this->movementStatusLabel,
+            previousSectionName: $this->previousSectionName,
+            previousBranchName: $this->previousBranchName
+        );
+    }
 }

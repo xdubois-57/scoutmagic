@@ -95,6 +95,12 @@ class SectionRosterControllerTest extends TestCase
             $exportService,
             $scoutYearResolver,
             $journalService,
+            new \Core\Member\MemberService(
+                $memberYearRepo,
+                new MemberProfileRepository($connection, $this->encryption, $memberBadgeRepository),
+                null,
+                $memberEmailRepository
+            ),
             // Null cache directory: every call renders, which is what
             // Core\Member\SectionRosterPdfService documents it for.
             new SectionRosterPdfService(new SectionRosterHtmlBuilder()),
@@ -371,6 +377,148 @@ class SectionRosterControllerTest extends TestCase
         unlink($path);
     }
 
+    // --- whose contacts (issue #1116) ----------------------------------
+
+    /**
+     * Two sections; the intendant's own record — the linked member — is in
+     * A. Everybody else carries member@test.be.
+     *
+     * @return array{0: int, 1: int}
+     */
+    private function twoSectionsWithAnIntendantLinkedToA(): array
+    {
+        $branchId = $this->createBranch('LOU', 'Louveteaux', 20);
+        $sectionA = $this->createSection('LOU01', $branchId, 'Section A');
+        $sectionB = $this->createSection('LOU02', $branchId, 'Section B');
+        $this->createMemberInSectionForYear($sectionA, 'Ines', 'intendant', $this->scoutYearId, 'int@test.be');
+        $this->createMemberInSection($sectionA, 'Alice', 'identified');
+        $this->createMemberInSection($sectionB, 'Bob', 'identified');
+
+        return [$sectionA, $sectionB];
+    }
+
+    private function page(?int $sectionId): string
+    {
+        $query = $sectionId === null ? [] : ['section' => (string) $sectionId];
+
+        return (string) $this->controller->index(new Request('GET', '/chefs/membres', $query, [], [], []), [])->getBody();
+    }
+
+    public function testAnIntendantSeesTheContactsOfTheSectionOfTheirLinkedMemberOnly(): void
+    {
+        [$sectionA, $sectionB] = $this->twoSectionsWithAnIntendantLinkedToA();
+        AuthSession::login(1, 'int@test.be', 'intendant');
+
+        $linked = $this->page($sectionA);
+        $this->assertStringContainsString('mailto:member@test.be', $linked);
+        $this->assertStringNotContainsString('Coordonnées non affichées', $linked);
+
+        $other = $this->page($sectionB);
+        $this->assertStringContainsString('Bob', $other, 'the people stay listed');
+        $this->assertStringNotContainsString('member@test.be', $other);
+        $this->assertStringContainsString('Coordonnées non affichées', $other);
+    }
+
+    public function testAnIntendantLinkedToNobodySeesNoContactAtAll(): void
+    {
+        $this->twoSectionsWithAnIntendantLinkedToA();
+        AuthSession::login(1, 'stranger@test.be', 'intendant');
+
+        $body = $this->page(null);
+
+        $this->assertStringContainsString('Alice', $body);
+        $this->assertStringContainsString('Bob', $body);
+        $this->assertStringNotContainsString('member@test.be', $body);
+        $this->assertStringNotContainsString('int@test.be', $body);
+        $this->assertStringNotContainsString('mailto:', $body);
+    }
+
+    public function testAChiefAndAboveSeeEverySectionsContacts(): void
+    {
+        [, $sectionB] = $this->twoSectionsWithAnIntendantLinkedToA();
+
+        foreach (['chief', 'admin', 'superadmin'] as $role) {
+            AuthSession::login(1, 'stranger@test.be', $role);
+
+            $body = $this->page($sectionB);
+
+            $this->assertStringContainsString('mailto:member@test.be', $body, $role);
+            $this->assertStringNotContainsString('Coordonnées non affichées', $body, $role);
+        }
+    }
+
+    public function testAnIntendantsExportCarriesNoContactOfASectionTheyAreNotLinkedTo(): void
+    {
+        $this->twoSectionsWithAnIntendantLinkedToA();
+        AuthSession::login(1, 'int@test.be', 'intendant');
+
+        $rows = $this->exportedRows(null);
+
+        $this->assertSame('member@test.be', $rows['Alice']['Email(s)']);
+        $this->assertSame('int@test.be', $rows['Ines']['Email(s)']);
+        $this->assertArrayHasKey('Bob', $rows, 'the person stays in the export');
+        foreach (['Email(s)', 'Téléphone(s)', 'Rue', 'Code postal', 'Localité', 'Date de naissance'] as $column) {
+            $this->assertEmpty($rows['Bob'][$column], "{$column} of section B");
+        }
+        $this->assertSame('Section B', $rows['Bob']['Section']);
+    }
+
+    public function testAChiefsExportCarriesEveryContact(): void
+    {
+        $this->twoSectionsWithAnIntendantLinkedToA();
+        AuthSession::login(1, 'stranger@test.be', 'chief');
+
+        $this->assertSame('member@test.be', $this->exportedRows(null)['Bob']['Email(s)']);
+    }
+
+    public function testTheExportIsJournaledAtTheSecurityLevelWithCountersOnly(): void
+    {
+        $this->twoSectionsWithAnIntendantLinkedToA();
+        AuthSession::login(1, 'int@test.be', 'intendant');
+
+        $this->exportedRows(null);
+
+        $entry = $this->pdo->query(
+            "SELECT level, context FROM event_log WHERE event_type = 'section_roster_exported'"
+        )->fetch(\PDO::FETCH_ASSOC);
+        $this->assertIsArray($entry);
+        $this->assertSame('security', $entry['level']);
+        $context = json_decode((string) $entry['context'], true);
+        $this->assertSame(2, $context['section_count']);
+        $this->assertSame(1, $context['sections_without_contacts']);
+        $this->assertStringNotContainsString('Bob', (string) $entry['context']);
+        $this->assertStringNotContainsString('@', (string) $entry['context']);
+    }
+
+    /**
+     * The export's rows by first name, each as column header => value.
+     *
+     * @return array<string, array<string, mixed>>
+     */
+    private function exportedRows(?int $sectionId): array
+    {
+        $query = $sectionId === null ? [] : ['section' => (string) $sectionId];
+        $response = $this->controller->export(new Request('GET', '/chefs/membres/export', $query, [], [], []), []);
+
+        $path = sys_get_temp_dir() . '/section-roster-export-test-' . uniqid() . '.xlsx';
+        file_put_contents($path, $response->getBody());
+        try {
+            $sheet = \PhpOffice\PhpSpreadsheet\IOFactory::load($path)->getActiveSheet();
+            $table = $sheet->toArray();
+        } finally {
+            unlink($path);
+        }
+
+        $headers = array_shift($table);
+        $rows = [];
+        foreach ($table as $line) {
+            $row = array_combine($headers, $line);
+            $rows[(string) $row['Prénom']] = $row;
+        }
+
+        return $rows;
+    }
+
     // --- the roll-call sheet -------------------------------------------
 
     public function testPdfReturnsARealPdfDocument(): void
@@ -514,8 +662,13 @@ class SectionRosterControllerTest extends TestCase
         return $this->createMemberInSectionForYear($sectionId, $firstName, $functionRole, $this->scoutYearId);
     }
 
-    private function createMemberInSectionForYear(int $sectionId, string $firstName, string $functionRole, int $scoutYearId): int
-    {
+    private function createMemberInSectionForYear(
+        int $sectionId,
+        string $firstName,
+        string $functionRole,
+        int $scoutYearId,
+        string $email = 'member@test.be'
+    ): int {
         $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('DESK_" . uniqid() . "')");
         $memberId = (int) $this->pdo->lastInsertId();
 
@@ -527,8 +680,8 @@ class SectionRosterControllerTest extends TestCase
             $memberId, $scoutYearId,
             $this->encryption->encrypt($firstName, 'member_years.first_name'),
             $this->encryption->encrypt('Dupont', 'member_years.last_name'),
-            $this->encryption->encrypt('member@test.be', 'member_years.email'),
-            $this->encryption->blindIndex('member@test.be', 'email'),
+            $this->encryption->encrypt($email, 'member_years.email'),
+            $this->encryption->blindIndex($email, 'email'),
         ]);
         $memberYearId = (int) $this->pdo->lastInsertId();
 

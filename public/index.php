@@ -7223,6 +7223,7 @@ $frontController->registerController(
         $memberExportService,
         $scoutYearResolver,
         $journalService,
+        $memberService,
         new \Core\Member\SectionRosterPdfService(
             new \Core\Member\Pdf\SectionRosterHtmlBuilder(),
             // The rendered document is kept here until its inputs change —
