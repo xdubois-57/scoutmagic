@@ -575,10 +575,9 @@ class ReceivableAllocationService
         $ownShare = $existing !== null ? max(0, $existing->amountCents) : 0;
         $allocated = $this->allocatedCents($receivableId, $this->currentReads());
         $used = $this->usedCents($credit->id, $this->currentReads());
-        $amount = max(0, min(
-            $receivable->amountDueCents - ($allocated - $ownShare),
-            self::toCents($credit->amount) - ($used - $ownShare)
-        ));
+        $leftOnReceivable = $receivable->amountDueCents - ($allocated - $ownShare);
+        $leftOnCredit = self::toCents($credit->amount) - ($used - $ownShare);
+        $amount = max(0, min($leftOnReceivable, $leftOnCredit));
         if (($existing === null && $amount === 0) || $existing?->amountCents === $amount) {
             return null;
         }
@@ -831,11 +830,12 @@ class ReceivableAllocationService
                             $actorUserAccountId
                         );
                     } catch (FinanceException $e) {
-                        throw new FinanceException(sprintf(
+                        $message = sprintf(
                             'Rien n\'a été réparti. Ligne « %s » : %s',
                             self::lineName($receivables[(int) $receivableId]),
                             $e->getMessage()
-                        ), 0, $e);
+                        );
+                        throw new FinanceException($message, 0, $e);
                     }
                 }
             }
