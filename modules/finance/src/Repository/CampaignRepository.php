@@ -52,6 +52,52 @@ class CampaignRepository
         return (int) $this->pdo->lastInsertId();
     }
 
+    /**
+     * The source workbook of every campaign on $accountId — what
+     * Controller\ConfigAccountController re-floors alongside the account's
+     * receipts when its visibility changes (issue #1111).
+     *
+     * @return int[]
+     */
+    public function findSourceFileIdsForAccount(int $accountId): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT source_file_id FROM finance_campaigns WHERE account_id = ? AND source_file_id IS NOT NULL'
+        );
+        $stmt->execute([$accountId]);
+
+        return array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN));
+    }
+
+    /**
+     * Stamps the account as owner of every campaign workbook stored before
+     * the rule existed (issue #1111), the receipts' backfill
+     * (AttachmentRepository::backfillFileOwnership()) applied to the other
+     * finance file: one set-based statement, files that already carry an
+     * owner untouched, so a replay is a no-op. From then on
+     * File\FinanceAccountOwnershipChecker serves the workbook to exactly
+     * those who see its account — an account that no longer exists names
+     * nobody, and the file is refused to all.
+     *
+     * The floor stays `intendant`: the owner check is the narrower rule,
+     * and it applies whatever role_min says.
+     *
+     * @return int how many files were stamped
+     */
+    public function backfillSourceFileOwnership(string $ownerType): int
+    {
+        $stmt = $this->pdo->prepare(
+            'UPDATE files
+                SET owner_type = ?,
+                    owner_id = (SELECT MIN(fc.account_id) FROM finance_campaigns fc WHERE fc.source_file_id = files.id)
+              WHERE owner_type IS NULL
+                AND id IN (SELECT source_file_id FROM finance_campaigns WHERE source_file_id IS NOT NULL)'
+        );
+        $stmt->execute([$ownerType]);
+
+        return $stmt->rowCount();
+    }
+
     public function findById(int $id): ?Campaign
     {
         $stmt = $this->pdo->prepare('SELECT * FROM finance_campaigns WHERE id = ?');

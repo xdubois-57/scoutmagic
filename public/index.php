@@ -8681,6 +8681,15 @@ $financeSepaQrCodeForOthers = null;
 $financeStatementStatusForOthers = null;
 $financeAccountForOthers = null;
 
+// One-time stamp of the campaign workbooks stored before they had an owner
+// (issue #1111) — OUTSIDE the finance block on purpose: see
+// Modules\Finance\Service\CampaignWorkbookOwnership for why a disabled
+// module must not leave them unowned.
+(new \Modules\Finance\Service\CampaignWorkbookOwnership(
+    new \Modules\Finance\Repository\CampaignRepository($pdo),
+    $settingService
+))->ensure();
+
 if ($isEnabled('finance')) {
     \Core\Debug\RequestTimeline::mark('module_finance');
     $financeFiscalYearRepo = new \Modules\Finance\Repository\FiscalYearRepository($pdo, $scoutYearService);
@@ -9063,7 +9072,8 @@ if ($isEnabled('finance')) {
             $sectionService,
             $financeAttachmentRepo,
             $fileRepository,
-            $journalService
+            $journalService,
+            new \Modules\Finance\Repository\CampaignRepository($pdo)
         )
     );
     $frontController->registerController(
