@@ -220,4 +220,40 @@ class MailAuthenticationResultsTest extends TestCase
 
         $this->assertFalse(MailAuthenticationResults::senderVerified($headers, 'locataire@exemple.be'));
     }
+
+    /** Comments nest (RFC 5322): the outer one must not survive the inner one's removal. */
+    public function testANestedCommentCannotSmuggleAProperty(): void
+    {
+        $headers = "Authentication-Results: mx.example; spf=pass smtp.mailfrom=x@attaquant.be"
+            . " (outer (inner) smtp.mailfrom=locataire@exemple.be )\r\n";
+
+        $this->assertFalse(MailAuthenticationResults::senderVerified($headers, 'locataire@exemple.be'));
+    }
+
+    /** An escaped parenthesis inside a comment neither opens nor closes it. */
+    public function testAnEscapedParenthesisDoesNotEndAComment(): void
+    {
+        $headers = "Authentication-Results: mx.example; spf=pass smtp.mailfrom=x@attaquant.be"
+            . " (note \\) smtp.mailfrom=locataire@exemple.be )\r\n";
+
+        $this->assertFalse(MailAuthenticationResults::senderVerified($headers, 'locataire@exemple.be'));
+    }
+
+    /** A `;` inside a quoted `reason=` is text, not the start of another result. */
+    public function testAQuotedReasonCannotInventAResult(): void
+    {
+        $headers = "Authentication-Results: mx.example; spf=fail"
+            . " reason=\"diagnostic; dkim=pass header.d=exemple.be ;\"\r\n";
+
+        $this->assertFalse(MailAuthenticationResults::senderVerified($headers, 'locataire@exemple.be'));
+    }
+
+    /** And a genuine header that quotes a reason still verifies. */
+    public function testAGenuineHeaderWithAQuotedReasonStillVerifies(): void
+    {
+        $headers = "Authentication-Results: mx.example; dkim=pass reason=\"2048-bit key; ok\""
+            . " header.d=exemple.be; dmarc=pass (p=none) header.from=exemple.be\r\n";
+
+        $this->assertTrue(MailAuthenticationResults::senderVerified($headers, 'locataire@exemple.be'));
+    }
 }

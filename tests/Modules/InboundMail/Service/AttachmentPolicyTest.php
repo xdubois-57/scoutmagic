@@ -6,6 +6,7 @@ namespace Tests\Modules\InboundMail\Service;
 
 use Modules\InboundMail\Client\FetchedAttachment;
 use Modules\InboundMail\Service\AttachmentPolicy;
+use Modules\InboundMail\Api\AttachmentOmission;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -84,6 +85,46 @@ class AttachmentPolicyTest extends TestCase
             $this->policy->allowedMimeTypes()
         );
         $this->assertContains('application/vnd.oasis.opendocument.spreadsheet', $this->policy->allowedMimeTypes());
+    }
+
+    /**
+     * finfo reports a macro-enabled `.docm` as a plain `.docx` — it looks
+     * for a `word/` entry, not for the macro project beside it. The package
+     * is opened, and a VBA part refuses it (issue #1121).
+     */
+    public function testAWordPackageCarryingMacrosIsRefusedWhileAPlainOneIsKept(): void
+    {
+        $plain = new FetchedAttachment('contrat.docx', 'application/octet-stream', self::ooxml(withMacros: false));
+        $macro = new FetchedAttachment('contrat.docx', 'application/octet-stream', self::ooxml(withMacros: true));
+
+        $this->assertNull($this->policy->omissionFor($plain));
+        $this->assertSame(AttachmentOmission::MIME_REJECTED, $this->policy->omissionFor($macro));
+    }
+
+    private static function ooxml(bool $withMacros): string
+    {
+        $path = (string) tempnam(sys_get_temp_dir(), 'docx');
+        $zip = new \ZipArchive();
+        $zip->open($path, \ZipArchive::OVERWRITE);
+        $zip->addFromString(
+            '[Content_Types].xml',
+            '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+            . '<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.'
+            . 'wordprocessingml.document.main+xml"/></Types>'
+        );
+        // The layout of a real Word file: libmagic recognises a package
+        // by its entries, and reports a two-entry zip as a plain zip.
+        $zip->addFromString('_rels/.rels', '<Relationships/>');
+        $zip->addFromString('word/document.xml', '<w:document/>');
+        $zip->addFromString('word/styles.xml', '<w:styles/>');
+        if ($withMacros) {
+            $zip->addFromString('word/vbaProject.bin', 'VBA');
+        }
+        $zip->close();
+        $bytes = (string) file_get_contents($path);
+        unlink($path);
+
+        return $bytes;
     }
 
     public function testTheDeclaredTypeAloneNeverAdmitsAnything(): void

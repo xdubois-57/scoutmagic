@@ -144,22 +144,29 @@ final class MailAuthenticationResults
 
     /**
      * The `method=result` entries of one header, with their `ptype.property=value`
-     * pairs (RFC 8601). Comments in parentheses are dropped first: they
-     * are free text and may say anything.
+     * pairs (RFC 8601).
+     *
+     * Read by tokenizer, never by splitting the raw text, because two
+     * things in this header are free text a sender influences and may say
+     * anything: comments in parentheses — which NEST, and may escape a
+     * parenthesis with a backslash — and quoted strings such as `reason=`.
+     * Neither may contribute a separator, a method or a property: a `;`
+     * inside `reason="…"` must not start a new result, and a property
+     * inside `(outer (inner) …)` must not overwrite the real one. Comments
+     * are dropped; a quoted string is kept as an empty `""`, so whatever
+     * property it was the value of reads as nothing — which fails closed.
      *
      * @return list<array{method: string, verdict: string, props: array<string, string>}>
      */
     private static function resultsOf(string $header): array
     {
-        $header = preg_replace('/\([^()]*\)/', ' ', $header) ?? $header;
-        $entries = array_slice(explode(';', $header), 1);
         $results = [];
 
-        foreach ($entries as $entry) {
+        foreach (array_slice(self::segments($header), 1) as $entry) {
             if (preg_match('/^\s*([a-z0-9-]+)\s*=\s*([a-z]+)\b(.*)$/is', $entry, $m) !== 1) {
                 continue;
             }
-            preg_match_all('/([a-z0-9-]+\.[a-z0-9-]+)\s*=\s*"?([^\s";]+)"?/i', $m[3], $pairs, PREG_SET_ORDER);
+            preg_match_all('/([a-z0-9-]+\.[a-z0-9-]+)\s*=\s*([^\s;"]+)/i', $m[3], $pairs, PREG_SET_ORDER);
             $props = [];
             foreach ($pairs as $pair) {
                 $props[strtolower($pair[1])] = $pair[2];
@@ -168,6 +175,63 @@ final class MailAuthenticationResults
         }
 
         return $results;
+    }
+
+    /**
+     * The header cut on the `;` that separate its parts, comments removed
+     * and quoted strings emptied — one character at a time, so that depth,
+     * escapes and quotes are tracked rather than guessed.
+     *
+     * @return list<string>
+     */
+    private static function segments(string $header): array
+    {
+        $segments = [];
+        $current = '';
+        $depth = 0;
+        $quoted = false;
+        $length = strlen($header);
+
+        for ($i = 0; $i < $length; $i++) {
+            $char = $header[$i];
+
+            if ($char === '\\' && ($quoted || $depth > 0)) {
+                $i++; // a quoted-pair: the next character is literal, and not ours to read
+                continue;
+            }
+            if ($quoted) {
+                if ($char === '"') {
+                    $quoted = false;
+                    $current .= '"';
+                }
+                continue;
+            }
+            if ($char === '(') {
+                $depth++;
+                continue;
+            }
+            if ($depth > 0) {
+                if ($char === ')') {
+                    $depth--;
+                    $current .= ' ';
+                }
+                continue;
+            }
+            if ($char === '"') {
+                $quoted = true;
+                $current .= '"';
+                continue;
+            }
+            if ($char === ';') {
+                $segments[] = $current;
+                $current = '';
+                continue;
+            }
+            $current .= $char;
+        }
+        $segments[] = $current;
+
+        return $segments;
     }
 
     /** The domain of an address, or of a bare domain; '' when there is none. */

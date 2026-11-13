@@ -41,9 +41,14 @@ class AttachmentPolicy
      * No executables and no active types — which is why the binary Office
      * formats of before 2007 (`.doc`, `.xls`) are not here (issue #1121):
      * they carry macros in the same file as the text, and nothing about a
-     * `.doc` tells a reader whether it does. Their OOXML successors keep
-     * macros out of `.docx`/`.xlsx` by construction (a macro-enabled file
-     * is a different type, `.docm`), and ODF does not run them on open.
+     * `.doc` tells a reader whether it does. Their OOXML successors put
+     * macros in a separate part (`vbaProject.bin`) of a macro-enabled
+     * package, `.docm`/`.xlsm` — which finfo nevertheless reports as plain
+     * `.docx`/`.xlsx`, so omissionFor() opens every OOXML package and
+     * refuses one that carries such a part. ODF is not macro-free either: a
+     * document can bind a macro to its open event, which LibreOffice runs
+     * when the reader's macro-security settings allow it. It stays, as the
+     * one editable format a unit without Microsoft Office sends.
      *
      * @var string[]
      */
@@ -59,6 +64,9 @@ class AttachmentPolicy
         'application/vnd.oasis.opendocument.text',
         'application/vnd.oasis.opendocument.spreadsheet',
     ];
+
+    /** How much of an OOXML package's `[Content_Types].xml` is read: a real one is a few kilobytes. */
+    private const CONTENT_TYPES_READ = 262144;
 
     public function __construct(
         private int $maxSizeBytes = 15 * 1024 * 1024,
@@ -139,7 +147,60 @@ class AttachmentPolicy
             return AttachmentOmission::MIME_REJECTED;
         }
 
+        if (str_starts_with($realType, 'application/vnd.openxmlformats-officedocument.')
+            && !self::isMacroFreePackage($attachment->bytes)
+        ) {
+            return AttachmentOmission::MIME_REJECTED;
+        }
+
         return null;
+    }
+
+    /**
+     * Whether an OOXML package carries no macro project (issue #1121): no
+     * `vbaProject.bin` part anywhere, and no macro-enabled content type
+     * declared. A package that cannot be opened is refused too — it is not
+     * the `.docx` finfo took it for — and so is every OOXML file on a host
+     * without the zip extension: unable to look is not the same as clean.
+     *
+     * Only the central directory and the first {@see CONTENT_TYPES_READ}
+     * bytes of `[Content_Types].xml` are read, so a package built as a
+     * decompression bomb costs nothing to refuse.
+     */
+    private static function isMacroFreePackage(string $bytes): bool
+    {
+        $path = class_exists(\ZipArchive::class) ? tempnam(sys_get_temp_dir(), 'ooxml') : false;
+        if ($path === false) {
+            return false;
+        }
+
+        try {
+            file_put_contents($path, $bytes);
+            $zip = new \ZipArchive();
+            if ($zip->open($path, \ZipArchive::RDONLY) !== true) {
+                return false;
+            }
+            try {
+                for ($i = 0; $i < $zip->numFiles; $i++) {
+                    $name = (string) $zip->getNameIndex($i);
+                    if (str_ends_with(strtolower($name), 'vbaproject.bin')) {
+                        return false;
+                    }
+                }
+                $stream = $zip->getStream('[Content_Types].xml');
+                if ($stream === false) {
+                    return true;
+                }
+                $types = (string) fread($stream, self::CONTENT_TYPES_READ);
+                fclose($stream);
+
+                return stripos($types, 'macroEnabled') === false;
+            } finally {
+                $zip->close();
+            }
+        } finally {
+            @unlink($path);
+        }
     }
 
     /**
