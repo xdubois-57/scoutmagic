@@ -277,7 +277,8 @@ class RentalPricingController extends AbstractController
                 // no ceiling is typed as 0, on purpose.
                 self::optionalInt($request->getBody('max_nights')) ?? BookingConstraints::DEFAULT_MAX_NIGHTS,
                 self::optionalInt($request->getBody('min_notice_days')) ?? 0,
-                self::optionalInt($request->getBody('max_horizon_days')) ?? BookingConstraints::DEFAULT_MAX_HORIZON_DAYS,
+                self::optionalInt($request->getBody('max_horizon_days'))
+                    ?? BookingConstraints::DEFAULT_MAX_HORIZON_DAYS,
                 is_array($weekdays) ? $weekdays : [],
                 self::optionalInt($request->getBody('max_persons')),
                 self::optionalInt($request->getBody('buffer_nights')) ?? 0,
