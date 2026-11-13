@@ -116,7 +116,8 @@ final class TreasurerCoverageAttentionProviderTest extends TestCase
 
     private function treasurerOf(int $sectionId): void
     {
-        $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('desk-" . uniqid() . "')");
+        $this->pdo->prepare('INSERT INTO members (desk_id) VALUES (?)')
+            ->execute(['desk-' . uniqid()]);
         $memberId = (int) $this->pdo->lastInsertId();
         $this->pdo->prepare(
             "INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted, is_active)

@@ -66,7 +66,7 @@ class TreasurerScopeService
      * this method: `admin`/`superadmin` (the chefs d'unité) reach every
      * account regardless (Service\AccountVisibility), accounts without a
      * section stay on `role_min_view` alone, and
-     * Service\FinanceAttentionProvider tells the chefs d'unité which
+     * Service\TreasurerCoverageAttentionProvider tells the chefs d'unité which
      * section accounts have no treasurer this year.
      *
      * @param int[] $linkedMemberIds persistent members.id values this session is linked to
@@ -95,7 +95,7 @@ class TreasurerScopeService
      * The other side of getTreasurerSectionIds(): now that no treasurer
      * means no access below `admin`, a section account nobody covers is
      * one only the chefs d'unité can reach, and they must be told so
-     * (Service\FinanceAttentionProvider) — above all each September,
+     * (Service\TreasurerCoverageAttentionProvider) — above all each September,
      * when the badges of the new year have not been handed out yet.
      *
      * @return int[]

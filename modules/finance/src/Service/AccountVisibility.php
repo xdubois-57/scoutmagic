@@ -85,7 +85,7 @@ class AccountVisibility
      *
      * **No treasurer, no pile (issue #1107).** A unit that has given the
      * badge to nobody this year has nobody below `admin` sorting these:
-     * the chefs d'unité do, and FinanceAttentionProvider tells them the
+     * the chefs d'unité do, and TreasurerCoverageAttentionProvider tells them the
      * section accounts are uncovered. A null scope is only ever the
      * system caller (TreasurerScope::systemCaller()), which is outside
      * the question as in treasurerAllows().
