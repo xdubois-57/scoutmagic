@@ -112,6 +112,9 @@ final class MailAuthenticationResults
         }
 
         $results = self::resultsOf($topmost);
+        if ($results === null) {
+            return false;
+        }
 
         $dmarc = array_values(array_filter($results, static fn(array $r): bool => $r['method'] === 'dmarc'));
         if ($dmarc !== []) {
@@ -158,17 +161,24 @@ final class MailAuthenticationResults
      * are dropped; a quoted string is kept as an empty `""`, so whatever
      * property it was the value of reads as nothing — which fails closed.
      *
-     * @return list<array{method: string, verdict: string, props: array<string, string>}>
+     * Null when the header cannot be read the way its writer wrote it —
+     * see segments() — which senderVerified() treats as « not verified ».
+     *
+     * @return list<array{method: string, verdict: string, props: array<string, string>}>|null
      */
-    private static function resultsOf(string $header): array
+    private static function resultsOf(string $header): ?array
     {
+        $segments = self::segments($header);
+        if ($segments === null) {
+            return null;
+        }
         $results = [];
 
         // The first part is the authserv-id (`mx.google.com`) — except where
         // a provider writes none and starts with a result, as Microsoft 365
         // does: every part that reads as `method=result` is a result,
         // whichever position it holds. A name never does.
-        foreach (self::segments($header) as $entry) {
+        foreach ($segments as $entry) {
             if (preg_match('/^\s*([a-z0-9-]+)\s*=\s*([a-z]+)\b(.*)$/is', $entry, $m) !== 1) {
                 continue;
             }
@@ -188,9 +198,19 @@ final class MailAuthenticationResults
      * and quoted strings emptied — one character at a time, so that depth,
      * escapes and quotes are tracked rather than guessed.
      *
-     * @return list<string>
+     * **Null — « unable to look » — when the scan ends inconsistent**:
+     * a comment or a quoted string still open, a stray `)`, or a `"` inside
+     * a comment. Providers echo the sender's envelope address inside a
+     * comment (« domain of x@… does not designate… »), and a quoted local
+     * part may carry `)`, `;` and `(`: that is how a sender closes the
+     * comment early, injects a result of its own and reopens one to swallow
+     * the real ones. A `"` is valid comment text, but a genuine verdict
+     * has no use for one there, and refusing it is what closes that door
+     * whether or not the injection leaves the parentheses balanced.
+     *
+     * @return list<string>|null
      */
-    private static function segments(string $header): array
+    private static function segments(string $header): ?array
     {
         $segments = [];
         $current = '';
@@ -217,11 +237,17 @@ final class MailAuthenticationResults
                 continue;
             }
             if ($depth > 0) {
+                if ($char === '"') {
+                    return null;
+                }
                 if ($char === ')') {
                     $depth--;
                     $current .= ' ';
                 }
                 continue;
+            }
+            if ($char === ')') {
+                return null;
             }
             if ($char === '"') {
                 $quoted = true;
@@ -234,6 +260,9 @@ final class MailAuthenticationResults
                 continue;
             }
             $current .= $char;
+        }
+        if ($depth > 0 || $quoted) {
+            return null;
         }
         $segments[] = $current;
 

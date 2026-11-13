@@ -283,4 +283,34 @@ class MailAuthenticationResultsTest extends TestCase
             $this->assertFalse(MailAuthenticationResults::senderVerified($headers, 'locataire@exemple.be'), $headers);
         }
     }
+
+    /**
+     * The sender's envelope address is echoed inside a comment, and a quoted
+     * local part may carry `)`, `;`, `(`: closing the comment early injects
+     * a result. Whether the injection reopens comments to swallow the real
+     * verdict (left open to the end) or balances them, it is refused.
+     */
+    public function testAnEnvelopeAddressInACommentCannotInjectAResult(): void
+    {
+        $unbalanced = "Authentication-Results: mx.google.com; spf=softfail (google.com: domain of"
+            . " \"x); dkim=pass header.d=exemple.be ((\"@evil.com does not designate 1.2.3.4) smtp.mailfrom=x@evil.com;"
+            . " dkim=fail header.d=evil.com; dmarc=fail header.from=exemple.be\r\n";
+        $balanced = "Authentication-Results: mx.ovh.net; spf=softfail (domain of"
+            . " \"x); dkim=pass header.d=exemple.be (\"@evil.com does not designate) smtp.mailfrom=x@evil.com\r\n";
+
+        $this->assertFalse(MailAuthenticationResults::senderVerified($unbalanced, 'locataire@exemple.be'));
+        $this->assertFalse(MailAuthenticationResults::senderVerified($balanced, 'locataire@exemple.be'));
+    }
+
+    /** A header that does not close what it opens is not read at all. */
+    public function testAnInconsistentHeaderIsNotVerified(): void
+    {
+        foreach ([
+            "Authentication-Results: mx.example; dmarc=pass header.from=exemple.be (never closed\r\n",
+            "Authentication-Results: mx.example; dmarc=pass header.from=exemple.be ) stray\r\n",
+            "Authentication-Results: mx.example; dmarc=pass header.from=exemple.be reason=\"open\r\n",
+        ] as $headers) {
+            $this->assertFalse(MailAuthenticationResults::senderVerified($headers, 'locataire@exemple.be'), $headers);
+        }
+    }
 }
