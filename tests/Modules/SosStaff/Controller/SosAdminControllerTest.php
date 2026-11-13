@@ -1300,6 +1300,26 @@ class SosAdminControllerTest extends TestCase
         $this->assertStringNotContainsString('0470 12 34', $body);
     }
 
+    /**
+     * Review of #1194: every Staff d'U GSM is unusable and a default had
+     * been chosen. The page says the numbers are invalid, not missing, and
+     * still says the stored choice no longer holds — the urgent attention
+     * point sends the chef d'unité here.
+     */
+    public function testWhenEveryGsmIsUnusableTheSettingsPageSaysSoAndKeepsTheStaleWarning(): void
+    {
+        $baloo = $this->createStaffduMember('Baloo', '+32470000002', 'Paul', 'Martin');
+        $this->settingsService->setDefaultNumberFromMember($baloo);
+        $this->pdo->prepare('UPDATE member_years SET mobile_encrypted = ? WHERE member_id = ?')
+            ->execute([(new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)))->encrypt('0470 12 34', 'member_years.mobile'), $baloo]);
+
+        $body = $this->settingsPage();
+
+        $this->assertMatchesRegularExpression('/id="default-number-none"[^>]*>.*GSM valide dans Desk/s', $body);
+        $this->assertStringNotContainsString("n'a de numéro de mobile enregistré", $body);
+        $this->assertStringContainsString('id="default-number-stale-warning"', $body);
+    }
+
     public function testThePlanningNamesThePersonWhoActuallyReceivesTheCallsOnADay(): void
     {
         // After the changeover hour, so today's duty is the one in force
