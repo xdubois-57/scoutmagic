@@ -1,5 +1,5 @@
 {
-  "_comment": "One-off catch-up for issue #923 (§ 9 « Migration initiale »). Efforts are the HISTORICAL estimates of the 2026-10-12 audit in the issue's appendix, not values already in the Project; project-effort.sh writes one only when the field is EMPTY, re-reading it just before. `unknown` writes nothing. Priority is never part of this file. Dependencies are only those the issue text itself proves.",
+  "_comment": "One-off catch-up for issue #923 (§ 9 « Migration initiale »). Efforts are the HISTORICAL estimates of the 2026-10-12 audit in the issue's appendix, plus the 2026-11-13 sizing of the Ready tickets that had none (#1101 to #1147, each read against the code it points to), not values already in the Project; project-effort.sh writes one only when the field is EMPTY, re-reading it just before. `unknown` writes nothing. Priority is never part of this file. Dependencies are only those the issue text itself proves.",
   "efforts": {
     "923": "L",
     "919": "M",
@@ -40,7 +40,24 @@
     "449": "L",
     "423": "L",
     "401": "M",
-    "369": "M"
+    "369": "M",
+    "1104": "S",
+    "1130": "S",
+    "1147": "S",
+    "1101": "M",
+    "1124": "M",
+    "1112": "M",
+    "1119": "M",
+    "1107": "M",
+    "1106": "M",
+    "1129": "M",
+    "1131": "M",
+    "1121": "M",
+    "1123": "M",
+    "1128": "M",
+    "1126": "M",
+    "1118": "M",
+    "1113": "L"
   },
   "dependencies": [
     {
