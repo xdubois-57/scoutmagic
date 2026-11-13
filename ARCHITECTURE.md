@@ -1135,6 +1135,21 @@ A type registry (parallel to `Core\Cookie\CookieRegistry`) — core types in `Co
 
 **Web Push**: reuses `minishlink/web-push` (kept over hand-rolling RFC 8291/VAPID crypto — see the dependency table in §1) — `WebPush::queueNotification()`/`flush($batchSize)` gives the spec's "batches of ~20" without hand-rolled `curl_multi`. `MessageSentReport::isSubscriptionExpired()` (404/410) prunes dead `push_subscriptions` rows; both `endpoint` and the subscription keys are `BLOB`-encrypted at rest, looked up via a blind index (`endpoint_blind_index`) same as every other encrypted-lookup field in this codebase.
 
+**A device belongs to the account signed in on it** (issue #1123, SECURITY.md §19). One endpoint is one account:
+`subscribe()` removes every row for the endpoint, whatever the account, before inserting
+(`PushSubscriptionRepository::deleteAllByEndpoint()`). Logout releases the device: `public/assets/js/push-logout.js`
+holds the logout form's submit for at most 1.5 s, unsubscribes the browser and puts the endpoint in the POST's
+`push_endpoint` field — a field rather than a separate `DELETE`, so nothing depends on which request lands first — and
+`AuthController::logout()` hands it to `NotificationService::forgetDevice()` (shape check, then
+delete-all-by-endpoint; any failure leaves the logout intact). Every payload carries `recipient`, an opaque HMAC tag
+of the account id (`PushSubscriptionRepository::recipientTag()`, blind-index key, `push_recipient` domain); the page
+delivers the signed-in account's tag (Twig global `push_recipient_tag`, `''` for a visitor) to `sw.js` inside the
+`offline-config` message, where it is persisted with the rest of that configuration, and `offline-cache.js` sends
+`forget-push-recipient` from the logout forms to blank it. The `push` handler shows a payload only when its tag equals
+the stored one; otherwise it shows one neutral « Nouvelle notification » notice (URL `/`, no badge, no tab nudge) and
+unsubscribes the device, which the member re-enables from « Mon compte » after logging in — nothing re-subscribes
+silently (`push-invitation.js` only asks while permission is still `default`).
+
 **Migration safety**: `notifications.type_id` (new `NOT NULL`) and `push_subscriptions.endpoint_blind_index` (new `NOT NULL`) can't be backfilled from Iteration 1's plaintext rows, so `public/index.php` runs a one-time `TRUNCATE` of both tables (gated by a `notifications_v2_migrated` setting checked via raw PDO, before `SettingService` exists at that point in bootstrap) immediately before the schema migration — accepted as safe since both tables are purely ephemeral operational state, never a legal record.
 
 **Service worker consolidation (a real pre-existing bug, found and fixed while building this)**: Lot 1's `public/sw.js` (§8.23) and an earlier, separate `public/sw-push.js` (registered independently by `push-notifications.js`) both resolved to the same default scope and silently fought for control of every page — whichever registered last won, meaning either push or the offline app-shell cache was non-functional depending on script execution order. Fixed by merging push/notificationclick/`navigator.setAppBadge()` handling into the single `sw.js` and deleting `sw-push.js`; `push-notifications.js` now just awaits `navigator.serviceWorker.ready` instead of registering its own worker.

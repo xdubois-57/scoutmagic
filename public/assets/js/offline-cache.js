@@ -59,7 +59,12 @@
             consent: consent,
             account_scope: config.accountScope,
             version: config.version,
-            standalone: isStandalone()
+            standalone: isStandalone(),
+            // Whose push notifications this device may show (issue #1123,
+            // public/sw.js's 'push' handler) — stored with the rest, '' for
+            // a visitor. Not offline caching, but the same delivery: one
+            // server-rendered blob, one message the worker persists.
+            push_recipient_tag: typeof config.pushRecipientTag === 'string' ? config.pushRecipientTag : ''
         });
     }
 
@@ -75,6 +80,9 @@
     document.querySelectorAll('form[action="/logout"]').forEach(function (form) {
         form.addEventListener('submit', function () {
             postToServiceWorker({ type: 'purge-content-caches' });
+            // And no notification may show its text on this device until
+            // a page says who is signed in again (issue #1123).
+            postToServiceWorker({ type: 'forget-push-recipient' });
         });
     });
 

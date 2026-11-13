@@ -317,12 +317,15 @@
        greys a link by what is actually in the cache (#883). type="application/json" so this never executes and
        needs no CSP nonce. Rendered unconditionally — public pages are
        cacheable for a logged-out visitor too (offline_account_scope is
-       'guest' in that case). #}
+       'guest' in that case). pushRecipientTag rides along (issue #1123): the
+       opaque tag of the account signed in, '' for a visitor, which the
+       worker compares with each push payload's own (public/sw.js). #}
     <script type="application/json" id="offline-config-data">{{ {
         stalenessDays: offline_cache_staleness_days|default(30),
         consent: offline_functional_consent|default(false),
         accountScope: offline_account_scope|default('guest'),
-        version: app_version|default('0.0.0')
+        version: app_version|default('0.0.0'),
+        pushRecipientTag: push_recipient_tag|default('')
     }|json_encode|raw }}</script>
     <script src="{{ asset('/assets/js/offline-cache.js') }}" defer></script>
     <script src="{{ asset('/assets/js/offline-nav.js') }}" defer></script>
@@ -398,6 +401,10 @@
        (ARCHITECTURE.md §8.111). It defines a namespace and binds nothing,
        so it costs a page that uses neither exactly one small file. #}
     <script src="{{ asset('/assets/js/push-subscribe.js') }}" defer></script>
+    {# Logging out releases this device's push subscription (issue
+       #1123): the browser unsubscribes it and the logout POST carries its
+       endpoint, so the server forgets it whoever it was registered for. #}
+    <script src="{{ asset('/assets/js/push-logout.js') }}" defer></script>
     {# « Activer les notifications ? ». Its order matters and is the
        reason it is written here rather than folded into the partial: it
        decides SYNCHRONOUSLY whether it is opening, and the discovery

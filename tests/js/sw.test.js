@@ -1165,11 +1165,22 @@ describe('sw.js: appShellResponse()', () => {
 // ---------------------------------------------------------------------------
 // The push handler and its two named steps
 // ---------------------------------------------------------------------------
+// The offline configuration as the page last stored it, holding the push
+// recipient tag of the account signed in (issue #1123). `undefined` stores
+// no configuration at all.
+function storedRecipient(tag) {
+    const config = tag === undefined ? undefined : { account_scope: '7', push_recipient_tag: tag };
+    return createCachesFake(config === undefined ? {} : {
+        'offline-config': { 'https://offline-config.internal/v1': { json: () => Promise.resolve(config) } },
+    });
+}
+
 describe('sw.js: orElse() and nudgeOpenTabs()', () => {
     afterEach(() => {
         delete global.self.clients;
         delete global.self.registration;
         delete global.navigator.setAppBadge;
+        delete global.caches;
     });
 
     it('orElse() turns a rejection into the fallback and leaves a resolution alone', async () => {
@@ -1196,10 +1207,13 @@ describe('sw.js: orElse() and nudgeOpenTabs()', () => {
         global.self.registration = { showNotification };
         global.self.clients = { matchAll: vi.fn(() => Promise.resolve([client])) };
         global.navigator.setAppBadge = vi.fn(() => Promise.reject(new Error('no badge here')));
+        global.caches = storedRecipient('tag-of-the-account');
 
         const waits = [];
         const event = new Event('push');
-        event.data = { json: () => ({ title: 'Salut', body: 'Corps', url: '/x', unread_count: 3 }) };
+        event.data = { json: () => ({
+            title: 'Salut', body: 'Corps', url: '/x', unread_count: 3, recipient: 'tag-of-the-account',
+        }) };
         event.waitUntil = (promise) => waits.push(promise);
         global.self.dispatchEvent(event);
         await Promise.all(waits);
@@ -1207,5 +1221,210 @@ describe('sw.js: orElse() and nudgeOpenTabs()', () => {
         expect(showNotification).toHaveBeenCalledWith('Salut', { body: 'Corps', data: { url: '/x' } });
         expect(global.navigator.setAppBadge).toHaveBeenCalledWith(3);
         expect(client.postMessage).toHaveBeenCalledWith({ type: 'push-received', unreadCount: 3 });
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Issue #1123: a push is shown only to the account it was sent to
+// ---------------------------------------------------------------------------
+describe('sw.js: the push recipient guard (issue #1123)', () => {
+    const TAG = 'f'.repeat(64);
+    let showNotification;
+    let unsubscribe;
+    let getSubscription;
+    let client;
+
+    beforeEach(() => {
+        showNotification = vi.fn(() => Promise.resolve());
+        unsubscribe = vi.fn(() => Promise.resolve(true));
+        getSubscription = vi.fn(() => Promise.resolve({ unsubscribe }));
+        client = { postMessage: vi.fn() };
+        global.self.registration = { showNotification, pushManager: { getSubscription } };
+        global.self.clients = { matchAll: vi.fn(() => Promise.resolve([client])) };
+        global.navigator.setAppBadge = vi.fn(() => Promise.resolve());
+    });
+
+    afterEach(() => {
+        delete global.self.clients;
+        delete global.self.registration;
+        delete global.navigator.setAppBadge;
+        delete global.caches;
+    });
+
+    async function push(payload) {
+        const waits = [];
+        const event = new Event('push');
+        event.data = payload === undefined ? null : { json: () => payload, text: () => String(payload) };
+        event.waitUntil = (promise) => waits.push(promise);
+        global.self.dispatchEvent(event);
+        await Promise.all(waits);
+    }
+
+    const PAYLOAD = { title: 'Réunion des chefs', body: 'Samedi à 14 h', url: '/agenda', unread_count: 2 };
+
+    function expectNeutralNoticeThenUnsubscribe() {
+        expect(showNotification).toHaveBeenCalledTimes(1);
+        expect(showNotification).toHaveBeenCalledWith('Nouvelle notification', {
+            body: 'Connectez-vous pour la lire.',
+            data: { url: '/' },
+        });
+        expect(unsubscribe).toHaveBeenCalledTimes(1);
+        expect(showNotification.mock.invocationCallOrder[0]).toBeLessThan(unsubscribe.mock.invocationCallOrder[0]);
+        // Nothing of the other account's: no count on the icon, no nudge.
+        expect(global.navigator.setAppBadge).not.toHaveBeenCalled();
+        expect(client.postMessage).not.toHaveBeenCalled();
+    }
+
+    it('shows the real notification, unchanged, when the tags match', async () => {
+        global.caches = storedRecipient(TAG);
+
+        await push({ ...PAYLOAD, recipient: TAG });
+
+        expect(showNotification).toHaveBeenCalledWith('Réunion des chefs', {
+            body: 'Samedi à 14 h',
+            data: { url: '/agenda' },
+        });
+        expect(global.navigator.setAppBadge).toHaveBeenCalledWith(2);
+        expect(client.postMessage).toHaveBeenCalledWith({ type: 'push-received', unreadCount: 2 });
+        expect(unsubscribe).not.toHaveBeenCalled();
+    });
+
+    it('a config stored before the guard existed (no tag key at all) keeps the old behaviour', async () => {
+        // Every installed app on update day: refusing here would blank and
+        // unsubscribe all of them before any page could store a tag.
+        global.caches = createCachesFake({
+            'offline-config': {
+                'https://offline-config.internal/v1': { json: () => Promise.resolve({ account_scope: '7' }) },
+            },
+        });
+
+        await push({ ...PAYLOAD, recipient: TAG });
+
+        expect(showNotification).toHaveBeenCalledWith('Réunion des chefs', {
+            body: 'Samedi à 14 h',
+            data: { url: '/agenda' },
+        });
+        expect(unsubscribe).not.toHaveBeenCalled();
+    });
+
+    it('a discretion-mode payload for the signed-in account is shown as sent', async () => {
+        global.caches = storedRecipient(TAG);
+
+        await push({ title: 'Nouvelle notification', body: '', url: '/notifications', recipient: TAG });
+
+        expect(showNotification).toHaveBeenCalledWith('Nouvelle notification', {
+            body: '',
+            data: { url: '/notifications' },
+        });
+        expect(unsubscribe).not.toHaveBeenCalled();
+    });
+
+    it('shows the neutral notice and unsubscribes when the payload is for another account', async () => {
+        global.caches = storedRecipient(TAG);
+
+        await push({ ...PAYLOAD, recipient: 'e'.repeat(64) });
+
+        expectNeutralNoticeThenUnsubscribe();
+    });
+
+    it('shows the neutral notice and unsubscribes when the payload names nobody', async () => {
+        global.caches = storedRecipient(TAG);
+
+        await push({ ...PAYLOAD });
+
+        expectNeutralNoticeThenUnsubscribe();
+    });
+
+    it('shows the neutral notice and unsubscribes on a payload that is not JSON', async () => {
+        global.caches = storedRecipient(TAG);
+        const waits = [];
+        const event = new Event('push');
+        event.data = { json: () => { throw new SyntaxError('x'); }, text: () => 'texte brut' };
+        event.waitUntil = (promise) => waits.push(promise);
+        global.self.dispatchEvent(event);
+        await Promise.all(waits);
+
+        expectNeutralNoticeThenUnsubscribe();
+    });
+
+    it('shows the neutral notice and unsubscribes for a visitor (logged out: empty tag)', async () => {
+        global.caches = storedRecipient('');
+
+        await push({ ...PAYLOAD, recipient: TAG });
+
+        expectNeutralNoticeThenUnsubscribe();
+    });
+
+    it('shows the neutral notice and unsubscribes when no page ever told the worker who is signed in', async () => {
+        global.caches = storedRecipient(undefined);
+
+        await push({ ...PAYLOAD, recipient: TAG });
+
+        expectNeutralNoticeThenUnsubscribe();
+    });
+
+    it('an empty tag never matches an empty tag', async () => {
+        global.caches = storedRecipient('');
+
+        await push({ ...PAYLOAD, recipient: '' });
+
+        expectNeutralNoticeThenUnsubscribe();
+    });
+
+    it('a store that cannot be read is a mismatch, not a crash', async () => {
+        global.caches = { open: vi.fn(() => Promise.reject(new Error('quota'))) };
+
+        await push({ ...PAYLOAD, recipient: TAG });
+
+        expectNeutralNoticeThenUnsubscribe();
+    });
+
+    it('the neutral notice survives a device that has no subscription left, or cannot unsubscribe', async () => {
+        global.caches = storedRecipient(TAG);
+        getSubscription.mockImplementationOnce(() => Promise.resolve(null));
+        await push({ ...PAYLOAD });
+        expect(showNotification).toHaveBeenCalledTimes(1);
+
+        unsubscribe.mockImplementationOnce(() => Promise.reject(new Error('nope')));
+        await push({ ...PAYLOAD });
+        expect(showNotification).toHaveBeenCalledTimes(2);
+    });
+
+    it('the stored tag is the one an offline-config message delivered, and a logout forgets it', async () => {
+        const caches = createCachesFake();
+        global.caches = caches;
+        const realResponse = global.Response;
+        global.Response = class {
+            constructor(body) { this.body = body; }
+            json() { return Promise.resolve(JSON.parse(this.body)); }
+        };
+
+        try {
+            const send = async (data) => {
+                const waits = [];
+                const event = new Event('message');
+                event.data = data;
+                Object.defineProperty(event, 'origin', { value: self.location.origin });
+                event.waitUntil = (promise) => waits.push(promise);
+                global.self.dispatchEvent(event);
+                await Promise.all(waits);
+            };
+
+            await send({
+                type: 'offline-config', account_scope: '7', consent: false, version: '1', push_recipient_tag: TAG,
+            });
+            await push({ ...PAYLOAD, recipient: TAG });
+            expect(showNotification).toHaveBeenLastCalledWith('Réunion des chefs', expect.anything());
+            expect(unsubscribe).not.toHaveBeenCalled();
+
+            await send({ type: 'forget-push-recipient' });
+            await expect(sw.getOfflineConfig()).resolves.toMatchObject({ account_scope: '7', push_recipient_tag: '' });
+
+            await push({ ...PAYLOAD, recipient: TAG });
+            expect(showNotification).toHaveBeenLastCalledWith('Nouvelle notification', expect.anything());
+            expect(unsubscribe).toHaveBeenCalledTimes(1);
+        } finally {
+            global.Response = realResponse;
+        }
     });
 });

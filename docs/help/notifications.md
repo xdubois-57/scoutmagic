@@ -42,6 +42,26 @@ push » — votre navigateur demandera son accord. Le choix de ce qui
 vous est envoyé, canal par canal, se règle dans « Préférences de
 notification », en haut de cette page.
 
+## Appareil partagé, déconnexion
+
+Les notifications d'un appareil appartiennent au compte connecté
+dessus, et à lui seul. Quand vous vous déconnectez, l'appareil cesse
+de recevoir vos notifications : la personne qui l'utilise après vous ne
+verra ni leurs titres ni leurs extraits.
+
+Si une notification arrive alors que vous n'êtes plus connecté sur
+l'appareil — votre session a expiré, ou quelqu'un d'autre s'y est
+connecté depuis —, elle ne montre pas son contenu : seule une
+notification « Nouvelle notification » s'affiche, qui vous invite à
+vous connecter pour la lire, et l'appareil cesse ensuite d'en recevoir.
+Le contenu reste lisible dans la page « Notifications », une fois
+connecté.
+
+Dans ces deux cas, rien ne se réactive tout seul : après vous être
+reconnecté, rallumez l'interrupteur « Notifications push » dans « Mon
+compte ». C'est aussi ce qu'il faut faire sur votre propre téléphone si
+une notification vous y a invité à vous connecter.
+
 ## Si rien n'arrive
 
 Vérifiez d'abord les « Préférences de notification » : le type attendu
@@ -49,3 +69,7 @@ est peut-être désactivé, ou vos heures calmes retiennent les
 notifications de nuit. Si votre navigateur a refusé les notifications,
 le site ne peut pas revenir dessus : autorisez-les dans les réglages du
 navigateur, puis réactivez l'interrupteur dans « Mon compte ».
+
+Après une déconnexion, ou après une notification qui vous invitait à
+vous connecter, l'interrupteur est éteint sur cet appareil :
+rallumez-le, comme expliqué ci-dessus.

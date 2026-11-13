@@ -166,6 +166,7 @@ const APP_SHELL_BASE_URLS = [
     '/assets/js/help-discovery.js',
     '/assets/js/push-subscribe.js',
     '/assets/js/push-invitation.js',
+    '/assets/js/push-logout.js',
     '/assets/js/notification-badge.js',
     '/assets/js/offline-cache.js',
     '/assets/js/offline-nav.js',
@@ -531,6 +532,14 @@ self.addEventListener('message', function (event) {
         event.waitUntil(lastConfigWrite);
     } else if (data.type === 'purge-content-caches') {
         event.waitUntil(purgeAllContentCaches());
+    } else if (data.type === 'forget-push-recipient') {
+        // Logout (offline-cache.js): from now on nobody is signed in on
+        // this device, and no push may show its text until a page says
+        // who is (issue #1123). Chained after the last configuration
+        // write, so a configuration still being stored cannot put the
+        // previous account's tag back afterwards.
+        lastConfigWrite = lastConfigWrite.then(forgetPushRecipient).catch(function () {});
+        event.waitUntil(lastConfigWrite);
     } else if (data.type === 'offline-refresh') {
         // Asked by offline-prefetch.js, which owns WHEN (an installed app,
         // with consent, once per launch). Run here rather than in the page
@@ -1800,6 +1809,89 @@ function nudgeOpenTabs(unreadCount) {
     });
 }
 
+// --- Issue #1123: a push is shown only to the account it was sent to ---
+//
+// A device keeps its push subscription across logouts, and a phone lends
+// itself: a lock screen used to show the previous account's notifications
+// — titles, excerpts — to whoever held the phone next. Every payload now
+// names its recipient with an opaque tag (Core\Notification\
+// PushSubscriptionRepository::recipientTag(), an HMAC, never the id), and
+// the page tells this worker the tag of the account signed in now
+// (`push_recipient_tag`, stored with the offline configuration so it
+// survives a restart of the worker; '' for a visitor and after a logout).
+// When the two differ — or either is missing — the text is never shown:
+// one neutral notice instead, then the device is unsubscribed, because
+// nobody signed in on it should be receiving that account's notifications.
+// Signing back in and switching notifications on again in « Mon compte »
+// subscribes it afresh.
+const NEUTRAL_PUSH_TITLE = 'Nouvelle notification';
+const NEUTRAL_PUSH_BODY = 'Connectez-vous pour la lire.';
+
+function forgetPushRecipient() {
+    return getOfflineConfig().then(function (config) {
+        return storeOfflineConfig(Object.assign({}, config || {}, { push_recipient_tag: '' }));
+    });
+}
+
+/**
+ * Whether a payload was sent to the account signed in on this device. Any
+ * doubt — no tag in the payload, nothing stored, an unreadable store — is
+ * a no: the cost is one neutral notice, the alternative someone else's.
+ *
+ * @param {{recipient?: unknown}} data
+ * @returns {Promise<boolean>}
+ */
+function isForSignedInAccount(data) {
+    const recipient = data.recipient;
+    if (typeof recipient !== 'string' || recipient === '') {
+        return Promise.resolve(false);
+    }
+
+    return getOfflineConfig().then(function (config) {
+        // A config stored by a version before this guard has no tag at
+        // all — not an empty one. Read strictly, every installed app would
+        // blank and unsubscribe itself on its first push after the update,
+        // before any page had told it who is signed in. Until a page of
+        // this version stores a tag ('' for a guest, which IS refused),
+        // the old behaviour stands.
+        if (config && !Object.prototype.hasOwnProperty.call(config, 'push_recipient_tag')) {
+            return true;
+        }
+        const expected = config?.push_recipient_tag;
+        return typeof expected === 'string' && expected !== '' && expected === recipient;
+    }).catch(function () { return false; });
+}
+
+/**
+ * The notice shown in place of a payload meant for another account (or
+ * for nobody known), then the device's unsubscription — best-effort: a
+ * failure leaves the subscription to the server, which prunes it on the
+ * push service's 410 once the device is gone, or drops it at the next
+ * logout or subscription of this endpoint.
+ *
+ * @returns {Promise<void>}
+ */
+function showNeutralNoticeAndUnsubscribe() {
+    return self.registration.showNotification(NEUTRAL_PUSH_TITLE, {
+        body: NEUTRAL_PUSH_BODY,
+        data: { url: '/' }
+    }).catch(function () {}).then(function () {
+        return self.registration.pushManager.getSubscription();
+    }).then(function (subscription) {
+        return subscription ? subscription.unsubscribe() : false;
+    }).then(function () {}, function () {});
+}
+
+/**
+ * @param {any} data the decoded payload
+ * @returns {Promise<unknown>}
+ */
+function handlePush(data) {
+    return isForSignedInAccount(data).then(function (forSignedInAccount) {
+        return forSignedInAccount ? showPayload(data) : showNeutralNoticeAndUnsubscribe();
+    });
+}
+
 self.addEventListener('push', function (event) {
     let data = {};
     if (event.data) {
@@ -1810,34 +1902,40 @@ self.addEventListener('push', function (event) {
         }
     }
 
+    event.waitUntil(handlePush(data));
+});
+
+/**
+ * @param {any} data
+ * @returns {Promise<unknown>}
+ */
+function showPayload(data) {
     const title = data.title || 'Notification';
     const options = {
         body: data.body || '',
         data: { url: data.url || null }
     };
 
-    event.waitUntil(
-        self.registration.showNotification(title, options).then(function () {
-            const tasks = [];
+    return self.registration.showNotification(title, options).then(function () {
+        const tasks = [];
 
-            // Progressive enhancement only — works on installed iOS >= 16.4
-            // and desktop Chrome, does nothing on Android (the launcher
-            // shows its own unread dot instead). Must run here, not from
-            // the page: this is the one place that still executes while
-            // the app itself is closed.
-            if ('setAppBadge' in navigator && typeof data.unread_count === 'number') {
-                tasks.push(orElse(navigator.setAppBadge(data.unread_count), undefined));
-            }
+        // Progressive enhancement only — works on installed iOS >= 16.4
+        // and desktop Chrome, does nothing on Android (the launcher
+        // shows its own unread dot instead). Must run here, not from
+        // the page: this is the one place that still executes while
+        // the app itself is closed.
+        if ('setAppBadge' in navigator && typeof data.unread_count === 'number') {
+            tasks.push(orElse(navigator.setAppBadge(data.unread_count), undefined));
+        }
 
-            // Nudge any open tab to refresh its own avatar badge
-            // immediately, rather than waiting for its next 60s poll —
-            // see public/assets/js/notification-badge.js.
-            tasks.push(nudgeOpenTabs(data.unread_count));
+        // Nudge any open tab to refresh its own avatar badge
+        // immediately, rather than waiting for its next 60s poll —
+        // see public/assets/js/notification-badge.js.
+        tasks.push(nudgeOpenTabs(data.unread_count));
 
-            return Promise.all(tasks);
-        })
-    );
-});
+        return Promise.all(tasks);
+    });
+}
 
 self.addEventListener('notificationclick', function (event) {
     event.notification.close();
@@ -1902,6 +2000,10 @@ globalThis.ScoutMagicServiceWorkerInternals = {
     purgeAllContentCaches: purgeAllContentCaches,
     purgeContentCachesExcept: purgeContentCachesExcept,
     nudgeOpenTabs: nudgeOpenTabs,
+    handlePush: handlePush,
+    isForSignedInAccount: isForSignedInAccount,
+    NEUTRAL_PUSH_TITLE: NEUTRAL_PUSH_TITLE,
+    NEUTRAL_PUSH_BODY: NEUTRAL_PUSH_BODY,
     orElse: orElse,
     CONTENT_CACHE_PREFIX: CONTENT_CACHE_PREFIX,
 };

@@ -128,7 +128,26 @@ describe('offline-cache.js: sendConfig() on page load', () => {
             account_scope: 'acct1',
             version: '1.2.3',
             standalone: false,
+            push_recipient_tag: '',
         }));
+    });
+
+    // Issue #1123: the worker shows a push's text only when the payload's
+    // recipient tag matches the one stored from this message.
+    it('hands the worker the push recipient tag of the account signed in', async () => {
+        buildConfig({ ...BASE_CONFIG, pushRecipientTag: 'a1b2c3' });
+        await boot();
+        await vi.waitFor(() => expect(activeSpy.postMessage).toHaveBeenCalledWith(
+            expect.objectContaining({ type: 'offline-config', push_recipient_tag: 'a1b2c3' })
+        ));
+    });
+
+    it('sends an empty push recipient tag for anything but a string', async () => {
+        buildConfig({ ...BASE_CONFIG, pushRecipientTag: 42 });
+        await boot();
+        await vi.waitFor(() => expect(activeSpy.postMessage).toHaveBeenCalledWith(
+            expect.objectContaining({ type: 'offline-config', push_recipient_tag: '' })
+        ));
     });
 
     it('sends consent: false verbatim when the page config says consent has not been granted', async () => {
@@ -180,6 +199,20 @@ describe('offline-cache.js: logout purges every content cache', () => {
         form.dispatchEvent(new Event('submit'));
 
         await vi.waitFor(() => expect(activeSpy.postMessage).toHaveBeenCalledWith({ type: 'purge-content-caches' }));
+    });
+
+    // Issue #1123: from the logout on, nobody is signed in on this device
+    // as far as the worker's push guard is concerned.
+    it('tells the worker to forget the push recipient when a logout form is submitted', async () => {
+        buildConfig({ ...BASE_CONFIG, pushRecipientTag: 'a1b2c3' });
+        const form = el('<form action="/logout"></form>');
+        document.body.appendChild(form);
+        await boot();
+        activeSpy.postMessage.mockClear();
+
+        form.dispatchEvent(new Event('submit'));
+
+        await vi.waitFor(() => expect(activeSpy.postMessage).toHaveBeenCalledWith({ type: 'forget-push-recipient' }));
     });
 
     // There can be a desktop AND a mobile nav logout form on the same

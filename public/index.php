@@ -3464,6 +3464,15 @@ $twig->addGlobal(
     'offline_account_scope',
     AuthSession::isAuthenticated() ? (string) AuthSession::getUserAccountId() : 'guest'
 );
+// Whom this device's push notifications may be shown for (issue #1123):
+// the opaque tag every payload carries (NotificationService), handed to
+// public/sw.js beside the offline configuration. '' for a visitor, so the
+// first page after a logout tells the worker that nobody is signed in.
+$pushRecipientAccountId = AuthSession::isAuthenticated() ? AuthSession::getUserAccountId() : null;
+$twig->addGlobal(
+    'push_recipient_tag',
+    $pushRecipientAccountId !== null ? $pushSubscriptionRepo->recipientTag($pushRecipientAccountId) : ''
+);
 
 // Build menu
 $menuBuilder = new MenuBuilder(Role::fromString($currentRole));
@@ -6877,6 +6886,7 @@ $authController = new AuthController(
 $authController->setPasswordAuth($passwordAuthMethod);
 $authController->setWebAuthnService($webAuthnService);
 $authController->setHumanCheck($humanCheckService);
+$authController->setNotificationService($notificationService);
 $frontController->registerController(AuthController::class, $authController);
 // Tells an account's holder, by e-mail and in-app, whenever a way into
 // their account is added, changed or removed — a password, a passkey, a
