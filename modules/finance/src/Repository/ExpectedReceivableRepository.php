@@ -329,9 +329,18 @@ class ExpectedReceivableRepository
         return $digits;
     }
 
-    public function findById(int $id): ?ExpectedReceivable
+    /**
+     * @param bool $current what is committed now rather than what the
+     *     transaction's snapshot holds (issue #1118) — a shared locking read,
+     *     for a REPEATABLE READ transaction opened elsewhere that reads the
+     *     amount due under the receivable's lock (seesCommittedWrites())
+     */
+    public function findById(int $id, bool $current = false): ?ExpectedReceivable
     {
-        $stmt = $this->pdo->prepare('SELECT * FROM finance_expected_receivables WHERE id = ?');
+        $stmt = $this->pdo->prepare(
+            'SELECT * FROM finance_expected_receivables WHERE id = ?'
+            . ($current && $this->pdo->getAttribute(\PDO::ATTR_DRIVER_NAME) !== 'sqlite' ? ' LOCK IN SHARE MODE' : '')
+        );
         $stmt->execute([$id]);
         $row = $stmt->fetch(\PDO::FETCH_ASSOC);
         return $row !== false ? $this->hydrate($row) : null;

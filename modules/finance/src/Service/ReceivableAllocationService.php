@@ -483,7 +483,7 @@ class ReceivableAllocationService
     {
         $this->transactionRepository->lockForUpdate($debit->id);
 
-        $receivable = $this->receivableRepository->findById($receivableId);
+        $receivable = $this->receivableRepository->findById($receivableId, $this->currentReads());
         if ($receivable === null) {
             return null;
         }
@@ -562,7 +562,7 @@ class ReceivableAllocationService
     {
         $this->transactionRepository->lockForUpdate($credit->id);
 
-        $receivable = $this->receivableRepository->findById($receivableId);
+        $receivable = $this->receivableRepository->findById($receivableId, $this->currentReads());
         if ($receivable === null) {
             return null;
         }
@@ -857,7 +857,7 @@ class ReceivableAllocationService
     ): void {
         $this->transactionRepository->lockForUpdate($transactionId);
 
-        $receivable = $this->receivableRepository->findById($receivableId);
+        $receivable = $this->receivableRepository->findById($receivableId, $this->currentReads());
         $transaction = $this->transactionRepository->findById($transactionId);
         if ($receivable === null || $transaction === null) {
             throw new FinanceException("Ce mouvement ou cette créance n'existe plus.");
@@ -1057,7 +1057,7 @@ class ReceivableAllocationService
             function () use ($receivable, $transactionId, $sinceDate, $actorUserAccountId): int {
                 $this->transactionRepository->lockForUpdate($transactionId);
 
-                $current = $this->receivableRepository->findById($receivable->id);
+                $current = $this->receivableRepository->findById($receivable->id, $this->currentReads());
                 if ($current === null) {
                     throw new FinanceException("Cette créance n'existe pas.");
                 }
@@ -1223,7 +1223,7 @@ class ReceivableAllocationService
             function () use ($receivable, $transactionId, $amountCents, $sinceDate, $actorUserAccountId): int {
                 $this->transactionRepository->lockForUpdate($transactionId);
 
-                $current = $this->receivableRepository->findById($receivable->id);
+                $current = $this->receivableRepository->findById($receivable->id, $this->currentReads());
                 if ($current === null) {
                     throw new FinanceException("Cette créance n'existe pas.");
                 }
@@ -1284,7 +1284,7 @@ class ReceivableAllocationService
             function () use ($receivable, $transactionId): int {
                 $this->transactionRepository->lockForUpdate($transactionId);
 
-                $current = $this->receivableRepository->findById($receivable->id);
+                $current = $this->receivableRepository->findById($receivable->id, $this->currentReads());
                 if ($current === null) {
                     throw new FinanceException("Cette créance n'existe pas.");
                 }
@@ -1433,8 +1433,8 @@ class ReceivableAllocationService
      */
     private function transferUnderLocks(int $fromId, int $toId, int $amountCents, ?int $actorUserAccountId): void
     {
-        $from = $this->receivableRepository->findById($fromId);
-        $to = $this->receivableRepository->findById($toId);
+        $from = $this->receivableRepository->findById($fromId, $this->currentReads());
+        $to = $this->receivableRepository->findById($toId, $this->currentReads());
         if ($from === null || $to === null) {
             throw new FinanceException("Cette créance n'existe pas.");
         }

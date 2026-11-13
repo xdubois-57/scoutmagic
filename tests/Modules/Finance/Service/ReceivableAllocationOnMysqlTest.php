@@ -201,6 +201,35 @@ final class ReceivableAllocationOnMysqlTest extends TestCase
     }
 
     /**
+     * The amount due is read under the lock the same way: an outer
+     * transaction that saw the receivable at 45 € before somebody lowered
+     * it to 30 € does not fill it to 45 € (issue #1118).
+     */
+    public function testAnAllocationInsideAnOuterTransactionReadsTheAmountDueAsItIsNow(): void
+    {
+        $lucie = $this->receivable(4500, '+++123/4567/89012+++');
+        $credit = $this->credit('Virement groupé', 60.00);
+        $other = $this->secondConnection()[0];
+
+        $this->pdo->beginTransaction();
+        // The outer transaction's snapshot holds the receivable at 45 €.
+        $this->assertSame(4500, $this->receivables->findById($lucie)?->amountDueCents);
+
+        (new ExpectedReceivableRepository($other, $this->encryption))->updateAmount($lucie, 3000);
+
+        try {
+            $this->service->allocate($credit, $lucie, 4500, Role::INTENDANT, 7);
+            $this->fail('the allocation filled the receivable to an amount it no longer has');
+        } catch (FinanceException $e) {
+            $this->assertStringContainsString("n'attend plus que 30,00", $e->getMessage());
+        } finally {
+            $this->pdo->rollBack();
+        }
+
+        $this->assertSame([], $this->allocatedOn($credit));
+    }
+
+    /**
      * The sequence itself, in two processes: another treasurer holds the
      * movement while giving its last 15 € away; the surplus transfer
      * read 15 € on it, waits on its lock, resumes once the other has
