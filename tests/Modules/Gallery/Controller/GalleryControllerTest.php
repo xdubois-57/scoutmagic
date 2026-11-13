@@ -31,6 +31,10 @@ use Modules\Gallery\Service\DelegatedAlbumAccessRegistry;
 use Modules\Gallery\Service\FfmpegAvailability;
 use Modules\Gallery\Service\GalleryAccessService;
 use Modules\Gallery\Service\MediaService;
+use Modules\Gallery\Service\ZipDownloadLimiter;
+use Modules\Gallery\Repository\ZipDownloadRepository;
+use Core\Journal\JournalRepository;
+use Core\Journal\JournalService;
 use Core\Http\UrlMetadataFetcher;
 use Core\Storage\Location\Backend\StorageBackendFactory;
 use Core\Storage\Location\StorageLocationService;
@@ -76,6 +80,8 @@ class GalleryControllerTest extends TestCase
     private int $scoutYearId;
     private int $sectionId;
     private int $locationId;
+    private ZipDownloadLimiter $zipDownloadLimiter;
+    private JournalService $journalService;
 
     protected function setUp(): void
     {
@@ -147,9 +153,13 @@ class GalleryControllerTest extends TestCase
         $this->twig->addGlobal('menus', null);
         $this->twig->addGlobal('csp_nonce', 'test-nonce');
 
+        $this->zipDownloadLimiter = new ZipDownloadLimiter(new ZipDownloadRepository($this->pdo));
+        $this->journalService = new JournalService(new JournalRepository($this->pdo));
+
         $this->controller = new GalleryController(
             $this->twig, $this->albumService, $this->mediaService, $this->mediaRepository, $this->memberService,
-            $this->sectionService, $this->scoutYearService, $this->storageBackendFactory, $this->storageLocationService, $this->galleryLocationService
+            $this->sectionService, $this->scoutYearService, $this->storageBackendFactory, $this->storageLocationService,
+            $this->galleryLocationService, $this->zipDownloadLimiter, $this->journalService
         );
 
         if (session_status() === PHP_SESSION_NONE) {
@@ -207,7 +217,8 @@ class GalleryControllerTest extends TestCase
         $controller = new GalleryController(
             $this->twig, $this->albumService, $this->mediaService, $this->mediaRepository, $this->memberService,
             $this->sectionService, $this->scoutYearService, $this->storageBackendFactory,
-            $this->storageLocationService, $galleryLocations, $this->allowingRegistry()
+            $this->storageLocationService, $galleryLocations, $this->zipDownloadLimiter, $this->journalService,
+            $this->allowingRegistry()
         );
 
         $response = $controller->serveMedia(
@@ -267,6 +278,8 @@ class GalleryControllerTest extends TestCase
             $this->twig, $this->albumService, $this->mediaService, $this->mediaRepository, $this->memberService,
             $this->sectionService, $this->scoutYearService, $this->storageBackendFactory, $this->storageLocationService,
             $this->galleryLocationService,
+            $this->zipDownloadLimiter,
+            $this->journalService,
             $registry
         );
     }
@@ -1408,5 +1421,289 @@ class GalleryControllerTest extends TestCase
 
         $this->assertSame(200, $response->getStatusCode());
         $this->assertStringContainsString('indisponible', mb_strtolower($response->getBody()));
+    }
+
+    // ————— The visibility period on the direct routes (issue #1112, SEC-013) —————
+
+    /**
+     * The scout year $n years before the current one — counted from the
+     * year the application itself calls current (today's date), so these
+     * tests mean the same thing whatever year they run in.
+     */
+    private function yearsAgo(int $n): int
+    {
+        $currentStart = (int) substr($this->scoutYearService->getCurrentYear()['label'], 0, 4);
+        $start = $currentStart - $n;
+
+        return $this->scoutYearService->ensureYear($start . '-' . ($start + 1));
+    }
+
+    private function createLocalAlbumIn(int $scoutYearId, ?int $sectionId): int
+    {
+        return $this->albumRepository->create(
+            Album::TYPE_LOCAL, 'Camp', null, '2022-01-01', $sectionId, $scoutYearId, null, $this->locationId,
+            $this->authorId
+        );
+    }
+
+    /**
+     * The logged-in parent (member@test.be) becomes the address of an animé
+     * of $sectionId this year — so that section is one of their linked
+     * sections, the way a real parent's is.
+     */
+    private function linkParentToSection(int $sectionId): void
+    {
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('M1112')");
+        $memberId = (int) $this->pdo->lastInsertId();
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted, '
+            . 'email_encrypted, email_blind_index, is_active) VALUES (?, ?, ?, ?, ?, ?, 1)'
+        );
+        $stmt->execute([
+            $memberId, $this->yearsAgo(0),
+            $encryption->encrypt('Léa', 'member_years.first_name'),
+            $encryption->encrypt('Dupont', 'member_years.last_name'),
+            $encryption->encrypt('member@test.be', 'member_years.email'),
+            $encryption->blindIndex('member@test.be', 'email'),
+        ]);
+        $memberYearId = (int) $this->pdo->lastInsertId();
+        $this->pdo->exec(
+            "INSERT INTO functions (desk_code, label, role, confirmed) VALUES ('LOUV', 'Louveteau', 'identified', 1)"
+        );
+        $functionId = (int) $this->pdo->lastInsertId();
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO member_functions (member_year_id, function_id, section_id, is_main_function) '
+            . 'VALUES (?, ?, ?, 1)'
+        );
+        $stmt->execute([$memberYearId, $functionId, $sectionId]);
+    }
+
+    private function backendServing(string $bytes): void
+    {
+        $backend = $this->createStub(\Core\Storage\Location\Backend\StorageBackendInterface::class);
+        $backend->method('get')->willReturn($bytes);
+        $this->storageBackendFactory->method('create')->willReturn($backend);
+    }
+
+    /**
+     * @return array<string, int> route => status code
+     */
+    private function statusOnEveryDirectRoute(int $albumId, int $mediaId): array
+    {
+        $statuses = [
+            'show' => $this->controller->show(
+                new Request('GET', '/gallery/' . $albumId, [], [], [], []),
+                ['id' => (string) $albumId]
+            )->getStatusCode(),
+            'downloadZip' => $this->controller->downloadZip(
+                new Request('GET', '/gallery/' . $albumId . '/download', [], [], [], []),
+                ['id' => (string) $albumId]
+            ),
+            'downloadMedia' => $this->controller->downloadMedia(
+                new Request('GET', '/gallery/media/' . $mediaId . '/download', [], [], [], []),
+                ['media_id' => (string) $mediaId]
+            )->getStatusCode(),
+            'serveMedia' => $this->controller->serveMedia(
+                new Request('GET', '/gallery/media/' . $mediaId . '/thumb', [], [], [], []),
+                ['media_id' => (string) $mediaId, 'size' => 'thumb']
+            )->getStatusCode(),
+        ];
+        $zip = $statuses['downloadZip'];
+        $statuses['downloadZip'] = $zip->getStatusCode();
+        if ($zip->getBodyFilePath() !== null) {
+            @unlink((string) $zip->getBodyFilePath());
+        }
+
+        return $statuses;
+    }
+
+    private const REFUSED_EVERYWHERE = [
+        'show' => 403, 'downloadZip' => 403, 'downloadMedia' => 403, 'serveMedia' => 403,
+    ];
+
+    private const SERVED_EVERYWHERE = [
+        'show' => 200, 'downloadZip' => 200, 'downloadMedia' => 200, 'serveMedia' => 200,
+    ];
+
+    /**
+     * The defect: the list kept a parent to two years, the direct routes
+     * did not — a unit album from four years ago opened, zipped and served
+     * to anybody logged in who counted ids.
+     */
+    public function testAUnitAlbumFromFourYearsAgoIsRefusedToAParentOnEveryDirectRoute(): void
+    {
+        $albumId = $this->createLocalAlbumIn($this->yearsAgo(4), null);
+        $mediaId = $this->createDoneMedia($albumId);
+        $this->backendServing('old-bytes');
+
+        $this->assertSame(self::REFUSED_EVERYWHERE, $this->statusOnEveryDirectRoute($albumId, $mediaId));
+    }
+
+    public function testTheParentsOwnSectionsAlbumFromFourYearsAgoIsRefusedToo(): void
+    {
+        $this->linkParentToSection($this->sectionId);
+        $albumId = $this->createLocalAlbumIn($this->yearsAgo(4), $this->sectionId);
+        $mediaId = $this->createDoneMedia($albumId);
+        $this->backendServing('old-bytes');
+
+        $this->assertSame(self::REFUSED_EVERYWHERE, $this->statusOnEveryDirectRoute($albumId, $mediaId));
+    }
+
+    /**
+     * The refusal is the one another section's album gets: the readable 403
+     * page with its sentence, not a 404.
+     */
+    public function testTheRefusalOfAnOldAlbumIsTheUsualReadable403(): void
+    {
+        $albumId = $this->createLocalAlbumIn($this->yearsAgo(4), null);
+
+        $response = $this->controller->show(
+            new Request('GET', '/gallery/' . $albumId, [], [], [], []),
+            ['id' => (string) $albumId]
+        );
+
+        $this->assertSame(403, $response->getStatusCode());
+        $this->assertStringContainsString('pas accessible avec votre compte', $response->getBody());
+    }
+
+    /**
+     * @return array<string, array{bool}>
+     */
+    public static function lastYearsAlbumProvider(): array
+    {
+        return ['a unit album' => [false], 'an album of the parent\'s own section' => [true]];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('lastYearsAlbumProvider')]
+    public function testLastYearsAlbumIsServedToTheParent(bool $ofTheParentsSection): void
+    {
+        $this->linkParentToSection($this->sectionId);
+        $this->backendServing('recent-bytes');
+        $albumId = $this->createLocalAlbumIn($this->yearsAgo(1), $ofTheParentsSection ? $this->sectionId : null);
+        $mediaId = $this->createDoneMedia($albumId);
+
+        $this->assertSame(self::SERVED_EVERYWHERE, $this->statusOnEveryDirectRoute($albumId, $mediaId));
+    }
+
+    public function testAChiefOpensAnAlbumFromFourYearsAgo(): void
+    {
+        $albumId = $this->createLocalAlbumIn($this->yearsAgo(4), $this->sectionId);
+        $mediaId = $this->createDoneMedia($albumId);
+        $this->backendServing('old-bytes');
+        AuthSession::login(1, 'chief@test.be', 'chief');
+
+        $this->assertSame(self::SERVED_EVERYWHERE, $this->statusOnEveryDirectRoute($albumId, $mediaId));
+    }
+
+    /**
+     * The list says the same thing as the routes: the old album is not
+     * listed, last year's is.
+     */
+    public function testTheListShowsLastYearsAlbumAndNotTheOldOne(): void
+    {
+        $this->albumRepository->create(
+            Album::TYPE_LOCAL, 'Album de l an dernier', null, '2025-01-01', null, $this->yearsAgo(1),
+            null, $this->locationId, $this->authorId
+        );
+        $this->albumRepository->create(
+            Album::TYPE_LOCAL, 'Album ancien', null, '2022-01-01', null, $this->yearsAgo(4),
+            null, $this->locationId, $this->authorId
+        );
+
+        $body = $this->controller->index(new Request('GET', '/gallery', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('Album de l an dernier', $body);
+        $this->assertStringNotContainsString('Album ancien', $body);
+    }
+
+    // ————— The ZIP limit and its journal line (issue #1112) —————
+
+    private function downloadZipOf(int $albumId): \Core\Http\Response
+    {
+        $response = $this->controller->downloadZip(
+            new Request('GET', '/gallery/' . $albumId . '/download', [], [], [], []),
+            ['id' => (string) $albumId]
+        );
+        if ($response->getBodyFilePath() !== null) {
+            @unlink((string) $response->getBodyFilePath());
+        }
+
+        return $response;
+    }
+
+    public function testTheTenthZipWithinTheHourIsServedAndTheEleventhRefusedWith429(): void
+    {
+        $albumId = $this->createLocalAlbum(null);
+        $this->createDoneMedia($albumId);
+        $this->backendServing('bytes');
+
+        for ($i = 1; $i <= 10; $i++) {
+            $this->assertSame(200, $this->downloadZipOf($albumId)->getStatusCode(), "ZIP #{$i}");
+        }
+        $refused = $this->downloadZipOf($albumId);
+
+        $this->assertSame(429, $refused->getStatusCode());
+        $this->assertStringContainsString(
+            'Vous avez téléchargé beaucoup d&#039;albums en peu de temps — réessayez dans une heure.',
+            $refused->getBody()
+        );
+        $this->assertSame('3600', $refused->getHeaders()['Retry-After']);
+    }
+
+    /**
+     * Refused before any archive work: the storage is never read.
+     */
+    public function testARefusedZipReadsNothingFromStorage(): void
+    {
+        $albumId = $this->createLocalAlbum(null);
+        $this->createDoneMedia($albumId);
+        $limiter = new ZipDownloadLimiter(new ZipDownloadRepository($this->pdo));
+        for ($i = 0; $i < ZipDownloadLimiter::LIMIT; $i++) {
+            $limiter->tryAcquire(1);
+        }
+        $backend = $this->createMock(\Core\Storage\Location\Backend\StorageBackendInterface::class);
+        $backend->expects($this->never())->method('get');
+        $this->storageBackendFactory->method('create')->willReturn($backend);
+
+        $this->assertSame(429, $this->downloadZipOf($albumId)->getStatusCode());
+    }
+
+    /**
+     * An album the caller may not see is refused for that reason, and
+     * spends none of their budget.
+     */
+    public function testARefusedAlbumDoesNotSpendTheZipBudget(): void
+    {
+        $albumId = $this->createLocalAlbumIn($this->yearsAgo(4), null);
+
+        $this->assertSame(403, $this->downloadZipOf($albumId)->getStatusCode());
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM gallery_zip_downloads')->fetchColumn());
+    }
+
+    public function testAZipDownloadWritesOneInfoJournalLineWithTheAlbumIdOnly(): void
+    {
+        $albumId = $this->createLocalAlbum(null);
+        $this->createDoneMedia($albumId);
+        $this->backendServing('bytes');
+
+        $this->assertSame(200, $this->downloadZipOf($albumId)->getStatusCode());
+
+        $rows = $this->pdo->query('SELECT * FROM event_log')->fetchAll(\PDO::FETCH_ASSOC);
+        $this->assertCount(1, $rows);
+        $this->assertSame('gallery', $rows[0]['category']);
+        $this->assertSame('gallery_album_zip_downloaded', $rows[0]['event_type']);
+        $this->assertSame('info', $rows[0]['level']);
+        $this->assertSame(1, (int) $rows[0]['user_account_id']);
+        $this->assertSame(['album_id' => $albumId], json_decode((string) $rows[0]['context'], true));
+    }
+
+    public function testARefusedZipWritesNoJournalLine(): void
+    {
+        $albumId = $this->createLocalAlbumIn($this->yearsAgo(4), null);
+
+        $this->downloadZipOf($albumId);
+
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM event_log')->fetchColumn());
     }
 }

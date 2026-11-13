@@ -6654,6 +6654,32 @@ Issue #1142, `docs/chantiers/CHANTIER-migration-donnees.md`. A one-off copy of a
 
 **Provenance and deduplication: one correspondence table, owned by `data_migration` (D12).** `data_migration_items` maps (source `installation_id`, `format`, `source_kind`, `source_id`) → (`target_type`, `target_id`), unique on the source quadruple (`Repository\ItemMappingRepository`). It is THE reference for « déjà présent »: `ImportEngine` looks it up before asking the importer anything, at the analysis and again right before each write, so re-running an archive — or a newer export of the same site — writes nothing twice. The row is inserted **in the same transaction as the object it records** (`TransactionScope`, which also moves the run's cursor), so an interrupted or failed slice never leaves an object without its row or a row without its object, and a duplicate key rolls the object back with it. The source columns are `VARBINARY` because identifiers are compared byte for byte (`conventions.md` §5). `target_id` is a plain string with **no foreign key** to the target table, for the same reason as every cross-module reference (§7.5): the target module can be disabled, and an object deleted later leaves a row that still answers « already imported » — deleting an imported object is not a request to import it again. **No `legacy_*` column is added to any module** for this; the D11 lock is the only migration-related schema a target module carries. An import may add its own recognition of an object already on the site on top of the table (a normalised album URL, a similar camp place, a possible duplicate registration, mass_mail's `import_source` for an e-mail whose correspondence row is gone), never instead of it.
 
+### 8.127 Who sees which gallery album, and the ZIP limit (`modules/gallery`)
+
+Issue #1112, audit SEC-013. **One predicate for the list and for every direct route.**
+`Modules\Gallery\Service\AlbumVisibility` is the whole rule for an ordinary (non-delegated) album: `everything()` for
+`chief` and above, every year and every section; `forMember($relevantYears, $linkedSections)` below that, which allows
+an album only if its scout year is one of `ScoutYearService::currentAndPreviousYearIds()` AND it is unit-wide or of a
+linked section. `GalleryController::isVisible()` asks `allows()` on `show()`, `downloadZip()`, `downloadMedia()` and
+`serveMedia()`; `index()` builds the same object and hands its `scoutYearIds()`/`sectionIds()` to
+`AlbumRepository::findVisible()`, which states the same two conditions in SQL rather than reading the whole album
+history to filter it in PHP. The two forms are held together by `Tests\Modules\Gallery\Service\AlbumVisibilityTest`,
+which runs both over five years × three sections plus unit-wide × several callers and requires the same set. Before
+this, the list asked the year and the routes only the section, so a parent opened — and zipped — any past album by
+counting ids. A chief's list still shows two years (`findForManageByScoutYears()`); that is a choice of what to list,
+not a limit on what a chief may open. Delegated albums never reach this rule (`Service\DelegatedAlbumAccessRegistry`).
+
+**At most ten whole-album ZIPs per account per hour** (`Service\ZipDownloadLimiter`,
+`Repository\ZipDownloadRepository`, table `gallery_zip_downloads`) — the same mechanism as the groups module's
+`RateLimitService` (§8.40): one row per accepted ZIP, both ends of the window computed on `Core\Config\AppClock` in
+PHP, never the server's `NOW()`. `downloadZip()` asks after the visibility check (a refused album spends nothing) and
+before any archive work (a refusal reads no storage); the eleventh answers 429 through the readable refusal page with
+`Retry-After: 3600`. The row is keyed on `user_accounts.id` (`ON DELETE CASCADE` — core's table, so no module boundary
+is crossed) and holds nothing else. `Task\PurgeZipDownloadsHandler` (`gallery`/`purge_zip_downloads`, daily,
+self-re-arming, seeded once from `public/index.php`) deletes rows older than two hours. One media at a time is not
+counted. Every archive actually handed over writes one `info` journal line, `gallery_album_zip_downloaded`, whose
+context is the album's id and nothing else, the account being the line's own user.
+
 ## 9. Installation / bootstrap
 
 ### 9.1 First install: bootstrap.php

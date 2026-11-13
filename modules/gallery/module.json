@@ -330,6 +330,10 @@
     {
       "key": "migrate_album_storage",
       "handler": "Modules\\Gallery\\Task\\MigrateAlbumStorageHandler"
+    },
+    {
+      "key": "purge_zip_downloads",
+      "handler": "Modules\\Gallery\\Task\\PurgeZipDownloadsHandler"
     }
   ],
   "storage": {

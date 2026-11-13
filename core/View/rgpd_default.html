@@ -181,6 +181,9 @@ Modèles : Llama, Qwen, divers modèles open source</li>
 <li>Photos et vidéos des activités de l'unité (le droit à l'image s'applique, voir section 2.3 pour le consentement et les modalités de retrait)</li>
 <li>Métadonnées des albums : titre, sous-titre, date, section associée (aucune donnée personnelle)</li>
 <li>Pour les albums externes (lien vers un site tiers) : titre, description et image de couverture récupérés automatiquement depuis les métadonnées publiques (Open Graph) du lien fourni par le chef</li>
+<li>Téléchargement d'un album entier (archive ZIP) : le compte et l'heure du téléchargement,
+conservés au plus un jour pour limiter chaque compte à dix albums entiers par heure, et une ligne au
+journal d'audit qui ne contient que l'identifiant de l'album et du compte</li>
 </ul>
 <p><strong>Stockage des fichiers</strong> : l'administrateur peut configurer plusieurs emplacements de stockage à la fois (le serveur de l'hébergeur pour le stockage local, et/ou un ou plusieurs stockages externes : fournisseur de stockage objet compatible S3, partage WebDAV, dossier Google Drive) — chaque album est associé, dès sa création, à l'un de ces emplacements, qui ne change jamais ensuite pour cet album, même si l'emplacement proposé par défaut pour les nouveaux albums change par la suite (voir section 4.2 pour le ou les sous-traitants de stockage effectivement configurés). Un emplacement local n'introduit aucun sous-traitant supplémentaire. Les fichiers ne sont pas chiffrés au repos (il ne s'agit pas de données personnelles au sens strict), mais leur accès est restreint aux utilisateurs identifiés (rôle minimum requis).</p>
 <p><strong>Suppression</strong> : la suppression d'un album entraîne la suppression immédiate et définitive de l'ensemble des photos et vidéos qu'il contient, quel que soit le support de stockage utilisé.</p>

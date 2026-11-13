@@ -12,6 +12,7 @@ use Core\Config\ScoutYearService;
 use Core\Http\Controller\AbstractController;
 use Core\Http\Request;
 use Core\Http\Response;
+use Core\Journal\JournalService;
 use Core\Member\MemberService;
 use Core\Member\SectionService;
 use Core\Security\AuthSession;
@@ -20,10 +21,12 @@ use Modules\Gallery\Repository\Album;
 use Modules\Gallery\Repository\Media;
 use Modules\Gallery\Repository\MediaRepository;
 use Modules\Gallery\Service\AlbumService;
+use Modules\Gallery\Service\AlbumVisibility;
 use Modules\Gallery\Service\DelegatedAlbumAccessRegistry;
 use Modules\Gallery\Service\GalleryLocationService;
 use Modules\Gallery\Service\MediaFileName;
 use Modules\Gallery\Service\MediaService;
+use Modules\Gallery\Service\ZipDownloadLimiter;
 use Core\Storage\Location\Backend\RangeReadableBackend;
 use Core\Storage\Location\Backend\StorageBackendFactory;
 use Core\Storage\Location\Backend\StorageBackendInterface;
@@ -67,6 +70,14 @@ class GalleryController extends AbstractController
     private const MAX_ZIP_BYTES = 512 * 1024 * 1024;
 
     /**
+     * Said when Service\ZipDownloadLimiter refuses the next whole-album
+     * ZIP: what happened and when it will work again, nothing about the
+     * exact figure.
+     */
+    private const ZIP_RATE_LIMITED_MESSAGE =
+        'Vous avez téléchargé beaucoup d\'albums en peu de temps — réessayez dans une heure.';
+
+    /**
      * @param int[] $linkedMemberIds
      */
     public function __construct(
@@ -80,6 +91,11 @@ class GalleryController extends AbstractController
         private StorageBackendFactory $storageBackendFactory,
         private StorageLocationService $storageLocationService,
         private GalleryLocationService $galleryLocationService,
+        // Required, never defaulted: a controller built without them would
+        // hand out ZIPs with no limit and no journal line, and nothing would
+        // say so.
+        private ZipDownloadLimiter $zipDownloadLimiter,
+        private JournalService $journalService,
         // Both last, with safe defaults, so every existing positional
         // construction of this controller (tests included) keeps working
         // unchanged — same "append-only" discipline as
@@ -104,15 +120,22 @@ class GalleryController extends AbstractController
      */
     public function index(Request $request, array $params): Response
     {
-        $scoutYearIds = $this->relevantScoutYearIds();
+        $visibility = $this->visibility();
 
-        if (Role::fromString(AuthSession::getRole())->hasAccess(Role::CHIEF)) {
+        if ($visibility->seesEverything()) {
             // Filtered in SQL — the PHP filter over findAllForManage()
-            // read the whole album history to keep two years of it.
-            $albums = $this->albumService->findForManageByScoutYears($scoutYearIds);
+            // read the whole album history to keep two years of it. A chief
+            // may OPEN an older album (AlbumVisibility::everything()); the
+            // list just doesn't lead there.
+            $albums = $this->albumService->findForManageByScoutYears($this->relevantScoutYearIds());
         } else {
-            $sectionIds = $this->linkedSectionIds(AuthSession::getEmail() ?? '');
-            $albums = $this->albumService->findVisibleForMember($sectionIds, $scoutYearIds);
+            // The same years and sections AlbumVisibility::allows() checks
+            // on every direct route, stated in SQL — the two are held
+            // together by Tests\Modules\Gallery\Service\AlbumVisibilityTest.
+            $albums = $this->albumService->findVisibleForMember(
+                $visibility->sectionIds(),
+                $visibility->scoutYearIds()
+            );
         }
 
         return $this->render('@gallery/list.html.twig', [
@@ -197,6 +220,19 @@ class GalleryController extends AbstractController
             return new Response('Album en cours de migration.', 503);
         }
 
+        // After the visibility check, so an album the caller may not see
+        // never spends their budget; before any archive work, so a refusal
+        // costs no storage read (issue #1112).
+        $accountId = AuthSession::getUserAccountId();
+        if ($accountId === null) {
+            return $this->forbidden(self::ALBUM_NOT_VISIBLE_MESSAGE, $request);
+        }
+        if (!$this->zipDownloadLimiter->tryAcquire($accountId)) {
+            return $this->forbidden(self::ZIP_RATE_LIMITED_MESSAGE, $request)
+                ->setStatusCode(429)
+                ->setHeader('Retry-After', '3600');
+        }
+
         $media = array_values(array_filter(
             $this->mediaRepository->findByAlbumId($album->id),
             fn(Media $m) => $m->processingStatus === Media::STATUS_DONE
@@ -260,6 +296,17 @@ class GalleryController extends AbstractController
                 $zip->addFile($spoolPath, MediaFileName::forMedia($m));
             }
             $zip->close();
+
+            // One line per archive actually handed over: the album's id and
+            // who asked for it, nothing else — no title, no name.
+            $this->journalService->log(
+                'gallery',
+                'gallery_album_zip_downloaded',
+                'info',
+                'Téléchargement d\'un album complet (ZIP)',
+                ['album_id' => $album->id],
+                $accountId
+            );
 
             // Stream the finished archive straight off disk rather than
             // reading the whole thing into a PHP string first (audit M10): the
@@ -391,9 +438,10 @@ class GalleryController extends AbstractController
      *
      * module.json's role_min only establishes that the caller is an
      * identified member — it says nothing about WHICH albums they may see,
-     * so this applies the same isVisible() section scoping show() and
-     * downloadZip() do. Without it, sequential media ids made every
-     * section-scoped album's photos readable by any logged-in member.
+     * so this applies the same isVisible() scoping — section AND scout
+     * year — show() and downloadZip() do. Without it, sequential media ids
+     * made every section-scoped album's photos readable by any logged-in
+     * member, and every past year's album too until issue #1112.
      * (A delegated album takes its own branch below, where
      * Service\DelegatedAlbumAccessRegistry decides instead.)
      *
@@ -761,14 +809,30 @@ class GalleryController extends AbstractController
         return $this->scoutYearService->currentAndPreviousYearIds();
     }
 
+    /**
+     * Every direct route (show, downloadZip, downloadMedia, serveMedia) asks
+     * this, and index() lists from the same AlbumVisibility — one rule for
+     * the year AND the section (issue #1112).
+     */
     private function isVisible(Album $album): bool
     {
-        if ($album->sectionId === null) {
-            return true;
+        return $this->visibility()->allows($album);
+    }
+
+    /**
+     * The caller's album visibility. A chief is decided before the linked
+     * sections are looked up, so a chief's request reads no roster.
+     */
+    private function visibility(): AlbumVisibility
+    {
+        if (Role::fromString(AuthSession::getRole())->hasAccess(Role::CHIEF)) {
+            return AlbumVisibility::everything();
         }
-        $email = AuthSession::getEmail() ?? '';
-        return in_array($album->sectionId, $this->linkedSectionIds($email), true)
-            || Role::fromString(AuthSession::getRole())->hasAccess(Role::CHIEF);
+
+        return AlbumVisibility::forMember(
+            $this->relevantScoutYearIds(),
+            $this->linkedSectionIds(AuthSession::getEmail() ?? '')
+        );
     }
 
     /**
