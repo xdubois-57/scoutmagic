@@ -25,6 +25,19 @@ namespace Modules\Rental\Availability;
 final class BookingConstraints
 {
     /**
+     * The longest stay and the farthest arrival an asset accepts until a
+     * manager says otherwise (issue #1114) — the `rental_assets` column
+     * defaults, which SchemaComparator also moves the assets still on 0 to.
+     * Unlimited (0) remains a choice, made by typing it: with no ceiling, a
+     * single anonymous request « dans 30 jours, pour deux ans » took the
+     * whole calendar under its automatic hold.
+     */
+    public const DEFAULT_MAX_NIGHTS = 30;
+
+    /** About eighteen months. */
+    public const DEFAULT_MAX_HORIZON_DAYS = 548;
+
+    /**
      * @param int $minNights Shortest stay accepted. 0 means no minimum.
      * @param int $maxNights Longest stay accepted. 0 means no maximum.
      * @param int $minNoticeDays How far ahead a request must be made. 0 means "today is fine".

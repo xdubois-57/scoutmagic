@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\Rental\Controller;
 
+use Modules\Rental\Availability\BookingConstraints;
 use Core\ScoutYear\ScoutYearResolver;
 use Core\Http\Controller\AbstractController;
 use Core\Http\FlashMessage;
@@ -272,9 +273,11 @@ class RentalPricingController extends AbstractController
             $this->availabilityService->saveConstraints(
                 $asset->id,
                 self::optionalInt($request->getBody('min_nights')) ?? 0,
-                self::optionalInt($request->getBody('max_nights')) ?? 0,
+                // Empty is the default, never « unlimited » (issue #1114):
+                // no ceiling is typed as 0, on purpose.
+                self::optionalInt($request->getBody('max_nights')) ?? BookingConstraints::DEFAULT_MAX_NIGHTS,
                 self::optionalInt($request->getBody('min_notice_days')) ?? 0,
-                self::optionalInt($request->getBody('max_horizon_days')) ?? 0,
+                self::optionalInt($request->getBody('max_horizon_days')) ?? BookingConstraints::DEFAULT_MAX_HORIZON_DAYS,
                 is_array($weekdays) ? $weekdays : [],
                 self::optionalInt($request->getBody('max_persons')),
                 self::optionalInt($request->getBody('buffer_nights')) ?? 0,

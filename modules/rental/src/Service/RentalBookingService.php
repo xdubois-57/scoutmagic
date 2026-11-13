@@ -48,6 +48,22 @@ class RentalBookingService implements OccupancyProvider
     /** The renter's name, as the registration form bounds a parent's (issue #1114). */
     public const MAX_RENTER_NAME_LENGTH = 150;
 
+    /**
+     * The longest stay a request may hold automatically (issue #1114).
+     * Longer, it is still recorded and answered, but blocks nothing until a
+     * manager places an option: nobody has looked at it yet, and a month
+     * of somebody else's calendar is not a visitor's to take on their own.
+     */
+    public const AUTOMATIC_HOLD_MAX_NIGHTS = 30;
+
+    /**
+     * How many automatic holds one requester may have running at once,
+     * every asset together (issue #1114) — counted on the address and, for
+     * a signed-in account, on the account. A family asking for two weekends
+     * gets both held; a third request waits like any other, unheld.
+     */
+    public const MAX_RUNNING_AUTOMATIC_HOLDS = 2;
+
     private BookingReference $references;
 
     public function __construct(
@@ -121,7 +137,8 @@ class RentalBookingService implements OccupancyProvider
         array $acceptances,
         \DateTimeImmutable $now,
         int $automaticHoldDays = self::DEFAULT_AUTOMATIC_HOLD_DAYS,
-        ?callable $availableUnderLock = null
+        ?callable $availableUnderLock = null,
+        ?int $requesterAccountId = null
     ): array {
         $name = trim($renter['name']);
         $email = trim($renter['email']);
@@ -208,7 +225,8 @@ class RentalBookingService implements OccupancyProvider
             self::hashAcceptedText($acceptances['conditions_text'] ?? ''),
             $acceptances['privacy_version'],
             self::hashAcceptedText($acceptances['privacy_text'] ?? ''),
-            $now
+            $now,
+            $requesterAccountId
         );
 
         // Checked and written as one: no other request, option or
@@ -502,6 +520,56 @@ class RentalBookingService implements OccupancyProvider
             null,
             $actorMemberId
         );
+    }
+
+    /**
+     * How many days a public request's automatic hold lasts: the
+     * configured period, or 0 — no hold at all — when the request may not
+     * take its dates on its own (issue #1114):
+     *
+     * - **longer than AUTOMATIC_HOLD_MAX_NIGHTS**: a long stay is answered
+     *   by a manager before it blocks anything;
+     * - **the requester already has MAX_RUNNING_AUTOMATIC_HOLDS running**,
+     *   on their address or their account: the next one waits.
+     *
+     * Either way the request is recorded and answered as usual; it simply
+     * does not show its dates as taken. A request overlapping a hold already
+     * running needs no rule here: those dates are occupied, and the
+     * availability check refuses it.
+     *
+     * Read by the public form before it calls createFromPublicRequest(),
+     * outside the asset's lock. Two requests from one person at the same
+     * second can each see one hold fewer than there will be — an
+     * acceptable miss for a ceiling that exists to stop a visitor taking
+     * the calendar, not to count to the unit.
+     */
+    public function automaticHoldDaysFor(
+        string $arrivalDate,
+        string $departureDate,
+        string $renterEmail,
+        ?int $requesterAccountId,
+        int $configuredDays,
+        \DateTimeImmutable $now
+    ): int {
+        if ($configuredDays <= 0) {
+            return 0;
+        }
+
+        $arrival = DateInput::iso($arrivalDate);
+        $departure = DateInput::iso($departureDate);
+        if ($arrival === null || $departure === null
+            || (int) $arrival->diff($departure)->days > self::AUTOMATIC_HOLD_MAX_NIGHTS
+        ) {
+            return 0;
+        }
+
+        $running = $this->bookingRepository->countRunningAutomaticHolds(
+            trim($renterEmail),
+            $requesterAccountId,
+            $now
+        );
+
+        return $running >= self::MAX_RUNNING_AUTOMATIC_HOLDS ? 0 : $configuredDays;
     }
 
     /**

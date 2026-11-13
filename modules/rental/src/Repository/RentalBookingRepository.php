@@ -162,7 +162,8 @@ class RentalBookingRepository
         ?string $conditionsHash,
         ?string $privacyVersion,
         ?string $privacyHash,
-        \DateTimeImmutable $now
+        \DateTimeImmutable $now,
+        ?int $requestedByAccountId = null
     ): array {
         $trackingToken = CapabilityToken::generate();
         $timestamp = $now->format('Y-m-d H:i:s');
@@ -178,8 +179,8 @@ class RentalBookingRepository
                 estimated_price_snapshot, estimated_total_cents,
                 conditions_version, conditions_hash, conditions_accepted_at,
                 privacy_version, privacy_hash, privacy_acknowledged_at,
-                tracking_token_encrypted, created_at, updated_at
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                tracking_token_encrypted, requested_by_account_id, created_at, updated_at
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
 
         $stmt->execute([
@@ -210,6 +211,7 @@ class RentalBookingRepository
             $privacyHash,
             $privacyVersion !== null ? $timestamp : null,
             $this->encryption->encrypt($trackingToken, self::CTX_TRACKING_TOKEN),
+            $requestedByAccountId,
             $timestamp,
             $timestamp,
         ]);
@@ -439,6 +441,75 @@ class RentalBookingRepository
 
         return array_map(fn(array $row) => $this->hydrate($row), $stmt->fetchAll(\PDO::FETCH_ASSOC));
     }
+
+    /**
+     * How many AUTOMATIC holds a requester has running at $now, across
+     * every asset (issue #1114) — the cap RentalBookingService::
+     * automaticHoldDaysFor() applies. Counted on the address's blind index
+     * and, for a signed-in requester, on the account too: an account could
+     * otherwise type a new address each time. A provisional request only;
+     * a confirmed one holds by its status, not by this.
+     */
+    public function countRunningAutomaticHolds(string $email, ?int $accountId, \DateTimeImmutable $now): int
+    {
+        // Fixed SQL either way: an account id of 0 matches nobody, which is
+        // what an anonymous requester's « account » should match.
+        $stmt = $this->pdo->prepare(
+            'SELECT COUNT(*) FROM rental_bookings
+             WHERE hold_origin = ? AND hold_until > ?
+               AND status IN (?, ?, ?, ?)
+               AND (renter_email_blind_index = ? OR requested_by_account_id = ?)'
+        );
+        $stmt->execute([
+            HoldOrigin::AUTOMATIC->value,
+            $now->format('Y-m-d H:i:s'),
+            ...self::PROVISIONAL_STATUSES,
+            $this->encryption->blindIndex(self::normalizeEmail($email), self::BLIND_INDEX_PURPOSE),
+            $accountId ?? 0,
+        ]);
+
+        return (int) $stmt->fetchColumn();
+    }
+
+    /**
+     * The automatic holds running at $now, every asset, for the managers'
+     * attention point on long ones (issue #1114). Reference, asset and
+     * dates only — nothing about the renter.
+     *
+     * @return list<array{id: int, asset_id: int, reference: string, arrival_date: string,
+     *     departure_date: string, hold_until: string}>
+     */
+    public function findRunningAutomaticHolds(\DateTimeImmutable $now): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT id, asset_id, reference, arrival_date, departure_date, hold_until
+             FROM rental_bookings
+             WHERE hold_origin = ? AND hold_until > ?
+               AND status IN (?, ?, ?, ?)
+             ORDER BY arrival_date ASC, id ASC'
+        );
+        $stmt->execute([HoldOrigin::AUTOMATIC->value, $now->format('Y-m-d H:i:s'), ...self::PROVISIONAL_STATUSES]);
+
+        return array_map(
+            static fn(array $row): array => [
+                'id' => (int) $row['id'],
+                'asset_id' => (int) $row['asset_id'],
+                'reference' => (string) $row['reference'],
+                'arrival_date' => (string) $row['arrival_date'],
+                'departure_date' => (string) $row['departure_date'],
+                'hold_until' => (string) $row['hold_until'],
+            ],
+            $stmt->fetchAll(\PDO::FETCH_ASSOC)
+        );
+    }
+
+    /** The statuses in which a booking takes its dates only while a hold runs. */
+    private const PROVISIONAL_STATUSES = [
+        BookingStatus::RECEIVED->value,
+        BookingStatus::INFO_REQUESTED->value,
+        BookingStatus::PROPOSED->value,
+        BookingStatus::CONTRACT_SENT->value,
+    ];
 
     /**
      * Bookings whose temporary hold has lapsed — the expiry sweep's input.

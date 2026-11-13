@@ -25,6 +25,10 @@ Une règle à zéro ne s'applique pas. Et une règle n'est pas une occupation :
 un jour à l'intérieur du préavis reste libre, affiché comme une date
 passée.
 
+Par défaut, la durée maximum vaut 30 nuits et l'horizon 548 jours ; un
+champ vide reprend ces valeurs. Zéro les rend illimités : une seule
+demande peut alors bloquer tout le calendrier.
+
 ## Tarification
 
 Le mode de facturation décide tout le reste — à la nuit, par personne et

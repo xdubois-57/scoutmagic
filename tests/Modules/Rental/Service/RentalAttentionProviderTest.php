@@ -11,6 +11,7 @@ use Core\Config\SettingService;
 use Core\Config\UnitAddresses;
 use Core\Security\EncryptionService;
 use Modules\Rental\Repository\RentalAssetRepository;
+use Modules\Rental\Repository\RentalBookingRepository;
 use Modules\Rental\Repository\RentalComplianceRepository;
 use Modules\Rental\Repository\RentalStayRepository;
 use Modules\Rental\Stay\IncidentDecision;
@@ -48,7 +49,13 @@ class RentalAttentionProviderTest extends TestCase
 
     private function provider(): RentalAttentionProvider
     {
-        return new RentalAttentionProvider($this->assets, $this->compliance, $this->settings, $this->stay);
+        return new RentalAttentionProvider(
+            $this->assets,
+            $this->compliance,
+            $this->settings,
+            $this->stay,
+            new RentalBookingRepository($this->pdo, $this->encryption)
+        );
     }
 
     private function asset(string $name, string $slug): int
@@ -230,6 +237,82 @@ class RentalAttentionProviderTest extends TestCase
         }
 
         return ['booking' => $booking, 'incident' => $incident];
+    }
+
+    // ── An automatic hold over a long stay (#1114) ──────────────────────
+
+    /**
+     * A request of $nights nights arriving in 40 days, its hold ending in
+     * $holdEndsInDays days (negative: lapsed), of the given origin.
+     */
+    private function heldRequest(
+        int $assetId,
+        int $nights,
+        string $reference,
+        string $origin = 'automatic',
+        int $holdEndsInDays = 5,
+        string $status = 'received'
+    ): int {
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO rental_bookings
+                (asset_id, reference, arrival_date, departure_date, units, status, hold_until, hold_origin,
+                 renter_name_encrypted, renter_email_encrypted, renter_email_blind_index, tracking_token_encrypted)
+             VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?)'
+        );
+        $stmt->execute([
+            $assetId,
+            $reference,
+            $this->daysFromToday(40),
+            $this->daysFromToday(40 + $nights),
+            $status,
+            AppClock::now()->modify("{$holdEndsInDays} days")->format('Y-m-d H:i:s'),
+            $origin,
+            $this->encryption->encrypt('Jeanne Martin', 'rental_bookings.renter_name'),
+            $this->encryption->encrypt('jeanne@example.org', 'rental_bookings.renter_email'),
+            $this->encryption->blindIndex('jeanne@example.org', 'email'),
+            $this->encryption->encrypt('token', 'rental_bookings.tracking_token'),
+        ]);
+
+        return (int) $this->pdo->lastInsertId();
+    }
+
+    public function testAnAutomaticHoldOverALongStayIsAPointWithoutTheRentersName(): void
+    {
+        $this->landlordEverywhere();
+        $assetId = $this->asset('Le Chalet', 'chalet');
+        $bookingId = $this->heldRequest($assetId, 20, 'LOC-H0LD20');
+
+        $points = $this->pointsTitled('Option automatique');
+
+        $this->assertCount(1, $points);
+        $this->assertSame('Option automatique de 20 nuits : LOC-H0LD20', $points[0]->title);
+        $this->assertStringContainsString('« Le Chalet »', $points[0]->why);
+        $this->assertStringContainsString($this->daysFromTodayFr(40), $points[0]->why);
+        $this->assertStringNotContainsString('Jeanne', $points[0]->why);
+        $this->assertSame('/mes-locations/chalet/reservations/' . $bookingId, $points[0]->actionUrl);
+        $this->assertSame(AttentionPoint::SEVERITY_ATTENTION, $points[0]->severity);
+    }
+
+    /**
+     * Fourteen nights is not long; a manager's own option is a decision
+     * already taken; a lapsed hold holds nothing; an answered request is
+     * no longer the point.
+     */
+    public function testAShortHoldAManagersOptionALapsedHoldOrAConfirmedStayRaiseNothing(): void
+    {
+        $this->landlordEverywhere();
+        $assetId = $this->asset('Le Chalet', 'chalet');
+        $this->heldRequest($assetId, RentalAttentionProvider::LONG_AUTOMATIC_HOLD_NIGHTS, 'LOC-SH0RT1');
+        $this->heldRequest($assetId, 20, 'LOC-MANAG1', 'manager');
+        $this->heldRequest($assetId, 20, 'LOC-LAPSE1', 'automatic', -1);
+        $this->heldRequest($assetId, 20, 'LOC-C0NF1R', 'automatic', 5, 'confirmed');
+
+        $this->assertSame([], $this->pointsTitled('Option automatique'));
+    }
+
+    private function daysFromTodayFr(int $days): string
+    {
+        return AppClock::now()->modify("{$days} days")->format('d/m/Y');
     }
 
     /** A landlord for every asset, so only the damages speak. */

@@ -41,7 +41,7 @@
 
             <dt class="col-sm-5 col-lg-4">Durée maximum</dt>
             <dd class="col-sm-7 col-lg-8">
-                {{ constraints.maxNights ? constraints.maxNights ~ ' nuit' ~ (constraints.maxNights > 1 ? 's' : '') : 'Aucune' }}
+                {{ constraints.maxNights ? constraints.maxNights ~ ' nuit' ~ (constraints.maxNights > 1 ? 's' : '') : 'Illimitée' }}
             </dd>
 
             <dt class="col-sm-5 col-lg-4">Préavis</dt>
@@ -51,7 +51,7 @@
 
             <dt class="col-sm-5 col-lg-4">Horizon</dt>
             <dd class="col-sm-7 col-lg-8">
-                {{ constraints.maxHorizonDays ? constraints.maxHorizonDays ~ ' jour' ~ (constraints.maxHorizonDays > 1 ? 's' : '') : 'Aucun' }}
+                {{ constraints.maxHorizonDays ? constraints.maxHorizonDays ~ ' jour' ~ (constraints.maxHorizonDays > 1 ? 's' : '') : 'Illimité' }}
             </dd>
 
             <dt class="col-sm-5 col-lg-4">Capacité maximum</dt>
@@ -75,6 +75,17 @@
                 {% endif %}
             </dd>
         </dl>
+
+        {# Issue #1114: no ceiling is a choice a manager makes by typing 0,
+           and the page says what it costs. #}
+        {% if constraints.maxNights == 0 or constraints.maxHorizonDays == 0 %}
+            <div class="alert alert-warning small mt-3 mb-0" role="note">
+                <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
+                Sans durée maximum ou sans horizon, une seule demande peut bloquer le calendrier du bien
+                pendant toute la durée de son option. Une demande de plus de
+                {{ constant('Modules\\Rental\\Service\\RentalBookingService::AUTOMATIC_HOLD_MAX_NIGHTS') }} nuits ne bloque jamais les dates d'elle-même.
+            </div>
+        {% endif %}
     </div>
 </div>
 
@@ -95,7 +106,10 @@
             {{ csrf_field()|raw }}
 
             <p class="text-body-secondary small">
-                Laissez une valeur à zéro pour ne pas appliquer la règle.
+                Laissez une valeur à zéro pour ne pas appliquer la règle. Pour la durée maximum et
+                l'horizon, un champ vide reprend la valeur par défaut ({{ constant('Modules\\Rental\\Availability\\BookingConstraints::DEFAULT_MAX_NIGHTS') }} nuits,
+                {{ constant('Modules\\Rental\\Availability\\BookingConstraints::DEFAULT_MAX_HORIZON_DAYS') }} jours) et zéro signifie « illimité » : une seule demande
+                peut alors bloquer tout le calendrier.
             </p>
 
             <div class="row g-3">
