@@ -112,6 +112,72 @@ class EncryptionServiceTest extends TestCase
     }
 
     /**
+     * PHP records the arguments of every frame on an exception's trace, and
+     * Core\Http\ErrorHandler writes that trace to error_log() — which the
+     * support package then bundles. The message is clean (above); the
+     * constructor frame is not, unless its parameters are marked
+     * #[\SensitiveParameter]. Both keys are on that frame: the bad one and
+     * the valid one next to it.
+     */
+    public function testTheTraceOfARefusalNeverCarriesAKey(): void
+    {
+        // PHP's defaults: arguments recorded, strings cut at 15 characters
+        // (this environment may configure either away, which would make the
+        // assertions below vacuous — the control checks it did not).
+        $previous = ini_set('zend.exception_ignore_args', '0');
+        $previousLength = ini_set('zend.exception_string_param_max_len', '15');
+        try {
+            $bad = 'bad-key-material-xyz';
+            $goodKey = 'GOOD-KEY-MATERIAL-12345678901234';
+
+            // Control: an ordinary function DOES leak its argument into the
+            // trace here, so the assertions below can fail.
+            $control = static function (string $secret): void {
+                throw new \RuntimeException('control');
+            };
+            try {
+                $control($bad);
+            } catch (\RuntimeException $e) {
+                $this->assertStringContainsString(
+                    substr($bad, 0, 10),
+                    $e->getTraceAsString(),
+                    'precondition: this PHP configuration records frame arguments'
+                );
+            }
+
+            foreach ([
+                'constructor, encryption key' => static fn () => new EncryptionService($bad, $goodKey),
+                'constructor, blind index key' => static fn () => new EncryptionService($goodKey, $bad),
+                'fromEncodedKeys, encryption key' => static fn () => EncryptionService::fromEncodedKeys(
+                    base64_encode($bad),
+                    base64_encode($goodKey)
+                ),
+                'fromEncodedKeys, blind index key' => static fn () => EncryptionService::fromEncodedKeys(
+                    base64_encode($goodKey),
+                    base64_encode($bad)
+                ),
+            ] as $label => $attempt) {
+                try {
+                    $attempt();
+                    $this->fail("{$label}: a key of the wrong length must be refused");
+                } catch (\InvalidArgumentException $e) {
+                    $trace = $e->getTraceAsString();
+                    foreach ([$bad, $goodKey, base64_encode($bad), base64_encode($goodKey)] as $secret) {
+                        $this->assertStringNotContainsString(
+                            substr($secret, 0, 10),
+                            $trace,
+                            "{$label}: no part of a key may appear in the trace"
+                        );
+                    }
+                }
+            }
+        } finally {
+            ini_set('zend.exception_ignore_args', $previous === false ? '1' : $previous);
+            ini_set('zend.exception_string_param_max_len', $previousLength === false ? '15' : $previousLength);
+        }
+    }
+
+    /**
      * What `secrets.enc` hands over when a key is absent, empty, not base64
      * or base64 of the wrong length. None of these may be turned into an
      * empty key and used.
