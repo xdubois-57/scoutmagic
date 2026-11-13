@@ -3265,6 +3265,21 @@ if (AuthSession::isAuthenticated()) {
     }
 }
 
+// The members this session is linked to FOR ACCESS DECISIONS (issue #1124):
+// in the authorization year, never the previewed one. A preview is chosen
+// by the very person it would authorise and accepts any year that ever
+// existed — whoever was a child's Desk address in 2022-2023 would be its
+// "parent" again, private documents included, by previewing that year.
+// $linkedMembers above stays the displayed year's: the header name and the
+// Espace membres menu follow what the page shows. Without a preview the two
+// years are one and nothing is read twice.
+$authorizationScoutYear = $scoutYearResolver->getAuthorizationYear();
+$authorizationLinkedMembers = $authorizationScoutYear->id === $effectiveScoutYear->id
+    ? $linkedMembers
+    : (AuthSession::isAuthenticated()
+        ? $memberService->getLinkedMembers(AuthSession::getEmail(), $authorizationScoutYear->id)
+        : []);
+
 // Built here (not earlier, alongside $fileRepository) because the
 // owner-scoping check (Core\File\FileAccessGuard) needs $linkedMembers,
 // which isn't resolved until this point — see the class docblock for why
@@ -3359,7 +3374,10 @@ $galleryDelegatedAlbumDescribers = [];
 // $linkedMembers is re-resolved further down for the Espace membres menu,
 // and the guard's owner-scoping must not depend on which of the two
 // resolutions happens to be the current one by the time it is built.
-$linkedMemberIds = array_map(fn($m) => $m->memberId, $linkedMembers);
+// Taken from the authorization year's members (issue #1124): every consumer
+// of this list decides an access — FileAccessGuard, finance's treasurer
+// scope, the social and fees screens.
+$linkedMemberIds = array_map(fn($m) => $m->memberId, $authorizationLinkedMembers);
 
 $twig->addGlobal('current_user_display_name', $displayName);
 // Which account the nav's avatar stands for — the login's own photo is
@@ -8721,8 +8739,9 @@ if ($isEnabled('finance')) {
     // "Which sections is this session the treasurer of" (ARCHITECTURE.md
     // §8.69). The rule is pure and takes members.id values so the receipts
     // file guard can reuse it; the per-request answer is wrapped once here
-    // — $linkedMemberIds and the effective scout year are the composition
-    // root's to know, and a Service must not go looking for them. Lazy, so
+    // — $linkedMemberIds and the authorization scout year (never the
+    // previewed one, issue #1124) are the composition root's to know, and
+    // a Service must not go looking for them. Lazy, so
     // a page load that never touches finance pays nothing for it.
     $financeTreasurerScopeService = new \Modules\Finance\Service\TreasurerScopeService(
         $connection,
@@ -8731,7 +8750,7 @@ if ($isEnabled('finance')) {
     $financeTreasurerScope = \Modules\Finance\Service\TreasurerScope::forSession(
         $financeTreasurerScopeService,
         $linkedMemberIds,
-        $effectiveScoutYear->id
+        $authorizationScoutYear->id
     );
     $financeAccountVisibility = new \Modules\Finance\Service\AccountVisibility($financeTreasurerScope);
     $financeService = new \Modules\Finance\Service\FinanceService(
@@ -8868,7 +8887,7 @@ if ($isEnabled('finance')) {
         $financeAccountRepo,
         $financeTreasurerScopeService,
         $financeReceiptService,
-        $effectiveScoutYear->id
+        $authorizationScoutYear->id
     );
 
     // An invoice arriving by email, offered as a receipt on the account it
@@ -8889,7 +8908,7 @@ if ($isEnabled('finance')) {
                     $financeTreasurerScopeService,
                     $pdo,
                     $encryptionService,
-                    $effectiveScoutYear->id,
+                    $authorizationScoutYear->id,
                     $expenseReceiptProvider,
                     // The confirming user, resolved into the (role,
                     // members) pair finance's authorisation needs. Only
@@ -8944,7 +8963,7 @@ if ($isEnabled('finance')) {
                     new \Modules\Finance\Mail\SenderStaffAccountResolver(
                         $sectionStaffAuthorizationService,
                         $financeAccountRepo,
-                        $effectiveScoutYear->id
+                        $authorizationScoutYear->id
                     ),
                     new \Modules\Finance\Mail\ForwardedSenderExtractor(),
                     // The treasurers learn of a receipt waiting for them
@@ -8955,7 +8974,7 @@ if ($isEnabled('finance')) {
                         $badgeRepository,
                         $memberBadgeRepository,
                         $userAccountRepo,
-                        $effectiveScoutYear->id
+                        $authorizationScoutYear->id
                     ),
                     // The other silence on this path, and the one the
                     // reader above does not cover: the bytes WERE read,
@@ -9012,7 +9031,7 @@ if ($isEnabled('finance')) {
     $fileOwnershipCheckers[] = new \Modules\Finance\File\FinanceAccountOwnershipChecker(
         $financeAccountRepo,
         $financeTreasurerScopeService,
-        $effectiveScoutYear->id
+        $authorizationScoutYear->id
     );
 
     // Every receipt stored before that checker existed carries no owner

@@ -318,6 +318,40 @@ class SectionDocumentControllerTest extends TestCase
         );
     }
 
+    /**
+     * Issue #1124. The account animated SEC_B in 2019-2020 and animates
+     * only SEC_A now. Previewing 2019-2020 changes what the page shows,
+     * never what it lets the account write: a preview is chosen by the very
+     * person it would authorise, and accepts any year that ever existed.
+     */
+    public function testPreviewingAYearTheAccountAnimatedAnotherSectionGrantsNoWriteOnIt(): void
+    {
+        $this->pdo->exec(
+            "INSERT INTO scout_years (label, start_date, end_date, is_current)"
+            . " VALUES ('2019-2020', '2019-09-01', '2020-08-31', 0)"
+        );
+        $pastYearId = (int) $this->pdo->lastInsertId();
+        $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('DESK_PAST')");
+        $memberId = (int) $this->pdo->lastInsertId();
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted, email_blind_index)'
+            . ' VALUES (?, ?, ?, ?, ?)'
+        );
+        $stmt->execute([$memberId, $pastYearId, 'enc', 'enc', $this->encryption->blindIndex('animateur@test.example', 'email')]);
+        $memberYearId = (int) $this->pdo->lastInsertId();
+        $functionId = (int) $this->pdo->query("SELECT id FROM functions WHERE desk_code = 'chief'")->fetchColumn();
+        $this->pdo->prepare('INSERT INTO member_functions (member_year_id, function_id, section_id) VALUES (?, ?, ?)')
+            ->execute([$memberYearId, $functionId, $this->otherSectionId]);
+
+        $token = $this->csrfToken();
+        \Core\ScoutYear\ScoutYearSession::setPreview($pastYearId);
+
+        $response = $this->controller->add($this->uploadRequest($this->otherSectionId, $token, $pastYearId), []);
+
+        $this->assertSame(403, $response->getStatusCode());
+        $this->assertSame([], $this->documentRepository->findBySectionAndYear($this->otherSectionId, $pastYearId));
+    }
+
     public function testAddRefusesASectionTheAccountDoesNotAnimate(): void
     {
         $token = $this->csrfToken();

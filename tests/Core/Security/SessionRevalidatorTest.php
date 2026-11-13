@@ -255,6 +255,37 @@ class SessionRevalidatorTest extends TestCase
     }
 
     /**
+     * A preview was chosen under the old role (issue #1124): a role that
+     * changes drops it, so an admin demoted to chief does not keep the
+     * year they were looking at.
+     */
+    public function testARoleChangeDropsTheYearPreview(): void
+    {
+        $this->createMemberWithFunction('chief@test.com', 'Animateur', 'chief');
+        $account = $this->userRepo->create('chief@test.com');
+        AuthSession::login($account->id, $account->email, 'admin', \Tests\SessionGenerationFixture::forPdo($this->pdo)->current());
+        \Core\ScoutYear\ScoutYearSession::setPreview(42);
+
+        $this->assertTrue($this->revalidator->revalidate(fn(): AuthorizationYears => $this->authorizationYears()));
+
+        $this->assertSame('chief', AuthSession::getRole());
+        $this->assertNull(\Core\ScoutYear\ScoutYearSession::getPreviewId());
+    }
+
+    /** An unchanged role keeps the preview: revalidation runs on every request. */
+    public function testAnUnchangedRoleKeepsTheYearPreview(): void
+    {
+        $this->createMemberWithFunction('chief@test.com', 'Animateur', 'chief');
+        $account = $this->userRepo->create('chief@test.com');
+        AuthSession::login($account->id, $account->email, 'chief', \Tests\SessionGenerationFixture::forPdo($this->pdo)->current());
+        \Core\ScoutYear\ScoutYearSession::setPreview(42);
+
+        $this->assertTrue($this->revalidator->revalidate(fn(): AuthorizationYears => $this->authorizationYears()));
+
+        $this->assertSame(42, \Core\ScoutYear\ScoutYearSession::getPreviewId());
+    }
+
+    /**
      * And the same machinery must not strand a promotion either.
      */
     public function testAPromotionAlsoTakesEffectOnTheNextRequest(): void
