@@ -16,9 +16,8 @@ related: campagnes, finances, importer-extraits, controle-des-creances
 Le site rattache tout seul un virement dont la communication structurée
 désigne une créance qu'il connaît. « Paiements à traiter » réunit
 **uniquement** ce qui attend ensuite une décision de votre part. Une
-situation n'apparaît que dans **une seule** des quatre rubriques et
-chacune a une issue : quand tout est traité, la page est vide et la
-vignette du tableau de bord affiche 0.
+situation n'apparaît que dans **une seule** des quatre rubriques, et
+chacune a une issue : tout traité, la page est vide.
 
 Un mouvement **sans communication structurée** n'est pas un paiement à
 traiter : il reste dans « Mouvements ». Si c'est pourtant le paiement
@@ -27,8 +26,8 @@ d'une créance, ouvrez-le et choisissez « Rattacher à une créance ».
 ## À répartir
 
 Un virement unique qui couvre plusieurs créances du même foyer. Le site
-propose la répartition, vous corrigez si besoin, puis vous confirmez.
-Si la famille voulait plutôt être remboursée, choisissez « Rembourser
+propose la répartition, vous corrigez puis confirmez. Une ligne refusée
+annule toute la répartition. Si la famille voulait plutôt être remboursée, choisissez « Rembourser
 plutôt » : le surplus passe en trop-perçu à rembourser.
 
 ## Non imputés
