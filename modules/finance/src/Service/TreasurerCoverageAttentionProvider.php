@@ -46,7 +46,7 @@ class TreasurerCoverageAttentionProvider implements AttentionPointProvider
         $uncovered = array_values(array_filter(
             $this->accounts->findAllOrdered(),
             static fn(Account $account): bool => $account->sectionId !== null
-                && $account->status !== Account::STATUS_INACTIVE
+                && $account->status === Account::STATUS_ACTIVE
                 && !in_array($account->sectionId, $covered, true)
         ));
         if ($uncovered === []) {

@@ -75,6 +75,7 @@ final class TreasurerCoverageAttentionProviderTest extends TestCase
         $this->account('Compte Autre meute', 2);
         $this->account('Caisse unité', null);
         $this->account('Ancien compte', 2, 'archived');
+        $this->account('Compte en préparation', 2, 'draft');
         $this->treasurerOf(1);
 
         $points = $this->provider->collect(1);
@@ -85,6 +86,7 @@ final class TreasurerCoverageAttentionProviderTest extends TestCase
         $this->assertStringNotContainsString('Compte Louveteaux', $points[0]->why);
         $this->assertStringNotContainsString('Caisse unité', $points[0]->why);
         $this->assertStringNotContainsString('Ancien compte', $points[0]->why, 'an archived account is not chased');
+        $this->assertStringNotContainsString('en préparation', $points[0]->why, 'nor a draft one, not live yet');
         $this->assertSame('/chefs/staffs', $points[0]->actionUrl);
     }
 
