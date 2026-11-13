@@ -38,7 +38,11 @@ class FormService
         private FormRepository $formRepository,
         private FormFieldRepository $fieldRepository,
         private ArticleService $articleService,
-        private FormResponseRepository $responseRepository
+        private FormResponseRepository $responseRepository,
+        // The images of the article's text are put on its floor at every
+        // save of that text (issue #1110). Null only where a test builds
+        // the service for something else; public/index.php always wires it.
+        private ?BodyImageAccess $bodyImages = null
     ) {
         $this->htmlSanitizer = new HtmlSanitizer();
     }
@@ -203,6 +207,9 @@ class FormService
 
         $this->reconcileFields($formId, $fields);
         $this->articleService->markHasForm($articleId, true);
+        // Saved after ArticleService::create()/update() in every route,
+        // so the visibility read here is the one just written.
+        $this->bodyImages?->syncArticle($articleId);
 
         return $this->formRepository->findById($formId);
     }

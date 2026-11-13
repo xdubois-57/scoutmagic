@@ -362,10 +362,9 @@ class ArticleService implements HomeNewsProvider
      * (issue #211) — see SOCIALLY_SHAREABLE_VISIBILITIES for what it
      * costs.
      *
-     * The in-body images are a different question and keep their own
-     * answer: Controller\NewsController::uploadBodyImage() stores them
-     * `public` because the article's visibility is not known yet at
-     * that point (mid-edit, possibly still unsaved).
+     * The images inserted in the text follow the text's floor, with no
+     * social exception (Service\BodyImageAccess::bodyImageRoleMin(),
+     * issue #1110): a crawler is shown the cover, never the body.
      */
     public static function coverImageRoleMin(string $visibility): string
     {

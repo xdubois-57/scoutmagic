@@ -178,10 +178,13 @@ final class NewsImportWriterTest extends TestCase
         $this->assertMatchesRegularExpression('~<img[^>]*src="/files/([A-Za-z0-9_-]{22})"~', $body);
         preg_match('~src="/files/([A-Za-z0-9_-]{22})"~', $body, $match);
 
-        // The editor stores a body image `public`, whatever the article's
-        // visibility (NewsController::uploadBodyImage()): so does this.
+        // Issue #1110: a text image is on the floor of the text it sits in
+        // — this article's protective `identified`, never `public` — and
+        // belongs to the article, under the cover's rule.
         $file = $this->files->findByPublicId($match[1]) ?? $this->fail('No file.');
-        $this->assertSame('public', $file->roleMin);
+        $this->assertSame('identified', $file->roleMin);
+        $this->assertSame(\Modules\News\File\NewsCoverOwnershipChecker::BODY_IMAGE_OWNER_TYPE, $file->ownerType);
+        $this->assertSame($id, $file->ownerId);
         $this->assertFileExists($this->storage . '/' . $file->relativePath);
     }
 

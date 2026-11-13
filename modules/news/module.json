@@ -392,6 +392,10 @@
       "handler": "Modules\\News\\Task\\RealignCoverImageAccessHandler"
     },
     {
+      "key": "realign_body_image_access",
+      "handler": "Modules\\News\\Task\\RealignBodyImageAccessHandler"
+    },
+    {
       "key": "send_pending_tickets",
       "handler": "Modules\\News\\Task\\SendPendingTicketsHandler"
     },

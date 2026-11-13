@@ -222,6 +222,61 @@ class FormServiceTest extends TestCase
         $this->assertStringNotContainsString('<script>', $field->confirmationText);
     }
 
+    /**
+     * Issue #1110: saving the text puts each image it shows on the floor
+     * of that text. Every route saves the form right after the article,
+     * so this is the save that sees the visibility just written.
+     */
+    public function testSavingTheTextPutsItsImagesOnTheTextsFloor(): void
+    {
+        $files = new \Core\File\FileRepository($this->pdo);
+        \Core\File\FilePublicIds::useRepository($files);
+        try {
+            $image = $files->create('news/images/i.jpg', 'i.jpg', 'image/jpeg', 10, 'chief', 'news', null);
+            $this->pdo->prepare('UPDATE news_articles SET visibility = ?, status = ?, published_at = ? WHERE id = ?')
+                ->execute([
+                    Article::VISIBILITY_PUBLIC,
+                    Article::STATUS_PUBLISHED,
+                    '2026-01-01 00:00:00',
+                    $this->articleId,
+                ]);
+            $service = new FormService(
+                new FormRepository($this->pdo),
+                $this->fieldRepository,
+                new ArticleService(
+                    $this->articleRepository,
+                    new FormRepository($this->pdo),
+                    new EditableContentService(new EditableContentRepository($this->pdo)),
+                    new ShortUrlService(new ShortUrlRepository(
+                        $this->pdo,
+                        new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32))
+                    )),
+                    $files
+                ),
+                new \Modules\News\Repository\FormResponseRepository(
+                    $this->pdo,
+                    new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32))
+                ),
+                \Modules\News\Service\BodyImageAccess::forPdo($this->pdo)
+            );
+
+            $service->save($this->articleId, $this->baseSettings(), [
+                [
+                    'id' => null, 'field_type' => FormField::TYPE_TEXT, 'label' => null, 'is_required' => false,
+                    'options_source' => null, 'options_manual' => null, 'capacity_max' => null,
+                    'price_per_unit' => null,
+                    'confirmation_text' => '<p><img src="' . \Core\File\FilePublicIds::urlFor($image, 'md')
+                        . '" alt=""></p>',
+                ],
+            ]);
+
+            $this->assertSame('public', $files->findById($image)?->roleMin);
+            $this->assertSame($this->articleId, $files->findById($image)?->ownerId);
+        } finally {
+            \Core\File\FilePublicIds::useRepository(null);
+        }
+    }
+
     public function testTextFieldIsNonInputLikeConfirmation(): void
     {
         $form = $this->service->save($this->articleId, $this->baseSettings(), [
