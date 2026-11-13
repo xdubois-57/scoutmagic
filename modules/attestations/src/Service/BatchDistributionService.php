@@ -86,6 +86,11 @@ class BatchDistributionService
             }
         }
         $addresses = $this->members->findMostRecentEmails($memberIds);
+        // The name of the member each certificate BELONGS to, from the line
+        // itself, never from the address it goes to: several children share
+        // one parent's address (issue #1096). Their most recent year, so a
+        // member who has left is still named.
+        $summaries = $this->members->findSummaries($memberIds);
 
         $sent = 0;
         $failed = 0;
@@ -105,7 +110,13 @@ class BatchDistributionService
             }
 
             try {
-                $this->mailer->send($batch->label, $line->fileId, $address, $unitName);
+                $this->mailer->send(
+                    $batch->label,
+                    $line->fileId,
+                    $address,
+                    $unitName,
+                    $summaries[$line->memberId]->fullName ?? null
+                );
                 $this->lines->recordDelivery($line->id, DeliveryState::Sent, AppClock::now()->format('Y-m-d H:i:s'));
                 $sent++;
             } catch (SuppressedRecipientException) {

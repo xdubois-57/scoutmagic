@@ -35,6 +35,11 @@ Chaque famille reçoit son document en pièce jointe. C'est ce qui atteint
 aussi celles qui ont quitté l'unité et n'ont plus accès au site. Les
 messages partent par petits groupes ; rechargez la page pour suivre.
 
+L'objet et le message nomment l'animé concerné, après le nom du lot
+(Attestation fiscale 2025 — Emma Dupont) : une famille de trois enfants
+reçoit trois messages qu'elle distingue sans ouvrir les pièces jointes.
+Un renvoi depuis la fiche du membre est rédigé de la même façon.
+
 Une notification accompagne l'envoi — une seule par compte, jamais une par
 enfant.
 
