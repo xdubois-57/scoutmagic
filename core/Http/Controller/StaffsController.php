@@ -105,9 +105,18 @@ class StaffsController extends AbstractController
         // Collapsing the two into one boolean, as this page did until now,
         // is precisely what let them.
         $isChief = $currentRole->hasAccess(Role::CHIEF);
+        // Which sections this account may EDIT is decided in the
+        // authorization year, never the previewed one (issue #1124): the
+        // page offers its buttons from the same answer mayEditSection()
+        // and SectionDocumentController accept. The listing below still
+        // follows the year on screen.
         $staffedSectionIds = array_map(
             static fn(array $section): int => (int) $section['id'],
-            $this->sectionStaffAuthorizationService->getStaffedSections($email, $currentRole->value, $scoutYearId)
+            $this->sectionStaffAuthorizationService->getStaffedSections(
+                $email,
+                $currentRole->value,
+                $this->scoutYearResolver->getAuthorizationYear()->id
+            )
         );
 
         // Get current section details and staff
@@ -261,7 +270,8 @@ class StaffsController extends AbstractController
         if (!$role->hasAccess(Role::CHIEF) || $this->sectionService->getSection($sectionId) === null) {
             return false;
         }
-        $scoutYearId = $this->scoutYearResolver->getEffectiveYear(ScoutYearSession::getPreviewId(), $role)->id;
+        // A write guard: the authorization year, never the preview (#1124).
+        $scoutYearId = $this->scoutYearResolver->getAuthorizationYear()->id;
         $staffed = $this->sectionStaffAuthorizationService->getStaffedSections(
             AuthSession::getEmail() ?? '',
             $role->value,
@@ -420,8 +430,9 @@ class StaffsController extends AbstractController
         }
 
         $section = $this->sectionService->getSection($sectionId);
-        $scoutYearId = $this->scoutYearResolver
-            ->getEffectiveYear(ScoutYearSession::getPreviewId(), Role::fromString(AuthSession::getRole()))->id;
+        // Written in the authorization year, never the previewed one (#1124):
+        // a preview would write a totem onto a past year's staff row.
+        $scoutYearId = $this->scoutYearResolver->getAuthorizationYear()->id;
         $isStaff = $section !== null
             && $this->sectionService->isStaffOfSection($memberYearId, $sectionId, $scoutYearId);
         if (!$isStaff) {

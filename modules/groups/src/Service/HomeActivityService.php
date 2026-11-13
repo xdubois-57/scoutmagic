@@ -10,7 +10,6 @@ namespace Modules\Groups\Service;
 
 use Core\Module\HomeGroupActivityProvider;
 use Core\Notification\NotificationRepository;
-use Core\ScoutYear\ScoutYearSession;
 use Core\Security\AuthSession;
 use Modules\Groups\Repository\GroupReadRepository;
 use Modules\Groups\Repository\PostRepository;
@@ -81,8 +80,7 @@ class HomeActivityService implements HomeGroupActivityProvider
         $context = $this->contextFactory->build(
             $email,
             AuthSession::getRole(),
-            AuthSession::getUserAccountId(),
-            ScoutYearSession::getPreviewId()
+            AuthSession::getUserAccountId()
         );
 
         // findCurrent() already excludes archived (past-year) groups: a

@@ -161,6 +161,7 @@ class PostMediaIntegrationTest extends TestCase
         $access = new GroupAccessService($memberRepo, $sectionRepo, new SectionMembershipRepository($this->pdo));
         $resolver = $this->createStub(ScoutYearResolver::class);
         $resolver->method('getEffectiveYear')->willReturn(new EffectiveScoutYear($effectiveYearId, '2025-2026', null));
+        $resolver->method('getAuthorizationYear')->willReturn(new EffectiveScoutYear($effectiveYearId, '2025-2026', null));
 
         return new GroupFileOwnershipChecker($this->groupRepo, $access, $resolver);
     }

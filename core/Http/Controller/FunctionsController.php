@@ -24,10 +24,8 @@ use Core\Member\UnitStaffSectionService;
 use Core\Module\FunctionFlagsProvider;
 use Core\Module\HookRegistry;
 use Core\ScoutYear\ScoutYearResolver;
-use Core\ScoutYear\ScoutYearSession;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
-use Core\Security\Role;
 use Twig\Environment;
 
 class FunctionsController extends AbstractController
@@ -246,9 +244,12 @@ class FunctionsController extends AbstractController
         // A role change may move members into or out of "Staff d'U" — role
         // (unlike the raw Desk import) is only known once confirmed here.
         if ($oldRole !== $newRole) {
-            $currentRole = Role::fromString(AuthSession::getRole());
-            $effectiveYear = $this->scoutYearResolver->getEffectiveYear(ScoutYearSession::getPreviewId(), $currentRole);
-            $this->unitStaffSectionService->syncMembership($effectiveYear->id);
+            // The year access is decided in, never the previewed one (#1124):
+            // a preview would rebuild a past year's Staff d'U and leave the
+            // real year's stale.
+            $this->unitStaffSectionService->syncMembership(
+                $this->scoutYearResolver->getAuthorizationYear()->id
+            );
         }
 
         // Log the change (role change or confirmation)

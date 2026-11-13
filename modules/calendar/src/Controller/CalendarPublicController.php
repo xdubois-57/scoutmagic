@@ -106,7 +106,9 @@ class CalendarPublicController extends AbstractController
             $selectedCalendarId,
             $eligibleCalendars,
             $email,
-            $effectiveYear->id
+            // Which calendars « Mes évènements » holds re-resolves the role
+            // in this year: the authorization one, never the preview (#1124).
+            $this->scoutYearResolver->getAuthorizationYear()->id
         );
 
         // The reader, as the chiefs' page passes it: a linked retrospective

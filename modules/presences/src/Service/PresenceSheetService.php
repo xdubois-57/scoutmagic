@@ -42,15 +42,26 @@ class PresenceSheetService
      * The event behind an id, if and only if this account staffs the
      * section it belongs to. Null for every other case — see the class
      * docblock for why they are not told apart.
+     *
+     * $authorizationYearId is the year the right is decided in (issue
+     * #1124): the screen's own year when null, and never a previewed one —
+     * a preview is chosen by the person it would authorise and accepts any
+     * year that ever existed. $scoutYearId stays the year the page shows.
      */
-    public function resolveEvent(int $eventId, string $email, string $role, int $scoutYearId): ?SectionEvent
-    {
+    public function resolveEvent(
+        int $eventId,
+        string $email,
+        string $role,
+        int $scoutYearId,
+        ?int $authorizationYearId = null
+    ): ?SectionEvent {
         $event = $this->sectionEventLookup->findSectionEvent($eventId);
         if ($event === null) {
             return null;
         }
 
-        if (!$this->authorization->maySeeSection($email, $role, $scoutYearId, $event->sectionId)) {
+        $decidedIn = $authorizationYearId ?? $scoutYearId;
+        if (!$this->authorization->maySeeSection($email, $role, $decidedIn, $event->sectionId)) {
             return null;
         }
 
@@ -66,9 +77,14 @@ class PresenceSheetService
      * as « non renseigné », which is what that evening actually knows
      * about them.
      */
-    public function buildSheet(int $eventId, string $email, string $role, int $scoutYearId): ?Sheet
-    {
-        $event = $this->resolveEvent($eventId, $email, $role, $scoutYearId);
+    public function buildSheet(
+        int $eventId,
+        string $email,
+        string $role,
+        int $scoutYearId,
+        ?int $authorizationYearId = null
+    ): ?Sheet {
+        $event = $this->resolveEvent($eventId, $email, $role, $scoutYearId, $authorizationYearId);
         if ($event === null) {
             return null;
         }
@@ -126,9 +142,10 @@ class PresenceSheetService
         string $email,
         string $role,
         int $scoutYearId,
-        ?int $userId
+        ?int $userId,
+        ?int $authorizationYearId = null
     ): bool {
-        if (!$this->mayRecord($eventId, $memberId, $email, $role, $scoutYearId)) {
+        if (!$this->mayRecord($eventId, $memberId, $email, $role, $scoutYearId, $authorizationYearId)) {
             return false;
         }
 
@@ -152,9 +169,10 @@ class PresenceSheetService
         string $email,
         string $role,
         int $scoutYearId,
-        ?int $userId
+        ?int $userId,
+        ?int $authorizationYearId = null
     ): bool {
-        if (!$this->mayRecord($eventId, $memberId, $email, $role, $scoutYearId)) {
+        if (!$this->mayRecord($eventId, $memberId, $email, $role, $scoutYearId, $authorizationYearId)) {
             return false;
         }
 
@@ -178,9 +196,10 @@ class PresenceSheetService
         int $memberId,
         string $email,
         string $role,
-        int $scoutYearId
+        int $scoutYearId,
+        ?int $authorizationYearId = null
     ): bool {
-        $event = $this->resolveEvent($eventId, $email, $role, $scoutYearId);
+        $event = $this->resolveEvent($eventId, $email, $role, $scoutYearId, $authorizationYearId);
         if ($event === null) {
             return false;
         }

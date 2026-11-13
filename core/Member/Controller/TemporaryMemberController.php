@@ -19,7 +19,6 @@ use Core\Member\Service\MemberSearchResult;
 use Core\Member\Service\MemberSearchService;
 use Core\Member\TemporaryMemberSession;
 use Core\ScoutYear\ScoutYearResolver;
-use Core\ScoutYear\ScoutYearSession;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\Security\Role;
@@ -96,10 +95,11 @@ class TemporaryMemberController extends AbstractController
         //
         // So the person is resolved first and the year second, rather than
         // the id being taken as it stands.
-        $effective = $this->resolver->getEffectiveYear(
-            ScoutYearSession::getPreviewId(),
-            Role::fromString($role)
-        );
+        // The authorization year, never the previewed one (issue #1124):
+        // the override makes the row a linked member, which MemberService
+        // then trusts for access, and a preview accepts any year that
+        // ever existed.
+        $effective = $this->resolver->getAuthorizationYear();
         $target = $this->resolveInEffectiveYear((int) $requested['member_id'], $effective->id);
 
         // The search page deliberately lists inactive members too (a member

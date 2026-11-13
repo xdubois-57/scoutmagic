@@ -60,14 +60,15 @@ class CalendarChiefController extends AbstractController
      */
     private function staffedSectionIds(Role $role): array
     {
-        $effectiveYear = $this->scoutYearResolver->getEffectiveYear(ScoutYearSession::getPreviewId(), $role);
-
+        // The authorization year, never the previewed one (issue #1124): a
+        // preview is chosen by the person it would authorise, and accepts
+        // any year that ever existed.
         return array_map(
             static fn(array $section): int => (int) $section['id'],
             $this->sectionStaffAuthorizationService->getStaffedSections(
                 AuthSession::getEmail() ?? '',
                 $role->value,
-                $effectiveYear->id
+                $this->scoutYearResolver->getAuthorizationYear()->id
             )
         );
     }
@@ -110,7 +111,9 @@ class CalendarChiefController extends AbstractController
             $selectedCalendarId,
             $viewableCalendars,
             $email,
-            $effectiveYear->id
+            // Which calendars « Mes évènements » holds re-resolves the role
+            // in this year: the authorization one, never the preview (#1124).
+            $this->scoutYearResolver->getAuthorizationYear()->id
         );
 
         $events = $this->calendarService->getEventsForGrid($year, $month, $calendarIdsForGrid);
