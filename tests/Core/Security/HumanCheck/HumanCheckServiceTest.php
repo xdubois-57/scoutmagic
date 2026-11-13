@@ -147,6 +147,40 @@ class HumanCheckServiceTest extends TestCase
         $this->assertTrue($result->accepted);
     }
 
+    /**
+     * Issue #1128: an IPv6 subscriber owns a whole /64 and can use a fresh
+     * address for every submission — the counter must still fill.
+     */
+    public function testRateLimitCountsAnIpv6SubscriberAcrossItsWholePrefix(): void
+    {
+        for ($i = 1; $i <= 3; $i++) {
+            $result = $this->service->verify(
+                self::FORM_KEY,
+                false,
+                $this->buildFormData(time() - 10),
+                '2001:db8:aaaa:1::' . dechex($i)
+            );
+            $this->assertTrue($result->accepted);
+        }
+
+        $sameSubscriber = $this->service->verify(
+            self::FORM_KEY,
+            false,
+            $this->buildFormData(time() - 10),
+            '2001:db8:aaaa:1:ffff:ffff:ffff:ffff'
+        );
+        $otherSubscriber = $this->service->verify(
+            self::FORM_KEY,
+            false,
+            $this->buildFormData(time() - 10),
+            '2001:db8:aaaa:2::1'
+        );
+
+        $this->assertFalse($sameSubscriber->accepted);
+        $this->assertSame('rate_limited', $sameSubscriber->reason);
+        $this->assertTrue($otherSubscriber->accepted);
+    }
+
     public function testEnforceRateLimitFalseSkipsTheThirdBarrier(): void
     {
         $ip = '203.0.113.10';

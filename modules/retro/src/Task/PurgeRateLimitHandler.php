@@ -13,6 +13,7 @@ use Core\Scheduler\SchedulerService;
 use Core\Scheduler\TaskContext;
 use Core\Scheduler\TaskHandlerInterface;
 use Modules\Retro\Repository\RateLimitRepository;
+use Modules\Retro\Service\RateLimitService;
 
 /**
  * Deletes retro_rate_limits rows older than the rate-limit window — module
@@ -27,6 +28,13 @@ class PurgeRateLimitHandler implements TaskHandlerInterface
     private const RETENTION_HOURS = 6;
 
     /**
+     * A public board's AI budget counts over a day (issue #1128): its rows
+     * must outlive that day, or the budget would restart at every purge.
+     * They carry the board's blind index, never a visitor's.
+     */
+    private const BOARD_BUDGET_RETENTION_HOURS = 25;
+
+    /**
      * @param array<string, mixed> $payload
      */
     public function handle(array $payload, TaskContext $context): void
@@ -35,7 +43,10 @@ class PurgeRateLimitHandler implements TaskHandlerInterface
         $repository = new RateLimitRepository($pdo);
 
         $cutoff = (new \DateTimeImmutable('-' . self::RETENTION_HOURS . ' hours'))->format('Y-m-d H:i:s');
-        $repository->deleteOlderThan($cutoff);
+        $repository->deleteOlderThan($cutoff, [RateLimitService::BOARD_AI_CALL]);
+        $budgetCutoff = (new \DateTimeImmutable('-' . self::BOARD_BUDGET_RETENTION_HOURS . ' hours'))
+            ->format('Y-m-d H:i:s');
+        $repository->deleteOlderThan($budgetCutoff);
 
         $schedulerService = new SchedulerService(new SchedulerRepository($pdo));
         $existing = $schedulerService->find('retro', 'purge_rate_limits', self::REFERENCE);

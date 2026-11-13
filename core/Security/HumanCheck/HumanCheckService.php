@@ -11,6 +11,7 @@ namespace Core\Security\HumanCheck;
 use Core\Config\SettingService;
 use Core\Journal\JournalService;
 use Core\Security\EncryptionService;
+use Core\Security\RateLimitAddress;
 
 /**
  * Generic anti-bot protection for a public form submitted by a
@@ -122,8 +123,10 @@ class HumanCheckService
         if ($enforceRateLimit && $ipAddress !== null && $ipAddress !== '') {
             // Hashed, never stored in clear — SECURITY.md: an IP address
             // is personal data. Same HMAC technique as every blind index
-            // in this codebase, exact-match only, never reversible.
-            $ipHash = $this->encryption->blindIndex($ipAddress, 'human_check_ip');
+            // in this codebase, exact-match only, never reversible. Keyed
+            // on the client's network, not the one address: an IPv6
+            // subscriber has a whole /64 to rotate through (issue #1128).
+            $ipHash = $this->encryption->blindIndex(RateLimitAddress::key($ipAddress), 'human_check_ip');
             $windowMinutes = (int) $this->settings->get('human_check_rate_limit_window_minutes', null, 10);
             $maxAttempts = (int) $this->settings->get('human_check_rate_limit_max_attempts', null, 5);
             $since = (new \DateTimeImmutable('-' . $windowMinutes . ' minutes'))->format('Y-m-d H:i:s');

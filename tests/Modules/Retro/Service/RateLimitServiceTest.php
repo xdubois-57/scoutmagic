@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Modules\Retro\Service;
 
 use Core\Security\EncryptionService;
+use Modules\Retro\Repository\Board;
 use Modules\Retro\Repository\RateLimitRepository;
 use Modules\Retro\Service\RateLimitService;
 use Modules\Retro\Service\RetroException;
@@ -162,5 +163,158 @@ class RateLimitServiceTest extends TestCase
 
         $this->expectException(RetroException::class);
         $this->service->checkAndRecord($hash, 'shorten');
+    }
+    /**
+     * Issue #1128: an IPv6 subscriber owns a whole /64 and can rotate
+     * through it — the per-visitor counter must see one visitor.
+     */
+    public function testTwoAddressesOfOneIpv6SubscriberShareABucket(): void
+    {
+        $a = $this->service->identifierHash('2001:db8:aaaa:1::1', 'cookie-1', 'session-1');
+        $b = $this->service->identifierHash('2001:db8:aaaa:1:9f3c:12ab:77de:4', 'cookie-2', 'session-2');
+
+        $this->assertSame($a, $b);
+    }
+
+    public function testTwoIpv6SubscribersKeepTheirOwnBucket(): void
+    {
+        $this->assertNotSame(
+            $this->service->identifierHash('2001:db8:aaaa:1::1', null, 's'),
+            $this->service->identifierHash('2001:db8:aaaa:2::1', null, 's')
+        );
+    }
+
+    public function testAnIpv4MappedAddressSharesItsIpv4Bucket(): void
+    {
+        $this->assertSame(
+            $this->service->identifierHash('203.0.113.7', null, 's'),
+            $this->service->identifierHash('::ffff:203.0.113.7', null, 's')
+        );
+    }
+
+    public function testRotatingIpv6AddressesNoLongerEscapesTheShortenLimit(): void
+    {
+        for ($i = 1; $i <= 5; $i++) {
+            $this->service->checkAndRecord(
+                $this->service->identifierHash('2001:db8:aaaa:1::' . dechex($i), null, 's' . $i),
+                'shorten'
+            );
+        }
+
+        $this->expectException(RetroException::class);
+        $this->service->checkAndRecord($this->service->identifierHash('2001:db8:aaaa:1::99', null, 's99'), 'shorten');
+    }
+
+    private function board(int $id, string $accessMode): Board
+    {
+        return new Board(
+            id: $id,
+            title: 'Board',
+            boardDate: '2026-07-01',
+            calendarEventId: null,
+            token: 'token-' . $id,
+            shortCode: null,
+            status: 'open',
+            accessMode: $accessMode,
+            voteMode: 'unlimited',
+            voteBudget: 5,
+            votesVisible: true,
+            maxCommentLength: 140,
+            autoCloseDelay: '7d',
+            autoCloseAt: null,
+            aiSummary: null,
+            createdBy: null,
+            closeNotifyEnabled: false,
+            closeNotifyEmail: null,
+            createdAt: '2026-07-01 10:00:00',
+            closedAt: null
+        );
+    }
+
+    /**
+     * Issue #1128: past its daily budget a public board refuses every paid
+     * AI call, whichever address asks — the budget is the board's.
+     */
+    public function testAPublicBoardRefusesAiCallsPastItsDailyBudget(): void
+    {
+        $board = $this->board(1, 'public');
+        for ($i = 0; $i < RateLimitService::BOARD_AI_CALLS_PER_DAY; $i++) {
+            $this->service->checkAndRecordBoardAiCall($board);
+        }
+
+        try {
+            $this->service->checkAndRecordBoardAiCall($board);
+            $this->fail('Expected a RetroException.');
+        } catch (RetroException $e) {
+            $this->assertSame(RetroException::TYPE_RATE_LIMITED, $e->type);
+        }
+
+        // Another board has its own budget.
+        $this->service->checkAndRecordBoardAiCall($this->board(2, 'public'));
+        $this->assertSame(RateLimitService::BOARD_AI_CALLS_PER_DAY + 1, $this->recorded(RateLimitService::BOARD_AI_CALL));
+    }
+
+    public function testTheBoardBudgetCountsOverADayNotTheVisitorWindow(): void
+    {
+        $board = $this->board(1, 'public');
+        $this->service->checkAndRecordBoardAiCall($board);
+        $hash = (string) $this->pdo->query('SELECT identifier_hash FROM retro_rate_limits')->fetchColumn();
+        $this->pdo->exec('DELETE FROM retro_rate_limits');
+
+        $insert = $this->pdo->prepare('INSERT INTO retro_rate_limits (identifier_hash, action_type, created_at) VALUES (?, ?, ?)');
+        $twentyHoursAgo = (new \DateTimeImmutable('-20 hours'))->format('Y-m-d H:i:s');
+        for ($i = 0; $i < RateLimitService::BOARD_AI_CALLS_PER_DAY; $i++) {
+            $insert->execute([$hash, RateLimitService::BOARD_AI_CALL, $twentyHoursAgo]);
+        }
+
+        $this->expectException(RetroException::class);
+        $this->service->checkAndRecordBoardAiCall($board);
+    }
+
+    public function testTheBoardBudgetStoresNoBoardIdInClear(): void
+    {
+        $this->service->checkAndRecordBoardAiCall($this->board(42, 'public'));
+
+        $hash = (string) $this->pdo->query('SELECT identifier_hash FROM retro_rate_limits')->fetchColumn();
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $this->assertSame($encryption->blindIndex('board:42', 'retro_rate_limit'), $hash);
+        $this->assertStringNotContainsString('board', $hash);
+    }
+
+    /**
+     * @return array<string, array{string}>
+     */
+    public static function boardsThatAreNotPublic(): array
+    {
+        return ['animators' => ['animators'], 'identified' => ['identified']];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('boardsThatAreNotPublic')]
+    public function testABoardThatIsNotPublicHasNoDailyBudget(string $accessMode): void
+    {
+        $board = $this->board(1, $accessMode);
+        for ($i = 0; $i <= RateLimitService::BOARD_AI_CALLS_PER_DAY; $i++) {
+            $this->service->checkAndRecordBoardAiCall($board);
+        }
+
+        $this->assertSame(0, $this->recorded(RateLimitService::BOARD_AI_CALL));
+    }
+
+    /**
+     * The tests run on SQLite with a TEXT column; production has an ENUM,
+     * and a value missing from it fails the INSERT on every request. That
+     * is how « Raccourcir » broke unnoticed (issue #1128) — so the list
+     * the service writes and the list the schema accepts are held equal.
+     */
+    public function testTheSchemaAcceptsEveryActionTypeTheServiceRecords(): void
+    {
+        $schema = (string) file_get_contents(dirname(__DIR__, 4) . '/modules/retro/schema.sql');
+        $this->assertSame(
+            1,
+            preg_match('/CREATE TABLE retro_rate_limits \(.*?action_type ENUM\(([^)]*)\)/s', $schema, $match)
+        );
+        preg_match_all("/'([^']+)'/", $match[1], $values);
+
+        $this->assertEqualsCanonicalizing(RateLimitService::ACTION_TYPES, $values[1]);
     }
 }

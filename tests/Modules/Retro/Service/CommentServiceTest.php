@@ -48,10 +48,10 @@ class CommentServiceTest extends TestCase
 
     private function createBoard(array $overrides = []): Board
     {
-        $defaults = ['maxCommentLength' => 140, 'status' => 'open'];
+        $defaults = ['maxCommentLength' => 140, 'status' => 'open', 'accessMode' => 'public'];
         $p = array_merge($defaults, $overrides);
         $id = $this->boardRepository->create(
-            'Board', '2026-07-01', null, bin2hex(random_bytes(8)), null, 'public', 'unlimited', 5,
+            'Board', '2026-07-01', null, bin2hex(random_bytes(8)), null, $p['accessMode'], 'unlimited', 5,
             true, $p['maxCommentLength'], '7d', null, null
         );
         if ($p['status'] === 'closed') {
@@ -227,6 +227,74 @@ class CommentServiceTest extends TestCase
         } catch (RetroException $e) {
             $this->assertSame(RetroException::TYPE_OFFENSIVE, $e->type);
         }
+    }
+
+    private function spendBoardAiBudget(Board $board): void
+    {
+        for ($i = 0; $i < RateLimitService::BOARD_AI_CALLS_PER_DAY; $i++) {
+            $this->rateLimitService->checkAndRecordBoardAiCall($board);
+        }
+    }
+
+    /**
+     * Issue #1128: past a public board's daily AI budget, a comment that
+     * would need moderation is refused before the paid call — and never
+     * published unmoderated.
+     */
+    public function testAPublicBoardPastItsDailyAiBudgetRefusesBeforeModeration(): void
+    {
+        $moderationService = $this->createMock(ModerationService::class);
+        $moderationService->method('isAvailable')->willReturn(true);
+        $moderationService->expects($this->never())->method('moderate');
+        $service = new CommentService(new CommentRepository($this->pdo), $moderationService, $this->rateLimitService);
+        $board = $this->createBoard();
+        $this->spendBoardAiBudget($board);
+        // A visitor the per-address limit has never seen.
+        $hash = $this->rateLimitService->identifierHash('2001:db8:bbbb:9::1', null, 'session-new');
+
+        try {
+            $service->postComment($board, 'good', 'Some text', $hash, 'enforced');
+            $this->fail('Expected a RetroException.');
+        } catch (RetroException $e) {
+            $this->assertSame(RetroException::TYPE_RATE_LIMITED, $e->type);
+        }
+        $this->assertSame([], $service->listForDisplay($board->id, false));
+    }
+
+    public function testEveryModeratedCommentOnAPublicBoardCountsAgainstItsBudget(): void
+    {
+        $moderationService = $this->createMock(ModerationService::class);
+        $moderationService->method('isAvailable')->willReturn(true);
+        $moderationService->method('moderate')->willReturn(['flagged' => false, 'reason' => null, 'suggestion' => null]);
+        $service = new CommentService(new CommentRepository($this->pdo), $moderationService, $this->rateLimitService);
+        $board = $this->createBoard();
+
+        $service->postComment($board, 'good', 'Some text', $this->rateLimitService->identifierHash('192.0.2.1', null, 's'), 'enforced');
+
+        $this->assertSame(1, (int) $this->pdo->query(
+            "SELECT COUNT(*) FROM retro_rate_limits WHERE action_type = 'board_ai_call'"
+        )->fetchColumn());
+    }
+
+    public function testABoardThatIsNotPublicHasNoDailyAiBudget(): void
+    {
+        $moderationService = $this->createMock(ModerationService::class);
+        $moderationService->method('isAvailable')->willReturn(true);
+        $moderationService->expects($this->once())->method('moderate')
+            ->willReturn(['flagged' => false, 'reason' => null, 'suggestion' => null]);
+        $service = new CommentService(new CommentRepository($this->pdo), $moderationService, $this->rateLimitService);
+        $board = $this->createBoard(['accessMode' => 'identified']);
+        $this->spendBoardAiBudget($board);
+
+        $comment = $service->postComment(
+            $board,
+            'good',
+            'Some text',
+            $this->rateLimitService->identifierHash('192.0.2.1', null, 's'),
+            'enforced'
+        );
+
+        $this->assertSame('Some text', $comment->body);
     }
 
     public function testANullModerationServiceBehavesAsDisabledRegardlessOfMode(): void
