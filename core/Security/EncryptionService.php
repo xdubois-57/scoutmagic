@@ -14,10 +14,45 @@ class EncryptionService
     private const IV_LENGTH = 12;
     private const TAG_LENGTH = 16;
 
+    /** AES-256 and the HMAC blind-index key are both 32 raw bytes. */
+    private const KEY_LENGTH = 32;
+
+    /**
+     * Both keys must be exactly 32 raw bytes, or this refuses to exist.
+     *
+     * OpenSSL does not: handed a key that is too short it zero-pads it, too
+     * long it cuts it, empty it pads all of it — and encrypts without a word.
+     * A `secrets.enc` that lost a key (a partial restore, a hand edit) used
+     * to turn into a site that kept running while writing every new personal
+     * datum under 32 NUL bytes, and computing its blind indexes under an
+     * empty HMAC key — both known to anyone. Failing here, before a single
+     * byte is encrypted, makes the same fault a start-up error that
+     * Core\Http\ErrorHandler turns into the generic 500 page and one
+     * error_log() line. The message names the key and its length and never
+     * its content — and neither does the stack trace: PHP records every
+     * frame's arguments on an exception, ErrorHandler writes that trace to
+     * the error log, and the support package bundles the log, so both
+     * parameters are #[\SensitiveParameter], which makes PHP print them as
+     * a placeholder instead of their bytes.
+     */
     public function __construct(
-        private string $encryptionKey,
-        private string $blindIndexKey
+        #[\SensitiveParameter] private string $encryptionKey,
+        #[\SensitiveParameter] private string $blindIndexKey
     ) {
+        self::assertKeyLength($encryptionKey, 'encryption key');
+        self::assertKeyLength($blindIndexKey, 'blind index key');
+    }
+
+    private static function assertKeyLength(#[\SensitiveParameter] string $key, string $name): void
+    {
+        if (strlen($key) !== self::KEY_LENGTH) {
+            throw new \InvalidArgumentException(sprintf(
+                'The %s must be exactly %d bytes, got %d.',
+                $name,
+                self::KEY_LENGTH,
+                strlen($key)
+            ));
+        }
     }
 
     /**
@@ -30,12 +65,23 @@ class EncryptionService
      * M1). The constructor still takes raw bytes, so tests (and any caller
      * that already holds raw keys) are unaffected.
      */
-    public static function fromEncodedKeys(string $encodedEncryptionKey, string $encodedBlindIndexKey): self
+    public static function fromEncodedKeys(
+        #[\SensitiveParameter] string $encodedEncryptionKey,
+        #[\SensitiveParameter] string $encodedBlindIndexKey
+    ): self
     {
-        return new self(
-            base64_decode($encodedEncryptionKey, true) ?: '',
-            base64_decode($encodedBlindIndexKey, true) ?: ''
-        );
+        // Strict decoding, and no fallback to an empty string: a key that is
+        // absent or not base64 is an error, never a key of zero bytes.
+        $encryptionKey = base64_decode($encodedEncryptionKey, true);
+        if ($encryptionKey === false) {
+            throw new \InvalidArgumentException('The encryption key is not valid base64.');
+        }
+        $blindIndexKey = base64_decode($encodedBlindIndexKey, true);
+        if ($blindIndexKey === false) {
+            throw new \InvalidArgumentException('The blind index key is not valid base64.');
+        }
+
+        return new self($encryptionKey, $blindIndexKey);
     }
 
     /**
