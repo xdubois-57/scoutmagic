@@ -9,8 +9,9 @@ declare(strict_types=1);
 namespace Modules\News\Service;
 
 use Core\File\FilePublicIds;
+use Core\File\FileRecord;
 use Core\File\FileRepository;
-use Modules\News\File\NewsCoverOwnershipChecker;
+use Modules\News\File\NewsTextImageOwnershipChecker;
 use Modules\News\Repository\Article;
 use Modules\News\Repository\ArticleRepository;
 
@@ -20,31 +21,33 @@ use Modules\News\Repository\ArticleRepository;
  * The editor uploads an image before the article it belongs to is saved,
  * so the upload cannot know the article's visibility and stores it at the
  * provisional floor of whoever may write one (`chief`,
- * Controller\NewsController::uploadBodyImage()). It is here, every time
- * the article's text is saved, that each image the text names is put on
- * the floor of the text it sits in: `public` for a public or unlisted
- * article, `identified`, `chief` or `admin` otherwise. **No social
- * exception**: that one is the cover's alone (ArticleService::
- * coverImageRoleMin()) — a crawler is shown the title, the summary and
- * the cover, never the body (SECURITY.md §3).
+ * Controller\NewsController::uploadBodyImage()). Then two layers decide,
+ * and they are split on purpose:
  *
- * Each image also belongs to its article, under the cover's own rule
- * (File\NewsCoverOwnershipChecker): refused while the article is not
- * online, except to whoever manages the news. A draft shows nothing of
- * itself before it goes online.
+ * - **The floor, written at every save of a text** (syncArticle()): each
+ *   image the text names gets the floor of the WIDEST text naming it —
+ *   `public` for a public or unlisted article, `identified`, `chief` or
+ *   `admin` otherwise. **No social exception**: that one is the cover's
+ *   alone (ArticleService::coverImageRoleMin()); a crawler is shown the
+ *   title, the summary and the cover, never the body (SECURITY.md §3).
+ *   It depends only on texts and visibilities, which change only by a
+ *   save — the save that calls this.
+ * - **The rest, asked at every request** (File\NewsTextImageOwnershipChecker,
+ *   owner `news_text_image` → the file itself): a reader gets the image
+ *   only if some article naming it is online and visible to them, or if
+ *   they manage the news. Whether an article is online changes with no
+ *   save at all — a scheduled article simply reaches its time — so that
+ *   part is never written down, exactly as for the cover (#845).
  *
- * **One file, several articles.** Pasting an article's HTML into another
- * puts the same file in both. It follows the article that opens it widest,
- * so no reader of either is shown a broken image: the most permissive
- * floor among the ONLINE articles that name it, or, when none is online
- * yet, among all of them — and that article becomes its owner, so the
- * ownership check and the floor always speak for the same article. A
- * photograph is only that open because an editor put it in an article
- * that open.
+ * So one file pasted into several articles opens to the readers of each
+ * of them and of none other; an image taken out of every text, or only
+ * left in a draft, is shown to the news managers alone, whatever floor it
+ * last had. Nothing depends on the order the articles were saved in.
  *
  * Only files this module stored for article text are touched
- * (`news/images/`, a directory nothing else writes into), and never an article's cover, which
- * keeps its own rule even when its address is pasted into a text.
+ * (`news/images/`, a directory nothing else writes into), and never an
+ * article's cover, which keeps its own rule even when its address is
+ * pasted into a text.
  */
 final class BodyImageAccess
 {
@@ -61,7 +64,7 @@ final class BodyImageAccess
     ) {
     }
 
-    /** Built from a connection alone, for the catch-up task. */
+    /** Built from a connection alone, for the catch-up task and the checker. */
     public static function forPdo(\PDO $pdo): self
     {
         return new self($pdo, new ArticleRepository($pdo), new FileRepository($pdo));
@@ -83,26 +86,14 @@ final class BodyImageAccess
     }
 
     /**
-     * Realign every image article $articleId's text names, and every image
-     * it owns that its text no longer names; returns how many files
-     * changed floor or owner.
-     *
-     * **Backwards too.** An image taken out of a text, while that article
-     * still owns it, would otherwise keep the floor it had there: shared
-     * with a staff article and removed from the public one, it would stay
-     * public forever. Each image this article owns is therefore reconciled
-     * as well — handed to whichever article now governs it, or closed when
-     * no saved text names it any more.
+     * Put every image article $articleId's text names on the floor of the
+     * widest text naming it, owned by itself for the request-time check;
+     * returns how many files changed.
      */
     public function syncArticle(int $articleId): int
     {
-        $publicIds = array_unique([
-            ...$this->publicIdsIn($this->textOf($articleId)),
-            ...$this->publicIdsOwnedBy($articleId),
-        ]);
-
         $changed = 0;
-        foreach ($publicIds as $publicId) {
+        foreach ($this->publicIdsIn($this->textOf($articleId)) as $publicId) {
             $changed += $this->syncFile($publicId) ? 1 : 0;
         }
 
@@ -110,11 +101,12 @@ final class BodyImageAccess
     }
 
     /**
-     * Close the text images no saved article claims: uploaded `public`
-     * before issue #1110, then never saved into an article (an abandoned
-     * draft, an image removed before saving). They go to the provisional
-     * floor of an unsaved upload, and nothing is deleted. Returns how
-     * many. For the catch-up task, after every article was synced.
+     * Close the text images no saved article ever claimed: uploaded
+     * `public` before issue #1110, then never saved into an article (an
+     * abandoned draft, an image removed before saving). They go to the
+     * provisional floor of an unsaved upload, and nothing is deleted.
+     * Returns how many. For the catch-up task, after every article was
+     * synced.
      */
     public function closeUnclaimed(): int
     {
@@ -131,9 +123,29 @@ final class BodyImageAccess
     }
 
     /**
-     * Put one file on the floor and owner of the article that opens it
-     * widest. Whether anything changed.
+     * Every article whose text names file $file — what the request-time
+     * check reads.
+     *
+     * @return list<Article>
      */
+    public function articlesNaming(FileRecord $file): array
+    {
+        if ($file->publicId === null) {
+            return [];
+        }
+
+        $articles = [];
+        foreach ($this->articleIdsNaming($file->publicId) as $articleId) {
+            $article = $this->articles->findById($articleId);
+            if ($article !== null) {
+                $articles[] = $article;
+            }
+        }
+
+        return $articles;
+    }
+
+    /** Whether anything changed. */
     private function syncFile(string $publicId): bool
     {
         $file = $this->files->findByPublicId($publicId);
@@ -144,94 +156,33 @@ final class BodyImageAccess
             return false;
         }
 
-        $governing = $this->governingArticle($publicId);
-        if ($governing === null) {
-            return $this->release($file);
+        $articles = $this->articlesNaming($file);
+        if ($articles === []) {
+            return false;
         }
 
-        $roleMin = self::bodyImageRoleMin($governing->visibility);
-        $owner = NewsCoverOwnershipChecker::BODY_IMAGE_OWNER_TYPE;
-        if ($file->roleMin === $roleMin && $file->ownerType === $owner && $file->ownerId === $governing->id) {
+        $roleMin = self::widestFloor($articles);
+        $owner = NewsTextImageOwnershipChecker::OWNER_TYPE;
+        if ($file->roleMin === $roleMin && $file->ownerType === $owner && $file->ownerId === $file->id) {
             return false;
         }
 
         $this->files->updateRoleMin($file->id, $roleMin);
-        $this->files->updateOwner($file->id, $owner, $governing->id);
+        $this->files->updateOwner($file->id, $owner, $file->id);
 
         return true;
     }
 
     /**
-     * A text image no saved text names any more: back to the provisional
-     * floor of an unsaved upload, with no owner — the author who removed
-     * it still sees it, nobody else. Nothing is deleted.
+     * @param non-empty-list<Article> $articles
      */
-    private function release(\Core\File\FileRecord $file): bool
+    private static function widestFloor(array $articles): string
     {
-        if ($file->roleMin === self::UNSAVED_ROLE_MIN && $file->ownerType === null) {
-            return false;
-        }
+        $order = ['public' => 0, 'identified' => 1, 'chief' => 2, 'admin' => 3];
+        $floors = array_map(static fn(Article $a): string => self::bodyImageRoleMin($a->visibility), $articles);
+        usort($floors, static fn(string $a, string $b): int => $order[$a] <=> $order[$b]);
 
-        $this->pdo->prepare('UPDATE files SET role_min = ?, owner_type = NULL, owner_id = NULL WHERE id = ?')
-            ->execute([self::UNSAVED_ROLE_MIN, $file->id]);
-
-        return true;
-    }
-
-    /**
-     * The images this article owns today, whether or not its text still
-     * names them.
-     *
-     * @return list<string>
-     */
-    private function publicIdsOwnedBy(int $articleId): array
-    {
-        $stmt = $this->pdo->prepare(
-            'SELECT public_id FROM files WHERE owner_type = ? AND owner_id = ? AND public_id IS NOT NULL'
-        );
-        $stmt->execute([NewsCoverOwnershipChecker::BODY_IMAGE_OWNER_TYPE, $articleId]);
-
-        return array_values(array_map('strval', $stmt->fetchAll(\PDO::FETCH_COLUMN)));
-    }
-
-    /**
-     * Among the articles whose text names $publicId, the one whose floor
-     * is the widest — online ones first, so a draft that shares the image
-     * never closes it on a published article's readers.
-     */
-    private function governingArticle(string $publicId): ?Article
-    {
-        $candidates = [];
-        foreach ($this->articleIdsNaming($publicId) as $articleId) {
-            $article = $this->articles->findById($articleId);
-            if ($article !== null) {
-                $candidates[] = $article;
-            }
-        }
-        if ($candidates === []) {
-            return null;
-        }
-
-        $live = array_values(array_filter($candidates, static fn(Article $a): bool => ArticleService::isOnline($a)));
-        $pool = $live !== [] ? $live : $candidates;
-        usort(
-            $pool,
-            static fn(Article $a, Article $b): int => [self::openness($a->visibility), $a->id]
-                <=> [self::openness($b->visibility), $b->id]
-        );
-
-        return $pool[0];
-    }
-
-    /** Lower is wider. */
-    private static function openness(string $visibility): int
-    {
-        return match (self::bodyImageRoleMin($visibility)) {
-            'public' => 0,
-            'identified' => 1,
-            'chief' => 2,
-            default => 3,
-        };
+        return $floors[0];
     }
 
     /**

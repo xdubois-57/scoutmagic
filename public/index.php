@@ -9632,6 +9632,14 @@ if ($isEnabled('news')) {
         $newsArticleRepo,
         $newsArticleService
     );
+    // An image inserted in an article's text is served when an article
+    // naming it is online and visible to the reader, or to whoever
+    // manages the news — decided at each request (issue #1110).
+    $fileOwnershipCheckers[] = new \Modules\News\File\NewsTextImageOwnershipChecker(
+        new \Core\File\FileRepository($pdo),
+        \Modules\News\Service\BodyImageAccess::forPdo($pdo),
+        $newsArticleService
+    );
     $newsFormService = new \Modules\News\Service\FormService(
         $newsFormRepo,
         $newsFieldRepo,

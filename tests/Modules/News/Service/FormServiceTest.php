@@ -271,7 +271,10 @@ class FormServiceTest extends TestCase
             ]);
 
             $this->assertSame('public', $files->findById($image)?->roleMin);
-            $this->assertSame($this->articleId, $files->findById($image)?->ownerId);
+            $this->assertSame(
+                \Modules\News\File\NewsTextImageOwnershipChecker::OWNER_TYPE,
+                $files->findById($image)?->ownerType
+            );
         } finally {
             \Core\File\FilePublicIds::useRepository(null);
         }

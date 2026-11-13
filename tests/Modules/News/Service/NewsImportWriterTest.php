@@ -180,11 +180,11 @@ final class NewsImportWriterTest extends TestCase
 
         // Issue #1110: a text image is on the floor of the text it sits in
         // — this article's protective `identified`, never `public` — and
-        // belongs to the article, under the cover's rule.
+        // is checked at each request against the articles naming it.
         $file = $this->files->findByPublicId($match[1]) ?? $this->fail('No file.');
         $this->assertSame('identified', $file->roleMin);
-        $this->assertSame(\Modules\News\File\NewsCoverOwnershipChecker::BODY_IMAGE_OWNER_TYPE, $file->ownerType);
-        $this->assertSame($id, $file->ownerId);
+        $this->assertSame(\Modules\News\File\NewsTextImageOwnershipChecker::OWNER_TYPE, $file->ownerType);
+        $this->assertSame($file->id, $file->ownerId);
         $this->assertFileExists($this->storage . '/' . $file->relativePath);
     }
 

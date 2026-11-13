@@ -19,6 +19,7 @@ use Modules\News\Api\ImportedFormField;
 use Modules\News\Api\ImportedImage;
 use Modules\News\Api\NewsImportWriterInterface;
 use Modules\News\File\NewsCoverOwnershipChecker;
+use Modules\News\File\NewsTextImageOwnershipChecker;
 use Modules\News\Repository\Article;
 use Modules\News\Repository\ArticleRepository;
 use Modules\News\Repository\FormFieldRepository;
@@ -123,7 +124,7 @@ class NewsImportWriter implements NewsImportWriterInterface
                 $this->files->updateOwner($coverId, NewsCoverOwnershipChecker::OWNER_TYPE, $id);
             }
             foreach (array_unique($this->bodyImageIds) as $bodyImageId) {
-                $this->files->updateOwner($bodyImageId, NewsCoverOwnershipChecker::BODY_IMAGE_OWNER_TYPE, $id);
+                $this->files->updateOwner($bodyImageId, NewsTextImageOwnershipChecker::OWNER_TYPE, $bodyImageId);
             }
 
             // The body lives where the module reads it: the form's first
@@ -304,7 +305,7 @@ class NewsImportWriter implements NewsImportWriterInterface
                         return '';
                     }
                     // The floor of the text it sits in (issue #1110); its
-                    // owner is set once the article exists.
+                    // request-time owner is set once the article exists.
                     $resolved[$key] ??= $this->storeImage(
                         $image,
                         BodyImageAccess::bodyImageRoleMin($article->visibility),

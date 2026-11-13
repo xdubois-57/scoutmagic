@@ -6,7 +6,7 @@ namespace Tests\Modules\News\Service;
 
 use Core\File\FilePublicIds;
 use Core\File\FileRepository;
-use Modules\News\File\NewsCoverOwnershipChecker;
+use Modules\News\File\NewsTextImageOwnershipChecker;
 use Modules\News\Repository\Article;
 use Modules\News\Repository\ArticleRepository;
 use Modules\News\Service\BodyImageAccess;
@@ -44,7 +44,7 @@ final class BodyImageAccessTest extends TestCase
      * The floor of the text, visibility by visibility — the social
      * exception of an `identified` cover does not reach the body.
      */
-    public function testEachImageTakesTheFloorOfTheTextAndBelongsToTheArticle(): void
+    public function testEachImageTakesTheFloorOfTheTextAndIsCheckedAtEachRequest(): void
     {
         foreach ([
             Article::VISIBILITY_PUBLIC => 'public',
@@ -60,8 +60,10 @@ final class BodyImageAccessTest extends TestCase
 
             $file = $this->files->findById($image);
             $this->assertSame($expected, $file?->roleMin, $visibility);
-            $this->assertSame(NewsCoverOwnershipChecker::BODY_IMAGE_OWNER_TYPE, $file?->ownerType, $visibility);
-            $this->assertSame($articleId, $file?->ownerId, $visibility);
+            // Owned by itself: the request-time check asks which articles
+            // name it, not one article written down at save time.
+            $this->assertSame(NewsTextImageOwnershipChecker::OWNER_TYPE, $file?->ownerType, $visibility);
+            $this->assertSame($image, $file?->ownerId, $visibility);
         }
     }
 
@@ -94,75 +96,21 @@ final class BodyImageAccessTest extends TestCase
     }
 
     /**
-     * One file pasted into two articles follows the one that opens it
-     * widest, so neither shows a broken image — online articles first, so
-     * a public draft never closes it on a published one's readers.
+     * One file pasted into two articles takes the floor of the widest
+     * text, whatever either article's status: the floor depends only on
+     * texts and visibilities, the saves that call this. Which article is
+     * online is the request-time check's question (NewsTextImageAccessTest).
      */
-    public function testASharedImageFollowsTheWidestOnlineArticle(): void
+    public function testASharedImageTakesTheFloorOfTheWidestText(): void
     {
         $image = $this->image();
         $staff = $this->article(Article::VISIBILITY_ADMIN, [$image]);
         $public = $this->article(Article::VISIBILITY_PUBLIC, [$image]);
-
-        $this->access->syncArticle($staff);
-
-        $file = $this->files->findById($image);
-        $this->assertSame('public', $file?->roleMin);
-        $this->assertSame($public, $file?->ownerId);
-
-        // The public one goes back to draft: the staff article, the only
-        // one online, now governs.
         $this->articles->setPublication($public, Article::STATUS_DRAFT, null);
+
         $this->access->syncArticle($staff);
 
-        $file = $this->files->findById($image);
-        $this->assertSame('admin', $file?->roleMin);
-        $this->assertSame($staff, $file?->ownerId);
-    }
-
-    /**
-     * Backwards too: an image taken out of the text of the article that
-     * governed it is handed to the article still showing it — never left on
-     * the wider floor it had there. The scenario a reviewer traced: shared
-     * by a public article and a staff one, removed from the public one.
-     */
-    public function testAnImageRemovedFromTheGoverningTextFollowsTheArticleStillShowingIt(): void
-    {
-        $image = $this->image();
-        $staff = $this->article(Article::VISIBILITY_CHIEF, [$image]);
-        $public = $this->article(Article::VISIBILITY_PUBLIC, [$image]);
-        $this->access->syncArticle($public);
         $this->assertSame('public', $this->files->findById($image)?->roleMin);
-
-        $this->setText($public, '<p>Plus de photo.</p>');
-        $this->access->syncArticle($public);
-
-        $file = $this->files->findById($image);
-        $this->assertSame('chief', $file?->roleMin);
-        $this->assertSame($staff, $file?->ownerId);
-    }
-
-    /** An image no saved text names any more goes back to the provisional floor. */
-    public function testAnImageRemovedFromItsOnlyTextIsClosed(): void
-    {
-        $image = $this->image();
-        $public = $this->article(Article::VISIBILITY_PUBLIC, [$image]);
-        $this->access->syncArticle($public);
-
-        $this->setText($public, '<p>Plus de photo.</p>');
-        $this->access->syncArticle($public);
-
-        $file = $this->files->findById($image);
-        $this->assertSame(BodyImageAccess::UNSAVED_ROLE_MIN, $file?->roleMin);
-        $this->assertNull($file?->ownerType);
-    }
-
-    private function setText(int $articleId, string $html): void
-    {
-        $this->pdo->prepare(
-            'UPDATE news_form_fields SET confirmation_text = ?
-             WHERE form_id = (SELECT id FROM news_forms WHERE news_article_id = ?)'
-        )->execute([$html, $articleId]);
     }
 
     /**
@@ -231,6 +179,12 @@ final class BodyImageAccessTest extends TestCase
         $this->assertMatchesRegularExpression(
             '~new \\\\Modules\\\\News\\\\Service\\\\FormService\((?:(?!\);).)*'
                 . 'BodyImageAccess::forPdo\(\$pdo\)~s',
+            $index
+        );
+        // And the request-time half: without the checker, nothing answers
+        // for `news_text_image` and every synced image is refused.
+        $this->assertStringContainsString(
+            '$fileOwnershipCheckers[] = new \\Modules\\News\\File\\NewsTextImageOwnershipChecker(',
             $index
         );
     }

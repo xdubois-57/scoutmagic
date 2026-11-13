@@ -31,23 +31,12 @@ use Modules\News\Service\ArticleService;
  * at exactly the instant the article goes online and closes it again on a
  * return to draft, with nothing to flip and nothing to forget.
  *
- * The images of the article's text follow the same rule under their own
- * owner type, `news_article` (issue #1110).
- *
- * With the module disabled, nothing answers for `news_cover` or
- * `news_article` and the guard refuses — fail-closed, as for every owner
- * type.
+ * With the module disabled, nothing answers for `news_cover` and the guard
+ * refuses — fail-closed, as for every owner type.
  */
 final class NewsCoverOwnershipChecker implements FileOwnershipCheckerInterface
 {
     public const OWNER_TYPE = 'news_cover';
-
-    /**
-     * The images inserted in an article's text, under the same rule
-     * (issue #1110, Service\BodyImageAccess): what a draft holds is shown
-     * to nobody but those who manage the news until it goes online.
-     */
-    public const BODY_IMAGE_OWNER_TYPE = 'news_article';
 
     public function __construct(
         private readonly ArticleRepository $articles,
@@ -57,7 +46,7 @@ final class NewsCoverOwnershipChecker implements FileOwnershipCheckerInterface
 
     public function supports(string $ownerType): bool
     {
-        return $ownerType === self::OWNER_TYPE || $ownerType === self::BODY_IMAGE_OWNER_TYPE;
+        return $ownerType === self::OWNER_TYPE;
     }
 
     /**
