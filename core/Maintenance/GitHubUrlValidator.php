@@ -107,9 +107,11 @@ final class GitHubUrlValidator
             return false;
         }
 
+        $path = (string) $parts['path'];
+
         return match (strtolower((string) ($parts['host'] ?? ''))) {
-            'github.com' => str_starts_with(strtolower((string) $parts['path']), "/{$owner}/{$repo}/releases/download/"),
-            'api.github.com' => self::isReleaseZipball((string) $parts['path'], $owner, $repo, $tag),
+            'github.com' => str_starts_with(strtolower($path), "/{$owner}/{$repo}/releases/download/"),
+            'api.github.com' => self::isReleaseZipball($path, $owner, $repo, $tag),
             default => false,
         };
     }
