@@ -53,6 +53,19 @@ itself — the rule, its short list of replaceable functions and the reason
 (issue #465) are in `AGENTS.md` § Tests;
 `Tests\Core\View\TestEnvironmentsUseTheRealFactoryTest` enforces it.
 
+**The suite has a temporary directory of its own, removed when it ends**
+(issue #1015). `tests/bootstrap.php` points `TMPDIR` at
+`scoutmagic-phpunit-<pid>-<random>`, under the system's temporary directory,
+before anything calls `sys_get_temp_dir()` — whose first answer PHP keeps —
+and deletes it recursively at shutdown. Everything a test writes there, with
+or without a `tearDown()`, goes with the run: before this, every run left
+hundreds of entries in `/tmp`, and a long-lived container counted over
+100 000. A run killed outright leaves that one directory, named for what it
+is. A test still cleans up after itself; this is the net under the ones that
+do not. `Tests\Bootstrap\TestTemporaryDirectoryTest` fails if the redirect
+stops taking effect, and the bootstrap itself refuses to run if
+`sys_get_temp_dir()` was answered before it.
+
 ### The two database engines
 
 Production runs **MariaDB 10.11**. CI runs the suite twice:
