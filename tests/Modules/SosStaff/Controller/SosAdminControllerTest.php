@@ -1849,6 +1849,25 @@ class SosAdminControllerTest extends TestCase
         $this->assertSame([], $this->applyCalls);
     }
 
+    /**
+     * Issue #1125 (review of #1194): the operator spells the number its own
+     * way and Desk another — the same number is no misalignment, neither on
+     * the dashboard nor for « Resynchroniser ».
+     */
+    public function testTheSameNumberInAnotherSpellingIsAlreadyConform(): void
+    {
+        $this->createStaffduMember('Akela', '0470 00 00 01');
+        $this->forwarding = new \Modules\SosStaff\Api\ForwardingState(true, '0032470000001');
+
+        $body = $this->dashboard();
+        $answer = $this->resynchronize();
+
+        $this->assertStringNotContainsString('data-redirect-action="resync"', $body);
+        $this->assertTrue($answer['success']);
+        $this->assertSame('La redirection est déjà conforme.', $answer['message']);
+        $this->assertSame([], $this->applyCalls);
+    }
+
     public function testAnUnreadableProviderRefusesTheCorrectionRatherThanGuessing(): void
     {
         $this->createStaffduMember('Akela', '+32470000001');

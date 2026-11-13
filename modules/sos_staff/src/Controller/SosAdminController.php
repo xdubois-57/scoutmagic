@@ -364,14 +364,16 @@ class SosAdminController extends AbstractController
         if ($live['error'] === null && $expectedNumber !== null) {
             if (!$live['active']) {
                 $action = 'reactivate';
-            } elseif ($live['number'] !== $expectedNumber) {
+            } elseif (!PhoneNumber::same($live['number'], $expectedNumber)) {
+                // As numbers, not strings: the operator answers in its own
+                // spelling (issue #1125).
                 $action = 'resync';
             }
         }
 
         $expectedLabel = null;
         foreach ($staffOptions as $option) {
-            if ($option['mobile'] === $expectedNumber) {
+            if (PhoneNumber::same($option['mobile'], $expectedNumber)) {
                 $expectedLabel = $option['label'];
                 break;
             }
