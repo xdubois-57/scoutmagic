@@ -490,7 +490,7 @@ class ReceivableAllocationService
 
         $existing = null;
         $refundedOnDebit = 0;
-        foreach ($this->allocationRepository->findByTransactionId($debit->id) as $allocation) {
+        foreach ($this->allocationRepository->findByTransactionId($debit->id, $this->currentReads()) as $allocation) {
             if ($allocation->receivableId === $receivableId) {
                 $existing = $allocation;
             }
@@ -502,7 +502,7 @@ class ReceivableAllocationService
             return null;
         }
         $refundedOnReceivable = 0;
-        foreach ($this->allocationRepository->findByReceivableId($receivableId) as $allocation) {
+        foreach ($this->allocationRepository->findByReceivableId($receivableId, $this->currentReads()) as $allocation) {
             if ($allocation->amountCents < 0) {
                 $refundedOnReceivable -= $allocation->amountCents;
             }
@@ -567,14 +567,14 @@ class ReceivableAllocationService
             return null;
         }
 
-        $existing = $this->allocationRepository->findPair($credit->id, $receivableId);
+        $existing = $this->allocationRepository->findPair($credit->id, $receivableId, $this->currentReads());
         if ($existing !== null && $existing->isManual()) {
             return null;
         }
 
         $ownShare = $existing !== null ? max(0, $existing->amountCents) : 0;
-        $allocated = $this->allocatedCents($receivableId);
-        $used = $this->usedCents($credit->id);
+        $allocated = $this->allocatedCents($receivableId, $this->currentReads());
+        $used = $this->usedCents($credit->id, $this->currentReads());
         $amount = max(0, min(
             $receivable->amountDueCents - ($allocated - $ownShare),
             self::toCents($credit->amount) - ($used - $ownShare)
@@ -879,10 +879,10 @@ class ReceivableAllocationService
             throw new FinanceException("Ce mouvement est un débit : il ne peut pas régler une créance.");
         }
 
-        $existing = $this->allocationRepository->findPair($transactionId, $receivableId);
+        $existing = $this->allocationRepository->findPair($transactionId, $receivableId, $this->currentReads());
         $ownShare = $existing !== null ? max(0, $existing->amountCents) : 0;
 
-        $remainingDue = $receivable->amountDueCents - ($this->allocatedCents($receivableId) - $ownShare);
+        $remainingDue = $receivable->amountDueCents - ($this->allocatedCents($receivableId, $this->currentReads()) - $ownShare);
         if ($amountCents > $remainingDue) {
             throw new FinanceException(sprintf(
                 'Cette créance n\'attend plus que %s €. Une créance n\'absorbe jamais plus que ce qu\'elle doit : '
@@ -891,7 +891,7 @@ class ReceivableAllocationService
             ));
         }
 
-        $remainingOnTransaction = self::toCents($transaction->amount) - ($this->usedCents($transactionId) - $ownShare);
+        $remainingOnTransaction = self::toCents($transaction->amount) - ($this->usedCents($transactionId, $this->currentReads()) - $ownShare);
         if ($amountCents > $remainingOnTransaction) {
             throw new FinanceException(sprintf(
                 'Il ne reste que %s € à répartir sur ce mouvement.',
@@ -1074,7 +1074,7 @@ class ReceivableAllocationService
                     throw new FinanceException('Ce débit est antérieur à la date à partir de laquelle un '
                         . 'remboursement est cherché.');
                 }
-                $onDebit = $this->allocationRepository->findByTransactionId($debit->id);
+                $onDebit = $this->allocationRepository->findByTransactionId($debit->id, $this->currentReads());
                 if (!self::isUnreconciledFor($onDebit, $current->id)) {
                     throw new FinanceException('Ce débit est déjà rapproché.');
                 }
@@ -1236,7 +1236,7 @@ class ReceivableAllocationService
                     $current,
                     $amountCents,
                     $sinceDate,
-                    $this->allocationRepository->findByTransactionId($credit->id)
+                    $this->allocationRepository->findByTransactionId($credit->id, $this->currentReads())
                 );
                 if ($refusal !== null) {
                     throw new FinanceException($refusal);
@@ -1289,7 +1289,7 @@ class ReceivableAllocationService
                     throw new FinanceException("Cette créance n'existe pas.");
                 }
                 $credit = $this->transactionRepository->findById($transactionId);
-                $pair = $this->allocationRepository->findPair($transactionId, $current->id);
+                $pair = $this->allocationRepository->findPair($transactionId, $current->id, $this->currentReads());
                 if ($credit === null || $pair === null || $credit->accountId !== $current->accountId
                     || !self::isDetachable($pair, $credit)
                 ) {
@@ -1467,12 +1467,12 @@ class ReceivableAllocationService
             }
 
             $this->transactionRepository->lockForUpdate($transaction->id);
-            $available = $this->unallocatedCentsOf($transaction);
+            $available = $this->unallocatedCentsOf($transaction, $this->currentReads());
             if ($available <= 0) {
                 continue;
             }
 
-            $existing = $this->allocationRepository->findPair($transaction->id, $to->id);
+            $existing = $this->allocationRepository->findPair($transaction->id, $to->id, $this->currentReads());
             $share = min($available, $left);
             $this->allocateUnderLocks(
                 $transaction->id,
@@ -1857,10 +1857,10 @@ class ReceivableAllocationService
      * remainder is not a trop-perçu until a human says the money is owed
      * back — it may simply be a payment for something not invoiced yet.
      */
-    public function unallocatedCentsOf(Transaction $transaction): int
+    public function unallocatedCentsOf(Transaction $transaction, bool $current = false): int
     {
         $used = 0;
-        foreach ($this->allocationRepository->findByTransactionId($transaction->id) as $allocation) {
+        foreach ($this->allocationRepository->findByTransactionId($transaction->id, $current) as $allocation) {
             if ($allocation->amountCents > 0) {
                 $used += $allocation->amountCents;
             }
@@ -1922,10 +1922,22 @@ class ReceivableAllocationService
         return $receivable;
     }
 
-    private function allocatedCents(int $receivableId): int
+    /**
+     * Whether the reads taken under the locks must be locking reads
+     * (issue #1118): only when the transaction they run in was opened by
+     * somebody else, at REPEATABLE READ, whose snapshot a lock does not
+     * refresh. The transactions the locks open themselves read what is
+     * committed, and need no more.
+     */
+    private function currentReads(): bool
+    {
+        return !$this->receivableRepository->seesCommittedWrites();
+    }
+
+    private function allocatedCents(int $receivableId, bool $current = false): int
     {
         $total = 0;
-        foreach ($this->allocationRepository->findByReceivableId($receivableId) as $allocation) {
+        foreach ($this->allocationRepository->findByReceivableId($receivableId, $current) as $allocation) {
             if ($allocation->amountCents > 0) {
                 $total += $allocation->amountCents;
             }
@@ -1934,10 +1946,10 @@ class ReceivableAllocationService
         return $total;
     }
 
-    private function usedCents(int $transactionId): int
+    private function usedCents(int $transactionId, bool $current = false): int
     {
         $total = 0;
-        foreach ($this->allocationRepository->findByTransactionId($transactionId) as $allocation) {
+        foreach ($this->allocationRepository->findByTransactionId($transactionId, $current) as $allocation) {
             if ($allocation->amountCents > 0) {
                 $total += $allocation->amountCents;
             }

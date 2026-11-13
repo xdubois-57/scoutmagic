@@ -167,6 +167,117 @@ final class ReceivableAllocationOnMysqlTest extends TestCase
         $this->assertSame(1, $seen, "the second read did not see the other connection's committed allocation");
     }
 
+    /**
+     * A transaction somebody else opened — a campaign import, a module
+     * creating its receivable in its own TransactionScope — stays at
+     * REPEATABLE READ, and a lock joining it does not refresh its
+     * snapshot. Its reads under the lock are then locking reads (issue
+     * #1118): the allocation another connection committed after the
+     * snapshot is counted, and the movement is not given away twice.
+     */
+    public function testAnAllocationInsideAnOuterTransactionCountsWhatWasCommittedSinceItsSnapshot(): void
+    {
+        $lucie = $this->receivable(4500, '+++123/4567/89012+++');
+        $antoine = $this->receivable(4500, '+++123/4567/89025+++');
+        $credit = $this->credit('Virement groupé', 60.00);
+        [, $otherService] = $this->secondConnection();
+
+        $this->pdo->beginTransaction();
+        // The outer transaction's first plain read: its snapshot.
+        $this->assertSame([], $this->allocatedOn($credit));
+
+        $otherService->allocate($credit, $antoine, 4500, Role::INTENDANT, 8);
+
+        try {
+            $this->service->allocate($credit, $lucie, 4500, Role::INTENDANT, 7);
+            $this->fail('the outer transaction gave the movement away twice');
+        } catch (FinanceException $e) {
+            $this->assertStringContainsString('Il ne reste que 15,00', $e->getMessage());
+        } finally {
+            $this->pdo->rollBack();
+        }
+
+        $this->assertSame([$antoine => 4500], $this->allocatedOn($credit));
+    }
+
+    /**
+     * The sequence itself, in two processes: another treasurer holds the
+     * movement while giving its last 15 € away; the surplus transfer
+     * read 15 € on it, waits on its lock, resumes once the other has
+     * committed — and finds nothing left, rather than giving the same
+     * 15 € a second time.
+     */
+    public function testATransferThatWaitedOnAMovementResumesWithWhatTheOtherCommitted(): void
+    {
+        $from = $this->receivable(4500, '+++123/4567/89012+++');
+        $third = $this->receivable(5000, '+++123/4567/89038+++');
+        $to = $this->receivable(5000, '+++123/4567/89025+++');
+        $credit = $this->credit('Virement +++123/4567/89012+++', 60.00);
+        $this->service->reconcileAccount($this->accountId);
+        $this->assertSame([$from => 4500], $this->allocatedOn($credit));
+
+        $other = $this->holdingProcess($credit, $third, 1500);
+        try {
+            $this->service->transferOverpayment($from, $to, 1500, Role::INTENDANT, 7);
+            $this->fail('the transfer gave away the 15 € the other treasurer had just taken');
+        } catch (FinanceException $e) {
+            $this->assertStringContainsString("n'a pas pu être imputé en entier", $e->getMessage());
+        } finally {
+            $this->assertSame("COMMITTED\n", stream_get_contents($other['out']));
+            proc_close($other['process']);
+        }
+
+        $this->assertSame([$from => 4500, $third => 1500], $this->allocatedOn($credit));
+    }
+
+    /**
+     * A second PHP process allocating $cents of $credit to $receivable in
+     * a transaction it keeps open for a second and a half after taking the
+     * locks — returned once it has them, so the caller's next gesture is
+     * the one that waits.
+     *
+     * @return array{process: resource, out: resource}
+     */
+    private function holdingProcess(int $credit, int $receivable, int $cents): array
+    {
+        $credentials = self::productionEngineCredentials();
+        $code = <<<'PHP'
+            require 'vendor/autoload.php';
+            [, $host, $port, $database, $user, $password, $credit, $receivable, $cents] = $argv;
+            $pdo = (new Core\Database\Connection($host, (int) $port, $database, $user, $password))->getPdo();
+            $encryption = new Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+            $service = Tests\Modules\Finance\FinanceTestHelper::allocationService($pdo, $encryption);
+            $pdo->beginTransaction();
+            $service->allocate((int) $credit, (int) $receivable, (int) $cents, Core\Security\Role::INTENDANT, 9);
+            fwrite(STDOUT, "LOCKED\n");
+            fflush(STDOUT);
+            usleep(1500000);
+            $pdo->commit();
+            fwrite(STDOUT, "COMMITTED\n");
+            PHP;
+
+        $process = proc_open(
+            [
+                PHP_BINARY, '-r', $code, '--',
+                $credentials['host'], (string) $credentials['port'],
+                (string) $this->pdo->query('SELECT DATABASE()')->fetchColumn(),
+                $credentials['user'], $credentials['password'],
+                (string) $credit, (string) $receivable, (string) $cents,
+            ],
+            [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+            $pipes,
+            dirname(__DIR__, 4)
+        );
+        $this->assertIsResource($process);
+
+        $line = fgets($pipes[1]);
+        if ($line !== "LOCKED\n") {
+            $this->fail('the second process did not take its locks: ' . $line . stream_get_contents($pipes[2]));
+        }
+
+        return ['process' => $process, 'out' => $pipes[1]];
+    }
+
     /** « Répartir » on the real engine: a refused line rolls back the lines InnoDB had already written. */
     public function testARefusedSplitLineRollsBackTheOthersOnTheRealEngine(): void
     {

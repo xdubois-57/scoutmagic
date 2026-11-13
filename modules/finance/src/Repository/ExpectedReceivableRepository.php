@@ -12,6 +12,9 @@ use Core\Security\EncryptionService;
 
 class ExpectedReceivableRepository
 {
+    /** Whether the transaction open on the connection is the READ COMMITTED one this repository opened. */
+    private bool $readCommittedOpen = false;
+
     public function __construct(
         private \PDO $pdo,
         private EncryptionService $encryption
@@ -192,13 +195,13 @@ class ExpectedReceivableRepository
 
             $result = $work();
             if ($ownTransaction) {
-                $this->pdo->commit();
+                $this->endOwnTransaction(true);
             }
 
             return $result;
         } catch (\Throwable $e) {
             if ($ownTransaction) {
-                $this->pdo->rollBack();
+                $this->endOwnTransaction(false);
             }
             throw $e;
         }
@@ -252,6 +255,30 @@ class ExpectedReceivableRepository
             $this->pdo->exec('SET TRANSACTION ISOLATION LEVEL READ COMMITTED');
         }
         $this->pdo->beginTransaction();
+        $this->readCommittedOpen = true;
+    }
+
+    /** Commit or roll back the transaction beginReadCommitted() opened. */
+    private function endOwnTransaction(bool $commit): void
+    {
+        $this->readCommittedOpen = false;
+        $commit ? $this->pdo->commit() : $this->pdo->rollBack();
+    }
+
+    /**
+     * Whether a plain read here sees what other connections committed
+     * (issue #1118): outside any transaction, inside one this repository
+     * opened at READ COMMITTED, or on SQLite. False inside a transaction
+     * somebody else opened — a campaign imported, a module creating its
+     * receivable in its own TransactionScope — whose REPEATABLE READ
+     * snapshot a lock does not refresh: the reads under the lock must
+     * then be locking reads (ReceivableAllocationRepository's `$current`).
+     */
+    public function seesCommittedWrites(): bool
+    {
+        return $this->pdo->getAttribute(\PDO::ATTR_DRIVER_NAME) === 'sqlite'
+            || !$this->pdo->inTransaction()
+            || $this->readCommittedOpen;
     }
 
     /**
@@ -270,11 +297,11 @@ class ExpectedReceivableRepository
         $this->beginReadCommitted();
         try {
             $result = $work();
-            $this->pdo->commit();
+            $this->endOwnTransaction(true);
 
             return $result;
         } catch (\Throwable $e) {
-            $this->pdo->rollBack();
+            $this->endOwnTransaction(false);
             throw $e;
         }
     }
