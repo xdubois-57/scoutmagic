@@ -275,13 +275,6 @@ class FunctionsController extends AbstractController
     }
 
     /**
-     * POST /config/functions/flags — update a module-provided per-function
-     * flag (e.g. trombinoscope "responsable"). No-op (404 behaviour handled
-     * by the caller) when no provider is wired.
-     *
-     * @param array<string, string> $params
-     */
-    /**
      * The years a function's new role is applied to: the authorization year
      * and every year prepared after it (#1124).
      *
@@ -317,6 +310,13 @@ class FunctionsController extends AbstractController
         return $ids;
     }
 
+    /**
+     * POST /config/functions/flags — update a module-provided per-function
+     * flag (e.g. trombinoscope "responsable"). No-op (404 behaviour handled
+     * by the caller) when no provider is wired.
+     *
+     * @param array<string, string> $params
+     */
     public function updateFlags(Request $request, array $params): Response
     {
         $functionFlagsProvider = $this->functionFlagsProvider();
