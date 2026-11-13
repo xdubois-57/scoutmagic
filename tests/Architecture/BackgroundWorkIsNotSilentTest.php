@@ -50,6 +50,7 @@ class BackgroundWorkIsNotSilentTest extends TestCase
         // Expired single-use links: their requests and confirmations are
         // journaled when they happen; the row's removal tells nobody more.
         'core/Security/Task/PurgeExpiredMagicLinksHandler.php' => 'expired single-use login links, not events',
+        'modules/gallery/src/Task/PurgeZipDownloadsHandler.php' => 'rate-limit counters, not events',
         'modules/groups/src/Task/PurgeRateLimitHandler.php' => 'rate-limit counters, not events',
         'modules/retro/src/Task/PurgeRateLimitHandler.php' => 'rate-limit counters, not events',
         'modules/support_dashboard/src/Task/PurgeRateLimitsHandler.php' => 'rate-limit counters, not events',

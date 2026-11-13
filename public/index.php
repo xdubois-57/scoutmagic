@@ -10009,6 +10009,10 @@ $galleryShareSourceForOthers = null;
 $galleryPhotoPickerForOthers = null;
 if ($isEnabled('gallery')) {
     \Core\Debug\RequestTimeline::mark('module_gallery');
+    // The daily sweep of gallery_zip_downloads (Task\PurgeZipDownloadsHandler
+    // re-arms itself after every run); only the first occurrence needs this
+    // nudge, same as retro's and registration's purges below.
+    $schedulerService->seed('gallery', 'purge_zip_downloads', 'daily', new DateTimeImmutable());
     $galleryAlbumActions = new \Modules\Gallery\Service\AlbumActionRegistry();
     $galleryAlbumRepo = new \Modules\Gallery\Repository\AlbumRepository($pdo);
     $galleryMediaRepo = new \Modules\Gallery\Repository\MediaRepository($pdo);
@@ -13775,6 +13779,10 @@ if (isset(
             $storageBackendFactory,
             $storageLocationService,
             $galleryLocationService,
+            new \Modules\Gallery\Service\ZipDownloadLimiter(
+                new \Modules\Gallery\Repository\ZipDownloadRepository($pdo)
+            ),
+            $journalService,
             $galleryDelegatedAlbumAccessRegistry,
             $linkedMemberIds
         )

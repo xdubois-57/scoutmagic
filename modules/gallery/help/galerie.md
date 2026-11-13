@@ -36,7 +36,9 @@ bien deux fichiers.
 Le bouton « Télécharger l'album (ZIP) », en haut de l'album, prépare
 une archive avec les mêmes noms de fichiers. Un album trop volumineux
 pour tenir dans une seule archive vous invite à enregistrer les médias
-un par un. Les médias encore en préparation n'y figurent pas.
+un par un. Les médias encore en préparation n'y figurent pas. Vous
+pouvez télécharger jusqu'à dix albums entiers par heure ; au-delà,
+le site vous demande de réessayer une heure plus tard.
 
 > Ces photos montrent des enfants. Gardez-les dans le cadre familial :
 > ne les republiez pas sur les réseaux sociaux sans l'accord des
