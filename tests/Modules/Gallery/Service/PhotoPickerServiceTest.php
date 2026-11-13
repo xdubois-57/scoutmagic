@@ -130,6 +130,32 @@ final class PhotoPickerServiceTest extends TestCase
         $this->assertSame('LARGE', $this->service()->photoContents($kept, 'chief', [7]));
     }
 
+    /**
+     * Withheld photos never take the place of offered ones (review of
+     * #1200): the newest thirty-one are all withheld — a cover and a full
+     * selection's worth besides — and the older photo the caller may see
+     * is still offered.
+     */
+    public function testWithheldPhotosDoNotCrowdOutAnOlderOneTheCallerMaySee(): void
+    {
+        $delegated = $this->albums->create(
+            Album::TYPE_LOCAL, 'Groupe', null, '2026-01-01', null, $this->scoutYearId, null, 1, 1, 'camp', 42
+        );
+        $older = $this->photo($delegated);
+        $withheld = [];
+        for ($i = 0; $i <= PhotoPickerService::LIMIT; $i++) {
+            $withheld[] = $this->photo($delegated);
+        }
+        $this->albums->setCoverMediaId($delegated, $withheld[0]);
+        $this->delegatedAllowed = true;
+        $this->withheld = $withheld;
+
+        $offered = $this->service()->pickablePhotos('chief', [7]);
+
+        $this->assertSame([$older], array_map(static fn (PickablePhoto $p): int => $p->mediaId, $offered));
+        $this->assertFalse($offered[0]->isCover);
+    }
+
     public function testBelowChiefNothingIsOffered(): void
     {
         $this->photo($this->album('2026-01-01', 'Camp'));

@@ -56,12 +56,21 @@ final class PhotoPickerService implements PhotoPickerInterface
 
     public function pickablePhotos(string $role, array $linkedMemberIds): array
     {
-        $albums = $this->visibleAlbums(Role::fromString($role), $linkedMemberIds);
+        $viewer = Role::fromString($role);
+        $albums = $this->visibleAlbums($viewer, $linkedMemberIds);
 
+        // Every photo looked at, offered or withheld: a photo its album's
+        // owner withholds (issue #1119) is asked once, and never takes the
+        // place of one the caller may see.
+        $seen = [];
         $picked = [];
         foreach (array_slice($albums, 0, self::COVER_ALBUMS) as $album) {
             $cover = $album->coverMediaId !== null ? $this->media->findById($album->coverMediaId) : null;
-            if ($cover !== null && $cover->albumId === $album->id && self::isPickable($cover)) {
+            if ($cover === null || $cover->albumId !== $album->id || !self::isPickable($cover)) {
+                continue;
+            }
+            $seen[] = $cover->id;
+            if ($this->mayViewMedia($album, $cover, $viewer, $linkedMemberIds)) {
                 $picked[$cover->id] = [$cover, $album, true];
             }
         }
@@ -70,12 +79,23 @@ final class PhotoPickerService implements PhotoPickerInterface
         foreach ($albums as $album) {
             $byId[$album->id] = $album;
         }
-        foreach ($this->media->findRecentPhotos(
-            array_keys($byId),
-            array_keys($picked),
-            self::LIMIT - count($picked)
-        ) as $photo) {
-            $picked[$photo->id] = [$photo, $byId[$photo->albumId], false];
+        // Asked again while the selection is short: the query's LIMIT
+        // counts withheld photos too, so a single pass could leave the
+        // picker short — or empty — with older photos it may offer behind
+        // them. Each pass excludes everything already looked at, so it
+        // ends when the selection is full or nothing is left to look at.
+        while (count($picked) < self::LIMIT) {
+            $batch = $this->media->findRecentPhotos(array_keys($byId), $seen, self::LIMIT - count($picked));
+            if ($batch === []) {
+                break;
+            }
+            foreach ($batch as $photo) {
+                $seen[] = $photo->id;
+                $album = $byId[$photo->albumId];
+                if ($this->mayViewMedia($album, $photo, $viewer, $linkedMemberIds)) {
+                    $picked[$photo->id] = [$photo, $album, false];
+                }
+            }
         }
 
         usort(
@@ -85,9 +105,6 @@ final class PhotoPickerService implements PhotoPickerInterface
 
         $photos = [];
         foreach ($picked as [$photo, $album, $isCover]) {
-            if (!$this->mayViewMedia($album, $photo, Role::fromString($role), $linkedMemberIds)) {
-                continue;
-            }
             $photos[] = new PickablePhoto(
                 $photo->id,
                 $album->displayTitle(),
@@ -159,8 +176,11 @@ final class PhotoPickerService implements PhotoPickerInterface
      * mayView() for one photo: a delegated album's owner can withhold a
      * single media of an album the reader may otherwise open — a group,
      * the images of a post moderation hid (issue #1119). No login is
-     * passed, so a rule that needs one (a group moderator's) does not
-     * apply here: the picker never offers hidden content for reuse.
+     * passed, so a rule keyed on one — a group moderator, who moderates
+     * through the login the flag was granted to — does not let this
+     * caller through; a rule decided by role alone still does: a site
+     * administrator, who moderates every group, is offered such an image
+     * like every other one.
      *
      * @param array<int, int> $linkedMemberIds
      */
