@@ -382,7 +382,7 @@ class ConfigAccountControllerTest extends TestCase
     private function campaignWorkbook(int $accountId, string $roleMin): int
     {
         $fileId = $this->fileRepository->create(
-            'finance/campaigns/source.xlsx.enc',
+            'finance/campaigns/source-' . $accountId . '.xlsx.enc',
             'campagne.xlsx',
             'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
             1024,
