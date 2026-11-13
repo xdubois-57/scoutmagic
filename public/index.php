@@ -8682,33 +8682,13 @@ $financeStatementStatusForOthers = null;
 $financeAccountForOthers = null;
 
 // One-time stamp of the campaign workbooks stored before they had an owner
-// (issue #1111) — OUTSIDE the finance block on purpose. With the module
-// disabled, an unowned workbook would still be served at its flat
-// `intendant` floor (/files/{id} does not ask which module a file belongs
-// to); stamped, it is refused to everybody until the module and its
-// ownership checker come back. The finance tables exist whether or not
-// the module is enabled, since the whole declared schema is migrated.
-// Same shape as member_section_periods_backfilled.
-if ($settingService->get('finance_campaign_workbooks_owned') !== '1') {
-    $settingService->register(
-        'finance_campaign_workbooks_owned',
-        '0',
-        'boolean',
-        'Classeurs de campagne rattachés à leur compte',
-        'Indique si les classeurs sources des campagnes existantes ont reçu leur compte comme propriétaire.',
-        null,
-        null,
-        null,
-        false,
-        999
-    );
-
-    (new \Modules\Finance\Repository\CampaignRepository($pdo))
-        ->backfillSourceFileOwnership(\Modules\Finance\File\FinanceAccountOwnershipChecker::OWNER_TYPE);
-
-    $settingRepo->updateValue(null, 'finance_campaign_workbooks_owned', '1');
-    $settingService->clearCache();
-}
+// (issue #1111) — OUTSIDE the finance block on purpose: see
+// Modules\Finance\Service\CampaignWorkbookOwnership for why a disabled
+// module must not leave them unowned.
+(new \Modules\Finance\Service\CampaignWorkbookOwnership(
+    new \Modules\Finance\Repository\CampaignRepository($pdo),
+    $settingService
+))->ensure();
 
 if ($isEnabled('finance')) {
     \Core\Debug\RequestTimeline::mark('module_finance');

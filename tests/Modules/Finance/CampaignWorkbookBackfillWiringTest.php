@@ -34,27 +34,27 @@ final class CampaignWorkbookBackfillWiringTest extends TestCase
 
     public function testTheBackfillRunsWhetherOrNotFinanceIsEnabled(): void
     {
-        $call = strpos($this->indexPhp, '->backfillSourceFileOwnership(');
+        $call = strpos($this->indexPhp, 'new \\Modules\\Finance\\Service\\CampaignWorkbookOwnership(');
         $financeBlock = strpos($this->indexPhp, "if (\$isEnabled('finance')) {");
         $this->assertNotFalse($call, 'public/index.php no longer stamps the campaign workbooks');
         $this->assertNotFalse($financeBlock);
 
         $this->assertLessThan($financeBlock, $call, 'the backfill must run before, and outside, the finance block');
-        $this->assertSame(1, substr_count($this->indexPhp, '->backfillSourceFileOwnership('));
+        $this->assertSame(1, substr_count($this->indexPhp, 'CampaignWorkbookOwnership('));
     }
 
     /**
-     * Behind a core-scoped flag: a flag of the finance module's own would
-     * be one more thing that depends on the module being enabled.
+     * Not under any module test either: the closest `if` before it must not
+     * be an `$isEnabled(...)` that is still open.
      */
-    public function testItIsGuardedByACoreFlagAndNotByAnIsEnabledTest(): void
+    public function testNoModuleTestEnclosesIt(): void
     {
-        $call = (int) strpos($this->indexPhp, '->backfillSourceFileOwnership(');
-        $guard = strrpos(substr($this->indexPhp, 0, $call), "if (\$settingService->get('finance_campaign_workbooks_owned') !== '1') {");
-        $lastIsEnabled = strrpos(substr($this->indexPhp, 0, $call), '$isEnabled(');
-        $this->assertNotFalse($guard, 'the backfill is no longer behind its core flag');
+        $call = (int) strpos($this->indexPhp, 'new \\Modules\\Finance\\Service\\CampaignWorkbookOwnership(');
+        $lineStart = strrpos(substr($this->indexPhp, 0, $call), "\n");
+        $this->assertNotFalse($lineStart);
 
-        // The closest enclosing condition is the flag, not a module test.
-        $this->assertTrue($lastIsEnabled === false || $lastIsEnabled < $guard);
+        // At the composition root's top level: the statement starts at
+        // column zero, which no line inside an `if` block does.
+        $this->assertSame('(', substr($this->indexPhp, $lineStart + 1, 1));
     }
 }
