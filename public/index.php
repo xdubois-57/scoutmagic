@@ -12601,7 +12601,17 @@ if ($isEnabled('rental')) {
         // The expiry sweep cancels a booking's modification in progress
         // along with it, exactly as a manager ending it does.
         $rentalModificationRepository,
-        $rentalBookingAudit
+        $rentalBookingAudit,
+        null,
+        null,
+        // Which address a manager may add to « Autres adresses du
+        // locataire » (issue #1106): the unit's own never, and for a
+        // manager outside Staff d'U only one already on the booking's mail.
+        new \Modules\Rental\Mail\OtherRenterEmailRule(
+            $rentalBookingRepository,
+            $inboundMailForOthers,
+            $settingService
+        )
     );
     $rentalBlockRepository = new \Modules\Rental\Repository\RentalBlockRepository($pdo);
     $rentalOccupancyProviders = [$rentalBookingService, $rentalBlockRepository, $rentalModificationRepository];

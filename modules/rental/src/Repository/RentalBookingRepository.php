@@ -1172,6 +1172,38 @@ class RentalBookingRepository
     }
 
     /**
+     * The bookings $email reaches only because a manager TYPED it into
+     * their « Autres adresses du locataire » (issue #1106) — not the
+     * renter's own address, not one a filing taught.
+     *
+     * A typed address is the one nobody vouched for: neither the renter
+     * nor a message a person or the model filed. The mail matching holds
+     * it to the booking's window (`RentalMessageConsumer::addressMatch()`),
+     * so a correspondent of the unit typed onto a booking does not bring
+     * along every message they ever exchanged with it.
+     *
+     * @return array<int, true> keyed by booking id
+     */
+    public function bookingIdsReachedOnlyByTypedEmail(string $email): array
+    {
+        $index = $this->encryption->blindIndex(self::normalizeEmail($email), self::BLIND_INDEX_PURPOSE);
+        $stmt = $this->pdo->prepare(
+            'SELECT e.booking_id FROM rental_booking_emails e
+               JOIN rental_bookings b ON b.id = e.booking_id
+              WHERE e.email_blind_index = ? AND e.learned_from_message_id IS NULL
+                AND b.renter_email_blind_index <> ?'
+        );
+        $stmt->execute([$index, $index]);
+
+        $ids = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_COLUMN) as $id) {
+            $ids[(int) $id] = true;
+        }
+
+        return $ids;
+    }
+
+    /**
      * Teach a booking one more address its correspondence comes from —
      * typed by a manager, or learned from the message whose filing taught
      * it (`$learnedFromMessageId`), which « Détacher » then takes back.

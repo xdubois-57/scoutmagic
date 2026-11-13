@@ -2671,7 +2671,18 @@ the sender of level 3, and for the recipients of a sent message
 reads). The Courrier page lists them; a manager adds or removes one
 (`POST /mes-locations/courrier/adresse-ajouter` and `adresse-retirer`,
 through `bookingAction()` and `RentalBookingService`, recorded in the
-booking's history as `other_email_changed`). Removing one leaves the
+booking's history as `other_email_changed`). **Which address may be
+added is `Mail\OtherRenterEmailRule`'s** (issue #1106): a manager outside
+Staff d'U picks among the addresses on the booking's own mail
+(`seenAddresses()`, a list rather than a field), Staff d'U types one, and
+nobody adds the unit's own — site sending, reply and contact addresses,
+the boxes this consumer reads, `+tag` ignored. **A typed address counts
+inside the booking's window only**: `addressMatch()` drops a booking that
+the message's addresses reach solely through a typed row
+(`bookingIdsReachedOnlyByTypedEmail()`) when the message falls outside
+`covers()`, before the « only booking, whatever the date » shortcut — the
+renter's own and a learned address keep that shortcut, since the renter
+or a filing vouched for them. Removing one leaves the
 messages already filed where they are. **A decision teaches an address**:
 `onLinked()` on `LinkOrigin::MANUAL` — the unit's general mail screen — or
 `LinkOrigin::AI` adds the sender, or for a sent message its recipient when

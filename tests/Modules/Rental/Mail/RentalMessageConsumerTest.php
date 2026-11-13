@@ -559,6 +559,71 @@ class RentalMessageConsumerTest extends TestCase
         $this->assertSame(LinkOrigin::THREAD, $messages[0]->linkOrigin);
     }
 
+    // ── A typed « autre adresse » counts in the window only (#1106) ─────
+
+    /** A booking in March 2027: its window closed in early May, before the July mail. */
+    private function aMarchBooking(): RentalBooking
+    {
+        return $this->createBooking(
+            arrival: '2027-03-01',
+            departure: '2027-03-04',
+            receivedAt: new \DateTimeImmutable('2027-01-01 10:00:00')
+        );
+    }
+
+    public function testATypedAddressAttachesAMessageInsideTheBookingsWindow(): void
+    {
+        $booking = $this->createBooking();
+        $this->bookingRepository->addRenterEmail($booking->id, 'tresorier@groupe.example');
+        $this->deliver(10, 'Question sur la caution', from: 'tresorier@groupe.example');
+
+        $this->sync();
+
+        $messages = $this->communicationService->timeline($booking);
+        $this->assertCount(1, $messages);
+        $this->assertSame(LinkOrigin::SENDER, $messages[0]->linkOrigin);
+    }
+
+    /**
+     * The renter's own address reaches their only booking whatever the
+     * date. A typed one does not: nobody vouched for it, and a
+     * correspondent of the unit typed onto a booking must not bring
+     * along everything they ever exchanged with it.
+     */
+    public function testATypedAddressDoesNotBringAMessageFromOutsideTheWindow(): void
+    {
+        $booking = $this->aMarchBooking();
+        $this->bookingRepository->addRenterEmail($booking->id, 'federation@example.org');
+        $this->deliver(10, 'Assurance des camps', from: 'federation@example.org');
+
+        $this->sync();
+
+        $this->assertSame([], $this->communicationService->timeline($booking));
+    }
+
+    public function testATypedAddressDoesNotSendTheUnitsOwnMailOutsideTheWindowEither(): void
+    {
+        $booking = $this->aMarchBooking();
+        $this->bookingRepository->addRenterEmail($booking->id, 'federation@example.org');
+        $this->deliverSent(20, 'Assurance des camps', to: 'federation@example.org');
+
+        $this->sync();
+
+        $this->assertSame([], $this->communicationService->timeline($booking));
+    }
+
+    /** An address a filing taught was vouched for by that filing: the old rule holds. */
+    public function testALearnedAddressStillReachesTheOnlyBookingWhateverTheDate(): void
+    {
+        $booking = $this->aMarchBooking();
+        $this->bookingRepository->addRenterEmail($booking->id, 'tresorier@groupe.example', 9);
+        $this->deliver(10, 'Une question tardive', from: 'tresorier@groupe.example');
+
+        $this->sync();
+
+        $this->assertCount(1, $this->communicationService->timeline($booking));
+    }
+
     public function testAManualAssociationTeachesTheBookingTheSendersAddress(): void
     {
         // The group's treasurer writes from their own address. The first

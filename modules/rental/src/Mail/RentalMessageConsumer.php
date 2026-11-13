@@ -342,7 +342,9 @@ class RentalMessageConsumer implements
      * in the window when there are several, else everything in it, else,
      * with nothing in the window, every booking of those addresses — a
      * cancelled one included, since the correspondence about why a stay
-     * fell through belongs on that stay.
+     * fell through belongs on that stay. A booking reached only through an
+     * address a manager typed counts in its window alone, for the model
+     * too (issue #1106).
      *
      * @param string[] $emails
      * @return array{0: ?RentalBooking, 1: list<RentalBooking>}
@@ -350,16 +352,30 @@ class RentalMessageConsumer implements
     private function addressMatch(array $emails, \DateTimeImmutable $sentAt): array
     {
         $all = [];
+        // A booking reached ONLY through an address a manager typed in
+        // (issue #1106) counts inside its window and nowhere else: nobody
+        // vouched for that address, and a correspondent of the unit typed
+        // onto a booking must not bring along everything they ever wrote.
+        $typedOnly = [];
         foreach ($emails as $email) {
             if (trim($email) === '') {
                 continue;
             }
 
+            $reachedByTyping = $this->bookingRepository->bookingIdsReachedOnlyByTypedEmail($email);
             foreach ($this->bookingRepository->findByRenterEmail($email) as $booking) {
+                if (!isset($reachedByTyping[$booking->id])) {
+                    $typedOnly[$booking->id] = false;
+                } elseif (!isset($typedOnly[$booking->id])) {
+                    $typedOnly[$booking->id] = true;
+                }
                 $all[$booking->id] = $booking;
             }
         }
-        $all = array_values($all);
+        $all = array_values(array_filter(
+            $all,
+            fn(RentalBooking $booking): bool => !$typedOnly[$booking->id] || $this->covers($booking, $sentAt)
+        ));
         if ($all === []) {
             return [null, []];
         }

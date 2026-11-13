@@ -1028,7 +1028,7 @@ class RentalManagementControllerTest extends TestCase
     // ── « Autres adresses du locataire » (#720, step 5) ─────────────────
 
     /** The service with its journal, as public/index.php wires it. */
-    private function withAuditedBookingService(): void
+    private function withAuditedBookingService(?\Modules\Rental\Mail\OtherRenterEmailRule $otherEmailRule = null): void
     {
         (new \ReflectionProperty(RentalManagementController::class, 'bookingService'))->setValue(
             $this->controller,
@@ -1036,9 +1036,72 @@ class RentalManagementControllerTest extends TestCase
                 $this->bookingRepository,
                 new JournalService(new JournalRepository($this->pdo)),
                 null,
-                RentalTestHelper::bookingAudit($this->pdo, $this->encryption)
+                RentalTestHelper::bookingAudit($this->pdo, $this->encryption),
+                null,
+                null,
+                $otherEmailRule
             )
         );
+    }
+
+    /**
+     * The rule of « Autres adresses du locataire » (issue #1106) over a
+     * box whose address is locations@unite.example, the booking's mail
+     * holding one message: from the group's treasurer, to the unit.
+     */
+    private function otherEmailRuleWithMail(): \Modules\Rental\Mail\OtherRenterEmailRule
+    {
+        $message = new \Modules\InboundMail\Api\InboundMessage(
+            id: 9,
+            mailboxId: 3,
+            consumerId: 'rental',
+            businessReference: 'LOC-K7Q2M4',
+            linkOrigin: \Modules\InboundMail\Api\LinkOrigin::THREAD,
+            subject: 'Re: La caution',
+            fromEmail: 'Tresorier@Groupe.example',
+            fromName: 'Le trésorier',
+            messageId: '<m9@groupe.example>',
+            inReplyTo: null,
+            sentAt: new \DateTimeImmutable('2027-06-01 10:00:00'),
+            bodyText: 'Bonjour,',
+            bodyHtml: '',
+            toEmails: ['locations+loc-k7q2m4@unite.example', 'jeanne@example.be']
+        );
+        $inbound = $this->createMock(\Modules\InboundMail\Api\InboundMailInterface::class);
+        $inbound->method('findForReference')->willReturn([$message]);
+        $inbound->method('probeAddressesFor')->willReturn(['locations@unite.example']);
+
+        return new \Modules\Rental\Mail\OtherRenterEmailRule($this->bookingRepository, $inbound);
+    }
+
+    /**
+     * Logged in as a unit chief (Staff d'U), who manages every asset
+     * without a grant: the MemberService answers « chief » for this
+     * address, the way RentalAuthorizationServiceTest stubs it.
+     */
+    private function loginAsUnitStaff(): void
+    {
+        $memberService = new class extends MemberService {
+            public function __construct()
+            {
+                // No parent: this stub only answers who is a unit chief.
+            }
+
+            public function isUnitChief(string $email, int $scoutYearId): bool
+            {
+                return $email === 'chef@test.be';
+            }
+
+            public function getLinkedMembers(string $email, int $scoutYearId): array
+            {
+                return [];
+            }
+        };
+        (new \ReflectionProperty(RentalManagementController::class, 'authorizationService'))->setValue(
+            $this->controller,
+            new RentalAuthorizationService($memberService, $this->assetRepository, $this->managerRepository)
+        );
+        AuthSession::login(2, 'chef@test.be', 'identified');
     }
 
     /** @param array<string, string> $fields */
@@ -1066,7 +1129,6 @@ class RentalManagementControllerTest extends TestCase
         $this->assertStringContainsString('partenaire@maison.example', $body);
         $this->assertStringContainsString('tresorier@groupe.example', $body);
         $this->assertSame(1, substr_count($body, 'ajoutée automatiquement'));
-        $this->assertStringContainsString('action="/mes-locations/courrier/adresse-ajouter"', $body);
         $this->assertMatchesRegularExpression(
             '#action="/mes-locations/courrier/adresse-retirer" class="ms-auto"\s+data-confirm="Retirer partenaire@maison.example \?#',
             $body
@@ -1083,10 +1145,17 @@ class RentalManagementControllerTest extends TestCase
         $this->assertStringContainsString('Aucune autre adresse.', $body);
     }
 
-    public function testAManagerAddsAnAddressAndTheHistorySaysSo(): void
+    // ── Who may add which address (issue #1106) ────────────────────────
+
+    /**
+     * Staff d'U types an address; it may already read the unit's mail, and
+     * adding the renter's address before the box is opened is how its
+     * first message is filed straight away.
+     */
+    public function testTheUnitStaffTypesAnAddressAndTheHistorySaysSo(): void
     {
-        $this->loginAsManager();
-        $this->withAuditedBookingService();
+        $this->loginAsUnitStaff();
+        $this->withAuditedBookingService($this->otherEmailRuleWithMail());
         $booking = $this->createBooking();
 
         $response = $this->addressPost('addOtherRenterEmail', $booking, ['email' => ' Tresorier@Groupe.example ']);
@@ -1118,8 +1187,8 @@ class RentalManagementControllerTest extends TestCase
     #[\PHPUnit\Framework\Attributes\DataProvider('refusedAddresses')]
     public function testAnAddressThatAddsNothingIsRefused(string $email): void
     {
-        $this->loginAsManager();
-        $this->withAuditedBookingService();
+        $this->loginAsUnitStaff();
+        $this->withAuditedBookingService($this->otherEmailRuleWithMail());
         $booking = $this->createBooking();
         $this->bookingRepository->addRenterEmail($booking->id, 'partenaire@maison.example');
 
@@ -1127,6 +1196,122 @@ class RentalManagementControllerTest extends TestCase
 
         $this->assertSame('error', \Core\Http\FlashMessage::get()['type'] ?? null);
         $this->assertCount(1, $this->bookingRepository->otherRenterEmails($booking->id));
+    }
+
+    /**
+     * A manager outside Staff d'U typing any correspondent of the unit
+     * would read the unit's mail with them (issue #1106): only an address
+     * already on the booking's mail is theirs to add.
+     */
+    public function testAManagerCannotTypeAnAddressTheBookingsMailNeverShowed(): void
+    {
+        $this->loginAsManager();
+        $this->withAuditedBookingService($this->otherEmailRuleWithMail());
+        $booking = $this->createBooking();
+
+        $this->addressPost('addOtherRenterEmail', $booking, ['email' => 'federation@example.org']);
+
+        $this->assertSame('error', \Core\Http\FlashMessage::get()['type'] ?? null);
+        $this->assertSame([], $this->bookingRepository->otherRenterEmails($booking->id));
+    }
+
+    public function testAManagerAddsAnAddressSeenOnTheBookingsMail(): void
+    {
+        $this->loginAsManager();
+        $this->withAuditedBookingService($this->otherEmailRuleWithMail());
+        $booking = $this->createBooking();
+
+        $this->addressPost('addOtherRenterEmail', $booking, ['email' => 'tresorier@groupe.example']);
+
+        $this->assertSame('success', \Core\Http\FlashMessage::get()['type'] ?? null);
+        $others = $this->bookingRepository->otherRenterEmails($booking->id);
+        $this->assertSame(['tresorier@groupe.example'], array_map(static fn($o) => $o->email, $others));
+    }
+
+    /** Without the rule wired, nobody but Staff d'U adds anything: closed, not open. */
+    public function testWithoutTheRuleAManagerAddsNothing(): void
+    {
+        $this->loginAsManager();
+        $this->withAuditedBookingService();
+        $booking = $this->createBooking();
+
+        $this->addressPost('addOtherRenterEmail', $booking, ['email' => 'tresorier@groupe.example']);
+
+        $this->assertSame('error', \Core\Http\FlashMessage::get()['type'] ?? null);
+        $this->assertSame([], $this->bookingRepository->otherRenterEmails($booking->id));
+    }
+
+    /** The free field of « Ajouter une adresse », as Staff d'U gets it. */
+    private const OTHER_EMAIL_FREE_FIELD = 'type="email" class="form-control form-control-sm" id="other-renter-email"';
+
+    /** @return array<string, array{string}> */
+    public static function unitAddresses(): array
+    {
+        return [
+            'the box' => ['locations@unite.example'],
+            'the box, tagged' => ['Locations+LOC-K7Q2M4@unite.example'],
+            'the box, another tag' => ['locations+autre@unite.example'],
+        ];
+    }
+
+    /**
+     * Matched as « the renter », one of the unit's own addresses would file
+     * its whole correspondence on one booking — refused to Staff d'U too,
+     * and never offered to a manager although it is on the booking's mail.
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('unitAddresses')]
+    public function testNobodyAddsOneOfTheUnitsOwnAddresses(string $email): void
+    {
+        $this->loginAsUnitStaff();
+        $this->withAuditedBookingService($this->otherEmailRuleWithMail());
+        $booking = $this->createBooking();
+
+        $this->addressPost('addOtherRenterEmail', $booking, ['email' => $email]);
+
+        $this->assertSame('error', \Core\Http\FlashMessage::get()['type'] ?? null);
+        $this->assertSame([], $this->bookingRepository->otherRenterEmails($booking->id));
+    }
+
+    public function testAManagerChoosesAmongTheAddressesOnTheBookingsMail(): void
+    {
+        $this->loginAsManager();
+        $this->withAuditedBookingService($this->otherEmailRuleWithMail());
+        $booking = $this->createBooking();
+
+        $body = (string) $this->filePage(BookingPage::MAIL, 'local-saint-georges', $booking->id)->getBody();
+
+        $this->assertStringContainsString('data-other-renter-email-choices', $body);
+        $this->assertStringContainsString('<option value="tresorier@groupe.example">', $body);
+        // Neither the renter's own nor the unit's box is a choice.
+        $this->assertStringNotContainsString('<option value="jeanne@example.be">', $body);
+        $this->assertStringNotContainsString('unite.example">', $body);
+        $this->assertStringNotContainsString(self::OTHER_EMAIL_FREE_FIELD, $body);
+    }
+
+    public function testWithNothingOnTheBookingsMailAManagerIsToldWhoAddsAnAddress(): void
+    {
+        $this->loginAsManager();
+        $this->withAuditedBookingService();
+        $booking = $this->createBooking();
+
+        $body = (string) $this->filePage(BookingPage::MAIL, 'local-saint-georges', $booking->id)->getBody();
+
+        $this->assertStringContainsString('data-other-renter-email-none', $body);
+        $this->assertStringContainsString("adressez-vous au staff d'unité", $body);
+        $this->assertStringNotContainsString('action="/mes-locations/courrier/adresse-ajouter"', $body);
+    }
+
+    public function testTheUnitStaffGetsTheFreeField(): void
+    {
+        $this->loginAsUnitStaff();
+        $this->withAuditedBookingService($this->otherEmailRuleWithMail());
+        $booking = $this->createBooking();
+
+        $body = (string) $this->filePage(BookingPage::MAIL, 'local-saint-georges', $booking->id)->getBody();
+
+        $this->assertStringContainsString('action="/mes-locations/courrier/adresse-ajouter"', $body);
+        $this->assertStringContainsString(self::OTHER_EMAIL_FREE_FIELD, $body);
+        $this->assertStringNotContainsString('data-other-renter-email-choices', $body);
     }
 
     public function testAManagerRemovesALearnedAddress(): void
