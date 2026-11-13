@@ -1129,6 +1129,35 @@ class RentalRequestControllerTest extends TestCase
         $this->assertStringContainsString('/locations/suivi/1/', $renterMail['text']);
     }
 
+    /**
+     * Issue #1114, through the public form: a third request from one
+     * address while two holds run is recorded, but takes no dates — and a
+     * stay longer than AUTOMATIC_HOLD_MAX_NIGHTS never does.
+     */
+    public function testTheFormGivesNoAutomaticHoldPastTheCapOrToALongStay(): void
+    {
+        $this->createAsset();
+
+        foreach ([[30, 33], [40, 43], [50, 53]] as [$from, $to]) {
+            $this->submit($this->validBody([
+                'arrival' => $this->arrival($from),
+                'departure' => $this->arrival($to),
+            ]));
+        }
+        $this->submit($this->validBody([
+            'email' => 'autre.famille@example.be',
+            'arrival' => $this->arrival(60),
+            'departure' => $this->arrival(60 + RentalBookingService::AUTOMATIC_HOLD_MAX_NIGHTS + 1),
+        ]));
+
+        $holds = $this->pdo->query('SELECT hold_until FROM rental_bookings ORDER BY id')->fetchAll(\PDO::FETCH_COLUMN);
+        $this->assertCount(4, $holds, 'every request is recorded');
+        $this->assertNotNull($holds[0]);
+        $this->assertNotNull($holds[1]);
+        $this->assertNull($holds[2], 'the third request from one address holds nothing');
+        $this->assertNull($holds[3], 'a stay longer than the ceiling holds nothing');
+    }
+
     /** A signed-in account is traceable: its acknowledgement keeps the name. */
     public function testASignedInRequestsAcknowledgementGreetsTheRenterByName(): void
     {

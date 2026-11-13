@@ -120,7 +120,9 @@ class RentalBookingServiceTest extends TestCase
             // Two days unless a test says otherwise: the expiry tests below
             // run their clock a few days on, and read better against a short
             // hold than against the 30-day default, which has its own test.
-            $overrides['hold_days'] ?? 2
+            $overrides['hold_days'] ?? 2,
+            null,
+            $overrides['account'] ?? null
         );
     }
 
@@ -615,6 +617,81 @@ class RentalBookingServiceTest extends TestCase
         $booking = $this->submit(['renter' => ['name' => $name]])['booking'];
 
         $this->assertSame($name, $booking->renterName);
+    }
+
+    // ── Automatic holds a request may take (#1114) ──────────────────────
+
+    private function holdDaysFor(
+        string $arrival,
+        string $departure,
+        string $email = 'marie@example.org',
+        ?int $account = null,
+        int $configured = 2,
+        string $now = '2027-06-01 12:00:00'
+    ): int {
+        return $this->service->automaticHoldDaysFor($arrival, $departure, $email, $account, $configured, $this->now($now));
+    }
+
+    public function testAStayOfUpToThirtyNightsTakesTheConfiguredHold(): void
+    {
+        $this->assertSame(2, $this->holdDaysFor('2027-07-01', '2027-07-31'));
+    }
+
+    /** Longer, it is recorded and answered as usual, but blocks nothing on its own. */
+    public function testAStayLongerThanThirtyNightsTakesNoAutomaticHold(): void
+    {
+        $this->assertSame(0, $this->holdDaysFor('2027-07-01', '2027-08-01'));
+        $this->assertSame(0, $this->holdDaysFor('2027-07-01', '2029-07-01'));
+    }
+
+    public function testNoHoldConfiguredMeansNoHoldWhateverTheStay(): void
+    {
+        $this->assertSame(0, $this->holdDaysFor('2027-07-17', '2027-07-20', configured: 0));
+    }
+
+    /** Two running at once, every asset together; the third request waits unheld. */
+    public function testARequesterWithTwoRunningHoldsGetsNoThird(): void
+    {
+        $this->submit();
+        $this->assertSame(2, $this->holdDaysFor('2027-08-01', '2027-08-03'));
+
+        $this->submit(['arrival' => '2027-07-24', 'departure' => '2027-07-26']);
+        $this->assertSame(0, $this->holdDaysFor('2027-08-01', '2027-08-03'));
+        $this->assertSame(0, $this->holdDaysFor('2027-08-01', '2027-08-03', ' Marie@Example.ORG '), 'the address is matched as stored');
+        $this->assertSame(2, $this->holdDaysFor('2027-08-01', '2027-08-03', 'autre@example.org'));
+    }
+
+    /** A signed-in account cannot get round the cap by typing a new address each time. */
+    public function testASignedInAccountIsCountedWhateverAddressItTypes(): void
+    {
+        $this->submit(['renter' => ['email' => 'une@example.org'], 'account' => 7]);
+        $this->submit(['renter' => ['email' => 'deux@example.org'], 'account' => 7, 'arrival' => '2027-07-24', 'departure' => '2027-07-26']);
+
+        $this->assertSame(0, $this->holdDaysFor('2027-08-01', '2027-08-03', 'trois@example.org', 7));
+        $this->assertSame(2, $this->holdDaysFor('2027-08-01', '2027-08-03', 'trois@example.org', 8));
+        $this->assertSame(2, $this->holdDaysFor('2027-08-01', '2027-08-03', 'trois@example.org'), 'anonymous: no account to match');
+    }
+
+    /** A hold that has lapsed, or a request no longer waiting, no longer counts. */
+    public function testOnlyHoldsStillRunningAreCounted(): void
+    {
+        $this->submit();
+        $second = $this->submit(['arrival' => '2027-07-24', 'departure' => '2027-07-26'])['booking'];
+
+        // Both held for two days from NOW: four days on, neither runs.
+        $this->assertSame(2, $this->holdDaysFor('2027-08-01', '2027-08-03', now: '2027-06-05 10:00:00'));
+
+        $this->pdo->prepare("UPDATE rental_bookings SET status = 'refused' WHERE id = ?")->execute([$second->id]);
+        $this->assertSame(2, $this->holdDaysFor('2027-08-01', '2027-08-03'));
+    }
+
+    public function testTheRequestingAccountIsRecordedWithTheRequest(): void
+    {
+        $booking = $this->submit(['account' => 7])['booking'];
+
+        $stored = $this->pdo->query('SELECT requested_by_account_id FROM rental_bookings WHERE id = ' . $booking->id)
+            ->fetchColumn();
+        $this->assertSame(7, (int) $stored);
     }
 
     // ── Price snapshot (§6.11) ──────────────────────────────────────────

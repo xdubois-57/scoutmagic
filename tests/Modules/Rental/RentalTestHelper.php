@@ -157,6 +157,7 @@ class RentalTestHelper
             hold_until TEXT,
             hold_origin TEXT,
             hold_lapsed_at TEXT,
+            requested_by_account_id INTEGER,
             estimated_price_snapshot TEXT,
             estimated_total_cents INTEGER,
             agreed_price_snapshot TEXT,

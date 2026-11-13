@@ -79,10 +79,18 @@ CREATE TABLE IF NOT EXISTS rental_assets (
     -- visitor told a free day is taken concludes the asset is booked and
     -- gives up on it.
     -- 0 means "no limit" for each of the four numeric rules.
+    -- The longest stay and the farthest arrival are NOT unlimited by
+    -- default (issue #1114): with no ceiling, one anonymous request could
+    -- take the whole calendar under its automatic hold. 30 nights and 548
+    -- days (about eighteen months) — BookingConstraints::DEFAULT_MAX_NIGHTS
+    -- and DEFAULT_MAX_HORIZON_DAYS. Both are on SchemaComparator's
+    -- DEFAULT_FOLLOWING_COLUMNS, so the assets still on the old 0, which
+    -- nobody chose, follow at the next migration; 0 stays a choice a
+    -- manager makes by typing it.
     min_nights INT UNSIGNED NOT NULL DEFAULT 0,
-    max_nights INT UNSIGNED NOT NULL DEFAULT 0,
+    max_nights INT UNSIGNED NOT NULL DEFAULT 30,
     min_notice_days INT UNSIGNED NOT NULL DEFAULT 0,
-    max_horizon_days INT UNSIGNED NOT NULL DEFAULT 0,
+    max_horizon_days INT UNSIGNED NOT NULL DEFAULT 548,
     -- Comma-separated ISO weekdays (1 = Monday … 7 = Sunday) a stay may
     -- start on. Empty means any day. A short, fixed-domain list of at most
     -- seven single digits — a normalised table would cost a join per
@@ -452,6 +460,12 @@ CREATE TABLE IF NOT EXISTS rental_bookings (
     -- the booking page still has to say « les dates ne sont plus bloquées
     -- depuis le … ». Cleared as soon as a new hold is placed.
     hold_lapsed_at DATETIME NULL,
+    -- The signed-in account that sent the request from the public form,
+    -- null for an anonymous one (issue #1114): what the cap on automatic
+    -- holds counts besides the renter's address, since an account may
+    -- type a different address each time. Not a foreign key — the
+    -- request outlives the account, and nothing reads it but that count.
+    requested_by_account_id INT UNSIGNED NULL,
 
     -- ── Price snapshot (§6.11) ───────────────────────────────────────
     -- The ESTIMATED price at submission, as a self-contained

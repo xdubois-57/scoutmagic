@@ -12876,7 +12876,9 @@ if ($isEnabled('rental')) {
         new \Modules\Rental\Repository\RentalComplianceRepository($pdo),
         $settingService,
         // ...and a damage still assessed a month after the departure (#980).
-        $rentalStayRepository
+        $rentalStayRepository,
+        // ...and an automatic hold over a long stay nobody answered (#1114).
+        $rentalBookingRepository
     );
 
     // Its documents follow the same rule as a booking's: readable only by
