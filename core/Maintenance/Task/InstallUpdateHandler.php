@@ -315,7 +315,7 @@ class InstallUpdateHandler implements TaskHandlerInterface
                     throw new UpdateException('Impossible de créer le dossier temporaire de mise à jour.');
                 }
                 $artifactPath = $tempDir . '/artifact.zip';
-                $this->download($downloadUrl, $artifactPath);
+                $this->download($downloadUrl, $artifactPath, $context);
 
                 $extractedDir = $tempDir . '/extracted';
                 mkdir($extractedDir, 0755, true);
@@ -1049,13 +1049,24 @@ class InstallUpdateHandler implements TaskHandlerInterface
      * legitimate chain is short, so cap it low and re-validate each hop. */
     private const MAX_DOWNLOAD_REDIRECTS = 5;
 
-    private function download(string $url, string $destPath): void
+    private function download(string $url, string $destPath, TaskContext $context): void
     {
         // The artifact is unpacked over the live PHP tree, so it must come
         // from GitHub over https and nowhere else — refuse before the first
         // byte is fetched (see Core\Maintenance\GitHubUrlValidator).
         if (!\Core\Maintenance\GitHubUrlValidator::isAllowed($url)) {
             throw new UpdateException('URL de mise à jour refusée : la source doit être GitHub (https).');
+        }
+        // …and from the repository this site is configured to update from,
+        // read from the settings now. The URL travelled through a cache and a
+        // task payload since it was first checked, and an address cached by an
+        // earlier release of this code was never bound to a repository at all.
+        if (!\Core\Maintenance\GitHubUrlValidator::isAllowedForRepository(
+            $url,
+            (string) ($context->settings->get('update_github_owner') ?: ''),
+            (string) ($context->settings->get('update_github_repo') ?: '')
+        )) {
+            throw new UpdateException('URL de mise à jour refusée : elle ne pointe pas vers le dépôt configuré.');
         }
 
         $deadline = microtime(true) + self::DOWNLOAD_RETRY_WINDOW_SECONDS;

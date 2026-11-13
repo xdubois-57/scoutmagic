@@ -222,11 +222,18 @@ class GitHubWebhookService
         // an automatic install), so it must be validated first. It used to be
         // cached before any gate straight from the webhook JSON, so a signed
         // event could point the updater at an arbitrary host; it is now
-        // refused outright unless it is a GitHub https URL.
+        // refused outright unless it is a GitHub https URL, and not just any
+        // GitHub URL: it must be inside the repository the SETTINGS name.
+        // The payload's own repository.full_name proves nothing about where
+        // its download link points — whoever signs the event writes both.
         if ($downloadUrl === null) {
             return ['status' => 'ignored', 'reason' => 'no_download_url'];
         }
-        if (!GitHubUrlValidator::isAllowed($downloadUrl)) {
+        if (!GitHubUrlValidator::isAllowedForRepository(
+            $downloadUrl,
+            (string) ($this->settings->get('update_github_owner') ?: ''),
+            (string) ($this->settings->get('update_github_repo') ?: '')
+        )) {
             return ['status' => 'ignored', 'reason' => 'download_url_refused'];
         }
         $this->settings->setInternal('update_download_url', $downloadUrl);

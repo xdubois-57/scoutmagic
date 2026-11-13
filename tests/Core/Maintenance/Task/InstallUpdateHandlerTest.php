@@ -66,6 +66,10 @@ class InstallUpdateHandlerTest extends TestCase
         $settingRepository = new SettingRepository($this->pdo);
         $settings = new SettingService($settingRepository);
         $settings->register('site_version', '0.0.0', 'text', 'Version', 'Version', null, null, null, false);
+        $settings->register('update_github_owner', '', 'text', 'Owner', 'Owner');
+        $settings->register('update_github_repo', '', 'text', 'Repo', 'Repo');
+        $settings->set('update_github_owner', 'owner');
+        $settings->set('update_github_repo', 'repo');
 
         $this->storagePath = sys_get_temp_dir() . '/install_update_handler_test_' . uniqid();
         mkdir($this->storagePath, 0755, true);
@@ -703,10 +707,85 @@ class InstallUpdateHandlerTest extends TestCase
         $this->expectException(UpdateException::class);
         $this->expectExceptionMessage('URL de mise à jour refusée');
         try {
-            $method->invoke($this->handler, 'https://evil.example/artifact.zip', $dest);
+            $method->invoke($this->handler, 'https://evil.example/artifact.zip', $dest, $this->context);
         } finally {
             $this->assertFileDoesNotExist($dest, 'a refused URL must never write the destination file');
         }
+    }
+
+    /**
+     * @return array<string, array{string}>
+     */
+    public static function downloadUrlsOfAnotherRepository(): array
+    {
+        return [
+            'release asset' => ['https://github.com/other/depot/releases/download/v9.9.9/x.zip'],
+            'zipball' => ['https://api.github.com/repos/other/depot/zipball/v9.9.9'],
+            'archive' => ['https://codeload.github.com/other/depot/zip/refs/heads/main'],
+        ];
+    }
+
+    /**
+     * An URL cached before the repository check existed (or written by any
+     * other path) is re-checked at the moment it would be fetched: a GitHub
+     * URL of a repository this site is not configured to update from is
+     * refused before the first byte, whatever put it there.
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('downloadUrlsOfAnotherRepository')]
+    public function testDownloadRefusesAGitHubUrlOfAnotherRepositoryBeforeFetching(string $url): void
+    {
+        $method = new \ReflectionMethod(InstallUpdateHandler::class, 'download');
+        $method->setAccessible(true);
+        $dest = $this->storagePath . '/temp/should_never_be_written.zip';
+
+        $this->expectException(UpdateException::class);
+        $this->expectExceptionMessage('dépôt configuré');
+        try {
+            $method->invoke($this->handler, $url, $dest, $this->context);
+        } finally {
+            $this->assertFileDoesNotExist($dest);
+        }
+    }
+
+    public function testDownloadRefusesEveryUrlWhenNoRepositoryIsConfigured(): void
+    {
+        $this->context->settings->set('update_github_owner', '');
+        $this->context->settings->set('update_github_repo', '');
+        $this->context->settings->clearCache();
+
+        $method = new \ReflectionMethod(InstallUpdateHandler::class, 'download');
+        $method->setAccessible(true);
+
+        $this->expectException(UpdateException::class);
+        $this->expectExceptionMessage('dépôt configuré');
+        $method->invoke(
+            $this->handler,
+            'https://github.com/owner/repo/releases/download/v1/x.zip',
+            $this->storagePath . '/temp/never.zip',
+            $this->context
+        );
+    }
+
+    public function testDownloadAcceptsTheConfiguredRepositoryPastTheUrlCheck(): void
+    {
+        $handler = new class extends InstallUpdateHandler {
+            protected function attemptDownload(string $url, string $destPath): array
+            {
+                return [true, 200, ''];
+            }
+        };
+        $method = new \ReflectionMethod(InstallUpdateHandler::class, 'download');
+        $method->setAccessible(true);
+
+        // Returns normally: the URL is the configured repository's, and the
+        // (stubbed) transport succeeds.
+        $method->invoke(
+            $handler,
+            'https://github.com/owner/repo/releases/download/v1/x.zip',
+            $this->storagePath . '/temp/ok.zip',
+            $this->context
+        );
+        $this->addToAssertionCount(1);
     }
 
     /**

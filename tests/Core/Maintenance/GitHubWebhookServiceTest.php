@@ -230,6 +230,83 @@ class GitHubWebhookServiceTest extends TestCase
         $this->assertSame('', (string) $this->settings->get('update_download_url'));
     }
 
+    /**
+     * A signed event whose repository.full_name is the configured one, but
+     * whose download URL points into another GitHub repository. The host is
+     * GitHub's, so the host allowlist alone lets it through; only binding
+     * the URL to the configured repository refuses it.
+     *
+     * @return array<string, array{array<string, mixed>}>
+     */
+    public static function releasesPointingIntoAnotherRepository(): array
+    {
+        return [
+            'asset of another repository' => [[
+                'assets' => [[
+                    'name' => 'scoutmagic.zip',
+                    'browser_download_url' => 'https://github.com/other/depot/releases/download/v9.9.9/x.zip',
+                ]],
+            ]],
+            'zipball of another repository' => [[
+                'assets' => [],
+                'zipball_url' => 'https://api.github.com/repos/other/depot/zipball/v9.9.9',
+            ]],
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $release
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('releasesPointingIntoAnotherRepository')]
+    public function testHandleReleaseEventRefusesADownloadUrlOfAnotherRepository(array $release): void
+    {
+        $this->settings->set('auto_update_enabled', '1');
+        $this->settings->set('auto_update_level', 'major');
+        $this->settings->clearCache();
+
+        $result = $this->service()->handleReleaseEvent($this->releasePayload('v9.9.9', $release));
+
+        $this->assertSame(['status' => 'ignored', 'reason' => 'download_url_refused'], $result);
+        $count = (int) $this->pdo->query("SELECT COUNT(*) FROM scheduled_actions")->fetchColumn();
+        $this->assertSame(0, $count, 'no install may be scheduled');
+        $this->settings->clearCache();
+        $this->assertSame('', (string) $this->settings->get('update_download_url'), 'nothing may be cached for the manual button');
+    }
+
+    public function testTheRepositoryTheDownloadIsBoundToIsTheSettingsNotThePayload(): void
+    {
+        $this->settings->set('auto_update_enabled', '1');
+        $this->settings->set('auto_update_level', 'major');
+        $this->settings->clearCache();
+
+        // The payload announces — and links to — "owner/repo", but the site
+        // is configured to update from somewhere else: the event is for the
+        // wrong repository and nothing is installed.
+        $this->settings->set('update_github_owner', 'someone');
+        $this->settings->set('update_github_repo', 'else');
+        $this->settings->clearCache();
+
+        $result = $this->service()->handleReleaseEvent($this->releasePayload('v9.9.9'));
+
+        $this->assertSame('ignored', $result['status']);
+        $count = (int) $this->pdo->query("SELECT COUNT(*) FROM scheduled_actions")->fetchColumn();
+        $this->assertSame(0, $count);
+    }
+
+    public function testAGenuineReleaseOfTheConfiguredRepositoryStillInstalls(): void
+    {
+        $this->settings->set('auto_update_enabled', '1');
+        $this->settings->set('auto_update_level', 'major');
+        $this->settings->clearCache();
+
+        $result = $this->service()->handleReleaseEvent($this->releasePayload('v9.9.9'));
+
+        $this->assertSame('ok', $result['status']);
+        $scheduled = $this->schedulerRepository->findByModuleAndKey('core', 'install_update', 'scheduled_install');
+        $payload = json_decode((string) $scheduled['payload'], true);
+        $this->assertSame(self::RELEASE_ASSET_URL, $payload['download_url']);
+    }
+
     public function testHandleReleaseEventUpdatesTheSettingsCacheEvenWhenNotNewer(): void
     {
         $result = $this->service()->handleReleaseEvent($this->releasePayload('v2.4.1'));
@@ -471,13 +548,13 @@ class GitHubWebhookServiceTest extends TestCase
 
         $result = $this->service()->handleReleaseEvent($this->releasePayload('v2.4.2', [
             'assets' => [],
-            'zipball_url' => 'https://api.github.com/repos/x/y/zipball/v2.4.2',
+            'zipball_url' => 'https://api.github.com/repos/owner/repo/zipball/v2.4.2',
         ]));
 
         $this->assertSame('ok', $result['status']);
         $scheduled = $this->schedulerRepository->findByModuleAndKey('core', 'install_update', 'scheduled_install');
         $payload = json_decode((string) $scheduled['payload'], true);
-        $this->assertSame('https://api.github.com/repos/x/y/zipball/v2.4.2', $payload['download_url']);
+        $this->assertSame('https://api.github.com/repos/owner/repo/zipball/v2.4.2', $payload['download_url']);
     }
 
     // --- checkForNewRelease() ---

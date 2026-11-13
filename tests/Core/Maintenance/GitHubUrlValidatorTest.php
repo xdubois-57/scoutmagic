@@ -62,4 +62,92 @@ class GitHubUrlValidatorTest extends TestCase
     {
         $this->assertFalse(GitHubUrlValidator::isAllowed($url));
     }
+
+    /**
+     * @return array<string, array{string}>
+     */
+    public static function urlsOfTheConfiguredRepository(): array
+    {
+        return [
+            'release asset' => ['https://github.com/owner/repo/releases/download/v1.2.3/scoutmagic.zip'],
+            'dev artifact' => ['https://github.com/owner/repo/releases/download/dev-latest/scoutmagic-dev-a1b2c3d.zip'],
+            'api zipball' => ['https://api.github.com/repos/owner/repo/zipball/v1.2.3'],
+            'codeload archive' => ['https://codeload.github.com/owner/repo/zip/refs/heads/main'],
+            'repository casing is irrelevant (GitHub names are case-insensitive)' => [
+                'https://github.com/Owner/REPO/releases/download/v1.2.3/scoutmagic.zip',
+            ],
+            'explicit https port' => ['https://github.com:443/owner/repo/releases/download/v1/x.zip'],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('urlsOfTheConfiguredRepository')]
+    public function testAcceptsAnUrlOfTheConfiguredRepository(string $url): void
+    {
+        $this->assertTrue(GitHubUrlValidator::isAllowedForRepository($url, 'owner', 'repo'));
+    }
+
+    /**
+     * Every one of these is on an allowlisted GitHub host, so isAllowed()
+     * accepts it; what makes each wrong is the repository it points into.
+     *
+     * @return array<string, array{string}>
+     */
+    public static function urlsOfAnotherRepository(): array
+    {
+        return [
+            'release asset of another repository' => ['https://github.com/other/depot/releases/download/v9.9.9/x.zip'],
+            'same owner, another repository' => ['https://github.com/owner/other/releases/download/v9.9.9/x.zip'],
+            'zipball of another repository' => ['https://api.github.com/repos/other/depot/zipball/v9.9.9'],
+            'codeload of another repository' => ['https://codeload.github.com/other/depot/zip/refs/heads/main'],
+            'repository name that only starts like the configured one' => [
+                'https://github.com/owner/repo-evil/releases/download/v1/x.zip',
+            ],
+            'owner that only starts like the configured one' => [
+                'https://github.com/owner-evil/repo/releases/download/v1/x.zip',
+            ],
+            'configured repository named only after the release prefix' => [
+                'https://github.com/other/depot/releases/download/v1/owner/repo/x.zip',
+            ],
+            'a GitHub page that is not a download' => ['https://github.com/owner/repo/archive/main.zip'],
+            'dot segments walking out of the repository' => [
+                'https://github.com/owner/repo/releases/download/../../../../other/depot/releases/download/v1/x.zip',
+            ],
+            'encoded dot segments' => [
+                'https://github.com/owner/repo/releases/download/%2e%2e/%2e%2e/other/depot/x.zip',
+            ],
+            'encoded slash' => ['https://github.com/owner%2fother/repo/releases/download/v1/x.zip'],
+            'asset host that names no repository' => [
+                'https://objects.githubusercontent.com/github-production-release-asset/1/2',
+            ],
+            'newer asset host that names no repository' => [
+                'https://release-assets.githubusercontent.com/github-production-release-asset/1/2',
+            ],
+            'non-default port' => ['https://github.com:8443/owner/repo/releases/download/v1/x.zip'],
+            'userinfo' => ['https://user:pass@github.com/owner/repo/releases/download/v1/x.zip'],
+            'off GitHub altogether' => ['https://evil.example/owner/repo/releases/download/v1/x.zip'],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('urlsOfAnotherRepository')]
+    public function testRefusesAnUrlThatIsNotInTheConfiguredRepository(string $url): void
+    {
+        $this->assertFalse(GitHubUrlValidator::isAllowedForRepository($url, 'owner', 'repo'));
+    }
+
+    public function testRefusesEverythingWhenNoRepositoryIsConfigured(): void
+    {
+        $url = 'https://github.com/owner/repo/releases/download/v1/x.zip';
+
+        $this->assertFalse(GitHubUrlValidator::isAllowedForRepository($url, '', ''));
+        $this->assertFalse(GitHubUrlValidator::isAllowedForRepository($url, 'owner', ''));
+        $this->assertFalse(GitHubUrlValidator::isAllowedForRepository($url, '', 'repo'));
+    }
+
+    public function testAConfiguredNameThatContainsASlashNeverWidensTheMatch(): void
+    {
+        $url = 'https://github.com/owner/repo/releases/download/v1/x.zip';
+
+        $this->assertFalse(GitHubUrlValidator::isAllowedForRepository($url, 'owner/repo', 'releases'));
+        $this->assertFalse(GitHubUrlValidator::isAllowedForRepository($url, 'owner', 'repo/releases'));
+    }
 }
