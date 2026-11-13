@@ -3331,11 +3331,17 @@ $attentionProviders = [
     ),
     // Each storage location: last check failed, or a Google Drive grant
     // that ends or whose end nobody knows (issue #718 § C point 10) —
-    // and a safety copy left on the site's own server (point 11).
+    // and a safety copy left on the site's own server (point 11), and a
+    // local folder the web server serves directly (#1129).
     new \Core\Storage\Location\StorageAttentionProvider(
         $storageLocationRepository,
         null,
-        $storageProtectionRepository
+        $storageProtectionRepository,
+        \Core\Storage\Location\WebServedArea::of(
+            dirname(__DIR__),
+            __DIR__,
+            is_string($_SERVER['DOCUMENT_ROOT'] ?? null) ? $_SERVER['DOCUMENT_ROOT'] : null
+        )
     ),
     // Every operational alert currently triggered (Core\Alert, §8.99).
     // Reads rows, computes nothing: the same check that notified wrote

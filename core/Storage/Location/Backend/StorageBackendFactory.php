@@ -20,6 +20,7 @@ use Core\Security\SsrfUrlValidator;
 use Core\Storage\Location\StorageLocation;
 use Core\Storage\Location\StorageLocationException;
 use Core\Storage\Location\StorageLocationRepository;
+use Core\Storage\Location\WebServedArea;
 
 /**
  * Builds the backend for a location, on demand and never at the
@@ -59,6 +60,9 @@ class StorageBackendFactory
      * @var array<int, StorageBackendInterface>
      */
     private array $backendsByLocationId = [];
+
+    /** Built on first use: only a location on an absolute path needs it. */
+    private ?WebServedArea $webServedArea = null;
 
     public function create(StorageLocation $location): StorageBackendInterface
     {
@@ -189,6 +193,19 @@ class StorageBackendFactory
     private function resolveLocalDirectory(LocalLocationConfig $config): string
     {
         if ($config->isAbsolute()) {
+            // **Checked again here, not only when it was saved** (#1129).
+            // The form's check knew only layout A until #1129, and a row can
+            // arrive since the form — a restore from another installation,
+            // a hand-edited column. A folder the web server serves is every
+            // file in it downloadable with no access check, so it is not
+            // opened at all: nothing is written there any more, and nothing
+            // already there is touched. The location's check reports this
+            // message, and the « en erreur » attention point carries it.
+            $this->webServedArea ??= WebServedArea::forStoragePath($this->storagePath);
+            if ($this->webServedArea->serves($config->path)) {
+                throw new StorageLocationException(WebServedArea::SAVED_LOCATION_REFUSED);
+            }
+
             return rtrim($config->path, '/') !== '' ? rtrim($config->path, '/') : '/';
         }
 
