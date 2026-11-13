@@ -121,6 +121,51 @@ final class BodyImageAccessTest extends TestCase
     }
 
     /**
+     * Backwards too: an image taken out of the text of the article that
+     * governed it is handed to the article still showing it — never left on
+     * the wider floor it had there. The scenario a reviewer traced: shared
+     * by a public article and a staff one, removed from the public one.
+     */
+    public function testAnImageRemovedFromTheGoverningTextFollowsTheArticleStillShowingIt(): void
+    {
+        $image = $this->image();
+        $staff = $this->article(Article::VISIBILITY_CHIEF, [$image]);
+        $public = $this->article(Article::VISIBILITY_PUBLIC, [$image]);
+        $this->access->syncArticle($public);
+        $this->assertSame('public', $this->files->findById($image)?->roleMin);
+
+        $this->setText($public, '<p>Plus de photo.</p>');
+        $this->access->syncArticle($public);
+
+        $file = $this->files->findById($image);
+        $this->assertSame('chief', $file?->roleMin);
+        $this->assertSame($staff, $file?->ownerId);
+    }
+
+    /** An image no saved text names any more goes back to the provisional floor. */
+    public function testAnImageRemovedFromItsOnlyTextIsClosed(): void
+    {
+        $image = $this->image();
+        $public = $this->article(Article::VISIBILITY_PUBLIC, [$image]);
+        $this->access->syncArticle($public);
+
+        $this->setText($public, '<p>Plus de photo.</p>');
+        $this->access->syncArticle($public);
+
+        $file = $this->files->findById($image);
+        $this->assertSame(BodyImageAccess::UNSAVED_ROLE_MIN, $file?->roleMin);
+        $this->assertNull($file?->ownerType);
+    }
+
+    private function setText(int $articleId, string $html): void
+    {
+        $this->pdo->prepare(
+            'UPDATE news_form_fields SET confirmation_text = ?
+             WHERE form_id = (SELECT id FROM news_forms WHERE news_article_id = ?)'
+        )->execute([$html, $articleId]);
+    }
+
+    /**
      * Only this module's text images: not a cover pasted into a text, not a
      * file stored elsewhere whose address an author copied in.
      */

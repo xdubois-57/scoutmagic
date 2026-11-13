@@ -83,13 +83,26 @@ final class BodyImageAccess
     }
 
     /**
-     * Realign every image article $articleId's text names; returns how
-     * many files changed floor or owner.
+     * Realign every image article $articleId's text names, and every image
+     * it owns that its text no longer names; returns how many files
+     * changed floor or owner.
+     *
+     * **Backwards too.** An image taken out of a text, while that article
+     * still owns it, would otherwise keep the floor it had there: shared
+     * with a staff article and removed from the public one, it would stay
+     * public forever. Each image this article owns is therefore reconciled
+     * as well — handed to whichever article now governs it, or closed when
+     * no saved text names it any more.
      */
     public function syncArticle(int $articleId): int
     {
+        $publicIds = array_unique([
+            ...$this->publicIdsIn($this->textOf($articleId)),
+            ...$this->publicIdsOwnedBy($articleId),
+        ]);
+
         $changed = 0;
-        foreach ($this->publicIdsIn($this->textOf($articleId)) as $publicId) {
+        foreach ($publicIds as $publicId) {
             $changed += $this->syncFile($publicId) ? 1 : 0;
         }
 
@@ -133,7 +146,7 @@ final class BodyImageAccess
 
         $governing = $this->governingArticle($publicId);
         if ($governing === null) {
-            return false;
+            return $this->release($file);
         }
 
         $roleMin = self::bodyImageRoleMin($governing->visibility);
@@ -146,6 +159,39 @@ final class BodyImageAccess
         $this->files->updateOwner($file->id, $owner, $governing->id);
 
         return true;
+    }
+
+    /**
+     * A text image no saved text names any more: back to the provisional
+     * floor of an unsaved upload, with no owner — the author who removed
+     * it still sees it, nobody else. Nothing is deleted.
+     */
+    private function release(\Core\File\FileRecord $file): bool
+    {
+        if ($file->roleMin === self::UNSAVED_ROLE_MIN && $file->ownerType === null) {
+            return false;
+        }
+
+        $this->pdo->prepare('UPDATE files SET role_min = ?, owner_type = NULL, owner_id = NULL WHERE id = ?')
+            ->execute([self::UNSAVED_ROLE_MIN, $file->id]);
+
+        return true;
+    }
+
+    /**
+     * The images this article owns today, whether or not its text still
+     * names them.
+     *
+     * @return list<string>
+     */
+    private function publicIdsOwnedBy(int $articleId): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT public_id FROM files WHERE owner_type = ? AND owner_id = ? AND public_id IS NOT NULL'
+        );
+        $stmt->execute([NewsCoverOwnershipChecker::BODY_IMAGE_OWNER_TYPE, $articleId]);
+
+        return array_values(array_map('strval', $stmt->fetchAll(\PDO::FETCH_COLUMN)));
     }
 
     /**
