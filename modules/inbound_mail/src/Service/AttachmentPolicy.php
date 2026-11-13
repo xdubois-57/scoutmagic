@@ -159,13 +159,17 @@ class AttachmentPolicy
     /**
      * Whether an OOXML package carries no macro project (issue #1121): no
      * `vbaProject.bin` part anywhere, and no macro-enabled content type
-     * declared. A package that cannot be opened is refused too — it is not
+     * declared — including a `vbaProject` content type, which is how a
+     * renamed macro part still shows. A package that cannot be opened is
+     * refused too — it is not
      * the `.docx` finfo took it for — and so is every OOXML file on a host
      * without the zip extension: unable to look is not the same as clean.
      *
-     * Only the central directory and the first {@see CONTENT_TYPES_READ}
-     * bytes of `[Content_Types].xml` are read, so a package built as a
-     * decompression bomb costs nothing to refuse.
+     * Only the central directory and `[Content_Types].xml` are read, and
+     * that part only when its declared size fits {@see CONTENT_TYPES_READ}:
+     * a larger one is refused rather than read in part, so neither a
+     * decompression bomb nor padding that pushes the declaration past the
+     * window gets through.
      */
     private static function isMacroFreePackage(string $bytes): bool
     {
@@ -187,14 +191,24 @@ class AttachmentPolicy
                         return false;
                     }
                 }
-                $stream = $zip->getStream('[Content_Types].xml');
-                if ($stream === false) {
-                    return true;
+                // The content types are the real backstop: a macro part can be
+                // renamed (OPC finds it by relationship, not by file name),
+                // but it must still be declared. Every OOXML package has
+                // this part, so not finding it — under any case — or not
+                // being able to read all of it is « unable to look ».
+                $index = $zip->locateName('[Content_Types].xml', \ZipArchive::FL_NOCASE);
+                $stat = $index === false ? false : $zip->statIndex($index);
+                if ($index === false || !is_array($stat) || $stat['size'] > self::CONTENT_TYPES_READ) {
+                    return false;
                 }
-                $types = (string) fread($stream, self::CONTENT_TYPES_READ);
+                $stream = $zip->getStream((string) $zip->getNameIndex($index));
+                if ($stream === false) {
+                    return false;
+                }
+                $types = (string) stream_get_contents($stream, self::CONTENT_TYPES_READ);
                 fclose($stream);
 
-                return stripos($types, 'macroEnabled') === false;
+                return stripos($types, 'macroEnabled') === false && stripos($types, 'vbaProject') === false;
             } finally {
                 $zip->close();
             }

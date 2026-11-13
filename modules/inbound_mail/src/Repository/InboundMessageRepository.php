@@ -1003,11 +1003,22 @@ class InboundMessageRepository
      * A message stored from the box's « Envoyés » that the box turns out to
      * have received as well: kept once, as received (#720). No-op on a row
      * that already is.
+     *
+     * The verdict on its sender goes with it (issue #1121): the sent copy
+     * was « verified » only because the box itself sent it, which says
+     * nothing about the copy the box received.
      */
-    public function markReceived(int $messageId): void
+    public function markReceived(int $messageId, bool $senderVerified): void
     {
-        $stmt = $this->pdo->prepare('UPDATE inbound_messages SET direction = ? WHERE id = ? AND direction = ?');
-        $stmt->execute([MessageDirection::RECEIVED->value, $messageId, MessageDirection::SENT->value]);
+        $stmt = $this->pdo->prepare(
+            'UPDATE inbound_messages SET direction = ?, sender_verified = ? WHERE id = ? AND direction = ?'
+        );
+        $stmt->execute([
+            MessageDirection::RECEIVED->value,
+            $senderVerified ? 1 : 0,
+            $messageId,
+            MessageDirection::SENT->value,
+        ]);
     }
 
     public function isOutboundMessageId(string $consumerId, string $messageId): bool
