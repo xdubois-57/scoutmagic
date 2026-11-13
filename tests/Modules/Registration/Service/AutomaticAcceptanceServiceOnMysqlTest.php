@@ -276,24 +276,50 @@ class AutomaticAcceptanceServiceOnMysqlTest extends TestCase
     public function testAnAcceptanceByHandOutsideAPassTakesTheSlotLockAndLeavesItFree(): void
     {
         $id = $this->file('Alix', self::LOU1_BIRTH, '2026-10-05 10:00:00');
-        $request = (new RegistrationRequestRepository($this->otherSession, $this->encryption))->findById($id);
+        // Inside decide()'s transaction, after the apply() it makes and
+        // before the commit — where it saves the note: a pass on this
+        // session cannot take the slot (review of #1198). A lock released
+        // by apply() on its way out, before decide() commits, fails here.
+        $heldBeforeTheCommit = null;
+        $beforeTheCommit = function () use (&$heldBeforeTheCommit): void {
+            $heldBeforeTheCommit = !$this->requests->acquireAutoAcceptLock(
+                $this->targetYearId,
+                $this->louveteauxId,
+                1
+            );
+        };
+        $chiefRequests = new class ($this->otherSession, $this->encryption, $beforeTheCommit)
+            extends RegistrationRequestRepository {
+            public function __construct(\PDO $pdo, EncryptionService $encryption, private \Closure $beforeTheCommit)
+            {
+                parent::__construct($pdo, $encryption);
+            }
+
+            public function updateInternalNotes(int $id, ?string $notes): void
+            {
+                ($this->beforeTheCommit)();
+                parent::updateInternalNotes($id, $notes);
+            }
+        };
+        $request = $chiefRequests->findById($id);
         $this->assertNotNull($request);
 
-        $this->decisions($this->otherSession)->decide($request, RequestDecisionService::DECISION_ACCEPT, '', null);
+        $this->decisions($this->otherSession, $chiefRequests)
+            ->decide($request, RequestDecisionService::DECISION_ACCEPT, 'Acceptée à la main', null);
 
+        $this->assertTrue($heldBeforeTheCommit);
         $this->assertSame(RegistrationRequest::STATUS_ACCEPTED, $this->statusOf($id));
         $this->assertTrue($this->requests->acquireAutoAcceptLock($this->targetYearId, $this->louveteauxId, 1));
     }
 
-    private function decisions(\PDO $session): RequestDecisionService
+    private function decisions(\PDO $session, ?RegistrationRequestRepository $requests = null): RequestDecisionService
     {
-        $settings = $this->settings($session);
-        $requests = new RegistrationRequestRepository($session, $this->encryption);
+        $requests ??= new RegistrationRequestRepository($session, $this->encryption);
 
         return RegistrationTestHelper::decisionService(
             $session,
             $this->encryption,
-            $settings,
+            $this->settings($session),
             new RequestStatusService($requests, new JournalService(new JournalRepository($session))),
             $requests
         );
