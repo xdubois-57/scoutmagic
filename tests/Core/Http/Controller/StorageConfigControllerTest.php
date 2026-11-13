@@ -637,6 +637,72 @@ class StorageConfigControllerTest extends TestCase
         ];
     }
 
+    /**
+     * Issue #1129: in layout B the whole tree sits in the document root,
+     * and its root `.htaccess` serves every existing file outside a few
+     * refused directories. A `public/`-only check let `<root>/photos`
+     * through.
+     */
+    public function testInLayoutBAFolderUnderTheInstallationRootIsRefused(): void
+    {
+        $root = dirname($this->publicPath);
+        file_put_contents($root . '/index.php', '<?php');
+        file_put_contents($this->publicPath . '/index.php', '<?php');
+
+        $response = $this->controller->store($this->formRequest([
+            'type' => 'local', 'label' => 'Dans la racine', 'subdir' => $root . '/photos',
+        ]), []);
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertSame([], $this->repository->findAll());
+        $this->assertStringContainsString('servie directement par le serveur web', $response->getBody());
+    }
+
+    /** The same folder, in layout A, is beside the document root: accepted. */
+    public function testInLayoutAAFolderBesidePublicIsAccepted(): void
+    {
+        $root = dirname($this->publicPath);
+
+        $this->controller->store($this->formRequest([
+            'type' => 'local', 'label' => 'À côté', 'subdir' => $root . '/photos',
+        ]), []);
+
+        $this->assertSame($root . '/photos', $this->localPathOf($this->repository->findByLabel('À côté')));
+    }
+
+    /** What layout B's `.htaccess` refuses stays a valid place. */
+    public function testInLayoutBAFolderUnderStorageIsAccepted(): void
+    {
+        $root = dirname($this->publicPath);
+        file_put_contents($root . '/index.php', '<?php');
+        file_put_contents($this->publicPath . '/index.php', '<?php');
+
+        $this->controller->store($this->formRequest([
+            'type' => 'local', 'label' => 'Sous storage', 'subdir' => $this->storagePath . '/archives',
+        ]), []);
+
+        $this->assertSame(
+            $this->storagePath . '/archives',
+            $this->localPathOf($this->repository->findByLabel('Sous storage'))
+        );
+    }
+
+    /** The document root the web server reports is a second reason to refuse. */
+    public function testAFolderUnderTheReportedDocumentRootIsRefused(): void
+    {
+        $docRoot = dirname($this->publicPath) . '/htdocs';
+        mkdir($docRoot);
+        $request = new Request('POST', '/config/stockage/emplacements', [], [
+            '_csrf_token' => $this->csrfToken(),
+            'type' => 'local', 'label' => 'Sous le document root', 'subdir' => $docRoot . '/photos',
+        ], [], ['DOCUMENT_ROOT' => $docRoot]);
+
+        $response = $this->controller->store($request, []);
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertSame([], $this->repository->findAll());
+    }
+
     public function testStoreRefusesTheWebRootItself(): void
     {
         $response = $this->controller->store($this->formRequest([

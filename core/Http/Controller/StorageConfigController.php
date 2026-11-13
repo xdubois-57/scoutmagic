@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Core\Http\Controller;
 
 use Core\Storage\Location\DriveGrantExpiry;
+use Core\Storage\Location\WebServedArea;
 use Core\Config\AppClock;
 use Core\Http\FlashMessage;
 use Core\Http\Request;
@@ -1168,9 +1169,10 @@ class StorageConfigController extends AbstractController
      * - **Inside the web root.** A directory the web server serves is a
      *   directory where every photograph is fetchable without passing a
      *   single access check — the one thing `ARCHITECTURE.md` §8.3 and
-     *   `SECURITY.md` both state outright. This is checked lexically
-     *   against the real `public/` path rather than by convention, because
-     *   a symbolic link makes the convention wrong.
+     *   `SECURITY.md` both state outright. What the web server serves
+     *   depends on the hosting layout ({@see WebServedArea}, #1129), and is
+     *   compared on canonical paths, because a symbolic link makes a
+     *   convention wrong.
      * - **A `..` segment**, absolute or not. An administrator who typed it
      *   meant somewhere else, and quietly normalising it away is a
      *   surprise rather than a fix.
@@ -1184,7 +1186,7 @@ class StorageConfigController extends AbstractController
      *
      * @throws StorageLocationException on a path this application refuses
      */
-    private function normalizeLocalPath(mixed $value): string
+    private function normalizeLocalPath(mixed $value, Request $request): string
     {
         $raw = trim((string) ($value ?? ''));
         $isAbsolute = str_starts_with($raw, '/') || preg_match('#^[A-Za-z]:[\\\\/]#', $raw) === 1;
@@ -1219,7 +1221,7 @@ class StorageConfigController extends AbstractController
                 );
             }
 
-            $this->assertOutsideWebRoot($raw);
+            $this->assertOutsideWebRoot($raw, $request);
 
             return rtrim($raw, '/') !== '' ? rtrim($raw, '/') : '/';
         }
@@ -1250,8 +1252,11 @@ class StorageConfigController extends AbstractController
      * Refuses a directory the web server would serve directly.
      *
      * Everything this site stores is handed out through a route that
-     * checks who is asking; a location inside `public/` bypasses all of
-     * it, for every file, permanently and silently.
+     * checks who is asking; a location the web server serves bypasses all
+     * of it, for every file, permanently and silently. That is `public/` in
+     * layout A, and nearly the whole installation in layout B, where the
+     * root `.htaccess` serves every existing file outside a few refused
+     * directories (#1129) — {@see WebServedArea} knows which.
      *
      * **Both sides are canonical, and the candidate's canonical form is
      * built rather than asked for.** `realpath()` answers false for a
@@ -1263,74 +1268,25 @@ class StorageConfigController extends AbstractController
      * `/var/www/./public/photos` does not start with `/var/www/public/`
      * as text and is the same directory to the kernel. Same for a leaf
      * under a symlinked ancestor, which is exactly the case this check
-     * claims to close. {@see canonicalise()} resolves what exists and
-     * re-attaches what does not.
+     * claims to close. {@see WebServedArea::canonicalise()} resolves what
+     * exists and re-attaches what does not.
      *
      * @throws StorageLocationException
      */
-    private function assertOutsideWebRoot(string $path): void
+    private function assertOutsideWebRoot(string $path, Request $request): void
     {
-        $webRoot = realpath($this->publicPath);
-        $webRoot = $webRoot !== false ? $webRoot : rtrim($this->publicPath, '/');
-        $candidate = self::canonicalise($path);
+        // The project root is the public directory's parent in both
+        // layouts; WebServedArea knows which of the two this is (#1129).
+        $documentRoot = $request->getServer('DOCUMENT_ROOT');
+        $area = WebServedArea::of(
+            dirname(rtrim($this->publicPath, '/')),
+            $this->publicPath,
+            is_string($documentRoot) ? $documentRoot : null
+        );
 
-        if ($webRoot === '' || $candidate === '') {
-            return;
+        if ($area->serves($path)) {
+            throw new StorageLocationException(WebServedArea::DECLARATION_REFUSED);
         }
-        if ($candidate === $webRoot || str_starts_with($candidate, rtrim($webRoot, '/') . '/')) {
-            throw new StorageLocationException(
-                'Ce dossier est dans la partie du site servie directement par le serveur web : tout ce qui y '
-                    . 'serait déposé deviendrait téléchargeable sans aucun contrôle d\'accès. Choisissez un '
-                    . 'dossier situé ailleurs.'
-            );
-        }
-    }
-
-    /**
-     * A path in its canonical form, whether or not it exists yet.
-     *
-     * Walks up to the nearest ancestor the filesystem can resolve,
-     * `realpath()`s that — which settles `.`, doubled slashes and symbolic
-     * links in one step — then re-attaches the segments that do not exist
-     * yet. A path with no resolvable ancestor at all comes back trimmed
-     * rather than empty, so the caller still has something to compare.
-     *
-     * The result is used for COMPARING only, never stored: resolving
-     * symbolic links into what gets written down would turn a deploy
-     * layout's `/var/www/current/photos` into `/var/www/releases/41/photos`
-     * and break it at the next release.
-     */
-    private static function canonicalise(string $path): string
-    {
-        $existing = rtrim($path, '/');
-        if ($existing === '') {
-            return '/';
-        }
-
-        /** @var list<string> $missing */
-        $missing = [];
-        while (!file_exists($existing)) {
-            $segment = basename($existing);
-            $parent = dirname($existing);
-            if ($parent === $existing) {
-                return rtrim($path, '/');
-            }
-            // A `.` segment names its own parent and must not come back as
-            // a directory name when the tail is re-attached.
-            if ($segment !== '' && $segment !== '.') {
-                $missing[] = $segment;
-            }
-            $existing = $parent;
-        }
-
-        $resolved = realpath($existing);
-        if ($resolved === false) {
-            return rtrim($path, '/');
-        }
-
-        return $missing === []
-            ? $resolved
-            : rtrim($resolved, '/') . '/' . implode('/', array_reverse($missing));
     }
 
     /**
@@ -1348,7 +1304,7 @@ class StorageConfigController extends AbstractController
     ): LocationConfig
     {
         if ($type === StorageLocationType::Local) {
-            return new LocalLocationConfig($this->normalizeLocalPath($request->getBody('subdir')));
+            return new LocalLocationConfig($this->normalizeLocalPath($request->getBody('subdir'), $request));
         }
 
         if ($type === StorageLocationType::GoogleDrive) {

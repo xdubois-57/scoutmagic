@@ -6,9 +6,8 @@ category: Configuration
 role_min: superadmin
 question: Où sont stockés les fichiers du site ?
 question: Quel type de stockage choisir pour les photos ?
-question: Comment déclarer un disque réseau ?
 paths: /config/stockage/emplacements, /config/stockage/emplacements/nouveau, /config/stockage/emplacements/*/modification
-related: stockage-cible, stockage-webdav, stockage-google-drive, stockage-copie-de-secours, stockage-espace, stockage-apres-un-sinistre
+related: stockage-dossier-local, stockage-cible, stockage-webdav, stockage-google-drive, stockage-copie-de-secours, stockage-espace, stockage-apres-un-sinistre
 ---
 
 Un **emplacement de stockage**, c'est une destination où le site écrit
@@ -55,9 +54,8 @@ propre copie de secours, qui se déclare sur sa fiche.
 ## Un dossier ailleurs sur le serveur
 
 Un emplacement local vise un sous-dossier du site, ou un **chemin
-absolu** — un disque réseau, un second disque. Un dossier situé dans la
-partie servie par le serveur web est refusé : tout ce qui y serait
-déposé deviendrait téléchargeable par n'importe qui, sans contrôle.
+absolu** — un disque réseau, un second disque. Certains dossiers sont
+refusés : voir [placer un emplacement local](stockage-dossier-local).
 
 ## Tester un emplacement
 
