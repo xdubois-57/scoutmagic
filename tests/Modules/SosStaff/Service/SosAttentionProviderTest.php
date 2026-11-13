@@ -125,4 +125,27 @@ class SosAttentionProviderTest extends TestCase
         $this->assertStringContainsString('Baloo (Paul Martin), Bagheera (Anne Leroy)', $points[0]->why);
         $this->assertSame(AttentionPoint::SEVERITY_ATTENTION, $points[0]->severity);
     }
+
+    /**
+     * Review of #1194: with a stale default and a failed redirection, the
+     * default-number point states the planned configuration only — the
+     * failure point says where the line may really be.
+     */
+    public function testAStaleDefaultNeverClaimsWhereTheCallsArriveNow(): void
+    {
+        $points = $this->points(
+            $this->createStub(PhoneProviderInterface::class),
+            new \DateTimeImmutable('2026-10-18 10:00:00'),
+            function ($settings): void {
+                $settings->method('staleDefaultNumberMemberId')->willReturn(7);
+                $settings->method('resolveDefaultNumberMemberId')->willReturn(8);
+                $settings->method('labelForMember')->willReturn('Akela (Jean Dupont)');
+            }
+        );
+
+        $this->assertCount(2, $points);
+        $this->assertSame(AttentionPoint::SEVERITY_URGENT, $points[0]->severity);
+        $this->assertStringContainsString('est désormais prévue vers', $points[1]->why);
+        $this->assertStringNotContainsString('arrivent', $points[1]->why);
+    }
 }

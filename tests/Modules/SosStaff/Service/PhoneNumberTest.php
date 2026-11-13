@@ -41,6 +41,9 @@ final class PhoneNumberTest extends TestCase
     public function testABelgianLandLineAndAForeignNumberAreKept(): void
     {
         $this->assertSame('+3221234567', PhoneNumber::normalize('02 123 45 67'));
+        // Liège: 04 is a land-line prefix too, 8 significant digits (review of #1194).
+        $this->assertSame('+3242223344', PhoneNumber::normalize('04 222 33 44'));
+        $this->assertSame('+3243223344', PhoneNumber::normalize('+32 4 322 33 44'));
         $this->assertSame('+33612345678', PhoneNumber::normalize('+33 6 12 34 56 78'));
         $this->assertSame('+33612345678', PhoneNumber::normalize('0033612345678'));
     }
@@ -57,6 +60,8 @@ final class PhoneNumberTest extends TestCase
             'no prefix at all' => ['470123456'],
             'too short' => ['0470'],
             'a Belgian mobile one digit short' => ['0470 12 34 5'],
+            'a 049 mobile one digit short' => ['0495 12 34 5'],
+            'a Liège land line one digit long' => ['04 222 33 445'],
             'a Belgian mobile one digit long' => ['0470 12 34 567'],
             'trunk zero kept after +32' => ['+32 0470 12 34 56'],
             'letters' => ['0470 AB 34 56'],

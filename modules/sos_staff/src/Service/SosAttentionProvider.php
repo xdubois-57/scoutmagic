@@ -112,10 +112,14 @@ class SosAttentionProvider implements AttentionPointProvider
 
         return new AttentionPoint(
             title: "Le numéro par défaut choisi pour le numéro SOS n'est plus valable",
+            // A configuration fact, never a claim about where the line rings
+            // now: that is the operator's, and the redirection to the fallback
+            // may not have happened yet, or failed (review of #1194).
             why: $chosen . " ne fait plus partie du Staff d'U de cette année avec un GSM utilisable. "
                 . ($used !== null
-                    ? "Quand personne n'est de garde, les appels arrivent désormais chez {$used}."
-                    : "Quand personne n'est de garde, aucun numéro ne peut recevoir les appels.")
+                    ? "Les jours sans garde, la redirection est désormais prévue vers {$used}."
+                    : "Aucun autre membre du Staff d'U n'a de GSM utilisable : les jours sans garde, le site n'a "
+                        . 'plus de numéro vers lequel rediriger le numéro SOS.')
                 . ' Confirmez ce choix ou changez-le dans les réglages.',
             actionLabel: 'Choisir le numéro par défaut',
             actionUrl: '/admin/sos/reglages',

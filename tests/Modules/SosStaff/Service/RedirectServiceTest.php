@@ -220,7 +220,6 @@ class RedirectServiceTest extends TestCase
         $this->memberService->method('findProfileByMemberAndYear')
             ->willReturn($this->profile(1, 'Akela', '0470 12 34', 'akela@test.be'));
         $this->settingsService->method('labelForMember')->willReturn('Akela (Jean Test)');
-        $this->userAccountRepository->method('findStaffAndSuperAdminIds')->willReturn([]);
 
         $messages = new \ArrayObject();
         $this->journalService->method('log')->willReturnCallback(
@@ -229,14 +228,31 @@ class RedirectServiceTest extends TestCase
             }
         );
 
+        $alerted = new \ArrayObject();
+        $this->userAccountRepository = $this->createStub(UserAccountRepository::class);
+        $this->userAccountRepository->method('findStaffAndSuperAdminIds')->willReturn([9]);
+        $this->userAccountRepository->method('findById')->willReturn(
+            new UserAccount(9, 'chef@test.be', null, null, null, false, null)
+        );
+        $this->mailService->method('send')->willReturnCallback(
+            static function (...$args) use ($alerted): void {
+                $alerted[] = (string) ($args['bodyText'] ?? $args[3] ?? '');
+            }
+        );
+
         try {
             $this->service()->apply(1, null, 100);
             self::fail('Expected a SosException.');
         } catch (SosException $e) {
-            self::assertStringContainsString('Akela (Jean Test)', $e->getMessage());
+            // No personal data in an exception or the journal (review of #1194).
+            self::assertStringNotContainsString('Akela', $e->getMessage());
         }
         self::assertStringContainsString("n'est pas un numéro de téléphone valide", $messages['redirect_failure'] ?? '');
+        self::assertStringNotContainsString('Akela', $messages['redirect_failure'] ?? '');
         self::assertStringNotContainsString('0470', $messages['redirect_failure'] ?? '');
+        // The chefs d'unité are told who.
+        self::assertStringContainsString('Akela (Jean Test)', implode("\n", $alerted->getArrayCopy()));
+        self::assertStringNotContainsString('0470', implode("\n", $alerted->getArrayCopy()));
     }
 
     /**

@@ -30,10 +30,10 @@ final class PhoneNumber
     private const DEFAULT_COUNTRY_CODE = '32';
 
     /**
-     * Belgian significant numbers (after +32): a mobile starts with 4 and
-     * has 9 digits, every other number has 8. Telling the two apart is what
-     * catches a mobile typed one digit short, which would otherwise pass
-     * for a land line.
+     * Belgian significant numbers (after +32): a mobile starts with 45 to 49
+     * and has 9 digits, every other number has 8 — Liège's land lines (42,
+     * 43) included. Telling the two apart is what catches a mobile typed one
+     * digit short, which would otherwise pass for a land line.
      */
     private const BELGIAN_MOBILE_LENGTH = 9;
     private const BELGIAN_OTHER_LENGTH = 8;
@@ -77,7 +77,7 @@ final class PhoneNumber
 
         if (str_starts_with($digits, self::DEFAULT_COUNTRY_CODE)) {
             $significant = substr($digits, strlen(self::DEFAULT_COUNTRY_CODE));
-            $expectedLength = str_starts_with($significant, '4')
+            $expectedLength = preg_match('/^4[5-9]/', $significant) === 1
                 ? self::BELGIAN_MOBILE_LENGTH
                 : self::BELGIAN_OTHER_LENGTH;
             if (str_starts_with($significant, '0') || strlen($significant) !== $expectedLength) {

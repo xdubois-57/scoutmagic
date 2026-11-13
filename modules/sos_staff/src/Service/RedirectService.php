@@ -96,13 +96,16 @@ class RedirectService
         }
 
         // Sent normalised, never as Desk holds it (issue #1125). A GSM that
-        // is no phone number is refused here, named, rather than handed to
-        // the operator to guess at.
+        // is no phone number is refused here rather than handed to the
+        // operator to guess at. The person is named in the alert to the
+        // chefs d'unité only: the journal and the exception carry no
+        // personal data (SECURITY.md §11), the member id is in the context.
         $targetNumber = PhoneNumber::normalize($rawNumber);
         if ($targetNumber === null) {
-            $message = $this->unusableNumberMessage($newMemberId, $scoutYearId);
+            $message = "Le GSM du destinataire prévu dans Desk n'est pas un numéro de téléphone valide : la "
+                . "redirection du numéro SOS n'a pas été modifiée. Corrigez le GSM dans Desk, puis réimportez.";
             $this->logOutcome('failure', $message, $newMemberId);
-            $this->sendAdminAlert($message, $scoutYearId);
+            $this->sendAdminAlert($this->unusableNumberMessage($newMemberId, $scoutYearId), $scoutYearId);
             throw new SosException($message);
         }
 
@@ -201,8 +204,9 @@ class RedirectService
     }
 
     /**
-     * The sentence a refused GSM is reported with: who, never the number —
-     * it goes to the journal and into an e-mail to every chef d'unité.
+     * The sentence a refused GSM is alerted with: who, never the number. It
+     * goes to the e-mail every chef d'unité receives, and nowhere else —
+     * never the journal nor an exception (review of #1194).
      */
     private function unusableNumberMessage(?int $memberId, int $scoutYearId): string
     {

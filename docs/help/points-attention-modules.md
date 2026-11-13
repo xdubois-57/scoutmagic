@@ -59,7 +59,8 @@ Le module Téléphone d'urgence signale :
   peut-être encore chez la personne de garde précédente ;
 - **un numéro par défaut choisi qui n'est plus valable** : la personne a
   quitté le Staff d'U, n'a plus de fiche cette année, ou son GSM n'est
-  plus utilisable. Le point dit chez qui les appels arrivent à sa place.
+  plus utilisable. Le point dit vers qui la redirection est prévue à sa
+  place les jours sans garde, ou qu'aucun autre numéro n'est utilisable.
   Il disparaît quand vous confirmez ou changez le choix dans les
   réglages ;
 - **un GSM du Staff d'U qui n'est pas un numéro de téléphone** dans

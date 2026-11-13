@@ -49,7 +49,8 @@ sinon le premier membre du Staff d'U. Il n'attend pas l'échec d'une
 bascule pour le faire.
 
 Un avertissement sur cette page et un point d'attention disent qui avait
-été choisi et chez qui les appels arrivent désormais. Pour les faire
+été choisi et vers qui la redirection est désormais prévue les jours
+sans garde. Pour les faire
 disparaître, enregistrez le membre affiché (le bouton reste actif) ou
 choisissez-en un autre.
 
