@@ -126,6 +126,32 @@ class MemberService
      * Whether $blindIndex is a currently-'valid' secondary address of the
      * persistent member $memberId.
      */
+    /**
+     * Whether $blindIndex is one of member $memberId's addresses NOW — the
+     * one rule behind « this account is this member » (issue #1101):
+     *
+     * - the Desk address on the member's LATEST record, read even when that
+     *   record carries none: Desk removing or replacing the address takes
+     *   it away at once, rather than falling back to an older record's;
+     * - or a secondary address the member added and confirmed, while it is
+     *   still `valid`: removing it on the member page takes it away too.
+     *
+     * An address that passes reaches every record of the member, past
+     * years included; one that does not reaches none — it is never the
+     * address printed on the record being opened that decides. The
+     * maintainer's rule: an address added in Desk or on the page gains
+     * access to everything about the member; removed, it loses all of it.
+     */
+    private function isCurrentAddressOf(int $memberId, string $blindIndex): bool
+    {
+        $latest = $this->memberYearRepo->findMostRecentForMember($memberId);
+        if ($latest !== null && $latest['email_blind_index'] === $blindIndex) {
+            return true;
+        }
+
+        return $this->isValidSecondaryEmailOf($memberId, $blindIndex);
+    }
+
     private function isValidSecondaryEmailOf(int $memberId, string $blindIndex): bool
     {
         if ($this->memberEmailRepo === null) {
@@ -317,8 +343,14 @@ class MemberService
      * Check if a user account (by email) has access to a specific member_year.
      *
      * Access granted if:
-     * - The member_year's email matches the user's email (same blind index), OR
-     * - The user's role is chief or admin (can see all members).
+     * - the user's role is chief or admin (can see all members), OR
+     * - the user's email is one of the MEMBER's addresses now
+     *   (isCurrentAddressOf(): the Desk address of their latest record, or a
+     *   confirmed secondary address) — which opens every year's record of
+     *   that member, and never the address printed on the record opened
+     *   (issue #1101: a parent Desk replaced this year kept the member's
+     *   current health form through last year's record id), OR
+     * - the session's temporary member is that very record.
      *
      * This is the fine-grained access check beyond the route's role_min.
      */
@@ -330,22 +362,15 @@ class MemberService
             return true;
         }
 
-        // Check email match via blind index
         $row = $this->memberYearRepo->findById($memberYearId);
         if ($row === null) {
             return false;
         }
 
-        $userBlindIndex = $this->profiles->emailBlindIndex($userEmail);
-        if ($row['email_blind_index'] === $userBlindIndex) {
-            return true;
-        }
-
-        // A confirmed secondary address of that same member passes too:
-        // the member added it themselves and confirmed it from that
-        // mailbox, which is exactly the "this is really you" evidence the
-        // Desk address carries.
-        if ($this->isValidSecondaryEmailOf((int) $row['member_id'], $userBlindIndex)) {
+        // Whichever year's record the address names, the question is about
+        // the MEMBER, and asked of the member's addresses as they are now
+        // (issue #1101) — never of the address on the record being opened.
+        if ($this->isCurrentAddressOf((int) $row['member_id'], $this->profiles->emailBlindIndex($userEmail))) {
             return true;
         }
 
@@ -373,8 +398,9 @@ class MemberService
     }
 
     /**
-     * Whether $email is linked (blind-index email match, same rule as
-     * canAccess()) to the persistent member $memberId for $scoutYearId —
+     * Whether $email is linked (one of the member's current addresses, the
+     * same rule as canAccess(); $scoutYearId only scopes the temporary
+     * override) to the persistent member $memberId —
      * used where the authorization boundary must be "this is really you",
      * not "you outrank this member" (e.g. the member page photo upload,
      * which deliberately has no chief/admin bypass outside configuration
@@ -382,19 +408,11 @@ class MemberService
      */
     public function isLinkedToMember(string $email, int $memberId, int $scoutYearId): bool
     {
-        $row = $this->memberYearRepo->findByMemberAndYear($memberId, $scoutYearId);
-        if ($row === null) {
-            return false;
-        }
-
-        $userBlindIndex = $this->profiles->emailBlindIndex($email);
-        if ($row['email_blind_index'] === $userBlindIndex) {
-            return true;
-        }
-
-        // Same widening as canAccess(): a currently-'valid' secondary
-        // address of this member is that member.
-        if ($this->isValidSecondaryEmailOf($memberId, $userBlindIndex)) {
+        // The same rule as canAccess(), and for the same reason: the year
+        // the request names decides nothing about who the member's
+        // addresses are (issue #1101). It only scopes the temporary
+        // override below, which is tied to one year's record.
+        if ($this->isCurrentAddressOf($memberId, $this->profiles->emailBlindIndex($email))) {
             return true;
         }
 
