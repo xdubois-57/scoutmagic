@@ -9676,11 +9676,22 @@ if ($isEnabled('news')) {
         $newsArticleRepo,
         $newsArticleService
     );
+    // An image inserted in an article's text is served when an article
+    // naming it is online and visible to the reader, or to whoever
+    // manages the news — decided at each request (issue #1110).
+    $fileOwnershipCheckers[] = new \Modules\News\File\NewsTextImageOwnershipChecker(
+        new \Core\File\FileRepository($pdo),
+        \Modules\News\Service\BodyImageAccess::forPdo($pdo),
+        $newsArticleService
+    );
     $newsFormService = new \Modules\News\Service\FormService(
         $newsFormRepo,
         $newsFieldRepo,
         $newsArticleService,
-        $newsResponseRepo
+        $newsResponseRepo,
+        // The images of an article's text follow the floor of that text,
+        // at every save of it (issue #1110).
+        \Modules\News\Service\BodyImageAccess::forPdo($pdo)
     );
     $newsTicketService = new \Modules\News\Service\TicketService($newsResponseRepo);
     // The reminder before the event carries the QR as an image URL: a
@@ -9848,6 +9859,29 @@ if ($isEnabled('news')) {
             'news',
             \Modules\News\Task\RealignCoverImageAccessHandler::TASK_KEY,
             \Modules\News\Task\RealignCoverImageAccessHandler::REFERENCE,
+            new DateTimeImmutable()
+        );
+    }
+    // One-shot realignment of the images inserted in articles' text
+    // (issue #1110): every one was stored `public` before, whatever the
+    // article's visibility. BodyImageAccess applies the floor at every
+    // save now; this does it once for what was saved before.
+    if ($settingService->get(\Modules\News\Task\RealignBodyImageAccessHandler::DONE_FLAG, 'news') !== '1') {
+        $settingService->register(
+            \Modules\News\Task\RealignBodyImageAccessHandler::DONE_FLAG,
+            '0',
+            'boolean',
+            'Accès aux images insérées réalignés',
+            'Indicateur interne : la reprise des accès aux images insérées dans les actualités a été effectuée.',
+            'news',
+            null,
+            null,
+            false
+        );
+        $schedulerService->seed(
+            'news',
+            \Modules\News\Task\RealignBodyImageAccessHandler::TASK_KEY,
+            \Modules\News\Task\RealignBodyImageAccessHandler::REFERENCE,
             new DateTimeImmutable()
         );
     }

@@ -257,13 +257,13 @@ class NewsController extends AbstractController
 
     /**
      * POST /news/images/upload — AJAX, the inline rich-text toolbar's
-     * image button (module usability review). Article visibility isn't
-     * known yet at this point (mid-edit, possibly still unsaved), so the
-     * uploaded image is stored role_min "public" like any other embedded
-     * body image — a chief/admin-only article's body images would still
-     * technically be reachable via direct /files/{id} link, same
-     * trade-off already accepted by the shared editable() image pipeline
-     * elsewhere in the app.
+     * image button (module usability review). The article's visibility is
+     * not known yet at this point (mid-edit, possibly still unsaved), so
+     * the image is stored at the provisional floor of whoever may write an
+     * article — `chief`, this route's own floor, so the author still sees
+     * it in the editor — and put on the floor of the article's text when
+     * the article is saved (Service\BodyImageAccess, issue #1110). Until
+     * then it is no anonymous visitor's to read.
      *
      * @param array<string, string> $params
      */
@@ -285,7 +285,7 @@ class NewsController extends AbstractController
                 'news/images',
                 self::IMAGE_ALLOWED_MIMES,
                 self::IMAGE_MAX_SIZE_BYTES,
-                'public',
+                \Modules\News\Service\BodyImageAccess::UNSAVED_ROLE_MIN,
                 'news',
                 AuthSession::getUserAccountId()
             );

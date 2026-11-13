@@ -2257,6 +2257,10 @@ class NewsIntegrationTest extends TestCase
         $this->assertNotNull($file);
         $this->assertNotNull($variantService->resolvePath($file->relativePath, 'thumb'));
         $this->assertNotNull($variantService->resolvePath($file->relativePath, 'md'));
+        // Issue #1110: not saved in any article yet, so not public — the
+        // floor of whoever may write one, which the author holds.
+        $this->assertSame(\Modules\News\Service\BodyImageAccess::UNSAVED_ROLE_MIN, $file->roleMin);
+        $this->assertNotSame('public', $file->roleMin);
     }
 
     /**

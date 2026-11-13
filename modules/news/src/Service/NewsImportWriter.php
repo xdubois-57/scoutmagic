@@ -19,6 +19,7 @@ use Modules\News\Api\ImportedFormField;
 use Modules\News\Api\ImportedImage;
 use Modules\News\Api\NewsImportWriterInterface;
 use Modules\News\File\NewsCoverOwnershipChecker;
+use Modules\News\File\NewsTextImageOwnershipChecker;
 use Modules\News\Repository\Article;
 use Modules\News\Repository\ArticleRepository;
 use Modules\News\Repository\FormFieldRepository;
@@ -51,6 +52,9 @@ class NewsImportWriter implements NewsImportWriterInterface
 
     private HtmlSanitizer $sanitizer;
 
+    /** @var list<int> the text's images stored for the article being written */
+    private array $bodyImageIds = [];
+
     /**
      * @param \Closure(): \DateTimeImmutable|null $clock
      */
@@ -79,6 +83,7 @@ class NewsImportWriter implements NewsImportWriterInterface
         // a failure are taken off the disk again, and their rows go with
         // the rollback.
         $stored = [];
+        $this->bodyImageIds = [];
         try {
             $coverId = $article->coverImage !== null
                 ? $this->storeImage(
@@ -117,6 +122,9 @@ class NewsImportWriter implements NewsImportWriterInterface
             // syncCoverImageAccess() makes it for one written here.
             if ($coverId !== null) {
                 $this->files->updateOwner($coverId, NewsCoverOwnershipChecker::OWNER_TYPE, $id);
+            }
+            foreach (array_unique($this->bodyImageIds) as $bodyImageId) {
+                $this->files->updateOwner($bodyImageId, NewsTextImageOwnershipChecker::OWNER_TYPE, $bodyImageId);
             }
 
             // The body lives where the module reads it: the form's first
@@ -296,7 +304,15 @@ class NewsImportWriter implements NewsImportWriterInterface
                     if ($image === null) {
                         return '';
                     }
-                    $resolved[$key] ??= $this->storeImage($image, 'public', $article->importedBy, $stored);
+                    // The floor of the text it sits in (issue #1110); its
+                    // request-time owner is set once the article exists.
+                    $resolved[$key] ??= $this->storeImage(
+                        $image,
+                        BodyImageAccess::bodyImageRoleMin($article->visibility),
+                        $article->importedBy,
+                        $stored
+                    );
+                    $this->bodyImageIds[] = $resolved[$key];
 
                     return str_replace($src[0], ' src="' . \Core\File\FilePublicIds::urlFor($resolved[$key]) . '"', $tag[0]);
                 },
