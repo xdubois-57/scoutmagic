@@ -76,6 +76,32 @@ class MemberShowTemplateTest extends TestCase
             $this->render($this->makeMember(), false, ['member_emails' => [$row]]));
     }
 
+    /**
+     * Issue #1101: whoever holds an added address reaches everything about
+     * the member, every year — said where the address is typed, and tied
+     * to the field for a screen reader. The old sentence about group-mail
+     * unsubscription is gone (maintainer's request).
+     */
+    public function testTheAddAddressBoxSaysWhatAnAddressGivesAccessTo(): void
+    {
+        $html = (string) preg_replace('/\s+/', ' ', $this->render($this->makeMember(), true));
+
+        $this->assertStringContainsString(
+            'Une adresse ajoutée donne accès à toutes les informations personnelles de ce membre, '
+                . 'années passées comprises',
+            $html
+        );
+        $this->assertStringContainsString('Une adresse retirée perd aussitôt tout cet accès.', $html);
+        $this->assertMatchesRegularExpression(
+            '#<input type="email" name="email"[^>]*aria-describedby="member-email-add-scope"#',
+            $html
+        );
+        $this->assertStringNotContainsString(
+            'La désinscription des e-mails groupés ne change pas votre accès au site',
+            $html
+        );
+    }
+
     public function testGroupMailConsentIsShownBesideAValidAddressAndRestoredByItsOwnAction(): void
     {
         $row = new \Core\Member\MemberEmail(7, 1, 'parent@example.org', 'manual', 'valid',

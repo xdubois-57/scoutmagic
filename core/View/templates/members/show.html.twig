@@ -364,7 +364,7 @@
                 <div class="card mb-3">
                     <div class="card-body">
                         <h2 class="h5 mb-3">Adresses email</h2>
-                        <p class="small text-body-secondary">Chaque adresse valide peut être utilisée pour vous connecter et recevoir les messages qui vous concernent. La désinscription des e-mails groupés ne change pas votre accès au site.</p>
+                        <p class="small text-body-secondary">Chaque adresse valide peut être utilisée pour vous connecter et recevoir les messages qui vous concernent.</p>
                         {% for row in member_emails %}
                             {% set group_mail_unsubscribed = member_email_group_mail_unsubscribed[row.id] ?? false %}
                             <div class="d-flex justify-content-between align-items-start border-bottom py-2 flex-wrap gap-2">
@@ -471,9 +471,19 @@
                             </div>
                         {% endfor %}
 
-                        <form method="post" action="/members/{{ member.memberYearId }}/emails" class="d-flex flex-wrap gap-2 mt-3">
+                        {# Said where the address is typed, not elsewhere (issue
+                           #1101): whoever holds it reaches everything about
+                           this member, every year, until it is removed here
+                           or in Desk. #}
+                        <p class="small mt-3 mb-2" id="member-email-add-scope">
+                            <i class="bi bi-shield-exclamation" aria-hidden="true"></i>
+                            Une adresse ajoutée donne accès à toutes les informations personnelles de ce membre,
+                            années passées comprises — fiche santé, adresses, documents. N'ajoutez qu'une adresse de
+                            confiance. Une adresse retirée perd aussitôt tout cet accès.
+                        </p>
+                        <form method="post" action="/members/{{ member.memberYearId }}/emails" class="d-flex flex-wrap gap-2">
                             {{ csrf_field()|raw }}
-                            <input type="email" name="email" class="form-control form-control-sm" style="max-width:260px;" placeholder="nouvelle-adresse@example.com" aria-label="Nouvelle adresse email" required>
+                            <input type="email" name="email" class="form-control form-control-sm" style="max-width:260px;" placeholder="nouvelle-adresse@example.com" aria-label="Nouvelle adresse email" aria-describedby="member-email-add-scope" required>
                             <button type="submit" class="btn btn-sm btn-primary text-nowrap">Ajouter une adresse</button>
                         </form>
                     </div>
