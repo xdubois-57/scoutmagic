@@ -165,6 +165,104 @@ class RedirectServiceTest extends TestCase
         $this->service()->apply(1, null, 100);
     }
 
+    /**
+     * Issue #1125: the GSM goes out normalised, whatever Desk holds, and an
+     * operator answering in its own spelling is a confirmation, not a
+     * failure.
+     */
+    public function testTheGsmIsSentNormalisedAndConfirmedInTheOperatorsOwnSpelling(): void
+    {
+        $provider = $this->createMock(PhoneProviderInterface::class);
+        $provider->method('readForwardingState')->willReturnOnConsecutiveCalls(
+            new ForwardingState(true, '0032470000000'),
+            new ForwardingState(true, '0032470123456')
+        );
+        $provider->expects($this->once())->method('setForwarding')->with('+32470123456');
+
+        $this->providerConfigService->method('getActiveProvider')->willReturn($provider);
+        $this->memberService->method('findProfileByMemberAndYear')
+            ->willReturn($this->profile(1, 'Akela', '0470/12.34.56', 'akela@test.be'));
+        $this->settingsService->method('isEmailNotificationsEnabled')->willReturn(false);
+
+        $logged = $this->recordJournal();
+        $this->service()->apply(1, null, 100);
+
+        self::assertSame('info', $logged['redirect_success'] ?? null);
+        self::assertArrayNotHasKey('redirect_failure', $logged->getArrayCopy());
+    }
+
+    public function testALineAlreadyOnTheNumberInAnotherSpellingIsLeftAlone(): void
+    {
+        $provider = $this->createMock(PhoneProviderInterface::class);
+        $provider->method('readForwardingState')->willReturn(new ForwardingState(true, '0032470123456'));
+        $provider->expects($this->never())->method('setForwarding');
+
+        $this->providerConfigService->method('getActiveProvider')->willReturn($provider);
+        $this->memberService->method('findProfileByMemberAndYear')
+            ->willReturn($this->profile(1, 'Akela', '0470 12 34 56', 'akela@test.be'));
+
+        $logged = $this->recordJournal();
+        $this->service()->apply(1, null, 100);
+
+        self::assertSame('info', $logged['redirect_no_change'] ?? null);
+    }
+
+    /**
+     * Issue #1125: a GSM that is no phone number is refused before the
+     * operator is asked anything, and the alert names whose it is — never
+     * the number itself.
+     */
+    public function testAGsmThatIsNoNumberIsRefusedAndNamed(): void
+    {
+        $provider = $this->createMock(PhoneProviderInterface::class);
+        $provider->expects($this->never())->method('setForwarding');
+        $this->providerConfigService->method('getActiveProvider')->willReturn($provider);
+        $this->memberService->method('findProfileByMemberAndYear')
+            ->willReturn($this->profile(1, 'Akela', '0470 12 34', 'akela@test.be'));
+        $this->settingsService->method('labelForMember')->willReturn('Akela (Jean Test)');
+        $this->userAccountRepository->method('findStaffAndSuperAdminIds')->willReturn([]);
+
+        $messages = new \ArrayObject();
+        $this->journalService->method('log')->willReturnCallback(
+            static function (string $category, string $type, string $level, string $description) use ($messages): void {
+                $messages[$type] = $description;
+            }
+        );
+
+        try {
+            $this->service()->apply(1, null, 100);
+            self::fail('Expected a SosException.');
+        } catch (SosException $e) {
+            self::assertStringContainsString('Akela (Jean Test)', $e->getMessage());
+        }
+        self::assertStringContainsString("n'est pas un numéro de téléphone valide", $messages['redirect_failure'] ?? '');
+        self::assertStringNotContainsString('0470', $messages['redirect_failure'] ?? '');
+    }
+
+    /**
+     * Issue #1125: falling back from a chosen default number that no
+     * longer holds is journaled when the line actually moves to it.
+     */
+    public function testMovingTheLineToTheFallbackOfAStaleDefaultIsJournaled(): void
+    {
+        $provider = $this->createStub(PhoneProviderInterface::class);
+        $provider->method('readForwardingState')->willReturnOnConsecutiveCalls(
+            new ForwardingState(true, '+32470000001'),
+            new ForwardingState(true, '+32470000002')
+        );
+        $this->providerConfigService->method('getActiveProvider')->willReturn($provider);
+        $this->settingsService->method('getDefaultNumber')->willReturn('+32470000002');
+        $this->settingsService->method('staleDefaultNumberMemberId')->willReturn(7);
+        $this->settingsService->method('resolveDefaultNumberMemberId')->willReturn(8);
+        $this->settingsService->method('isEmailNotificationsEnabled')->willReturn(false);
+
+        $logged = $this->recordJournal();
+        $this->service()->apply(null, null, 100);
+
+        self::assertSame('warning', $logged['default_number_ignored'] ?? null);
+        self::assertSame('info', $logged['redirect_success'] ?? null);
+    }
+
     public function testApplyThrowsWhenPostChangeVerificationFails(): void
     {
         $provider = $this->createStub(PhoneProviderInterface::class);

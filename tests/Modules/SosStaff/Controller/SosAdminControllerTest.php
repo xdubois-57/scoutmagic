@@ -1220,18 +1220,40 @@ class SosAdminControllerTest extends TestCase
         $this->assertStringContainsString('Fennec (Jean Dupont)', $this->dashboard());
     }
 
-    public function testDefaultNumberPreviewExplainsWhenTheSavedMemberIsNoLongerOffered(): void
+    /**
+     * Issue #1125: a stored choice that no longer holds is set aside — the
+     * page shows the fallback the line now uses, says why, and lets
+     * « Enregistrer » confirm it (the saved value is still the old choice).
+     */
+    public function testAStoredChoiceNoLongerOfferedShowsTheFallbackAndSaysWhy(): void
     {
         $former = $this->createStaffduMember('Fennec', '+32470000001');
-        $this->createStaffduMember('Fennec', '+32470000002', 'Pierre', 'Martin');
+        $fallback = $this->createStaffduMember('Fennec', '+32470000002', 'Pierre', 'Martin');
         $this->settingsService->setDefaultNumberFromMember($former);
         $stmt = $this->pdo->prepare('UPDATE member_years SET mobile_encrypted = NULL WHERE member_id = ?');
         $stmt->execute([$former]);
 
         $body = $this->settingsPage();
         preg_match('/id="default-number-preview"[^>]*>(.*?)<\/output>/s', $body, $preview);
-        $this->assertSame('Le choix enregistré n’est plus proposé. Sélectionnez un membre.', $preview[1] ?? '');
-        $this->assertStringContainsString('Fennec (Pierre Martin) (+32470000002)', $body);
+        $this->assertSame('Fennec (Pierre Martin) (+32470000002)', $preview[1] ?? '');
+        $this->assertStringContainsString('id="default-number-stale-warning"', $body);
+        $this->assertMatchesRegularExpression('/data-saved-value="' . $former . '"/', $body);
+        $this->assertSame($fallback, $this->settingsService->resolveDefaultNumberMemberId($this->scoutYearId));
+    }
+
+    /**
+     * Issue #1125: a Staff d'U member whose Desk GSM is no phone number is
+     * named on the settings page, and offered nowhere.
+     */
+    public function testTheSettingsPageNamesAGsmThatIsNoNumber(): void
+    {
+        $this->createStaffduMember('Akela', '+32470000001');
+        $this->createStaffduMember('Baloo', '0470 12 34', 'Paul', 'Martin');
+
+        $body = $this->settingsPage();
+
+        $this->assertMatchesRegularExpression('/id="sos-unusable-mobiles"[^>]*>.*Baloo \(Paul Martin\)/s', $body);
+        $this->assertStringNotContainsString('0470 12 34', $body);
     }
 
     public function testThePlanningNamesThePersonWhoActuallyReceivesTheCallsOnADay(): void

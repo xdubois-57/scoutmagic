@@ -18,13 +18,23 @@ use PHPUnit\Framework\TestCase;
  */
 class SosAttentionProviderTest extends TestCase
 {
-    /** @return AttentionPoint[] */
-    private function points(?PhoneProviderInterface $provider, ?\DateTimeImmutable $failedAt): array
-    {
+    /**
+     * @param \Closure(SosSettingsService): void|null $configure more answers
+     *        for the settings stub
+     * @return AttentionPoint[]
+     */
+    private function points(
+        ?PhoneProviderInterface $provider,
+        ?\DateTimeImmutable $failedAt,
+        ?\Closure $configure = null
+    ): array {
         $config = $this->createStub(ProviderConfigService::class);
         $config->method('getActiveProvider')->willReturn($provider);
         $settings = $this->createStub(SosSettingsService::class);
         $settings->method('lastRedirectFailureAt')->willReturn($failedAt);
+        if ($configure !== null) {
+            $configure($settings);
+        }
 
         return (new SosAttentionProvider($config, $settings))->collect(1);
     }
@@ -65,5 +75,54 @@ class SosAttentionProviderTest extends TestCase
         $this->assertSame(AttentionPoint::SEVERITY_URGENT, $points[0]->severity);
         $this->assertStringContainsString('Le 18/10/2026 à 10:00', $points[0]->why);
         $this->assertSame('/admin/sos', $points[0]->actionUrl);
+    }
+
+    /**
+     * Issue #1125: a chosen default number that no longer holds says who was
+     * chosen and who the line uses instead.
+     */
+    public function testAStaleDefaultNumberNamesTheChoiceAndTheFallback(): void
+    {
+        $points = $this->points($this->createStub(PhoneProviderInterface::class), null, function ($settings): void {
+            $settings->method('staleDefaultNumberMemberId')->willReturn(7);
+            $settings->method('resolveDefaultNumberMemberId')->willReturn(8);
+            $settings->method('labelForMember')->willReturnCallback(
+                static fn(int $id): string => $id === 7 ? 'Baloo (Paul Martin)' : 'Akela (Jean Dupont)'
+            );
+        });
+
+        $this->assertCount(1, $points);
+        $this->assertSame("Le numéro par défaut choisi pour le numéro SOS n'est plus valable", $points[0]->title);
+        $this->assertStringContainsString('Baloo (Paul Martin)', $points[0]->why);
+        $this->assertStringContainsString('Akela (Jean Dupont)', $points[0]->why);
+        $this->assertSame(AttentionPoint::SEVERITY_ATTENTION, $points[0]->severity);
+        $this->assertSame('/admin/sos/reglages', $points[0]->actionUrl);
+    }
+
+    public function testAStaleDefaultNumberWithNoFallbackIsUrgent(): void
+    {
+        $points = $this->points($this->createStub(PhoneProviderInterface::class), null, function ($settings): void {
+            $settings->method('staleDefaultNumberMemberId')->willReturn(7);
+            $settings->method('resolveDefaultNumberMemberId')->willReturn(null);
+        });
+
+        $this->assertCount(1, $points);
+        $this->assertSame(AttentionPoint::SEVERITY_URGENT, $points[0]->severity);
+        $this->assertStringContainsString('La personne choisie', $points[0]->why);
+    }
+
+    public function testUnusableGsmsAreNamed(): void
+    {
+        $points = $this->points($this->createStub(PhoneProviderInterface::class), null, function ($settings): void {
+            $settings->method('getStaffWithUnusableMobile')->willReturn([
+                ['member_id' => 3, 'label' => 'Baloo (Paul Martin)'],
+                ['member_id' => 4, 'label' => 'Bagheera (Anne Leroy)'],
+            ]);
+        });
+
+        $this->assertCount(1, $points);
+        $this->assertSame("2 GSM du Staff d'U ne sont pas des numéros de téléphone valides", $points[0]->title);
+        $this->assertStringContainsString('Baloo (Paul Martin), Bagheera (Anne Leroy)', $points[0]->why);
+        $this->assertSame(AttentionPoint::SEVERITY_ATTENTION, $points[0]->severity);
     }
 }

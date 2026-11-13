@@ -321,6 +321,81 @@ class SosSettingsServiceTest extends TestCase
         $this->assertNotSame($akela, $this->service->resolveDefaultNumberMemberId($this->scoutYearId));
     }
 
+    /**
+     * Issue #1125: the default number a chef d'unité chose follows its
+     * holder out of the Staff d'U — the line falls back as if nothing had
+     * been chosen, and the stale choice is reported, not silently kept.
+     */
+    public function testAChosenDefaultWhoLeftTheStaffDUIsSetAsideForTheFallback(): void
+    {
+        $akela = $this->createStaffduMember('Akela', '+32470000001');
+        $baloo = $this->createStaffduMember('Baloo', '+32470000002');
+        $this->service->setDefaultNumberFromMember($baloo);
+        // Baloo stays in the unit, as an animateur of another section.
+        $this->pdo->prepare(
+            'UPDATE member_functions SET section_id = ? WHERE member_year_id IN '
+            . '(SELECT id FROM member_years WHERE member_id = ?)'
+        )->execute([$this->createSection('LOU01'), $baloo]);
+
+        $this->assertSame($akela, $this->service->resolveDefaultNumberMemberId($this->scoutYearId));
+        $this->assertSame('+32470000001', $this->service->getDefaultNumber($this->scoutYearId));
+        $this->assertSame($baloo, $this->service->staleDefaultNumberMemberId($this->scoutYearId));
+    }
+
+    public function testAChosenDefaultWithNoRowThisYearFallsBackInsteadOfLeavingNoNumber(): void
+    {
+        $akela = $this->createStaffduMember('Akela', '+32470000001');
+        $baloo = $this->createStaffduMember('Baloo', '+32470000002');
+        $this->service->setDefaultNumberFromMember($baloo);
+        $this->pdo->prepare('DELETE FROM member_functions WHERE member_year_id IN (SELECT id FROM member_years WHERE member_id = ?)')
+            ->execute([$baloo]);
+        $this->pdo->prepare('DELETE FROM member_years WHERE member_id = ?')->execute([$baloo]);
+
+        $this->assertSame($akela, $this->service->resolveDefaultNumberMemberId($this->scoutYearId));
+        $this->assertSame('+32470000001', $this->service->getDefaultNumber($this->scoutYearId));
+        $this->assertSame($baloo, $this->service->staleDefaultNumberMemberId($this->scoutYearId));
+    }
+
+    public function testAChoiceThatStillHoldsIsNotStale(): void
+    {
+        $this->createStaffduMember('Akela', '+32470000001');
+        $this->assertNull($this->service->staleDefaultNumberMemberId($this->scoutYearId), 'no choice at all');
+
+        $baloo = $this->createStaffduMember('Baloo', '+32470000002');
+        $this->service->setDefaultNumberFromMember($baloo);
+
+        $this->assertNull($this->service->staleDefaultNumberMemberId($this->scoutYearId));
+        $this->assertSame($baloo, $this->service->resolveDefaultNumberMemberId($this->scoutYearId));
+    }
+
+    /**
+     * Issue #1125: a Desk GSM that is no phone number keeps its holder off
+     * every list a redirection is chosen from, and names them instead.
+     */
+    public function testAnUnusableGsmIsKeptOffTheOptionsAndNamed(): void
+    {
+        $akela = $this->createStaffduMember('Akela', '0470 12 34 56');
+        $baloo = $this->createStaffduMember('Baloo', '0470 12 34');
+
+        $this->assertSame([$akela], array_column($this->service->getStaffOptions($this->scoutYearId), 'member_id'));
+        $this->assertSame(
+            [$baloo],
+            array_column($this->service->getStaffWithUnusableMobile($this->scoutYearId), 'member_id')
+        );
+    }
+
+    public function testAChosenDefaultWhoseGsmBecameUnusableIsStale(): void
+    {
+        $akela = $this->createStaffduMember('Akela', '+32470000001');
+        $baloo = $this->createStaffduMember('Baloo', '+32470000002');
+        $this->service->setDefaultNumberFromMember($baloo);
+        $this->pdo->prepare('UPDATE member_years SET mobile_encrypted = ? WHERE member_id = ?')
+            ->execute([$this->encryption->encrypt('0470', 'member_years.mobile'), $baloo]);
+
+        $this->assertSame($akela, $this->service->resolveDefaultNumberMemberId($this->scoutYearId));
+        $this->assertSame($baloo, $this->service->staleDefaultNumberMemberId($this->scoutYearId));
+    }
+
     public function testResolveDefaultNumberMemberIdPrefersSectionResponsableOverFirstRosterMember(): void
     {
         $first = $this->createStaffduMember('Akela', '+32470000001');

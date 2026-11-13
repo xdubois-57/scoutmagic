@@ -87,17 +87,30 @@ class RedirectService
             throw new SosException($message);
         }
 
-        $targetNumber = $this->resolveNumber($newMemberId, $scoutYearId);
-        if ($targetNumber === null) {
+        $rawNumber = $this->resolveNumber($newMemberId, $scoutYearId);
+        if ($rawNumber === null) {
             $message = 'Numéro de redirection introuvable (ni garde ni numéro par défaut configuré).';
             $this->logOutcome('failure', $message, $newMemberId);
             $this->sendAdminAlert($message, $scoutYearId);
             throw new SosException($message);
         }
 
+        // Sent normalised, never as Desk holds it (issue #1125). A GSM that
+        // is no phone number is refused here, named, rather than handed to
+        // the operator to guess at.
+        $targetNumber = PhoneNumber::normalize($rawNumber);
+        if ($targetNumber === null) {
+            $message = $this->unusableNumberMessage($newMemberId, $scoutYearId);
+            $this->logOutcome('failure', $message, $newMemberId);
+            $this->sendAdminAlert($message, $scoutYearId);
+            throw new SosException($message);
+        }
+
+        $this->journalIgnoredDefaultNumber($newMemberId, $scoutYearId);
+
         try {
             $current = $provider->readForwardingState();
-            if ($current->active && $current->number === $targetNumber) {
+            if ($current->active && PhoneNumber::same($current->number, $targetNumber)) {
                 $this->logOutcome('no_change', 'Redirection déjà correcte.', $newMemberId);
                 $this->settingsService->recordRedirectOutcome(false, AppClock::now());
                 return;
@@ -106,7 +119,9 @@ class RedirectService
             $provider->setForwarding($targetNumber);
 
             $confirmed = $provider->readForwardingState();
-            if (!$confirmed->active || $confirmed->number !== $targetNumber) {
+            // The operator answers in its own format: compared as numbers,
+            // not as strings (issue #1125).
+            if (!$confirmed->active || !PhoneNumber::same($confirmed->number, $targetNumber)) {
                 throw new ProviderException("La redirection n'a pas été appliquée correctement (état non confirmé).");
             }
         } catch (ProviderException $e) {
@@ -182,6 +197,51 @@ class RedirectService
 
         $profile = $this->memberService->findProfileByMemberAndYear($memberId, $scoutYearId);
         return $profile->mobile ?? $this->settingsService->getDefaultNumber($scoutYearId);
+    }
+
+    /**
+     * The sentence a refused GSM is reported with: who, never the number —
+     * it goes to the journal and into an e-mail to every chef d'unité.
+     */
+    private function unusableNumberMessage(?int $memberId, int $scoutYearId): string
+    {
+        $holderId = $memberId;
+        if ($holderId === null) {
+            $holderId = $this->settingsService->resolveDefaultNumberMemberId($scoutYearId);
+        }
+        $label = $holderId !== null ? $this->settingsService->labelForMember($holderId, $scoutYearId) : null;
+
+        return 'Le GSM de ' . ($label ?? 'la personne de garde') . " dans Desk n'est pas un numéro de "
+            . 'téléphone valide : la redirection du numéro SOS n\'a pas été modifiée. Corrigez le GSM dans Desk, '
+            . 'puis réimportez.';
+    }
+
+    /**
+     * A default number a chef d'unité chose, set aside because its holder
+     * left the Staff d'U (issue #1125), is journaled when the line actually
+     * moves to the fallback — the attention point says it on the page.
+     */
+    private function journalIgnoredDefaultNumber(?int $memberId, int $scoutYearId): void
+    {
+        if ($memberId !== null && $this->memberService->findProfileByMemberAndYear($memberId, $scoutYearId)?->mobile) {
+            return;
+        }
+
+        $stale = $this->settingsService->staleDefaultNumberMemberId($scoutYearId);
+        if ($stale === null) {
+            return;
+        }
+
+        $this->journalService->log(
+            'sos_staff',
+            'default_number_ignored',
+            'warning',
+            "Le numéro par défaut choisi n'est plus au Staff d'U de l'année : la ligne utilise le numéro de repli.",
+            [
+                'chosen_member_id' => $stale,
+                'used_member_id' => $this->settingsService->resolveDefaultNumberMemberId($scoutYearId),
+            ]
+        );
     }
 
     /**

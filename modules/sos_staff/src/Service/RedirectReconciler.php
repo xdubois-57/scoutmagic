@@ -42,6 +42,7 @@ class RedirectReconciler
     public const UNREADABLE = 'unreadable';
     public const NOT_CONFIGURED = 'not_configured';
     public const NO_DESTINATION = 'no_destination';
+    public const UNUSABLE_NUMBER = 'unusable_number';
 
     /**
      * @param (\Closure(): \DateTimeImmutable)|null $clock
@@ -106,6 +107,21 @@ class RedirectReconciler
             return $outcome(self::NO_DESTINATION);
         }
 
+        if (PhoneNumber::normalize($expected['number']) === null) {
+            // The planned destination's GSM is no phone number (issue
+            // #1125). apply() would refuse it and alert every chef d'unité
+            // on every hourly pass; the attention point names the member
+            // until Desk is corrected, and the line stays where it is.
+            $this->journalService->log(
+                'sos_staff',
+                'redirect_reconcile_unusable_number',
+                'warning',
+                "Contrôle de la redirection SOS : le GSM du destinataire prévu n'est pas un numéro valide.",
+                ['trigger' => $trigger, 'expected_member_id' => $expected['member_id']]
+            );
+            return $outcome(self::UNUSABLE_NUMBER);
+        }
+
         try {
             $live = $provider->readForwardingState();
         } catch (ProviderException $e) {
@@ -123,7 +139,7 @@ class RedirectReconciler
             return $outcome(self::UNREADABLE);
         }
 
-        if ($live->active && $live->number === $expected['number']) {
+        if ($live->active && PhoneNumber::same($live->number, $expected['number'])) {
             // Read from the operator just now: whatever failure was
             // recorded earlier, the line is where it should be.
             $this->settingsService->recordRedirectOutcome(false, $this->now());
@@ -139,10 +155,10 @@ class RedirectReconciler
         if (
             $live->active
             && $live->number !== null
-            && $live->number !== $this->settingsService->getDefaultNumber($scoutYearId)
+            && !PhoneNumber::same($live->number, $this->settingsService->getDefaultNumber($scoutYearId))
         ) {
             foreach ($this->settingsService->getStaffOptions($scoutYearId) as $option) {
-                if ($option['mobile'] === $live->number) {
+                if (PhoneNumber::same($option['mobile'], $live->number)) {
                     $previousMemberId = (int) $option['member_id'];
                     break;
                 }

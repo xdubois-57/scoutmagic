@@ -29,8 +29,10 @@ interface PhoneProviderInterface
     public function readForwardingState(): ForwardingState;
 
     /**
-     * Configure unconditional forwarding to $number (E.164-ish
-     * international format).
+     * Configure unconditional forwarding to $number, always E.164
+     * (« +32470123456 », normalised by Service\PhoneNumber, issue #1125).
+     * An adapter whose operator spells numbers otherwise converts here, in
+     * the adapter, and nowhere else.
      *
      * @throws ProviderException on any provider/network failure
      */
