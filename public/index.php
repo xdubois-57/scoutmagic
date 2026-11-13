@@ -13391,7 +13391,11 @@ if ($isEnabled('data_migration')) {
     ));
     $dataMigrationImporters->add(new \Modules\DataMigration\Importer\MemberPhotosImporter(
         $memberRepo,
-        new \Core\Photo\ImportedMemberPhotoWriter($photoIngestionService, new MemberPhotoRepository($pdo))
+        new \Core\Photo\ImportedMemberPhotoWriter(
+            $photoIngestionService,
+            new MemberPhotoRepository($pdo),
+            $attachedFileRemover
+        )
     ));
     $dataMigrationImporters->add(new \Modules\DataMigration\Importer\GalleryLinksImporter(
         $galleryExternalAlbumWriterForOthers ?? null,

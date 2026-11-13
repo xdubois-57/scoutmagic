@@ -110,7 +110,11 @@ final class MemberPhotosImportOnMysqlTest extends TestCase
         );
         $this->importer = new MemberPhotosImporter(
             new MemberRepository($this->pdo),
-            new ImportedMemberPhotoWriter($ingestion, new MemberPhotoRepository($this->pdo))
+            new ImportedMemberPhotoWriter(
+                $ingestion,
+                new MemberPhotoRepository($this->pdo),
+                new \Core\File\AttachedFileRemover($files, $this->storage)
+            )
         );
 
         $journal = new JournalService(new JournalRepository($this->pdo));

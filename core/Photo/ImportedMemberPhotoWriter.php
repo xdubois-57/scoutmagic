@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Core\Photo;
 
+use Core\File\AttachedFileRemover;
 use Core\Image\ImageDimensionGuard;
 
 /**
@@ -61,7 +62,8 @@ class ImportedMemberPhotoWriter
 
     public function __construct(
         private PhotoIngestionService $ingestion,
-        private MemberPhotoRepository $photos
+        private MemberPhotoRepository $photos,
+        private AttachedFileRemover $remover
     ) {
     }
 
@@ -135,7 +137,13 @@ class ImportedMemberPhotoWriter
      * Runs inside the caller's transaction when there is one: the `files`
      * and `member_photos` rows go or stay together. The file on disk and
      * its derivative are written before the commit and are not removed by
-     * a rollback — the same as any upload whose request fails late.
+     * a rollback — the same as any upload whose request fails late. **One
+     * such late failure is this method's own to clean up** (issue #1158): the
+     * slot taken between the caller's inspection and the insert below. The
+     * photo is stored first, so the image and its thumbnail already exist
+     * when the insert answers « taken »; they are removed here, with the
+     * `files` row, rather than left for a rollback that cannot reach them. Any
+     * other exception raised after this method returns is the caller's.
      *
      * @throws \Core\File\UploadException when the pipeline refuses the file
      *         (disk budget exhausted, among others)
@@ -168,7 +176,16 @@ class ImportedMemberPhotoWriter
 
         $fileId = $result->fileId ?? throw new \LogicException('A member photo is always stored as a file.');
 
-        return $this->photos->insertIfAbsent($memberId, $scoutYearId, $fileId, $actorId) ? $fileId : null;
+        if ($this->photos->insertIfAbsent($memberId, $scoutYearId, $fileId, $actorId)) {
+            return $fileId;
+        }
+
+        // Taken in the meantime: the photo just stored belongs to nobody.
+        // The remover is the one the other two-write uploads compensate
+        // with — the bytes, the thumbnail beside them, and the row.
+        $this->remover->removeOrphan($fileId);
+
+        return null;
     }
 
     /** The name the `files` row keeps: a base name, printable, at most 255 bytes. */
