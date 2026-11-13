@@ -87,6 +87,7 @@
                         {% include 'partials/form_field.html.twig' with {
                             field_id: 'name', field_name: 'name',
                             label: 'Nom', required: true, autocomplete: 'name',
+                            maxlength: 150,
                             value: submitted.name,
                         } only %}
                     </div>

@@ -259,7 +259,8 @@ class RegistrationServiceTest extends TestCase
             $this->sampleFields(),
             null,
             [],
-            'Baladins — 1ère année'
+            'Baladins — 1ère année',
+            fromSignedInAccount: true
         );
 
         $this->assertCount(2, $captured);
@@ -663,6 +664,85 @@ class RegistrationServiceTest extends TestCase
                     $args[2]
                 );
                 $this->assertStringNotContainsString('lien_suivi', $args[2]);
+            });
+
+        $this->service->submit(
+            (int) $target['id'],
+            (string) $target['label'],
+            $this->sampleFields(),
+            null,
+            [],
+            'Baladins',
+            fromSignedInAccount: true
+        );
+    }
+
+    /**
+     * Issue #1114, SECURITY.md §16: the receipt leaves at once, unread by
+     * anybody, signed as the unit, to the address the form was given. On
+     * an anonymous submission it carries none of the visitor's text — the
+     * child is « votre enfant » — while the unit's own alert, which goes to
+     * the unit's address, still names the child.
+     */
+    public function testAnAnonymousSubmissionsReceiptCarriesNothingTheVisitorTyped(): void
+    {
+        $this->settingService->set('registration_unit_alert_email', 'unite@example.com', 'registration');
+        $target = $this->service->resolveTargetYear(null);
+
+        $captured = [];
+        $this->mailService->expects($this->exactly(2))
+            ->method('send')
+            ->willReturnCallback(function (...$args) use (&$captured): void {
+                $captured[$args[0]] = ['subject' => $args[1], 'html' => $args[2], 'text' => $args[3]];
+            });
+
+        $this->service->submit(
+            (int) $target['id'],
+            (string) $target['label'],
+            $this->sampleFields([
+                'parent_name' => 'Zorglub-parent',
+                'child_last_name' => 'Zorglub-nom',
+                'child_first_name' => 'Zorglub-prenom',
+                'remarks' => 'Zorglub-remarques',
+            ]),
+            null,
+            [],
+            'Baladins'
+        );
+
+        $receipt = $captured['marie.dupont@example.com'];
+        foreach (['subject', 'html', 'text'] as $part) {
+            $this->assertStringNotContainsString('Zorglub', $receipt[$part], "the receipt's {$part} echoes the visitor");
+        }
+        $this->assertStringContainsString(
+            "demande d'inscription pour " . RegistrationService::ANONYMOUS_CHILD_FIRST_NAME . ' pour',
+            $receipt['html']
+        );
+        $this->assertStringContainsString('/inscriptions/suivi/', $receipt['html']);
+        $this->assertStringContainsString('Zorglub-prenom', $captured['unite@example.com']['html']);
+    }
+
+    /** A unit's own wording gets the same neutral words, not the typed name. */
+    public function testAnAnonymousSubmissionsCustomisedReceiptSaysVotreEnfant(): void
+    {
+        (new \Core\Mail\Template\EmailTemplateCustomisationService(
+            RegistrationTestHelper::emailRegistry(),
+            new EmailTemplateOverrideRepository($this->pdo),
+            new \Core\Security\HtmlSanitizer()
+        ))->customise(
+            RegistrationService::RECEIPT_TEMPLATE,
+            "Demande pour {{ prenom_enfant }}",
+            '<p>Merci pour {{ prenom_enfant }} : <a href="{{ lien_suivi }}">suivre la demande</a></p>',
+            null
+        );
+        $target = $this->service->resolveTargetYear(null);
+
+        $this->mailService->expects($this->once())->method('send')
+            ->willReturnCallback(function (...$args): void {
+                $this->assertSame('marie.dupont@example.com', $args[0]);
+                $this->assertSame('Demande pour votre enfant', $args[1]);
+                $this->assertStringContainsString('Merci pour votre enfant', $args[2]);
+                $this->assertStringNotContainsString('Léa', $args[2]);
             });
 
         $this->service->submit(

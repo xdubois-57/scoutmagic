@@ -55,6 +55,9 @@ ni les coordonnées de la famille ni son lien de suivi. Écrit quand même
 dans l'alerte, ce lien partirait tel quel, entre accolades, jamais
 remplacé.
 
+Sans connexion, l'accusé de réception dit « votre enfant » au lieu du
+prénom : il ne reprend rien de ce que le visiteur a tapé.
+
 ## Le lien de suivi est obligatoire
 
 Dans l'accusé de réception, l'acceptation et le refus, le bouton du lien

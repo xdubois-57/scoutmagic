@@ -31,9 +31,7 @@ différent selon qui loue ; si vous louez en famille, laissez le champ
 vide plutôt que d'inventer une réponse.
 
 Le champ libre est le plus utile de tous : dites avec quel groupe vous
-venez, et ce dont vous auriez besoin sur place. Une demande qui explique
-son projet reçoit une réponse plus vite qu'une demande qui donne deux
-dates.
+venez, et ce dont vous auriez besoin sur place.
 
 ## Ce que le formulaire vérifie
 
@@ -70,6 +68,8 @@ renvoyez.
 Vous recevez immédiatement un accusé de réception par email, avec votre
 référence et un lien de suivi personnel. C'est par ce lien que vous
 verrez la réponse de l'unité, le prix et l'état de votre dossier.
+Envoyé sans être connecté, il vous salue par « Madame, Monsieur » :
+il ne reprend rien de ce que vous avez tapé.
 
 Si cet email n'arrive pas, regardez dans les indésirables avant de
 renvoyer une seconde demande : deux demandes pour les mêmes dates se

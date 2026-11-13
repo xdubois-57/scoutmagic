@@ -57,6 +57,32 @@ class RegistrationRequestValidatorTest extends TestCase
         ], RegistrationRequestValidator::formMessages($violations));
     }
 
+    /**
+     * Issue #1114: the three names are written into the messages the unit
+     * sends the family, so each is one line and carries no web address —
+     * refused with its own sentence, and the import's reason names the
+     * field, never the value.
+     */
+    public function testANameOnSeveralLinesOrCarryingAWebAddressIsRefused(): void
+    {
+        $validator = new RegistrationRequestValidator();
+
+        foreach (RegistrationRequestValidator::NAME_FIELDS as $field) {
+            foreach ([
+                "Léa\nVotre compte sera suspendu" => 'Un nom tient sur une seule ligne.',
+                'Léa, voir www.exemple.test' => "Un nom ne peut pas contenir d'adresse web.",
+            ] as $value => $sentence) {
+                $violations = $validator->violations(self::fields([$field => $value]), true, true);
+
+                $this->assertCount(1, $violations, "{$field}: " . json_encode($value));
+                $this->assertSame($field, $violations[0]->field);
+                $this->assertSame(RegistrationRequestViolation::INVALID, $violations[0]->kind);
+                $this->assertSame([$sentence], RegistrationRequestValidator::formMessages($violations));
+                $this->assertStringNotContainsString('exemple', RegistrationRequestValidator::importReason($violations[0]));
+            }
+        }
+    }
+
     public function testAYesWithoutAUnitIsRefusedOnEveryPath(): void
     {
         $fields = self::fields(['previous_unit_answer' => 'yes', 'previous_unit_name' => null]);

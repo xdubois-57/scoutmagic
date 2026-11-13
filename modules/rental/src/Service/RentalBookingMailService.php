@@ -40,6 +40,9 @@ use Modules\Rental\Repository\RentalSentEmailRepository;
  */
 class RentalBookingMailService
 {
+    /** Who an anonymous request's acknowledgement greets (sendAcknowledgement()). */
+    public const ANONYMOUS_RENTER_NAME = 'Madame, Monsieur';
+
     public function __construct(
         private MailService $mailService,
         private EmailTemplateRenderer $emailTemplateRenderer,
@@ -360,17 +363,35 @@ class RentalBookingMailService
      * switched off, and why a delivery failure is journaled loudly rather
      * than swallowed.
      *
+     * **Nothing the visitor typed, unless they were signed in** (issue
+     * #1114, SECURITY.md §16). This message leaves at once, without anybody
+     * reading the request, to whatever address the form was given, signed
+     * as the unit — so on an anonymous request the name the visitor typed
+     * would be their own text, delivered by the unit to a stranger.
+     * `renter_name` then reads « Madame, Monsieur », which keeps the
+     * shipped and a reworded « Bonjour {{ renter_name }}, » a sentence.
+     * Everything else the message says comes from the unit: the asset, the
+     * dates, the reference, the hold and the link. A signed-in account is
+     * traceable and skips HumanCheck for that reason; its own name stays.
+     *
+     * @param bool $fromSignedInAccount whether the request was sent from a
+     *        signed-in session; false — the anonymous wording — unless the
+     *        caller knows otherwise
      * @return string The Message-ID, for threading later replies.
      */
     public function sendAcknowledgement(
         RentalBooking $booking,
         RentalAsset $asset,
-        string $trackingToken
+        string $trackingToken,
+        bool $fromSignedInAccount = false
     ): string {
         $messageId = $this->messageIdFor($booking);
         $trackingUrl = $this->trackingUrl($booking, $trackingToken);
 
         $email = $this->renderFor($booking, $asset, 'rental.acknowledgement', [
+            // Wins over renderFor()'s own `renter_name` (array union keeps
+            // the left-hand key).
+            'renter_name' => $fromSignedInAccount ? $booking->renterName : self::ANONYMOUS_RENTER_NAME,
             'tracking_url' => $trackingUrl,
             // A whole sentence rather than a date: `hold_note` is a
             // DECLARED variable, so a booking with no hold has to leave

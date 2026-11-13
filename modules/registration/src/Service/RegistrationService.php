@@ -35,6 +35,9 @@ class RegistrationService
 {
     /** The two submission e-mails, as module.json declares them to the core registry (issue #905). */
     public const RECEIPT_TEMPLATE = 'registration.request_receipt';
+
+    /** What an anonymous submission's receipt says instead of the child's first name (sendReceiptEmail()). */
+    public const ANONYMOUS_CHILD_FIRST_NAME = 'votre enfant';
     public const UNIT_ALERT_TEMPLATE = 'registration.request_unit_alert';
 
     public function __construct(
@@ -111,6 +114,10 @@ class RegistrationService
      *   previous_unit_answer?: ?string, previous_unit_name?: ?string
      * } $fields
      * @param array<int> $siblingMemberIds
+     * @param bool $fromSignedInAccount whether the form was sent from a
+     *        signed-in session — the receipt then names the child
+     *        (sendReceiptEmail()); false, the anonymous wording, unless the
+     *        caller knows otherwise
      * @throws RegistrationException when the answer about a previous unit
      *         says « oui » without naming one
      */
@@ -120,7 +127,8 @@ class RegistrationService
         array $fields,
         ?int $desiredSectionId,
         array $siblingMemberIds,
-        string $slotLabel
+        string $slotLabel,
+        bool $fromSignedInAccount = false
     ): int {
         $this->assertPreviousUnitIsNamedWhenClaimed($fields);
 
@@ -169,7 +177,12 @@ class RegistrationService
         $trackingUrl = rtrim($this->baseUrl, '/') . "/inscriptions/suivi/{$requestId}/{$trackingToken}";
         $ficheUrl = rtrim($this->baseUrl, '/') . "/config/inscriptions/demandes/{$requestId}";
 
-        $this->sendReceiptEmail($fields['email'], $fields['child_first_name'], $targetScoutYearLabel, $trackingUrl);
+        $this->sendReceiptEmail(
+            $fields['email'],
+            $fromSignedInAccount ? $fields['child_first_name'] : self::ANONYMOUS_CHILD_FIRST_NAME,
+            $targetScoutYearLabel,
+            $trackingUrl
+        );
         $this->sendUnitAlertEmail($fields['child_first_name'], $targetScoutYearLabel, $slotLabel, $ficheUrl);
 
         return $requestId;
@@ -208,6 +221,17 @@ class RegistrationService
         }
     }
 
+    /**
+     * The family's receipt. **Nothing the visitor typed, unless they were
+     * signed in** (issue #1114, SECURITY.md §16): it leaves at once, before
+     * anybody reads the request, to the address the form was given, signed
+     * as the unit — so on an anonymous submission the child's first name
+     * would be the visitor's own text, delivered by the unit to a stranger.
+     * The caller then passes ANONYMOUS_CHILD_FIRST_NAME, which keeps the
+     * shipped and a reworded « … pour {{ prenom_enfant }} … » a sentence.
+     * The unit's alert keeps the real name: it goes to the unit's own
+     * address.
+     */
     private function sendReceiptEmail(
         string $to,
         string $childFirstName,

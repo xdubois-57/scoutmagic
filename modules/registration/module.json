@@ -1135,13 +1135,13 @@
     {
       "id": "registration.request_receipt",
       "label": "Accusé de réception d'une demande d'inscription",
-      "description": "Envoyé à la famille dès le dépôt de sa demande, avec son lien de suivi. Le lien de suivi est obligatoire : sans lui, la famille n'a aucun moyen de retrouver sa demande.",
+      "description": "Envoyé à la famille dès le dépôt de sa demande, avec son lien de suivi. Le lien de suivi est obligatoire : sans lui, la famille n'a aucun moyen de retrouver sa demande. Pour une demande envoyée sans être connecté, le prénom de l'enfant est remplacé par « votre enfant » : ce message part sans relecture vers l'adresse saisie, il ne reprend donc rien de ce que le visiteur a tapé.",
       "default_subject": "Demande d'inscription reçue",
       "template": "@registration/email/request_receipt.html.twig",
       "variables": [
         {
           "name": "prenom_enfant",
-          "label": "Prénom de l'enfant",
+          "label": "Prénom de l'enfant (« votre enfant » sans connexion)",
           "example": "Léa"
         },
         {

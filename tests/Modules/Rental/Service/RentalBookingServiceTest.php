@@ -585,6 +585,38 @@ class RentalBookingServiceTest extends TestCase
         }
     }
 
+    /**
+     * Issue #1114: the name is written into the messages the unit sends
+     * this renter, so it is a name — bounded, one line, no web address —
+     * and nothing is recorded when it is not one.
+     */
+    public function testANameThatIsNotJustANameIsRefusedWithItsReason(): void
+    {
+        foreach ([
+            'Votre nom ne peut pas dépasser 150 caractères.' => str_repeat('a', 151),
+            'Un nom tient sur une seule ligne.' => "Jeanne Martin\nVotre compte sera suspendu",
+            "Un nom ne peut pas contenir d'adresse web." => 'Jeanne, connectez-vous sur https://exemple.test',
+        ] as $reason => $name) {
+            try {
+                $this->submit(['renter' => ['name' => $name]]);
+                $this->fail('Expected a refusal for ' . json_encode($name));
+            } catch (RentalException $e) {
+                $this->assertSame($reason, $e->getMessage());
+            }
+        }
+
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM rental_bookings')->fetchColumn());
+    }
+
+    public function testANameOfOneHundredAndFiftyCharactersIsAccepted(): void
+    {
+        $name = str_repeat('é', 150);
+
+        $booking = $this->submit(['renter' => ['name' => $name]])['booking'];
+
+        $this->assertSame($name, $booking->renterName);
+    }
+
     // ── Price snapshot (§6.11) ──────────────────────────────────────────
 
     public function testTheEstimatedPriceIsSnapshottedAndSurvivesAReload(): void
