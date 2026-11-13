@@ -1271,6 +1271,38 @@ class RentalMessageConsumerTest extends TestCase
         $this->assertSame([], $this->bookingRepository->otherRenterEmails($booking->id));
     }
 
+    /**
+     * Issue #1121: a message nobody vouched for teaches nothing, so it
+     * cannot keep alive an address its verified twin taught once that one
+     * is detached — a forged `From:` would otherwise inherit the address.
+     */
+    public function testAnUnverifiedMessageDoesNotInheritAnAddressWhenItsTeacherIsDetached(): void
+    {
+        $booking = $this->createBooking();
+        $this->deliver(
+            10,
+            'Question sur la caution',
+            from: 'tresorier@groupe.example',
+            messageId: 'one@groupe.example'
+        );
+        $this->deliver(
+            11,
+            'Nouveau compte pour la caution',
+            from: 'tresorier@groupe.example',
+            messageId: 'two@groupe.example',
+            authenticated: false
+        );
+        $this->sync();
+        [$first, $second] = $this->storedMessageIds();
+        $this->inboundMail->attach(RentalMessageConsumer::CONSUMER_ID, $booking->reference, $first, 7);
+        $this->pdo->prepare("UPDATE inbound_message_links SET link_origin = 'manual' WHERE message_id = ?")
+            ->execute([$second]);
+
+        $this->assertTrue($this->communicationService->detach($booking, $first));
+
+        $this->assertSame([], $this->bookingRepository->otherRenterEmails($booking->id));
+    }
+
     public function testWhatTheUnitWroteToAnotherAddressWithoutAReferenceUsesTheRecipientRule(): void
     {
         $booking = $this->createBooking();

@@ -127,10 +127,12 @@
                            (mail-message-dialog.js): no HTML string travels
                            through an attribute or innerHTML. #}
                         <div class="small text-body-secondary text-truncate mt-2">{{ row.excerpt }}</div>
+                        {% set dialog_meta = row.message.displayFrom() ~ ' · ' ~ row.message.sentAt|datetime_fr
+                            ~ (row.message.senderUnverified ? ' · Expéditeur non vérifié' : '') %}
                         <button type="button" class="btn btn-link btn-sm p-0 mt-1"
                                 data-mail-message-open="mail-message-body-{{ row.message.id }}"
                                 data-mail-message-title="{{ row.message.subject ?: 'Sans objet' }}"
-                                data-mail-message-meta="{{ row.message.displayFrom() }} · {{ row.message.sentAt|datetime_fr }}">
+                                data-mail-message-meta="{{ dialog_meta }}">
                             <i class="bi bi-envelope-open" aria-hidden="true"></i>
                             Lire le message
                         </button>

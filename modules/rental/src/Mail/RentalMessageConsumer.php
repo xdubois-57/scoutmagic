@@ -824,7 +824,10 @@ class RentalMessageConsumer implements
 
         $teachers = [];
         foreach ($this->inboundMail->findForReference(self::CONSUMER_ID, $booking->reference) as $filed) {
+            // A message nobody vouched for teaches nothing (issue #1121), so
+            // it cannot keep an address alive either once its teacher goes.
             if ($filed->id !== $message->id
+                && !$filed->senderUnverified()
                 && in_array($filed->linkOrigin, [LinkOrigin::MANUAL, LinkOrigin::AI], true)
             ) {
                 $teachers[self::taughtAddress($filed)] ??= $filed->id;

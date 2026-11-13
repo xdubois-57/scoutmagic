@@ -169,10 +169,12 @@
 
                                 <div class="d-flex flex-wrap gap-2 mt-3">
                                     {% if entry.has_body %}
+                                        {% set dialog_meta = counterpart ~ ' · ' ~ message.sentAt|datetime_fr
+                                            ~ (message.senderUnverified ? ' · Expéditeur non vérifié' : '') %}
                                         <button type="button" class="btn btn-outline-secondary btn-sm"
                                                 data-mail-message-open="mail-message-body-{{ message.id }}"
                                                 data-mail-message-title="{{ message.subject ?: 'Sans objet' }}"
-                                                data-mail-message-meta="{{ counterpart }} · {{ message.sentAt|datetime_fr }}">
+                                                data-mail-message-meta="{{ dialog_meta }}">
                                             <i class="bi bi-envelope-open" aria-hidden="true"></i> Lire le message
                                         </button>
                                     {% endif %}
