@@ -96,8 +96,9 @@
                         {# Issue #722: the totem this leader carries in THIS
                            section this year (« Akela »). Same people as the
                            badges below; saved on blur, empty removes it, and
-                           a new year starts with none. #}
-                        {% if is_chief and current_section.id > 0 %}
+                           a new year starts with none. Read-only in a
+                           previewed year: it is written in the current one. #}
+                        {% if totems_editable and current_section.id > 0 %}
                             <div class="mb-2" style="max-width:20rem;">
                                 <label class="form-label small mb-1" for="section-totem-{{ member.memberYearId }}">Totem de section</label>
                                 <input type="text" class="form-control form-control-sm section-totem-input"

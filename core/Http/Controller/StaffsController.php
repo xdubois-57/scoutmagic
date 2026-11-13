@@ -186,6 +186,10 @@ class StaffsController extends AbstractController
                 : '',
             'staff' => $staff,
             'is_chief' => $isChief,
+            // A totem is written in the authorization year only
+            // (saveSectionTotem(), #1124), so a previewed year's staff
+            // shows its totems without an input that could only be refused.
+            'totems_editable' => $isChief && $scoutYearId === $this->scoutYearResolver->getAuthorizationYear()->id,
             'can_edit_section' => $canEditSection,
             // An animateur the Desk import left without a single section
             // can edit no documents anywhere, and nothing on screen would

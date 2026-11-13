@@ -225,6 +225,38 @@ class PresenceSheetServiceTest extends TestCase
     }
 
     /**
+     * Issue #1124: previewing a past year shows that year's animés, but a
+     * presence is written only for a child who is still one of the
+     * section's — the year a write is allowed in is the authorization year,
+     * never the one the chief chose to look at.
+     */
+    public function testAPreviewedYearsFormerAnimeCannotBeWrittenAbout(): void
+    {
+        [$label, $start, $end] = DatabaseTestHelper::scoutYear(-1);
+        $pastYearId = PresencesTestHelper::createScoutYear($this->pdo, $label, $start, $end);
+        PresencesTestHelper::createMember(
+            $this->pdo, $this->encryption, $pastYearId,
+            'Akéla', 'Dupont', 'chief', $this->louveteaux1, 'akela@test.be'
+        );
+        $former = PresencesTestHelper::createMember(
+            $this->pdo, $this->encryption, $pastYearId, 'Basile', 'Hargot', 'animated', $this->louveteaux1
+        );
+
+        $this->assertFalse($this->service->recordStatus(
+            $this->eventLou1, $former['memberId'], PresenceStatus::PRESENT,
+            'akela@test.be', 'chief', $pastYearId, null, $this->scoutYearId
+        ));
+
+        // The same write with no preview in play — the past year deciding
+        // as well — is accepted: what refuses it above is the year it is
+        // decided in, nothing else.
+        $this->assertTrue($this->service->recordStatus(
+            $this->eventLou1, $former['memberId'], PresenceStatus::PRESENT,
+            'akela@test.be', 'chief', $pastYearId, null, $pastYearId
+        ));
+    }
+
+    /**
      * @return array{memberId: int, memberYearId: int}
      */
     private function seedAnime(string $firstName, string $lastName, int $sectionId): array

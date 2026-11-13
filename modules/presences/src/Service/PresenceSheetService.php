@@ -204,7 +204,14 @@ class PresenceSheetService
             return false;
         }
 
-        return in_array($memberId, $this->animeMemberIds($event->sectionId, $scoutYearId), true);
+        // The animé is one of the section's in the authorization year too
+        // (#1124): in a preview, a child who has since left would otherwise
+        // be written about by the staff of a section they no longer belong to.
+        return in_array(
+            $memberId,
+            $this->animeMemberIds($event->sectionId, $authorizationYearId ?? $scoutYearId),
+            true
+        );
     }
 
     /**

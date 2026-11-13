@@ -889,6 +889,32 @@ class StaffsControllerTest extends TestCase
         $this->assertMatchesRegularExpression('/class="[^"]*section-totem-input[^"]*"[^>]*value="Akela"/s', $body);
     }
 
+    /**
+     * Issue #1124: a totem is written in the authorization year only, so a
+     * previewed year's staff shows its totems with no input to edit them —
+     * an input there could only ever be refused.
+     */
+    public function testAPreviewedYearShowsTheSectionTotemWithoutAnInput(): void
+    {
+        $branchId = $this->createBranch('LOU', 'Louveteaux', 1);
+        $sectionId = $this->createSection('LOU01', $branchId, 'Meute');
+        $memberYearId = $this->createMemberInSection($sectionId, 'Élie', 'chief');
+        $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date) VALUES ('2010-2011', '2010-09-01', '2011-08-31')");
+        $pastYear = (int) $this->pdo->lastInsertId();
+        $this->pdo->exec("UPDATE member_years SET scout_year_id = {$pastYear} WHERE id = {$memberYearId}");
+        (new \Core\Member\Repository\MemberSectionTotemRepository($this->pdo, $this->encryption))->set($memberYearId, $sectionId, 'Akela');
+
+        \Core\ScoutYear\ScoutYearSession::setPreview($pastYear);
+        try {
+            $body = $this->controller->index(new Request('GET', '/chefs/staffs', ['section' => (string) $sectionId], [], [], []), [])->getBody();
+        } finally {
+            \Core\ScoutYear\ScoutYearSession::clear();
+        }
+
+        $this->assertStringContainsString('Élie (Akela)', $body);
+        $this->assertStringNotContainsString('section-totem-input', $body);
+    }
+
     public function testAnIntendantSeesTheSectionTotemButCannotEditIt(): void
     {
         AuthSession::login(2, 'intendant@test.be', 'intendant');

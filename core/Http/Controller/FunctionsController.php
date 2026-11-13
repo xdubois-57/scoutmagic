@@ -244,12 +244,9 @@ class FunctionsController extends AbstractController
         // A role change may move members into or out of "Staff d'U" — role
         // (unlike the raw Desk import) is only known once confirmed here.
         if ($oldRole !== $newRole) {
-            // The year access is decided in, never the previewed one (#1124):
-            // a preview would rebuild a past year's Staff d'U and leave the
-            // real year's stale.
-            $this->unitStaffSectionService->syncMembership(
-                $this->scoutYearResolver->getAuthorizationYear()->id
-            );
+            foreach ($this->yearsToSync() as $scoutYearId) {
+                $this->unitStaffSectionService->syncMembership($scoutYearId);
+            }
         }
 
         // Log the change (role change or confirmation)
@@ -284,6 +281,42 @@ class FunctionsController extends AbstractController
      *
      * @param array<string, string> $params
      */
+    /**
+     * The years a function's new role is applied to: the authorization year
+     * and every year prepared after it (#1124).
+     *
+     * A function is not per year, so its role holds for every year that
+     * carries it. A prepared year has already been imported with its rows
+     * unassigned, and nothing else syncs it before it goes live: leaving it
+     * out would take its Staff d'U away the day it becomes the public year.
+     * Never a past year — rebuilding its Staff d'U would rewrite who held
+     * the unit then. And never chosen by the session preview, which the
+     * caller sets themselves and which accepts any year that ever existed.
+     *
+     * @return list<int>
+     */
+    private function yearsToSync(): array
+    {
+        $authorizationYear = $this->scoutYearResolver->getAuthorizationYear();
+        $years = $this->scoutYearResolver->listYears();
+
+        $from = null;
+        foreach ($years as $year) {
+            if ($year['id'] === $authorizationYear->id) {
+                $from = $year['start_date'];
+            }
+        }
+
+        $ids = [$authorizationYear->id];
+        foreach ($years as $year) {
+            if ($from !== null && $year['id'] !== $authorizationYear->id && $year['start_date'] > $from) {
+                $ids[] = $year['id'];
+            }
+        }
+
+        return $ids;
+    }
+
     public function updateFlags(Request $request, array $params): Response
     {
         $functionFlagsProvider = $this->functionFlagsProvider();

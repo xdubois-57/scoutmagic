@@ -116,6 +116,10 @@ class TemporaryMemberController extends AbstractController
 
         TemporaryMemberSession::set($target->memberYearId);
         ConfigurationMode::activate($role);
+        // The override is a row of the authorization year, which a preview
+        // hides along with its banner and its removal button: the admin
+        // goes back to the year it was added in, where both are shown.
+        \Core\ScoutYear\ScoutYearSession::clear();
 
         $this->journalService->log(
             'core',
