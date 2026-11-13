@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Tests\Modules\InboundMail\Client;
 
 use Modules\InboundMail\Client\ImapMailboxClient;
-use Modules\SupportDashboard\Service\MailAuthenticationResults;
+use Core\Mail\MailAuthenticationResults;
 use PHPUnit\Framework\TestCase;
 use Webklex\PHPIMAP\Message;
 

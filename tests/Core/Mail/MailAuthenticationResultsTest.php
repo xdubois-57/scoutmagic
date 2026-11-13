@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Tests\Modules\SupportDashboard;
+namespace Tests\Core\Mail;
 
-use Modules\SupportDashboard\Service\MailAuthenticationResults;
+use Core\Mail\MailAuthenticationResults;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -147,4 +147,77 @@ class MailAuthenticationResultsTest extends TestCase
         $this->assertSame('fail', $results['spf']);
     }
 
+    // --- senderVerified(): the trust decision (issue #1121) ---
+
+    public function testADmarcPassFromTheReceivingServerVerifiesTheSender(): void
+    {
+        $headers = "Authentication-Results: mx.google.com;\r\n"
+            . "       dkim=pass header.i=@exemple.be;\r\n"
+            . "       spf=pass smtp.mailfrom=locataire@exemple.be;\r\n"
+            . "       dmarc=pass (p=NONE sp=NONE dis=NONE) header.from=exemple.be\r\n"
+            . "Received: from mail.exemple.be\r\n";
+
+        $this->assertTrue(MailAuthenticationResults::senderVerified($headers, 'locataire@exemple.be'));
+    }
+
+    public function testADmarcFailIsNotVerifiedWhateverSpfSays(): void
+    {
+        $headers = "Authentication-Results: mx.google.com; spf=pass smtp.mailfrom=bounce@exemple.be;"
+            . " dmarc=fail header.from=exemple.be\r\n";
+
+        $this->assertFalse(MailAuthenticationResults::senderVerified($headers, 'locataire@exemple.be'));
+    }
+
+    public function testADmarcPassForAnotherFromDomainDoesNotVerify(): void
+    {
+        $headers = "Authentication-Results: mx.google.com; dmarc=pass header.from=attaquant.be\r\n";
+
+        $this->assertFalse(MailAuthenticationResults::senderVerified($headers, 'locataire@exemple.be'));
+    }
+
+    public function testWithoutDmarcOnlyAnAlignedPassCounts(): void
+    {
+        $aligned = "Authentication-Results: mx.ovh.net; spf=pass smtp.mailfrom=bounces@mail.exemple.be\r\n";
+        $unaligned = "Authentication-Results: mx.ovh.net; spf=pass smtp.mailfrom=x@attaquant.be;"
+            . " dkim=pass header.d=attaquant.be\r\n";
+        $dkimAligned = "Authentication-Results: mx.ovh.net; spf=softfail smtp.mailfrom=x@relais.net;"
+            . " dkim=pass header.d=exemple.be\r\n";
+
+        $this->assertTrue(MailAuthenticationResults::senderVerified($aligned, 'locataire@exemple.be'));
+        $this->assertFalse(MailAuthenticationResults::senderVerified($unaligned, 'locataire@exemple.be'));
+        $this->assertTrue(MailAuthenticationResults::senderVerified($dkimAligned, 'locataire@exemple.be'));
+    }
+
+    public function testNoVerdictAtAllIsNotVerified(): void
+    {
+        $this->assertFalse(MailAuthenticationResults::senderVerified(null, 'locataire@exemple.be'));
+        $this->assertFalse(MailAuthenticationResults::senderVerified("Subject: x\r\n", 'locataire@exemple.be'));
+        $this->assertFalse(MailAuthenticationResults::senderVerified(
+            "Authentication-Results: mx.google.com; dmarc=none header.from=exemple.be\r\n",
+            'locataire@exemple.be'
+        ));
+    }
+
+    /**
+     * The audited forgery: the sender writes its own passing header, and
+     * the receiving server prepends its real (failing) one above it. Only
+     * the topmost is believed — parse(), a diagnosis, still reads them all.
+     */
+    public function testAForgedHeaderBelowTheReceivingServersIsIgnored(): void
+    {
+        $headers = "Authentication-Results: mx.google.com; spf=fail smtp.mailfrom=x@attaquant.be;"
+            . " dmarc=fail header.from=exemple.be\r\n"
+            . "Received: from attaquant.be\r\n"
+            . "Authentication-Results: mx.google.com; dmarc=pass header.from=exemple.be\r\n";
+
+        $this->assertFalse(MailAuthenticationResults::senderVerified($headers, 'locataire@exemple.be'));
+    }
+
+    public function testCommentsCannotSmuggleAVerdict(): void
+    {
+        $headers = "Authentication-Results: mx.google.com;"
+            . " spf=pass smtp.mailfrom=x@attaquant.be (relayed for smtp.mailfrom=locataire@exemple.be )\r\n";
+
+        $this->assertFalse(MailAuthenticationResults::senderVerified($headers, 'locataire@exemple.be'));
+    }
 }

@@ -52,8 +52,24 @@ class CampsMailNotifierTest extends TestCase
 
         (new CampsMailNotifier($notifications, $this->recipients([1 => [7], 2 => [7, 8]])))->proposed(
             [$this->camp(1), $this->camp(2)],
-            [1 => 'Mozet, juillet 2026', 2 => 'Mozet, août 2026']
+            [1 => 'Mozet, juillet 2026', 2 => 'Mozet, août 2026'],
+            true
         );
+    }
+
+    /** Issue #1121: a proposition about a message whose sender nobody vouched for says so. */
+    public function testAPropositionAboutAnUnverifiedSenderSaysSo(): void
+    {
+        $notifications = $this->createMock(NotificationService::class);
+        $notifications->expects($this->once())->method('dispatch')->with(
+            CampsMailNotifier::TYPE_PROPOSITION,
+            $this->anything(),
+            $this->callback(static fn(array $payload): bool
+                => str_ends_with($payload['body'], CampsMailNotifier::UNVERIFIED_SENDER))
+        );
+
+        (new CampsMailNotifier($notifications, $this->recipients([1 => [7]])))
+            ->proposed([$this->camp(1)], [1 => 'Mozet'], false);
     }
 
     public function testAStayWithNobodyToTellIsToldToNobody(): void
@@ -62,7 +78,7 @@ class CampsMailNotifierTest extends TestCase
         $notifications->expects($this->never())->method('dispatch');
 
         $notifier = new CampsMailNotifier($notifications, $this->recipients([]));
-        $notifier->proposed([$this->camp(1)], [1 => 'Mozet']);
+        $notifier->proposed([$this->camp(1)], [1 => 'Mozet'], true);
         $notifier->stayCreated($this->camp(1), 'Mozet');
     }
 

@@ -38,7 +38,12 @@ class AttachmentPolicy
      * PDF, images and office documents — nothing else (§7.8). No archives:
      * a zip is a container whose contents nobody inspected, and it is the
      * standard way to smuggle everything on the other side of this list.
-     * No executables and no active types.
+     * No executables and no active types — which is why the binary Office
+     * formats of before 2007 (`.doc`, `.xls`) are not here (issue #1121):
+     * they carry macros in the same file as the text, and nothing about a
+     * `.doc` tells a reader whether it does. Their OOXML successors keep
+     * macros out of `.docx`/`.xlsx` by construction (a macro-enabled file
+     * is a different type, `.docm`), and ODF does not run them on open.
      *
      * @var string[]
      */
@@ -49,9 +54,7 @@ class AttachmentPolicy
         'image/webp',
         'image/heic',
         'image/heif',
-        'application/msword',
         'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-        'application/vnd.ms-excel',
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         'application/vnd.oasis.opendocument.text',
         'application/vnd.oasis.opendocument.spreadsheet',

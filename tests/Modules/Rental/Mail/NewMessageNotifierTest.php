@@ -66,7 +66,35 @@ class NewMessageNotifierTest extends TestCase
                 && $payload['url'] === '/mes-locations/local-saint-georges/reservations/' . $booking->id . '/courrier')
         );
 
-        $this->notifier($notifications)->messageFiled($booking);
+        $this->notifier($notifications)->messageFiled($booking, true);
+    }
+
+    /**
+     * Issue #1121: a message whose sender the receiving server did not
+     * vouch for is still announced, but never as « du locataire ».
+     */
+    public function testAnUnverifiedSenderIsAnnouncedAsPresentingItselfAsTheRenter(): void
+    {
+        $assetId = $this->asset('Local Saint-Georges', 'local-saint-georges');
+        $this->manager($assetId, 'gestionnaire@unite.be');
+        $booking = $this->booking($assetId, 'LOC-K7Q2MX');
+
+        $payloads = [];
+        $notifications = $this->createStub(NotificationService::class);
+        $notifications->method('dispatch')->willReturnCallback(
+            static function (string $type, array $recipients, array $payload) use (&$payloads): void {
+                $payloads[] = $payload;
+            }
+        );
+
+        $this->notifier($notifications)->messageFiled($booking, false);
+
+        $this->assertCount(1, $payloads);
+        $this->assertSame(
+            'Message non vérifié se présentant comme le locataire — Local Saint-Georges',
+            $payloads[0]['title']
+        );
+        $this->assertStringContainsString("n'a pas confirmé son expéditeur", $payloads[0]['body']);
     }
 
     public function testNeitherTheSenderNorTheSubjectTravels(): void
@@ -83,7 +111,7 @@ class NewMessageNotifierTest extends TestCase
             }
         );
 
-        $this->notifier($notifications)->messageFiled($booking);
+        $this->notifier($notifications)->messageFiled($booking, true);
 
         $this->assertCount(1, $payloads);
         foreach (['Jeanne', 'Martin', 'jeanne@example.be'] as $secret) {
@@ -100,7 +128,7 @@ class NewMessageNotifierTest extends TestCase
         $notifications = $this->createMock(NotificationService::class);
         $notifications->expects($this->never())->method('dispatch');
 
-        $this->notifier($notifications)->messageFiled($booking);
+        $this->notifier($notifications)->messageFiled($booking, true);
     }
 
     public function testTheTypeIsDeclaredInTheManifest(): void
@@ -125,7 +153,7 @@ class NewMessageNotifierTest extends TestCase
             new \RuntimeException('SMTP refused jeanne@example.be')
         );
 
-        $this->notifier($notifications)->messageFiled($booking);
+        $this->notifier($notifications)->messageFiled($booking, true);
 
         $row = $this->pdo->query(
             "SELECT level, description, context FROM event_log WHERE event_type = 'rental_new_message_not_sent'"

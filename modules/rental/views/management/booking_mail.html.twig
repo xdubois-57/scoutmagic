@@ -137,7 +137,9 @@
                                             <span class="badge bg-body-tertiary border text-body-secondary me-1">{{ message.isSent() ? 'Envoyé' : 'Reçu' }}</span>
                                             {{ message.subject ?: 'Sans objet' }}
                                         </div>
-                                        <div class="small text-body-secondary">{{ counterpart }}</div>
+                                        <div class="small text-body-secondary">{{ counterpart }}
+                                            {% include '@inbound_mail/partials/sender_badge.html.twig'
+                                                with { message: message } only %}</div>
                                         {# How it was filed, when that is a guess: a message
                                            matched on the sender's address alone may still be
                                            somebody else's (§22.9). #}

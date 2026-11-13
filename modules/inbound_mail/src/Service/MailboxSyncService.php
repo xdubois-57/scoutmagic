@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\InboundMail\Service;
 
 use Core\File\EncryptedFileStorageService;
+use Core\Mail\MailAuthenticationResults;
 use Core\File\UploadException;
 use Core\File\UploadHandler;
 use Core\Image\PhotoNormalizationException;
@@ -313,6 +314,12 @@ class MailboxSyncService
         MessageDirection $direction = MessageDirection::RECEIVED
     ): bool {
         $isSent = $direction === MessageDirection::SENT;
+        // Decided here, once, from the header block the message arrived
+        // with (issue #1121): that block is usually not kept, so nothing
+        // downstream could decide it again. A message read in « Envoyés »
+        // was sent by the box itself, and there is nobody to doubt.
+        $senderVerified = $isSent
+            || MailAuthenticationResults::senderVerified($message->rawHeaders, $message->fromEmail);
         $candidate = new CandidateMessage(
             mailboxId: $mailbox->id,
             subject: $message->subject,
@@ -341,7 +348,8 @@ class MailboxSyncService
             // consumers, and for a seed mailbox that folder name IS the
             // measurement (roadmap IT-07).
             folder: $message->folder,
-            direction: $direction
+            direction: $direction,
+            senderVerified: $senderVerified
         );
 
         // EVERY consumer is asked, and every answer is applied. Under the
@@ -507,7 +515,8 @@ class MailboxSyncService
             toEmails: $message->toEmails,
             isBulk: $message->isBulk,
             rawHeaders: $keepHeaders ? $message->rawHeaders : null,
-            direction: $direction
+            direction: $direction,
+            senderVerified: $senderVerified
         );
 
         $applied = $this->applier->applyAndReport($storedId, $results);

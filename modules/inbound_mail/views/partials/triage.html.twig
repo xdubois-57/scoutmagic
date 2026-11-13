@@ -110,7 +110,9 @@
                     <div class="d-flex justify-content-between align-items-start gap-2 flex-wrap">
                         <div class="min-w-0">
                             <div class="fw-semibold">{{ row.message.subject ?: 'Sans objet' }}</div>
-                            <div class="small text-body-secondary">{{ row.message.displayFrom() }}</div>
+                            <div class="small text-body-secondary">{{ row.message.displayFrom() }}
+                                {% include '@inbound_mail/partials/sender_badge.html.twig'
+                                    with { message: row.message } only %}</div>
                         </div>
                         <span class="small text-body-secondary text-nowrap">
                             {{ row.message.sentAt|date_fr }}

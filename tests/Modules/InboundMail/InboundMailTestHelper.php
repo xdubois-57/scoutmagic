@@ -86,6 +86,7 @@ class InboundMailTestHelper
             stored_analysis_attempts INTEGER NOT NULL DEFAULT 0,
             is_bulk INTEGER NOT NULL DEFAULT 0,
             direction TEXT NOT NULL DEFAULT \'received\',
+            sender_verified INTEGER NOT NULL DEFAULT 0,
             last_unlinked_at TEXT,
             UNIQUE (mailbox_id, message_id_blind_index)
         )');

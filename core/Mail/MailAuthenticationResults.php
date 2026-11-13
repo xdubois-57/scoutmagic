@@ -6,7 +6,7 @@
 
 declare(strict_types=1);
 
-namespace Modules\SupportDashboard\Service;
+namespace Core\Mail;
 
 /**
  * What a raw header block says about a message's authentication
@@ -78,6 +78,115 @@ final class MailAuthenticationResults
         }
 
         return 'absent';
+    }
+
+    /**
+     * Whether the receiving server vouched for the `From:` address — the
+     * one place a module may ask « did this really come from that
+     * address? » (issue #1121). Unlike parse(), this IS a verdict, and it
+     * is deliberately narrow.
+     *
+     * **Only the topmost `Authentication-Results` is believed.** It is the
+     * one the receiving provider of the monitored mailbox prepended last;
+     * anything below it may have been written by whoever sent the
+     * message. parse() reads every header because a diagnosis wants the
+     * most information; a trust decision wants the least forgeable, and
+     * those are opposite choices. The residual gap is documented: a
+     * provider that writes no such header at all leaves the sender's own
+     * forged one on top. docs/inbound-mail-setup.md asks for a provider
+     * that writes it.
+     *
+     * Inside that header, DMARC decides when it is there — it is the
+     * mechanism that ties SPF or DKIM to the `From:` domain. Without it,
+     * an SPF or DKIM pass counts only when its domain is aligned with the
+     * `From:` domain (the same or a parent/child of it: relaxed alignment
+     * approximated without a public-suffix list). Everything else —
+     * no header, a failure, an unaligned pass — is « not verified ».
+     */
+    public static function senderVerified(?string $rawHeaders, string $fromEmail): bool
+    {
+        $fromDomain = self::domainOf($fromEmail);
+        $topmost = self::unfoldAll((string) $rawHeaders, 'Authentication-Results')[0] ?? null;
+        if ($fromDomain === '' || $topmost === null) {
+            return false;
+        }
+
+        $results = self::resultsOf($topmost);
+
+        $dmarc = array_values(array_filter($results, static fn(array $r): bool => $r['method'] === 'dmarc'));
+        if ($dmarc !== []) {
+            foreach ($dmarc as $result) {
+                $headerFrom = $result['props']['header.from'] ?? $fromDomain;
+                if ($result['verdict'] !== 'pass' || !self::aligned(self::domainOf($headerFrom), $fromDomain)) {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        foreach ($results as $result) {
+            if ($result['verdict'] !== 'pass') {
+                continue;
+            }
+            $domain = match ($result['method']) {
+                'spf' => self::domainOf($result['props']['smtp.mailfrom'] ?? $result['props']['smtp.helo'] ?? ''),
+                'dkim' => self::domainOf($result['props']['header.d'] ?? $result['props']['header.i'] ?? ''),
+                default => '',
+            };
+            if ($domain !== '' && self::aligned($domain, $fromDomain)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * The `method=result` entries of one header, with their `ptype.property=value`
+     * pairs (RFC 8601). Comments in parentheses are dropped first: they
+     * are free text and may say anything.
+     *
+     * @return list<array{method: string, verdict: string, props: array<string, string>}>
+     */
+    private static function resultsOf(string $header): array
+    {
+        $header = preg_replace('/\([^()]*\)/', ' ', $header) ?? $header;
+        $entries = array_slice(explode(';', $header), 1);
+        $results = [];
+
+        foreach ($entries as $entry) {
+            if (preg_match('/^\s*([a-z0-9-]+)\s*=\s*([a-z]+)\b(.*)$/is', $entry, $m) !== 1) {
+                continue;
+            }
+            preg_match_all('/([a-z0-9-]+\.[a-z0-9-]+)\s*=\s*"?([^\s";]+)"?/i', $m[3], $pairs, PREG_SET_ORDER);
+            $props = [];
+            foreach ($pairs as $pair) {
+                $props[strtolower($pair[1])] = $pair[2];
+            }
+            $results[] = ['method' => strtolower($m[1]), 'verdict' => strtolower($m[2]), 'props' => $props];
+        }
+
+        return $results;
+    }
+
+    /** The domain of an address, or of a bare domain; '' when there is none. */
+    private static function domainOf(string $value): string
+    {
+        $value = strtolower(trim($value, " \t<>\""));
+        $at = strrpos($value, '@');
+
+        return rtrim($at === false ? $value : substr($value, $at + 1), '.');
+    }
+
+    /** Relaxed alignment, approximated: equal, or one a subdomain of the other. */
+    private static function aligned(string $domain, string $fromDomain): bool
+    {
+        return $domain !== '' && (
+            $domain === $fromDomain
+            || str_ends_with($fromDomain, '.' . $domain)
+            || str_ends_with($domain, '.' . $fromDomain)
+        );
     }
 
     /**

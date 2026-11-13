@@ -229,6 +229,13 @@ CREATE TABLE IF NOT EXISTS inbound_messages (
     -- folder, and stored only because a consumer handling sent mail filed it
     -- (Api\HandlesOutboundMail).
     direction VARCHAR(10) NOT NULL DEFAULT 'received',
+    -- Whether the receiving server vouched for the `From:` address (issue
+    -- #1121, Core\Mail\MailAuthenticationResults::senderVerified()).
+    -- Computed ONCE on arrival, from the header block the message came
+    -- with — which is usually not kept, so it could not be recomputed
+    -- later. 0 is the safe default and what every message stored before
+    -- the check existed carries: nobody checked, so nobody vouched.
+    sender_verified TINYINT(1) NOT NULL DEFAULT 0,
 
     -- When this message last stopped being associated with anything.
     --

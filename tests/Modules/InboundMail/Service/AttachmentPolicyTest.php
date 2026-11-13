@@ -67,6 +67,25 @@ class AttachmentPolicyTest extends TestCase
         $this->assertFalse($this->policy->accepts($attachment, ''));
     }
 
+    /**
+     * Issue #1121: the binary Office formats of before 2007 carry macros in
+     * the same file as the text. The list is the boundary twice over — the
+     * sniffed type is checked against it here, and UploadHandler is handed
+     * the same list — so it is the list that must not hold them.
+     */
+    public function testTheLegacyBinaryOfficeFormatsAreNotAdmitted(): void
+    {
+        foreach (['application/msword', 'application/vnd.ms-excel'] as $legacy) {
+            $this->assertNotContains($legacy, $this->policy->allowedMimeTypes());
+        }
+        // Their successors still are.
+        $this->assertContains(
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            $this->policy->allowedMimeTypes()
+        );
+        $this->assertContains('application/vnd.oasis.opendocument.spreadsheet', $this->policy->allowedMimeTypes());
+    }
+
     public function testTheDeclaredTypeAloneNeverAdmitsAnything(): void
     {
         $attachment = new FetchedAttachment('x.pdf', 'application/pdf', 'ceci n\'est pas un pdf');
