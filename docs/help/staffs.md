@@ -46,13 +46,11 @@ Sans texte, rien ne s'affiche pour les autres.
 
 ## Les badges
 
-Un animateur peut attribuer des badges aux membres du staff : touchez
-les pastilles sous une carte pour les activer ou les retirer —
-l'enregistrement est immédiat. Les badges transversaux (Infirmier,
-Trésorier et ceux créés par l'unité) se posent dans n'importe quelle
-section ; les badges « Référent … » ne se posent que sur la section
-Staff d'U. Les badges valent pour l'année en cours : ils sont à
-réattribuer après le passage à la nouvelle année.
+Un animateur attribue des badges au staff des sections qu'il anime
+(un chef d'unité, partout) : touchez les pastilles sous une carte,
+l'enregistrement est immédiat. Ailleurs, les badges sont en lecture
+seule. Les badges « Référent … » se posent sur le Staff d'U, par qui
+l'anime. Ils sont à réattribuer à chaque nouvelle année.
 
 ## Le totem de section
 

@@ -106,7 +106,7 @@ class ExpenseReceiptServiceTest extends TestCase
 
         $this->service = new ExpenseReceiptService(
             $this->accounts,
-            new TreasurerScopeService(Connection::withPdo($this->pdo), new BadgeRepository($this->pdo), new MemberBadgeRepository($this->pdo)),
+            new TreasurerScopeService(Connection::withPdo($this->pdo), new BadgeRepository($this->pdo)),
             $receiptService,
             $this->scoutYearId
         );
