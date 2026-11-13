@@ -1101,6 +1101,48 @@ class RentalRequestControllerTest extends TestCase
         $this->assertArrayHasKey('Message-ID', $renterMail['headers']);
     }
 
+    /**
+     * Issue #1114, SECURITY.md §16: the acknowledgement leaves at once,
+     * unread by anybody, signed as the unit, to the address the form was
+     * given. On an anonymous request it carries none of the visitor's text
+     * — a marker typed into every free-text field is in none of its parts.
+     */
+    public function testAnAnonymousRequestsAcknowledgementCarriesNothingTheVisitorTyped(): void
+    {
+        $this->createAsset();
+        $markers = [
+            'name' => 'Zorglubnom Marqueur',
+            'organisation' => 'Zorglub-organisation',
+            'purpose' => 'Zorglub-objet',
+            'comment' => 'Zorglub-commentaire',
+        ];
+
+        $this->submit($this->validBody($markers));
+
+        $this->assertSame(1, $this->bookingCount());
+        $renterMail = $this->mailTo('jeanne.martin@example.be');
+        $this->assertNotNull($renterMail);
+        foreach (['subject', 'html', 'text'] as $part) {
+            $this->assertStringNotContainsString('Zorglub', $renterMail[$part], "the {$part} echoes the visitor");
+        }
+        $this->assertStringContainsString('Bonjour Madame, Monsieur,', $renterMail['text']);
+        $this->assertStringContainsString('/locations/suivi/1/', $renterMail['text']);
+    }
+
+    /** A signed-in account is traceable: its acknowledgement keeps the name. */
+    public function testASignedInRequestsAcknowledgementGreetsTheRenterByName(): void
+    {
+        $this->createAsset();
+        AuthSession::login(1, 'chief@test.be', 'chief');
+        $this->twig->addGlobal('is_authenticated', true);
+
+        $this->submit($this->validBody(withHumanCheck: false));
+
+        $renterMail = $this->mailTo('jeanne.martin@example.be');
+        $this->assertNotNull($renterMail);
+        $this->assertStringContainsString('Bonjour Jeanne Martin,', $renterMail['text']);
+    }
+
     // ── « Nouvelle demande de location » (#708, IT-05) ─────────────────
 
     public function testEveryReachableManagerOfTheAssetIsNotifiedAndNobodyElseIs(): void

@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\Rental\Service;
 
 use Core\Journal\JournalService;
+use Core\Mail\PublicFormName;
 use Core\Service\DateInput;
 use Modules\Rental\Audit\BookingAudit;
 use Modules\Rental\Availability\Occupancy;
@@ -43,6 +44,9 @@ class RentalBookingService implements OccupancyProvider
      * request simply goes back to waiting.
      */
     public const DEFAULT_AUTOMATIC_HOLD_DAYS = 30;
+
+    /** The renter's name, as the registration form bounds a parent's (issue #1114). */
+    public const MAX_RENTER_NAME_LENGTH = 150;
 
     private BookingReference $references;
 
@@ -126,6 +130,21 @@ class RentalBookingService implements OccupancyProvider
 
         if ($name === '') {
             throw new RentalException('Votre nom est obligatoire.');
+        }
+
+        // A name, and nothing else (issue #1114): it is written into the
+        // messages the unit sends this renter, so it is bounded, on one
+        // line and without a web address — the browser's own limits are a
+        // convenience, never the boundary.
+        if (mb_strlen($name) > self::MAX_RENTER_NAME_LENGTH) {
+            throw new RentalException(
+                'Votre nom ne peut pas dépasser ' . self::MAX_RENTER_NAME_LENGTH . ' caractères.'
+            );
+        }
+
+        $nameViolation = PublicFormName::violation($name);
+        if ($nameViolation !== null) {
+            throw new RentalException($nameViolation);
         }
 
         if ($email === '' || filter_var($email, FILTER_VALIDATE_EMAIL) === false) {

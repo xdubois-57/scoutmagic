@@ -160,7 +160,8 @@ class PublicRegistrationController extends AbstractController
             $fields,
             $desiredSectionId,
             $siblingMemberIds,
-            $slotLabel
+            $slotLabel,
+            AuthSession::isAuthenticated()
         );
 
         // POST-redirect-GET. Rendering the confirmation as this POST's own

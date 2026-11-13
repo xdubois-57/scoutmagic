@@ -764,7 +764,12 @@ class RentalRequestController extends AbstractController
     private function sendSubmissionEmails(RentalBooking $booking, RentalAsset $asset, string $trackingToken): void
     {
         try {
-            $this->mailService->sendAcknowledgement($booking, $asset, $trackingToken);
+            $this->mailService->sendAcknowledgement(
+                $booking,
+                $asset,
+                $trackingToken,
+                AuthSession::isAuthenticated()
+            );
         } catch (\Throwable) {
             FlashMessage::set(
                 'warning',

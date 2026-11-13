@@ -127,6 +127,18 @@ le perd — ou l'a transmis à quelqu'un qui ne devait pas le recevoir —
 nouveau et l'envoie au locataire par email. L'ancien cesse de fonctionner
 immédiatement.
 
+Cet accusé part tout de suite, sans que personne ait lu la demande, vers
+l'adresse saisie et au nom de l'unité. Pour une demande envoyée **sans être
+connecté**, il ne reprend donc rien de ce que le visiteur a tapé : il
+commence par « Bonjour Madame, Monsieur », et donne le bien, les dates, la
+référence et le lien. Sinon, n'importe qui pourrait faire envoyer par
+l'unité son propre texte à une adresse de son choix. Une demande envoyée
+depuis un compte connecté garde le nom. Vos réponses, elles, portent
+toujours le nom du locataire : vous les envoyez après avoir lu la demande.
+
+Le nom du demandeur tient en 150 caractères, sur une ligne, sans adresse
+web : le formulaire refuse le reste avec une phrase qui le dit.
+
 Les dates sont **bloquées** pendant un délai réglable — 30 jours par
 défaut, jamais au-delà du début du séjour —, le temps que vous
 répondiez. Ce blocage qui expire **ne refuse rien** : la demande reste en

@@ -399,6 +399,31 @@ final class RentalBookingMailServiceTest extends TestCase
         $this->assertStringContainsString('confirmée', $mail['subject']);
     }
 
+    /**
+     * Issue #1114: unless the caller says the request came from a signed-in
+     * account, the acknowledgement does not name the renter — the safe
+     * wording is the default, not something a caller has to remember.
+     */
+    public function testAnAcknowledgementGreetsAnAnonymousRenterWithoutTheirName(): void
+    {
+        $this->service->sendAcknowledgement($this->booking(), $this->asset(), str_repeat('a', 64));
+
+        $mail = $this->onlyMail();
+        foreach (['subject', 'html', 'text'] as $part) {
+            $this->assertStringNotContainsString('Camille', $mail[$part]);
+        }
+        $this->assertStringContainsString('Bonjour ' . RentalBookingMailService::ANONYMOUS_RENTER_NAME . ',', $mail['text']);
+        $this->assertStringContainsString('Le Chalet', $mail['text']);
+        $this->assertStringContainsString('LOC-K7Q2M4', $mail['text']);
+    }
+
+    public function testAnAcknowledgementNamesARenterWhoWasSignedIn(): void
+    {
+        $this->service->sendAcknowledgement($this->booking(), $this->asset(), str_repeat('a', 64), true);
+
+        $this->assertStringContainsString('Bonjour Camille Renard,', $this->onlyMail()['text']);
+    }
+
     public function testTheRenterIsAddressedByNameAndToldWhichStayThisIs(): void
     {
         $this->service->sendDecision($this->booking(), $this->asset(), RenterDecision::CONFIRMED, 'tok', null);

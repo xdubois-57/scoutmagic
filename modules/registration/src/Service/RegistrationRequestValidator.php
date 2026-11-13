@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\Registration\Service;
 
+use Core\Mail\PublicFormName;
 use Core\Service\DateInput;
 use Modules\Registration\Repository\RegistrationRequest;
 
@@ -64,6 +65,9 @@ final class RegistrationRequestValidator
         'remarks' => 2000,
         'previous_unit_name' => 150,
     ];
+
+    /** The fields that hold a person's name (Core\Mail\PublicFormName). */
+    public const NAME_FIELDS = ['parent_name', 'child_last_name', 'child_first_name'];
 
     /** The fields every request must carry, non-empty, whatever else it says. */
     public const REQUIRED_TEXT_FIELDS = [
@@ -171,6 +175,16 @@ final class RegistrationRequestValidator
             && ($fields['previous_unit_name'] ?? null) === null
         ) {
             $violations[] = self::missing('previous_unit_name', self::MESSAGE_PREVIOUS_UNIT_NAME);
+        }
+
+        // A name, and nothing else (issue #1114): one line, no web
+        // address. These names are written into the messages the unit sends
+        // the family (Core\Mail\PublicFormName).
+        foreach (self::NAME_FIELDS as $key) {
+            $message = PublicFormName::violation((string) ($fields[$key] ?? ''));
+            if ($message !== null) {
+                $violations[] = self::invalid($key, $message);
+            }
         }
 
         foreach (self::MAX_LENGTHS as $key => $max) {

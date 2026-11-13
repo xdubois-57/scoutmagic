@@ -1608,7 +1608,7 @@
     {
       "id": "rental.acknowledgement",
       "label": "Accusé de réception d'une demande de location",
-      "description": "Envoyé au demandeur dès qu'une demande de location est reçue, avec son lien de suivi. Un bloc « Et maintenant ? », ajouté automatiquement selon la réservation, lui dit ce qu'il doit faire ensuite.",
+      "description": "Envoyé au demandeur dès qu'une demande de location est reçue, avec son lien de suivi. Un bloc « Et maintenant ? », ajouté automatiquement selon la réservation, lui dit ce qu'il doit faire ensuite. Pour une demande envoyée sans être connecté, le nom du demandeur est remplacé par « Madame, Monsieur » : ce message part sans relecture vers l'adresse saisie, il ne reprend donc rien de ce que le visiteur a tapé.",
       "default_subject": "Votre demande de location",
       "template": "@rental/email/acknowledgement.html.twig",
       "variables": [
@@ -1624,7 +1624,7 @@
         },
         {
           "name": "renter_name",
-          "label": "Nom du demandeur",
+          "label": "Nom du demandeur (« Madame, Monsieur » sans connexion)",
           "example": "Camille Dupont"
         },
         {
