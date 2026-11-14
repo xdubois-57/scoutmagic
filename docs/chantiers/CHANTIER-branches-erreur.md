@@ -240,7 +240,7 @@ entrant qui ne répond pas).
   mais la classe ne prend aucun répertoire qu'un test pourrait rediriger, et
   une suite qui tourne en root ne peut pas faire refuser `/tmp`. La couvrir
   demanderait d'injecter le répertoire temporaire dans le gestionnaire — un
-  changement d'API hors du périmètre d'un lot de tests.
+  changement d'API hors du périmètre d'un lot de tests, suivi par #1217.
 
 **Trouvé en chemin.**
 - Un test de `PinnedProviderTransport` croyait la table des compteurs absente

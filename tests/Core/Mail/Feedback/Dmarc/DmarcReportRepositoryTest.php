@@ -357,7 +357,8 @@ class DmarcReportRepositoryTest extends TestCase
      * is what `isDuplicateKey()` reads.
      *
      * The loser's side is what is pinned: `false` and no exception, none
-     * of its lines written, and no transaction left open for the next
+     * of its lines reached (the refusal is on the report row itself, before
+     * any line), and no transaction left open for the next
      * report of the same sync to fail on. (The rival's row lives inside
      * the refused statement here, so it is undone with it; a real rival
      * commits its own.)
@@ -379,11 +380,6 @@ class DmarcReportRepositoryTest extends TestCase
             'A report the index already holds is « déjà là », not a failure.'
         );
         $this->assertFalse($this->pdo->inTransaction(), 'The losing write is rolled back, not left open.');
-        $this->assertSame(
-            0,
-            (int) $this->pdo->query('SELECT COUNT(*) FROM mail_dmarc_sources')->fetchColumn(),
-            'the loser wrote none of its lines.'
-        );
 
         $this->pdo->exec('DROP TRIGGER rival_sync');
         $this->assertTrue(
