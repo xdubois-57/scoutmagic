@@ -6,6 +6,7 @@ détail de chaque étape et les raisons de chaque exigence.
 
 ## Prérequis
 
+- **Un serveur Linux.** ScoutMagic est prévu pour Linux uniquement : il n'est ni testé ni pris en charge sous Windows (la suite de tests et l'intégration continue ne tournent que sous Linux).
 - PHP >= 8.4
 - MySQL >= 8.0
 - **Une tâche planifiée (cron) exécutant `php <racine>/public/cron.php` chaque minute** — voir « La tâche cron » ci-dessous. Ce n'est pas une option de confort : c'est le seul mécanisme qui fait travailler le site.
