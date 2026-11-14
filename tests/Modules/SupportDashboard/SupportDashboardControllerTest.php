@@ -326,6 +326,82 @@ class SupportDashboardControllerTest extends TestCase
         $this->assertStringContainsString('unite-exemple.be', $body);
     }
 
+    // --- Issue #1113: validating an installation for the mail probes ---
+
+    /**
+     * An installation a first ticket registered is shown as waiting, with
+     * the one button that opens the probes to it; an established one is
+     * shown as allowed, without it.
+     */
+    public function testTheDialogOffersToValidateOnlyAnInstallationThatIsNotEstablished(): void
+    {
+        AuthSession::login(1, 'superadmin@test.com', 'superadmin');
+
+        $established = $this->detailBody();
+        $this->assertStringContainsString('Autorisées', $established);
+        $this->assertStringNotContainsString('/valider', $established);
+
+        $this->pdo->exec('UPDATE support_installations SET established = 0');
+        $waiting = $this->detailBody();
+        $this->assertStringContainsString('En attente de validation', $waiting);
+        $this->assertStringContainsString(
+            'action="/support-dashboard/installations/' . $this->installationId . '/valider"',
+            $waiting
+        );
+    }
+
+    public function testValidatingRequiresAValidCsrfToken(): void
+    {
+        AuthSession::login(1, 'superadmin@test.com', 'superadmin');
+        $this->pdo->exec('UPDATE support_installations SET established = 0');
+
+        $response = $this->controller->establish(
+            new Request('POST', '/x', [], ['_csrf_token' => 'wrong'], [], []),
+            ['id' => (string) $this->installationId]
+        );
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertFalse((bool) ($this->installations->findById($this->installationId)['established'] ?? true));
+    }
+
+    public function testValidatingIsRefusedToAdminByTheGuard(): void
+    {
+        AuthSession::login(1, 'admin@test.com', 'admin');
+        $this->pdo->exec('UPDATE support_installations SET established = 0');
+
+        $denied = $this->frontController('/support-dashboard/installations/{id}/valider', 'establish', 'POST')
+            ->handle(new Request(
+                'POST',
+                '/support-dashboard/installations/' . $this->installationId . '/valider',
+                [],
+                [],
+                [],
+                []
+            ));
+
+        $this->assertSame(403, $denied->getStatusCode());
+        $this->assertFalse((bool) ($this->installations->findById($this->installationId)['established'] ?? true));
+    }
+
+    public function testAValidValidationEstablishesTheInstallationAndIsJournaled(): void
+    {
+        AuthSession::login(1, 'superadmin@test.com', 'superadmin');
+        $this->pdo->exec('UPDATE support_installations SET established = 0');
+
+        $response = $this->controller->establish(
+            new Request('POST', '/x', [], ['_csrf_token' => CsrfGuard::generateToken()], [], []),
+            ['id' => (string) $this->installationId]
+        );
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('/support-dashboard', $response->getHeaders()['Location']);
+        $this->assertTrue((bool) ($this->installations->findById($this->installationId)['established'] ?? false));
+
+        $entries = (string) json_encode($this->pdo->query('SELECT * FROM event_log')->fetchAll(\PDO::FETCH_ASSOC));
+        $this->assertStringContainsString('support_installation_established', $entries);
+        $this->assertStringNotContainsString('aaaabbbbccccdddd', $entries);
+    }
+
     // --- IT-10: export and manual deletion ---
 
     public function testTheExportIsRefusedToAdmin(): void

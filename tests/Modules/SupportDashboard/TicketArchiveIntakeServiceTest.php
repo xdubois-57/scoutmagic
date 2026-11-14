@@ -11,6 +11,7 @@ use Core\Journal\JournalService;
 use Core\Security\EncryptionService;
 use Modules\SupportDashboard\Repository\SupportInstallationRepository;
 use Modules\SupportDashboard\Repository\SupportTicketRepository;
+use Modules\SupportDashboard\Service\SupportIntakeGuard;
 use Modules\SupportDashboard\Service\TicketArchiveIntakeService;
 use Modules\SupportDashboard\Service\TicketIntakeResult;
 use Modules\SupportDashboard\TicketCategory;
@@ -36,6 +37,8 @@ class TicketArchiveIntakeServiceTest extends TestCase
     private FileRepository $files;
     private string $storagePath;
     private string $reference;
+    private int $installationRowId;
+    private EncryptionService $encryption;
 
     private const INSTALLATION_ID = '0a1b2c3d4e5f60718293a4b5c6d7e8f9';
     private const SECRET = 'f1e2d3c4b5a6978869504132231405f6';
@@ -47,6 +50,7 @@ class TicketArchiveIntakeServiceTest extends TestCase
         SupportDashboardTestHelper::createTables($this->pdo);
 
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $this->encryption = $encryption;
         $this->storagePath = sys_get_temp_dir() . '/scoutmagic-archive-intake-' . bin2hex(random_bytes(6));
         mkdir($this->storagePath, 0700, true);
 
@@ -58,10 +62,11 @@ class TicketArchiveIntakeServiceTest extends TestCase
             $installations,
             $this->tickets,
             new EncryptedFileStorageService($this->files, $encryption, $this->storagePath),
-            new JournalService(new JournalRepository($this->pdo))
+            new JournalService(new JournalRepository($this->pdo)),
+            SupportDashboardTestHelper::intakeGuard($this->pdo, $encryption)
         );
 
-        $installationRowId = $installations->register(
+        $installationRowId = $this->installationRowId = $installations->register(
             self::INSTALLATION_ID,
             password_hash(self::SECRET, PASSWORD_DEFAULT),
             '',
@@ -176,6 +181,106 @@ class TicketArchiveIntakeServiceTest extends TestCase
         $result = $this->service->receive($this->reference, 'PK', 'Bearer ' . self::SECRET, '203.0.113.1', false);
 
         $this->assertSame(TicketIntakeResult::REJECT_INSECURE_TRANSPORT, $result->rejectionReason);
+    }
+
+    // ── Storage quota (issue #1113) ─────────────────────────────────
+
+    /**
+     * An installation whose archives already fill its own share gets no
+     * more: refused explicitly, nothing stored, and the attention page is
+     * told. Its ticket stays, answerable without the archive.
+     */
+    public function testAnArchivePastTheInstallationsQuotaIsRefusedAndNothingIsStored(): void
+    {
+        $this->keepArchiveOf($this->installationRowId, SupportIntakeGuard::ARCHIVE_QUOTA_PER_INSTALLATION_BYTES - 10);
+
+        $result = $this->receive(str_repeat('P', 11));
+
+        $this->assertFalse($result->accepted);
+        $this->assertSame(TicketArchiveIntakeService::REJECT_STORAGE_QUOTA, $result->rejectionReason);
+        $this->assertNull($this->tickets->findByReference($this->reference)['archive_file_id'] ?? null);
+        $this->assertSame(1, $this->countFiles(), 'only the archive already kept');
+        $this->assertSame(1, $this->guard()->quotaRefusalsSince(SupportIntakeGuard::QUOTA_ARCHIVE_STORAGE, 60));
+    }
+
+    /** Every installation's archives together are held to the global quota. */
+    public function testAnArchivePastTheGlobalQuotaIsRefused(): void
+    {
+        $other = (new SupportInstallationRepository($this->pdo))->register('autre-installation-01', 'x', '', []);
+        $this->keepArchiveOf($other, SupportIntakeGuard::ARCHIVE_QUOTA_BYTES - 10);
+
+        $result = $this->receive(str_repeat('P', 11));
+
+        $this->assertSame(TicketArchiveIntakeService::REJECT_STORAGE_QUOTA, $result->rejectionReason);
+    }
+
+    /** Up to the quota an archive is kept, its own bytes counted. */
+    public function testAnArchiveThatFitsIsKept(): void
+    {
+        $this->keepArchiveOf($this->installationRowId, 1000);
+
+        $this->assertTrue($this->receive('PK-des-octets-darchive')->accepted);
+        $this->assertSame(0, $this->guard()->quotaRefusalsSince(SupportIntakeGuard::QUOTA_ARCHIVE_STORAGE, 60));
+    }
+
+    /**
+     * An archive retention has already detached no longer counts: the
+     * quota is what is kept, not what was ever received.
+     */
+    public function testAPurgedArchiveNoLongerCounts(): void
+    {
+        $ticketId = $this->keepArchiveOf(
+            $this->installationRowId,
+            SupportIntakeGuard::ARCHIVE_QUOTA_PER_INSTALLATION_BYTES
+        );
+        $this->tickets->detachArchive($ticketId);
+
+        $this->assertTrue($this->receive('PK-des-octets-darchive')->accepted);
+    }
+
+    /** Past the per-address limit the body is not even looked at. */
+    public function testPastTheAddressLimitTheArchiveIsRefusedBeforeAnything(): void
+    {
+        $guard = $this->guard();
+        for ($i = 0; $i < SupportIntakeGuard::REQUESTS_PER_ADDRESS; $i++) {
+            $guard->admitRequest('203.0.113.1');
+        }
+
+        $result = $this->receive('PK-des-octets-darchive');
+
+        $this->assertSame(TicketIntakeResult::REJECT_RATE_LIMITED, $result->rejectionReason);
+        $this->assertSame(0, $this->countFiles());
+    }
+
+    private function guard(): SupportIntakeGuard
+    {
+        return SupportDashboardTestHelper::intakeGuard($this->pdo, $this->encryption);
+    }
+
+    /** A ticket of $installationRowId whose archive is a file of $bytes. Returns the ticket's row id. */
+    private function keepArchiveOf(int $installationRowId, int $bytes): int
+    {
+        $reference = $this->tickets->create(
+            $installationRowId,
+            TicketCategory::of('desk_import'),
+            'Une autre description.',
+            'chef@unite.be',
+            '1.0.33',
+            '8.4.3'
+        );
+        $this->pdo->prepare(
+            "INSERT INTO files (relative_path, original_name, mime_type, size_bytes, role_min)
+             VALUES (?, 'support.zip', 'application/zip', ?, 'superadmin')"
+        )->execute(['support-tickets/' . $reference . '.zip', $bytes]);
+        $ticketId = (int) ($this->tickets->findByReference($reference)['id'] ?? 0);
+        $this->tickets->attachArchive($ticketId, (int) $this->pdo->lastInsertId());
+
+        return $ticketId;
+    }
+
+    private function countFiles(): int
+    {
+        return (int) $this->pdo->query('SELECT COUNT(*) FROM files')->fetchColumn();
     }
 
     private function receive(string $bytes): TicketIntakeResult

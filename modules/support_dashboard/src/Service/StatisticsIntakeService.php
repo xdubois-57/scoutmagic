@@ -170,6 +170,11 @@ class StatisticsIntakeService
         }
 
         $this->installations->recordReport((int) $existing['id'], $rawBody, $denormalized);
+        // A report on THIS route is what establishes an installation a
+        // first ticket registered (issue #1113): the mail probes open to it
+        // from here on. A report carried inside a ticket goes through
+        // recordReport() too, and on purpose does not.
+        $this->installations->markEstablished((int) $existing['id']);
         $this->recordMonthlyContribution($installationId);
         $this->journalAcceptance($installationId, false, $unknownFields);
         $this->refreshRegistration((int) $existing['id']);
