@@ -107,7 +107,8 @@ final class SecondaryEmailServiceOnMysqlTest extends TestCase
 
     public function testOnceTheOtherAdditionEndsThisOneProceeds(): void
     {
-        $this->mailService->expects($this->once())->method('send');
+        $this->mailService->expects($this->once())->method('send')
+            ->with($this->identicalTo('second@example.com'));
 
         $row = $this->service->addEmail($this->requestId, 'second@example.com');
 
