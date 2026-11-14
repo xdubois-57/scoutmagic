@@ -263,6 +263,15 @@ final class CatchCoverageTest extends TestCase
             ['line' => 4, 'bodyLines' => [5], 'empty' => false, 'marker' => ''],
             $lines
         ));
+        // Even on a catch the suite does run: the bare marker is the finding.
+        $this->assertSame('never', \catchCoverageJudge(
+            ['line' => 4, 'bodyLines' => [5], 'empty' => false, 'marker' => ''],
+            [4 => ['T1'], 5 => ['T1']]
+        ));
+        $this->assertSame('never-empty', \catchCoverageJudge(
+            ['line' => 4, 'bodyLines' => [], 'empty' => true, 'marker' => ''],
+            [4 => ['T1']]
+        ));
     }
 
     public function testReportKeysAreResolvedAgainstTheirBasePath(): void

@@ -281,6 +281,11 @@ function catchCoverageJudge(array $catch, ?array $lines): string
         return 'unreachable';
     }
     $empty = $catch['empty'];
+    // A marker with no reason is refused outright, whatever the coverage says:
+    // an undocumented « unreachable » claim on a catch is the defect itself.
+    if ($catch['marker'] === '') {
+        return $empty ? 'never-empty' : 'never';
+    }
     if ($lines === null) {
         return $empty ? 'never-empty' : 'never';
     }
