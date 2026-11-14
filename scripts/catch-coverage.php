@@ -163,14 +163,18 @@ function catchCoverageSourceFiles(string $root): array
 /**
  * Every `catch` of one PHP source.
  *
- * @return list<array{line: int, bodyLines: list<int>, empty: bool, marker: ?string}>
+ * @return list<array{line: int, bodyLines: list<int>, empty: bool, marker: ?string, sharedLine: bool}>
  *   line       the line of the `catch` keyword;
  *   bodyLines  the lines on which a statement token of the body starts, in
  *              order (comments and whitespace excluded) — empty for an empty
  *              body;
  *   empty      whether the body holds no statement;
  *   marker     the reason given after the marker, '' for a marker without
- *              one, null when there is no marker
+ *              one, null when there is no marker;
+ *   sharedLine whether code other than the closing `}` precedes `catch` on its
+ *              line (`try { a(); } catch (X) {}`): line coverage cannot then
+ *              tell the `try` body's execution from the `catch`'s, so that line
+ *              proves nothing about the `catch`
  */
 function catchCoverageScan(string $source): array
 {
@@ -182,6 +186,17 @@ function catchCoverageScan(string $source): array
         if ($tokens[$i]->id !== T_CATCH) {
             continue;
         }
+        // Anything but closing braces — the try's, and those of blocks it
+        // ends with, none of which runs — before `catch` on its own line makes
+        // that line shared.
+        $sharedLine = false;
+        for ($k = $i - 1; $k >= 0 && $tokens[$k]->line === $tokens[$i]->line; $k--) {
+            if ($tokens[$k]->id !== T_WHITESPACE && $tokens[$k]->text !== '}') {
+                $sharedLine = true;
+                break;
+            }
+        }
+
         // The body opens at the first `{` after the caught types.
         $open = $i + 1;
         while ($open < $count && $tokens[$open]->text !== '{') {
@@ -227,6 +242,7 @@ function catchCoverageScan(string $source): array
             'bodyLines' => array_values(array_unique($bodyLines)),
             'empty' => $bodyLines === [],
             'marker' => $marker,
+            'sharedLine' => $sharedLine,
         ];
         $i = $open;
     }
@@ -239,7 +255,11 @@ function catchCoverageScan(string $source): array
  * file is absent from the report altogether, which phpunit.xml's <source>
  * makes mean « never loaded by any test ».
  *
- * @param array{line: int, bodyLines: list<int>, empty: bool, marker: ?string} $catch
+ * A line shared with code before `catch` is never taken as evidence (see
+ * catchCoverageScan()): an empty body there is `unknown`, and a body is judged
+ * on its other lines only.
+ *
+ * @param array{line: int, bodyLines: list<int>, empty: bool, marker: ?string, sharedLine?: bool} $catch
  * @param array<int, array<int, string>|null>|null $lines
  * @return 'executed'|'never'|'never-empty'|'unreachable'|'unknown'
  */
@@ -256,6 +276,9 @@ function catchCoverageJudge(array $catch, ?array $lines): string
     // The first line of the body the driver records as executable; for an
     // empty body, the `catch` line itself.
     $candidates = $empty ? [$catch['line']] : $catch['bodyLines'];
+    if ($catch['sharedLine'] ?? false) {
+        $candidates = array_values(array_diff($candidates, [$catch['line']]));
+    }
     foreach ($candidates as $line) {
         if (array_key_exists($line, $lines) && is_array($lines[$line])) {
             if ($lines[$line] !== []) {

@@ -71,6 +71,46 @@ final class CatchCoverageTest extends TestCase
 
         $this->assertSame([2], $catches[0]['bodyLines']);
         $this->assertFalse($catches[0]['empty']);
+        $this->assertTrue($catches[0]['sharedLine'], 'a(); runs on the catch line too');
+    }
+
+    public function testOnlyTheClosingBraceOfTheTryLeavesTheCatchLineItsOwn(): void
+    {
+        $catches = \catchCoverageScan(<<<'PHP'
+            <?php
+            try {
+                a();
+            } catch (FooException) {
+            } catch (BarException) {
+                b();
+            }
+            try { c(); } catch (\Throwable) {}
+            try {
+                if (d()) {
+                    e();
+                }} catch (\Error) {
+                f();
+            }
+            try { g(); } catch (A) {} catch (B) {}
+            PHP);
+
+        $this->assertSame([false, false, true, false, true, true], array_column($catches, 'sharedLine'));
+    }
+
+    public function testASharedCatchLineIsNeverTakenAsEvidence(): void
+    {
+        // try { x(); } catch (T) {} — x() running marks the line, not the catch.
+        $empty = ['line' => 2, 'bodyLines' => [], 'empty' => true, 'marker' => null, 'sharedLine' => true];
+        $this->assertSame('unknown', \catchCoverageJudge($empty, [2 => ['T1']]));
+
+        // try { a(); } catch (T) { b();
+        //     c(); } — judged on line 3 alone.
+        $body = ['line' => 2, 'bodyLines' => [2, 3], 'empty' => false, 'marker' => null, 'sharedLine' => true];
+        $this->assertSame('never', \catchCoverageJudge($body, [2 => ['T1'], 3 => []]));
+        $this->assertSame('executed', \catchCoverageJudge($body, [2 => ['T1'], 3 => ['T1']]));
+
+        $oneLine = ['line' => 2, 'bodyLines' => [2], 'empty' => false, 'marker' => null, 'sharedLine' => true];
+        $this->assertSame('unknown', \catchCoverageJudge($oneLine, [2 => ['T1']]));
     }
 
     public function testTheWordInAStringOrACommentIsNotACatch(): void
