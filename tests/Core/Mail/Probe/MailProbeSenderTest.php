@@ -199,26 +199,63 @@ class MailProbeSenderTest extends TestCase
     {
         $captured = null;
         $providerId = $this->addRelay('Brevo', 'smtp-relay.brevo.com');
-        $sender = $this->senderWith(
-            $this->capturingTransport($captured),
-            counters: new SendCounterRepository($this->pdo)
-        );
+        $counters = new SendCounterRepository($this->pdo);
+        $sender = $this->senderWith($this->capturingTransport($captured), counters: $counters);
 
-        // `send_counters` is not in this fixture at all, which is the
-        // same thing from the repository's side: the statement fails.
+        // The counter's writes are refused by a trigger, reads left
+        // working. This test used to say `mail_send_counters` was not in
+        // the fixture; it has been for a long time, so the counter was
+        // written and the catch in PinnedProviderTransport never ran (#449).
+        $this->pdo->exec(
+            'CREATE TRIGGER refuse_counter_writes BEFORE INSERT ON mail_send_counters
+             BEGIN SELECT RAISE(FAIL, \'compteur indisponible\'); END'
+        );
         $this->pdo->exec('DROP TABLE event_log');
 
         $probe = $sender->send('vous@exemple.be', $providerId, MailLane::Bulk);
 
         $this->assertInstanceOf(PHPMailer::class, $captured, 'the message must still have left.');
         $this->assertSame(1, $this->probes->count());
+        $this->assertSame([], $counters->totalsForDay(), 'the counter really was refused.');
 
         $this->assertTrue(
             $sender->recordVerdict($probe->id, MailProbeVerdict::Inbox),
             'a verdict is recorded even when its journal entry cannot be.'
         );
         $this->assertSame(MailProbeVerdict::Inbox, $this->probes->find($probe->id)?->verdict);
+
+        // The other direction, and the trigger is the only difference: a
+        // probe is a real message on a real relay, so it is counted.
+        $this->pdo->exec('DROP TRIGGER refuse_counter_writes');
+        $sender->send('vous@exemple.be', $providerId, MailLane::Bulk);
+
+        $this->assertSame([$providerId => 1], $counters->totalsForDay(), 'a probe that could be counted is.');
     }
+
+    /**
+     * **A receipt that cannot be stamped costs this one probe its bounce
+     * tracing, and nothing more.** The message left; reporting the probe
+     * as failed would have the operator blame a relay that did its job,
+     * and the history would hold no line for a message that is now in
+     * somebody's mailbox.
+     *
+     * The receipts table is gone, so `recordSend()` throws the
+     * `PDOException` a database refusing it would throw.
+     */
+    public function testAProbeWhoseReceiptCannotBeStampedIsStillAProbeThatLeft(): void
+    {
+        $captured = null;
+        $providerId = $this->addRelay('Brevo', 'smtp-relay.brevo.com');
+        $sender = $this->senderWith($this->capturingTransport($captured));
+        $this->pdo->exec('DROP TABLE mail_send_receipts');
+
+        $probe = $sender->send('vous@exemple.be', $providerId, MailLane::Bulk);
+
+        $this->assertInstanceOf(PHPMailer::class, $captured, 'the message must still have left.');
+        $this->assertSame(1, $this->probes->count(), 'and the history holds its line.');
+        $this->assertSame($probe->id, $this->probes->find($probe->id)?->id);
+    }
+
     // ── the chosen road ───────────────────────────────────────────────
 
     /**

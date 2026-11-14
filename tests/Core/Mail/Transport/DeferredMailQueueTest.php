@@ -251,6 +251,49 @@ class DeferredMailQueueTest extends TestCase
         ));
     }
 
+    /**
+     * **A relaunch that cannot be journalled is still a relaunch.** The
+     * rows are put back before the note is written, so a failing insert
+     * escaping here would show the super-admin an error about messages
+     * already queued again — and the retry they would press next would
+     * find nothing left to relaunch, with nothing on the screen to say
+     * the first press had worked.
+     *
+     * Both halves, the journal being the only difference.
+     */
+    public function testARelaunchWhoseJournalEntryFailsStillRelaunchesAndSaysHowMany(): void
+    {
+        $queue = new DeferredMailQueue(
+            $this->repository,
+            $this->settings,
+            new \Core\Journal\JournalService(new \Core\Journal\JournalRepository($this->pdo))
+        );
+        $first = $this->abandonAged('2026-09-13 09:00:00');
+
+        $this->assertSame(
+            1,
+            $queue->relaunch([MailLane::Bulk], DeferredMailQueue::DEFAULT_WINDOW, '2026-09-13 12:00:00')
+        );
+        $logged = $this->pdo->prepare('SELECT COUNT(*) FROM event_log WHERE event_type = ?');
+        $logged->execute(['mail_deferred_relaunched']);
+        $this->assertSame(1, (int) $logged->fetchColumn(), 'A relaunch that can be journalled is.');
+        $logged->closeCursor();
+
+        $this->pdo->exec('DROP TABLE event_log');
+        $second = $this->abandonAged('2026-09-13 10:00:00');
+
+        $this->assertSame(
+            1,
+            $queue->relaunch([MailLane::Bulk], DeferredMailQueue::DEFAULT_WINDOW, '2026-09-13 12:00:00'),
+            'The count of what was put back reaches the caller.'
+        );
+        $this->assertSame([], $this->repository->abandonedIds(), 'Nothing is left abandoned.');
+        $this->assertSame([$first, $second], array_map(
+            static fn($message): int => $message->id,
+            $this->repository->due(10, '2099-01-01 00:00:00')
+        ), 'Both messages are due again.');
+    }
+
     /** And the default really is the shortest one the dialog offers. */
     public function testTheDefaultWindowIsTheShortestOne(): void
     {
