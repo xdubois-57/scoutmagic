@@ -297,6 +297,62 @@ final class RentalTransferReconcileTest extends TestCase
         $this->payments->reconcilePayment($this->reload($booking->id), $early, 56800, $this->since, 7);
     }
 
+    /**
+     * A search Finance cannot answer — its movements unreadable — says to
+     * try again, in French and without Finance's internals, and journals
+     * no search that did not happen.
+     */
+    public function testASearchFinanceCannotAnswerSaysToTryAgainAndJournalsNothing(): void
+    {
+        [$booking] = $this->bookingWithReceivable();
+        $this->pdo->exec('DROP TABLE finance_transactions');
+
+        try {
+            $this->candidatesOf($booking);
+            $this->fail('a search that could not run returned candidates');
+        } catch (RentalException $e) {
+            $this->assertSame("La recherche n'a pas abouti — rechargez la page et réessayez.", $e->getMessage());
+            $this->assertInstanceOf(\PDOException::class, $e->getPrevious());
+        }
+
+        $this->assertSame(0, (int) $this->pdo->query(
+            "SELECT COUNT(*) FROM event_log WHERE event_type = 'rental_transfer_searched'"
+        )->fetchColumn());
+    }
+
+    /**
+     * A detach Finance cannot write — the allocation's delete refused —
+     * says to reload and try again, without Finance's internals, and the
+     * money, the movements and the booking's history stay as they were.
+     */
+    public function testADetachFinanceCannotWriteSaysToTryAgainAndMovesNothing(): void
+    {
+        [$booking, $communication] = $this->bookingWithReceivable();
+        $this->credit('2027-02-01', 250.00, 'Acompte ' . $communication, 'Jeanne Martin');
+        $insurer = $this->credit('2027-03-14', 568.00, 'Sinistre 2027/118', 'ETHIAS SA');
+        $this->payments->reconcilePayment($this->reload($booking->id), $insurer, 56800, $this->since, 7, 1);
+        $history = (int) $this->pdo->query('SELECT COUNT(*) FROM entity_changes')->fetchColumn();
+        $this->pdo->exec(
+            "CREATE TRIGGER refuse_detach BEFORE DELETE ON finance_receivable_allocations
+             BEGIN SELECT RAISE(ABORT, 'refused'); END"
+        );
+
+        try {
+            $this->payments->detachPayment($this->reload($booking->id), $insurer, null, 1);
+            $this->fail('a detach Finance refused was reported as done');
+        } catch (RentalException $e) {
+            $this->assertSame(
+                "Ce virement n'a pas pu être détaché — rechargez la page et réessayez.",
+                $e->getMessage()
+            );
+            $this->assertInstanceOf(\PDOException::class, $e->getPrevious());
+        }
+
+        $this->assertSame(0, $this->moneyOf($booking)['remaining_cents']);
+        $this->assertCount(2, $this->payments->movementsFor($this->reload($booking->id)));
+        $this->assertSame($history, (int) $this->pdo->query('SELECT COUNT(*) FROM entity_changes')->fetchColumn());
+    }
+
     // ── Beyond what is due (Q1), then a settlement (Q11) ────────────────
 
     public function testTheWholeTransferIsAttachedBeyondTheDueAndTheSettlementTakesItIn(): void

@@ -442,6 +442,9 @@ class RentalManagementControllerTest extends TestCase
     /** @var list<int> the bookings whose renter was told a modification was cancelled */
     private array $cancellationEmails = [];
 
+    /** Whether the transport refuses the contract's e-mail: a replacement contract's, in practice. */
+    private bool $contractMailFails = false;
+
     private \Modules\Rental\Service\RentalSignedContractService $signedContractService;
     private \Core\Signature\PersonalSignatureService $personalSignatures;
 
@@ -519,6 +522,13 @@ class RentalManagementControllerTest extends TestCase
                 return true;
             }
         );
+        $mock->method('sendContract')->willReturnCallback(function (): string {
+            if ($this->contractMailFails) {
+                throw new \Core\Mail\MailException('SMTP connect() failed.');
+            }
+
+            return '<test@scoutmagic>';
+        });
         $mock->method('sendModificationCancelled')->willReturnCallback(
             function (RentalBooking $booking): bool {
                 $this->cancellationEmails[] = $booking->id;
@@ -8756,6 +8766,45 @@ class RentalManagementControllerTest extends TestCase
             \Core\Http\FlashMessage::get()
         );
         $this->assertSame([], $this->documentEmails);
+    }
+
+    /**
+     * A replacement contract whose e-mail the transport refuses: the
+     * project is sent all the same — its terms are frozen, the contract
+     * filed — the manager is told to resend it from the page, the journal
+     * says it failed, and the contract carries no date of sending.
+     */
+    public function testAReplacementContractWhoseEmailFailsIsReadyAndSaysToResendIt(): void
+    {
+        [$booking, , $project] = $this->bookingWithAProject();
+        $this->contractMailFails = true;
+
+        $this->post('/mes-locations/modification-envoyer', 'sendModification', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'modification_id' => (string) $project->id,
+        ]);
+
+        $this->assertSame(
+            [
+                'type' => 'warning',
+                'message' => "Le contrat de remplacement est prêt, mais l'e-mail au locataire n'a pas pu partir : "
+                    . 'renvoyez-le depuis cette page.',
+            ],
+            \Core\Http\FlashMessage::get()
+        );
+        $sent = $this->modificationRepository->findById($project->id);
+        $this->assertNotNull($sent);
+        $this->assertSame(\Modules\Rental\Booking\ModificationStatus::SENT, $sent->status);
+        $this->assertNotNull($sent->contractDocumentId);
+        $this->assertNull($this->documentService->find($sent->contractDocumentId)?->sentAt);
+        $logged = $this->pdo->query(
+            "SELECT context FROM event_log WHERE event_type = 'rental_replacement_contract_send_failed'"
+        )->fetchAll(\PDO::FETCH_COLUMN);
+        $this->assertSame(
+            [['booking_id' => $booking->id, 'document_id' => $sent->contractDocumentId]],
+            array_map(static fn(mixed $context): mixed => json_decode((string) $context, true), $logged)
+        );
     }
 
     /**
