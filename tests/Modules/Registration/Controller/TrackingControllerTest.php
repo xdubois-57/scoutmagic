@@ -14,11 +14,14 @@ use Core\Security\CsrfGuard;
 use Core\Security\EncryptionService;
 use Core\View\TwigFactory;
 use Modules\Registration\Controller\TrackingController;
+use Modules\Registration\Repository\ConfirmationSendRepository;
 use Modules\Registration\Repository\RegistrationRequestRepository;
 use Modules\Registration\Repository\RegistrationSecondaryEmailRepository;
+use Modules\Registration\Service\ConfirmationSendLimiter;
 use Modules\Registration\Service\RequestStatusService;
 use Modules\Registration\Service\SecondaryEmailService;
 use Modules\Registration\Service\TrackingService;
+use Core\Http\FlashMessage;
 use Core\Http\Request;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
@@ -58,7 +61,15 @@ class TrackingControllerTest extends TestCase
         $twig->addGlobal('menus', null);
         $twig->addGlobal('current_path', '/inscriptions/suivi');
         $journalService = new JournalService(new JournalRepository($this->pdo));
-        $secondaryEmailService = new SecondaryEmailService($secondaryEmailRepository, $mailService, EmailTemplateRendererFactory::shippedOnlyForModule($twig, 'registration'), $journalService, 'https://example.com', 'Unité Test');
+        $secondaryEmailService = new SecondaryEmailService(
+            $secondaryEmailRepository,
+            $mailService,
+            EmailTemplateRendererFactory::shippedOnlyForModule($twig, 'registration'),
+            $journalService,
+            'https://example.com',
+            'Unité Test',
+            new ConfirmationSendLimiter(new ConfirmationSendRepository($this->pdo))
+        );
 
         $statusService = new RequestStatusService($requestRepository, $journalService);
 
@@ -332,6 +343,34 @@ class TrackingControllerTest extends TestCase
 
         $this->assertSame(403, $response->getStatusCode());
         $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM registration_secondary_emails')->fetchColumn());
+    }
+
+    /**
+     * Issue #1126: past the five-address cap, the linked family is told so
+     * in French and nothing is written.
+     */
+    public function testAddEmailPastTheCapFlashesTheRefusalAndWritesNothing(): void
+    {
+        AuthSession::login(1, 'marie@example.com', 'identified');
+        $add = fn(string $email) => $this->controller->addEmail(
+            new Request('POST', '/inscriptions/suivi/demande/' . $this->created['id'] . '/emails', [], [
+                '_csrf_token' => CsrfGuard::generateToken(), 'email' => $email,
+            ], [], []),
+            ['id' => (string) $this->created['id']]
+        );
+        for ($i = 1; $i <= SecondaryEmailService::MAX_SECONDARY_EMAILS; $i++) {
+            $add("secondary{$i}@example.com");
+        }
+        FlashMessage::get();
+
+        $response = $add('one-too-many@example.com');
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('error', FlashMessage::get()['type'] ?? null);
+        $this->assertSame(
+            SecondaryEmailService::MAX_SECONDARY_EMAILS,
+            (int) $this->pdo->query('SELECT COUNT(*) FROM registration_secondary_emails')->fetchColumn()
+        );
     }
 
     /**

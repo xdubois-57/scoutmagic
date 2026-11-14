@@ -52,6 +52,7 @@ class BackgroundWorkIsNotSilentTest extends TestCase
         'core/Security/Task/PurgeExpiredMagicLinksHandler.php' => 'expired single-use login links, not events',
         'modules/gallery/src/Task/PurgeZipDownloadsHandler.php' => 'rate-limit counters, not events',
         'modules/groups/src/Task/PurgeRateLimitHandler.php' => 'rate-limit counters, not events',
+        'modules/registration/src/Task/PurgeConfirmationSendsHandler.php' => 'rate-limit counters, not events',
         'modules/retro/src/Task/PurgeRateLimitHandler.php' => 'rate-limit counters, not events',
         'modules/support_dashboard/src/Task/PurgeRateLimitsHandler.php' => 'rate-limit counters, not events',
         // A null object: it exists so a module without a link-preview

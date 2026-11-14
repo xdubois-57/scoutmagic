@@ -11874,6 +11874,9 @@ if ($isEnabled('registration')) {
         $journalService,
         $registrationBaseUrl,
         $registrationSiteName,
+        new \Modules\Registration\Service\ConfirmationSendLimiter(
+            new \Modules\Registration\Repository\ConfirmationSendRepository($pdo)
+        ),
     );
     $registrationTrackingService = new \Modules\Registration\Service\TrackingService(
         $registrationRequestRepo,
@@ -12513,6 +12516,9 @@ if ($isEnabled('registration')) {
     // manual registerHandler() call in either entry point (auto-resolved
     // via ModuleManager::getTaskHandler()), only this one-time nudge.
     $schedulerService->seed('registration', 'purge_registration_requests', 'daily', new DateTimeImmutable());
+    // And for the daily sweep of registration_confirmation_sends (Task\
+    // PurgeConfirmationSendsHandler, issue #1126).
+    $schedulerService->seed('registration', 'purge_confirmation_sends', 'daily', new DateTimeImmutable());
     // Same again for the Passage auto-assignment (Task\
     // AutoAssignPassageHandler) — it used to run inside PassageController::
     // index(), i.e. a write on every GET of the page.
