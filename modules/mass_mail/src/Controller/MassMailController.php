@@ -725,6 +725,9 @@ class MassMailController extends AbstractController
         try {
             $data = $this->massMailService->getTrackingData((int) $params['id']);
         } catch (MassMailException) {
+            // @catch-unreachable getTrackingData() throws only when the email row is missing, and
+            // findVisibleEmail() read that same row two lines up in this request: only a delete
+            // landing between the two reads ends here (issue #449).
             return $this->notFound();
         }
 
