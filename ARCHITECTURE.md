@@ -1453,11 +1453,74 @@ Iteration 4 of the "future inscriptions module" §8.34 already anticipated: a pu
 
 **Two automatic emails, one anti-robot gate**: `Service\RegistrationService::submit()` sends a parent receipt (never an acceptance — "Ceci n'est pas encore une acceptation") carrying the tracking link — the request's one link, generated with it (issue #932, below) — and, only if `registration_unit_alert_email` is configured, a unit alert containing **the child's first name only** — never the family's contact details — plus the target slot and a link to the request. Both are declared in this module's `module.json` `emails` (`registration.request_receipt`, `registration.request_unit_alert`) and rendered by the core `EmailTemplateRenderer` — customisation, string substitution (never Twig on user-controlled data) and the required `lien_suivi` of the receipt per §8.7bis, the page per « Gabarits » below — and both fail silently into the journal on `MailException` (never blocking the submission itself). `Controller\PublicRegistrationController::submit()` gates on `Core\Security\HumanCheck` (§8.31) exactly like the news module's public form, with the same "never lose the parent's entered data on rejection" sticky-value re-render.
 
-**Tracking page (`Controller\TrackingController`)**: two access paths onto the same underlying request, matching the module spec's "vue minimale par token" vs "vue complète si identifié et rattaché". The public token URL (`/inscriptions/suivi/{id}/{token}`) verifies possession of a `password_hash()`-hashed token that **expires** (`Service\TrackingService::findByToken()` → `RegistrationRequestRepository::verifyTrackingToken()`, same hashing as `Core\Member\MemberEmailService`'s own confirmation tokens; issue #932, below) and shows only status/child-first-name/received-date. The identified path (`/inscriptions/suivi/demande/{id}`) never persists a session-to-request link — `Service\TrackingService::isLinkedByEmail()` re-derives it on every call from the identified session's own email, blind-indexed against the request's primary address and any **confirmed** secondary one, the same "never persist the link, always re-derive it" approach `MemberService::getLinkedMembers()` already uses for members — and shows the full request plus secondary-email management.
-**The request's tracking link — one token, generated once, expiring (issue #932, supersedes the per-send rotation of #843 R6)**: `RegistrationRequestRepository::create()` is the only place a token is ever generated (`CapabilityToken::generate()`), and writes it in the request's own INSERT, inside the transaction that records the siblings, in three columns: `tracking_token_hash` (`password_hash()`, the answer to "is this the token?", checked by `verifyTrackingToken()`), `tracking_token_encrypted` (`EncryptionService`, context `registration_requests.tracking_token` — the answer to "what is this request's link?", which every e-mail to the family needs; read back only by `trackingLinkOf()`, whose result goes into the URL of a message to the family and nowhere else: never a journal entry, a flash message, a staff-visible variable or the unit alert, whose template does not declare `lien_suivi`) and `tracking_expires_at`. **Nothing renews it**: a decision, a resend, a retry, an automatic attempt, a failed transport or a status change write nothing on these columns, there is no regeneration and no revocation — the link stops working at its expiry, or earlier when the request is physically deleted. **The expiry is frozen at creation**: `received_at` (written explicitly by `create()`, so both come from one instant) plus `registration_tracking_link_validity_months` calendar months (`Service\TrackingLinkValidity::expiresAt()`: same time of day in the zone `Core\Config\AppClock` pins — Europe/Brussels, the one every stored date is in —, a shorter arrival month clamps to its last day rather than overflowing, `DateTime::modify('+N months')` is deliberately not used), the setting being an ordinary, editable `number` of the generic « Réglages › Inscriptions » page (default 18, `validation_regex` 1–120; `monthsFrom()` reads an out-of-bounds stored value as the default), read by `RegistrationService::submit()` for ordinary and in-year submissions alike — so changing it reaches only requests filed afterwards. **It is checked on every public request, with no task and no deletion**: `verifyTrackingToken()` is true if and only if the request exists, the hash matches and `now` is strictly before `tracking_expires_at` (the hash is verified first and in every case, so an expired link, a wrong token and an unknown request cost the same and `TrackingController::showByToken()` answers them with the same 404); a NULL expiry reads as expired. It changes neither the request's status nor its retention, and the identified access by e-mail address (`isLinkedByEmail()`) never looks at it. No historical token is migrated (the environment is still in test): a row from before these columns has no encrypted token and no expiry, so its public link is dead and a decision e-mail for it fails with a sentence saying why. The three e-mails to a family — receipt, acceptance, refusal — carry `{{ lien_suivi }}` by rule: it is a **required** variable of their declarations in the core registry (§8.7bis, issue #905); the re-enrolment and secondary-address e-mails have no such context and are untouched.
+**Tracking page (`Controller\TrackingController`)**: two access paths onto the same underlying request, matching the
+module spec's "vue minimale par token" vs "vue complète si identifié et rattaché". The public token URL
+(`/inscriptions/suivi/{id}/{token}`) verifies possession of a SHA-256-hashed token that **expires**
+(`Service\TrackingService::findByToken()` → `RegistrationRequestRepository::verifyTrackingToken()`,
+`Core\Security\CapabilityToken::verifyAgainstHash()`; issue #932, below, and #1126) and shows only
+status/child-first-name/received-date. The identified path (`/inscriptions/suivi/demande/{id}`) never persists a
+session-to-request link — `Service\TrackingService::isLinkedByEmail()` re-derives it on every call from the identified
+session's own email, blind-indexed against the request's primary address and any **confirmed** secondary one, the same
+"never persist the link, always re-derive it" approach `MemberService::getLinkedMembers()` already uses for members —
+and shows the full request plus secondary-email management.
+**The request's tracking link — one token, generated once, expiring (issue #932, supersedes the per-send rotation of
+#843 R6)**: `RegistrationRequestRepository::create()` is the only place a token is ever generated
+(`CapabilityToken::generate()`), and writes it in the request's own INSERT, inside the transaction that records the
+siblings, in three columns: `tracking_token_hash` (`CapabilityToken::hash()`, a SHA-256 since issue #1126 — the token
+is
+256 random bits, so bcrypt bought nothing; the answer to "is this the token?", checked by `verifyTrackingToken()` in
+constant time, an unknown id against a fixed dummy of the same shape, with no `password_hash()` fallback),
+`tracking_token_encrypted` (`EncryptionService`, context `registration_requests.tracking_token` — the answer to "what
+is
+this request's link?", which every e-mail to the family needs; read back only by `trackingLinkOf()`, whose result goes
+into the URL of a message to the family and nowhere else: never a journal entry, a flash message, a staff-visible
+variable or the unit alert, whose template does not declare `lien_suivi`) and `tracking_expires_at`. **Nothing renews
+it**: a decision, a resend, a retry, an automatic attempt, a failed transport or a status change write nothing on these
+columns, there is no regeneration and no revocation — the link stops working at its expiry, or earlier when the
+request
+is physically deleted. **The expiry is frozen at creation**: `received_at` (written explicitly by `create()`, so both
+come from one instant) plus `registration_tracking_link_validity_months` calendar months
+(`Service\TrackingLinkValidity::expiresAt()`: same time of day in the zone `Core\Config\AppClock` pins —
+Europe/Brussels, the one every stored date is in —, a shorter arrival month clamps to its last day rather than
+overflowing, `DateTime::modify('+N months')` is deliberately not used), the setting being an ordinary, editable `number`
+of the generic « Réglages › Inscriptions » page (default 18, `validation_regex` 1–120; `monthsFrom()` reads an
+out-of-bounds stored value as the default), read by `RegistrationService::submit()` for ordinary and in-year submissions
+alike — so changing it reaches only requests filed afterwards. **It is checked on every public request, with no task
+and
+no deletion**: `verifyTrackingToken()` is true if and only if the request exists, the hash matches and `now` is strictly
+before `tracking_expires_at` (the hash is verified first and in every case, so an expired link, a wrong token and an
+unknown request cost the same and `TrackingController::showByToken()` answers them with the same 404); a NULL expiry
+reads as expired. It changes neither the request's status nor its retention, and the identified access by e-mail address
+(`isLinkedByEmail()`) never looks at it. No historical token is migrated (the environment is still in test): a row from
+before these columns has no encrypted token and no expiry, so its public link is dead and a decision e-mail for it fails
+with a sentence saying why. The three e-mails to a family — receipt, acceptance, refusal — carry `{{ lien_suivi }}`
+by
+rule: it is a **required** variable of their declarations in the core registry (§8.7bis, issue #905); the re-enrolment
+and secondary-address e-mails have no such context and are untouched.
 
 
-**Secondary emails — module-local, not a generalization of `member_emails`**: mirrors `Core\Member\MemberEmailService`'s shape, states, and `bin2hex(random_bytes(32))` + `password_hash()` token technique exactly, but as its own table (`registration_secondary_emails`) rather than a polymorphic owner on `member_emails` — nothing else in this codebase uses a `(subject_type, subject_id)` owner, every table here is FK'd to one single concrete concept, and a registration request explicitly is not a member. Unlike a member's Desk-sourced address, a request's *origin* email is never a row in this table at all (it lives on `registration_requests` itself), so there is no "cannot delete" case to special-case — every row `Service\SecondaryEmailService` touches really is removable. **A confirmed secondary address grants the full tracking view with no staff involvement at all** — a deliberate self-service exposure, not a staff-mediated control (documented explicitly in the RGPD content, §8.35's own RGPD rule 26).
+**Secondary emails — module-local, not a generalization of `member_emails`**: mirrors
+`Core\Member\MemberEmailService`'s
+shape, states and 32-random-byte confirmation token — stored as a SHA-256 (`CapabilityToken::hash()`, issue #1126)
+where
+core keeps a `password_hash()` — but as its own table (`registration_secondary_emails`) rather than a polymorphic
+owner
+on `member_emails` — nothing else in this codebase uses a `(subject_type, subject_id)` owner, every table here is FK'd
+to one single concrete concept, and a registration request explicitly is not a member. Unlike a member's Desk-sourced
+address, a request's *origin* email is never a row in this table at all (it lives on `registration_requests` itself), so
+there is no "cannot delete" case to special-case — every row `Service\SecondaryEmailService` touches really is
+removable. **Two bounds, because the tracking link is held by whoever filed a public form** (issue #1126, SECURITY.md
+§16): at most `SecondaryEmailService::MAX_SECONDARY_EMAILS` (5) rows per request whatever their status, as for a
+member;
+and at most `Service\ConfirmationSendLimiter::LIMIT` (20) confirmation e-mails per request per rolling hour, first sends
+and re-sends alike — the gallery ZIP limiter's mechanism (`AppClock` on both ends of the window, counted on success)
+over `registration_confirmation_sends`, purged daily by `Task\PurgeConfirmationSendsHandler` — since a removed address
+takes its row with it and remove-then-add would otherwise never meet the cap. A new address is refused by either before
+anything is hashed, written or sent (`RegistrationException`, a French flash); a re-add of a pending address past the
+hourly limit returns the row without an e-mail, like the resend cooldown. **A confirmed secondary address grants the
+full tracking view with no staff involvement at all** — a deliberate self-service exposure, not a staff-mediated
+control
+(documented explicitly in the RGPD content, §8.35's own RGPD rule 26).
 
 **Espace membres menu hook**: `Core\Module\MenuEntryProvider` (§7.4) — `Service\RegistrationMenuHookService` contributes one dynamic entry per pending request linked to the identified visitor's email, alongside the core-built per-member entries, in the same `MenuBuilder::SORT_GROUP_DYNAMIC` sort group and the same `mes_membres` column. `module.json` declares `/inscriptions/suivi/demande/{id}` (the entry's own target) *before* `/inscriptions/suivi/{id}/{token}` — the reverse order once let the token route's all-wildcard tail silently swallow every click on this exact menu entry (§7.1's route-shadowing rule).
 

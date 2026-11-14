@@ -64,10 +64,10 @@ CREATE TABLE registration_requests (
     -- generated ONCE, when the request is created (issue #932), and never
     -- renewed — the link of the receipt is the very link of the acceptance
     -- and the refusal e-mails, resends and retries included. Stored twice,
-    -- for two different questions: hashed here (password_hash, same
-    -- technique as Core\Member\MemberEmailService's confirmation tokens),
-    -- compared by password_verify() against the value presented in the link
-    -- — "is this the token?"; and encrypted in tracking_token_encrypted
+    -- for two different questions: hashed here (SHA-256, Core\Security\
+    -- CapabilityToken::hash() — 256 random bits need no slow KDF, issue
+    -- #1126), compared in constant time against the value presented in the
+    -- link — "is this the token?"; and encrypted in tracking_token_encrypted
     -- below — "what is this request's link?", which every e-mail to the
     -- family has to answer. Never stored, logged or compared in clear.
     tracking_token_hash VARCHAR(255) NOT NULL,
@@ -191,11 +191,13 @@ CREATE TABLE registration_request_siblings (
 -- codebase uses a polymorphic (subject_type, subject_id) owner, every
 -- table here is FK'd to one single concrete owner concept, and a
 -- registration request is explicitly not a member (it may end up refused,
--- never becoming one). Mirrors member_emails' shape/states/token technique
--- exactly (states, bin2hex(random_bytes(32)) + password_hash() token,
--- explicit expiry) so the mechanics stay familiar, without the FK deciding
--- what a "member" is. See ARCHITECTURE.md's module hook section for the
--- documented decision.
+-- never becoming one). Mirrors member_emails' shape/states (states, a
+-- 32-random-byte token, explicit expiry) so the mechanics stay familiar,
+-- without the FK deciding what a "member" is — except that the token is
+-- stored as a SHA-256 (Core\Security\CapabilityToken::hash(), issue #1126)
+-- rather than a password_hash(). At most five rows per request, whatever
+-- their status (Service\SecondaryEmailService::MAX_SECONDARY_EMAILS). See
+-- ARCHITECTURE.md's module hook section for the documented decision.
 CREATE TABLE registration_secondary_emails (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     registration_request_id INT UNSIGNED NOT NULL,
@@ -211,6 +213,29 @@ CREATE TABLE registration_secondary_emails (
     CONSTRAINT fk_rse_request FOREIGN KEY (registration_request_id) REFERENCES registration_requests(id) ON DELETE CASCADE,
     UNIQUE INDEX idx_rse_request_blind (registration_request_id, email_blind_index),
     INDEX idx_rse_blind (email_blind_index)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- registration_confirmation_sends: one row per confirmation e-mail sent to
+-- a secondary address of a request — first send or re-send — kept only
+-- long enough to count them. Service\ConfirmationSendLimiter refuses the
+-- 21st within an hour (issue #1126): removing an address deletes its row in
+-- registration_secondary_emails, so the five-address cap alone would let a
+-- tracking link remove and re-add addresses for ever, an e-mail each time.
+--
+-- Same shape as gallery_zip_downloads (modules/gallery/schema.sql): both
+-- ends of the window comparison computed on the application clock in PHP,
+-- purged daily by Task\PurgeConfirmationSendsHandler. Keyed on the request
+-- and nothing else — no address is stored — and the rows go with it.
+CREATE TABLE registration_confirmation_sends (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    registration_request_id INT UNSIGNED NOT NULL,
+    -- Written from PHP (Core\Config\AppClock), never left to the column:
+    -- the window's lower bound is computed on that same clock.
+    created_at DATETIME NOT NULL,
+    INDEX idx_rcs_request (registration_request_id, created_at),
+    INDEX idx_rcs_created (created_at),
+    CONSTRAINT fk_rcs_request FOREIGN KEY (registration_request_id)
+        REFERENCES registration_requests(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Per-branch age bracket (entry age + duration) no longer lives here as of

@@ -218,6 +218,13 @@ class RegistrationTestHelper
             FOREIGN KEY (registration_request_id) REFERENCES registration_requests(id)
         )');
 
+        $pdo->exec('CREATE TABLE registration_confirmation_sends (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            registration_request_id INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (registration_request_id) REFERENCES registration_requests(id) ON DELETE CASCADE
+        )');
+
         $pdo->exec('CREATE TABLE registration_slot_capacities (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             age_branch_id INTEGER NOT NULL,
@@ -342,6 +349,27 @@ class RegistrationTestHelper
         $stmt->execute([$label, $startDate, $endDate]);
 
         return (int) $pdo->lastInsertId();
+    }
+
+    /**
+     * A plain pending request of $scoutYearId from $email, filed through the
+     * real repository (so its tracking token is stored as in production).
+     */
+    public static function insertRequest(\PDO $pdo, int $scoutYearId, string $email): int
+    {
+        $encryption = new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+
+        return (new \Modules\Registration\Repository\RegistrationRequestRepository($pdo, $encryption))->create(
+            $scoutYearId,
+            [
+                'parent_name' => 'P', 'child_last_name' => 'L', 'child_first_name' => 'F',
+                'gender' => 'F', 'birth_date' => '2019-01-01', 'street' => 'S', 'number' => '1',
+                'postal_code' => '1000', 'city' => 'V', 'email' => $email,
+                'phone1' => '000', 'phone2' => null, 'remarks' => null,
+            ],
+            null,
+            []
+        )['id'];
     }
 
     public static function insertAgeBranch(\PDO $pdo, string $deskCode, string $label, int $sortOrder): int

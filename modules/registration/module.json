@@ -1110,6 +1110,10 @@
       "handler": "Modules\\Registration\\Task\\PurgeRegistrationRequestsHandler"
     },
     {
+      "key": "purge_confirmation_sends",
+      "handler": "Modules\\Registration\\Task\\PurgeConfirmationSendsHandler"
+    },
+    {
       "key": "auto_assign_passage",
       "handler": "Modules\\Registration\\Task\\AutoAssignPassageHandler"
     },

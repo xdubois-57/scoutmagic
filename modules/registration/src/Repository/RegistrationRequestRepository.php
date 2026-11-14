@@ -39,12 +39,12 @@ class RegistrationRequestRepository
     private const RESOLVED_SIBLING = 'COALESCE(m.merged_into_member_id, s.member_id)';
 
     /**
-     * A `password_hash()` of a random value no request holds, made once per
-     * process on first use rather than written in the code: a hash literal
-     * is a credential-shaped string for every scanner, and this one would
-     * guard nothing. See dummyTrackingHash().
+     * What verifyTrackingToken() compares against when the request does not
+     * exist: 64 hex characters, the shape of a CapabilityToken::hash(), that
+     * no SHA-256 output is expected to equal. An unknown id then goes through
+     * the same hash-and-compare as a known one (issue #1126).
      */
-    private static ?string $dummyTrackingHash = null;
+    private const UNKNOWN_REQUEST_HASH = '0000000000000000000000000000000000000000000000000000000000000000';
 
     private HouseholdRepository $households;
 
@@ -108,7 +108,7 @@ class RegistrationRequestRepository
     ): array {
         $receivedAt ??= new \DateTimeImmutable();
         $trackingToken = CapabilityToken::generate();
-        $trackingTokenHash = password_hash($trackingToken, PASSWORD_DEFAULT);
+        $trackingTokenHash = CapabilityToken::hash($trackingToken);
         $trackingTokenEncrypted = $this->encryption->encrypt($trackingToken, self::CTX_TRACKING_TOKEN);
         $trackingExpiresAt = TrackingLinkValidity::expiresAt($receivedAt, $trackingValidityMonths);
 
@@ -246,9 +246,10 @@ class RegistrationRequestRepository
 
     /**
      * Verifies a presented tracking token against request $id's stored
-     * hash — password_verify(), same technique as Core\Member\
-     * MemberEmailService's confirmation tokens (SECURITY.md §5) — and that
-     * the link has not expired (issue #932): valid if and only if the
+     * hash — a SHA-256 compared in constant time (Core\Security\
+     * CapabilityToken::verifyAgainstHash(), SECURITY.md §30: the token is
+     * 256 random bits, so a slow KDF would add nothing) — and that the link
+     * has not expired (issue #932): valid if and only if the
      * request exists, the token is the right one and $now is strictly
      * before `tracking_expires_at`. A row with no expiry (from before the
      * column) is expired.
@@ -265,9 +266,9 @@ class RegistrationRequestRepository
         $stmt->execute([$id]);
         $row = $stmt->fetch(\PDO::FETCH_ASSOC);
 
-        $matches = password_verify(
+        $matches = CapabilityToken::verifyAgainstHash(
             $token,
-            $row === false ? self::dummyTrackingHash() : (string) $row['tracking_token_hash']
+            $row === false ? self::UNKNOWN_REQUEST_HASH : (string) $row['tracking_token_hash']
         );
         if ($row === false) {
             return false;
@@ -277,18 +278,6 @@ class RegistrationRequestRepository
         );
 
         return $matches && $expiresAt !== null && ($now ?? new \DateTimeImmutable()) < $expiresAt;
-    }
-
-    /**
-     * What verifyTrackingToken() checks a presented token against when the
-     * request does not exist, at the cost PASSWORD_DEFAULT hashes at: an
-     * unknown id then pays the same bcrypt cost as a known one, and the
-     * endpoint's latency does not tell which ids exist. (The very first
-     * unknown id of a process also pays for making it.)
-     */
-    private static function dummyTrackingHash(): string
-    {
-        return self::$dummyTrackingHash ??= password_hash(bin2hex(random_bytes(16)), PASSWORD_DEFAULT);
     }
 
     /**
