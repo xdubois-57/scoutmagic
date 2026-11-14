@@ -524,7 +524,14 @@ self.addEventListener('message', function (event) {
         // often only — moment the worker is told the identity behind the
         // caches it holds has changed (issue #252).
         const scope = String(data.account_scope);
-        lastConfigWrite = storeOfflineConfig(data).then(function () {
+        // A partial config — the cookie banner's « Tout refuser » sends one
+        // without the push fields — must not erase whom this device's push
+        // notifications are for: storing replaces the whole entry, and a
+        // config without the tag key reads as « stored before the guard »
+        // (isForSignedInAccount()), which would show every payload again.
+        lastConfigWrite = lastConfigWrite.catch(function () {}).then(function () {
+            return withStoredPushRecipient(data);
+        }).then(storeOfflineConfig).then(function () {
             return data.consent ? purgeContentCachesExcept(scope) : purgeAllContentCaches();
         }).then(function () {
             return data.consent ? adoptPreviousVersion(scope, String(data.version)) : undefined;
@@ -1834,6 +1841,30 @@ function forgetPushRecipient() {
             push_recipient_expires_at: 0,
         }));
     });
+}
+
+/**
+ * $data with the push recipient fields of the configuration already stored
+ * when it carries none of its own (issue #1123) — the cookie banner's partial
+ * `offline-config` message. A config that does carry them wins.
+ *
+ * @param {Record<string, unknown>} data
+ * @returns {Promise<Record<string, unknown>>}
+ */
+function withStoredPushRecipient(data) {
+    if (Object.prototype.hasOwnProperty.call(data, 'push_recipient_tag')) {
+        return Promise.resolve(data);
+    }
+
+    return getOfflineConfig().then(function (stored) {
+        if (!stored || !Object.prototype.hasOwnProperty.call(stored, 'push_recipient_tag')) {
+            return data;
+        }
+        return Object.assign({}, data, {
+            push_recipient_tag: stored.push_recipient_tag,
+            push_recipient_expires_at: stored.push_recipient_expires_at,
+        });
+    }, function () { return data; });
 }
 
 /**

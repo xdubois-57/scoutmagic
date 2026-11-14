@@ -225,6 +225,23 @@ describe('offline-cache.js: logout purges every content cache', () => {
         await vi.waitFor(() => expect(activeSpy.postMessage).toHaveBeenCalledWith({ type: 'forget-push-recipient' }));
     });
 
+    // A logout refused before it left (offline-nav.js prevents a form
+    // submitted offline) logged nobody out: nothing may be forgotten, or the
+    // next push for this still-signed-in member unsubscribes the device.
+    it('tells the worker nothing when the logout submit was prevented', async () => {
+        buildConfig({ ...BASE_CONFIG, pushRecipientTag: 'a1b2c3' });
+        const form = el('<form action="/logout"></form>');
+        document.body.appendChild(form);
+        await boot();
+        activeSpy.postMessage.mockClear();
+        document.addEventListener('submit', (e) => e.preventDefault(), { capture: true, once: true });
+
+        form.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+        await new Promise((resolve) => setTimeout(resolve, 20));
+
+        expect(activeSpy.postMessage).not.toHaveBeenCalled();
+    });
+
     // There can be a desktop AND a mobile nav logout form on the same
     // page — both must purge, not just whichever one the visitor used.
     it('wires EVERY logout form on the page, not just the first', async () => {

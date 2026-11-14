@@ -1455,6 +1455,43 @@ describe('sw.js: the push recipient guard (issue #1123)', () => {
         }
     });
 
+    it('a partial config (the cookie banner\'s « Tout refuser ») keeps the push recipient already stored', async () => {
+        const caches = createCachesFake();
+        global.caches = caches;
+        const realResponse = global.Response;
+        global.Response = class {
+            constructor(body) { this.body = body; }
+            json() { return Promise.resolve(JSON.parse(this.body)); }
+        };
+
+        try {
+            const send = async (data) => {
+                const waits = [];
+                const event = new Event('message');
+                event.data = data;
+                Object.defineProperty(event, 'origin', { value: self.location.origin });
+                event.waitUntil = (promise) => waits.push(promise);
+                global.self.dispatchEvent(event);
+                await Promise.all(waits);
+            };
+
+            await send({
+                type: 'offline-config', account_scope: '7', consent: true, version: '1', push_recipient_tag: '',
+                push_recipient_expires_at: 0,
+            });
+            // The banner's partial message: no push fields at all.
+            await send({
+                type: 'offline-config', account_scope: '7', consent: false, version: '1', staleness_days: 30,
+            });
+
+            await expect(sw.getOfflineConfig()).resolves.toMatchObject({ push_recipient_tag: '', consent: false });
+            await push({ ...PAYLOAD, recipient: TAG });
+            expect(showNotification).toHaveBeenLastCalledWith('Nouvelle notification', expect.anything());
+        } finally {
+            global.Response = realResponse;
+        }
+    });
+
     it('a push arriving while the logout is still being written reads the forgotten tag, not the old one', async () => {
         const caches = createCachesFake();
         global.caches = caches;

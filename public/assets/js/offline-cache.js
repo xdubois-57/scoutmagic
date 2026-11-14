@@ -83,7 +83,14 @@
     // on a shared device. There can be more than one logout form on a
     // page (desktop + mobile nav).
     document.querySelectorAll('form[action="/logout"]').forEach(function (form) {
-        form.addEventListener('submit', function () {
+        form.addEventListener('submit', function (event) {
+            // Refused before it left (offline-nav.js prevents a form
+            // submitted offline): nobody logged out, so nothing is forgotten
+            // — forgetting the recipient here would make the next push for
+            // this still-signed-in member unsubscribe the device.
+            if (event.defaultPrevented) {
+                return;
+            }
             postToServiceWorker({ type: 'purge-content-caches' });
             // And no notification may show its text on this device until
             // a page says who is signed in again (issue #1123).
