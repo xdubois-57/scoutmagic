@@ -688,6 +688,119 @@ class AccountControllerTest extends TestCase
         $this->assertSame([], $this->journaledEvents());
     }
 
+    /**
+     * Issue #1131: a registration body that cannot be read is a 400 with a
+     * generic French message — never a 500, never what was wrong.
+     *
+     * @return iterable<string, array{string}>
+     */
+    public static function malformedRegistrationBodies(): iterable
+    {
+        $b64url = static fn(string $bytes): string => rtrim(strtr(base64_encode($bytes), '+/', '-_'), '=');
+        $clientData = $b64url('{"type":"webauthn.create","challenge":"x","origin":"https://localhost"}');
+        // A CBOR map(3) announced, then cut short after its first key.
+        $truncatedCbor = $b64url("\xA3\x63fmt\x64none\x67attStmt");
+
+        yield 'invalid JSON' => ['{"response":'];
+        yield 'a JSON string' => ['"bonjour"'];
+        yield 'a JSON number' => ['12'];
+        yield 'response is a string' => [(string) json_encode(['response' => 'abc'])];
+        yield 'clientDataJSON is a number' => [(string) json_encode([
+            'response' => ['clientDataJSON' => 5, 'attestationObject' => $truncatedCbor],
+        ])];
+        yield 'attestationObject missing' => [(string) json_encode(['response' => ['clientDataJSON' => $clientData]])];
+        yield 'attestationObject is not base64url' => [(string) json_encode([
+            'response' => ['clientDataJSON' => $clientData, 'attestationObject' => '%%%'],
+        ])];
+        yield 'truncated CBOR' => [(string) json_encode([
+            'response' => ['clientDataJSON' => $clientData, 'attestationObject' => $truncatedCbor],
+        ])];
+        yield 'device_label is an array' => [(string) json_encode([
+            'response' => ['clientDataJSON' => $clientData, 'attestationObject' => $truncatedCbor],
+            'device_label' => ['x'],
+        ])];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('malformedRegistrationBodies')]
+    public function testAMalformedPasskeyRegistrationIsA400(string $body): void
+    {
+        $this->controller->passkeyRegisterOptions(
+            new Request('GET', '/account/passkey/register-options', [], [], [], []),
+            []
+        );
+        $request = new RequestWithInput(
+            'POST',
+            '/account/passkey/register',
+            [],
+            [],
+            [],
+            ['HTTP_X_CSRF_TOKEN' => CsrfGuard::generateToken()],
+            $body
+        );
+
+        $response = $this->controller->passkeyRegister($request, []);
+
+        $this->assertSame(400, $response->getStatusCode());
+        $this->assertSame(
+            ['success' => false, 'error' => 'Requête invalide.'],
+            json_decode($response->getBody(), true)
+        );
+        $this->assertSame([], $this->webAuthnRepo->findByUserAccountId($this->userId));
+    }
+
+    /** The technical reason stays in the exception; the visitor reads the generic sentence. */
+    public function testAMalformedRegistrationNamesNothingTechnical(): void
+    {
+        $webAuthn = $this->createStub(WebAuthnService::class);
+        $webAuthn->method('verifyRegistration')
+            ->willThrowException(new \Core\Security\WebAuthnMalformedRequest('response.attestationObject is bad'));
+        $controller = $this->controllerWithAlerts($webAuthn);
+
+        $response = $controller->passkeyRegister($this->makeJsonRequest(
+            ['device_label' => 'Clé USB bleue'],
+            ['HTTP_X_CSRF_TOKEN' => CsrfGuard::generateToken()]
+        ), []);
+
+        $this->assertSame(400, $response->getStatusCode());
+        $this->assertStringNotContainsString('attestationObject', $response->getBody());
+        $this->assertSame([], $this->alertsSent);
+    }
+
+    public function testAPasskeyRegistrationAnsweringAnExpiredChallengeIsAskedToRetry(): void
+    {
+        $challenge = random_bytes(32);
+        $_SESSION['webauthn_challenge'] = [
+            'challenge' => base64_encode($challenge),
+            'issued_at' => time() - WebAuthnService::CHALLENGE_TTL_SECONDS - 1,
+        ];
+        $_SESSION['webauthn_user_id'] = $this->userId;
+        $b64url = static fn(string $bytes): string => rtrim(strtr(base64_encode($bytes), '+/', '-_'), '=');
+        $authData = hash('sha256', 'localhost', true) . "\x45\x00\x00\x00\x00" . str_repeat("\x00", 16)
+            . "\x00\x01\x11" . "\xA1\x01\x02";
+
+        $response = $this->controller->passkeyRegister($this->makeJsonRequest(
+            [
+                'response' => [
+                    'clientDataJSON' => $b64url((string) json_encode([
+                        'type' => 'webauthn.create',
+                        'challenge' => $b64url($challenge),
+                        'origin' => 'https://localhost',
+                    ])),
+                    'attestationObject' => $b64url("\xA1\x68authData\x58" . chr(strlen($authData)) . $authData),
+                ],
+                'device_label' => 'Clé',
+            ],
+            ['HTTP_X_CSRF_TOKEN' => CsrfGuard::generateToken()]
+        ), []);
+
+        $this->assertSame(
+            ['success' => false, 'error' => 'Le délai est dépassé. Veuillez réessayer.'],
+            json_decode($response->getBody(), true)
+        );
+        $this->assertArrayNotHasKey('webauthn_challenge', $_SESSION);
+        $this->assertSame([], $this->webAuthnRepo->findByUserAccountId($this->userId));
+    }
+
     public function testRemovingAPasskeyAlertsTheHolder(): void
     {
         $id = $this->webAuthnRepo->create($this->userId, random_bytes(32), random_bytes(64), 'Clé USB bleue');

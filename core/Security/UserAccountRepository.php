@@ -606,6 +606,37 @@ class UserAccountRepository
     }
 
     /**
+     * The account's opaque WebAuthn user handle (32 bytes), or null while
+     * it has none — see WebAuthnService::userHandle(). Null too for an
+     * account that does not exist.
+     */
+    public function findWebAuthnUserHandle(int $id): ?string
+    {
+        $stmt = $this->pdo->prepare('SELECT webauthn_user_handle FROM user_accounts WHERE id = ?');
+        $stmt->execute([$id]);
+        $handle = $stmt->fetchColumn();
+
+        return is_string($handle) && $handle !== '' ? $handle : null;
+    }
+
+    /**
+     * Store $handle as the account's WebAuthn user handle unless it already
+     * has one, and return whichever is stored afterwards — so two requests
+     * racing to mint one agree on the first. Null when the account does not
+     * exist. A handle is never replaced: every passkey registered under it
+     * would be orphaned on its authenticator.
+     */
+    public function claimWebAuthnUserHandle(int $id, string $handle): ?string
+    {
+        $stmt = $this->pdo->prepare(
+            'UPDATE user_accounts SET webauthn_user_handle = ? WHERE id = ? AND webauthn_user_handle IS NULL'
+        );
+        $stmt->execute([$handle, $id]);
+
+        return $this->findWebAuthnUserHandle($id);
+    }
+
+    /**
      * Check if a user has a password set.
      */
     public function hasPassword(int $id): bool

@@ -220,6 +220,7 @@ class DatabaseTestHelper
             notification_discretion INTEGER NOT NULL DEFAULT 0,
             help_discovery_snoozed_until TEXT,
             push_invitation_dismissed_at TEXT,
+            webauthn_user_handle BLOB UNIQUE,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             last_login_at TEXT
         )');

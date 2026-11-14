@@ -8,6 +8,8 @@ declare(strict_types=1);
 
 namespace Core\Security;
 
+use Core\Config\AppClock;
+
 class WebAuthnService
 {
     /** authData flag bits (WebAuthn §6.1). */
@@ -29,6 +31,23 @@ class WebAuthnService
     private const COSE_RSA_N = -1;
     private const COSE_RSA_E = -2;
 
+    /**
+     * How long a challenge stays answerable, in seconds (issue #1131). The
+     * browser's own `timeout` (60 s, below) is a request to the client; this
+     * is the server's bound, generous enough for a slow authenticator or a
+     * PIN typed twice, short enough that a challenge left in a session is
+     * not a standing invitation.
+     */
+    public const CHALLENGE_TTL_SECONDS = 300;
+
+    /** Session keys of the two pending challenges. */
+    private const SESSION_REGISTRATION_CHALLENGE = 'webauthn_challenge';
+    private const SESSION_REGISTRATION_USER = 'webauthn_user_id';
+    private const SESSION_AUTHENTICATION_CHALLENGE = 'webauthn_auth_challenge';
+
+    /** Size of the opaque user handle, in bytes (the WebAuthn spec allows up to 64). */
+    private const USER_HANDLE_BYTES = 32;
+
     public function __construct(
         private WebAuthnCredentialRepository $credentialRepo,
         private UserAccountRepository $userAccountRepo,
@@ -41,7 +60,7 @@ class WebAuthnService
     /**
      * Generate registration options for a user.
      * Returns a JSON-serializable array to pass to navigator.credentials.create().
-     * Stores the challenge in the session for verification.
+     * Stores the challenge, with its issue time, in the session for verification.
      *
      * @return array<string, mixed>
      */
@@ -49,9 +68,8 @@ class WebAuthnService
     {
         $challenge = random_bytes(32);
 
-        // Store challenge in session for later verification
-        SessionStore::set('webauthn_challenge', base64_encode($challenge));
-        SessionStore::set('webauthn_user_id', $userAccountId);
+        $this->storeChallenge(self::SESSION_REGISTRATION_CHALLENGE, $challenge);
+        SessionStore::set(self::SESSION_REGISTRATION_USER, $userAccountId);
 
         // Get existing credentials to exclude
         $existingCredentials = $this->credentialRepo->findByUserAccountId($userAccountId);
@@ -68,7 +86,7 @@ class WebAuthnService
                 'id' => $this->rpId,
             ],
             'user' => [
-                'id' => $this->base64UrlEncode(str_pad((string) $userAccountId, 64, '0', STR_PAD_LEFT)),
+                'id' => $this->base64UrlEncode($this->userHandle($userAccountId)),
                 'name' => $userEmail,
                 'displayName' => $userEmail,
             ],
@@ -97,51 +115,43 @@ class WebAuthnService
      *
      * @param array<string, mixed> $clientResponse The response from navigator.credentials.create()
      * @return int Credential ID in the database
+     * @throws WebAuthnMalformedRequest if the response cannot be read at all
+     * @throws WebAuthnChallengeExpired if the challenge lapsed (or predates issue times)
      * @throws \RuntimeException if verification fails
      */
     public function verifyRegistration(int $userAccountId, array $clientResponse, string $deviceLabel): int
     {
-        // Retrieve stored challenge
-        $storedChallenge = SessionStore::get('webauthn_challenge');
-        $storedUserId = SessionStore::get('webauthn_user_id');
+        // Spent before anything is read: one challenge answers one attempt,
+        // whatever that attempt turns out to be.
+        $storedChallenge = SessionStore::get(self::SESSION_REGISTRATION_CHALLENGE);
+        $storedUserId = SessionStore::get(self::SESSION_REGISTRATION_USER);
+        SessionStore::remove(self::SESSION_REGISTRATION_CHALLENGE, self::SESSION_REGISTRATION_USER);
+
+        $response = $this->responseFields($clientResponse, ['clientDataJSON', 'attestationObject']);
+        $clientData = $this->decodeClientData($response['clientDataJSON']);
+        $authData = $this->parseAttestationAuthData($response['attestationObject']);
 
         if ($storedChallenge === null || $storedUserId !== $userAccountId) {
             throw new \RuntimeException('No pending registration challenge.');
         }
+        $challenge = $this->freshChallenge($storedChallenge);
 
-        // Clear used challenge
-        SessionStore::remove('webauthn_challenge', 'webauthn_user_id');
-
-        // Decode client response
-        $clientDataJSON = $this->base64UrlDecode($clientResponse['response']['clientDataJSON']);
-        $clientData = json_decode($clientDataJSON, true);
-
-        if ($clientData === null) {
-            throw new \RuntimeException('Invalid clientDataJSON.');
-        }
-
-        // Verify type
-        if (($clientData['type'] ?? '') !== 'webauthn.create') {
+        if ($clientData['type'] !== 'webauthn.create') {
             throw new \RuntimeException('Invalid response type.');
         }
-
-        // Verify challenge
-        $expectedChallenge = $this->base64UrlEncode(base64_decode($storedChallenge));
-        if (($clientData['challenge'] ?? '') !== $expectedChallenge) {
+        if (!hash_equals($this->base64UrlEncode($challenge), $clientData['challenge'])) {
             throw new \RuntimeException('Challenge mismatch.');
         }
-
-        // Verify origin
-        if (!$this->isOriginValid((string) ($clientData['origin'] ?? ''))) {
+        if (!$this->isOriginValid($clientData['origin'])) {
             throw new \RuntimeException('Origin mismatch.');
         }
 
-        // Decode attestation object
-        $attestationObject = $this->base64UrlDecode($clientResponse['response']['attestationObject']);
-        $authData = $this->parseAttestationAuthData($attestationObject);
-
-        if ($authData === null) {
-            throw new \RuntimeException('Failed to parse attestation data.');
+        // The credential must have been created for THIS relying party.
+        if (!hash_equals(hash('sha256', $this->rpId, true), $authData['rpIdHash'])) {
+            throw new \RuntimeException('Relying party mismatch.');
+        }
+        if ($authData['credentialId'] === null || $authData['publicKey'] === null) {
+            throw new \RuntimeException('No attested credential data.');
         }
 
         // The authenticator must report it actually verified the human,
@@ -152,15 +162,10 @@ class WebAuthnService
             throw new \RuntimeException('User verification required.');
         }
 
-        // Extract credential ID and public key from authData
-        $credentialId = $authData['credentialId'];
-        $publicKey = $authData['publicKey'];
-
-        // Store credential
         return $this->credentialRepo->create(
             $userAccountId,
-            $credentialId,
-            $publicKey,
+            $authData['credentialId'],
+            $authData['publicKey'],
             $deviceLabel
         );
     }
@@ -168,7 +173,7 @@ class WebAuthnService
     /**
      * Generate authentication options.
      * Uses discoverable credentials (no username needed).
-     * Stores the challenge in the session.
+     * Stores the challenge, with its issue time, in the session.
      *
      * @return array<string, mixed>
      */
@@ -176,7 +181,7 @@ class WebAuthnService
     {
         $challenge = random_bytes(32);
 
-        SessionStore::set('webauthn_auth_challenge', base64_encode($challenge));
+        $this->storeChallenge(self::SESSION_AUTHENTICATION_CHALLENGE, $challenge);
 
         return [
             'challenge' => $this->base64UrlEncode($challenge),
@@ -190,71 +195,65 @@ class WebAuthnService
     /**
      * Verify an authentication response.
      *
+     * The credential is found by its rawId; the userHandle the browser
+     * also returns is never read. That is what lets the opaque handle of
+     * issue #1131 replace the old id-derived one without touching a
+     * single stored passkey: a key registered under the old handle still
+     * signs in.
+     *
      * @param array<string, mixed> $clientResponse The response from navigator.credentials.get()
      * @return UserAccount|null The authenticated user, or null if invalid
+     * @throws WebAuthnMalformedRequest if the response cannot be read at all
+     * @throws WebAuthnChallengeExpired if the challenge lapsed (or predates issue times)
      */
     public function verifyAuthentication(array $clientResponse): ?UserAccount
     {
-        $storedChallenge = SessionStore::get('webauthn_auth_challenge');
+        $storedChallenge = SessionStore::get(self::SESSION_AUTHENTICATION_CHALLENGE);
+        SessionStore::remove(self::SESSION_AUTHENTICATION_CHALLENGE);
+
+        $credentialIdRaw = $this->decodeBase64UrlField($clientResponse['rawId'] ?? null, 'rawId');
+        $response = $this->responseFields($clientResponse, ['clientDataJSON', 'authenticatorData', 'signature']);
+        $clientData = $this->decodeClientData($response['clientDataJSON']);
+        $authenticatorData = $response['authenticatorData'];
+        // 32 bytes rpIdHash | 1 byte flags | 4 bytes signCount, as in authData.
+        if (strlen($authenticatorData) < 37) {
+            throw new WebAuthnMalformedRequest('authenticatorData is truncated.');
+        }
 
         if ($storedChallenge === null) {
             return null;
         }
+        $challenge = $this->freshChallenge($storedChallenge);
 
-        SessionStore::remove('webauthn_auth_challenge');
-
-        // Find credential by ID
-        $credentialIdRaw = $this->base64UrlDecode($clientResponse['rawId'] ?? '');
         $credential = $this->credentialRepo->findByCredentialId($credentialIdRaw);
-
         if ($credential === null) {
             return null;
         }
 
-        // Decode client response
-        $clientDataJSON = $this->base64UrlDecode($clientResponse['response']['clientDataJSON'] ?? '');
-        $clientData = json_decode($clientDataJSON, true);
-
-        if ($clientData === null) {
+        if ($clientData['type'] !== 'webauthn.get') {
             return null;
         }
-
-        // Verify type
-        if (($clientData['type'] ?? '') !== 'webauthn.get') {
+        if (!hash_equals($this->base64UrlEncode($challenge), $clientData['challenge'])) {
             return null;
         }
-
-        // Verify challenge
-        $expectedChallenge = $this->base64UrlEncode(base64_decode($storedChallenge));
-        if (($clientData['challenge'] ?? '') !== $expectedChallenge) {
+        if (!$this->isOriginValid($clientData['origin'])) {
             return null;
         }
-
-        // Verify origin
-        if (!$this->isOriginValid((string) ($clientData['origin'] ?? ''))) {
-            return null;
-        }
-
-        // Verify signature using public key
-        $authenticatorData = $this->base64UrlDecode($clientResponse['response']['authenticatorData'] ?? '');
-        $signature = $this->base64UrlDecode($clientResponse['response']['signature'] ?? '');
 
         // The assertion must be for this relying party, and must carry
         // real user verification — never presence alone.
-        if (strlen($authenticatorData) < 37
-            || !hash_equals(hash('sha256', $this->rpId, true), substr($authenticatorData, 0, 32))
-        ) {
+        if (!hash_equals(hash('sha256', $this->rpId, true), substr($authenticatorData, 0, 32))) {
             return null;
         }
         if (!$this->hasUserVerification($authenticatorData)) {
             return null;
         }
 
-        $clientDataHash = hash('sha256', $clientDataJSON, true);
+        $clientDataHash = hash('sha256', $clientData['json'], true);
         $signedData = $authenticatorData . $clientDataHash;
 
         $publicKey = $credential['public_key'];
-        $verified = $this->verifySignature($signedData, $signature, $publicKey);
+        $verified = $this->verifySignature($signedData, $response['signature'], $publicKey);
 
         if (!$verified) {
             return null;
@@ -278,21 +277,130 @@ class WebAuthnService
     }
 
     /**
-     * Pull the authenticator data out of a CBOR attestation object and
-     * split out the credential it attests to.
+     * The account's WebAuthn user handle (`user.id`, issue #1131): 32
+     * random bytes, minted the first time the account registers a passkey
+     * and reused for every later one, so an authenticator keeps one entry
+     * per account. It used to be the sequential account id, zero-padded —
+     * which put the account's position in the table, and the size of the
+     * unit, on every authenticator and in every synced passkey export.
      *
-     * @return array{credentialId: string, publicKey: string, flags: int}|null
+     * Two option requests racing for an account without one both end up
+     * with whichever handle was stored first.
      */
-    private function parseAttestationAuthData(string $attestationObject): ?array
+    private function userHandle(int $userAccountId): string
+    {
+        $handle = $this->userAccountRepo->findWebAuthnUserHandle($userAccountId)
+            ?? $this->userAccountRepo->claimWebAuthnUserHandle($userAccountId, random_bytes(self::USER_HANDLE_BYTES));
+        if ($handle === null) {
+            throw new \RuntimeException('No such account.');
+        }
+
+        return $handle;
+    }
+
+    private function storeChallenge(string $key, string $challenge): void
+    {
+        SessionStore::set($key, [
+            'challenge' => base64_encode($challenge),
+            'issued_at' => AppClock::now()->getTimestamp(),
+        ]);
+    }
+
+    /**
+     * The raw bytes of a stored challenge that is still answerable.
+     *
+     * A challenge without its issue time — stored before issue #1131, as a
+     * bare string — cannot be dated, so it is treated as lapsed rather
+     * than trusted for the rest of the session.
+     *
+     * @throws WebAuthnChallengeExpired
+     */
+    private function freshChallenge(mixed $stored): string
+    {
+        if (!is_array($stored) || !is_string($stored['challenge'] ?? null) || !is_int($stored['issued_at'] ?? null)) {
+            throw new WebAuthnChallengeExpired();
+        }
+        if (AppClock::now()->getTimestamp() - $stored['issued_at'] > self::CHALLENGE_TTL_SECONDS) {
+            throw new WebAuthnChallengeExpired();
+        }
+        $challenge = base64_decode($stored['challenge'], true);
+        if ($challenge === false || $challenge === '') {
+            throw new WebAuthnChallengeExpired();
+        }
+
+        return $challenge;
+    }
+
+    /**
+     * The decoded bytes of `response.<field>` for each named field.
+     *
+     * @param array<string, mixed> $clientResponse
+     * @param list<string> $fields
+     * @return array<string, string>
+     * @throws WebAuthnMalformedRequest
+     */
+    private function responseFields(array $clientResponse, array $fields): array
+    {
+        $response = $clientResponse['response'] ?? null;
+        if (!is_array($response)) {
+            throw new WebAuthnMalformedRequest('response is not an object.');
+        }
+
+        $decoded = [];
+        foreach ($fields as $field) {
+            $decoded[$field] = $this->decodeBase64UrlField($response[$field] ?? null, 'response.' . $field);
+        }
+
+        return $decoded;
+    }
+
+    /**
+     * clientDataJSON, decoded: a JSON object whose type, challenge and
+     * origin are strings, plus the exact bytes the signature covers.
+     *
+     * @return array{type: string, challenge: string, origin: string, json: string}
+     * @throws WebAuthnMalformedRequest
+     */
+    private function decodeClientData(string $clientDataJSON): array
+    {
+        $clientData = json_decode($clientDataJSON, true);
+        if (!is_array($clientData)) {
+            throw new WebAuthnMalformedRequest('clientDataJSON is not a JSON object.');
+        }
+        foreach (['type', 'challenge', 'origin'] as $key) {
+            if (!is_string($clientData[$key] ?? null)) {
+                throw new WebAuthnMalformedRequest('clientDataJSON.' . $key . ' is not a string.');
+            }
+        }
+
+        return [
+            'type' => $clientData['type'],
+            'challenge' => $clientData['challenge'],
+            'origin' => $clientData['origin'],
+            'json' => $clientDataJSON,
+        ];
+    }
+
+    /**
+     * Pull the authenticator data out of a CBOR attestation object and
+     * split out the credential it attests to. Only the structure is
+     * checked here; what it says (which relying party, which flags) is
+     * the caller's to judge. credentialId and publicKey are null when the
+     * AT flag is not set — there is then nothing to read.
+     *
+     * @return array{rpIdHash: string, flags: int, credentialId: ?string, publicKey: ?string}
+     * @throws WebAuthnMalformedRequest
+     */
+    private function parseAttestationAuthData(string $attestationObject): array
     {
         try {
             [$decoded] = CborDecoder::decodeFirst($attestationObject);
         } catch (\RuntimeException) {
-            return null;
+            throw new WebAuthnMalformedRequest('attestationObject is not valid CBOR.');
         }
 
         if (!is_array($decoded) || !isset($decoded['authData']) || !is_string($decoded['authData'])) {
-            return null;
+            throw new WebAuthnMalformedRequest('attestationObject carries no authData.');
         }
 
         $authData = $decoded['authData'];
@@ -302,29 +410,25 @@ class WebAuthnService
         //   then, when the AT flag is set, attested credential data:
         //   16 bytes AAGUID | 2 bytes credentialIdLength | credentialId | COSE key
         if (strlen($authData) < 37) {
-            return null;
+            throw new WebAuthnMalformedRequest('authData is truncated.');
         }
 
-        // The credential must have been created for THIS relying party.
-        if (!hash_equals(hash('sha256', $this->rpId, true), substr($authData, 0, 32))) {
-            return null;
-        }
-
+        $rpIdHash = substr($authData, 0, 32);
         $flags = ord($authData[32]);
         if (($flags & self::FLAG_ATTESTED_CREDENTIAL_DATA) === 0) {
-            return null;
+            return ['rpIdHash' => $rpIdHash, 'flags' => $flags, 'credentialId' => null, 'publicKey' => null];
         }
 
         $offset = 37 + 16; // skip AAGUID
         if (strlen($authData) < $offset + 2) {
-            return null;
+            throw new WebAuthnMalformedRequest('Attested credential data is truncated.');
         }
 
         $credIdLen = (ord($authData[$offset]) << 8) | ord($authData[$offset + 1]);
         $offset += 2;
 
         if ($credIdLen === 0 || strlen($authData) < $offset + $credIdLen) {
-            return null;
+            throw new WebAuthnMalformedRequest('Credential id is empty or truncated.');
         }
 
         $credentialId = substr($authData, $offset, $credIdLen);
@@ -335,23 +439,23 @@ class WebAuthnService
         // authData can also carry an extensions map.
         $publicKey = substr($authData, $offset);
         if ($publicKey === '') {
-            return null;
+            throw new WebAuthnMalformedRequest('Credential public key is missing.');
         }
 
         try {
             [$coseKey, $consumed] = CborDecoder::decodeFirst($publicKey);
         } catch (\RuntimeException) {
-            return null;
+            throw new WebAuthnMalformedRequest('Credential public key is not valid CBOR.');
         }
         if (!is_array($coseKey)) {
-            return null;
+            throw new WebAuthnMalformedRequest('Credential public key is not a COSE map.');
         }
-        $publicKey = substr($publicKey, 0, $consumed);
 
         return [
-            'credentialId' => $credentialId,
-            'publicKey' => $publicKey,
+            'rpIdHash' => $rpIdHash,
             'flags' => $flags,
+            'credentialId' => $credentialId,
+            'publicKey' => substr($publicKey, 0, $consumed),
         ];
     }
 
@@ -555,36 +659,78 @@ class WebAuthnService
     }
 
     /**
-     * Validate the client-supplied origin.
+     * Validate the client-supplied origin (issue #1131).
      *
-     * Accepts an exact match with the configured rpOrigin, or — more robustly —
-     * any origin whose host equals the rpId (case-insensitive). This tolerates
-     * scheme/port differences between the configured base_url and the actual
-     * host the site is served from (e.g. http://localhost:8000 in development
-     * versus an https base_url). For non-local hosts, https is still required so
-     * a real domain cannot be downgraded.
+     * Both the origin and the configured base_url (rpOrigin) are reduced
+     * to scheme://host[:port] — scheme and host lower-cased, path, query
+     * and trailing slash dropped, the port omitted when it is the scheme's
+     * default — and must then be equal. Two exceptions, and only two:
+     *
+     *  - a base_url typed with http:// also accepts https://<rpId> on the
+     *    default port, since browsers only offer passkeys over https and a
+     *    base_url missing its "s" must not lock the site out of them;
+     *  - when rpId is localhost or 127.0.0.1 (development), that same host
+     *    is accepted on any port, over http or https.
+     *
+     * Any other port, scheme or host is refused, and so is an origin that
+     * does not parse as one. It used to accept any https origin whose host
+     * matched, on any port — another service on the same host, on another
+     * port, could then collect assertions for this site.
      */
     private function isOriginValid(string $origin): bool
     {
-        if ($origin === '') {
+        $presented = self::normalizeOrigin($origin);
+        if ($presented === null) {
             return false;
         }
-        if ($origin === $this->rpOrigin) {
+
+        $expected = self::normalizeOrigin($this->rpOrigin);
+        if ($expected !== null && $presented['origin'] === $expected['origin']) {
             return true;
         }
 
-        $host = parse_url($origin, PHP_URL_HOST);
-        $scheme = parse_url($origin, PHP_URL_SCHEME);
-        if (!is_string($host) || $host === '') {
-            return false;
-        }
-        if (strcasecmp($host, $this->rpId) !== 0) {
-            return false;
+        $rpHost = strtolower($this->rpId);
+        if ($expected !== null && $expected['scheme'] === 'http'
+            && $presented['origin'] === 'https://' . $rpHost
+        ) {
+            return true;
         }
 
-        $isLocal = in_array(strtolower($host), ['localhost', '127.0.0.1'], true);
+        return in_array($rpHost, ['localhost', '127.0.0.1'], true) && $presented['host'] === $rpHost;
+    }
 
-        return $isLocal || $scheme === 'https';
+    /**
+     * scheme://host[:port] of an http(s) URL, or null when it is not one.
+     *
+     * @return array{origin: string, scheme: string, host: string}|null
+     */
+    private static function normalizeOrigin(string $url): ?array
+    {
+        $parts = parse_url(trim($url));
+        if (!is_array($parts) || isset($parts['user']) || isset($parts['pass'])) {
+            return null;
+        }
+        $scheme = strtolower((string) ($parts['scheme'] ?? ''));
+        $host = strtolower((string) ($parts['host'] ?? ''));
+        $defaultPort = match ($scheme) {
+            'https' => 443,
+            'http' => 80,
+            default => null,
+        };
+        if ($defaultPort === null || $host === '') {
+            return null;
+        }
+
+        $port = $parts['port'] ?? $defaultPort;
+        if ($port < 1) {
+            return null;
+        }
+
+        return [
+            'origin' => $scheme . '://' . $host . ($port === $defaultPort ? '' : ':' . $port),
+            'scheme' => $scheme,
+            'host' => $host,
+        ];
     }
 
     private function base64UrlEncode(string $data): string
@@ -592,13 +738,28 @@ class WebAuthnService
         return rtrim(strtr(base64_encode($data), '+/', '-_'), '=');
     }
 
-    private function base64UrlDecode(string $data): string
+    /**
+     * Decode a base64url field of the client's response — the plain
+     * base64 alphabet and padding are tolerated, nothing else is. An
+     * absent, non-string, empty or undecodable value is a malformed
+     * request.
+     *
+     * @throws WebAuthnMalformedRequest
+     */
+    private function decodeBase64UrlField(mixed $value, string $field): string
     {
-        $padded = str_pad(
-            strtr($data, '-_', '+/'),
-            strlen($data) % 4 === 0 ? strlen($data) : strlen($data) + (4 - strlen($data) % 4),
-            '='
-        );
-        return base64_decode($padded, true) ?: '';
+        if (!is_string($value) || preg_match('/^[A-Za-z0-9_\-+\/]+={0,2}$/', $value) !== 1) {
+            throw new WebAuthnMalformedRequest($field . ' is not a base64url string.');
+        }
+
+        $data = rtrim(strtr($value, '-_', '+/'), '=');
+        $decoded = strlen($data) % 4 === 1
+            ? false
+            : base64_decode(str_pad($data, strlen($data) + (4 - strlen($data) % 4) % 4, '='), true);
+        if ($decoded === false || $decoded === '') {
+            throw new WebAuthnMalformedRequest($field . ' is not valid base64url.');
+        }
+
+        return $decoded;
     }
 }

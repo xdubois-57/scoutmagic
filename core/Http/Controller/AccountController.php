@@ -22,7 +22,9 @@ use Core\Security\PasswordPolicy;
 use Core\Security\ProfileCompletionGate;
 use Core\Security\RecentAuthentication;
 use Core\Security\UserAccountRepository;
+use Core\Security\WebAuthnChallengeExpired;
 use Core\Security\WebAuthnCredentialRepository;
+use Core\Security\WebAuthnMalformedRequest;
 use Core\Security\WebAuthnService;
 use Core\Signature\PersonalSignatureService;
 use Twig\Environment;
@@ -355,24 +357,34 @@ class AccountController extends AbstractController
             return $this->json(RecentAuthentication::jsonRefusal('/account'), 403);
         }
 
+        // A body that cannot be read is a 400, never a 500 (issue #1131).
         $body = json_decode((string) $request->getRawBody(), true);
         if (!is_array($body)) {
-            return $this->json(['success' => false, 'error' => 'Données invalides.']);
+            return $this->malformedPasskeyRequest();
         }
 
         // CSRF: the client sends the token in the X-CSRF-Token header (fallback to body).
-        $csrfToken = (string) ($request->getServer('HTTP_X_CSRF_TOKEN', '') ?: ($body['_csrf_token'] ?? ''));
+        $bodyToken = is_string($body['_csrf_token'] ?? null) ? $body['_csrf_token'] : '';
+        $csrfToken = (string) ($request->getServer('HTTP_X_CSRF_TOKEN', '') ?: $bodyToken);
         if (($guard = $this->guardCsrfJson($request, $csrfToken)) !== null) {
             return $guard;
         }
 
-        $deviceLabel = trim((string) ($body['device_label'] ?? 'Clé sans nom'));
+        $deviceLabel = $body['device_label'] ?? 'Clé sans nom';
+        if (!is_string($deviceLabel)) {
+            return $this->malformedPasskeyRequest();
+        }
+        $deviceLabel = trim($deviceLabel);
         if ($deviceLabel === '') {
             $deviceLabel = 'Clé sans nom';
         }
 
         try {
             $credentialId = $this->webAuthnService->verifyRegistration($userId, $body, $deviceLabel);
+        } catch (WebAuthnMalformedRequest) {
+            return $this->malformedPasskeyRequest();
+        } catch (WebAuthnChallengeExpired) {
+            return $this->json(['success' => false, 'error' => WebAuthnChallengeExpired::USER_MESSAGE]);
         } catch (\RuntimeException $e) {
             return $this->json(['success' => false, 'error' => 'L\'enregistrement a échoué.']);
         }
@@ -380,6 +392,11 @@ class AccountController extends AbstractController
         $this->securityAlerts?->report($userId, AccountSecurityChange::PasskeyAdded, $credentialId, $deviceLabel);
 
         return $this->json(['success' => true]);
+    }
+
+    private function malformedPasskeyRequest(): Response
+    {
+        return $this->json(['success' => false, 'error' => WebAuthnMalformedRequest::USER_MESSAGE], 400);
     }
 
     /**

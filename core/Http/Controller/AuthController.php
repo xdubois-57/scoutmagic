@@ -32,6 +32,8 @@ use Core\Security\RecentAuthentication;
 use Core\Security\Role;
 use Core\Security\RoleResolver;
 use Core\Security\SessionGeneration;
+use Core\Security\WebAuthnChallengeExpired;
+use Core\Security\WebAuthnMalformedRequest;
 use Core\Security\WebAuthnService;
 use Twig\Environment;
 
@@ -526,9 +528,10 @@ class AuthController extends AbstractController
             return $this->json(['success' => false, 'error' => 'Méthode non disponible.']);
         }
 
+        // A body that cannot be read is a 400, never a 500 (issue #1131).
         $body = json_decode((string) $request->getRawBody(), true);
         if (!is_array($body)) {
-            return $this->json(['success' => false, 'error' => 'Données invalides.']);
+            return $this->json(['success' => false, 'error' => WebAuthnMalformedRequest::USER_MESSAGE], 400);
         }
 
         if (!$this->hasRgpdConsent($request, $body)) {
@@ -536,7 +539,13 @@ class AuthController extends AbstractController
                 . 'données pour vous connecter.']);
         }
 
-        $account = $this->webAuthnService->verifyAuthentication($body);
+        try {
+            $account = $this->webAuthnService->verifyAuthentication($body);
+        } catch (WebAuthnMalformedRequest) {
+            return $this->json(['success' => false, 'error' => WebAuthnMalformedRequest::USER_MESSAGE], 400);
+        } catch (WebAuthnChallengeExpired) {
+            return $this->json(['success' => false, 'error' => WebAuthnChallengeExpired::USER_MESSAGE]);
+        }
 
         if ($account === null) {
             return $this->json(['success' => false, 'error' => 'L\'authentification a échoué.']);
