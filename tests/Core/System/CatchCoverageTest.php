@@ -156,6 +156,29 @@ final class CatchCoverageTest extends TestCase
         $this->assertSame('', $catches[1]['marker'], 'a marker with no reason is recorded as such');
     }
 
+    public function testAMarkerInANestedCatchNamesThatCatchAloneNotTheOneEnclosingIt(): void
+    {
+        $catches = \catchCoverageScan(<<<'PHP'
+            <?php
+            try {
+                a();
+            } catch (OuterException $e) {
+                try {
+                    // @catch-unreachable Not this try's catch either.
+                    b();
+                } catch (InnerException $f) {
+                    // @catch-unreachable Inner only: row just read.
+                    return null;
+                }
+                return fail();
+            }
+            PHP);
+
+        $this->assertSame([4, 8], array_column($catches, 'line'));
+        $this->assertNull($catches[0]['marker'], 'the outer catch carries no marker of its own');
+        $this->assertSame('Inner only: row just read.', $catches[1]['marker']);
+    }
+
     public function testExecutedIsReadOnTheFirstExecutableBodyLine(): void
     {
         $catch = ['line' => 4, 'bodyLines' => [6, 7], 'empty' => false, 'marker' => null];

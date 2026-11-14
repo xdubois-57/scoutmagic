@@ -207,7 +207,9 @@ function catchCoverageScan(string $source): array
             }
             if ($token->id === T_COMMENT || $token->id === T_DOC_COMMENT) {
                 $pattern = '/' . preg_quote(CATCH_COVERAGE_MARKER, '/') . '(.*)/';
-                if ($marker === null && preg_match($pattern, $token->text, $m) === 1) {
+                // Only at the body's own depth: a marker inside a nested try or
+                // catch names that block, never the one enclosing it.
+                if ($marker === null && $depth === 1 && preg_match($pattern, $token->text, $m) === 1) {
                     $marker = trim(rtrim(trim($m[1]), '*/'));
                 }
                 continue;
