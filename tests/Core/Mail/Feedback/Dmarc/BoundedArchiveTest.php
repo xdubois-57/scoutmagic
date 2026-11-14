@@ -126,4 +126,60 @@ class BoundedArchiveTest extends TestCase
             $this->archive->membersOf(str_repeat('a', BoundedArchive::MAX_ENTRY_BYTES + 1), 'application/xml')
         );
     }
+
+    /**
+     * **A ZIP whose header lies about a member's size yields nothing — not
+     * the members read before it.** The declared sizes pass the check at
+     * opening; only the measured read finds that « rapport-2.xml »
+     * expands past the ceiling. A partial list would hand the parser the
+     * first report of an archive that is, as a whole, a forgery.
+     *
+     * Both halves, the second member being the only difference.
+     */
+    public function testAZipWhoseForgedSizeIsCaughtOnReadingYieldsNothingAtAll(): void
+    {
+        $first = '<?xml version="1.0"?><feedback><report_metadata/></feedback>';
+        $second = '<?xml version="1.0"?><feedback/>';
+
+        $this->assertSame(
+            [$first, $second],
+            $this->archive->membersOf($this->zipOf($first, $second), 'application/zip'),
+            'The premise: an honest archive of two reports is read whole.'
+        );
+
+        $this->assertSame(
+            [],
+            $this->archive->membersOf(
+                $this->zipOf($first, str_repeat("\0", BoundedArchive::MAX_ENTRY_BYTES + 1024), 100),
+                'application/zip'
+            ),
+            'A member caught lying on reading voids the whole archive.'
+        );
+    }
+
+    /**
+     * Two members, the second one's uncompressed size rewritten to
+     * `$declaredSize` in both its local header and the central directory
+     * when one is given.
+     */
+    private function zipOf(string $first, string $second, ?int $declaredSize = null): string
+    {
+        $path = sys_get_temp_dir() . '/dmarc_' . bin2hex(random_bytes(6)) . '.zip';
+        $zip = new \ZipArchive();
+        $zip->open($path, \ZipArchive::CREATE);
+        $zip->addFromString('rapport-1.xml', $first);
+        $zip->addFromString('rapport-2.xml', $second);
+        $zip->close();
+        $raw = (string) file_get_contents($path);
+        unlink($path);
+
+        if ($declaredSize !== null) {
+            $local = (int) strpos($raw, "PK\x03\x04", (int) strpos($raw, "PK\x03\x04") + 4);
+            $central = (int) strpos($raw, "PK\x01\x02", (int) strpos($raw, "PK\x01\x02") + 4);
+            $raw = substr_replace($raw, pack('V', $declaredSize), $local + 22, 4);
+            $raw = substr_replace($raw, pack('V', $declaredSize), $central + 24, 4);
+        }
+
+        return $raw;
+    }
 }

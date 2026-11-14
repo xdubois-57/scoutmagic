@@ -93,6 +93,33 @@ class DeferredMailQueueTest extends TestCase
     }
 
     /**
+     * **A queue that cannot be written to says so: `false`, and the
+     * caller's failure stands.** Answering `true` would report a deferral
+     * that never happened — the sender told a message will be retried
+     * when it exists nowhere. Both halves, the trigger being the only
+     * difference.
+     */
+    public function testAQueueThatRefusesTheWriteDoesNotClaimToHaveDeferred(): void
+    {
+        $this->pdo->exec(
+            'CREATE TRIGGER refuse_deferrals BEFORE INSERT ON mail_deferred_messages
+             BEGIN SELECT RAISE(FAIL, \'file indisponible\'); END'
+        );
+
+        $this->assertFalse(
+            $this->queue->defer(MailLane::Transactional, MailPurpose::Ordinary, $this->payload(), 'quota épuisé'),
+            'Nothing was queued, so nothing may be said to have been.'
+        );
+        $this->assertSame([], $this->repository->pendingCountByLane());
+
+        $this->pdo->exec('DROP TRIGGER refuse_deferrals');
+        $this->assertTrue(
+            $this->queue->defer(MailLane::Transactional, MailPurpose::Ordinary, $this->payload(), 'quota épuisé')
+        );
+        $this->assertSame(['transactional' => 1], $this->repository->pendingCountByLane());
+    }
+
+    /**
      * What the queue holds is the CALL, and it survives the round trip
      * intact — including an attachment, whose bytes are carried because
      * its path will not exist tomorrow.

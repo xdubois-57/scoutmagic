@@ -72,6 +72,30 @@ class DnsCheckMemoryTest extends TestCase
         $this->assertTrue($memory->state(DnsCheckMemory::SPF));
     }
 
+    /**
+     * **A stored reading that is not JSON is « jamais vérifié », never an
+     * error page.** The dashboard, the Authentification sub-page and the
+     * support package all read this memory; a value cut short or edited
+     * by hand must cost them the line and nothing more.
+     *
+     * Both halves, the closing brace being the only difference, so the
+     * null is the unreadable value's and not a reading this class never
+     * keeps.
+     */
+    public function testAStoredReadingThatIsNotJsonIsNoReading(): void
+    {
+        $this->remember();
+        $whole = (string) $this->settings->get(DnsCheckMemory::SETTING_KEY);
+        $this->assertNotNull(DnsCheckMemory::read($this->settings), 'The premise: the whole value is read.');
+
+        $this->settings->setInternal(DnsCheckMemory::SETTING_KEY, substr($whole, 0, -1));
+
+        $this->assertNull(
+            DnsCheckMemory::read($this->settings),
+            'A truncated value reads as « jamais vérifié ».'
+        );
+    }
+
     private function remember(): void
     {
         DnsCheckMemory::remember(

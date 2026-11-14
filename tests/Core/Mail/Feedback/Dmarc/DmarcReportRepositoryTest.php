@@ -349,6 +349,50 @@ class DmarcReportRepositoryTest extends TestCase
     }
 
     /**
+     * **The race itself: the lookup said « absent » and the index says
+     * otherwise.** The test above never reaches the race branch —
+     * `alreadyHave()` answers first. Here a trigger plays the second sync,
+     * inserting the same report the instant before this one does, so the
+     * real unique index refuses the real insert and the driver's own code
+     * is what `isDuplicateKey()` reads.
+     *
+     * The loser's side is what is pinned: `false` and no exception, none
+     * of its lines written, and no transaction left open for the next
+     * report of the same sync to fail on. (The rival's row lives inside
+     * the refused statement here, so it is undone with it; a real rival
+     * commits its own.)
+     */
+    public function testLosingTheRaceOnTheUniqueIndexAnswersFalseAndLeavesNoTransactionOpen(): void
+    {
+        $this->pdo->exec(
+            'CREATE TRIGGER rival_sync BEFORE INSERT ON mail_dmarc_reports
+             BEGIN
+                 INSERT INTO mail_dmarc_reports
+                     (organisation, report_id, domain, period_begin, period_end, policy, received_at)
+                 VALUES (NEW.organisation, NEW.report_id, NEW.domain, NEW.period_begin, NEW.period_end,
+                     NEW.policy, NEW.received_at);
+             END'
+        );
+
+        $this->assertFalse(
+            $this->reports->record($this->report(), new \DateTimeImmutable()),
+            'A report the index already holds is « déjà là », not a failure.'
+        );
+        $this->assertFalse($this->pdo->inTransaction(), 'The losing write is rolled back, not left open.');
+        $this->assertSame(
+            0,
+            (int) $this->pdo->query('SELECT COUNT(*) FROM mail_dmarc_sources')->fetchColumn(),
+            'the loser wrote none of its lines.'
+        );
+
+        $this->pdo->exec('DROP TRIGGER rival_sync');
+        $this->assertTrue(
+            $this->reports->record($this->report('r-2'), new \DateTimeImmutable()),
+            'The next report of the same sync is written on the same connection.'
+        );
+    }
+
+    /**
      * The totals come from the database over every row, never from the
      * capped lists a screen draws.
      */
