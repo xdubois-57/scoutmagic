@@ -34,6 +34,7 @@ class UserAccountRepositoryTest extends TestCase
                 sessions_valid_from DATETIME,
                 is_super_admin BOOLEAN NOT NULL DEFAULT 0,
                 is_active BOOLEAN NOT NULL DEFAULT 1,
+                webauthn_user_handle BLOB UNIQUE,
                 created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 last_login_at DATETIME
             )
@@ -334,5 +335,23 @@ class UserAccountRepositoryTest extends TestCase
 
         $this->assertTrue($account->isActive);
         $this->assertTrue($this->repo->findByEmail('someone@test.com')?->isActive);
+    }
+
+    public function testAWebAuthnUserHandleIsClaimedOnceAndNeverReplaced(): void
+    {
+        $account = $this->repo->create('passkey@test.com');
+        $this->assertNull($this->repo->findWebAuthnUserHandle($account->id));
+
+        $first = random_bytes(32);
+        $this->assertSame($first, $this->repo->claimWebAuthnUserHandle($account->id, $first));
+        // A second claim — a racing request — gets the stored one back.
+        $this->assertSame($first, $this->repo->claimWebAuthnUserHandle($account->id, random_bytes(32)));
+        $this->assertSame($first, $this->repo->findWebAuthnUserHandle($account->id));
+    }
+
+    public function testNoWebAuthnUserHandleForAnAccountThatDoesNotExist(): void
+    {
+        $this->assertNull($this->repo->claimWebAuthnUserHandle(999, random_bytes(32)));
+        $this->assertNull($this->repo->findWebAuthnUserHandle(999));
     }
 }

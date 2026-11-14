@@ -94,9 +94,20 @@ CREATE TABLE user_accounts (
     -- which is the value of every row predating this column, so adding it
     -- offers the invitation to everybody rather than to nobody.
     push_invitation_dismissed_at DATETIME,
+    -- The account's WebAuthn user handle (`user.id` of every passkey it
+    -- registers, issue #1131): 32 random bytes minted by
+    -- Core\Security\WebAuthnService the first time the account asks to
+    -- register a passkey, then reused for each later one. Opaque on
+    -- purpose — it used to be the sequential id, zero-padded, which every
+    -- authenticator and passkey export then carried. NULL until then,
+    -- which is every row predating this column; passkeys registered under
+    -- the old handle keep working, since a login finds its key by
+    -- credential id and never reads the handle.
+    webauthn_user_handle BINARY(32),
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     last_login_at DATETIME,
-    UNIQUE INDEX idx_email_blind (email_blind_index)
+    UNIQUE INDEX idx_email_blind (email_blind_index),
+    UNIQUE INDEX idx_webauthn_user_handle (webauthn_user_handle)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE magic_links (
