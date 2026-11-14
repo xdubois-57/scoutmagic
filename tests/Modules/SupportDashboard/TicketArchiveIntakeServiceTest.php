@@ -238,6 +238,37 @@ class TicketArchiveIntakeServiceTest extends TestCase
         $this->assertTrue($this->receive('PK-des-octets-darchive')->accepted);
     }
 
+    /**
+     * Two uploads for one ticket can both read « no archive yet » before
+     * either attaches. The second is read again under the storage lock:
+     * it finds the archive attached, stores no second file and leaves the
+     * ticket pointing at the first — no orphan on disk.
+     */
+    public function testAnArchiveAttachedWhileThisOneWaitedIsNotStoredTwice(): void
+    {
+        $ticketId = (int) ($this->tickets->findByReference($this->reference)['id'] ?? 0);
+        $this->pdo->exec(
+            "INSERT INTO files (relative_path, original_name, mime_type, size_bytes, role_min)
+             VALUES ('support-tickets/premiere.zip', 'support.zip', 'application/zip', 10, 'superadmin')"
+        );
+        $firstFileId = (int) $this->pdo->lastInsertId();
+        $this->tickets->attachArchive($ticketId, $firstFileId);
+
+        $service = new TicketArchiveIntakeService(
+            new SupportInstallationRepository($this->pdo),
+            new StaleFirstReadTicketRepository($this->pdo, $this->encryption),
+            new EncryptedFileStorageService($this->files, $this->encryption, $this->storagePath),
+            new JournalService(new JournalRepository($this->pdo)),
+            $this->guard()
+        );
+
+        $result = $service->receive($this->reference, 'PK-second', 'Bearer ' . self::SECRET, '203.0.113.1', true);
+
+        $this->assertTrue($result->accepted);
+        $this->assertSame(1, $this->countFiles());
+        $this->assertSame($firstFileId, $this->tickets->findByReference($this->reference)['archive_file_id'] ?? null);
+    }
+
     /** Past the per-address limit the body is not even looked at. */
     public function testPastTheAddressLimitTheArchiveIsRefusedBeforeAnything(): void
     {
@@ -303,5 +334,26 @@ class TicketArchiveIntakeServiceTest extends TestCase
             )->fetchAll(\PDO::FETCH_ASSOC),
             'event_type'
         );
+    }
+}
+
+/**
+ * Answers its FIRST read as the ticket was before another upload attached
+ * its archive — the read the intake makes before taking the storage lock —
+ * and every later read as it is.
+ */
+final class StaleFirstReadTicketRepository extends SupportTicketRepository
+{
+    private bool $served = false;
+
+    public function findByReference(string $reference): ?array
+    {
+        $ticket = parent::findByReference($reference);
+        if (!$this->served && $ticket !== null) {
+            $this->served = true;
+            $ticket['archive_file_id'] = null;
+        }
+
+        return $ticket;
     }
 }

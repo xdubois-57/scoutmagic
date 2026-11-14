@@ -388,10 +388,17 @@ class SupportDashboardControllerTest extends TestCase
         AuthSession::login(1, 'superadmin@test.com', 'superadmin');
         $this->pdo->exec('UPDATE support_installations SET established = 0');
 
-        $response = $this->controller->establish(
-            new Request('POST', '/x', [], ['_csrf_token' => CsrfGuard::generateToken()], [], []),
-            ['id' => (string) $this->installationId]
-        );
+        // Through the router, so the route and its superadmin floor are
+        // what let the request in — the admin test above is the other side.
+        $response = $this->frontController('/support-dashboard/installations/{id}/valider', 'establish', 'POST')
+            ->handle(new Request(
+                'POST',
+                '/support-dashboard/installations/' . $this->installationId . '/valider',
+                [],
+                ['_csrf_token' => CsrfGuard::generateToken()],
+                [],
+                []
+            ));
 
         $this->assertSame(302, $response->getStatusCode());
         $this->assertSame('/support-dashboard', $response->getHeaders()['Location']);

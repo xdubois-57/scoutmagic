@@ -10778,7 +10778,10 @@ if ($isEnabled('support_dashboard')) {
                     $supportDeskMappingGapRepo,
                     $journalService,
                     $notificationService
-                )
+                ),
+                // The other door to a new installation row, so under the
+                // same quota as a first ticket (issue #1113).
+                $supportIntakeGuard
             )
         )
     );
