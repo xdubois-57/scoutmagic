@@ -167,4 +167,19 @@ class PushSubscriptionRepositoryTest extends TestCase
             'The tag has its own blind-index domain.'
         );
     }
+
+    public function testRecipientTagChangesWhenTheAccountsSessionsAreRevoked(): void
+    {
+        $before = $this->repository->recipientTag($this->userId);
+
+        $stmt = $this->pdo->prepare('UPDATE user_accounts SET sessions_valid_from = ? WHERE id = ?');
+        $stmt->execute(['2026-11-14 01:00:00', $this->userId]);
+        $revoked = $this->repository->recipientTag($this->userId);
+
+        $this->assertNotSame($before, $revoked, 'A device revoked elsewhere must stop matching.');
+        $this->assertSame($revoked, $this->repository->recipientTag($this->userId));
+
+        $stmt->execute(['2026-11-14 02:00:00', $this->userId]);
+        $this->assertNotSame($revoked, $this->repository->recipientTag($this->userId));
+    }
 }

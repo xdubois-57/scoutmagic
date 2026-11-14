@@ -133,10 +133,23 @@ class PushSubscriptionRepository
      * An HMAC under the application's blind-index key, never the id
      * itself: the payload crosses a third-party push service and the
      * page source is readable by anyone at the screen.
+     *
+     * It also covers the account's sessions_valid_from, the stamp every
+     * server-side revocation writes — « Déconnecter partout », a password
+     * change or reset, a deactivation (UserAccountRepository). The tag
+     * changes with it, so a device whose session was revoked elsewhere,
+     * and which will never load a page to learn so, stops matching on the
+     * next push; the tab that stays signed in stores the new tag on its
+     * next page.
      */
     public function recipientTag(int $userAccountId): string
     {
-        return $this->encryption->blindIndex((string) $userAccountId, self::RECIPIENT_TAG_PURPOSE);
+        $stmt = $this->pdo->prepare('SELECT sessions_valid_from FROM user_accounts WHERE id = ?');
+        $stmt->execute([$userAccountId]);
+        $validFrom = $stmt->fetchColumn();
+        $stamp = is_string($validFrom) ? $validFrom : '';
+
+        return $this->encryption->blindIndex($userAccountId . '|' . $stamp, self::RECIPIENT_TAG_PURPOSE);
     }
 
     public function deleteAllForUser(int $userAccountId): void

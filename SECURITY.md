@@ -636,8 +636,11 @@ A push notification is the one thing this site sends that renders **outside** it
   subscription (at logout or by subscribing it); an endpoint is an unguessable capability URL the push service hands
   that one browser, so this is accepted. **(3) The service worker checks the recipient** — every payload carries
   `recipient`, `PushSubscriptionRepository::recipientTag()`: an HMAC of the account id under the blind-index key in
-  its own `push_recipient` domain (§30), never the id or the address. The page hands the worker the signed-in
-  account's tag (`push_recipient_tag` Twig global, `''` for a visitor) with the offline configuration, which the
+  its own `push_recipient` domain (§30), never the id or the address, which also covers the account's
+  `sessions_valid_from` — the stamp every server-side revocation writes (« Déconnecter partout », a password
+  change or reset, a deactivation) — so a device revoked elsewhere stops matching on the next push. The page hands
+  the worker the signed-in account's tag (`push_recipient_tag` Twig global, `''` for a visitor) with the offline
+  configuration, which the
   worker persists (`offline-config` cache entry) so it survives a restart; the logout forms also send
   `forget-push-recipient`, which blanks it. In `public/sw.js`'s `push` handler, a payload whose tag is missing, empty
   or different from the stored one is never shown: one neutral « Nouvelle notification » / « Connectez-vous pour la
@@ -645,7 +648,7 @@ A push notification is the one thing this site sends that renders **outside** it
   only until `push_recipient_expires_at` — the session cookie's own end, `AuthSession::cookieIssuedAt()` (when the
   id last rotated; a password change's `refreshIssuedAt()` does not count) + `SessionManager::COOKIE_LIFETIME_SECONDS`
   (the cookie is sent only when the id is issued, and PHP does not renew it on later visits) —
-  so a session that dies without a logout or a page is caught too. The
+  so a session that times out without a logout or a page is caught too. The
   check runs after any configuration write in flight, so a push landing during the logout's write reads the erased
   tag. That also hits a
   personal phone whose session expired — by decision: the member re-enables push in « Mon compte » after logging back

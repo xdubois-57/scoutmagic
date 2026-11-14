@@ -50,8 +50,9 @@ de recevoir vos notifications : la personne qui l'utilise après vous ne
 verra ni leurs titres ni leurs extraits.
 
 Si une notification arrive alors que vous n'êtes plus connecté sur
-l'appareil — votre session a expiré, ou quelqu'un d'autre s'y est
-connecté depuis —, elle ne montre pas son contenu : seule une
+l'appareil — votre session a expiré, vous avez utilisé « Déconnecter
+partout » ou changé votre mot de passe depuis un autre appareil, ou
+quelqu'un d'autre s'y est connecté depuis —, elle ne montre pas son contenu : seule une
 notification « Nouvelle notification » s'affiche, qui vous invite à
 vous connecter pour la lire, et l'appareil cesse ensuite d'en recevoir.
 Le contenu reste lisible dans la page « Notifications », une fois
