@@ -14,6 +14,7 @@ use Core\Http\Request;
 use Core\Http\Response;
 use Core\Http\SafeRedirect;
 use Core\Member\TemporaryMemberSession;
+use Core\Notification\NotificationService;
 use Core\ScoutYear\AuthorizationYearService;
 use Core\ScoutYear\ScoutYearResolver;
 use Core\ScoutYear\ScoutYearSession;
@@ -42,6 +43,7 @@ class AuthController extends AbstractController
     private ?PasswordAuthMethod $passwordAuth = null;
     private ?WebAuthnService $webAuthnService = null;
     private ?HumanCheckService $humanCheck = null;
+    private ?NotificationService $notificationService = null;
     private string $installationGeneration;
 
     public function __construct(
@@ -78,6 +80,15 @@ class AuthController extends AbstractController
     public function setHumanCheck(HumanCheckService $humanCheck): void
     {
         $this->humanCheck = $humanCheck;
+    }
+
+    /**
+     * What logout() forgets the device's push subscription through
+     * (issue #1123). Unset, logout still works and forgets nothing.
+     */
+    public function setNotificationService(NotificationService $notificationService): void
+    {
+        $this->notificationService = $notificationService;
     }
 
     /**
@@ -557,6 +568,7 @@ class AuthController extends AbstractController
             return $guard;
         }
 
+        $this->forgetPushDevice($request);
         AuthSession::logout();
         PendingMagicLink::forget();
         LoginReturn::forget();
@@ -570,6 +582,29 @@ class AuthController extends AbstractController
         FlashMessage::set('success', 'Vous avez été déconnecté.');
 
         return $this->redirect('/');
+    }
+
+    /**
+     * The device logging out stops receiving notifications (issue #1123).
+     * public/assets/js/push-logout.js has just unsubscribed it in the
+     * browser and put its endpoint in the form's `push_endpoint` field;
+     * every row for that endpoint goes, whichever account it was
+     * registered for. A missing or malformed field forgets nothing, and
+     * nothing here can stand between the visitor and being logged out.
+     */
+    private function forgetPushDevice(Request $request): void
+    {
+        $endpoint = $request->getBody('push_endpoint', '');
+        if ($this->notificationService === null || !is_string($endpoint) || $endpoint === '') {
+            return;
+        }
+
+        try {
+            $this->notificationService->forgetDevice($endpoint);
+        } catch (\Throwable) {
+            // A database hiccup costs a stale row the next send prunes
+            // (404/410), never the logout itself.
+        }
     }
 
     /**

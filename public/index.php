@@ -3464,6 +3464,27 @@ $twig->addGlobal(
     'offline_account_scope',
     AuthSession::isAuthenticated() ? (string) AuthSession::getUserAccountId() : 'guest'
 );
+// Whom this device's push notifications may be shown for (issue #1123):
+// the opaque tag every payload carries (NotificationService), handed to
+// public/sw.js beside the offline configuration. '' for a visitor, so the
+// first page after a logout tells the worker that nobody is signed in.
+$pushRecipientAccountId = AuthSession::isAuthenticated() ? AuthSession::getUserAccountId() : null;
+$twig->addGlobal(
+    'push_recipient_tag',
+    $pushRecipientAccountId !== null ? $pushSubscriptionRepo->recipientTag($pushRecipientAccountId) : ''
+);
+// Until when that tag may be believed, in milliseconds since the epoch: the
+// session cookie's own end, and nothing tells the worker when it comes — no
+// page, no logout. The cookie is sent with its 30-day lifetime only when the
+// session id is (re)issued — at login — and PHP does not renew it on later
+// visits, so its end is counted from when the cookie was last issued, not
+// from this page. 0 for a visitor.
+$twig->addGlobal(
+    'push_recipient_expires_at',
+    $pushRecipientAccountId !== null
+        ? \Core\Security\SessionManager::cookieExpiresAt(AuthSession::cookieIssuedAt(), time()) * 1000
+        : 0
+);
 
 // Build menu
 $menuBuilder = new MenuBuilder(Role::fromString($currentRole));
@@ -6877,6 +6898,7 @@ $authController = new AuthController(
 $authController->setPasswordAuth($passwordAuthMethod);
 $authController->setWebAuthnService($webAuthnService);
 $authController->setHumanCheck($humanCheckService);
+$authController->setNotificationService($notificationService);
 $frontController->registerController(AuthController::class, $authController);
 // Tells an account's holder, by e-mail and in-app, whenever a way into
 // their account is added, changed or removed — a password, a passkey, a

@@ -59,7 +59,17 @@
             consent: consent,
             account_scope: config.accountScope,
             version: config.version,
-            standalone: isStandalone()
+            standalone: isStandalone(),
+            // Whose push notifications this device may show (issue #1123,
+            // public/sw.js's 'push' handler) — stored with the rest, '' for
+            // a visitor. Not offline caching, but the same delivery: one
+            // server-rendered blob, one message the worker persists.
+            push_recipient_tag: typeof config.pushRecipientTag === 'string' ? config.pushRecipientTag : '',
+            // Until when that tag holds (ms since the epoch): the session
+            // cookie's own end, counted from login. 0 when unknown.
+            push_recipient_expires_at: typeof config.pushRecipientExpiresAt === 'number'
+                ? config.pushRecipientExpiresAt
+                : 0
         });
     }
 
@@ -73,8 +83,18 @@
     // on a shared device. There can be more than one logout form on a
     // page (desktop + mobile nav).
     document.querySelectorAll('form[action="/logout"]').forEach(function (form) {
-        form.addEventListener('submit', function () {
+        form.addEventListener('submit', function (event) {
+            // Refused before it left (offline-nav.js prevents a form
+            // submitted offline): nobody logged out, so nothing is forgotten
+            // — forgetting the recipient here would make the next push for
+            // this still-signed-in member unsubscribe the device.
+            if (event.defaultPrevented) {
+                return;
+            }
             postToServiceWorker({ type: 'purge-content-caches' });
+            // And no notification may show its text on this device until
+            // a page says who is signed in again (issue #1123).
+            postToServiceWorker({ type: 'forget-push-recipient' });
         });
     });
 

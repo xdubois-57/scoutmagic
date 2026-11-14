@@ -113,4 +113,73 @@ class PushSubscriptionRepositoryTest extends TestCase
         $this->assertCount(1, $mine);
         $this->assertSame('https://push.example/mine', $mine[0]->endpoint);
     }
+
+    public function testDeleteAllByEndpointRemovesEveryAccountsRowForThatEndpointOnly(): void
+    {
+        $stmt = $this->pdo->prepare('INSERT INTO user_accounts (email_encrypted, email_blind_index) VALUES (?, ?)');
+        $stmt->execute(['enc2', 'idx2']);
+        $otherUserId = (int) $this->pdo->lastInsertId();
+
+        $this->repository->create($this->userId, 'https://push.example/shared', 'auth1', 'p256dh1');
+        $this->repository->create($otherUserId, 'https://push.example/shared', 'auth2', 'p256dh2');
+        $this->repository->create($otherUserId, 'https://push.example/kept', 'auth3', 'p256dh3');
+
+        $removed = $this->repository->deleteAllByEndpoint('https://push.example/shared');
+
+        $this->assertSame(2, $removed);
+        $this->assertSame([], $this->repository->findByUserAccountId($this->userId));
+        $kept = $this->repository->findByUserAccountId($otherUserId);
+        $this->assertCount(1, $kept);
+        $this->assertSame('https://push.example/kept', $kept[0]->endpoint);
+    }
+
+    public function testDeleteAllByEndpointOfAnUnknownEndpointRemovesNothing(): void
+    {
+        $this->repository->create($this->userId, 'https://push.example/a', 'auth1', 'p256dh1');
+
+        $this->assertSame(0, $this->repository->deleteAllByEndpoint('https://push.example/unknown'));
+        $this->assertCount(1, $this->repository->findByUserAccountId($this->userId));
+    }
+
+    /**
+     * The tag a push payload carries (issue #1123): stable for one
+     * account, different between accounts, and never the id itself.
+     */
+    public function testRecipientTagIsAStableOpaqueHmacPerAccount(): void
+    {
+        $tag = $this->repository->recipientTag(42);
+
+        $this->assertSame($tag, $this->repository->recipientTag(42));
+        $this->assertNotSame($tag, $this->repository->recipientTag(43));
+        $this->assertMatchesRegularExpression('/^[0-9a-f]{64}$/', $tag);
+        $this->assertNotSame(hash('sha256', '42'), $tag, 'A keyless hash of the id could be reversed by trying ids.');
+
+        $otherKey = new PushSubscriptionRepository(
+            $this->pdo,
+            new EncryptionService(str_repeat('a', 32), str_repeat('c', 32))
+        );
+        $this->assertNotSame($tag, $otherKey->recipientTag(42), 'The tag is keyed by the installation\'s secret.');
+
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $this->assertNotSame(
+            $encryption->blindIndex('42', 'push_endpoint'),
+            $tag,
+            'The tag has its own blind-index domain.'
+        );
+    }
+
+    public function testRecipientTagChangesWhenTheAccountsSessionsAreRevoked(): void
+    {
+        $before = $this->repository->recipientTag($this->userId);
+
+        $stmt = $this->pdo->prepare('UPDATE user_accounts SET sessions_valid_from = ? WHERE id = ?');
+        $stmt->execute(['2026-11-14 01:00:00', $this->userId]);
+        $revoked = $this->repository->recipientTag($this->userId);
+
+        $this->assertNotSame($before, $revoked, 'A device revoked elsewhere must stop matching.');
+        $this->assertSame($revoked, $this->repository->recipientTag($this->userId));
+
+        $stmt->execute(['2026-11-14 02:00:00', $this->userId]);
+        $this->assertNotSame($revoked, $this->repository->recipientTag($this->userId));
+    }
 }
