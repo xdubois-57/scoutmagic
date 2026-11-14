@@ -547,7 +547,9 @@ Two rules are deliberately left armed rather than filtered: "Cookie Without Secu
   (`Service\ConfirmationSendLimiter`, table `registration_confirmation_sends`, purged daily) — because removing an
   address deletes its row, remove-then-add never meets the cap. Both are checked for a new address before anything
   is hashed, written or sent, and refused with a French sentence; past the hourly limit, re-adding a pending address
-  returns it without a new e-mail, exactly as within the five-minute resend cooldown.
+  returns it without a new e-mail, exactly as within the five-minute resend cooldown. The whole decision runs under a
+  lock on the request's row (`RegistrationSecondaryEmailRepository::lockRequest()`), so concurrent additions are
+  counted one at a time, and the e-mail leaves only after the commit.
 - **A retro board's token is its address, not its key** (issue #833). Before, it opened eight of the board's ten routes to anyone holding it, whatever the board's settings said — including `shorten`, which spends the unit's AI budget. Every `/r/{token}` route now applies the board's access mode first (`Modules\Retro\Service\BoardAccess`): `animators` needs a session at intendant or above, `identified` any logged-in account, and only `public` lets the link alone in. A public board's link is never published in a calendar or an ICS feed, since anybody may pass it on.
 - **The public retro throttle keys on the client IP**, hashed (blind index) exactly as HumanCheck stores an IP — not on the anonymous cookie/session id, which the client picks and could discard to mint a fresh bucket and call the paid LLM "shorten" endpoint without limit.
 - **An IPv6 client is counted by its /64** (issue #1128), in the retro throttle and in HumanCheck alike (`Core\Security\RateLimitAddress::key()`): a subscriber is handed a whole /64 and can use a fresh address for every request, so a counter keyed on the full address never fills. An IPv4 address stays whole, and an IPv4-mapped IPv6 address counts as its IPv4 address. Only the blind index of the key is stored, never the prefix in clear.

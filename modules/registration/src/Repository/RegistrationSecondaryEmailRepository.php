@@ -86,6 +86,46 @@ class RegistrationSecondaryEmailRepository
         return (int) $this->pdo->lastInsertId();
     }
 
+    /**
+     * Runs $work in one transaction, or inside the one already open.
+     *
+     * @template T
+     * @param callable(): T $work
+     * @return T
+     */
+    public function transactional(callable $work): mixed
+    {
+        if ($this->pdo->inTransaction()) {
+            return $work();
+        }
+
+        $this->pdo->beginTransaction();
+        try {
+            $result = $work();
+            $this->pdo->commit();
+
+            return $result;
+        } catch (\Throwable $e) {
+            $this->pdo->rollBack();
+            throw $e;
+        }
+    }
+
+    /**
+     * Locks request $registrationRequestId's own row (`FOR UPDATE`, held
+     * until the enclosing transaction ends) — what serialises two additions
+     * to the same request, so the address cap and the hourly budget of
+     * Service\SecondaryEmailService are read and spent one caller at a time
+     * (issue #1126). Nothing on SQLite, which has no row locks and
+     * serialises writers anyway.
+     */
+    public function lockRequest(int $registrationRequestId): void
+    {
+        $forUpdate = $this->pdo->getAttribute(\PDO::ATTR_DRIVER_NAME) === 'sqlite' ? '' : ' FOR UPDATE';
+        $stmt = $this->pdo->prepare('SELECT id FROM registration_requests WHERE id = ?' . $forUpdate);
+        $stmt->execute([$registrationRequestId]);
+    }
+
     public function findById(int $id): ?RegistrationSecondaryEmail
     {
         $stmt = $this->pdo->prepare('SELECT * FROM registration_secondary_emails WHERE id = ?');
