@@ -168,8 +168,11 @@ class TrombinoscopeControllerTest extends TestCase
             {
             }
 
-            public function getEffectiveYear(?int $sessionOverrideId, Role $role): EffectiveScoutYear
-            {
+            public function getEffectiveYear(
+                ?int $sessionOverrideId,
+                Role $role,
+                ?callable $staffYearEligibility = null
+            ): EffectiveScoutYear {
                 return new EffectiveScoutYear(1, '2025-2026', null);
             }
         };

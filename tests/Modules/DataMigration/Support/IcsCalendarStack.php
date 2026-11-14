@@ -24,6 +24,7 @@ use Core\Scheduler\SchedulerRepository;
 use Core\Scheduler\SchedulerService;
 use Core\ScoutYear\AuthorizationYearService;
 use Core\ScoutYear\ScoutYearResolver;
+use Core\ScoutYear\StaffYearEligibility;
 use Core\Security\EncryptionService;
 use Core\Security\RoleResolver;
 use Core\Security\UserAccountRepository;
@@ -121,7 +122,10 @@ final class IcsCalendarStack
                     new StaffedSectionRepository($connection, $encryption, $memberEmails),
                     $sections
                 ),
-                new ScoutYearResolver($scoutYears, $settings, new MemberYearRepository($pdo))
+                new ScoutYearResolver($scoutYears, $settings, new MemberYearRepository($pdo)),
+                new StaffYearEligibility(
+                    new RoleResolver(new MemberYearRepository($pdo), $encryption, $pdo, $memberEmails)
+                )
             )
         );
         $this->calendarId = $calendarRepository

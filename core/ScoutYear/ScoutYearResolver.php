@@ -97,9 +97,22 @@ class ScoutYearResolver
 
     /**
      * Resolve the effective scout year for the current request.
+     *
+     * $staffYearEligibility answers the staff-year question for someone
+     * OTHER than the account behind the request (issue #1165): a caller
+     * resolving the year of an account named by its id — an import's
+     * rights, re-checked in later requests that somebody else may be
+     * driving — passes that account's own eligibility, so the answer does
+     * not depend on who clicked. Omitted, the session's wiring answers
+     * ({@see setStaffYearEligibility()}), exactly as before.
+     *
+     * @param (callable(int): bool)|null $staffYearEligibility
      */
-    public function getEffectiveYear(?int $sessionOverrideId, Role $role): EffectiveScoutYear
-    {
+    public function getEffectiveYear(
+        ?int $sessionOverrideId,
+        Role $role,
+        ?callable $staffYearEligibility = null
+    ): EffectiveScoutYear {
         // 1. Session preview — chief/admin only. Display, never authorization.
         if ($sessionOverrideId !== null && $role->hasAccess(Role::CHIEF)) {
             $year = $this->scoutYearService->findById($sessionOverrideId);
@@ -131,7 +144,7 @@ class ScoutYearResolver
         // runs in, that is full rental management on a `role_min:
         // identified` route.
         $staffId = $this->getStaffYearId();
-        if ($staffId !== null && $this->isEligibleForStaffYear($staffId)) {
+        if ($staffId !== null && $this->isEligibleForStaffYear($staffId, $staffYearEligibility)) {
             $year = $this->scoutYearService->findById($staffId);
             if ($year !== null && ScoutYearAdjacency::isCandidateFor($year['label'], $public['label'])) {
                 return new EffectiveScoutYear($year['id'], $year['label'], 'staff');
@@ -183,14 +196,21 @@ class ScoutYearResolver
      * identity changes inside a single request the moment a login
      * succeeds. `Core\ScoutYear\StaffYearEligibility` holds the cache,
      * keyed on both, because it is the layer that knows the address.
+     *
+     * An eligibility the caller passed wins over the session's: it is
+     * asked about the account the caller named, never about whoever is
+     * signed in.
+     *
+     * @param (callable(int): bool)|null $forAccount
      */
-    private function isEligibleForStaffYear(int $staffYearId): bool
+    private function isEligibleForStaffYear(int $staffYearId, ?callable $forAccount = null): bool
     {
-        if ($this->staffYearEligibility === null) {
+        $isEligible = $forAccount ?? $this->staffYearEligibility;
+        if ($isEligible === null) {
             return false;
         }
 
-        return ($this->staffYearEligibility)($staffYearId);
+        return $isEligible($staffYearId);
     }
 
     /**
