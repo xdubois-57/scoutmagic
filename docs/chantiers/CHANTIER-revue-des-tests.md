@@ -929,7 +929,8 @@ branche jamais exécutée est aussi un message d'erreur jamais relu.
 
 **Issues ouvertes** :
 
-- #449 — les 327 autres branches, avec la mesure complète et sa méthode.
+- #449 — les 327 autres branches, avec la mesure complète et sa méthode (suite :
+  `docs/chantiers/CHANTIER-branches-erreur.md`).
 
 **Vérifié et tenu** :
 
