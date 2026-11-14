@@ -11,6 +11,7 @@ use Core\Storage\Location\Config\LocalLocationConfig;
 use Core\Storage\Location\StorageLocation;
 use Core\Storage\Location\StorageLocationType;
 use Modules\Gallery\Api\DelegatedAlbumAccessChecker;
+use Modules\Gallery\Api\DelegatedMediaAccessChecker;
 use Modules\Gallery\Api\PickablePhoto;
 use Modules\Gallery\Repository\Album;
 use Modules\Gallery\Repository\AlbumRepository;
@@ -35,6 +36,8 @@ final class PhotoPickerServiceTest extends TestCase
     private MediaRepository $media;
     private int $scoutYearId;
     private bool $delegatedAllowed = false;
+    /** @var list<int> media the delegated album's owner withholds */
+    private array $withheld = [];
     private int $clock = 0;
 
     protected function setUp(): void
@@ -103,6 +106,56 @@ final class PhotoPickerServiceTest extends TestCase
         $this->assertSame('LARGE', $this->service()->photoContents($photo, 'chief', [7]));
     }
 
+    /**
+     * Issue #1119: the owner of a delegated album can withhold one of its
+     * media — a group, the image of a post moderation hid. The picker
+     * neither offers it nor hands its bytes over, and the rest of the
+     * album stays offered.
+     */
+    public function testAMediaTheOwnerWithholdsIsNeitherOfferedNorHandedOver(): void
+    {
+        $delegated = $this->albums->create(
+            Album::TYPE_LOCAL, 'Groupe', null, '2026-01-01', null, $this->scoutYearId, null, 1, 1, 'camp', 42
+        );
+        $kept = $this->photo($delegated);
+        $withheld = $this->photo($delegated);
+        $this->delegatedAllowed = true;
+        $this->withheld = [$withheld];
+
+        $offered = $this->service()->pickablePhotos('chief', [7]);
+        $ids = array_map(static fn (PickablePhoto $p): int => $p->mediaId, $offered);
+
+        $this->assertSame([$kept], $ids);
+        $this->assertNull($this->service()->photoContents($withheld, 'chief', [7]));
+        $this->assertSame('LARGE', $this->service()->photoContents($kept, 'chief', [7]));
+    }
+
+    /**
+     * Withheld photos never take the place of offered ones (review of
+     * #1200): the newest thirty-one are all withheld — a cover and a full
+     * selection's worth besides — and the older photo the caller may see
+     * is still offered.
+     */
+    public function testWithheldPhotosDoNotCrowdOutAnOlderOneTheCallerMaySee(): void
+    {
+        $delegated = $this->albums->create(
+            Album::TYPE_LOCAL, 'Groupe', null, '2026-01-01', null, $this->scoutYearId, null, 1, 1, 'camp', 42
+        );
+        $older = $this->photo($delegated);
+        $withheld = [];
+        for ($i = 0; $i <= PhotoPickerService::LIMIT; $i++) {
+            $withheld[] = $this->photo($delegated);
+        }
+        $this->albums->setCoverMediaId($delegated, $withheld[0]);
+        $this->delegatedAllowed = true;
+        $this->withheld = $withheld;
+
+        $offered = $this->service()->pickablePhotos('chief', [7]);
+
+        $this->assertSame([$older], array_map(static fn (PickablePhoto $p): int => $p->mediaId, $offered));
+        $this->assertFalse($offered[0]->isCover);
+    }
+
     public function testBelowChiefNothingIsOffered(): void
     {
         $this->photo($this->album('2026-01-01', 'Camp'));
@@ -157,7 +210,7 @@ final class PhotoPickerServiceTest extends TestCase
         $backends = $this->createStub(StorageBackendFactory::class);
         $backends->method('create')->willReturn($backend);
 
-        $checker = new class ($this) implements DelegatedAlbumAccessChecker {
+        $checker = new class ($this) implements DelegatedAlbumAccessChecker, DelegatedMediaAccessChecker {
             public function __construct(private readonly PhotoPickerServiceTest $test)
             {
             }
@@ -170,6 +223,18 @@ final class PhotoPickerServiceTest extends TestCase
             public function isAllowed(int $ownerId, Role $currentRole, array $linkedMemberIds): bool
             {
                 return $ownerId === 42 && $this->test->delegatedAllowed() && $linkedMemberIds === [7];
+            }
+
+            public function isMediaAllowed(
+                int $ownerId,
+                int $mediaId,
+                Role $currentRole,
+                array $linkedMemberIds,
+                ?int $userAccountId
+            ): bool {
+                // The picker passes no login: a rule that needs one never
+                // applies to it.
+                return $userAccountId === null && !in_array($mediaId, $this->test->withheld(), true);
             }
         };
 
@@ -186,5 +251,11 @@ final class PhotoPickerServiceTest extends TestCase
     public function delegatedAllowed(): bool
     {
         return $this->delegatedAllowed;
+    }
+
+    /** @return list<int> */
+    public function withheld(): array
+    {
+        return $this->withheld;
     }
 }

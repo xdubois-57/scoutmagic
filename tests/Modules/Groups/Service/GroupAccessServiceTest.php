@@ -10,6 +10,10 @@ use Modules\Groups\Repository\DiscussionGroup;
 use Modules\Groups\Repository\GroupMemberRepository;
 use Modules\Groups\Repository\GroupRepository;
 use Modules\Groups\Repository\GroupSectionRepository;
+use Modules\Groups\Repository\Post;
+use Modules\Groups\Repository\PostRepository;
+use Modules\Groups\Repository\Reply;
+use Modules\Groups\Repository\ReplyRepository;
 use Modules\Groups\Service\GroupAccessService;
 use Modules\Groups\Service\GroupService;
 use Modules\Groups\Service\GroupSessionContext;
@@ -55,10 +59,15 @@ class GroupAccessServiceTest extends TestCase
     /**
      * @param int[] $linkedMemberIds
      */
-    private function context(array $linkedMemberIds, string $role = 'identified', bool $completeProfile = true, ?int $yearId = null): GroupSessionContext
-    {
+    private function context(
+        array $linkedMemberIds,
+        string $role = 'identified',
+        bool $completeProfile = true,
+        ?int $yearId = null,
+        int $accountId = 1
+    ): GroupSessionContext {
         return new GroupSessionContext(
-            1,
+            $accountId,
             Role::fromString($role),
             $linkedMemberIds,
             $yearId ?? $this->currentYearId,
@@ -703,5 +712,131 @@ class GroupAccessServiceTest extends TestCase
             GroupsTestHelper::createMember($this->pdo, 'INVITE-CREATOR'),
             1
         );
+    }
+
+    // --- canReachPost / canReachReply (issue #1119) ---------------------
+
+    /**
+     * The one rule every post-scoped path asks: the feed, the vote, the
+     * replies, the reactions, the reports, the deep link and the group's
+     * images all answer from it.
+     */
+    public function testAHiddenPostIsReachableByAModeratorOnly(): void
+    {
+        [$group, $member, $post] = $this->groupWithPost();
+        $memberContext = $this->memberContext($member);
+
+        $this->assertTrue($this->access->canReachPost($group, $this->reload($post), $memberContext));
+
+        (new PostRepository($this->pdo))->setHiddenAt($post, '2026-02-01 00:00:00');
+        $hidden = $this->reload($post);
+
+        $this->assertFalse($this->access->canReachPost($group, $hidden, $memberContext));
+        $this->assertTrue($this->access->canReachPost($group, $hidden, $this->moderatorContext($group)));
+        $this->assertTrue($this->access->canReachPost($group, $hidden, $this->context([], 'admin', true, null, 99)));
+    }
+
+    public function testAPostOfAnotherGroupIsNeverReachable(): void
+    {
+        [$group, $member] = $this->groupWithPost();
+        $other = GroupsTestHelper::createPostAt($this->pdo, $group->id + 1000, 'ailleurs', '2026-01-01 10:00:00');
+
+        $admin = $this->context([$member], 'admin');
+
+        $this->assertFalse($this->access->canReachPost($group, $this->reload($other), $admin));
+    }
+
+    public function testAReplyGoesWithItsPost(): void
+    {
+        [$group, $member, $post] = $this->groupWithPost();
+        $reply = $this->replyTo($post);
+        $memberContext = $this->memberContext($member);
+
+        $this->assertTrue($this->access->canReachReply($group, $this->reload($post), $reply, $memberContext));
+
+        (new PostRepository($this->pdo))->setHiddenAt($post, '2026-02-01 00:00:00');
+        $hidden = $this->reload($post);
+
+        $this->assertFalse($this->access->canReachReply($group, $hidden, $reply, $memberContext));
+        $this->assertTrue($this->access->canReachReply($group, $hidden, $reply, $this->moderatorContext($group)));
+    }
+
+    public function testAHiddenReplyIsReachableByAModeratorOnly(): void
+    {
+        [$group, $member, $post] = $this->groupWithPost();
+        $replyId = $this->replyTo($post)->id;
+        $replies = new ReplyRepository($this->pdo);
+        $replies->setHiddenAt($replyId, '2026-02-01 00:00:00');
+        $reply = $replies->findById($replyId);
+        $this->assertNotNull($reply);
+
+        $visiblePost = $this->reload($post);
+
+        $this->assertFalse($this->access->canReachReply($group, $visiblePost, $reply, $this->memberContext($member)));
+        $this->assertTrue($this->access->canReachReply($group, $visiblePost, $reply, $this->moderatorContext($group)));
+    }
+
+    /** A reply id paired with a post it does not answer is nobody's here. */
+    public function testAReplyOfAnotherPostIsNotReachableThroughThisOne(): void
+    {
+        [$group, , $post] = $this->groupWithPost();
+        $otherPost = GroupsTestHelper::createPostAt($this->pdo, $group->id, 'autre', '2026-01-01 12:00:00');
+        $reply = $this->replyTo($otherPost);
+
+        $admin = $this->context([], 'admin');
+
+        $this->assertFalse($this->access->canReachReply($group, $this->reload($post), $reply, $admin));
+    }
+
+    /** An ordinary member, signed in with a login that moderates nothing. */
+    private function memberContext(int $member): GroupSessionContext
+    {
+        return $this->context([$member], 'identified', true, null, 2);
+    }
+
+    private function replyTo(int $postId): Reply
+    {
+        $reply = (new ReplyRepository($this->pdo))->findById(
+            GroupsTestHelper::createReplyAt($this->pdo, $postId, 'réponse', '2026-01-01 11:00:00')
+        );
+        $this->assertNotNull($reply);
+
+        return $reply;
+    }
+
+    /**
+     * A section group whose moderator is account 1 (context()'s default),
+     * a derived member, and one visible post.
+     *
+     * @return array{0: DiscussionGroup, 1: int, 2: int}
+     */
+    private function groupWithPost(): array
+    {
+        $groupId = $this->sectionGroup();
+        $member = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'M1', $this->louveteauxId, $this->currentYearId);
+        $post = GroupsTestHelper::createPostAt($this->pdo, $groupId, 'message', '2026-01-01 10:00:00');
+        $group = $this->groupRepo->findById($groupId);
+        $this->assertNotNull($group);
+
+        return [$group, $member, $post];
+    }
+
+    /** The group's creator, signed in with the login the flag was granted to. */
+    private function moderatorContext(DiscussionGroup $group): GroupSessionContext
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT member_id FROM discussion_group_members WHERE group_id = ? AND is_moderator = 1'
+        );
+        $stmt->execute([$group->id]);
+
+        return $this->context([(int) $stmt->fetchColumn()]);
+    }
+
+    private function reload(int $postId): Post
+    {
+        $post = (new PostRepository($this->pdo))->findById($postId);
+        $this->assertNotNull($post);
+
+        return $post;
     }
 }

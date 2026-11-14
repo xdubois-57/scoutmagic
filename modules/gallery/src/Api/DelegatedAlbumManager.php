@@ -67,6 +67,16 @@ interface DelegatedAlbumManager
     public function findAlbum(string $ownerType, int $ownerId): ?DelegatedAlbum;
 
     /**
+     * The media of $albumId whose ORIGINAL is the `files` row $fileId, or
+     * null when none is — what an owning module needs to apply its own
+     * per-media rule to `/files/{id}` as well as to the gallery's
+     * renditions (issue #1119: a group withholds the photos of a post
+     * moderation hid). Read-only and never throws: it answers an access
+     * question, so an unknown album is simply "none".
+     */
+    public function findMediaIdForOriginal(int $albumId, int $fileId): ?int;
+
+    /**
      * @param array<string, mixed> $uploadedFile $_FILES entry
      * @throws \Modules\Gallery\Api\GalleryException on an invalid
      *         file, a disabled type, over-quota, or an unknown/

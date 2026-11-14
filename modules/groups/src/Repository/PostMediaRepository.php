@@ -65,6 +65,33 @@ class PostMediaRepository
     }
 
     /**
+     * Whether one gallery media of a group belongs to content moderation
+     * hid — a hidden post, a hidden reply, or a reply under a hidden post:
+     * the single-media form of findMediaIdsForHiddenPostsInGroup() and
+     * ReplyRepository::findMediaIdsForHiddenRepliesInGroup() together,
+     * asked by Gallery\GroupDelegatedAlbumAccessChecker each time the
+     * gallery serves one (issue #1119). A media nothing references is not
+     * hidden.
+     */
+    public function isMediaOfHiddenContent(int $groupId, int $galleryMediaId): bool
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT 1 FROM discussion_group_post_media m
+             INNER JOIN discussion_group_posts p ON p.id = m.post_id
+             WHERE p.group_id = ? AND m.gallery_media_id = ? AND p.hidden_at IS NOT NULL
+             UNION ALL
+             SELECT 1 FROM discussion_group_replies r
+             INNER JOIN discussion_group_posts p ON p.id = r.post_id
+             WHERE p.group_id = ? AND r.gallery_media_id = ?
+               AND (r.hidden_at IS NOT NULL OR p.hidden_at IS NOT NULL)
+             LIMIT 1'
+        );
+        $stmt->execute([$groupId, $galleryMediaId, $groupId, $galleryMediaId]);
+
+        return $stmt->fetchColumn() !== false;
+    }
+
+    /**
      * Batched form of findMediaIdsForPost() for a whole feed page —
      * Service\GroupFeedService resolves every post's media in one query
      * rather than one per post.

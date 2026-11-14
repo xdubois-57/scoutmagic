@@ -66,10 +66,17 @@ class FileOwnershipCheckerWiringTest extends TestCase
 
     public function testTheGuardIsBuiltFromTheSharedCheckerArrayAndNotALiteral(): void
     {
+        // And the login, last: a checker's rule for one file can depend on
+        // who exactly is asking — a group moderator's flag belongs to one
+        // login (Core\File\FileLevelAccessPolicyInterface, issue #1119).
+        // Left out, that moderator would be refused the files of the hidden
+        // content they have to judge, with every other test still green.
         $this->assertMatchesRegularExpression(
-            '/new FileAccessGuard\(\s*\$fileRepository,\s*Role::fromString\(\$currentRole\),\s*\$linkedMemberIds,\s*\$fileOwnershipCheckers\s*\)/',
+            '/new FileAccessGuard\(\s*\$fileRepository,\s*Role::fromString\(\$currentRole\),\s*\$linkedMemberIds,'
+                . '\s*\$fileOwnershipCheckers,\s*AuthSession::getUserAccountId\(\)\s*\)/',
             $this->indexPhp,
-            'the guard must receive the shared $fileOwnershipCheckers array, so module-appended checkers reach it'
+            'the guard must receive the shared $fileOwnershipCheckers array, so module-appended checkers reach it, '
+                . 'and the login, so a per-file rule can recognise a moderator'
         );
 
         // Core's own checkers seed that array where their dependencies
