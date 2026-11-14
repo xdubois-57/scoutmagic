@@ -3473,13 +3473,17 @@ $twig->addGlobal(
     'push_recipient_tag',
     $pushRecipientAccountId !== null ? $pushSubscriptionRepo->recipientTag($pushRecipientAccountId) : ''
 );
-// Until when that tag may be believed, in milliseconds since the epoch: a
-// session expires after a month without a visit, and nothing tells the
-// worker when it does — no page, no logout. Each page load pushes this
-// forward, exactly as it keeps the session alive. 0 for a visitor.
+// Until when that tag may be believed, in milliseconds since the epoch: the
+// session cookie's own end, and nothing tells the worker when it comes — no
+// page, no logout. The cookie is sent with its 30-day lifetime only when the
+// session id is (re)issued — at login — and PHP does not renew it on later
+// visits, so its end is counted from the session's issue time, not from this
+// page. 0 for a visitor.
 $twig->addGlobal(
     'push_recipient_expires_at',
-    $pushRecipientAccountId !== null ? (time() + \Core\Security\SessionManager::COOKIE_LIFETIME_SECONDS) * 1000 : 0
+    $pushRecipientAccountId !== null
+        ? \Core\Security\SessionManager::cookieExpiresAt(AuthSession::getIssuedAt(), time()) * 1000
+        : 0
 );
 
 // Build menu

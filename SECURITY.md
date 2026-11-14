@@ -642,8 +642,9 @@ A push notification is the one thing this site sends that renders **outside** it
   `forget-push-recipient`, which blanks it. In `public/sw.js`'s `push` handler, a payload whose tag is missing, empty
   or different from the stored one is never shown: one neutral « Nouvelle notification » / « Connectez-vous pour la
   lire. » notice (no data, URL `/`), no badge, no tab nudge, then the device unsubscribes itself. The tag is believed
-  only until `push_recipient_expires_at` (the session's own expiry, page load + `SessionManager::
-  COOKIE_LIFETIME_SECONDS`, renewed by every page): a session that dies without a logout or a page is caught too. The
+  only until `push_recipient_expires_at` — the session cookie's own end, `AuthSession::getIssuedAt()` +
+  `SessionManager::COOKIE_LIFETIME_SECONDS` (the cookie is sent at login and PHP does not renew it on later visits) —
+  so a session that dies without a logout or a page is caught too. The
   check runs after any configuration write in flight, so a push landing during the logout's write reads the erased
   tag. That also hits a
   personal phone whose session expired — by decision: the member re-enables push in « Mon compte » after logging back

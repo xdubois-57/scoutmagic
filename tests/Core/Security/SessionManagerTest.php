@@ -59,4 +59,25 @@ class SessionManagerTest extends TestCase
         $this->assertSame((string) $thirtyDaysInSeconds, ini_get('session.cookie_lifetime'));
         $this->assertSame((string) $thirtyDaysInSeconds, ini_get('session.gc_maxlifetime'));
     }
+
+    public function testCookieExpiryCountsFromLoginNotFromTheCurrentVisit(): void
+    {
+        // Logged in 29 days ago: the cookie ends tomorrow, not 30 days from now.
+        $now = 1_800_000_000;
+        $issuedAt = $now - 29 * 86400;
+
+        $this->assertSame(
+            $issuedAt + SessionManager::COOKIE_LIFETIME_SECONDS,
+            SessionManager::cookieExpiresAt($issuedAt, $now)
+        );
+    }
+
+    public function testCookieExpiryFallsBackToNowWhenTheIssueTimeIsUnknownOrInTheFuture(): void
+    {
+        $now = 1_800_000_000;
+
+        $expected = $now + SessionManager::COOKIE_LIFETIME_SECONDS;
+        $this->assertSame($expected, SessionManager::cookieExpiresAt(null, $now));
+        $this->assertSame($expected, SessionManager::cookieExpiresAt($now + 500, $now));
+    }
 }

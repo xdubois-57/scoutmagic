@@ -1895,9 +1895,9 @@ function isForSignedInAccount(data) {
             return true;
         }
         const expected = config?.push_recipient_tag;
-        // A session expires after a month without a visit, and no page or
-        // logout tells the worker so: the tag holds only until the expiry
-        // the last page load announced.
+        // A session cookie ends 30 days after login (PHP does not renew it
+        // on later visits), and no page or logout tells the worker so: the
+        // tag holds only until the cookie's end the pages announced.
         const expiresAt = config?.push_recipient_expires_at;
         return typeof expected === 'string' && expected !== '' && expected === recipient
             && typeof expiresAt === 'number' && expiresAt > Date.now();
