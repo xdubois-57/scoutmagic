@@ -68,18 +68,30 @@ if (!defined('CATCH_COVERAGE_TEST')) {
  */
 function catchCoverageMain(array $argv): int
 {
-    $root = dirname(__DIR__);
-    $args = array_slice($argv, 1);
+    require_once dirname(__DIR__) . '/vendor/autoload.php';
+    [$code, $stdout, $stderr] = catchCoverageRun(array_slice($argv, 1), dirname(__DIR__));
+    fwrite(STDOUT, $stdout);
+    fwrite(STDERR, $stderr);
+
+    return $code;
+}
+
+/**
+ * The whole command, without its side effects on the terminal: the exit
+ * code, what goes to stdout and what goes to stderr.
+ *
+ * @param list<string> $args the arguments after the script's name
+ * @return array{int, string, string}
+ */
+function catchCoverageRun(array $args, string $root): array
+{
     $list = in_array('--list', $args, true);
     $json = in_array('--json', $args, true);
     $paths = array_values(array_filter($args, static fn(string $a): bool => !str_starts_with($a, '--')));
     if (count($paths) !== 1) {
-        fwrite(STDERR, "usage: php scripts/catch-coverage.php <coverage.php> [--list] [--json]\n");
-
-        return 2;
+        return [2, '', "usage: php scripts/catch-coverage.php <coverage.php> [--list] [--json]\n"];
     }
 
-    require_once $root . '/vendor/autoload.php';
     $coverage = catchCoverageLoadReport($paths[0], $root);
 
     $catches = [];
@@ -92,11 +104,11 @@ function catchCoverageMain(array $argv): int
     }
 
     $summary = catchCoverageSummarise($catches);
-    fwrite(STDOUT, $json
+    $output = $json
         ? json_encode(['summary' => $summary, 'catches' => $catches], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n"
-        : catchCoverageRender($summary, $list ? $catches : []));
+        : catchCoverageRender($summary, $list ? $catches : []);
 
-    return 0;
+    return [0, $output, ''];
 }
 
 /**

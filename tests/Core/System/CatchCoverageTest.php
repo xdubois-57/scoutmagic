@@ -327,4 +327,125 @@ final class CatchCoverageTest extends TestCase
             $this->assertStringContainsString('catch', explode("\n", $source)[$catch['line'] - 1]);
         }
     }
+
+    public function testTheCommandReportsAFakeRepositoryInEveryFormat(): void
+    {
+        $root = $this->fakeRepository();
+        $report = $this->fakeReport($root, 'payload');
+
+        [$code, $out, $err] = \catchCoverageRun([$report], $root);
+        $this->assertSame([0, ''], [$code, $err]);
+        $this->assertStringContainsString('catch blocks under core/ and modules/: 2', $out);
+        $this->assertStringContainsString('never executed:           1 (50 %)', $out);
+        $this->assertStringContainsString('core/Thing', $out);
+        $this->assertStringNotContainsString('core/Thing/Service.php:', $out, 'no list without --list');
+
+        [, $listed] = \catchCoverageRun([$report, '--list'], $root);
+        $this->assertStringContainsString('core/Thing/Service.php:7 never', $listed);
+        $this->assertStringNotContainsString('core/Thing/Service.php:4', $listed, 'an executed catch is not listed');
+
+        [, $json] = \catchCoverageRun([$report, '--json'], $root);
+        $decoded = json_decode($json, true);
+        $this->assertSame(2, $decoded['summary']['total']);
+        $this->assertSame(['executed', 'never'], array_column($decoded['catches'], 'verdict'));
+    }
+
+    public function testAReportWrittenAsACoverageObjectReadsTheSame(): void
+    {
+        $root = $this->fakeRepository();
+
+        $lines = \catchCoverageLoadReport($this->fakeReport($root, 'object'), $root);
+
+        $this->assertSame(['T1'], $lines['core/Thing/Service.php'][5]);
+    }
+
+    public function testTheCommandRefusesAMissingOrSurplusArgument(): void
+    {
+        [$code, $out, $err] = \catchCoverageRun(['--list'], '/nowhere');
+
+        $this->assertSame([2, ''], [$code, $out]);
+        $this->assertStringContainsString('usage:', $err);
+        $this->assertSame(2, \catchCoverageRun(['a.php', 'b.php'], '/nowhere')[0]);
+    }
+
+    public function testSomethingThatIsNotACoverageReportIsRefused(): void
+    {
+        $path = sys_get_temp_dir() . '/catch-coverage-not-a-report-' . bin2hex(random_bytes(4)) . '.php';
+        file_put_contents($path, "<?php return 42;\n");
+
+        try {
+            $this->expectException(\RuntimeException::class);
+            \catchCoverageLoadReport($path, '/repo');
+        } finally {
+            unlink($path);
+        }
+    }
+
+    public function testTheTextReportSaysWhenAMarkerHasNoReason(): void
+    {
+        $catches = [
+            ['file' => 'core/A/B.php', 'line' => 3, 'verdict' => 'never', 'marker' => ''],
+            ['file' => 'core/A/B.php', 'line' => 9, 'verdict' => 'unknown', 'marker' => null],
+        ];
+
+        $out = \catchCoverageRender(\catchCoverageSummarise($catches), $catches);
+
+        $this->assertStringContainsString('invalid markers (no reason, counted as never): 1', $out);
+        $this->assertStringContainsString('core/A/B.php:9 unknown', $out);
+    }
+
+    /** A repository holding one product file with an executed catch (line 4) and a never-executed one (line 7). */
+    private function fakeRepository(): string
+    {
+        $root = sys_get_temp_dir() . '/catch-coverage-repo-' . bin2hex(random_bytes(4));
+        mkdir($root . '/core/Thing', 0777, true);
+        mkdir($root . '/modules', 0777, true);
+        file_put_contents($root . '/core/Thing/Service.php', implode("\n", [
+            '<?php',
+            'try {',
+            '    a();',
+            '} catch (\\RuntimeException $e) {',
+            '    b();',
+            '} try {',
+            '} catch (\\Exception $e) {',
+            '    e();',
+            '}',
+            '',
+        ]));
+        $this->tempPaths[] = $root;
+
+        return $root;
+    }
+
+    /**
+     * A --coverage-php report for the fake repository, in either of the two
+     * shapes catchCoverageLoadReport() accepts: the payload array (files
+     * relative to basePath) or an object answering getData().
+     */
+    private function fakeReport(string $root, string $shape): string
+    {
+        $lines = var_export(['Thing/Service.php' => [4 => [], 5 => ['T1'], 7 => [], 8 => []]], true);
+        $absolute = var_export([$root . '/core/Thing/Service.php' => [5 => ['T1'], 8 => []]], true);
+        $body = $shape === 'payload'
+            ? "return ['basePath' => " . var_export($root . '/core', true) . ", 'codeCoverage' => new class {\n"
+                . "    public function lineCoverage(): array { return {$lines}; }\n}];\n"
+            : "return new class {\n"
+                . "    public function getData(): object { return new class {\n"
+                . "        public function lineCoverage(): array { return {$absolute}; }\n"
+                . "    }; }\n};\n";
+        $path = $root . '/report-' . $shape . '.php';
+        file_put_contents($path, "<?php\n" . $body);
+
+        return $path;
+    }
+
+    /** @var list<string> */
+    private array $tempPaths = [];
+
+    protected function tearDown(): void
+    {
+        foreach ($this->tempPaths as $path) {
+            exec('rm -rf ' . escapeshellarg($path));
+        }
+    }
 }
