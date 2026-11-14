@@ -130,19 +130,7 @@ class TicketArchiveIntakeService
         $stored = $this->guard->storeArchiveWithinQuota(
             (int) $installation['id'],
             strlen($rawBody),
-            function () use ($rawBody, $reference): void {
-                // Read again under the lock: two uploads for one ticket
-                // can both pass the check above before either attaches,
-                // and the second would then store a file and re-point the
-                // ticket at it, leaving the first on disk with nothing
-                // referring to it. The one that comes second finds the
-                // archive attached and stores nothing — the same answer
-                // as the idempotent branch above.
-                $current = $this->tickets->findByReference($reference);
-                if ($current === null || $current['archive_file_id'] !== null) {
-                    return;
-                }
-
+            function () use ($rawBody, $reference, $ticket): void {
                 $fileId = $this->storage->store(
                     $rawBody,
                     'application/zip',
@@ -155,7 +143,20 @@ class TicketArchiveIntakeService
                     'superadmin'
                 );
 
-                $this->tickets->attachArchive((int) $current['id'], $fileId);
+                $this->tickets->attachArchive((int) $ticket['id'], $fileId);
+            },
+            // Read again under the lock, BEFORE the quota: two uploads for
+            // one ticket can both pass the check above before either
+            // attaches, and the second would then store a file and
+            // re-point the ticket at it, leaving the first on disk with
+            // nothing referring to it — or, at the quota's edge, be
+            // refused as « full » by the archive it duplicates. The one
+            // that comes second finds the archive attached and stores
+            // nothing: the same answer as the idempotent branch above.
+            function () use ($reference): bool {
+                $current = $this->tickets->findByReference($reference);
+
+                return $current === null || $current['archive_file_id'] !== null;
             }
         );
         if ($stored === SupportIntakeGuard::QUOTA_ARCHIVE_STORAGE) {

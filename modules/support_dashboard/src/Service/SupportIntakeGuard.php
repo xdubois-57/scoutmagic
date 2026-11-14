@@ -172,16 +172,31 @@ class SupportIntakeGuard
      * Under one lock for the same reason as the registrations: two
      * archives checked together could both fit and together overflow.
      *
+     * $alreadyKept is asked first, under the same lock: when it answers
+     * true the archive is already there — another upload of the same
+     * ticket won the race — and nothing is stored, counted or refused.
+     * Asked after the quota, a second upload at the boundary would be
+     * refused as « full » by the very archive it duplicates.
+     *
      * @param callable(): void $store
+     * @param (callable(): bool)|null $alreadyKept
      * @return true|string
      */
-    public function storeArchiveWithinQuota(int $installationRowId, int $bytes, callable $store): bool|string
-    {
+    public function storeArchiveWithinQuota(
+        int $installationRowId,
+        int $bytes,
+        callable $store,
+        ?callable $alreadyKept = null
+    ): bool|string {
         if (!AdvisoryLock::acquire($this->pdo, self::ARCHIVE_LOCK)) {
             return 'busy';
         }
 
         try {
+            if ($alreadyKept !== null && $alreadyKept()) {
+                return true;
+            }
+
             if (
                 $this->tickets->archiveBytes($installationRowId) + $bytes > self::ARCHIVE_QUOTA_PER_INSTALLATION_BYTES
                 || $this->tickets->archiveBytes() + $bytes > self::ARCHIVE_QUOTA_BYTES

@@ -269,6 +269,36 @@ class TicketArchiveIntakeServiceTest extends TestCase
         $this->assertSame($firstFileId, $this->tickets->findByReference($this->reference)['archive_file_id'] ?? null);
     }
 
+    /**
+     * The same race at the quota's edge: the archive already attached
+     * fills the installation's share, and the late upload must be told it
+     * is kept — not refused as « full » by the very archive it duplicates,
+     * nor leave a quota marker the attention page would report.
+     */
+    public function testALateDuplicateAtTheQuotaEdgeIsAcceptedNotRefusedAsFull(): void
+    {
+        $ticketId = (int) ($this->tickets->findByReference($this->reference)['id'] ?? 0);
+        $this->pdo->prepare(
+            "INSERT INTO files (relative_path, original_name, mime_type, size_bytes, role_min)
+             VALUES ('support-tickets/premiere.zip', 'support.zip', 'application/zip', ?, 'superadmin')"
+        )->execute([SupportIntakeGuard::ARCHIVE_QUOTA_PER_INSTALLATION_BYTES - 5]);
+        $this->tickets->attachArchive($ticketId, (int) $this->pdo->lastInsertId());
+
+        $service = new TicketArchiveIntakeService(
+            new SupportInstallationRepository($this->pdo),
+            new StaleFirstReadTicketRepository($this->pdo, $this->encryption),
+            new EncryptedFileStorageService($this->files, $this->encryption, $this->storagePath),
+            new JournalService(new JournalRepository($this->pdo)),
+            $this->guard()
+        );
+
+        $result = $service->receive($this->reference, 'PK-second', 'Bearer ' . self::SECRET, '203.0.113.1', true);
+
+        $this->assertTrue($result->accepted);
+        $this->assertSame(1, $this->countFiles());
+        $this->assertSame(0, $this->guard()->quotaRefusalsSince(SupportIntakeGuard::QUOTA_ARCHIVE_STORAGE, 60));
+    }
+
     /** Past the per-address limit the body is not even looked at. */
     public function testPastTheAddressLimitTheArchiveIsRefusedBeforeAnything(): void
     {
