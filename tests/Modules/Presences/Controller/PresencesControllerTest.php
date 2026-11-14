@@ -701,8 +701,11 @@ class PresencesControllerTest extends TestCase
                 // No settings table in this test.
             }
 
-            public function getEffectiveYear(?int $sessionOverrideId, Role $role): EffectiveScoutYear
-            {
+            public function getEffectiveYear(
+                ?int $sessionOverrideId,
+                Role $role,
+                ?callable $staffYearEligibility = null
+            ): EffectiveScoutYear {
                 return new EffectiveScoutYear($this->scoutYearId, '2026-2027', null);
             }
         };
