@@ -11,6 +11,7 @@ namespace Modules\Calendar\Service;
 use Core\Member\SectionStaffAuthorizationService;
 use Core\ScoutYear\AuthorizationYearService;
 use Core\ScoutYear\ScoutYearResolver;
+use Core\ScoutYear\StaffYearEligibility;
 use Core\Security\Role;
 use Core\Security\RoleResolver;
 use Core\Security\UserAccountRepository;
@@ -29,6 +30,13 @@ use Core\Security\UserAccountRepository;
  * preview), widened to all of them for an administrator by
  * SectionStaffAuthorizationService itself — the same year, through the same
  * fallback, as that page.
+ *
+ * **That year is the named account's, not the session's** (issue #1165).
+ * Whether an account is served the staff year depends on who it is, and
+ * the resolver's own wiring asks about whoever is signed in — another
+ * super-administrator driving the same import, or nobody. So the account's
+ * own eligibility is passed to the resolver, and the sections are the same
+ * whoever clicks.
  */
 class AccountCalendarRights
 {
@@ -37,7 +45,8 @@ class AccountCalendarRights
         private RoleResolver $roles,
         private AuthorizationYearService $authorizationYears,
         private SectionStaffAuthorizationService $staff,
-        private ScoutYearResolver $scoutYears
+        private ScoutYearResolver $scoutYears,
+        private StaffYearEligibility $staffYearEligibility
     ) {
     }
 
@@ -57,11 +66,13 @@ class AccountCalendarRights
         $role = Role::fromString(
             $this->roles->resolveAcrossYears($account->email, $this->authorizationYears->resolve())
         );
-        $sections = $this->staff->getStaffedSections(
-            $account->email,
-            $role->value,
-            $this->scoutYears->getEffectiveYear(null, $role)->id
+        $email = $account->email;
+        $year = $this->scoutYears->getEffectiveYear(
+            null,
+            $role,
+            fn (int $staffYearId): bool => $this->staffYearEligibility->isEligible($email, $staffYearId)
         );
+        $sections = $this->staff->getStaffedSections($email, $role->value, $year->id);
 
         return [
             'role' => $role,
