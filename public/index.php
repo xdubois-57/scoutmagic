@@ -10394,7 +10394,12 @@ if ($isEnabled('groups')) {
     $groupsFileOwnershipChecker = new \Modules\Groups\File\GroupFileOwnershipChecker(
         $groupsGroupRepo,
         $groupsAccessService,
-        $scoutYearResolver
+        $scoutYearResolver,
+        new \Modules\Groups\File\HiddenGroupFiles(
+            $groupsPostLinkRepo,
+            $groupsPostMediaRepo,
+            $galleryDelegatedAlbumManager
+        )
     );
     $fileOwnershipCheckers[] = $groupsFileOwnershipChecker;
 
@@ -13712,7 +13717,8 @@ $fileAccessGuard = new FileAccessGuard(
     $fileRepository,
     Role::fromString($currentRole),
     $linkedMemberIds,
-    $fileOwnershipCheckers
+    $fileOwnershipCheckers,
+    AuthSession::getUserAccountId()
 );
 $fileController = new FileController(
     $twig,

@@ -163,7 +163,15 @@ class PostMediaIntegrationTest extends TestCase
         $resolver->method('getEffectiveYear')->willReturn(new EffectiveScoutYear($effectiveYearId, '2025-2026', null));
         $resolver->method('getAuthorizationYear')->willReturn(new EffectiveScoutYear($effectiveYearId, '2025-2026', null));
 
-        return new GroupFileOwnershipChecker($this->groupRepo, $access, $resolver);
+        return new GroupFileOwnershipChecker(
+            $this->groupRepo,
+            $access,
+            $resolver,
+            // The real gallery: which media a file is the original of is
+            // its answer (issue #1119), and a double would only agree with
+            // whatever this test assumed.
+            GroupsTestHelper::hiddenGroupFiles($this->pdo, $this->delegatedAlbumService())
+        );
     }
 
     /**
@@ -382,6 +390,41 @@ class PostMediaIntegrationTest extends TestCase
 
         $this->assertNotNull($memberGuard->check($fileId));
         $this->assertNull($outsiderGuard->check($fileId));
+    }
+
+    /**
+     * Issue #1119, end to end through the real gallery and the real guard:
+     * the original of a photo of a post moderation hid is refused to a
+     * member through `/files/{id}`, served to the moderator who signs in
+     * with the login the flag was granted to, and served again once the
+     * post is restored.
+     */
+    public function testTheOriginalOfAHiddenPostsPhotoIsRefusedThroughFileAccessGuard(): void
+    {
+        $currentYearId = (int) $this->pdo->query('SELECT id FROM scout_years LIMIT 1')->fetchColumn();
+        $member = GroupsTestHelper::createMember($this->pdo, 'M1');
+        $memberRepo = new \Modules\Groups\Repository\GroupMemberRepository($this->pdo);
+        $memberRepo->add($this->groupId, $member, false, null);
+        $moderator = GroupsTestHelper::createMember($this->pdo, 'MOD');
+        $memberRepo->setModerator($this->groupId, $moderator, true, null, 70);
+
+        $group = $this->groupRepo->findById($this->groupId);
+        $postId = $this->post();
+        $mediaIds = $this->postMediaService()
+            ->addMedia($group, $postId, [$this->fakeUploadedImage()], $this->creatorAccountId);
+        $fileId = $this->mediaRepo->findById($mediaIds[0])->fileId;
+        $posts = new \Modules\Groups\Repository\PostRepository($this->pdo);
+        $posts->setHiddenAt($postId, '2026-02-01 00:00:00');
+
+        $checker = $this->fileOwnershipChecker($currentYearId);
+        $memberGuard = new FileAccessGuard($this->fileRepo, Role::IDENTIFIED, [$member], [$checker], 50);
+        $moderatorGuard = new FileAccessGuard($this->fileRepo, Role::IDENTIFIED, [$moderator], [$checker], 70);
+
+        $this->assertNull($memberGuard->check($fileId));
+        $this->assertNotNull($moderatorGuard->check($fileId));
+
+        $posts->setHiddenAt($postId, null);
+        $this->assertNotNull($memberGuard->check($fileId));
     }
 
     /**

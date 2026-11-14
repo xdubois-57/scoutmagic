@@ -30,6 +30,24 @@ class PostLinkRepository
         return (int) $this->pdo->lastInsertId();
     }
 
+    /**
+     * Whether $fileId is the cached preview image of a link on a post of
+     * $groupId that moderation hid (issue #1119) — the `/files/…` address
+     * the post's markup carried before the hiding must stop serving it.
+     */
+    public function isImageOfHiddenPost(int $groupId, int $fileId): bool
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT 1 FROM discussion_group_post_links l
+             INNER JOIN discussion_group_posts p ON p.id = l.post_id
+             WHERE p.group_id = ? AND l.image_file_id = ? AND p.hidden_at IS NOT NULL
+             LIMIT 1'
+        );
+        $stmt->execute([$groupId, $fileId]);
+
+        return $stmt->fetchColumn() !== false;
+    }
+
     public function findForPost(int $postId): ?PostLink
     {
         $stmt = $this->pdo->prepare(

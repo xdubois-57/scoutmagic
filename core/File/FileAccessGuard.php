@@ -22,12 +22,16 @@ class FileAccessGuard
      *     owner_type, e.g. Core\Member\SectionDocumentOwnershipChecker for
      *     'section_document'. A file whose owner_type has no matching checker is denied
      *     (fail-safe), same posture as RBAC's own "no role_min = no access" default.
+     * @param int|null $userAccountId The identified login, for a checker whose
+     *     rule for one file depends on it ({@see FileLevelAccessPolicyInterface});
+     *     null when there is none.
      */
     public function __construct(
         private FileRepository $fileRepository,
         private Role $currentRole,
         private array $linkedMemberIds = [],
-        private array $ownershipCheckers = []
+        private array $ownershipCheckers = [],
+        private ?int $userAccountId = null
     ) {
     }
 
@@ -114,7 +118,7 @@ class FileAccessGuard
             // two independently and assignOwner() sets the owner after
             // the fact, so the row is one missing argument away.
             if ($file->ownerId === null
-                || !$this->isAllowedByRegistry($file->ownerType, $file->ownerId, $rendition)
+                || !$this->isAllowedByRegistry($file->ownerType, $file->ownerId, $file->id, $rendition)
             ) {
                 return null;
             }
@@ -186,19 +190,29 @@ class FileAccessGuard
         return $this->currentRole->hasAccess(Role::fromString(self::STAFF_BYPASS_ROLE));
     }
 
-    private function isAllowedByRegistry(string $ownerType, int $ownerId, ?string $rendition): bool
+    private function isAllowedByRegistry(string $ownerType, int $ownerId, int $fileId, ?string $rendition): bool
     {
         foreach ($this->ownershipCheckers as $checker) {
-            if ($checker->supports($ownerType)) {
-                if ($rendition !== null
-                    && $checker instanceof ReducedRenditionPolicyInterface
-                    && $checker->allowsReducedRendition($ownerId)
-                ) {
-                    return true;
-                }
-
-                return $checker->isAllowed($ownerId, $this->currentRole, $this->linkedMemberIds);
+            if (!$checker->supports($ownerType)) {
+                continue;
             }
+
+            $ownerAllows = ($rendition !== null
+                    && $checker instanceof ReducedRenditionPolicyInterface
+                    && $checker->allowsReducedRendition($ownerId))
+                || $checker->isAllowed($ownerId, $this->currentRole, $this->linkedMemberIds);
+
+            // The file's own rule, once the owner's said yes (issue #1119):
+            // a thumbnail of a file its owner withholds is withheld too.
+            return $ownerAllows
+                && (!$checker instanceof FileLevelAccessPolicyInterface
+                    || $checker->isFileAllowed(
+                        $ownerId,
+                        $fileId,
+                        $this->currentRole,
+                        $this->linkedMemberIds,
+                        $this->userAccountId
+                    ));
         }
 
         return false;

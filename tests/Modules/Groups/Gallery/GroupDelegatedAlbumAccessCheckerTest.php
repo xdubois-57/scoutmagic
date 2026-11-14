@@ -75,7 +75,15 @@ final class GroupDelegatedAlbumAccessCheckerTest extends TestCase
 
         $this->registry = new DelegatedAlbumAccessRegistry([
             new GroupDelegatedAlbumAccessChecker(
-                new GroupFileOwnershipChecker($groupRepo, $access, $resolver),
+                new GroupFileOwnershipChecker(
+                    $groupRepo,
+                    $access,
+                    $resolver,
+                    GroupsTestHelper::hiddenGroupFiles(
+                        $this->pdo,
+                        $this->createStub(\Modules\Gallery\Api\DelegatedAlbumManager::class)
+                    )
+                ),
                 $groupRepo,
                 $access,
                 new PostMediaRepository($this->pdo)

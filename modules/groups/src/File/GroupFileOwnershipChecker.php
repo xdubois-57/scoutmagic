@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\Groups\File;
 
+use Core\File\FileLevelAccessPolicyInterface;
 use Core\File\FileOwnershipCheckerInterface;
 use Core\ScoutYear\ScoutYearResolver;
 use Core\Security\Role;
@@ -32,15 +33,23 @@ use Modules\Groups\Service\GroupSessionContext;
  * current member. There is no chief bypass — a chief who is not in the
  * group does not get the file — while a site admin passes because the
  * module makes them an implicit moderator everywhere.
+ *
+ * **One file at a time, too** (issue #1119): a file of content moderation
+ * hid — a hidden post's link-preview image, the original of a hidden
+ * post's or reply's photo — is refused to anyone but a moderator, through
+ * the same Service\GroupAccessService::canReachModeratedContent() every
+ * post-scoped path asks ({@see isFileAllowed()}). The address a member
+ * saw before the hiding then serves nothing.
  */
-class GroupFileOwnershipChecker implements FileOwnershipCheckerInterface
+class GroupFileOwnershipChecker implements FileOwnershipCheckerInterface, FileLevelAccessPolicyInterface
 {
     public const OWNER_TYPE = 'discussion_group';
 
     public function __construct(
         private GroupRepository $groupRepository,
         private GroupAccessService $accessService,
-        private ScoutYearResolver $scoutYearResolver
+        private ScoutYearResolver $scoutYearResolver,
+        private HiddenGroupFiles $hiddenFiles
     ) {
     }
 
@@ -60,6 +69,35 @@ class GroupFileOwnershipChecker implements FileOwnershipCheckerInterface
         }
 
         return $this->accessService->canRead($group, $this->contextFor($currentRole, $linkedMemberIds));
+    }
+
+    /**
+     * Asked by Core\File\FileAccessGuard once isAllowed() said yes: a file
+     * of hidden content is a moderator's only — the login decides, since a
+     * moderator flag belongs to one.
+     *
+     * @param array<int, int> $linkedMemberIds
+     */
+    public function isFileAllowed(
+        int $ownerId,
+        int $fileId,
+        Role $currentRole,
+        array $linkedMemberIds,
+        ?int $userAccountId
+    ): bool {
+        $group = $this->groupRepository->findById($ownerId);
+        if ($group === null) {
+            return false;
+        }
+        if (!$this->hiddenFiles->isFileOfHiddenContent($group, $fileId)) {
+            return true;
+        }
+
+        return $this->accessService->canReachModeratedContent(
+            $group,
+            true,
+            $this->contextFor($currentRole, $linkedMemberIds, $userAccountId)
+        );
     }
 
     /**

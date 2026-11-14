@@ -6,8 +6,10 @@ namespace Tests\Core\File;
 
 use Core\File\FileAccessGuard;
 use Core\File\FileIndexingPolicyInterface;
+use Core\File\FileLevelAccessPolicyInterface;
 use Core\File\FileOwnershipCheckerInterface;
 use Core\File\FileRepository;
+use Core\File\ReducedRenditionPolicyInterface;
 use Core\Security\Role;
 use PHPUnit\Framework\TestCase;
 
@@ -567,6 +569,107 @@ class FileAccessGuardTest extends TestCase
                 $this->consultedOwnerIds[] = $ownerId;
 
                 return $this->allowed;
+            }
+        };
+    }
+
+    // --- One file at a time (issue #1119) -----------------------------
+
+    /**
+     * A checker that also has a per-file rule is asked it once the owner's
+     * rule said yes, with the file's id and the login — and a refusal
+     * there refuses the file, its thumbnail included.
+     */
+    public function testAPerFileRuleIsAskedOnceTheOwnerAllowsAndCanRefuse(): void
+    {
+        $kept = $this->groupFile('a.jpg');
+        $withheld = $this->groupFile('b.jpg');
+        $checker = $this->perFileChecker(true, [$withheld], true);
+        $guard = new FileAccessGuard($this->repo, Role::IDENTIFIED, [3], [$checker], 50);
+
+        $this->assertNotNull($guard->check($kept));
+        $this->assertNull($guard->check($withheld));
+        $this->assertNull($guard->check($withheld, 'thumb'), 'a thumbnail of a withheld file is withheld too');
+        $this->assertSame([[7, $kept, [3], 50], [7, $withheld, [3], 50], [7, $withheld, [3], 50]], $checker->asked);
+    }
+
+    /** The owner's rule comes first: refused there, the per-file rule is never asked. */
+    public function testThePerFileRuleIsNotAskedWhenTheOwnerRefuses(): void
+    {
+        $id = $this->groupFile('a.jpg');
+        $checker = $this->perFileChecker(false, [], false);
+
+        $this->assertNull((new FileAccessGuard($this->repo, Role::IDENTIFIED, [], [$checker]))->check($id));
+        $this->assertSame([], $checker->asked);
+    }
+
+    /**
+     * A thumbnail the owner lets through on role_min alone
+     * (ReducedRenditionPolicyInterface) still answers to the file's own
+     * rule.
+     */
+    public function testAReducedRenditionShortcutStillAnswersToThePerFileRule(): void
+    {
+        $id = $this->groupFile('a.jpg');
+        $checker = $this->perFileChecker(false, [$id], true);
+
+        $this->assertNull((new FileAccessGuard($this->repo, Role::IDENTIFIED, [], [$checker]))->check($id, 'thumb'));
+        $this->assertCount(1, $checker->asked);
+    }
+
+    /** A file owned by owner 7 of type `grp`. */
+    private function groupFile(string $name): int
+    {
+        return $this->repo->create($name, $name, 'image/jpeg', 100, 'identified', null, null, false, null, 'grp', 7);
+    }
+
+    /**
+     * @param list<int> $withheld
+     * @return FileOwnershipCheckerInterface&object{asked: list<array<int, mixed>>}
+     */
+    private function perFileChecker(
+        bool $ownerAllows,
+        array $withheld,
+        bool $reducedRendition
+    ): FileOwnershipCheckerInterface {
+        return new class ($ownerAllows, $withheld, $reducedRendition) implements
+            FileOwnershipCheckerInterface,
+            FileLevelAccessPolicyInterface,
+            ReducedRenditionPolicyInterface
+        {
+            /** @var list<array<int, mixed>> */
+            public array $asked = [];
+
+            /** @param list<int> $withheld */
+            public function __construct(private bool $ownerAllows, private array $withheld, private bool $reduced)
+            {
+            }
+
+            public function supports(string $ownerType): bool
+            {
+                return $ownerType === 'grp';
+            }
+
+            public function isAllowed(int $ownerId, Role $currentRole, array $linkedMemberIds): bool
+            {
+                return $this->ownerAllows;
+            }
+
+            public function allowsReducedRendition(int $ownerId): bool
+            {
+                return $this->reduced;
+            }
+
+            public function isFileAllowed(
+                int $ownerId,
+                int $fileId,
+                Role $currentRole,
+                array $linkedMemberIds,
+                ?int $userAccountId
+            ): bool {
+                $this->asked[] = [$ownerId, $fileId, $linkedMemberIds, $userAccountId];
+
+                return !in_array($fileId, $this->withheld, true);
             }
         };
     }

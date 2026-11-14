@@ -60,7 +60,11 @@ class GroupDelegatedAlbumDescriberTest extends TestCase
                     new GroupSectionRepository($this->pdo),
                     new SectionMembershipRepository($this->pdo)
                 ),
-                $resolver
+                $resolver,
+                GroupsTestHelper::hiddenGroupFiles(
+                    $this->pdo,
+                    $this->createStub(\Modules\Gallery\Api\DelegatedAlbumManager::class)
+                )
             ),
             $this->groups
         );
