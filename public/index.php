@@ -3477,12 +3477,12 @@ $twig->addGlobal(
 // session cookie's own end, and nothing tells the worker when it comes — no
 // page, no logout. The cookie is sent with its 30-day lifetime only when the
 // session id is (re)issued — at login — and PHP does not renew it on later
-// visits, so its end is counted from the session's issue time, not from this
-// page. 0 for a visitor.
+// visits, so its end is counted from when the cookie was last issued, not
+// from this page. 0 for a visitor.
 $twig->addGlobal(
     'push_recipient_expires_at',
     $pushRecipientAccountId !== null
-        ? \Core\Security\SessionManager::cookieExpiresAt(AuthSession::getIssuedAt(), time()) * 1000
+        ? \Core\Security\SessionManager::cookieExpiresAt(AuthSession::cookieIssuedAt(), time()) * 1000
         : 0
 );
 
