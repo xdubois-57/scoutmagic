@@ -3473,6 +3473,14 @@ $twig->addGlobal(
     'push_recipient_tag',
     $pushRecipientAccountId !== null ? $pushSubscriptionRepo->recipientTag($pushRecipientAccountId) : ''
 );
+// Until when that tag may be believed, in milliseconds since the epoch: a
+// session expires after a month without a visit, and nothing tells the
+// worker when it does — no page, no logout. Each page load pushes this
+// forward, exactly as it keeps the session alive. 0 for a visitor.
+$twig->addGlobal(
+    'push_recipient_expires_at',
+    $pushRecipientAccountId !== null ? (time() + \Core\Security\SessionManager::COOKIE_LIFETIME_SECONDS) * 1000 : 0
+);
 
 // Build menu
 $menuBuilder = new MenuBuilder(Role::fromString($currentRole));

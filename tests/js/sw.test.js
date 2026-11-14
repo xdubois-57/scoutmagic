@@ -1168,8 +1168,10 @@ describe('sw.js: appShellResponse()', () => {
 // The offline configuration as the page last stored it, holding the push
 // recipient tag of the account signed in (issue #1123). `undefined` stores
 // no configuration at all.
-function storedRecipient(tag) {
-    const config = tag === undefined ? undefined : { account_scope: '7', push_recipient_tag: tag };
+function storedRecipient(tag, expiresAt = Date.now() + 86400000) {
+    const config = tag === undefined
+        ? undefined
+        : { account_scope: '7', push_recipient_tag: tag, push_recipient_expires_at: expiresAt };
     return createCachesFake(config === undefined ? {} : {
         'offline-config': { 'https://offline-config.internal/v1': { json: () => Promise.resolve(config) } },
     });
@@ -1287,6 +1289,30 @@ describe('sw.js: the push recipient guard (issue #1123)', () => {
         expect(global.navigator.setAppBadge).toHaveBeenCalledWith(2);
         expect(client.postMessage).toHaveBeenCalledWith({ type: 'push-received', unreadCount: 2 });
         expect(unsubscribe).not.toHaveBeenCalled();
+    });
+
+    it('a tag whose session has expired is no longer believed', async () => {
+        // A month without a visit: the session is gone server-side, and no
+        // page or logout told the worker so.
+        global.caches = storedRecipient(TAG, Date.now() - 1000);
+
+        await push({ ...PAYLOAD, recipient: TAG });
+
+        expectNeutralNoticeThenUnsubscribe();
+    });
+
+    it('a tag stored without an expiry is not believed', async () => {
+        global.caches = createCachesFake({
+            'offline-config': {
+                'https://offline-config.internal/v1': {
+                    json: () => Promise.resolve({ account_scope: '7', push_recipient_tag: TAG }),
+                },
+            },
+        });
+
+        await push({ ...PAYLOAD, recipient: TAG });
+
+        expectNeutralNoticeThenUnsubscribe();
     });
 
     it('a config stored before the guard existed (no tag key at all) keeps the old behaviour', async () => {
@@ -1412,6 +1438,7 @@ describe('sw.js: the push recipient guard (issue #1123)', () => {
 
             await send({
                 type: 'offline-config', account_scope: '7', consent: false, version: '1', push_recipient_tag: TAG,
+                push_recipient_expires_at: Date.now() + 86400000,
             });
             await push({ ...PAYLOAD, recipient: TAG });
             expect(showNotification).toHaveBeenLastCalledWith('Réunion des chefs', expect.anything());
@@ -1423,6 +1450,43 @@ describe('sw.js: the push recipient guard (issue #1123)', () => {
             await push({ ...PAYLOAD, recipient: TAG });
             expect(showNotification).toHaveBeenLastCalledWith('Nouvelle notification', expect.anything());
             expect(unsubscribe).toHaveBeenCalledTimes(1);
+        } finally {
+            global.Response = realResponse;
+        }
+    });
+
+    it('a push arriving while the logout is still being written reads the forgotten tag, not the old one', async () => {
+        const caches = createCachesFake();
+        global.caches = caches;
+        const realResponse = global.Response;
+        global.Response = class {
+            constructor(body) { this.body = body; }
+            json() { return Promise.resolve(JSON.parse(this.body)); }
+        };
+
+        try {
+            const dispatch = (data) => {
+                const waits = [];
+                const event = new Event('message');
+                event.data = data;
+                Object.defineProperty(event, 'origin', { value: self.location.origin });
+                event.waitUntil = (promise) => waits.push(promise);
+                global.self.dispatchEvent(event);
+                return Promise.all(waits);
+            };
+
+            await dispatch({
+                type: 'offline-config', account_scope: '7', consent: false, version: '1', push_recipient_tag: TAG,
+                push_recipient_expires_at: Date.now() + 86400000,
+            });
+
+            // The logout's write is NOT awaited before the push lands.
+            const logout = dispatch({ type: 'forget-push-recipient' });
+            await push({ ...PAYLOAD, recipient: TAG });
+            await logout;
+
+            expect(showNotification).toHaveBeenCalledTimes(1);
+            expect(showNotification).toHaveBeenLastCalledWith('Nouvelle notification', expect.anything());
         } finally {
             global.Response = realResponse;
         }

@@ -129,6 +129,7 @@ describe('offline-cache.js: sendConfig() on page load', () => {
             version: '1.2.3',
             standalone: false,
             push_recipient_tag: '',
+            push_recipient_expires_at: 0,
         }));
     });
 
@@ -139,6 +140,15 @@ describe('offline-cache.js: sendConfig() on page load', () => {
         await boot();
         await vi.waitFor(() => expect(activeSpy.postMessage).toHaveBeenCalledWith(
             expect.objectContaining({ type: 'offline-config', push_recipient_tag: 'a1b2c3' })
+        ));
+    });
+
+    it('sends until when the push recipient tag holds', async () => {
+        buildConfig({ ...BASE_CONFIG, pushRecipientTag: 'a1b2c3', pushRecipientExpiresAt: 1893456000000 });
+        await boot();
+
+        await vi.waitFor(() => expect(activeSpy.postMessage).toHaveBeenCalledWith(
+            expect.objectContaining({ push_recipient_tag: 'a1b2c3', push_recipient_expires_at: 1893456000000 })
         ));
     });
 

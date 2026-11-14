@@ -325,7 +325,8 @@
         consent: offline_functional_consent|default(false),
         accountScope: offline_account_scope|default('guest'),
         version: app_version|default('0.0.0'),
-        pushRecipientTag: push_recipient_tag|default('')
+        pushRecipientTag: push_recipient_tag|default(''),
+        pushRecipientExpiresAt: push_recipient_expires_at|default(0)
     }|json_encode|raw }}</script>
     <script src="{{ asset('/assets/js/offline-cache.js') }}" defer></script>
     <script src="{{ asset('/assets/js/offline-nav.js') }}" defer></script>

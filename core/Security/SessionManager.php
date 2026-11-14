@@ -20,7 +20,7 @@ class SessionManager
     // own session GC doesn't purge the server-side session file before
     // the cookie itself expires — a cookie surviving longer than its
     // backing session data would otherwise silently re-log the user out.
-    private const COOKIE_LIFETIME_SECONDS = 30 * 24 * 60 * 60;
+    public const COOKIE_LIFETIME_SECONDS = 30 * 24 * 60 * 60;
 
     /**
      * Start the session with secure settings.

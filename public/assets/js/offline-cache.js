@@ -64,7 +64,12 @@
             // public/sw.js's 'push' handler) — stored with the rest, '' for
             // a visitor. Not offline caching, but the same delivery: one
             // server-rendered blob, one message the worker persists.
-            push_recipient_tag: typeof config.pushRecipientTag === 'string' ? config.pushRecipientTag : ''
+            push_recipient_tag: typeof config.pushRecipientTag === 'string' ? config.pushRecipientTag : '',
+            // Until when that tag holds (ms since the epoch): the session's
+            // own expiry, renewed by every page load. 0 when unknown.
+            push_recipient_expires_at: typeof config.pushRecipientExpiresAt === 'number'
+                ? config.pushRecipientExpiresAt
+                : 0
         });
     }
 

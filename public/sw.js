@@ -1829,7 +1829,10 @@ const NEUTRAL_PUSH_BODY = 'Connectez-vous pour la lire.';
 
 function forgetPushRecipient() {
     return getOfflineConfig().then(function (config) {
-        return storeOfflineConfig(Object.assign({}, config || {}, { push_recipient_tag: '' }));
+        return storeOfflineConfig(Object.assign({}, config || {}, {
+            push_recipient_tag: '',
+            push_recipient_expires_at: 0,
+        }));
     });
 }
 
@@ -1847,7 +1850,10 @@ function isForSignedInAccount(data) {
         return Promise.resolve(false);
     }
 
-    return getOfflineConfig().then(function (config) {
+    // After any configuration write still in flight — above all the
+    // logout's `forget-push-recipient`: a push landing while it is being
+    // written must not read the account it is erasing.
+    return lastConfigWrite.catch(function () {}).then(getOfflineConfig).then(function (config) {
         // A config stored by a version before this guard has no tag at
         // all — not an empty one. Read strictly, every installed app would
         // blank and unsubscribe itself on its first push after the update,
@@ -1858,7 +1864,12 @@ function isForSignedInAccount(data) {
             return true;
         }
         const expected = config?.push_recipient_tag;
-        return typeof expected === 'string' && expected !== '' && expected === recipient;
+        // A session expires after a month without a visit, and no page or
+        // logout tells the worker so: the tag holds only until the expiry
+        // the last page load announced.
+        const expiresAt = config?.push_recipient_expires_at;
+        return typeof expected === 'string' && expected !== '' && expected === recipient
+            && typeof expiresAt === 'number' && expiresAt > Date.now();
     }).catch(function () { return false; });
 }
 
