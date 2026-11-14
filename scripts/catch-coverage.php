@@ -183,10 +183,11 @@ function catchCoverageSourceFiles(string $root): array
  *   empty      whether the body holds no statement;
  *   marker     the reason given after the marker, '' for a marker without
  *              one, null when there is no marker;
- *   sharedLine whether code other than the closing `}` precedes `catch` on its
- *              line (`try { a(); } catch (X) {}`): line coverage cannot then
- *              tell the `try` body's execution from the `catch`'s, so that line
- *              proves nothing about the `catch`
+ *   sharedLine whether code other than closing braces precedes `catch` on its
+ *              line (`try { a(); } catch (X) {}`), or anything follows a body
+ *              that closes on that line (`} catch (X) {} finally { f(); }`):
+ *              line coverage cannot then tell that code's execution from the
+ *              `catch`'s, so that line proves nothing about the `catch`
  */
 function catchCoverageScan(string $source): array
 {
@@ -246,6 +247,15 @@ function catchCoverageScan(string $source): array
             }
             if ($bodyLines === [] || end($bodyLines) !== $token->line) {
                 $bodyLines[] = $token->line;
+            }
+        }
+        // And after it: when the body closes on the catch's own line, code
+        // that follows there (`} catch (A) {} finally { f(); }`, or a chained
+        // `catch (B) { g(); }`) runs on that line too.
+        $catchLine = $tokens[$i]->line;
+        for ($k = $j + 1; !$sharedLine && $k < $count && $tokens[$k]->line === $catchLine; $k++) {
+            if (!in_array($tokens[$k]->id, [T_WHITESPACE, T_COMMENT, T_DOC_COMMENT], true)) {
+                $sharedLine = true;
             }
         }
 

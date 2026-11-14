@@ -97,6 +97,34 @@ final class CatchCoverageTest extends TestCase
         $this->assertSame([false, false, true, false, true, true], array_column($catches, 'sharedLine'));
     }
 
+    public function testCodeAfterABodyClosingOnTheCatchLineSharesItToo(): void
+    {
+        $catches = \catchCoverageScan(<<<'PHP'
+            <?php
+            try {
+                a();
+            } catch (FooException) {} finally { cleanup(); }
+            try {
+                b();
+            } catch (BarException) {} catch (BazException) { handle(); }
+            try {
+                c();
+            } catch (QuxException) {} // a comment changes nothing
+            try {
+                d();
+            } catch (QuuxException) {
+            } finally {
+                e();
+            }
+            PHP);
+
+        $this->assertSame(
+            [true, true, true, false, false],
+            array_column($catches, 'sharedLine'),
+            'finally, a chained catch: shared; a comment after, or a body closing on a later line: not'
+        );
+    }
+
     public function testASharedCatchLineIsNeverTakenAsEvidence(): void
     {
         // try { x(); } catch (T) {} — x() running marks the line, not the catch.
