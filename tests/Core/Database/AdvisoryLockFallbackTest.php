@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Core\Database;
 
 use Core\Database\AdvisoryLock;
+use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -14,6 +15,7 @@ use PHPUnit\Framework\TestCase;
  * held. AdvisoryLockOnMysqlTest exercises the real failure on MariaDB; this
  * pins the decision on both sides without a server.
  */
+#[Group('database')]
 final class AdvisoryLockFallbackTest extends TestCase
 {
     public function testSqliteHasNoAdvisoryLocksSoItProceeds(): void
@@ -37,7 +39,7 @@ final class AdvisoryLockFallbackTest extends TestCase
     /** A driver that cannot even be asked its name is not presumed to be SQLite. */
     public function testADriverThatCannotBeNamedIsARefusal(): void
     {
-        $pdo = $this->createMock(\PDO::class);
+        $pdo = $this->createStub(\PDO::class);
         $pdo->method('prepare')->willThrowException(new \PDOException('gone away'));
         $pdo->method('getAttribute')->willThrowException(new \PDOException('gone away'));
 
@@ -46,9 +48,9 @@ final class AdvisoryLockFallbackTest extends TestCase
 
     private function failingConnection(string $driver): \PDO
     {
-        $pdo = $this->createMock(\PDO::class);
+        $pdo = $this->createStub(\PDO::class);
         $pdo->method('prepare')->willThrowException(new \PDOException('MySQL server has gone away'));
-        $pdo->method('getAttribute')->with(\PDO::ATTR_DRIVER_NAME)->willReturn($driver);
+        $pdo->method('getAttribute')->willReturnMap([[\PDO::ATTR_DRIVER_NAME, $driver]]);
 
         return $pdo;
     }
