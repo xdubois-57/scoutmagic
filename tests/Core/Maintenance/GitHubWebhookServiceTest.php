@@ -1191,4 +1191,31 @@ class GitHubWebhookServiceTest extends TestCase
         $this->assertSame('dev_mode_disabled', $this->settings->get('auto_update_last_push_result'));
     }
 
+    /**
+     * An install predating the two bookkeeping settings — its migration not
+     * run yet — has no row for setInternal() to update, and setInternal()
+     * refuses an unregistered key. The push has already scheduled its
+     * install by then; the refusal must not turn that into a failed webhook,
+     * nor invent the rows it could not find.
+     */
+    public function testAPushStillSchedulesItsInstallWhenTheBookkeepingSettingsAreNotRegisteredYet(): void
+    {
+        $this->settings->set('auto_update_enabled', '1');
+        $this->settings->set('auto_update_level', 'dev');
+        $this->pdo->exec(
+            "DELETE FROM settings WHERE setting_key IN ('auto_update_last_push_at', 'auto_update_last_push_result')"
+        );
+        $this->settings->clearCache();
+
+        $result = $this->service()->handlePushEvent($this->pushPayload('main', 'a1b2c3d4e5f6'));
+
+        $this->assertSame(['status' => 'ok'], $result);
+        $this->assertCount(1, $this->schedulerRepository->findByModuleAndTaskKey('core', 'install_update', 10));
+        $this->assertSame(
+            0,
+            (int) $this->pdo->query(
+                "SELECT COUNT(*) FROM settings WHERE setting_key LIKE 'auto_update_last_push_%'"
+            )->fetchColumn()
+        );
+    }
 }

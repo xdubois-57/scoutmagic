@@ -289,6 +289,45 @@ class AttachmentRepositoryTest extends TestCase
         $this->assertSame('archived', $this->repository->findById($alreadyArchivedId)?->status);
     }
 
+    /**
+     * The file's owner is the last of reassign()'s three writes: refused
+     * there, the receipt keeps its account and its movements, so the
+     * screen never shows a receipt whose file still answers to the old one.
+     */
+    public function testAReassignRefusedAtTheFileLeavesTheReceiptAndItsMovementsWhereTheyWere(): void
+    {
+        $accountId = $this->accountId();
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $otherAccountId = (new AccountRepository($this->pdo, $encryption))
+            ->create('Autre', Account::TYPE_BANK, null, null, null, 'intendant');
+        $attachmentId = $this->repository->create(
+            $accountId, $this->fileId, 'application/pdf', 'a.pdf', null, null, null, null
+        );
+        $transactionId = $this->createTransaction($accountId);
+        $associations = new TransactionAttachmentRepository($this->pdo);
+        $associations->associate($transactionId, $attachmentId);
+        $this->pdo->exec(
+            "CREATE TRIGGER refuse_file_owner BEFORE UPDATE OF owner_id ON files
+             BEGIN SELECT RAISE(ABORT, 'refused by the test'); END"
+        );
+
+        try {
+            $this->repository->reassign(
+                $attachmentId, $otherAccountId, $this->fileId, 'finance_account', $otherAccountId, 'intendant'
+            );
+            $this->fail('the refusal was swallowed');
+        } catch (\PDOException $e) {
+            $this->assertStringContainsString('refused by the test', $e->getMessage());
+        }
+
+        $this->assertFalse($this->pdo->inTransaction());
+        $this->assertSame($accountId, $this->repository->findById($attachmentId)?->accountId);
+        $this->assertSame([$transactionId], $associations->findTransactionIdsForAttachment($attachmentId));
+        $owner = $this->pdo->prepare('SELECT owner_id FROM files WHERE id = ?');
+        $owner->execute([$this->fileId]);
+        $this->assertNull($owner->fetchColumn());
+    }
+
     private function createTransaction(int $accountId): int
     {
         $fiscalYearId = FinanceTestHelper::createScoutYear($this->pdo, '2026-2027', '2026-09-01', '2027-08-31');

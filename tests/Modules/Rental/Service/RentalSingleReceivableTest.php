@@ -179,7 +179,8 @@ class RentalSingleReceivableTest extends TestCase
 
     // ── Fixtures ────────────────────────────────────────────────────────
 
-    private function createBooking(int $rentalCents = 66800): RentalBooking
+    /** $rentalCents null: a booking with no price yet. */
+    private function createBooking(?int $rentalCents = 66800): RentalBooking
     {
         $created = $this->bookingRepository->create(
             $this->assetId,
@@ -197,7 +198,7 @@ class RentalSingleReceivableTest extends TestCase
                 'purpose' => null,
                 'comment' => null,
             ],
-            new PriceQuote(
+            $rentalCents === null ? null : new PriceQuote(
                 lines: [new PriceLine('Séjour', 1, null, $rentalCents, PriceLine::RULE_BASE)],
                 totalCents: $rentalCents,
                 nights: 3,
@@ -266,6 +267,55 @@ class RentalSingleReceivableTest extends TestCase
         return $communication;
     }
 
+    /** As public/index.php wires it, Finance included, with no documents nor e-mail. */
+    private function modificationService(): \Modules\Rental\Service\RentalModificationService
+    {
+        return new \Modules\Rental\Service\RentalModificationService(
+            $this->bookingRepository,
+            new RentalModificationRepository($this->pdo),
+            new \Modules\Rental\Repository\RentalDocumentRepository($this->pdo),
+            new \Modules\Rental\Service\RentalOccupancyGuard(
+                $this->bookingRepository,
+                new RentalAvailabilityService(
+                    new AvailabilityCalculator(),
+                    new RentalConstraintsRepository($this->pdo),
+                    [$this->bookings]
+                ),
+                $this->pricingService
+            ),
+            new RentalAvailabilityService(new AvailabilityCalculator(), new RentalConstraintsRepository($this->pdo)),
+            $this->pricingService,
+            $this->bookingAudit,
+            $this->journal,
+            null,
+            $this->payments
+        );
+    }
+
+    /** @return list<?string> the booking's history, oldest first, by summary */
+    private function historySummaries(RentalBooking $booking): array
+    {
+        return array_map(
+            static fn(\Core\Audit\AuditEntry $entry): ?string => $entry->summary,
+            RentalTestHelper::bookingHistory($this->pdo, $this->encryption, $booking->id)
+        );
+    }
+
+    /** @return list<array{description: string, context: array<string, mixed>}> */
+    private function journalOf(string $type): array
+    {
+        $stmt = $this->pdo->prepare('SELECT description, context FROM event_log WHERE event_type = ? ORDER BY id');
+        $stmt->execute([$type]);
+
+        return array_map(
+            static fn(array $row): array => [
+                'description' => (string) $row['description'],
+                'context' => (array) json_decode((string) $row['context'], true),
+            ],
+            $stmt->fetchAll(\PDO::FETCH_ASSOC)
+        );
+    }
+
     // ── Before and at the first contract ────────────────────────────────
 
     public function testTheFirstContractRaisesOneReceivableForTheRentalAndTheSecurityDeposit(): void
@@ -295,26 +345,7 @@ class RentalSingleReceivableTest extends TestCase
         // A direct change before the first send (#927, chantier §2.3): the
         // tariff's price for the stay, with no discount.
         $this->pricingService->saveAssetPricing($this->assetId, 'flat_stay', 60000, null, null);
-        $modifications = new \Modules\Rental\Service\RentalModificationService(
-            $this->bookingRepository,
-            new RentalModificationRepository($this->pdo),
-            new \Modules\Rental\Repository\RentalDocumentRepository($this->pdo),
-            new \Modules\Rental\Service\RentalOccupancyGuard(
-                $this->bookingRepository,
-                new RentalAvailabilityService(
-                    new AvailabilityCalculator(),
-                    new RentalConstraintsRepository($this->pdo),
-                    [$this->bookings]
-                ),
-                $this->pricingService
-            ),
-            new RentalAvailabilityService(new AvailabilityCalculator(), new RentalConstraintsRepository($this->pdo)),
-            $this->pricingService,
-            $this->bookingAudit,
-            $this->journal,
-            null,
-            $this->payments
-        );
+        $modifications = $this->modificationService();
         $current = $this->reload($booking->id);
         $modifications->applyDirectly(
             $current,
@@ -329,6 +360,46 @@ class RentalSingleReceivableTest extends TestCase
         $this->assertSame($communication, $status['communication']);
         $this->assertSame(1, $this->receivableCount());
         $this->assertSame($communication, $this->firstContract($this->reload($booking->id)));
+    }
+
+    /**
+     * A direct change that lowers the price below what has already come
+     * in: Finance refuses to move the receivable without an explicit
+     * overpayment, and the change stands all the same. The journal says
+     * the receivable was not updated, and the booking's history tells its
+     * manager to check the amount (chantier §2.5).
+     */
+    public function testADirectChangeFinanceRefusesToFollowIsWrittenInTheHistory(): void
+    {
+        $booking = $this->createBooking();
+        $this->pay($this->firstContract($booking), 818.00);
+        $asset = (new RentalAssetRepository($this->pdo, $this->encryption))->findById($this->assetId);
+        $this->assertNotNull($asset);
+        $this->pricingService->saveAssetPricing($this->assetId, 'flat_stay', 60000, null, null);
+        $modifications = $this->modificationService();
+        $current = $this->reload($booking->id);
+
+        $modifications->applyDirectly(
+            $current,
+            $asset,
+            $modifications->termsFor($current, $asset, '2027-03-12', '2027-03-15', 32, 1, null, null),
+            1,
+            new \DateTimeImmutable()
+        );
+
+        $this->assertSame(60000, $this->reload($booking->id)->agreedTotalCents, 'the change stands');
+        $this->assertSame(81800, $this->paymentStatus($booking)['total_cents'], 'the receivable did not follow');
+        $this->assertSame(
+            [[
+                'description' => 'Créance non mise à jour pour LOC-A2B3C4',
+                'context' => ['booking_id' => $booking->id, 'to_cents' => 60000, 'error' => RentalException::class],
+            ]],
+            $this->journalOf('rental_receivable_not_updated')
+        );
+        $this->assertContains(
+            'Créance non mise à jour dans les Finances : vérifiez son montant',
+            $this->historySummaries($booking)
+        );
     }
 
     public function testTheFirstSendSetsTheDepositDeadlineAndALaterOneMovesNothing(): void
@@ -354,6 +425,29 @@ class RentalSingleReceivableTest extends TestCase
         $this->assertSame(1, $this->receivableCount());
         $this->assertSame($communication, $this->paymentStatus($booking)['communication']);
         $this->assertSame(81800, $this->paymentStatus($booking)['total_cents']);
+    }
+
+    /**
+     * A booking confirmed with no price yet cannot raise its receivable:
+     * the confirmation stands — the manager was told it worked — and the
+     * journal says why no receivable was raised.
+     */
+    public function testConfirmingABookingWithNoPriceStandsAndJournalsTheMissingReceivable(): void
+    {
+        $booking = $this->createBooking(null);
+
+        $this->operations->confirm($booking, $this->asset(), 1, new \DateTimeImmutable('2027-01-25'));
+
+        $this->assertSame(BookingStatus::CONFIRMED, $this->reload($booking->id)->status);
+        $this->assertSame(0, $this->receivableCount());
+        $this->assertSame(
+            [[
+                'description' => 'Créance non créée pour LOC-A2B3C4 : '
+                    . "Cette réservation n'a pas encore de prix : impossible de demander un paiement.",
+                'context' => ['booking_id' => $booking->id, 'asset_id' => $this->assetId],
+            ]],
+            $this->journalOf('rental_receivable_failed')
+        );
     }
 
     // ── Abandoned: refused, cancelled, expired ──────────────────────────

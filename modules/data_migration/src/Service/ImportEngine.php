@@ -113,7 +113,12 @@ class ImportEngine
                 // resume()): a poll still in flight when the page paused
                 // must not start it again.
                 if ($run->state !== Run::RUNNING) {
-                    $started = $this->runs->updateIfState($run, Run::CONFIRMED, ['state' => Run::RUNNING], $this->now());
+                    $started = $this->runs->updateIfState(
+                        $run,
+                        Run::CONFIRMED,
+                        ['state' => Run::RUNNING],
+                        $this->now()
+                    );
                     if ($started === null) {
                         return $this->fresh($run);
                     }
@@ -159,16 +164,28 @@ class ImportEngine
         // which of the two happened.
         $imported = (int) ($run->report['imported'] ?? 0);
         if ($run->phase() === self::PHASE_EXECUTE) {
-            $this->journal->log('data_migration', 'import_stopped', 'info', 'Import de migration arrêté : le fichier est devenu illisible en cours d\'import', [
-                'run_id' => $run->id,
-                'importer' => $run->importerKey,
-                'imported' => $imported,
-            ]);
+            $this->journal->log(
+                'data_migration',
+                'import_stopped',
+                'info',
+                'Import de migration arrêté : le fichier est devenu illisible en cours d\'import',
+                [
+                    'run_id' => $run->id,
+                    'importer' => $run->importerKey,
+                    'imported' => $imported,
+                ]
+            );
         } else {
-            $this->journal->log('data_migration', 'archive_rejected', 'info', 'Fichier de migration refusé avant toute écriture', [
-                'run_id' => $run->id,
-                'importer' => $run->importerKey,
-            ]);
+            $this->journal->log(
+                'data_migration',
+                'archive_rejected',
+                'info',
+                'Fichier de migration refusé avant toute écriture',
+                [
+                    'run_id' => $run->id,
+                    'importer' => $run->importerKey,
+                ]
+            );
         }
 
         return $run;
@@ -277,7 +294,11 @@ class ImportEngine
                 } catch (\Throwable $e) {
                     $analysis['errors'] = (int) ($analysis['errors'] ?? 0) + 1;
                     $analysis['total'] = (int) ($analysis['total'] ?? 0) + 1;
-                    $analysis['error_samples'] = self::sample($analysis['error_samples'] ?? [], $item->shownReference(), null);
+                    $analysis['error_samples'] = self::sample(
+                        $analysis['error_samples'] ?? [],
+                        $item->shownReference(),
+                        null
+                    );
                     $this->journalItemError($run, 'analyse', $e);
                 }
                 $position = $itemPosition + 1;
@@ -355,7 +376,14 @@ class ImportEngine
                     // Nothing more to do for this item.
                 } elseif ($verdict->outcome === ItemVerdict::IMPORT) {
                     try {
-                        $run = TransactionScope::run($this->pdo, function () use ($importer, $item, $context, $run, $report, $next): Run {
+                        $run = TransactionScope::run($this->pdo, function () use (
+                            $importer,
+                            $item,
+                            $context,
+                            $run,
+                            $report,
+                            $next
+                        ): Run {
                             $target = $importer->write($item, $context);
                             $this->items->insert(
                                 $context->installationId,
@@ -474,7 +502,8 @@ class ImportEngine
         return new ImportContext(
             $run->id,
             (string) $run->installationId,
-            $run->format ?? ($importer->archiveFormat() !== null ? $importer->archiveFormat()->format : $importer->key()),
+            $run->format
+                ?? ($importer->archiveFormat() !== null ? $importer->archiveFormat()->format : $importer->key()),
             $run->createdBy,
             $source,
             fn (string $label): ?int => $this->years->resolve($label),
@@ -490,7 +519,10 @@ class ImportEngine
      */
     private static function inventoryInArchiveOrder(OpenedArchive $archive, Manifest $manifest): array
     {
-        return array_values(array_filter($archive->names(), static fn (string $name): bool => isset($manifest->files[$name])));
+        return array_values(array_filter(
+            $archive->names(),
+            static fn (string $name): bool => isset($manifest->files[$name])
+        ));
     }
 
     /**
@@ -509,14 +541,26 @@ class ImportEngine
      */
     public static function emptyReport(): array
     {
-        return ['imported' => 0, 'present' => 0, 'errors' => 0, 'ignored' => [], 'samples' => [], 'error_samples' => []];
+        return [
+            'imported' => 0,
+            'present' => 0,
+            'errors' => 0,
+            'ignored' => [],
+            'samples' => [],
+            'error_samples' => [],
+        ];
     }
 
     /**
      * @param array<string, mixed> $analysis
      * @return array<string, mixed>
      */
-    private static function countAnalysis(array $analysis, SourceItem $item, ItemVerdict $verdict, bool $missingYear): array
+    private static function countAnalysis(
+        array $analysis,
+        SourceItem $item,
+        ItemVerdict $verdict,
+        bool $missingYear
+    ): array
     {
         $analysis['total'] = (int) $analysis['total'] + 1;
 
@@ -524,7 +568,10 @@ class ImportEngine
             case ItemVerdict::IMPORT:
                 $analysis['to_import'] = (int) $analysis['to_import'] + 1;
                 if ($missingYear && $verdict->scoutYearLabel !== null) {
-                    $analysis['missing_years'] = self::increment((array) $analysis['missing_years'], $verdict->scoutYearLabel);
+                    $analysis['missing_years'] = self::increment(
+                        (array) $analysis['missing_years'],
+                        $verdict->scoutYearLabel
+                    );
                 }
                 break;
             case ItemVerdict::PRESENT:
@@ -532,11 +579,19 @@ class ImportEngine
                 break;
             case ItemVerdict::AMBIGUOUS:
                 $analysis['ambiguous'] = (int) $analysis['ambiguous'] + 1;
-                $analysis['samples'] = self::sample((array) $analysis['samples'], $item->shownReference(), (string) $verdict->reason);
+                $analysis['samples'] = self::sample(
+                    (array) $analysis['samples'],
+                    $item->shownReference(),
+                    (string) $verdict->reason
+                );
                 break;
             default:
                 $analysis['ignored'] = self::increment((array) $analysis['ignored'], (string) $verdict->reason);
-                $analysis['samples'] = self::sample((array) $analysis['samples'], $item->shownReference(), (string) $verdict->reason);
+                $analysis['samples'] = self::sample(
+                    (array) $analysis['samples'],
+                    $item->shownReference(),
+                    (string) $verdict->reason
+                );
         }
 
         foreach ($verdict->tags as $tag) {
@@ -608,12 +663,18 @@ class ImportEngine
      */
     private function journalItemError(Run $run, string $phase, \Throwable $e): void
     {
-        $this->journal->log('data_migration', 'item_failed', 'error', 'Élément de migration non importé à la suite d\'une erreur technique', [
-            'run_id' => $run->id,
-            'importer' => $run->importerKey,
-            'phase' => $phase,
-            'exception' => $e::class,
-        ]);
+        $this->journal->log(
+            'data_migration',
+            'item_failed',
+            'error',
+            'Élément de migration non importé à la suite d\'une erreur technique',
+            [
+                'run_id' => $run->id,
+                'importer' => $run->importerKey,
+                'phase' => $phase,
+                'exception' => $e::class,
+            ]
+        );
     }
 
     private static function closeSource(ImportSource $source): void

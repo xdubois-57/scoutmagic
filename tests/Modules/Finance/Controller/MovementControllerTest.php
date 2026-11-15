@@ -654,4 +654,33 @@ class MovementControllerTest extends TestCase
 
         $this->assertSame(404, $response->getStatusCode());
     }
+
+    public function testUploadAttachmentRefusesAFileThatIsNotAReceiptAndWritesNothing(): void
+    {
+        $transactionId = $this->createTransaction('2026-10-01', -12.5, 'Achat');
+        $token = $this->csrfToken();
+        // Declared as a PDF by the browser, detected as plain text: the
+        // detection is what the allowlist judges.
+        $path = tempnam(sys_get_temp_dir(), 'movement_receipt_test_');
+        file_put_contents($path, "Ceci n'est pas un reçu.\n");
+
+        $response = $this->controller->uploadAttachment(
+            $this->fileUploadRequest($transactionId, $path, $token),
+            ['id' => (string) $transactionId]
+        );
+
+        $this->assertSame(400, $response->getStatusCode());
+        $this->assertSame(
+            ['success' => false, 'error' => 'Type de fichier non autorisé : text/plain.'],
+            json_decode($response->getBody(), true)
+        );
+        $this->assertCount(0, $this->transactionAttachmentRepository->findAttachmentIdsForTransaction($transactionId));
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM finance_attachments')->fetchColumn());
+        $this->assertSame(
+            0,
+            (int) $this->pdo->query("SELECT COUNT(*) FROM event_log WHERE event_type = 'receipt_uploaded'")
+                ->fetchColumn()
+        );
+        @unlink($path);
+    }
 }

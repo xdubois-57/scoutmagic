@@ -748,6 +748,45 @@ class ImportServiceTest extends TestCase
         $this->assertCount(0, $this->transactionRepository->findByAccountId($this->account->id));
     }
 
+    /**
+     * One file, two accounts, and the database refuses a line of the
+     * second: the first account's lines, checkpoint and bookkeeping row
+     * go too, so a re-import later finds nothing half-written to skip.
+     */
+    public function testALineTheDatabaseRefusesRollsBackEveryAccountOfTheFile(): void
+    {
+        $second = $this->activeAccount('Deuxième', 'BE00000000000002');
+        $this->parserFactory->ibans = ['BE00000000000001', 'BE00000000000002'];
+        $this->parserFactory->lines = [
+            $this->line('R1', '2026-10-01', -10.0, 'Premier'),
+            $this->line('R2', '2026-10-02', -20.0, 'Deuxième', 'BE00000000000002'),
+        ];
+        $this->checkpointRepository->create($this->account->id, '2026-09-01', 0.0, 'manual');
+        $this->checkpointRepository->create($second->id, '2026-09-01', 0.0, 'manual');
+        $this->pdo->exec(
+            "CREATE TRIGGER refuse_second_account BEFORE INSERT ON finance_transactions
+             WHEN NEW.bank_reference = 'R2' BEGIN SELECT RAISE(ABORT, 'refused by the test'); END"
+        );
+        $path = $this->tmpCsvFile();
+
+        try {
+            $this->import(null, 'a.csv', null, $path);
+            $this->fail('the refusal was swallowed');
+        } catch (\PDOException $e) {
+            $this->assertStringContainsString('refused by the test', $e->getMessage());
+        }
+
+        $this->assertFalse($this->pdo->inTransaction());
+        $this->assertCount(0, $this->transactionRepository->findByAccountId($this->account->id));
+        $this->assertSame(0, $this->countStatementImports());
+        $this->assertSame(
+            2,
+            (int) $this->pdo->query('SELECT COUNT(*) FROM finance_balance_checkpoints')->fetchColumn(),
+            'only the two checkpoints the test wrote'
+        );
+        $this->assertFileDoesNotExist($path);
+    }
+
     public function testDeletesTemporaryFileAfterSuccessfulImport(): void
     {
         $this->parserFactory->ibans = [$this->account->iban];
