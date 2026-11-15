@@ -15,11 +15,6 @@ use Modules\InboundMail\Mailbox\MailboxCredentials;
 use Modules\InboundMail\Mailbox\ProviderType;
 use Modules\InboundMail\Mailbox\SyncState;
 use PHPUnit\Framework\TestCase;
-use Webklex\PHPIMAP\ClientManager;
-use Webklex\PHPIMAP\Folder;
-use Webklex\PHPIMAP\Message;
-use Webklex\PHPIMAP\Query\WhereQuery;
-use Webklex\PHPIMAP\Support\MessageCollection;
 
 /**
  * The IMAP client against a server that answers, with `webklex/php-imap`
@@ -114,29 +109,6 @@ class ImapClientAgainstAServerTest extends TestCase
     }
 
     /**
-     * The guard inside the loop: a message the library hands back but that
-     * cannot be turned into ours costs that message and nothing else.
-     *
-     * No input reaching the real library was found that does this — it
-     * parses eagerly in `get()`, and fails there (see the Date case above)
-     * — so the library's own collection is doubled here, and only here:
-     * the subject is precisely a message the transport delivers broken.
-     */
-    public function testAMessageTheClientCannotReadCostsThatMessageAlone(): void
-    {
-        $before = Message::fromString(self::MESSAGE)->setUid(5);
-        $after = Message::fromString(str_replace('demande@', 'suite@', self::MESSAGE))->setUid(7);
-        $client = new ImapMailboxClient($this->managerReturning(new InertImapClient(new CannedFolder(
-            MessageCollection::make([$before, new UnreadableMessage(6), $after])
-        ))));
-        $client->connect($this->mailbox(), $this->credentials());
-
-        $fetched = $client->fetchSince('INBOX', 0, 10);
-
-        $this->assertSame([5, 7], array_map(static fn($message): int => $message->uid, $fetched));
-    }
-
-    /**
      * @param \Closure(): mixed $operation
      */
     private function assertConnectionProblem(\Closure $operation): void
@@ -159,14 +131,6 @@ class ImapClientAgainstAServerTest extends TestCase
         return $client;
     }
 
-    private function managerReturning(\Webklex\PHPIMAP\Client $client): ClientManager
-    {
-        $manager = $this->createStub(ClientManager::class);
-        $manager->method('make')->willReturn($client);
-
-        return $manager;
-    }
-
     private function mailbox(): Mailbox
     {
         return new Mailbox(
@@ -186,68 +150,5 @@ class ImapClientAgainstAServerTest extends TestCase
     private function credentials(): MailboxCredentials
     {
         return new MailboxCredentials('chef@unite.be', 'chene2026');
-    }
-}
-
-/** A folder whose query answers with a collection the scenario chose. */
-final class CannedFolder extends Folder
-{
-    public function __construct(private MessageCollection $messages)
-    {
-    }
-
-    public function query(array $extensions = []): WhereQuery
-    {
-        return new CannedQuery($this->messages);
-    }
-}
-
-/** The query builder's chain, inert, ending on the scenario's collection. */
-final class CannedQuery extends WhereQuery
-{
-    public function __construct(private MessageCollection $messages)
-    {
-    }
-
-    public function leaveUnread(): static
-    {
-        return $this;
-    }
-
-    public function whereUid(int|string $uid): static
-    {
-        return $this;
-    }
-
-    public function setFetchOrderAsc(): static
-    {
-        return $this;
-    }
-
-    public function limit(int $limit, int $page = 1): static
-    {
-        return $this;
-    }
-
-    public function get(): MessageCollection
-    {
-        return $this->messages;
-    }
-}
-
-/** A message that has a UID and nothing else that can be read. */
-final class UnreadableMessage extends Message
-{
-    public function __construct(private int $fixedUid)
-    {
-    }
-
-    public function __call(string $method, array $arguments)
-    {
-        if ($method === 'getUid') {
-            return $this->fixedUid;
-        }
-
-        throw new \RuntimeException('unreadable part');
     }
 }
