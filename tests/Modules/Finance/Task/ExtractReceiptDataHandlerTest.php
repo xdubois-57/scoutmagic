@@ -234,8 +234,9 @@ class ExtractReceiptDataHandlerTest extends TestCase
     {
         $attachmentId = $this->createAttachment();
         $fileId = $this->attachmentRepository->findById($attachmentId)->fileId;
-        $relativePath = (string) $this->pdo->query("SELECT relative_path FROM files WHERE id = {$fileId}")
-            ->fetchColumn();
+        $file = $this->pdo->prepare('SELECT relative_path FROM files WHERE id = ?');
+        $file->execute([$fileId]);
+        $relativePath = (string) $file->fetchColumn();
         unlink($this->storagePath . '/' . $relativePath);
 
         $providerId = $this->providerRepository->create(

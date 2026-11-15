@@ -515,7 +515,9 @@ class ReceiptMatchingServiceTest extends TestCase
         $this->service()->matchReceipt($receipt);
 
         $this->assertSame([], $this->transactionAttachmentRepository->findTransactionIdsForAttachment($receipt->id));
-        $this->assertNull($this->attachmentRepository->findById($receipt->id)?->accountId);
+        $kept = $this->attachmentRepository->findById($receipt->id);
+        $this->assertNotNull($kept, 'the receipt was deleted, not left in the pile');
+        $this->assertNull($kept->accountId);
         $this->assertFalse($this->pdo->inTransaction());
         $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM event_log')->fetchColumn());
     }

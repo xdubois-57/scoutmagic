@@ -323,7 +323,9 @@ class AttachmentRepositoryTest extends TestCase
         $this->assertFalse($this->pdo->inTransaction());
         $this->assertSame($accountId, $this->repository->findById($attachmentId)?->accountId);
         $this->assertSame([$transactionId], $associations->findTransactionIdsForAttachment($attachmentId));
-        $this->assertNull($this->pdo->query("SELECT owner_id FROM files WHERE id = {$this->fileId}")->fetchColumn());
+        $owner = $this->pdo->prepare('SELECT owner_id FROM files WHERE id = ?');
+        $owner->execute([$this->fileId]);
+        $this->assertNull($owner->fetchColumn());
     }
 
     private function createTransaction(int $accountId): int

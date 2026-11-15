@@ -276,6 +276,9 @@ class PurgeOldMovementsHandlerTest extends TestCase
             $this->transactionAttachmentRepository->findTransactionIdsForAttachment($attachmentId)
         );
         $this->assertNotNull($this->attachmentRepository->findById($attachmentId));
+        $stored = (new FileRepository($this->pdo))->findById($fileId);
+        $this->assertNotNull($stored, 'the receipt\'s file row is gone');
+        $this->assertFileExists($this->storagePath . '/' . $stored->relativePath, 'the receipt\'s bytes are gone');
         $this->assertSame(
             1,
             (int) $this->pdo->query('SELECT COUNT(*) FROM finance_balance_checkpoints')->fetchColumn(),

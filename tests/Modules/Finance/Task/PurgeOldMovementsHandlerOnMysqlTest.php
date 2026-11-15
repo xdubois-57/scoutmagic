@@ -54,9 +54,10 @@ final class PurgeOldMovementsHandlerOnMysqlTest extends TestCase
 
     protected function setUp(): void
     {
+        // First: tearDown() reads it, and productionEngine() may skip the test.
+        $this->storagePath = sys_get_temp_dir() . '/finance_purge_mysql_test_' . uniqid();
         $this->pdo = $this->productionEngine();
         $this->encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
-        $this->storagePath = sys_get_temp_dir() . '/finance_purge_mysql_test_' . uniqid();
     }
 
     protected function tearDown(): void
@@ -105,12 +106,9 @@ final class PurgeOldMovementsHandlerOnMysqlTest extends TestCase
 
         (new PurgeOldMovementsHandler())->handle([], $this->taskContext());
 
-        $this->assertSame(
-            0,
-            (int) $this->pdo->query("SELECT COUNT(*) FROM finance_transactions WHERE id = {$transactionId}")
-                ->fetchColumn(),
-            'the movements are purged all the same'
-        );
+        $movements = $this->pdo->prepare('SELECT COUNT(*) FROM finance_transactions WHERE id = ?');
+        $movements->execute([$transactionId]);
+        $this->assertSame(0, (int) $movements->fetchColumn(), 'the movements are purged all the same');
         $failure = $this->pdo->query(
             "SELECT description, context FROM event_log WHERE event_type = 'receipt_purge_failed'"
         )->fetchAll(\PDO::FETCH_ASSOC);

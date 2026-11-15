@@ -520,10 +520,9 @@ class ReconciliationControllerTest extends TestCase
             \Core\Http\FlashMessage::get()
         );
         $this->assertNotSame(ReceivableSettlement::REFUND_REQUESTED, $this->settlement($lucie)->refundState);
-        $this->assertNull(
-            $this->pdo->query("SELECT refund_requested_at FROM finance_expected_receivables WHERE id = {$lucie}")
-                ->fetchColumn()
-        );
+        $requested = $this->pdo->prepare('SELECT refund_requested_at FROM finance_expected_receivables WHERE id = ?');
+        $requested->execute([$lucie]);
+        $this->assertNull($requested->fetchColumn());
     }
 
     // ── the QR ──────────────────────────────────────────────────────────

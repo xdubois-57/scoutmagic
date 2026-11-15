@@ -765,7 +765,7 @@ class ImportServiceTest extends TestCase
         $this->checkpointRepository->create($second->id, '2026-09-01', 0.0, 'manual');
         $this->pdo->exec(
             "CREATE TRIGGER refuse_second_account BEFORE INSERT ON finance_transactions
-             WHEN NEW.account_id = {$second->id} BEGIN SELECT RAISE(ABORT, 'refused by the test'); END"
+             WHEN NEW.bank_reference = 'R2' BEGIN SELECT RAISE(ABORT, 'refused by the test'); END"
         );
         $path = $this->tmpCsvFile();
 
