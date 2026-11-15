@@ -56,6 +56,9 @@ class ImapMailboxClient implements IncomingMailboxClientInterface, PruningMailbo
 
     private ?Client $client = null;
 
+    /** See `IncomingMailboxClientInterface::lastSkippedUid()`. */
+    private int $lastSkippedUid = 0;
+
     public function __construct(private ?ClientManager $clientManager = null)
     {
     }
@@ -147,6 +150,8 @@ class ImapMailboxClient implements IncomingMailboxClientInterface, PruningMailbo
      */
     public function fetchSince(string $folder, int $sinceUid, int $limit): array
     {
+        $this->lastSkippedUid = 0;
+
         $imapFolder = $this->requireFolder($folder);
 
         try {
@@ -182,6 +187,7 @@ class ImapMailboxClient implements IncomingMailboxClientInterface, PruningMailbo
         foreach ($query->unreadableUids() as $uid) {
             if ($uid > $sinceUid) {
                 self::trace($folder, $uid, 'could not be parsed; skipped');
+                $this->lastSkippedUid = max($this->lastSkippedUid, $uid);
             }
         }
 
@@ -210,11 +216,17 @@ class ImapMailboxClient implements IncomingMailboxClientInterface, PruningMailbo
                 $fetched[] = $this->toFetchedMessage($message, $folder, $uid);
             } catch (\Throwable $e) {
                 self::trace($folder, $uid, 'could not be read (' . self::safeReason($e) . '); skipped');
+                $this->lastSkippedUid = max($this->lastSkippedUid, $uid);
                 continue;
             }
         }
 
         return $fetched;
+    }
+
+    public function lastSkippedUid(): int
+    {
+        return $this->lastSkippedUid;
     }
 
     /**

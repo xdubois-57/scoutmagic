@@ -124,6 +124,49 @@ class ImapUnreadableMessageTest extends TestCase
         $this->assertStringNotContainsString('illisible@', $written, 'no Message-ID in the server log');
     }
 
+    /**
+     * A message kept without its date is handed back, so it is not
+     * reported as skipped; one that cannot be read at all is, so that the
+     * caller's cursor moves past it (`lastSkippedUid()`).
+     */
+    #[DataProvider('unreadableDates')]
+    public function testAMessageKeptWithoutItsDateIsNotReportedAsSkipped(string $dateLines, bool $mayParse): void
+    {
+        $this->server->folders['INBOX'] = [6 => str_replace(self::DATE_LINE, $dateLines, self::MESSAGE)];
+
+        $client = $this->connected();
+        $client->fetchSince('INBOX', 0, 10);
+
+        $this->assertSame(0, $client->lastSkippedUid());
+    }
+
+    /**
+     * A message the library refuses even without its `Date:` is skipped,
+     * and reported so. The refusal is real: the library's own spoofing
+     * check, set to throw, and a `Reply-To:` that is not the sender.
+     */
+    public function testAMessageThatCannotBeReadIsReportedAsSkipped(): void
+    {
+        $this->server->folders['INBOX'] = [
+            5 => self::MESSAGE,
+            6 => "Reply-To: <ailleurs@example.org>\r\n" . str_replace('<demande@', '<illisible@', self::MESSAGE),
+        ];
+        $manager = new ScriptedImapManager($this->server);
+        $manager->config->set('security.detect_spoofing_exception', true);
+
+        $client = $this->connected($manager);
+        $fetched = $client->fetchSince('INBOX', 0, 10);
+
+        $this->assertSame([5], array_map(static fn(FetchedMessage $m): int => $m->uid, $fetched));
+        $this->assertSame(6, $client->lastSkippedUid());
+        $written = (string) file_get_contents($this->log);
+        $this->assertStringContainsString('message UID 6 in folder "INBOX" could not be parsed; skipped', $written);
+
+        $this->server->folders['INBOX'][7] = str_replace('<demande@', '<suite@', self::MESSAGE);
+        $client->fetchSince('INBOX', 6, 10);
+        $this->assertSame(0, $client->lastSkippedUid(), 'reset by every fetch');
+    }
+
     /** Reading the bad message marks nothing, as for every other message. */
     #[DataProvider('unreadableDates')]
     public function testReadingTheUnreadableMessageStillMarksNothing(string $dateLines, bool $mayParse): void
@@ -177,9 +220,9 @@ class ImapUnreadableMessageTest extends TestCase
         );
     }
 
-    private function connected(): ImapMailboxClient
+    private function connected(?ScriptedImapManager $manager = null): ImapMailboxClient
     {
-        $client = new ImapMailboxClient(new ScriptedImapManager($this->server));
+        $client = new ImapMailboxClient($manager ?? new ScriptedImapManager($this->server));
         $client->connect(
             new Mailbox(
                 1,

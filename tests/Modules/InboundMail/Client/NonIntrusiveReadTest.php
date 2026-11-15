@@ -64,7 +64,7 @@ class NonIntrusiveReadTest extends TestCase
 
     public function testTheContractIsOnlyConnectReadAndDisconnect(): void
     {
-        $expected = ['connect', 'disconnect', 'fetchSince', 'folderState', 'listFolders'];
+        $expected = ['connect', 'disconnect', 'fetchSince', 'folderState', 'lastSkippedUid', 'listFolders'];
         $actual = self::interfaceMethods();
         sort($expected);
         sort($actual);
