@@ -568,6 +568,47 @@ class SupportPackageServiceTest extends TestCase
         $this->assertNull((new FileRepository($this->pdo))->findById($first));
     }
 
+    /**
+     * The bookkeeping row is gone — an installation whose settings never
+     * received it — and the package is still produced and stored: the
+     * archive is what the administrator asked for, the setting only
+     * remembers where it is. The write that can still land does.
+     */
+    public function testAMissingBookkeepingSettingDoesNotCostThePackage(): void
+    {
+        $this->pdo->exec("DELETE FROM settings WHERE setting_key = '" . SupportPackageState::FILE_ID . "'");
+        $this->settings->clearCache();
+
+        $fileId = $this->service([$this->statisticsCollector()])->generate(null);
+
+        $this->assertNotNull($this->fileRepository->findById($fileId));
+        $this->assertArrayHasKey('collection-status.json', $this->readArchive($fileId));
+        $this->settings->clearCache();
+        $this->assertNull($this->settings->get(SupportPackageState::FILE_ID), 'Nothing recreated the row.');
+        $this->assertNotSame('', (string) $this->settings->get(SupportPackageState::GENERATED_AT));
+    }
+
+    /**
+     * The previous package's record cannot be read back — its table lacks
+     * a column this code selects — so the storage service cannot delete it.
+     * The record is dropped by id all the same and the bookkeeping cleared,
+     * so the next package is not blocked by the old one.
+     */
+    public function testAPreviousPackageWhoseRecordCannotBeReadIsStillForgotten(): void
+    {
+        $service = $this->service([$this->statisticsCollector()]);
+        $service->generate(null);
+
+        $this->pdo->exec('ALTER TABLE files DROP COLUMN owner_type');
+
+        $service->deleteCurrentPackage();
+
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM files')->fetchColumn());
+        $this->settings->clearCache();
+        $this->assertSame('', (string) $this->settings->get(SupportPackageState::FILE_ID));
+        $this->assertSame('', (string) $this->settings->get(SupportPackageState::GENERATED_AT));
+    }
+
     public function testTheCurrentPackageAccessorsReportNothingBeforeAnyGeneration(): void
     {
         $service = $this->service();

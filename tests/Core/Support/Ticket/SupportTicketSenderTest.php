@@ -606,6 +606,102 @@ class SupportTicketSenderTest extends TestCase
         $this->assertStringStartsWith('SUP-WINNER', $recent[0]);
     }
 
+    /**
+     * The receiver cannot be reached at all — the transport gives up with
+     * an exception, and that exception quotes the request it was carrying.
+     * The ticket is refused as unreachable, nothing is recorded as sent,
+     * and the journal gets the reason and never the exception's text.
+     */
+    public function testATransportThatThrowsIsUnreachableAndItsMessageStaysOut(): void
+    {
+        $sender = $this->sender(new UnreachableTicketTransport());
+
+        $result = $sender->send('desk_import', 'Une phrase que personne ne doit relire ici.', 'chef@unite.be');
+
+        $this->assertFalse($result->sent);
+        $this->assertSame(SupportTicketSender::FAILURE_UNREACHABLE, $result->failureReason);
+        $this->assertNull($sender->lastSent());
+
+        $context = $this->pdo->query(
+            "SELECT context FROM event_log WHERE event_type = 'support_ticket_not_sent'"
+        )->fetchColumn();
+        $this->assertIsString($context);
+        $this->assertSame(
+            ['reason' => SupportTicketSender::FAILURE_UNREACHABLE, 'category' => 'desk_import'],
+            json_decode($context, true)
+        );
+    }
+
+    /**
+     * The receiver accepted the ticket and the last reference's setting
+     * row is gone, so it cannot be written. The ticket still reads as
+     * sent, is still journaled, and still joins the list of recent
+     * references, whose own row is there.
+     */
+    public function testALastReferenceThatCannotBeWrittenDoesNotUndoTheTicket(): void
+    {
+        $this->pdo->exec(
+            "DELETE FROM settings WHERE setting_key = '" . SupportTicketSender::LAST_REFERENCE_SETTING . "'"
+        );
+        $this->settings->clearCache();
+        $sender = $this->sender($this->transport(200, ['status' => 'accepted', 'ticket_reference' => 'SUP-7KQ4F2']));
+
+        $result = $sender->send('other', 'Bonjour', 'chef@unite.be');
+
+        $this->assertTrue($result->sent);
+        $this->assertSame('SUP-7KQ4F2', $result->reference);
+        $this->assertNull($sender->lastSent(), 'Nothing recreated the row.');
+        $this->assertSame(['SUP-7KQ4F2'], array_column($sender->recentlySent(), 'reference'));
+        $this->assertSame(1, $this->sentCount());
+    }
+
+    /**
+     * The database refuses every write to the list of recent references.
+     * Each compare-and-swap attempt fails as « somebody else won », so the
+     * sender re-reads and tries again, every attempt it has; then the
+     * ticket — accepted by the receiver — still reads as sent, with its
+     * last reference kept and the list left as it was.
+     */
+    public function testAListTheDatabaseRefusesToWriteDoesNotUndoTheTicket(): void
+    {
+        $this->pdo->exec(
+            "CREATE TRIGGER refuse_recent_tickets BEFORE UPDATE ON settings
+             WHEN NEW.setting_key = '" . SupportTicketSender::RECENT_SETTING . "'
+             BEGIN SELECT RAISE(ABORT, 'écriture refusée'); END"
+        );
+        $reads = 0;
+        $counting = new InterleavingSettingService(
+            new SettingRepository($this->pdo),
+            SupportTicketSender::RECENT_SETTING,
+            function () use (&$reads): void {
+                $reads++;
+            },
+            once: false
+        );
+        $sender = $this->senderWith(
+            $counting,
+            $this->transport(200, ['status' => 'accepted', 'ticket_reference' => 'SUP-7KQ4F2'])
+        );
+
+        $result = $sender->send('other', 'Bonjour', 'chef@unite.be');
+
+        $this->assertTrue($result->sent);
+        $this->assertSame(SupportTicketSender::RECENT_WRITE_ATTEMPTS, $reads, 'One read per attempt, all of them.');
+        $this->assertSame('SUP-7KQ4F2', $result->reference);
+        $this->assertSame('SUP-7KQ4F2', $sender->lastSent()['reference'] ?? null);
+        $this->assertSame('', (string) $this->pdo->query(
+            "SELECT setting_value FROM settings WHERE setting_key = '" . SupportTicketSender::RECENT_SETTING . "'"
+        )->fetchColumn());
+        $this->assertSame(1, $this->sentCount());
+    }
+
+    private function sentCount(): int
+    {
+        return (int) $this->pdo->query(
+            "SELECT COUNT(*) FROM event_log WHERE event_type = 'support_ticket_sent'"
+        )->fetchColumn();
+    }
+
     private function transport(int $status, array $answer): RecordingTicketTransport
     {
         return new RecordingTicketTransport(
@@ -718,5 +814,22 @@ final class RecordingTicketTransport implements StatisticsTransportInterface
         $this->calls[] = ['url' => $url, 'body' => $jsonBody, 'token' => $bearerToken];
 
         return $this->response;
+    }
+}
+
+/**
+ * A receiver that cannot be reached, whose failure quotes the request it
+ * was carrying — the case the sender keeps the exception's text out of
+ * the journal for.
+ */
+final class UnreachableTicketTransport implements StatisticsTransportInterface
+{
+    public function post(
+        string $url,
+        string $jsonBody,
+        string $bearerToken,
+        string $userAgent
+    ): StatisticsTransportResponse {
+        throw new \RuntimeException('Connexion refusée par ' . $url . ' pendant l\'envoi de ' . $jsonBody);
     }
 }

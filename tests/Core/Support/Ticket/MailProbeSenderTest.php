@@ -405,6 +405,57 @@ class MailProbeSenderTest extends TestCase
         $this->assertNotSame('', $last['sent_at']);
     }
 
+    /**
+     * The receiver cannot be reached at all — the transport gives up with
+     * an exception rather than an answer. The run is refused as
+     * unreachable, written down, and nothing is composed.
+     */
+    public function testATransportThatThrowsIsAnUnreachableReceiver(): void
+    {
+        $sender = $this->sender(new UnreachableProbeTransport());
+
+        $result = $sender->send($this->now());
+
+        $this->assertFalse($result->sent);
+        $this->assertSame(MailProbeSender::FAILURE_UNREACHABLE, $result->failureReason);
+        $this->assertSame([], $this->mailTransport->messages);
+        $this->assertNull($sender->lastRun());
+
+        $row = $this->pdo->query(
+            "SELECT level, context FROM event_log WHERE event_type = 'support_mail_probe_not_sent'"
+        )->fetch(\PDO::FETCH_ASSOC);
+        $this->assertIsArray($row);
+        $this->assertSame('warning', $row['level']);
+        $this->assertSame(
+            ['reason' => MailProbeSender::FAILURE_UNREACHABLE],
+            json_decode((string) $row['context'], true)
+        );
+    }
+
+    /**
+     * The stamp's setting row is gone, so it cannot be written. The probe
+     * still goes out to the address the receiver named, the run is still
+     * journaled as sent, and the key — whose row is there — is kept.
+     */
+    public function testAStampThatCannotBeWrittenDoesNotStopTheProbe(): void
+    {
+        $this->pdo->exec(
+            "DELETE FROM settings WHERE setting_key = '" . MailProbeSender::LAST_SENT_AT_SETTING . "'"
+        );
+        $this->settings->clearCache();
+        $sender = $this->sender($this->issuing(['support@scoutmagic.be']));
+
+        $result = $sender->send($this->now());
+
+        $this->assertTrue($result->sent);
+        $this->assertSame(1, $result->deliveredCount);
+        $this->assertSame('support@scoutmagic.be', $this->mailTransport->messages[0]->getToAddresses()[0][0]);
+        $this->assertSame(['key' => 'SMP-ABCDEFGHJK', 'sent_at' => ''], $sender->lastRun());
+        $this->assertSame(1, (int) $this->pdo->query(
+            "SELECT COUNT(*) FROM event_log WHERE event_type = 'support_mail_probe_sent'"
+        )->fetchColumn());
+    }
+
     private function now(): \DateTimeImmutable
     {
         return new \DateTimeImmutable('2026-03-04 10:00:00');
@@ -478,6 +529,22 @@ final class RecordingProbeTransport implements StatisticsTransportInterface
         $this->calls[] = ['url' => $url, 'body' => $jsonBody, 'token' => $bearerToken];
 
         return $this->response;
+    }
+}
+
+/**
+ * A receiver that cannot be reached: the transport throws instead of
+ * answering, as a socket-level failure would.
+ */
+final class UnreachableProbeTransport implements StatisticsTransportInterface
+{
+    public function post(
+        string $url,
+        string $jsonBody,
+        string $bearerToken,
+        string $userAgent
+    ): StatisticsTransportResponse {
+        throw new \RuntimeException('Connexion refusée par ' . $url);
     }
 }
 

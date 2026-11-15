@@ -7,16 +7,20 @@ namespace Tests\Core\Support\Task;
 use Core\Config\SettingRepository;
 use Core\Config\SettingService;
 use Core\Database\Connection;
+use Core\File\EncryptedFileStorageService;
 use Core\File\FileRepository;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Mail\DkimManager;
 use Core\Mail\MailService;
+use Core\Mail\Transport\MailProviderRepository;
+use Core\Mail\Transport\ProviderConnections;
 use Core\Scheduler\TaskContext;
 use Core\Security\EncryptionService;
 use Core\Security\SecretManager;
 use Core\Security\UserAccountRepository;
 use Core\Statistics\InstallationIdentityService;
+use Core\Support\SupportCollectionOutcome;
 use Core\Support\SupportPackageState;
 use Core\Support\Task\GenerateSupportPackageHandler;
 use Core\Support\Task\PurgeSupportPackagesHandler;
@@ -99,6 +103,31 @@ class PurgeSupportPackagesHandlerTest extends TestCase
             }
         }
         rmdir($path);
+    }
+
+    /**
+     * @return array<string, string> archive entry name => content
+     */
+    private function archiveEntries(int $fileId): array
+    {
+        $storage = new EncryptedFileStorageService(
+            new FileRepository($this->pdo),
+            $this->context->encryption,
+            $this->storagePath
+        );
+        $zipPath = $this->storagePath . '/temp/read-' . bin2hex(random_bytes(6)) . '.zip';
+        file_put_contents($zipPath, $storage->retrieve($fileId));
+
+        $entries = [];
+        $zip = new \ZipArchive();
+        $this->assertTrue($zip->open($zipPath) === true);
+        for ($i = 0; $i < $zip->numFiles; $i++) {
+            $entries[(string) $zip->getNameIndex($i)] = (string) $zip->getFromIndex($i);
+        }
+        $zip->close();
+        unlink($zipPath);
+
+        return $entries;
     }
 
     /**
@@ -217,6 +246,42 @@ class PurgeSupportPackagesHandlerTest extends TestCase
         $this->assertNotSame($first, $second);
         $this->assertNull((new FileRepository($this->pdo))->findById($first));
         $this->assertNotNull((new FileRepository($this->pdo))->findById($second));
+    }
+
+    /**
+     * `secrets.enc` is there and cannot be decrypted. The package is still
+     * produced, and the outbound mail file is still in it: the relay is
+     * listed, its host — read from that file a moment ago — now printed as
+     * « (vide) », and the collector counts as having worked.
+     */
+    public function testAnUndecryptableSecretsFileStillYieldsTheOutboundMailFile(): void
+    {
+        $relay = (new MailProviderRepository($this->pdo))->create('Relais de l’unité', null, 50, 10);
+        $secretManager = new SecretManager(
+            $this->storagePath . '/keys/master.key',
+            $this->storagePath . '/config/secrets.enc'
+        );
+        $secretManager->writeSecrets([ProviderConnections::prefixFor($relay) . '_host' => 'smtp.relais.test']);
+
+        (new GenerateSupportPackageHandler())->handle([], $this->context);
+        $this->settings->clearCache();
+        $readable = $this->archiveEntries((int) $this->settings->get(SupportPackageState::FILE_ID));
+        $this->assertStringContainsString('hôte        : smtp.relais.test', $readable['outbound-mail.txt'] ?? '');
+
+        file_put_contents($this->storagePath . '/config/secrets.enc', base64_encode(random_bytes(64)));
+
+        (new GenerateSupportPackageHandler())->handle([], $this->context);
+
+        $this->settings->clearCache();
+        $entries = $this->archiveEntries((int) $this->settings->get(SupportPackageState::FILE_ID));
+        $outbound = $entries['outbound-mail.txt'] ?? '';
+        $this->assertStringContainsString("Relais de l’unité\n  hôte        : (vide)", $outbound);
+        $this->assertStringNotContainsString('smtp.relais.test', $outbound);
+
+        $status = json_decode($entries['collection-status.json'] ?? '', true);
+        $this->assertIsArray($status);
+        $byName = array_column($status['collectors'], 'status', 'name');
+        $this->assertSame(SupportCollectionOutcome::STATUS_SUCCESS, $byName['outbound_mail'] ?? null);
     }
 
     public function testThePurgeReschedulesItselfDaily(): void

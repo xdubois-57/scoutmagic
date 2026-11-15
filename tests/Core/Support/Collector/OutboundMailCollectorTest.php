@@ -268,6 +268,88 @@ class OutboundMailCollectorTest extends TestCase
         $this->assertStringContainsString('── Chaînes, dans leur ordre', $report);
     }
 
+    /**
+     * One provider's reserve cannot be computed — the counters it is read
+     * from will not come back (here the reserve's own connection has lost
+     * the table). That provider is left out of the reserve section; the
+     * provider whose reserve needs no counter is still there, and so is
+     * everything after it.
+     */
+    public function testAReserveThatCannotBeComputedCostsOnlyThatProvider(): void
+    {
+        $relay = $this->addRelay('Relais', 'smtp.relais.test', dailyQuota: 1000);
+        $this->chains->append(MailLane::Authentication, $relay, true);
+        $this->chains->append(MailLane::Bulk, $relay, true);
+        $this->addRelay('Sans quota', 'smtp.sans-quota.test');
+
+        $lostCounters = DatabaseTestHelper::createTestDatabase();
+        $lostCounters->exec('DROP TABLE mail_send_counters');
+        $reserve = new MailReserve(new SendCounterRepository($lostCounters), $this->chains);
+
+        $report = $this->collect(reserve: $reserve);
+
+        $section = $this->section($report, '── Réserve pour les liens de connexion');
+        $this->assertStringContainsString("Sans quota\n  Ce fournisseur n’a pas de quota journalier connu", $section);
+        $this->assertStringNotContainsString('Relais', $section);
+        $this->assertStringContainsString('── Compteurs, 30 derniers jours', $report);
+    }
+
+    /**
+     * Each of these sections reads its own table, and an archive is asked
+     * for precisely when something is broken: a table that cannot be read
+     * costs its own section and leaves the others in place.
+     *
+     * @return array<string, array{string, string}>
+     */
+    public static function unreadableSectionProvider(): array
+    {
+        return [
+            'the bounce state' => ['mail_bounce_states', '── Adresses suspendues sur rebond'],
+            'the DMARC reports' => ['mail_dmarc_reports', '── Rapports DMARC, 30 derniers jours'],
+            'the seed copies' => ['mail_seed_copies', '── Boîtes témoins, 30 derniers jours'],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('unreadableSectionProvider')]
+    public function testAnUnreadableFeedbackTableCostsOnlyItsOwnSection(string $table, string $heading): void
+    {
+        $this->addRelay('Brevo', 'smtp-relay.brevo.com');
+        $headings = array_column(self::unreadableSectionProvider(), 1);
+        foreach ($headings as $each) {
+            $this->assertStringContainsString($each, $this->collect(), 'Every section is there to begin with.');
+        }
+
+        $this->pdo->exec('DROP TABLE ' . $table);
+        $report = $this->collect();
+
+        $this->assertStringNotContainsString($heading, $report);
+        foreach (array_diff($headings, [$heading]) as $other) {
+            $this->assertStringContainsString($other, $report);
+        }
+        $this->assertStringContainsString('Brevo', $report);
+        $this->assertStringContainsString('── Compteurs, 30 derniers jours', $report);
+    }
+
+    /**
+     * The return probes cannot be read. Pinned as it stands: the section's
+     * heading is printed and each role whose probe could not be read is
+     * left out, so the heading has nothing under it — while the rest of
+     * the file is untouched.
+     */
+    public function testUnreadableReturnProbesLeaveTheRolesOut(): void
+    {
+        $this->registerIdentity('info@unite.be', 'secretariat@unite.be');
+        $this->inboundMail = $this->collectingGateway();
+        $this->pdo->exec('DROP TABLE mail_return_probes');
+
+        $report = $this->collect();
+
+        $this->assertMatchesRegularExpression('/── Vérification des retours ─+\n\n/u', $report);
+        $this->assertStringNotContainsString('Expédition (rebonds)', $report);
+        $this->assertStringNotContainsString('Réponses', $report);
+        $this->assertStringContainsString('── Compteurs, 30 derniers jours', $report);
+    }
+
     // ── the domain and the returns (roadmap IT-03) ────────────────────
 
     public function testItReportsTheDomainsTheAuthenticationRestsOn(): void
@@ -813,14 +895,14 @@ class OutboundMailCollectorTest extends TestCase
         self::assertTrue($written, 'The fixture must actually reach the tables it is read from.');
     }
 
-    private function collect(bool $withProbes = true): string
+    private function collect(bool $withProbes = true, ?MailReserve $reserve = null): string
     {
         $connections = new ProviderConnections($this->secrets);
         $collector = new OutboundMailCollector(
             new MailProviderDirectory($this->providers, $connections, $this->settings),
             $this->chains,
             $this->health,
-            new MailReserve($this->counters, $this->chains),
+            $reserve ?? new MailReserve($this->counters, $this->chains),
             $this->deferred,
             new DeferredMailQueue($this->deferred, $this->settings),
             $this->settings,
@@ -865,6 +947,18 @@ class OutboundMailCollectorTest extends TestCase
         $this->assertIsString($content, 'The collector must always produce its file.');
 
         return $content;
+    }
+
+    /**
+     * One section of the file: from its heading to the next one.
+     */
+    private function section(string $report, string $heading): string
+    {
+        $start = strpos($report, $heading);
+        $this->assertNotFalse($start, 'The section is in the file: ' . $heading);
+        $next = strpos($report, "\n──", $start + strlen($heading));
+
+        return $next === false ? substr($report, $start) : substr($report, $start, $next - $start);
     }
 
     private static function removeTree(string $path): void

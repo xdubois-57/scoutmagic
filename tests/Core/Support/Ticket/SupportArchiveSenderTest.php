@@ -221,6 +221,72 @@ class SupportArchiveSenderTest extends TestCase
         $this->assertSame([], $transport->calls);
     }
 
+    /**
+     * The archive's record is there and its bytes are not — deleted on
+     * disk, or never written. Nothing travels, the reason says the archive
+     * is unreadable rather than absent, and nothing reads as transmitted.
+     */
+    public function testAnArchiveWhoseBytesAreGoneIsUnreadableAndNothingTravels(): void
+    {
+        $record = (new FileRepository($this->pdo))->findById($this->fileId);
+        $this->assertNotNull($record);
+        unlink($this->projectRoot . '/storage/' . $record->relativePath);
+        $transport = $this->transport(200, ['status' => 'accepted']);
+        $sender = $this->sender($transport);
+
+        $result = $sender->send('SUP-7KQ4F2', true);
+
+        $this->assertFalse($result->sent);
+        $this->assertSame(SupportArchiveSender::FAILURE_UNREADABLE_ARCHIVE, $result->failureReason);
+        $this->assertSame([], $transport->calls);
+        $this->assertFalse($sender->wasTransmittedFor('SUP-7KQ4F2'));
+        $this->assertSame(0, $this->journalCount());
+    }
+
+    /**
+     * The upload gives up with an exception rather than an answer. The
+     * archive reads as not transmitted, nothing is journaled, and a retry
+     * on the same archive goes through.
+     */
+    public function testATransportThatThrowsIsAnUnreachableReceiver(): void
+    {
+        $sender = $this->sender(new UnreachableArchiveTransport());
+
+        $result = $sender->send('SUP-7KQ4F2', true);
+
+        $this->assertFalse($result->sent);
+        $this->assertSame(SupportArchiveSender::FAILURE_UNREACHABLE, $result->failureReason);
+        $this->assertFalse($sender->wasTransmittedFor('SUP-7KQ4F2'));
+        $this->assertSame('', $sender->transmittedAt());
+        $this->assertSame(0, $this->journalCount());
+
+        $retry = $this->sender($this->transport(200, ['status' => 'accepted']));
+        $this->assertTrue($retry->send('SUP-7KQ4F2', true)->sent);
+    }
+
+    /**
+     * The receiver accepted the archive and the reference's setting row is
+     * gone, so the mark cannot be written. The send still reads as
+     * transmitted and the `security` entry is still written: the archive
+     * did leave, and an audit has to find that.
+     */
+    public function testAMarkThatCannotBeWrittenDoesNotUndoTheTransmission(): void
+    {
+        $this->pdo->exec(
+            "DELETE FROM settings WHERE setting_key = '" . SupportArchiveSender::ARCHIVE_REFERENCE_SETTING . "'"
+        );
+        $this->settings->clearCache();
+        $sender = $this->sender($this->transport(200, ['status' => 'accepted']));
+
+        $result = $sender->send('SUP-7KQ4F2', true);
+
+        $this->assertTrue($result->sent);
+        $this->assertSame('SUP-7KQ4F2', $result->reference);
+        $this->assertSame(1, $this->journalCount());
+        $this->assertFalse($sender->wasTransmittedFor('SUP-7KQ4F2'), 'Nothing recreated the row.');
+        $this->assertNotSame('', $sender->transmittedAt());
+    }
+
     private function journalCount(): int
     {
         return (int) $this->pdo->query(
@@ -275,5 +341,21 @@ final class RecordingArchiveTransport implements ArchiveTransportInterface
         $this->calls[] = ['url' => $url, 'bytes' => $bytes, 'token' => $bearerToken];
 
         return $this->response;
+    }
+}
+
+/**
+ * An upload that cannot reach the receiver: the transport throws instead
+ * of answering, as a socket-level failure would.
+ */
+final class UnreachableArchiveTransport implements ArchiveTransportInterface
+{
+    public function postArchive(
+        string $url,
+        string $bytes,
+        string $bearerToken,
+        string $userAgent
+    ): StatisticsTransportResponse {
+        throw new \RuntimeException('Connexion refusée par ' . $url);
     }
 }
