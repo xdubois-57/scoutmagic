@@ -704,6 +704,61 @@ class RentalConfigControllerTest extends TestCase
     }
 
     /**
+     * An asset deleted in another tab, archived from a page still open:
+     * the refusal is said on the list it was taken from, never a stack
+     * trace, and nothing is journaled as archived.
+     */
+    public function testALifeCycleStepOnAnAssetThatNoLongerExistsIsSaidAndChangesNothing(): void
+    {
+        $assetId = $this->createAsset();
+        $this->assetRepository->delete($assetId);
+
+        $response = $this->postLifecycle('archive', $assetId, 'list');
+
+        $this->assertSame('/admin/locations', $response->getHeaders()['Location'] ?? null);
+        $this->assertSame(
+            ['type' => 'error', 'message' => "Ce bien n'existe pas ou plus."],
+            FlashMessage::get()
+        );
+        $this->assertSame(
+            0,
+            (int) $this->pdo->query("SELECT COUNT(*) FROM event_log WHERE event_type = 'rental_asset_archived'")
+                ->fetchColumn()
+        );
+    }
+
+    /** The managers of an asset deleted meanwhile: said on the list, nothing granted. */
+    public function testSavingTheManagersOfAnAssetThatNoLongerExistsIsSaidAndGrantsNothing(): void
+    {
+        $assetId = $this->createAsset();
+        $member = $this->createMember('D-ADULT', [
+            'first' => 'Marie',
+            'last' => 'Dupont',
+            'totem' => null,
+            'birth' => self::yearsAgo(41),
+        ]);
+        $this->assetRepository->delete($assetId);
+
+        $body = [
+            'asset_id' => (string) $assetId,
+            'manager_member_ids' => [(string) $member],
+            '_csrf_token' => CsrfGuard::generateToken(),
+        ];
+        $_POST = $body;
+        $response = $this->controller->saveManagers(
+            new Request('POST', '/admin/locations/managers', [], $body, [], []),
+            []
+        );
+
+        $this->assertSame('/admin/locations', $response->getHeaders()['Location'] ?? null);
+        $this->assertSame(
+            ['type' => 'error', 'message' => "Ce bien n'existe pas ou plus."],
+            FlashMessage::get()
+        );
+        $this->assertNull($this->managerRepository->findByAssetAndMember($assetId, $member));
+    }
+
+    /**
      * The asset's page carries what belongs to it in the park — général,
      * gestionnaires, compte, cycle de vie with deletion apart — and points
      * to its managed space for what does not.

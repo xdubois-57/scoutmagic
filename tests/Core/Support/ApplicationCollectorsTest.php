@@ -180,6 +180,23 @@ class ApplicationCollectorsTest extends TestCase
         $mysql->exec('DROP TABLE IF EXISTS support_dump_probe');
     }
 
+    /**
+     * Credentials are there and the server does not answer them — nothing
+     * listens on the port. The dump is reported unavailable with the
+     * driver's reason, no file is added, and no temporary file is left.
+     */
+    public function testAServerThatDoesNotAnswerMakesTheDumpUnavailableWithItsReason(): void
+    {
+        $this->connection = new Connection('127.0.0.1', 1, 'scoutmagic', 'scout', 'mot-de-passe-de-test');
+
+        $result = $this->runCollector(new DatabaseStructureCollector());
+
+        $this->assertStringStartsWith('dump_unavailable: ', (string) $result['unavailable']);
+        $this->assertStringContainsString('[2002]', (string) $result['unavailable']);
+        $this->assertSame([], $result['entries']);
+        $this->assertSame([], glob($this->storagePath . '/temp/support-structure-*') ?: []);
+    }
+
     // --- configuration-parameters.xlsx ---
 
     public function testASecretSettingIsRedactedWhileAnOrdinaryOneIsNot(): void

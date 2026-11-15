@@ -121,6 +121,38 @@ final class DepositedArchiveTest extends TestCase
         $this->assertNull($this->deposit->hints());
     }
 
+    /**
+     * A real zip that is simply not a portable backup — an ordinary
+     * archive, its comment someone else's — opens, says nothing readable
+     * about itself, and is shown with no hints rather than failing the
+     * page. The same zip with a genuine header is the control.
+     */
+    public function testAnOrdinaryZipHasNoHintsWhileAPortableOneHasThem(): void
+    {
+        $this->deposit->adopt($this->zipWithComment('Archive de vacances, pas une sauvegarde'));
+
+        $this->assertNull($this->deposit->hints());
+
+        $this->deposit->adopt($this->zipWithComment(\Core\Maintenance\Portable\PortableKeys::comment(
+            \Core\Maintenance\Portable\PortableKeys::newDerivation(),
+            \Tests\Support\PortableHints::sample()
+        )));
+
+        $this->assertInstanceOf(\Core\Maintenance\Portable\PortableArchiveHints::class, $this->deposit->hints());
+    }
+
+    private function zipWithComment(string $comment): string
+    {
+        $path = $this->root . '/upload-' . uniqid() . '.zip';
+        $zip = new \ZipArchive();
+        $this->assertTrue($zip->open($path, \ZipArchive::CREATE) === true);
+        $zip->addFromString('lisez-moi.txt', 'contenu');
+        $this->assertTrue($zip->setArchiveComment($comment));
+        $zip->close();
+
+        return $path;
+    }
+
     private function remove(string $dir): void
     {
         if (!is_dir($dir)) {

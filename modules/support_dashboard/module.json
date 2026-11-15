@@ -241,6 +241,15 @@
       "menu": "configuration",
       "role_min": "superadmin",
       "label": ""
+    },
+    {
+      "path": "/support-dashboard/installations/{id}/valider",
+      "method": "POST",
+      "controller": "Modules\\SupportDashboard\\Controller\\SupportDashboardController",
+      "action": "establish",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": ""
     }
   ],
   "settings": [

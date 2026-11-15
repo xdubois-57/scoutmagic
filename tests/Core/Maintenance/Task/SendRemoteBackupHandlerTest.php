@@ -1005,6 +1005,33 @@ final class SendRemoteBackupHandlerTest extends TestCase
     }
 
     /**
+     * A run with no archive yet has to build one, and building it reads the
+     * remote passphrase out of `secrets.enc`. Secrets that no longer
+     * decrypt refuse that read: the run records the failure in the
+     * operator's words and re-arms for a retry, without a single byte sent
+     * and without an archive minted under a phrase nobody stored.
+     */
+    public function testAnArchiveThatCannotBeBuiltIsRecordedAsAFailureAndRetried(): void
+    {
+        file_put_contents($this->storagePath . '/config/secrets.enc', 'des octets qui ne veulent rien dire');
+        $backend = new RecordingBackend($this);
+
+        $this->runOnce([], $backend);
+
+        $this->assertSame(
+            'Les secrets de ce site sont illisibles : la phrase de passe des sauvegardes distantes ne peut pas '
+            . 'être lue.',
+            $this->journalContextOf('remote_backup_failed')['error'] ?? null
+        );
+        $next = $this->pending();
+        $this->assertNotNull($next, 'the run died instead of recording a failure');
+        $this->assertSame(1, $next['payload']['failures']);
+        $this->assertArrayNotHasKey('archive_path', $next['payload']);
+        $this->assertSame(0, $backend->sessionsOpened);
+        $this->assertSame([], glob($this->storagePath . '/maintenance/*.zip') ?: []);
+    }
+
+    /**
      * Declares a destination and points the off-site backup at it, exactly
      * as the two screens would.
      */

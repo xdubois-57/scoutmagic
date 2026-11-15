@@ -356,4 +356,52 @@ class StorageLocationRepositoryTest extends TestCase
         $this->expectExceptionMessageMatches('/Bande quantique/');
         $this->repository->findAll();
     }
+
+    /**
+     * A refused insert closes the transaction it opened: a connection left
+     * inside it would make the caller's next write part of a transaction
+     * nobody commits.
+     */
+    public function testARefusedCreationRollsBackAndLeavesNoRowBehind(): void
+    {
+        $this->pdo->exec(
+            "CREATE TRIGGER refuse_location BEFORE INSERT ON storage_locations
+             BEGIN SELECT RAISE(ABORT, 'refused'); END"
+        );
+
+        try {
+            $this->repository->create(StorageLocationType::Local, 'Premier', new LocalLocationConfig('a'), null);
+            $this->fail('the refused insert was reported as a creation');
+        } catch (\PDOException $e) {
+            $this->assertStringContainsString('refused', $e->getMessage());
+        }
+
+        $this->assertFalse($this->pdo->inTransaction(), 'the transaction was left open');
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM storage_locations')->fetchColumn());
+    }
+
+    /**
+     * The same for a deletion: refused, it leaves the row, its default
+     * flag and the connection as they were.
+     */
+    public function testARefusedDeletionRollsBackAndKeepsTheDefault(): void
+    {
+        $id = $this->repository->create(StorageLocationType::Local, 'Premier', new LocalLocationConfig('a'), null);
+        $this->repository->create(StorageLocationType::Local, 'Second', new LocalLocationConfig('b'), null);
+        $this->pdo->exec(
+            "CREATE TRIGGER refuse_deletion BEFORE DELETE ON storage_locations
+             BEGIN SELECT RAISE(ABORT, 'refused'); END"
+        );
+
+        try {
+            $this->repository->delete($id);
+            $this->fail('the refused deletion was reported as done');
+        } catch (\PDOException $e) {
+            $this->assertStringContainsString('refused', $e->getMessage());
+        }
+
+        $this->assertFalse($this->pdo->inTransaction(), 'the transaction was left open');
+        $this->assertSame($id, $this->repository->findDefault()?->id);
+        $this->assertCount(2, $this->repository->findAll());
+    }
 }

@@ -634,6 +634,34 @@ class RentalPaymentServiceTest extends TestCase
         $this->service->communicationForContract($booking, $this->settings());
     }
 
+    /**
+     * The asset's Finance category archived by the treasurer since it was
+     * chosen: Finance refuses the receivable, and its own sentence — the
+     * only one that says what to change — reaches the manager whole.
+     * Nothing is raised, nothing linked.
+     */
+    public function testAContractIsRefusedWithFinancesSentenceWhenTheCategoryWasArchivedSince(): void
+    {
+        $booking = $this->createBooking();
+        (new \Modules\Finance\Repository\CategoryRepository($this->pdo))->setActive($this->categoryId, false);
+
+        try {
+            $this->service->communicationForContract($booking, $this->settings());
+            $this->fail('a receivable was raised on an archived category');
+        } catch (RentalException $e) {
+            $this->assertStringStartsWith("Le contrat n'a pas été généré", $e->getMessage());
+            $this->assertStringEndsWith(
+                'Choisissez une catégorie Finances active pour cette créance.',
+                $e->getMessage()
+            );
+        }
+
+        $this->assertSame(0, (int) $this->pdo->query(
+            'SELECT COUNT(*) FROM finance_expected_receivables'
+        )->fetchColumn());
+        $this->assertNull($this->paymentRepository->loadBookingPayment($booking->id)['rental_receivable_id'] ?? null);
+    }
+
     public function testWithoutFinanceTheContractIsGeneratedWithoutACommunication(): void
     {
         // The explicit degraded mode: no Finance, no communication, and no
@@ -674,6 +702,46 @@ class RentalPaymentServiceTest extends TestCase
         $this->assertSame(1, (int) $this->pdo->query(
             'SELECT COUNT(*) FROM finance_expected_receivables'
         )->fetchColumn());
+    }
+
+    /**
+     * Finance refusing to move the amount never undoes the abandonment it
+     * follows: the receivable keeps what it was, the journal says it was
+     * not updated, and the booking's history tells its manager to correct
+     * it from Finances.
+     */
+    public function testAnAbandonmentWhoseAmountFinanceRefusesIsJournaledAndWrittenInTheHistory(): void
+    {
+        $booking = $this->createBooking(46750);
+        $settings = $this->settings();
+        $this->service->ensureReceivable($booking, $settings);
+        $this->pdo->exec(
+            "CREATE TRIGGER refuse_amount BEFORE UPDATE OF amount_due_cents ON finance_expected_receivables
+             BEGIN SELECT RAISE(ABORT, 'refused'); END"
+        );
+
+        $this->service->abandonAmount($booking, 1);
+
+        $this->assertSame(46750, $this->service->statusFor($booking, $settings)['total_cents']);
+        $logged = $this->pdo->query(
+            "SELECT description, context FROM event_log WHERE event_type = 'rental_receivable_not_updated'"
+        )->fetchAll(\PDO::FETCH_ASSOC);
+        $this->assertCount(1, $logged);
+        $this->assertSame(
+            'Créance non mise à jour pour LOC-A2B3C4 : '
+                . "Le montant à percevoir n'a pas pu être mis à jour dans les Finances — "
+                . 'vérifiez le compte financier configuré pour les locations, puis réessayez.',
+            $logged[0]['description']
+        );
+        $this->assertSame(
+            ['booking_id' => $booking->id, 'to_cents' => 0],
+            json_decode((string) $logged[0]['context'], true)
+        );
+        $summaries = array_map(
+            static fn(\Core\Audit\AuditEntry $entry): ?string => $entry->summary,
+            RentalTestHelper::bookingHistory($this->pdo, $this->encryption, $booking->id)
+        );
+        $this->assertContains('Créance non mise à jour dans les Finances : à corriger depuis Finances', $summaries);
     }
 
     public function testAbandoningABookingWithoutAReceivableDoesNothing(): void

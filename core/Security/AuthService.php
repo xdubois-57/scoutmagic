@@ -54,7 +54,9 @@ class AuthService
      * Step 1: User submits their email on the login page.
      *
      * Generates a magic link token and sends it to the user's email if the account exists.
-     * Returns success regardless of whether the email exists (no enumeration).
+     * Returns success regardless of whether the email exists or whether the send worked
+     * (no enumeration): a failed send is journaled as `magic_link_send_failed`, not answered.
+     * Only the per-address rate limit answers otherwise, and it counts unknown addresses too.
      */
     public function requestMagicLink(string $email): MagicLinkResult
     {
@@ -111,9 +113,17 @@ class AuthService
         if ($user !== null || $viaSecondaryEmail) {
             // Send the magic link email
             $magicLinkUrl = rtrim($this->baseUrl, '/') . "/auth/verify?token={$rawToken}&id={$magicLinkId}";
+            $sent = false;
             try {
                 $this->sendMagicLinkEmail($normalizedEmail, $magicLinkUrl);
+                $sent = true;
             } catch (\Throwable $e) {
+                // Recorded for the staff, never told to the visitor: an
+                // unknown address always gets the success answer below, so
+                // a failure answered differently would say that this one
+                // has an account — to anybody able to type an address while
+                // mail is failing, a state an outsider may cause (quota,
+                // relay refusals). Same rule as PasswordResetService.
                 $reason = str_replace($normalizedEmail, '[adresse]', $e->getMessage());
                 $this->journalService?->log(
                     'core',
@@ -123,22 +133,18 @@ class AuthService
                     ['error' => $reason, 'via_secondary_email' => $viaSecondaryEmail],
                     $user?->id
                 );
-
-                return new MagicLinkResult(
-                    success: false,
-                    magicLinkId: null,
-                    error: 'Impossible d\'envoyer l\'email. Vérifiez la configuration SMTP.'
-                );
             }
 
-            $this->journalService?->log(
-                'core',
-                'magic_link_email_sent',
-                'info',
-                'Email de lien magique envoyé',
-                ['via_secondary_email' => $viaSecondaryEmail],
-                $user?->id
-            );
+            if ($sent) {
+                $this->journalService?->log(
+                    'core',
+                    'magic_link_email_sent',
+                    'info',
+                    'Email de lien magique envoyé',
+                    ['via_secondary_email' => $viaSecondaryEmail],
+                    $user?->id
+                );
+            }
         } else {
             // No enumeration in the response (still returns success below)
             // but worth a distinct journal entry — an admin trying to

@@ -196,8 +196,34 @@ else
 fi
 unset -f php
 
+# The dependency age gate (issue #841) warns and never refuses on what it
+# finds: the checker exits 0 whatever the dates, so a 0 must pass the gate
+# and hand the checker a place for the notes' table; only the checker's own
+# failure (1 — a lock file it cannot read) stops the release.
+eval "$(sed -n '/^check_dependency_age_gate() {/,/^}/p' "${RELEASE_SH}")"
+
+php() { printf '%s\n' "$*" > "${GATE_TMP_DIR}/php-age-args"; return 0; }
+if ( run_gate a1 "Dependency age" check_dependency_age_gate ) > /dev/null 2>&1; then
+    ok "the dependency age gate passes whatever the dates say (a warning, issue #841)"
+else
+    fail "the dependency age gate stopped a release on a checker that exited 0"
+fi
+if grep -q -- "--markdown ${GATE_TMP_DIR}/dependency_age.md" "${GATE_TMP_DIR}/php-age-args" 2>/dev/null; then
+    ok "and it asks the checker for the table the notes append"
+else
+    fail "the dependency age gate does not pass --markdown to the checker — the notes would have no dated table"
+fi
+
+php() { echo "check-dependency-age: missing composer.lock" >&2; return 1; }
+if ( run_gate a2 "Dependency age" check_dependency_age_gate ) > /dev/null 2>&1; then
+    fail "the dependency age gate passed although the checker itself failed"
+else
+    ok "the checker's own failure (an unreadable lock file) stops the release"
+fi
+unset -f php
+
 # The order is the documented one, and it is the order of the file.
-expected_order="deployment ci security dependency deprecated_api sonar sources"
+expected_order="deployment ci security dependency dependency_age deprecated_api sonar sources"
 # [[:space:]], not \s: BSD grep — the one a macOS releaser runs, and this
 # script is written for the same machine scripts/release.sh caffeinates —
 # does not know \s in an ERE. It would match nothing, actual_order would be
@@ -208,7 +234,7 @@ expected_order="deployment ci security dependency deprecated_api sonar sources"
 # wrong defect, which is worse than none.
 actual_order="$(grep -oE '^[[:space:]]*run_gate [a-z_]+' "${RELEASE_SH}" | awk '{print $2}' | tr '\n' ' ' | sed 's/ $//')"
 if [[ "${actual_order}" == "${expected_order}" ]]; then
-    ok "the seven gates run in the documented order (${actual_order})"
+    ok "the eight gates run in the documented order (${actual_order})"
 else
     fail "gate order is '${actual_order}', expected '${expected_order}'"
 fi

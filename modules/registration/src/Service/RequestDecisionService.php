@@ -362,7 +362,12 @@ class RequestDecisionService
      *
      * @throws RegistrationException when a pass is working on the slot
      */
-    private function underSlotLock(RegistrationRequest $request, string $decision, bool $automatic, callable $work): mixed
+    private function underSlotLock(
+        RegistrationRequest $request,
+        string $decision,
+        bool $automatic,
+        callable $work
+    ): mixed
     {
         if ($decision !== self::DECISION_ACCEPT || $automatic) {
             return $work();
