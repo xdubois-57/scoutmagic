@@ -75,7 +75,8 @@ class TicketIntakeController extends AbstractController
             $installationId,
             (string) $request->getServer('HTTP_AUTHORIZATION', ''),
             $request->isHttps(),
-            new \DateTimeImmutable()
+            new \DateTimeImmutable(),
+            (string) $request->getServer('REMOTE_ADDR', '')
         );
 
         // A refusal to authenticate says only that, with the same 403 the

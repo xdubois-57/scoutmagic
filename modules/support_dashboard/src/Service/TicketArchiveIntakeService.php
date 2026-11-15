@@ -50,12 +50,20 @@ class TicketArchiveIntakeService
     public const REJECT_TOO_LARGE = 'archive_too_large';
     public const REJECT_EMPTY = 'archive_empty';
     public const REJECT_ALREADY_RECEIVED = 'archive_already_received';
+    /**
+     * The archives already kept fill this receiver's quota, or this
+     * installation's (issue #1113). Refused explicitly, like a body too
+     * large: the ticket itself is kept and answerable without it.
+     */
+    public const REJECT_STORAGE_QUOTA = 'archive_storage_full';
 
     public function __construct(
         private SupportInstallationRepository $installations,
         private SupportTicketRepository $tickets,
         private EncryptedFileStorageService $storage,
-        private JournalService $journal
+        private JournalService $journal,
+        /** The per-address limit, the journal cap and the storage quota (issue #1113). */
+        private SupportIntakeGuard $guard
     ) {
     }
 
@@ -72,6 +80,13 @@ class TicketArchiveIntakeService
     ): TicketIntakeResult {
         if (!$isSecureTransport) {
             return TicketIntakeResult::refused(TicketIntakeResult::REJECT_INSECURE_TRANSPORT);
+        }
+
+        // The source address first (issue #1113), before the 60 MB body is
+        // looked at and before any password_verify(): the per-address
+        // limit is the one a caller cannot reset by changing ids.
+        if (!$this->guard->admitRequest($clientIp)) {
+            return $this->refuse(TicketIntakeResult::REJECT_RATE_LIMITED, $clientIp);
         }
 
         // On the raw string, before anything else touches it.
@@ -107,18 +122,49 @@ class TicketArchiveIntakeService
             return TicketIntakeResult::accepted($reference);
         }
 
-        $fileId = $this->storage->store(
-            $rawBody,
-            'application/zip',
-            'support-' . $reference . '.zip',
-            self::STORAGE_SUBDIRECTORY,
-            // The floor the archive had on the installation that produced
-            // it. Anything lower here would make the receiver the weakest
-            // place a unit's diagnostics ever sit.
-            'superadmin'
-        );
+        // Within the storage quotas, global and per installation, checked
+        // and stored under one lock (issue #1113): an archive is kept for
+        // up to a year, and five tickets an hour from each of many
+        // installations would otherwise fill the disk long before anybody
+        // read one of them.
+        $stored = $this->guard->storeArchiveWithinQuota(
+            (int) $installation['id'],
+            strlen($rawBody),
+            function () use ($rawBody, $reference, $ticket): void {
+                $fileId = $this->storage->store(
+                    $rawBody,
+                    'application/zip',
+                    'support-' . $reference . '.zip',
+                    self::STORAGE_SUBDIRECTORY,
+                    // The floor the archive had on the installation that
+                    // produced it. Anything lower here would make the
+                    // receiver the weakest place a unit's diagnostics ever
+                    // sit.
+                    'superadmin'
+                );
 
-        $this->tickets->attachArchive((int) $ticket['id'], $fileId);
+                $this->tickets->attachArchive((int) $ticket['id'], $fileId);
+            },
+            // Read again under the lock, BEFORE the quota: two uploads for
+            // one ticket can both pass the check above before either
+            // attaches, and the second would then store a file and
+            // re-point the ticket at it, leaving the first on disk with
+            // nothing referring to it — or, at the quota's edge, be
+            // refused as « full » by the archive it duplicates. The one
+            // that comes second finds the archive attached and stores
+            // nothing: the same answer as the idempotent branch above.
+            function () use ($reference): bool {
+                $current = $this->tickets->findByReference($reference);
+
+                return $current === null || $current['archive_file_id'] !== null;
+            }
+        );
+        if ($stored === SupportIntakeGuard::QUOTA_ARCHIVE_STORAGE) {
+            return $this->refuse(self::REJECT_STORAGE_QUOTA, $clientIp);
+        }
+        if ($stored !== true) {
+            return $this->refuse(TicketIntakeResult::REJECT_RATE_LIMITED, $clientIp);
+        }
 
         $this->journal->log(
             'support_dashboard',
@@ -131,8 +177,17 @@ class TicketArchiveIntakeService
         return TicketIntakeResult::accepted($reference);
     }
 
+    /**
+     * Journaled up to {@see SupportIntakeGuard::REFUSAL_JOURNAL_LIMIT}
+     * times an hour per source address, like every refusal of these
+     * routes; the refusal itself always stands.
+     */
     private function refuse(string $reason, string $clientIp): TicketIntakeResult
     {
+        if (!$this->guard->mayJournalRefusal($clientIp)) {
+            return TicketIntakeResult::refused($reason);
+        }
+
         $this->journal->log(
             'support_dashboard',
             'support_ticket_archive_refused',
@@ -146,6 +201,10 @@ class TicketArchiveIntakeService
 
     private function rejectUnauthenticated(string $clientIp): TicketIntakeResult
     {
+        if (!$this->guard->mayJournalRefusal($clientIp)) {
+            return TicketIntakeResult::unauthenticated();
+        }
+
         $this->journal->log(
             'support_dashboard',
             'support_ticket_archive_unauthenticated',

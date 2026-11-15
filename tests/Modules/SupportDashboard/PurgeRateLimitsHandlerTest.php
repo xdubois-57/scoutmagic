@@ -18,13 +18,14 @@ use Core\Security\EncryptionService;
 use Core\Security\UserAccountRepository;
 use Modules\SupportDashboard\Repository\SupportReportRateLimitRepository;
 use Modules\SupportDashboard\Service\StatisticsIntakeService;
+use Modules\SupportDashboard\Service\SupportIntakeGuard;
 use Modules\SupportDashboard\Task\PurgeRateLimitsHandler;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 
 /**
- * Every accepted report writes a rate-limit row, and the counter only ever
- * reads the last hour — so without this task `support_report_rate_limits`
+ * Every accepted report writes a rate-limit row, and the counters read at
+ * most the last day — so without this task `support_report_rate_limits`
  * grows forever on the one installation that receives every other
  * installation's traffic (ARCHITECTURE.md §8.49).
  */
@@ -80,8 +81,8 @@ class PurgeRateLimitsHandlerTest extends TestCase
 
     public function testRowsPastTheWindowAreDeletedAndRecentOnesKept(): void
     {
-        $this->recordAt('old-hash', '-5 hours');
-        $this->recordAt('old-hash', '-2 hours');
+        $this->recordAt('old-hash', '-30 hours');
+        $this->recordAt('old-hash', '-26 hours');
         $this->recordAt('fresh-hash', '-5 minutes');
 
         (new PurgeRateLimitsHandler())->handle([], $this->context());
@@ -90,18 +91,34 @@ class PurgeRateLimitsHandlerTest extends TestCase
     }
 
     /**
-     * The window the purge uses is the same constant the counter reads
-     * against — a purge on a shorter window would silently reset somebody's
-     * count, and on a longer one would keep rows nothing ever reads.
+     * The window the purge uses is the longest one anything in the table
+     * is read over — the day of the new-installation quota and of the
+     * markers the attention page reads (issue #1113). A purge on a shorter
+     * window would silently reset a count, and on a longer one would keep
+     * rows nothing ever reads.
      */
-    public function testThePurgeWindowIsTheRateLimiterSOwnWindow(): void
+    public function testThePurgeWindowIsTheLongestWindowTheTableIsReadOver(): void
     {
-        $this->recordAt('hash', '-' . (StatisticsIntakeService::RATE_LIMIT_WINDOW_MINUTES + 5) . ' minutes');
-        $this->recordAt('hash', '-' . (StatisticsIntakeService::RATE_LIMIT_WINDOW_MINUTES - 5) . ' minutes');
+        $this->recordAt('hash', '-' . (SupportIntakeGuard::RETENTION_MINUTES + 5) . ' minutes');
+        $this->recordAt('hash', '-' . (SupportIntakeGuard::RETENTION_MINUTES - 5) . ' minutes');
 
         (new PurgeRateLimitsHandler())->handle([], $this->context());
 
         $this->assertSame(1, $this->rowCount());
+    }
+
+    /** Every window read in the table fits inside the one the purge keeps. */
+    public function testNoCounterReadsFurtherBackThanThePurgeKeeps(): void
+    {
+        foreach (
+            [
+                StatisticsIntakeService::RATE_LIMIT_WINDOW_MINUTES,
+                SupportIntakeGuard::REQUEST_WINDOW_MINUTES,
+                24 * 60,
+            ] as $window
+        ) {
+            $this->assertLessThanOrEqual(SupportIntakeGuard::RETENTION_MINUTES, $window);
+        }
     }
 
     public function testTheTaskReschedulesItselfDaily(): void

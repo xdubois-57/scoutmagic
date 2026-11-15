@@ -34,6 +34,26 @@ class SupportDashboardTestHelper
         \Core\System\ComposerAutoloadSync::apply($loader, $root . '/composer.json');
     }
 
+    /**
+     * The intake limits over the tables createTables() made, with the
+     * test suite's usual keys — what every service of the three machine
+     * routes now requires (issue #1113).
+     */
+    public static function intakeGuard(
+        \PDO $pdo,
+        ?\Core\Security\EncryptionService $encryption = null
+    ): \Modules\SupportDashboard\Service\SupportIntakeGuard {
+        $encryption ??= new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+
+        return new \Modules\SupportDashboard\Service\SupportIntakeGuard(
+            $pdo,
+            new \Modules\SupportDashboard\Repository\SupportReportRateLimitRepository($pdo),
+            new \Modules\SupportDashboard\Repository\SupportInstallationRepository($pdo),
+            new \Modules\SupportDashboard\Repository\SupportTicketRepository($pdo, $encryption),
+            $encryption
+        );
+    }
+
     public static function createTables(\PDO $pdo): void
     {
         $pdo->exec('CREATE TABLE support_installations (
@@ -56,6 +76,7 @@ class SupportDashboardTestHelper
             installed_at TEXT NULL,
             last_upgraded_at TEXT NULL,
             telemetry_enabled INTEGER NOT NULL DEFAULT 1,
+            established INTEGER NOT NULL DEFAULT 1,
             whois_domain TEXT NULL,
             whois_server TEXT NULL,
             whois_status TEXT NULL,
