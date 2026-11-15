@@ -35,8 +35,9 @@ use Webklex\PHPIMAP\Query\WhereQuery;
  * - a message that does not parse is parsed again **without its `Date:`
  *   lines** — which is the only header the library parses eagerly enough
  *   to fail on. It comes back with no date, and
- *   `ImapMailboxClient::sentAt()` already stores such a message at its
- *   reception time rather than losing it. Its raw header block is put back
+ *   `ImapMailboxClient::sentAt()` already stores such a message, dated at
+ *   the sync that reads it (not the server's own reception date, which is
+ *   never fetched), rather than losing it. Its raw header block is put back
  *   as the server wrote it, since the sender's authentication is read from
  *   it later;
  * - a message that still does not parse is left out, and its UID is kept

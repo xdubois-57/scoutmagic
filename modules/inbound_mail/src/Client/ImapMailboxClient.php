@@ -181,7 +181,7 @@ class ImapMailboxClient implements IncomingMailboxClientInterface, PruningMailbo
         // `*` can hand back was already read, and traced, by an earlier pass.
         foreach ($query->undatedUids() as $uid) {
             if ($uid > $sinceUid) {
-                self::trace($folder, $uid, 'has an unreadable Date header; kept with its reception time');
+                self::trace($folder, $uid, 'has an unreadable Date header; kept, dated at this sync');
             }
         }
         foreach ($query->unreadableUids() as $uid) {

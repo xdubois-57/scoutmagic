@@ -77,7 +77,7 @@ class ImapUnreadableMessageTest extends TestCase
     /**
      * The good messages on either side come back as they always did, and
      * the bad one is kept rather than lost: without a date, which the
-     * client stores at its reception time, and with its header block as
+     * client dates at the sync that reads it, and with its header block as
      * the server wrote it.
      */
     #[DataProvider('unreadableDates')]
@@ -117,7 +117,7 @@ class ImapUnreadableMessageTest extends TestCase
             $this->assertSame('2027-07-12', $undated->sentAt->format('Y-m-d'));
         } else {
             $this->assertTrue($traced, 'the unreadable Date is traced');
-            $this->assertGreaterThanOrEqual($before, $undated->sentAt, 'stored at its reception time');
+            $this->assertGreaterThanOrEqual($before, $undated->sentAt, 'dated at this sync');
             $this->assertLessThan(new \DateTimeImmutable('+1 minute'), $undated->sentAt, 'not a header date');
         }
         $this->assertStringNotContainsString('jeanne', $written, 'no sender in the server log');
