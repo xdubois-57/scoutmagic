@@ -26,6 +26,8 @@ use Modules\Attestations\Service\BatchVerificationService;
 use Modules\Attestations\Service\DuplicateDetector;
 use Modules\Attestations\Value\AttestationCategory;
 use Modules\Attestations\Value\MatchState;
+use Core\Http\FlashMessage;
+use Modules\Attestations\Value\BatchStatus;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
@@ -310,6 +312,25 @@ class BatchControllerTest extends TestCase
         $this->assertStringNotContainsString('ne peut plus être rouverte', $body);
     }
 
+    /**
+     * A printed name stored under a key the site no longer holds: the row
+     * is still on screen, saying no name could be read, and the rest of
+     * the batch reads as before.
+     */
+    public function testAnUnreadablePrintedNameKeepsItsRowAndSaysSo(): void
+    {
+        $otherKey = new \Core\Security\EncryptionService(str_repeat('c', 32), str_repeat('d', 32));
+        $this->pdo->prepare('UPDATE attestation_batch_lines SET read_name_encrypted = ? WHERE id = ?')->execute([
+            $otherKey->encrypt('DELACROIX Camille', BatchLineRepository::ENCRYPTION_CONTEXT),
+            $this->lineIds['unmatched'],
+        ]);
+
+        $this->assertNull($this->lines->findById($this->lineIds['unmatched'])?->readName);
+        $body = $this->body();
+        $this->assertStringContainsString('Aucun nom lisible', $this->rowOf('unmatched', $body));
+        $this->assertStringContainsString('VANDENBRANDE Margaux', $this->rowOf('margaux', $body));
+    }
+
     public function testAnUnknownBatchIs404(): void
     {
         $response = $this->frontController()
@@ -344,6 +365,69 @@ class BatchControllerTest extends TestCase
             $this->memberIds['zoe_b'],
             $this->lines->findById($this->lineIds['ambiguous'])?->memberId
         );
+    }
+
+    /**
+     * A member id the screen never offered for this line is refused with
+     * the service's own sentence, and the line stays unresolved.
+     */
+    public function testAttachingAMemberWhoWasNeverProposedSaysSoAndChangesNothing(): void
+    {
+        $response = $this->frontController()->handle(new Request(
+            'POST',
+            '/admin/attestations/' . $this->batchId . '/rattacher',
+            [],
+            [
+                'line_id' => (string) $this->lineIds['ambiguous'],
+                'member_id' => (string) $this->memberIds['margaux'],
+                '_csrf_token' => CsrfGuard::generateToken(),
+            ],
+            [],
+            []
+        ));
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('/admin/attestations/' . $this->batchId, (string) $response->getHeaders()['Location']);
+        $this->assertSame(
+            [
+                'type' => 'error',
+                'message' => 'Ce membre n\'était pas proposé pour cette attestation. Rechargez la page et '
+                    . 'choisissez parmi les membres affichés.',
+            ],
+            FlashMessage::get()
+        );
+        $this->assertNull($this->lines->findById($this->lineIds['ambiguous'])?->memberId);
+    }
+
+    /**
+     * A publication the database refuses is not the module's own sentence:
+     * the screen gives the generic one, and no member page receives a
+     * document.
+     */
+    public function testAPublicationTheDatabaseRefusesShowsTheGenericSentence(): void
+    {
+        $this->pdo->exec(
+            "CREATE TRIGGER refuse_documents BEFORE INSERT ON member_documents
+             BEGIN SELECT RAISE(ABORT, 'document refusé'); END"
+        );
+
+        $response = $this->frontController()->handle(new Request(
+            'POST',
+            '/admin/attestations/' . $this->batchId . '/publier',
+            [],
+            ['line_ids' => [(string) $this->lineIds['margaux']], '_csrf_token' => CsrfGuard::generateToken()],
+            [],
+            []
+        ));
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('/admin/attestations/' . $this->batchId, (string) $response->getHeaders()['Location']);
+        $this->assertSame(
+            ['type' => 'error', 'message' => 'La publication a échoué. Rechargez la page et réessayez.'],
+            FlashMessage::get()
+        );
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM member_documents')->fetchColumn());
+        $this->assertSame(BatchStatus::Draft, $this->batches->findById($this->batchId)?->status);
     }
 
     public function testCommittingTheSelectionThroughTheRouteDeletesWhatWasNotTicked(): void
@@ -620,6 +704,32 @@ class BatchControllerTest extends TestCase
             0,
             (int) $this->pdo->query('SELECT COUNT(*) FROM member_documents')->fetchColumn()
         );
+    }
+
+    /**
+     * A reset the database refuses keeps the reader on the batch, which
+     * still exists, with the generic sentence; the members keep their
+     * documents.
+     */
+    public function testATakeBackTheDatabaseRefusesStaysOnTheBatchAndSaysSo(): void
+    {
+        $this->publishMargaux();
+        FlashMessage::get();
+        $this->pdo->exec(
+            "CREATE TRIGGER refuse_batch_delete BEFORE DELETE ON attestation_batches
+             BEGIN SELECT RAISE(ABORT, 'reprise refusée'); END"
+        );
+
+        $response = $this->resetRequest(CsrfGuard::generateToken());
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('/admin/attestations/' . $this->batchId, (string) $response->getHeaders()['Location']);
+        $this->assertSame(
+            ['type' => 'error', 'message' => 'La reprise a échoué. Rechargez la page et réessayez.'],
+            FlashMessage::get()
+        );
+        $this->assertNotNull($this->batches->findById($this->batchId));
+        $this->assertSame(1, (int) $this->pdo->query('SELECT COUNT(*) FROM member_documents')->fetchColumn());
     }
 
     public function testTakingTheBatchBackWithoutAValidCsrfTokenChangesNothing(): void

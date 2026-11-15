@@ -765,6 +765,63 @@ class MemberSearchControllerTest extends TestCase
         $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM member_notes')->fetchColumn());
     }
 
+    public function testAnEmptiedCorrectionIsRefusedAndTheNoteKeepsItsText(): void
+    {
+        $id = $this->seedMember();
+        $this->controller->addNote($this->post($id, ['body' => 'Version d’origine.']), ['id' => (string) $id]);
+        \Core\Http\FlashMessage::get();
+        $noteId = (int) $this->pdo->query('SELECT id FROM member_notes')->fetchColumn();
+
+        $response = $this->controller->updateNote(
+            $this->post($id, ['body' => '   ']),
+            ['id' => (string) $id, 'note_id' => (string) $noteId]
+        );
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('/admin/members/' . $id, $response->getHeaders()['Location'] ?? null);
+        $this->assertSame(
+            ['type' => 'error', 'message' => 'Une note ne peut pas être vide.'],
+            \Core\Http\FlashMessage::get()
+        );
+        $this->assertStringContainsString('Version d’origine.', $this->showMember($id)->getBody());
+        $this->assertSame(
+            0,
+            (int) $this->pdo->query("SELECT COUNT(*) FROM event_log WHERE event_type = 'member_note_updated'")
+                ->fetchColumn()
+        );
+    }
+
+    /**
+     * A note id from the URL that belongs to another member: the page of
+     * the first one cannot delete it, and says it does not know it.
+     */
+    public function testANoteOfAnotherMemberCannotBeDeletedFromThisPage(): void
+    {
+        $other = $this->seedMember(firstName: 'paul');
+        $this->controller->addNote($this->post($other, ['body' => 'Note sur Paul.']), ['id' => (string) $other]);
+        \Core\Http\FlashMessage::get();
+        $noteId = (int) $this->pdo->query('SELECT id FROM member_notes')->fetchColumn();
+        $id = $this->seedMember();
+
+        $response = $this->controller->deleteNote(
+            $this->post($id, []),
+            ['id' => (string) $id, 'note_id' => (string) $noteId]
+        );
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('/admin/members/' . $id, $response->getHeaders()['Location'] ?? null);
+        $this->assertSame(
+            ['type' => 'error', 'message' => 'Cette note est introuvable.'],
+            \Core\Http\FlashMessage::get()
+        );
+        $this->assertSame(1, (int) $this->pdo->query('SELECT COUNT(*) FROM member_notes')->fetchColumn());
+        $this->assertSame(
+            0,
+            (int) $this->pdo->query("SELECT COUNT(*) FROM event_log WHERE event_type = 'member_note_deleted'")
+                ->fetchColumn()
+        );
+    }
+
     /**
      * Decided: /admin/members/export never gains this column, even though
      * every one of its readers is a chef d'unité. An exported file leaves

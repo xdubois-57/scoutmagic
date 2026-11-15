@@ -23,6 +23,12 @@ final class FakeLinkPreviewFetcher implements LinkPreviewFetcher
     public array $fetched = [];
 
     /**
+     * Thrown by every fetch when set: an implementation breaking the
+     * interface's « never throws » promise.
+     */
+    public ?\Throwable $failure = null;
+
+    /**
      * @param array<string, LinkPreview|null> $pages address => what the page says; absent or null = unreadable
      */
     public function __construct(public array $pages = [])
@@ -32,6 +38,9 @@ final class FakeLinkPreviewFetcher implements LinkPreviewFetcher
     public function fetch(string $url): ?LinkPreview
     {
         $this->fetched[] = $url;
+        if ($this->failure !== null) {
+            throw $this->failure;
+        }
 
         return $this->pages[$url] ?? null;
     }
