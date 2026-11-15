@@ -785,6 +785,124 @@ class RestoreBackupRoundTripTest extends TestCase
     }
 
     /**
+     * Today's bindings, held on the disk between the passes, can no longer
+     * be read on the pass that puts them back. That is never a reason to
+     * undo a restore whose database and files have arrived: it finishes,
+     * the backup's bindings stay, and the journal tells the administrator
+     * to check the locations by hand.
+     */
+    public function testUnreadableHeldBindingsLeaveTheBackupsOwnAndFinishTheRestore(): void
+    {
+        $this->declareDrive(2, 'dossier-ancien');
+        $backupId = $this->takeServerBackup();
+        $this->pdo()->prepare('UPDATE storage_locations SET config = ? WHERE id = 2')
+            ->execute([$this->driveConfig('dossier-actuel')]);
+
+        $this->restore(['source' => 'server', 'backup_id' => $backupId]);
+        $hold = (string) ($this->resumePayload()['storage_bindings_hold'] ?? '');
+        $this->assertFileExists($hold);
+        file_put_contents($hold, 'pas du JSON');
+
+        $this->runResumedPasses();
+
+        $failed = array_values(array_filter(
+            (new JournalRepository($this->pdo()))->search(),
+            static fn (array $e): bool => $e['event_type'] === 'storage_bindings_reconcile_failed'
+        ));
+        $this->assertCount(1, $failed);
+        $this->assertSame(
+            'Les emplacements de stockage n\'ont pas pu être réconciliés après la restauration : ils sont tels '
+            . 'que la sauvegarde les contenait. Vérifiez-les sur Configuration › Stockage.',
+            $failed[0]['description']
+        );
+        $this->assertSame(
+            'Le relevé des emplacements d\'avant la restauration est illisible.',
+            json_decode((string) $failed[0]['context'], true)['error'] ?? null
+        );
+        $this->assertContains('backup_restored', $this->journalTypes());
+        $this->assertNotContains('backup_restore_rolled_back', $this->journalTypes());
+        $config = (string) $this->pdo()->query('SELECT config FROM storage_locations WHERE id = 2')->fetchColumn();
+        $this->assertStringContainsString('dossier-ancien', $config);
+        $this->assertFileDoesNotExist($hold);
+    }
+
+    /**
+     * The rollback is the last way back, and it can fail too: a safety
+     * dump the database refuses. The journal then says, at the level that
+     * asks for a human, that the installation was not put back — never
+     * that it was.
+     */
+    public function testARollbackFromASafetyDumpTheDatabaseRefusesIsJournaledAsFailed(): void
+    {
+        $safety = $this->safetyCopyOnDisk();
+        file_put_contents($safety['safety_db_dump_path'], 'CECI N\'EST PAS DU SQL;');
+        $this->makeTheTailOfTheResumedPassFail();
+
+        $this->resume($safety);
+
+        $failed = array_values(array_filter(
+            (new JournalRepository($this->pdo()))->search(),
+            static fn (array $e): bool => $e['event_type'] === 'backup_restore_rollback_failed'
+        ));
+        $this->assertCount(1, $failed);
+        $this->assertSame('error', $failed[0]['level']);
+        $this->assertSame('La restauration automatique après échec a elle-même échoué', $failed[0]['description']);
+        $this->assertSame(
+            'La restauration de la base de données a échoué — la sauvegarde est peut-être incomplète ou issue '
+            . 'd\'une autre version. Consultez le journal des événements pour le détail.',
+            json_decode((string) $failed[0]['context'], true)['error'] ?? null
+        );
+        $this->assertNotContains('backup_restore_rolled_back', $this->journalTypes());
+        // Pinned, not endorsed: « Sauvegarde restaurée » is journaled before
+        // the purge that failed here, and nothing withdraws it once the
+        // rollback has failed too — the journal then says both.
+        $this->assertContains('backup_restored', $this->journalTypes());
+    }
+
+    /**
+     * « Configuration seule » applies the settings and the modules in one
+     * transaction: a module row the database refuses to change (here a
+     * trigger, as a failing write would) takes the settings already
+     * written back with it, so the site never keeps half a configuration.
+     */
+    public function testAConfigurationRestoreThatFailsHalfWayKeepsTodaysConfiguration(): void
+    {
+        $this->setUnitName('Unité du Chêne');
+        $this->pdo()->exec(
+            "INSERT INTO module_registry (module_id, enabled, installed_version) VALUES ('news', 1, '1.0.0')"
+        );
+        $dump = $this->storagePath . '/backups/config.sql';
+        file_put_contents($dump, implode("\n", [
+            'CREATE TABLE `settings` (`id` int, `module_id` varchar(50), `setting_key` varchar(100), '
+                . '`setting_value` text);',
+            "INSERT INTO `settings` VALUES (1,NULL,'site_name','Unité de la sauvegarde');",
+            'CREATE TABLE `module_registry` (`module_id` varchar(50), `enabled` tinyint(1), '
+                . '`enabled_at` datetime, `enabled_by` int);',
+            "INSERT INTO `module_registry` VALUES ('news',0,NULL,NULL);",
+        ]));
+        $this->pdo()->exec(
+            "CREATE TRIGGER refuse_module_change BEFORE UPDATE ON module_registry FOR EACH ROW
+             SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Module change refused'"
+        );
+
+        try {
+            (new \Core\Maintenance\ConfigOnlyRestore($this->pdo()))->apply($dump);
+            $this->fail('A configuration the database refused was reported as applied.');
+        } catch (\PDOException $e) {
+            $this->assertStringContainsString('Module change refused', $e->getMessage());
+        } finally {
+            $this->pdo()->exec('DROP TRIGGER IF EXISTS refuse_module_change');
+        }
+
+        $this->assertFalse($this->pdo()->inTransaction());
+        $this->assertSame('Unité du Chêne', $this->unitName());
+        $this->assertSame(
+            '1',
+            (string) $this->pdo()->query("SELECT enabled FROM module_registry WHERE module_id = 'news'")->fetchColumn()
+        );
+    }
+
+    /**
      * The migration works under a time budget and, when it runs out,
      * schedules another pass — on a slow machine, more than one. The
      * bindings are put back on the last one only, so run them all.
