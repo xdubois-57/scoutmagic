@@ -177,6 +177,34 @@ class ImportRetentionServiceTest extends TestCase
         $this->assertStringNotContainsString('.csv', $context);
     }
 
+    /**
+     * The database refusing part of the purge rolls the whole of it back:
+     * the import row, its file record, the blob and the snapshot all stay,
+     * nothing is journaled as purged, and the refusal reaches the caller.
+     */
+    public function testARefusedPurgeIsRolledBackWhole(): void
+    {
+        [$importId, $fileId, $path] = $this->seedImport($this->yearLabel(-3));
+        $this->pdo->exec(
+            "CREATE TRIGGER refuse_import_delete BEFORE DELETE ON import_journal
+             BEGIN SELECT RAISE(ABORT, 'purge refused'); END"
+        );
+
+        try {
+            $this->service->purge();
+            $this->fail('A refused purge must reach the caller.');
+        } catch (\PDOException $e) {
+            $this->assertStringContainsString('purge refused', $e->getMessage());
+        }
+
+        $this->assertFalse($this->pdo->inTransaction());
+        $this->assertNotNull($this->imports->findById($importId));
+        $this->assertNotNull((new FileRepository($this->pdo))->findById($fileId));
+        $this->assertFileExists($path);
+        $this->assertNotNull($this->snapshots->findByImport($importId));
+        $this->assertSame([], $this->journalEntries());
+    }
+
     public function testEveryImportOfAPurgedSeasonGoes(): void
     {
         $this->seedImport($this->yearLabel(-3));

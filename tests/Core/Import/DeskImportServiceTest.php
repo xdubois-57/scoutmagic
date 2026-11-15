@@ -60,8 +60,10 @@ class DeskImportServiceTest extends TestCase
         $this->service = $this->createService();
     }
 
-    private function createService(?\Core\Import\DeskImportYearPolicy $policy = null): DeskImportService
-    {
+    private function createService(
+        ?\Core\Import\DeskImportYearPolicy $policy = null,
+        ?\Core\Member\Duplicate\DuplicateMemberDetector $duplicateDetector = null
+    ): DeskImportService {
         $functionRepo = new FunctionRepository($this->pdo);
         $ageBranchRepo = new AgeBranchRepository($this->pdo);
         $sectionRepo = new ImportSectionRepository($this->pdo);
@@ -102,7 +104,8 @@ class DeskImportServiceTest extends TestCase
                     new \Core\Config\ScoutYearService($this->pdo),
                     new \Core\Config\SettingService(new \Core\Config\SettingRepository($this->pdo))
                 )
-            )
+            ),
+            duplicateDetector: $duplicateDetector
         );
     }
 
@@ -790,6 +793,66 @@ class DeskImportServiceTest extends TestCase
         // The importer's own account, created by setUp(), and nobody else.
         $this->assertSame(1, $this->countRows('user_accounts'), 'A refused import created a login.');
         $this->assertSame([], $this->filesUnder($this->storagePath), 'A refused import kept a copy of the file.');
+    }
+
+    /**
+     * A failure inside the transaction — here the roster snapshot refused
+     * by the database — rolls the import back and takes the encrypted copy
+     * of the file with it: an import that never happened keeps no copy of
+     * the unit's personal data. The failure reaches the caller.
+     */
+    public function testAnImportFailingInsideItsTransactionKeepsNoCopyOfTheFile(): void
+    {
+        $this->pdo->exec(
+            "CREATE TRIGGER refuse_snapshot BEFORE INSERT ON fees_roster_snapshots
+             BEGIN SELECT RAISE(ABORT, 'snapshot refused'); END"
+        );
+
+        try {
+            $this->importRows([$this->row(['Tiers' => 'T930'])]);
+            self::fail('A refused snapshot must fail the import.');
+        } catch (\PDOException $e) {
+            $this->assertStringContainsString('snapshot refused', $e->getMessage());
+        }
+
+        foreach (['members', 'member_years', 'files', 'import_journal'] as $table) {
+            $this->assertSame(0, $this->countRows($table), "A rolled-back import left a row in {$table}.");
+        }
+        $this->assertSame([], $this->filesUnder($this->storagePath), 'A rolled-back import kept a copy of the file.');
+    }
+
+    /**
+     * The duplicate detection runs after the commit, and its failure — here
+     * the table its candidates go to is gone — never undoes an import that
+     * already succeeded: the member re-created under a new Desk code is
+     * imported, and the import is journaled.
+     */
+    public function testAFailingDuplicateDetectionDoesNotUndoTheImport(): void
+    {
+        $this->pdo->prepare('INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES (?, ?, ?, 0)')
+            ->execute(['2024-2025', '2024-09-01', '2025-08-31']);
+        $earlierYearId = (int) $this->pdo->lastInsertId();
+        $service = $this->createService(
+            null,
+            new \Core\Member\Duplicate\DuplicateMemberDetector(
+                new \Core\Member\Duplicate\DuplicateMemberRepository($this->pdo, $this->encryption)
+            )
+        );
+        $earlier = $this->writeRows([$this->row(['Tiers' => 'T940', 'Date début' => '01/09/2024'])]);
+        $service->import($earlier, $earlierYearId, 1);
+        unlink($earlier);
+        $this->pdo->exec('DROP TABLE member_duplicate_candidates');
+
+        $now = $this->writeRows([$this->row(['Tiers' => 'T941'])]);
+        $result = $service->import($now, $this->scoutYearId, 1);
+        unlink($now);
+
+        $this->assertSame(1, $result->memberCount);
+        $this->assertSame(2, $this->countRows('members'));
+        $this->assertSame(2, $this->countRows('import_journal'));
+        $statement = $this->pdo->prepare('SELECT COUNT(*) FROM members WHERE desk_id = ?');
+        $statement->execute(['T941']);
+        $this->assertSame(1, (int) $statement->fetchColumn());
     }
 
     /**
