@@ -195,17 +195,6 @@ final class StorageProtectionConsumerTest extends TestCase
     }
 
     /**
-     * And it is registered where no module can take it away.
-     *
-     * The registry is filled by each module's own block further down
-     * `public/index.php`; this consumer belongs to none of them, so its
-     * registration has to sit in the unconditional storage wiring above
-     * the first `if ($isEnabled(...))`. Registered inside a module block
-     * instead, it would answer nothing on an installation with that module
-     * disabled — and a destination would delete straight into the foreign
-     * key.
-     */
-    /**
      * The dashboard's list of usages decides nothing, so a consumer that
      * cannot answer — here its table is gone — is left off it, and the
      * consumers that can still answer are listed.
@@ -225,6 +214,17 @@ final class StorageProtectionConsumerTest extends TestCase
         $this->assertSame([['usage' => 'Copies de secours', 'locationIds' => [$destination]]], $registry->all());
     }
 
+    /**
+     * And it is registered where no module can take it away.
+     *
+     * The registry is filled by each module's own block further down
+     * `public/index.php`; this consumer belongs to none of them, so its
+     * registration has to sit in the unconditional storage wiring above
+     * the first `if ($isEnabled(...))`. Registered inside a module block
+     * instead, it would answer nothing on an installation with that module
+     * disabled — and a destination would delete straight into the foreign
+     * key.
+     */
     public function testTheCompositionRootRegistersItOutsideEveryModuleBlock(): void
     {
         $index = (string) file_get_contents(dirname(__DIR__, 5) . '/public/index.php');
