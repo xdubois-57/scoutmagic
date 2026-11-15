@@ -143,10 +143,10 @@ l'ordre des lots (ceux à zéro, 11 domaines, ne figurent pas) :
 | `core/Storage` | ~~31~~ **0** (lot 5) | ~~9~~ 0 | 1 | 67 |
 | `modules/finance` | ~~23~~ **0** (lot 6) | 0 | 3 | 54 |
 | `core/Maintenance` | ~~21~~ **0** (lot 7) | ~~3~~ 0 | 1 | 55 |
-| `modules/inbound_mail` | 21 | 4 | 0 | 40 |
+| `modules/inbound_mail` | ~~21~~ **0** (lot 8) | ~~4~~ 0 | 1 | 42 |
 | `core/Support` | ~~20~~ **0** (lot 9) | ~~4~~ 0 | 1 | 29 |
 | `modules/registration` | ~~17~~ **0** (lot 10) | ~~4~~ 0 | 1 | 47 |
-| `modules/camps` | 15 | 1 | 0 | 34 |
+| `modules/camps` | ~~15~~ **0** (lot 11) | ~~1~~ 0 | 1 | 34 |
 | `core/Member` | 11 | 2 | 0 | 19 |
 | `modules/attestations` | 11 | 1 | 0 | 20 |
 | `modules/data_migration` | 11 | 0 | 0 | 28 |
@@ -457,3 +457,66 @@ lever.
 
 `MigrationServiceTest::testFailedMigrationDoesNotPartiallyApply` échouait avant
 d'ouvrir la transaction qu'il disait tester ; il la traverse désormais.
+
+### Lot 8 — `modules/inbound_mail` — 2026-11-15
+
+**21 → 0** jamais exécutés ; un marqueur. Remesuré sur
+`tests/Modules/InboundMail` (PCOV, MariaDB), après fusion de `main` : #1249 y
+a ajouté deux `catch` (42 blocs au lieu de 40), tous deux atteints par ses
+propres tests.
+
+**20 branches atteintes** par un état réel :
+- consommateur qui échoue ;
+- trigger qui refuse une purge, sur SQLite et sur MariaDB ;
+- quota disque déclaré dépassé ;
+- contenu chiffré illisible ;
+- course réelle à deux sessions sur MariaDB ;
+- refus d'un serveur IMAP scripté que la vraie bibliothèque webklex lit (seul
+  le socket est remplacé).
+
+Chaque test vérifie l'effet et échoue quand le `catch` relance ou change ce
+qu'il fait.
+
+**Le marqueur** : le garde de conversion de `ImapMailboxClient::fetchSince()`,
+autour de `toFetchedMessage()`. Avant #1249, un dossier factice faisait arriver
+un message illisible jusqu'à lui. Depuis, le client construit lui-même
+`TolerantMessageQuery`, qui ne consulte plus ce dossier. Aucune entrée réelle
+n'y mène :
+- la bibliothèque analyse chaque message dans `make()`, où l'échec est déjà
+  rattrapé ;
+- `toFetchedMessage()` ne lit que ce qui est déjà analysé ;
+- essayés sur le serveur scripté, un Message-ID, un In-Reply-To ou un
+  References malformé, des en-têtes doublés, un jeu de caractères inconnu et
+  un base64 cassé reviennent tous comme des messages.
+
+Le garde reste, pour une version de la bibliothèque qui lirait paresseusement.
+Le test et ses doublures sont retirés.
+
+### Lot 11 — `modules/camps` — 2026-11-15
+
+**15 → 0** jamais exécutés ; un marqueur. Remesuré sur `tests/Modules/Camps`
+(PCOV), après fusion de `main`.
+
+**14 branches atteintes** par un état réel :
+- adresse ou lien mal formé ;
+- fichier d'un type refusé ;
+- avis demandé avant le retour du camp ;
+- photo que la vraie galerie refuse ;
+- fusion ou archivage refusés ;
+- modèle de langue qui échoue ;
+- aperçu d'image qui n'est pas une image ;
+- trigger qui refuse une écriture.
+
+Chaque test vérifie l'effet et échoue quand le `catch` relance ou change ce
+qu'il fait.
+
+**Le marqueur** : la création d'un séjour depuis un e-mail
+(`StayFromMailService`). Toutes les valeurs passées à `create()` et au service
+des lieux sont des valeurs qu'ils acceptent :
+- des dates déjà vérifiées par `range()` ;
+- un prix et un nombre de participants que le lecteur met en forme selon les
+  règles de `CampService` — depuis #1246, un montant au-delà de
+  `MAX_PRICE_CENTS`, égal à la limite de la colonne, n'est pas lu du tout ;
+- un type de séjour choisi parmi les types connus ;
+- un statut fixe et aucune section ;
+- un lieu nommé seulement depuis une réponse non vide du modèle.

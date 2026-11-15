@@ -228,6 +228,37 @@ class GeneralMailboxTest extends TestCase
         $this->assertSame(7, $link->createdByUserAccountId);
     }
 
+    /**
+     * The module the message was filed under fails while being told. The
+     * association is already written: the person who clicked « oui » is
+     * answered yes, the link is there, and the proposition they answered
+     * is no longer asked — a module's bookkeeping does not undo, or hide,
+     * a decision that was made.
+     */
+    public function testAModuleThatFailsWhileBeingToldDoesNotUndoTheConfirmation(): void
+    {
+        $registry = new MessageConsumerRegistry();
+        $failing = new FakeMessageConsumer('rental', throwsOnLinked: true);
+        $registry->register($failing);
+        $mailbox = new GeneralMailboxService(
+            $this->messages,
+            new InboundMailboxRepository($this->pdo, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))),
+            $registry
+        );
+        $id = $this->store('m@x');
+        $this->addCandidate($id);
+        $candidate = $mailbox->candidatesFor($id)[0];
+
+        $this->assertTrue($mailbox->confirmCandidate($id, $candidate->id, 7));
+
+        $this->assertCount(1, $failing->linked, 'the module was told, and failed while listening');
+        $links = $this->messages->findLinksForMessage($id);
+        $this->assertCount(1, $links);
+        $this->assertSame(LinkOrigin::MANUAL, $links[0]->origin);
+        $this->assertSame(7, $links[0]->createdByUserAccountId);
+        $this->assertSame([], $mailbox->candidatesFor($id));
+    }
+
     public function testAConfirmedPropositionStopsBeingAsked(): void
     {
         $id = $this->store('m@x');

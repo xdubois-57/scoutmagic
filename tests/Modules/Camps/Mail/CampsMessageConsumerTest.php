@@ -1200,6 +1200,38 @@ class CampsMessageConsumerTest extends TestCase
         $this->assertSame(0, $llm->calls);
     }
 
+    public function testAModelThatFailsLeavesThePropositionsTheRulesMade(): void
+    {
+        $second = $this->camps->create(
+            1, Camp::STAY_GRAND_CAMP, '2026-07-20', '2026-07-27', null,
+            Camp::STATUS_CONFIRMED, null, null, null, null, []
+        );
+        $this->contacts->create($this->campId, null, null, 'lambert@example.org', null, null);
+        $this->contacts->create($second, null, null, 'lambert@example.org', null, null);
+        $llm = new \Tests\Modules\InboundMail\ScriptedLlm(
+            'camp-' . $second,
+            true,
+            new \Modules\LlmConnector\Api\LlmException('Le fournisseur ne répond pas.')
+        );
+
+        $result = $this->consumerWithMatcher(new \Modules\Camps\Mail\StayChoiceByModel($llm))->analyze(
+            $this->message('lambert@example.org', 'Le pré pour la fin juillet')
+        );
+
+        // Asked, failed, and nothing of its scripted pick shows: the two
+        // stays come back in the rules' own order, neither one the model's.
+        $this->assertSame(1, $llm->calls);
+        $this->assertSame([], $result->links);
+        $this->assertSame(
+            ['camp-' . $this->campId, 'camp-' . $second],
+            array_map(static fn($c) => $c->businessReference, $result->candidates)
+        );
+        $this->assertSame(
+            ['sender_window', 'sender_window'],
+            array_map(static fn($c) => $c->evidenceType, $result->candidates)
+        );
+    }
+
     // ── onLinked(): a person's decision teaches the stay ─────────────────
 
     public function testAManualAssociationMakesTheSenderAContactOfTheStay(): void
@@ -1253,6 +1285,34 @@ class CampsMessageConsumerTest extends TestCase
             [[CampsMessageConsumer::CONSUMER_ID, CampsMessageConsumer::REANALYSIS_AFTER_DECISION, false]],
             $inbound->reanalyses
         );
+    }
+
+    /**
+     * The re-run that follows a chief's decision is the real inbound mail
+     * service, on a site whose inbound mail tables cannot be read. The
+     * association is the chief's click: it must stand, and so must what it
+     * taught, whatever happens to the re-run behind it.
+     */
+    public function testAReanalysisThatFailsDoesNotUndoTheChiefsDecision(): void
+    {
+        $registry = new \Modules\InboundMail\Service\MessageConsumerRegistry();
+        $inbound = new \Modules\InboundMail\Service\InboundMailService(
+            new \Modules\InboundMail\Repository\InboundMessageRepository($this->pdo, $this->encryption),
+            new \Modules\InboundMail\Repository\InboundMailboxRepository($this->pdo, $this->encryption),
+            null,
+            $registry
+        );
+        $consumer = $this->consumer($inbound);
+        $registry->registerFactory(CampsMessageConsumer::CONSUMER_ID, static fn () => $consumer);
+
+        $consumer->onLinked(
+            $this->messageFrom('epouse@example.org', 'Marie Lambert', LinkOrigin::MANUAL),
+            new MessageLink(CampsMessageConsumer::CONSUMER_ID, 'camp-' . $this->campId, LinkOrigin::MANUAL)
+        );
+
+        $contacts = $this->contacts->findByCamp($this->campId);
+        $this->assertCount(1, $contacts, 'the sender is taught to the stay before the re-run fails');
+        $this->assertSame('epouse@example.org', $contacts[0]->email);
     }
 
     public function testAKnownAddressIsNotAddedTwice(): void
