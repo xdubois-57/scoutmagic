@@ -231,4 +231,48 @@ class ConfigCategoryControllerTest extends TestCase
             $body
         );
     }
+
+    public function testDeletingACategoryAMovementStillUsesAnswersTheRefusalAndKeepsTheCategory(): void
+    {
+        $controller = $this->buildController(false);
+        $category = $this->financeService->createCategory('Alimentation', 'Description de test');
+        $accountId = $this->accountRepository->create('Compte', 'bank', null, null, null, 'intendant');
+        $fiscalYearId = FinanceTestHelper::createScoutYear($this->pdo, '2026-2027', '2026-09-01', '2027-08-31');
+        $this->transactionRepository->create(
+            $accountId, $fiscalYearId, 'r1', '2026-10-01', 'Achat', -20.0, $category->id, null, 'manual', null
+        );
+
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+        $token = bin2hex(random_bytes(32));
+        $_SESSION['_csrf_token'] = $token;
+        $request = new RequestWithInput(
+            'POST',
+            '/config/finance/categories',
+            [],
+            [],
+            [],
+            [],
+            json_encode(['action' => 'delete', 'id' => $category->id, '_csrf_token' => $token]),
+        );
+
+        $response = $controller->save($request, []);
+
+        $this->assertSame(400, $response->getStatusCode());
+        $this->assertSame(
+            [
+                'success' => false,
+                'error' => 'Cette catégorie est utilisée par des mouvements et ne peut pas être supprimée. '
+                    . 'Désactivez-la plutôt.',
+            ],
+            json_decode($response->getBody(), true)
+        );
+        $this->assertNotNull($this->categoryRepository->findById($category->id));
+        $this->assertSame(
+            0,
+            (int) $this->pdo->query("SELECT COUNT(*) FROM event_log WHERE event_type = 'category_deleted'")
+                ->fetchColumn()
+        );
+    }
 }
