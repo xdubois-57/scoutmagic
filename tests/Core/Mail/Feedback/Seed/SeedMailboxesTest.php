@@ -174,6 +174,64 @@ class SeedMailboxesTest extends TestCase
         $this->assertFalse($this->seedMailboxes(null)->measuresSpamReliably());
     }
 
+    // ── a module that fails costs the measurement, never the mailing ──
+
+    /**
+     * **A module that cannot name its boxes is « no boxes » for the
+     * mailing that asks**: nothing claimed, nothing written, and no
+     * exception into the send loop that called — the measurement is worth
+     * less than the message it measures.
+     */
+    public function testAModuleThatCannotNameItsBoxesClaimsNothingAndLetsTheMailingGoOn(): void
+    {
+        $stub = $this->createStub(InboundMailInterface::class);
+        $stub->method('probeAddressesFor')->willThrowException(new \RuntimeException('imap down'));
+        $seeds = $this->enabledSeedMailboxes($stub);
+
+        $this->assertSame([], $seeds->addresses());
+        $this->assertSame([], $seeds->claimFor('mass_mail:12', new \DateTimeImmutable()));
+        $this->assertSame(
+            0,
+            (int) $this->pdo->query('SELECT COUNT(*) FROM mail_seed_copies')->fetchColumn(),
+            'No copy is owed to a box nobody could name.'
+        );
+    }
+
+    /**
+     * **A resolver that throws is « no module », and is asked once.**
+     * `cron.php` resolves the module lazily; a registry that cannot build
+     * it must not be asked again by each of the four hundred messages of
+     * the mailing that follows.
+     */
+    public function testAResolverThatThrowsIsNoModuleAndIsAskedOnlyOnce(): void
+    {
+        $asked = 0;
+        $seeds = $this->enabledSeedMailboxes(null);
+        $seeds->resolveInboundMailWith(static function () use (&$asked): ?InboundMailInterface {
+            $asked++;
+
+            throw new \RuntimeException('registre indisponible');
+        });
+
+        $this->assertSame([], $seeds->claimFor('mass_mail:12', new \DateTimeImmutable()));
+        $this->assertSame([], $seeds->claimFor('mass_mail:12', new \DateTimeImmutable()));
+        $this->assertFalse($seeds->measuresSpamReliably());
+        $this->assertSame(1, $asked, 'One failed resolution, remembered for the rest of the run.');
+    }
+
+    private function enabledSeedMailboxes(?InboundMailInterface $module): SeedMailboxes
+    {
+        $settings = new SettingService(new SettingRepository($this->pdo));
+        $settings->register(SeedMailboxes::SETTING_ENABLED, '0', 'boolean', 'Boîtes témoins', '');
+        $settings->setInternal(SeedMailboxes::SETTING_ENABLED, '1');
+
+        return new SeedMailboxes(
+            new SeedCopyRepository($this->pdo, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))),
+            $settings,
+            $module
+        );
+    }
+
     /**
      * A module answering the addresses but not the folders: the halves
      * disagree, so the gate refuses rather than trusting the half that

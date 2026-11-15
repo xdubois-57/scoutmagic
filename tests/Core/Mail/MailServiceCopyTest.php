@@ -241,6 +241,26 @@ class MailServiceCopyTest extends TestCase
     }
 
     /**
+     * The same refused copy with a journal that cannot be written: the
+     * message still left, so the send still returns. A `PDOException` from
+     * the note about the copy would have the caller — and the provider
+     * chain behind it — treat a delivered message as a failed one, which
+     * is the double delivery the test above exists to prevent.
+     */
+    public function testACopyRefusalWhoseJournalEntryFailsStillReturns(): void
+    {
+        $pdo = DatabaseTestHelper::createTestDatabase();
+        $pdo->exec('DROP TABLE event_log');
+        $relay = $this->fakeRelay(['unite@exemple.test']);
+
+        $this->service($this->overRelay($relay), new JournalService(new JournalRepository($pdo)), null, 'smtp')
+            ->send('parent@exemple.test', 'Sujet', '<p>x</p>', 'x', cc: 'unite@exemple.test');
+
+        $this->assertSame(1, $relay->dataSent, 'the message left once, and send() returned.');
+        $this->assertSame(['unite@exemple.test'], array_slice($relay->asked, -1), 'the copy was asked for.');
+    }
+
+    /**
      * **The other way round, the copy is not even asked for.** A refused
      * recipient with an accepted copy would have had the DATA sent to the
      * copy alone — the unit told of a message the family never got, again

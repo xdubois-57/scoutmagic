@@ -904,14 +904,6 @@ class MailService
     }
 
     /**
-     * A message kept rather than lost, written down at `info`.
-     *
-     * Not an error: nothing has gone wrong for the recipient yet, and
-     * marking it `error` would put a line the colour of a real failure
-     * next to the ones that are. What makes it worth recording at all is
-     * that a deferral is invisible to whoever triggered it.
-     */
-    /**
      * A message the site chose not to send, written down at `info`.
      *
      * Not an error — nothing went wrong, the address is suspended and
@@ -980,6 +972,14 @@ class MailService
         }
     }
 
+    /**
+     * A message kept rather than lost, written down at `info`.
+     *
+     * Not an error: nothing has gone wrong for the recipient yet, and
+     * marking it `error` would put a line the colour of a real failure
+     * next to the ones that are. What makes it worth recording at all is
+     * that a deferral is invisible to whoever triggered it.
+     */
     private function journalDeferral(Transport\MailLane $lane, string $reason): void
     {
         try {

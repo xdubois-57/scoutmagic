@@ -1113,6 +1113,174 @@ class MailTransportChainTest extends TestCase
         );
     }
 
+    // ── a journal that cannot be written (#449) ───────────────────────
+
+    /**
+     * **The journal is the note about the message, never a condition of
+     * it**, and every journal call on the send path says so in its own
+     * `catch`. None of the four had ever run: every test of this class
+     * builds the chain over a writable `event_log`.
+     *
+     * The table is dropped rather than doubled — `JournalService` then
+     * throws the `PDOException` it would throw on a real database that
+     * refused the insert, and nothing else this class reads lives there.
+     */
+    private function dropTheJournal(): void
+    {
+        $this->pdo->prepare('DROP TABLE event_log')->execute();
+    }
+
+    /**
+     * One relay refusing is an ordinary event, and its journal line
+     * failing must not turn the fallback into a failure.
+     *
+     * What tells « the catch returned from `journalAttemptFailure()` »
+     * from « it returned from `deliver()` » is what runs AFTER it: the
+     * breaker counts the failure, the next relay carries the message and
+     * its counter moves. And the third refusal opens the circuit —
+     * `journalCircuit()` is then the call whose insert fails, after the
+     * opening was written, so the fourth message steps over the relay
+     * exactly as it would with a journal that worked.
+     */
+    public function testAJournalThatCannotBeWrittenNeverStopsTheFallback(): void
+    {
+        $first = $this->addRelay('Premier', 'smtp.premier.test');
+        $second = $this->addRelay('Second', 'smtp.second.test');
+        $this->enable(MailLane::Authentication, [$first, $second]);
+        $health = new ProviderHealthRepository($this->pdo);
+        $this->dropTheJournal();
+
+        $delivery = $this->recordingTransport(refuseHosts: ['smtp.premier.test']);
+        for ($i = 0; $i < ProviderHealth::FAILURES_BEFORE_OPEN; $i++) {
+            $this->chain($delivery, $health)->deliver($this->message(), MailPurpose::MagicLink);
+        }
+
+        $this->assertSame(
+            [
+                'smtp.premier.test', 'smtp.second.test',
+                'smtp.premier.test', 'smtp.second.test',
+                'smtp.premier.test', 'smtp.second.test',
+            ],
+            $delivery->attemptedHosts,
+            'Every refusal fell through to the next relay, which carried the message.'
+        );
+        $this->assertSame(
+            [$second => ProviderHealth::FAILURES_BEFORE_OPEN],
+            $this->counters->totalsForDay(),
+            'Each message was counted where it left: the statements after the failed journal line ran.'
+        );
+        $this->assertTrue(
+            $health->forProvider($first)->isOpen(),
+            'The breaker opened: only its announcement was lost, not the decision.'
+        );
+
+        $delivery->attemptedHosts = [];
+        $this->chain($delivery, $health)->deliver($this->message(), MailPurpose::MagicLink);
+
+        $this->assertSame(
+            ['smtp.second.test'],
+            $delivery->attemptedHosts,
+            'And the circuit it opened is applied to the next message.'
+        );
+    }
+
+    /**
+     * A circuit closing is news worth a line, and the line failing must
+     * not report the successful send that closed it as a failure — the
+     * duplicate-copy consequence `recordSuccess()`'s own test spells out.
+     *
+     * The journal is dropped only once the circuit is open, so the
+     * refusals before it are journalled normally and the only insert that
+     * fails is the `mail_provider_circuit_closed` one.
+     */
+    public function testACircuitThatClosesWithoutItsJournalLineStillClosesAndStillCounts(): void
+    {
+        $relay = $this->addRelay('Unique', 'smtp.unique.test');
+        $this->enable(MailLane::Authentication, [$relay]);
+        $health = new ProviderHealthRepository($this->pdo);
+
+        $refusing = $this->recordingTransport(refuseHosts: ['smtp.unique.test']);
+        for ($i = 0; $i < ProviderHealth::FAILURES_BEFORE_OPEN; $i++) {
+            try {
+                $this->chain($refusing, $health)->deliver($this->message(), MailPurpose::MagicLink);
+            } catch (LaneExhaustedException) {
+                // Expected: the only relay was refusing.
+            }
+        }
+        $this->assertTrue($health->forProvider($relay)->isOpen(), 'The circuit is open before the success.');
+
+        $this->dropTheJournal();
+        $delivery = $this->recordingTransport();
+        $this->chain($delivery, $health)->deliver($this->message(), MailPurpose::MagicLink);
+
+        $this->assertSame(['smtp.unique.test'], $delivery->attemptedHosts, 'The relay took the message.');
+        $this->assertFalse($health->forProvider($relay)->isOpen(), 'The success closed the circuit.');
+        $this->assertSame(
+            [$relay => 1],
+            $this->counters->totalsForDay(),
+            'The statement after recordSuccess() ran: the catch returned from journalCircuit(), not deliver().'
+        );
+    }
+
+    /**
+     * A lane that ran out is reported as a lane that ran out.
+     *
+     * `MailService` reads `LaneExhaustedException` to decide whether the
+     * message waits in the deferral queue (D9); a `PDOException` from the
+     * journal line in its place would fail a message that should have
+     * been queued, and carry a SQL statement where the relay's reason
+     * belongs.
+     */
+    public function testAnExhaustedLaneIsStillReportedAsSuchWhenItsJournalLineFails(): void
+    {
+        $relay = $this->addRelay('Relais', 'smtp.relais.test');
+        $this->enable(MailLane::Bulk, [$relay]);
+        $this->dropTheJournal();
+
+        try {
+            $this->chain($this->recordingTransport(refuseHosts: ['smtp.relais.test']))
+                ->deliver($this->message(), MailPurpose::Bulk);
+            $this->fail('The lane had nothing left to try.');
+        } catch (LaneExhaustedException $e) {
+            $this->assertSame(MailLane::Bulk, $e->lane, 'The lane that ran out is the one named.');
+            $this->assertSame(
+                'SMTP connect() failed.',
+                $e->reason,
+                'The relay\'s own reason reaches the caller, not the journal\'s failure.'
+            );
+        }
+    }
+
+    /**
+     * The counter AND the journal line about the counter both refused,
+     * on a message that left: still a success.
+     *
+     * The second half of the posture `journalCounterFailure()` states —
+     * « the message left, and nothing that happens here may change
+     * that » — and the half the counter's own test above cannot reach,
+     * since there the journal is writable.
+     */
+    public function testACounterFailureWhoseJournalLineAlsoFailsIsStillADeliveredMessage(): void
+    {
+        $relay = $this->addRelay('Unique', 'smtp.unique.test');
+        $this->enable(MailLane::Authentication, [$relay]);
+        $this->pdo->prepare(
+            'CREATE TRIGGER refuse_counter_writes BEFORE INSERT ON mail_send_counters
+             BEGIN SELECT RAISE(FAIL, \'compteur indisponible\'); END'
+        )->execute();
+        $this->dropTheJournal();
+
+        $delivery = $this->recordingTransport();
+        $this->chain($delivery)->deliver($this->message(), MailPurpose::MagicLink);
+
+        $this->assertSame(
+            ['smtp.unique.test'],
+            $delivery->attemptedHosts,
+            'The message was handed to the relay, so the send must be reported as the success it was.'
+        );
+        $this->assertSame([], $this->counters->totalsForDay(), 'And the counter really was refused.');
+    }
+
     private function chain(
         MailTransportInterface $delivery,
         ?ProviderHealthRepository $health = null,

@@ -139,7 +139,7 @@ l'ordre des lots (ceux à zéro, 11 domaines, ne figurent pas) :
 |---|---|---|---|---|
 | `modules/rental` | 42 | 6 | 0 | 102 |
 | `core/Http` | 36 | 4 | 0 | 134 |
-| `core/Mail` | 35 | 16 | 0 | 77 |
+| `core/Mail` | ~~35~~ **0** (lots 1-2) | ~~16~~ 0 | 2 | 77 |
 | `core/Storage` | 31 | 9 | 0 | 67 |
 | `modules/finance` | 23 | 0 | 0 | 54 |
 | `core/Maintenance` | 21 | 3 | 0 | 55 |
@@ -209,3 +209,51 @@ requête — elle porte le marqueur. Celle de `resend()` ne l'était pas :
 `resendDelivery()` lève aussi « Ce message ne peut pas être renvoyé. », et la
 mesure la trouve désormais exécutée. C'est la raison de la règle « lire toutes
 les raisons de l'appel entouré » (§ 2).
+
+### Lots 1 et 2 — `core/Mail` — 2026-11-14
+
+**35 → 0** jamais exécutés, dont les 16 vides ; deux marqueurs. Remesuré sur
+`tests/Core/Mail` avant et après (PCOV, MariaDB).
+
+**Lot 1, les seize `catch` vides** — ceux qui avalent une erreur exprès :
+quinze sont atteints par un état réel (journal indisponible : `DROP TABLE
+event_log` ; écriture refusée : trigger SQLite `RAISE(FAIL)` ; table absente),
+et chaque test asserte ce que l'avalement préserve — l'envoi part, le blocage
+tient, le message va en file, le compteur ne bouge pas. Remplacer le `catch`
+par un rethrow fait échouer chacun.
+
+**Lot 2, les dix-neuf autres** : réglage tronqué, archive DMARC forgée (un
+membre qui déclare 100 octets et en déploie 4 Mo), **course réelle** à deux
+connexions sur MariaDB (index unique, instantané REPEATABLE READ), trigger
+`SIGNAL 45000` sur MariaDB là où SQLite rend un refus de trigger sous le même
+code 23000 qu'une collision de clé — et que le code lirait donc comme « déjà
+là ». Un module doublé seulement quand sa panne est le sujet (le courrier
+entrant qui ne répond pas).
+
+**Les deux marqueurs.**
+- `MailTransportChain::hasSpentItsQuota()`, la réserve : elle ne relit que les
+  deux tables que `candidates()` vient de lire dans le même envoi, sans E/S
+  entre les deux. Seule une connexion perdue dans cet intervalle y mène.
+- `DrainDeferredMailHandler`, l'écriture des pièces jointes dans le répertoire
+  temporaire : seul un disque plein ou qui refuse l'atteint. **C'est un
+  compromis, pas une impossibilité** : la branche est réelle en production,
+  mais la classe ne prend aucun répertoire qu'un test pourrait rediriger, et
+  une suite qui tourne en root ne peut pas faire refuser `/tmp`. La couvrir
+  demanderait d'injecter le répertoire temporaire dans le gestionnaire — un
+  changement d'API hors du périmètre d'un lot de tests, suivi par #1217.
+
+**Trouvé en chemin.**
+- Un test de `PinnedProviderTransport` croyait la table des compteurs absente
+  du jeu de test (elle y est depuis longtemps) : il ne traversait jamais la
+  branche qu'il disait couvrir. Il force désormais l'échec par un trigger.
+- Un docblock de `MailService`, orphelin au-dessus de la méthode voisine, a
+  retrouvé `journalDeferral()`.
+- `SeedMailboxes` : un `catch` est une couverture redondante (chaque appelant
+  attrape déjà) — son mutant rethrow survit, celui qui change ce qu'il fait
+  échoue. Gardé.
+- Ouverts à part : #1209 (un échec en base est imputé au fichier des secrets),
+  #1210 (une panne du courrier entrant présentée comme une boîte à ouvrir),
+  #1211 (la page des boîtes témoins tombe si les réglages sont illisibles et
+  qu'un fournisseur a été mesuré ; un cache de réglages vide mémorisé après un
+  échec).
+

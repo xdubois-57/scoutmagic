@@ -442,4 +442,47 @@ class PurgeSeedCopiesHandlerTest extends TestCase
 
         $this->assertSame([], (new DomainPreferences($this->settings))->all());
     }
+
+    /**
+     * **A routing that fails costs the routing, never the purge.** The
+     * decision cannot be written — the settings row refuses the update —
+     * and the sweep has still given up on its old copy, journalled the
+     * failure by its class alone, and re-armed itself for tomorrow. An
+     * exception escaping here would end the daily chain, and with it the
+     * retention the privacy notice promises.
+     */
+    public function testARoutingThatCannotBeWrittenIsJournalledAndTheSweepCarriesOn(): void
+    {
+        $this->twoRelays();
+        $this->troubledProvider();
+        $this->copies->claim('vieux', 'temoin@outlook.com', new \DateTimeImmutable('-5 days'));
+        $this->settings->setInternal(DomainRouting::SETTING_AUTOMATIC, '1');
+        $this->pdo->exec(
+            "CREATE TRIGGER refuse_routing BEFORE UPDATE ON settings
+             WHEN NEW.setting_key = '" . DomainPreferences::SETTING_KEY . "'
+             BEGIN SELECT RAISE(FAIL, 'réglages indisponibles'); END"
+        );
+
+        (new PurgeSeedCopiesHandler())->handle([], $this->context);
+
+        $this->assertSame(SeedVerdict::Missing, $this->copies->forRun('vieux')[0]->verdict, 'The sweep did its work.');
+        $statement = $this->pdo->prepare(
+            "SELECT level, context FROM event_log WHERE event_type = 'mail_seed_routing_failed'"
+        );
+        $statement->execute();
+        $row = $statement->fetch(\PDO::FETCH_ASSOC);
+        $this->assertNotFalse($row, 'The failure is journalled.');
+        $this->assertSame('error', $row['level']);
+        $this->assertSame(['error' => \PDOException::class], json_decode((string) $row['context'], true));
+        $this->assertSame(
+            0,
+            $this->scalar("SELECT COUNT(*) FROM event_log WHERE event_type = 'mail_seed_routing_applied'"),
+            'Nothing was routed.'
+        );
+        $this->assertSame(
+            1,
+            $this->scalar("SELECT COUNT(*) FROM scheduled_actions WHERE task_key = 'purge_mail_seed_copies'"),
+            'And it re-armed itself for tomorrow.'
+        );
+    }
 }

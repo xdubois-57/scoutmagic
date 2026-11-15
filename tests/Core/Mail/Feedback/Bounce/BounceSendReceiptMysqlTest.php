@@ -125,4 +125,47 @@ class BounceSendReceiptMysqlTest extends TestCase
             $this->states->lastSendAt('parent@exemple.be')?->format('Y-m-d H:i:s')
         );
     }
+
+    /**
+     * **Another process inserting the receipt between the SELECT and the
+     * INSERT still leaves one receipt, dated by the later send** — two
+     * scheduler passes, or a page view alongside one. The unique index
+     * refuses the second INSERT; that refusal must bring the date forward,
+     * not escape into the send loop.
+     *
+     * The race without threads: a second connection is the other process,
+     * and an open transaction holds this one's reads on a snapshot taken
+     * before the other commits — the position a SELECT is in when the
+     * other process commits right after it. The INSERT checks the index
+     * against what is committed now, which is the collision.
+     */
+    public function testAReceiptAnotherProcessInsertsMeanwhileIsBroughtForward(): void
+    {
+        $other = new BounceStateRepository(
+            self::productionEngineConnection(self::$productionEngineDatabase)->getPdo(),
+            new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))
+        );
+
+        $this->pdo->beginTransaction();
+        $this->pdo->query('SELECT COUNT(*) FROM mail_send_receipts')->fetchColumn();
+        $other->recordSend('parent@exemple.be', new \DateTimeImmutable('2026-09-19 10:00:00'), true);
+        $this->assertNull(
+            $this->states->lastSendAt('parent@exemple.be'),
+            'The premise: this connection cannot see the receipt the other one just wrote.'
+        );
+
+        $this->states->recordSend('parent@exemple.be', new \DateTimeImmutable('2026-09-19 10:05:00'), true);
+        $this->pdo->commit();
+
+        $this->assertSame(
+            '2026-09-19 10:05:00',
+            $this->states->lastSendAt('parent@exemple.be')?->format('Y-m-d H:i:s'),
+            'The losing INSERT falls back on the UPDATE, so the later send dates the receipt.'
+        );
+        $this->assertSame(
+            1,
+            (int) $this->pdo->query('SELECT COUNT(*) FROM mail_send_receipts')->fetchColumn(),
+            'one address is one receipt, whoever wrote it first.'
+        );
+    }
 }
