@@ -121,6 +121,53 @@ class LinkServiceTest extends TestCase
         $this->assertSame('example.org', $link->heading());
     }
 
+    /**
+     * A page whose preview « image » is not an image at all — an HTML
+     * error page served where the picture should be. The real upload
+     * handler refuses it, and the link is kept with its title and no
+     * picture.
+     */
+    public function testAPreviewImageThatIsNotAnImageCostsThePictureAndNotTheLink(): void
+    {
+        $storage = sys_get_temp_dir() . '/camps-link-previews-' . bin2hex(random_bytes(6));
+        mkdir($storage, 0777, true);
+        $fetcher = new \Tests\Modules\DataMigration\Support\FakeLinkPreviewFetcher([
+            'https://domainedemozet.be' => new LinkPreview(
+                'Domaine de Mozet',
+                null,
+                "<!DOCTYPE html><html><body>404 Not Found</body></html>\n"
+            ),
+        ]);
+        $service = new LinkService(
+            $this->links,
+            $this->audit,
+            $fetcher,
+            new \Core\File\UploadHandler(new \Core\File\FileRepository($this->pdo), $storage)
+        );
+
+        try {
+            $id = $service->attach(1, 'https://domainedemozet.be', 42);
+            $leftOnDisk = iterator_to_array(new \RecursiveIteratorIterator(
+                new \RecursiveDirectoryIterator($storage, \FilesystemIterator::SKIP_DOTS)
+            ));
+        } finally {
+            $items = new \RecursiveIteratorIterator(
+                new \RecursiveDirectoryIterator($storage, \FilesystemIterator::SKIP_DOTS),
+                \RecursiveIteratorIterator::CHILD_FIRST
+            );
+            foreach ($items as $item) {
+                $item->isDir() ? rmdir((string) $item) : unlink((string) $item);
+            }
+            rmdir($storage);
+        }
+
+        $link = $this->links->findById($id);
+        $this->assertSame('Domaine de Mozet', $link?->title);
+        $this->assertNull($link->imageFileId);
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM files')->fetchColumn());
+        $this->assertSame([], $leftOnDisk);
+    }
+
     public function testTheHeadingFallsBackFromTitleToSiteToUrl(): void
     {
         $withTitle = $this->links->findById($this->links->create(1, 'https://a.be', 'Titre', null, null, 'a.be', null));

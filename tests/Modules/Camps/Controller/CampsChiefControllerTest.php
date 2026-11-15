@@ -660,6 +660,41 @@ class CampsChiefControllerTest extends TestCase
         $this->assertTrue($this->places->findById($placeId)?->aiSummaryIsStale);
     }
 
+    public function testARefusedStayEditSaysWhyAndChangesNothing(): void
+    {
+        $campId = $this->aStay();
+
+        $response = $this->controller->updateCamp(
+            new Request('POST', '/chefs/camps/sejours/' . $campId, [], [
+                '_csrf_token' => CsrfGuard::generateToken(),
+                'stay_type' => 'grand_camp',
+                'status' => 'confirmed',
+                'start_date' => '2019-07-19',
+                'end_date' => '2019-07-12',
+                'participant_count' => '48',
+                'note' => '<p>Une note qui ne doit pas être enregistrée.</p>',
+            ], [], []),
+            ['id' => (string) $campId]
+        );
+
+        // The form again, with the reason and with what was typed.
+        $this->assertSame(200, $response->getStatusCode());
+        $html = html_entity_decode($response->getBody(), ENT_QUOTES);
+        $this->assertStringContainsString('Le séjour ne peut pas se terminer avant d\'avoir commencé.', $html);
+        $this->assertStringContainsString('value="48"', $html);
+        $this->assertNull(FlashMessage::get(), 'a refusal is not announced as a success');
+
+        $stored = $this->camps->findById($campId);
+        $this->assertSame('2019-07-12', $stored?->startDate);
+        $this->assertSame('2019-07-19', $stored->endDate);
+        $this->assertNull($stored->participantCount);
+        $this->assertSame(
+            '',
+            (new EditableContentService(new EditableContentRepository($this->pdo)))
+                ->get(CampService::noteKey($campId), '') ?? ''
+        );
+    }
+
     public function testAReviewCanBeTakenBackOff(): void
     {
         $campId = $this->aStay();
