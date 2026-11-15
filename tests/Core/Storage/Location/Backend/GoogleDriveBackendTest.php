@@ -910,9 +910,20 @@ final class GoogleDriveBackendTest extends TestCase
     {
         $this->backend()->put('rapport.txt', 'bonjour', 'text/plain');
         $reader = $this->backend();
-        $this->drive->failNextWith = 503;
+        // The outage is Drive's own lookup, not the token refresh a fresh
+        // backend sends first: only the first request to the Drive API fails.
+        $failed = [];
+        $this->drive->intercept = static function (string $method, string $url) use (&$failed): ?int {
+            if ($failed !== [] || !str_contains($url, '/drive/v3/files')) {
+                return null;
+            }
+            $failed[] = $method . ' ' . $url;
+
+            return 503;
+        };
 
         $this->assertNull($reader->size('rapport.txt'));
+        $this->assertCount(1, $failed, 'the outage never reached the lookup');
         $this->assertSame(7, $reader->size('rapport.txt'), 'the null was not the failure\'s, or it was kept');
     }
 
