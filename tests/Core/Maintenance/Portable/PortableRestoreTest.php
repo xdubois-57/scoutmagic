@@ -127,6 +127,39 @@ final class PortableRestoreTest extends TestCase
     }
 
     /**
+     * An origin whose own `secrets.enc` no longer matches its key still
+     * writes an archive — creating one only carries the bytes — and that
+     * archive's two halves cannot read each other. The restore says so in
+     * a sentence the operator can act on.
+     *
+     * What it pins as well is where the target is left, which is current
+     * behaviour and not a promise: by the time the mismatch is found, both
+     * of the origin's files have been written over the target's, so the
+     * target holds a key and a blob that open nothing and its own database
+     * credentials are no longer on the disk.
+     */
+    public function testAnArchiveWhoseOwnKeyCannotReadItsSecretsIsRefusedAsUnusable(): void
+    {
+        $corrupted = 'des octets qui ne veulent rien dire';
+        file_put_contents($this->originBase . '/storage/config/secrets.enc', $corrupted);
+
+        try {
+            $this->restoreOntoTarget();
+            $this->fail('An archive whose key cannot read its own secrets was installed.');
+        } catch (BackupException $e) {
+            $this->assertSame(
+                'Les clés de cette sauvegarde ne permettent pas de lire ses propres secrets — l\'archive est '
+                . 'inutilisable.',
+                $e->getMessage()
+            );
+            $this->assertInstanceOf(\Core\Security\DecryptionException::class, $e->getPrevious());
+        }
+
+        $this->assertSame($corrupted, file_get_contents($this->targetBase . '/storage/config/secrets.enc'));
+        $this->assertSame($this->originMasterKey, file_get_contents($this->targetBase . '/storage/keys/master.key'));
+    }
+
+    /**
      * And the half that would make keeping them pointless: everything the
      * archive exists to carry does arrive.
      *
@@ -260,6 +293,31 @@ final class PortableRestoreTest extends TestCase
             ->adoptNewIdentity($pdo, null, null);
 
         $this->assertSame(0, (int) $pdo->query('SELECT COUNT(*) FROM push_subscriptions')->fetchColumn());
+    }
+
+    /**
+     * An origin old enough to predate the push subscriptions has no such
+     * table in its dump, and a table that is not there holds nothing to
+     * empty: the new identity is still adopted, and nothing is created.
+     */
+    public function testAnOriginThatPredatesPushSubscriptionsStillAdoptsTheNewIdentity(): void
+    {
+        $pdo = \Tests\DatabaseTestHelper::createTestDatabase();
+        $pdo->exec('DROP TABLE push_subscriptions');
+        $this->seedSetting($pdo, InstallationIdentityService::INSTALLATION_ID_SETTING, self::ORIGIN_ID);
+        $this->seedSetting($pdo, PortableRestore::RESTORED_FROM_SETTING, '');
+        $this->seedSetting($pdo, 'base_url', 'https://ancien.example');
+
+        (new PortableRestore($this->targetBase, $this->targetBase . '/storage'))
+            ->adoptNewIdentity($pdo, self::ORIGIN_ID, 'https://nouveau.example');
+
+        $this->assertSame('', $this->readSetting($pdo, InstallationIdentityService::INSTALLATION_ID_SETTING));
+        $this->assertSame(self::ORIGIN_ID, $this->readSetting($pdo, PortableRestore::RESTORED_FROM_SETTING));
+        $this->assertSame('https://nouveau.example', $this->readSetting($pdo, 'base_url'));
+        $this->assertSame(
+            0,
+            (int) $pdo->query("SELECT COUNT(*) FROM sqlite_master WHERE name = 'push_subscriptions'")->fetchColumn()
+        );
     }
 
     /**

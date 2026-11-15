@@ -98,6 +98,23 @@ class MailFieldCompletionServiceTest extends TestCase
         $this->assertSame('2 650,00 €', $proposals[0]->proposedValue);
     }
 
+    public function testAnAbsurdAmountFillsNothingAndProposesNothing(): void
+    {
+        $camp = $this->camp(null);
+
+        // The reader used to throw a TypeError on this figure, half-way
+        // through the completion: the call never returned.
+        $result = $this->service->apply(
+            $camp,
+            'Réservé du 12 au 19 juillet 2028. Total : 100000000000000000 €.',
+            'inbound-message-9'
+        );
+
+        $this->assertSame(['dates'], $result['filled']);
+        $this->assertSame([], $result['proposed']);
+        $this->assertNull($this->camps->findById($camp->id)?->priceCents);
+    }
+
     public function testAValueMatchingWhatIsAlreadyThereProducesNothing(): void
     {
         $camp = $this->camp(245000);

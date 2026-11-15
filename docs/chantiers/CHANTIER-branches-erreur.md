@@ -141,8 +141,8 @@ l'ordre des lots (ceux à zéro, 11 domaines, ne figurent pas) :
 | `core/Http` | ~~36~~ **1** (lot 4, voir le journal) | ~~4~~ 0 | 1 | 133 |
 | `core/Mail` | ~~35~~ **0** (lots 1-2) | ~~16~~ 0 | 2 | 77 |
 | `core/Storage` | ~~31~~ **0** (lot 5) | ~~9~~ 0 | 1 | 67 |
-| `modules/finance` | 23 | 0 | 0 | 54 |
-| `core/Maintenance` | 21 | 3 | 0 | 55 |
+| `modules/finance` | ~~23~~ **0** (lot 6) | 0 | 3 | 54 |
+| `core/Maintenance` | ~~21~~ **0** (lot 7) | ~~3~~ 0 | 1 | 55 |
 | `modules/inbound_mail` | 21 | 4 | 0 | 40 |
 | `core/Support` | 20 | 4 | 0 | 27 |
 | `modules/registration` | 17 | 4 | 0 | 47 |
@@ -357,3 +357,50 @@ la racine supprimée en cours de marche (vérifié).
   changé » prévu pour lui.
 - **#1230** (trouvé au lot de la maintenance) : un sous-dossier dont le
   chemin dépasse PATH_MAX est omis sans le dire.
+
+### Lot 6 — `modules/finance` — 2026-11-15
+
+**23 → 0** jamais exécutés ; trois marqueurs. Remesuré sur
+`tests/Modules/Finance` avant et après (PCOV, MariaDB).
+
+**20 branches atteintes** par un état réel : fichier refusé (un vrai fichier
+texte déposé comme reçu), catégorie encore utilisée, créance dépassée,
+débit déclaré « sans créance », trigger qui refuse une écriture (rattachement
+d'un reçu, campagne, import de relevé, purge), fichier disparu du disque, JPEG
+annonçant plus de pixels que le plafond, répertoire des membres illisible,
+clé étrangère réelle sur MariaDB.
+
+**Les marqueurs** : trois relectures, dans la même requête, d'une ligne lue
+juste au-dessus — supprimer un reçu, changer son compte, ouvrir le
+rapprochement d'un compte visible. Seule une purge ou une modification
+concurrente entre les deux lectures y mène.
+
+**Trouvé en chemin, ouvert à part.**
+- **#1225 — perte de données** : sur MySQL/MariaDB, la purge des reçus
+  orphelins efface le fichier chiffré puis échoue sur la clé étrangère ; le
+  reçu reste listé et ne se télécharge plus. La suite SQLite, sans clés
+  étrangères, ne pouvait pas le voir.
+- **#1226** : remplacer un reçu de la pile à trier répond « Reçu introuvable. ».
+- **#1227** : un reçu reconnu dont le classement échoue est abandonné sans
+  trace.
+
+### Lot 7 — `core/Maintenance` — 2026-11-15
+
+**21 → 0** jamais exécutés ; un marqueur. Remesuré sur `tests/Core/Maintenance`
+(PCOV, MariaDB) : il en reste un, `Remote/RemoteCopies.php:63`, que
+`RemoteCopiesControllerTest` (sous `tests/Core/Http`) exécute déjà — zéro sur
+la suite entière.
+
+**20 branches atteintes** par un état réel : secrets illisibles, table
+absente, trigger qui refuse une écriture, `SIGNAL` sur MariaDB, archive ou
+sauvegarde de sécurité abîmée, quota dépassé, lien symbolique refusé. Chaque
+test vérifie l'effet et échoue quand le `catch` relance.
+
+**Le marqueur** : la lecture de `ATTR_SERVER_VERSION` dans `HostHealth`.
+`pdo_mysql` la sert depuis la poignée de main mise en cache, même après que le
+serveur a coupé la connexion (mesuré sur MariaDB 10.11), et `pdo_sqlite` comme
+`pdo_pgsql` la répondent localement. Seul un pilote que l'application n'utilise
+jamais la refuse.
+
+En chemin, `FullResetHandlerTest` et `RestoreBackupHandlerTest` ne laissent
+plus de dossiers temporaires derrière eux.
