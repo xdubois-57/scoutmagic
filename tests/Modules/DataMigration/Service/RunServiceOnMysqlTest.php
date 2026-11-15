@@ -8,12 +8,14 @@ declare(strict_types=1);
 
 namespace Tests\Modules\DataMigration\Service;
 
+use Core\Archive\ArchiveLimits;
 use Core\Config\ScoutYearService;
 use Core\File\ChunkedUploadStore;
 use Core\File\UploadException;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Security\EncryptionService;
+use Modules\DataMigration\Importer\SourceItem;
 use Modules\DataMigration\Manifest\ManifestReader;
 use Modules\DataMigration\Repository\ItemMappingRepository;
 use Modules\DataMigration\Repository\Run;
@@ -328,6 +330,29 @@ final class RunServiceOnMysqlTest extends TestCase
     }
 
     /**
+     * A run row whose file path does not lie in the module's directory (a
+     * row altered by hand, say) is still abandoned, and the deletion that
+     * follows touches nothing outside that directory.
+     */
+    public function testAbandoningARunWhosePathLeavesTheDirectoryDeletesNothingOutsideIt(): void
+    {
+        $run = $this->deposit(TestArchive::items([['id' => '1', 'name' => 'Un']]));
+        $archive = $this->uploads->absolute((string) $run->filePath);
+        $outside = $this->storage . '/garder.txt';
+        file_put_contents($outside, 'à garder');
+        $this->pdo->prepare('UPDATE data_migration_runs SET file_path = ? WHERE id = ?')
+            ->execute([UploadStorage::DIR . '/../../garder.txt', $run->id]);
+
+        $run = $this->service->abandon($this->runs->find($run->id) ?? $this->fail('The run is gone.'));
+
+        $this->assertSame(Run::ABANDONED, $run->state);
+        $this->assertNull($run->filePath);
+        $this->assertFileExists($outside);
+        $this->assertSame('à garder', file_get_contents($outside));
+        $this->assertFileExists($archive, 'the archive the row no longer names is the purge\'s, not this delete\'s');
+    }
+
+    /**
      * The purge: 24 hours after the last movement, whatever the idle state;
      * never the file of a run that is moving.
      */
@@ -481,6 +506,154 @@ final class RunServiceOnMysqlTest extends TestCase
         $this->assertSame(
             'import_stopped',
             $this->pdo->query("SELECT event_type FROM event_log WHERE category = 'data_migration' ORDER BY id DESC LIMIT 1")->fetchColumn()
+        );
+    }
+
+    /**
+     * The stored file disappears before its verification starts: the run
+     * is rejected with the reason, nothing is written, and no file is left.
+     */
+    public function testAFileLostBeforeItsVerificationRejectsTheRun(): void
+    {
+        $run = $this->deposit(TestArchive::items([['id' => '1', 'name' => 'Un']]));
+        $this->assertSame(ImportEngine::PHASE_VERIFY, $run->phase());
+
+        unlink($this->uploads->absolute((string) $run->filePath));
+        $run = $this->service->advance($this->importer, $run);
+
+        $this->assertSame(Run::ABANDONED, $run->state);
+        $this->assertSame('Le fichier n\'est pas une archive ZIP lisible.', $run->rejectionReason);
+        $this->assertNull($run->filePath);
+        $this->assertSame(0, $this->writtenCount());
+    }
+
+    /**
+     * Verified, then lost before the analysis reads it: rejected the same
+     * way, before any item is counted.
+     */
+    public function testAFileLostBeforeItsAnalysisRejectsTheRun(): void
+    {
+        $run = $this->deposit(TestArchive::items([['id' => '1', 'name' => 'Un']]));
+        for ($i = 0; $i < 20 && $run->phase() === ImportEngine::PHASE_VERIFY; $i++) {
+            $run = $this->service->advance($this->importer, $run);
+        }
+        $this->assertSame(ImportEngine::PHASE_ANALYSE, $run->phase());
+
+        unlink($this->uploads->absolute((string) $run->filePath));
+        $run = $this->service->advance($this->importer, $run);
+
+        $this->assertSame(Run::ABANDONED, $run->state);
+        $this->assertSame('Le fichier n\'est pas une archive ZIP lisible.', $run->rejectionReason);
+        $this->assertSame(0, (int) ($run->analysis['total'] ?? 0));
+        $this->assertSame(0, $this->writtenCount());
+    }
+
+    /**
+     * An item whose classification throws during the analysis is counted
+     * as an error, sampled by its reference and journalled by the class of
+     * what failed alone; the analysis goes on with the next item.
+     */
+    public function testAFailingClassificationDuringTheAnalysisIsCountedAndTheAnalysisGoesOn(): void
+    {
+        $this->importer->onInspect = static function (SourceItem $item): void {
+            if ($item->sourceId === '2') {
+                throw new \RuntimeException('Simulated lost connection to « Deux ».');
+            }
+        };
+
+        $run = $this->analysed(TestArchive::items([
+            ['id' => '1', 'name' => 'Un'], ['id' => '2', 'name' => 'Deux'], ['id' => '3', 'name' => 'Trois'],
+        ]));
+
+        $this->assertSame(3, $run->analysis['total']);
+        $this->assertSame(2, $run->analysis['to_import']);
+        $this->assertSame(1, $run->analysis['errors']);
+        $this->assertSame([['reference' => '2', 'reason' => null]], $run->analysis['error_samples']);
+        $context = json_decode((string) $this->pdo->query(
+            "SELECT context FROM event_log WHERE event_type = 'item_failed'"
+        )->fetchColumn(), true);
+        $this->assertSame('analyse', $context['phase']);
+        $this->assertSame(\RuntimeException::class, $context['exception']);
+        $this->assertStringNotContainsString('Deux', (string) json_encode($context));
+        $this->assertSame(0, $this->writtenCount());
+    }
+
+    /**
+     * The archive's budget is measured per slice, and counts what the
+     * importer itself reads while writing. Three items that each read the
+     * same 1.5 MB member exhaust a 4 MB budget the verification, which read
+     * that member once, did not: once the item list is read past it, the
+     * run stops. The two items written before stay, the third rolls back.
+     */
+    public function testAnArchiveBudgetExhaustedDuringTheExecutionStopsTheRunAndKeepsWhatWasImported(): void
+    {
+        $importer = new TestImporter(
+            $this->pdo,
+            'essai',
+            null,
+            new ArchiveLimits(20, 2097152, 4194304, ['json', 'jsonl'])
+        );
+        $importer->readOnWrite = 'media.json';
+        $service = $this->serviceWithSlicesOf(60.0);
+        $zip = TestArchive::build([
+            'items.jsonl' => implode("\n", array_map(
+                static fn (string $id): string => (string) json_encode(['id' => $id, 'name' => 'Élément ' . $id]),
+                ['1', '2', '3']
+            )) . "\n",
+            'media.json' => '"' . str_repeat('a', 1572864) . '"',
+        ]);
+        $run = $this->depositFor($importer, $zip);
+        for ($i = 0; $i < 20 && $run->state === Run::UPLOADED; $i++) {
+            $run = $service->advance($importer, $run);
+        }
+        $this->assertSame(Run::ANALYSED, $run->state, (string) $run->rejectionReason);
+
+        $run = $service->advance($importer, $service->confirm($run, []) ?? $this->fail('Not confirmed.'));
+
+        $this->assertSame(Run::ABANDONED, $run->state);
+        $this->assertSame(
+            'Le contenu décompressé de l\'archive dépasse la taille acceptée pour ce format.',
+            $run->rejectionReason
+        );
+        $this->assertSame(2, $run->report['imported']);
+        $this->assertSame(2, $this->writtenCount());
+        $this->assertSame(2, $this->mappingCount());
+        $this->assertNull($run->filePath);
+        $this->assertSame(
+            'import_stopped',
+            $this->pdo->query(
+                "SELECT event_type FROM event_log WHERE category = 'data_migration' ORDER BY id DESC LIMIT 1"
+            )->fetchColumn()
+        );
+    }
+
+    /** The service of setUp(), with slices of $seconds instead of one step each. */
+    private function serviceWithSlicesOf(float $seconds): RunService
+    {
+        $encryption = new EncryptionService(random_bytes(32), random_bytes(32));
+        $journal = new JournalService(new JournalRepository($this->pdo));
+        $clock = fn (): \DateTimeImmutable => $this->now;
+        $runs = new RunRepository($this->pdo, $encryption);
+        $years = new MissingScoutYears(new ScoutYearService($this->pdo), $clock);
+
+        return new RunService(
+            $runs,
+            new ImportEngine(
+                $this->pdo,
+                $runs,
+                new ItemMappingRepository($this->pdo),
+                $years,
+                $this->uploads,
+                new ManifestReader(),
+                $journal,
+                $seconds,
+                $clock
+            ),
+            $years,
+            $this->uploads,
+            new ChunkedUploadStore($this->storage),
+            $journal,
+            $clock
         );
     }
 

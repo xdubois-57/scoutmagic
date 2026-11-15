@@ -250,6 +250,41 @@ class BatchVerificationServiceTest extends TestCase
     }
 
     /**
+     * The ticks, the deletion and the counters are one decision: a refusal
+     * of the last write rolls the deletion back, and no certificate's bytes
+     * are touched, since those go only once the rows are committed.
+     */
+    public function testARefusedSelectionDeletesNothingRowsOrBytes(): void
+    {
+        $discardedLine = $this->lines->findById($this->lineIds['unmatched']);
+        $this->assertNotNull($discardedLine);
+        $record = $this->files->findById($discardedLine->fileId);
+        $this->assertNotNull($record);
+        $this->pdo->exec(
+            "CREATE TRIGGER refuse_selection BEFORE UPDATE ON attestation_batches
+             BEGIN SELECT RAISE(ABORT, 'sélection refusée'); END"
+        );
+
+        try {
+            $this->service->commitSelection($this->batchId, [$this->lineIds['matched']]);
+            $this->fail('the refused write must reach the caller');
+        } catch (\PDOException $e) {
+            $this->assertStringContainsString('sélection refusée', $e->getMessage());
+        }
+
+        $this->assertFalse($this->pdo->inTransaction());
+        $this->assertCount(3, $this->lines->findByBatch($this->batchId));
+        $this->assertNotNull($this->files->findById($discardedLine->fileId));
+        $this->assertFileExists($this->storageRoot . '/' . $record->relativePath);
+        $this->assertSame(
+            0,
+            (int) $this->pdo->query(
+                "SELECT COUNT(*) FROM event_log WHERE event_type = 'attestation_batch_selection_committed'"
+            )->fetchColumn()
+        );
+    }
+
+    /**
      * A counter, never a list of names — that is the whole point of keeping
      * it: it answers « pourquoi 43 attestations pour 55 membres ? » without
      * keeping who the 12 were.

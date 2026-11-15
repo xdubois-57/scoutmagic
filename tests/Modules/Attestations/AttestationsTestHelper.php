@@ -227,7 +227,7 @@ final class AttestationsTestHelper
      * the golden fixture deliberately does not cover (an odd page count, a
      * file that is not a PDF at all). The caller unlinks it.
      *
-     * @param list<list<string>> $pages
+     * @param list<list<string>|null> $pages null for a damaged page (AttestationsPdfBuilder::build())
      */
     public static function writeTemporaryPdf(array $pages): string
     {
