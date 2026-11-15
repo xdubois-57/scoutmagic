@@ -1914,6 +1914,9 @@ class RegistrationConfigControllerTest extends TestCase
         $first = $this->createRequest($this->targetYearId, 'Alix');
         $second = $this->createRequest($this->targetYearId, 'Basile');
         $member = RegistrationTestHelper::insertMember($this->pdo, 'DESK-BASILE');
+        // A trigger body takes no bound parameters: the three ids are the
+        // fixture's own integers, cast so nothing else can reach the text.
+        [$first, $second, $member] = [(int) $first, (int) $second, (int) $member];
         $this->pdo->exec(
             "CREATE TRIGGER encode_meanwhile AFTER UPDATE OF status ON registration_requests
              WHEN NEW.id = {$first} BEGIN
