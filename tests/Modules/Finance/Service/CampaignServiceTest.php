@@ -270,6 +270,48 @@ class CampaignServiceTest extends TestCase
         $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM files')->fetchColumn());
     }
 
+    /**
+     * A database that refuses the second receivable half-way: the
+     * campaign, its first row and receivable go, and so does the workbook
+     * stored before the transaction — a filesystem does not roll back.
+     */
+    public function testAReceivableTheDatabaseRefusesUndoesTheWholeCampaignAndItsFile(): void
+    {
+        $this->pdo->exec(
+            "CREATE TRIGGER refuse_second_receivable BEFORE INSERT ON finance_expected_receivables
+             WHEN (SELECT COUNT(*) FROM finance_expected_receivables) >= 1
+             BEGIN SELECT RAISE(ABORT, 'refused by the test'); END"
+        );
+
+        try {
+            $this->create('Cotisations', [
+                [$this->memberIds['D-100'], '45,00'],
+                [$this->memberIds['D-200'], '45,00'],
+            ]);
+            $this->fail('the refusal was swallowed');
+        } catch (\PDOException $e) {
+            $this->assertStringContainsString('refused by the test', $e->getMessage());
+        }
+
+        $this->assertFalse($this->pdo->inTransaction());
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM finance_campaigns')->fetchColumn());
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM finance_campaign_rows')->fetchColumn());
+        $this->assertSame(
+            0,
+            (int) $this->pdo->query('SELECT COUNT(*) FROM finance_expected_receivables')->fetchColumn()
+        );
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM files')->fetchColumn());
+        $blobs = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($this->storagePath, \FilesystemIterator::SKIP_DOTS)
+        );
+        $this->assertSame(0, iterator_count($blobs), 'the stored workbook must be deleted again');
+        $this->assertSame(
+            0,
+            (int) $this->pdo->query("SELECT COUNT(*) FROM event_log WHERE event_type = 'campaign_created'")
+                ->fetchColumn()
+        );
+    }
+
     public function testACampaignWithoutANameIsRefused(): void
     {
         $this->expectException(FinanceException::class);

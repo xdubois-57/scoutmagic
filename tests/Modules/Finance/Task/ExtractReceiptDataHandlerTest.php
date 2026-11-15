@@ -225,6 +225,42 @@ class ExtractReceiptDataHandlerTest extends TestCase
         $this->assertNotFalse($stmt->fetch());
     }
 
+    /**
+     * The receipt's file is gone from the disk: the failure is journaled
+     * with what went wrong, the provider is never called, and the
+     * receipt keeps no suggestion.
+     */
+    public function testAReceiptWhoseFileIsMissingFromTheDiskIsJournaledWithoutCallingTheProvider(): void
+    {
+        $attachmentId = $this->createAttachment();
+        $fileId = $this->attachmentRepository->findById($attachmentId)->fileId;
+        $relativePath = (string) $this->pdo->query("SELECT relative_path FROM files WHERE id = {$fileId}")
+            ->fetchColumn();
+        unlink($this->storagePath . '/' . $relativePath);
+
+        $providerId = $this->providerRepository->create(
+            'Unreachable', 'anthropic', 'http://127.0.0.1:19', 'sk-test', true
+        );
+        $this->modelRepository->upsert($providerId, 'test-model', 'Test Model');
+        $models = $this->modelRepository->findByProvider($providerId);
+        $this->modelRepository->assignTier((int) $models[0]['id'], LlmTier::OCR);
+
+        (new ExtractReceiptDataHandler())->handle(['attachment_id' => $attachmentId], $this->createTaskContext());
+
+        $this->assertNull($this->attachmentRepository->findById($attachmentId)->suggestedAmount);
+        $this->assertSame(
+            ["Extraction IA du reçu échouée : Fichier {$fileId} illisible sur le disque."],
+            $this->pdo->query(
+                "SELECT description FROM event_log
+                 WHERE category = 'finance' AND event_type = 'receipt_extraction_failed'"
+            )->fetchAll(\PDO::FETCH_COLUMN)
+        );
+        $this->assertSame(
+            0,
+            (int) $this->pdo->query("SELECT COUNT(*) FROM event_log WHERE category = 'llm_connector'")->fetchColumn()
+        );
+    }
+
     public function testRequestsTheOcrTierNotCheap(): void
     {
         $attachmentId = $this->createAttachment();

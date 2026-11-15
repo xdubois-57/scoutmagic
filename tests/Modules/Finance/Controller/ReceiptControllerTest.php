@@ -818,6 +818,104 @@ class ReceiptControllerTest extends TestCase
         $this->assertCount(1, $this->attachmentRepository->findActiveOrdered());
     }
 
+    private function replaceRequest(int $attachmentId, string $tmpPath): Request
+    {
+        return new RequestWithInput(
+            'POST',
+            '/finance/receipts/' . $attachmentId . '/replace',
+            [],
+            ['_csrf_token' => $this->csrfToken()],
+            [],
+            [],
+            file: ['tmp_name' => $tmpPath, 'name' => 'v2.pdf', 'error' => UPLOAD_ERR_OK, 'size' => filesize($tmpPath)],
+        );
+    }
+
+    private function countRows(string $sql): int
+    {
+        return (int) $this->pdo->query($sql)->fetchColumn();
+    }
+
+    public function testReplacingWithAFileThatIsNotAReceiptShowsTheRefusalAndKeepsTheOriginal(): void
+    {
+        $this->controller->upload($this->uploadRequest($this->tmpPdfFile(), $this->csrfToken()), []);
+        $original = $this->attachmentRepository->findActiveOrdered()[0];
+        $filesBefore = $this->countRows('SELECT COUNT(*) FROM files');
+        $tmp = tempnam(sys_get_temp_dir(), 'receipt_test_');
+        file_put_contents($tmp, "Ceci n'est pas un reçu.\n");
+
+        $response = $this->controller->replace(
+            $this->replaceRequest($original->id, $tmp),
+            ['id' => (string) $original->id]
+        );
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertStringContainsString('Type de fichier non autorisé : text/plain.', $response->getBody());
+        $this->assertStringContainsString('/finance/receipts/' . $original->id . '/replace', $response->getBody());
+        $this->assertSame('active', $this->attachmentRepository->findById($original->id)->status);
+        $this->assertSame(1, $this->countRows('SELECT COUNT(*) FROM finance_attachments'));
+        $this->assertSame($filesBefore, $this->countRows('SELECT COUNT(*) FROM files'));
+        $this->assertSame(0, $this->countRows("SELECT COUNT(*) FROM event_log WHERE event_type = 'receipt_replaced'"));
+    }
+
+    /**
+     * Pins current behaviour: the sorting pile's grid offers « Remplacer »,
+     * and the service refuses a receipt with no account — under the
+     * message of a receipt that does not exist, although it is right there.
+     */
+    public function testReplacingAReceiptOfTheSortingPileIsRefusedAsIfTheReceiptDidNotExist(): void
+    {
+        $id = $this->givenAReceiptInTheSortingPile();
+
+        $response = $this->controller->replace($this->replaceRequest($id, $this->tmpPdfFile()), ['id' => (string) $id]);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertStringContainsString('Reçu introuvable.', $response->getBody());
+        $this->assertSame('active', $this->attachmentRepository->findById($id)->status);
+        $this->assertSame(1, $this->countRows('SELECT COUNT(*) FROM finance_attachments'));
+        $this->assertSame(0, $this->countRows("SELECT COUNT(*) FROM event_log WHERE event_type = 'receipt_replaced'"));
+    }
+
+    public function testAssociatingAMovementOfAnotherAccountIsRefusedAndLinksNothing(): void
+    {
+        $this->controller->upload($this->uploadRequest($this->tmpPdfFile(), $this->csrfToken()), []);
+        $attachment = $this->attachmentRepository->findActiveOrdered()[0];
+        $ownTransactionId = $this->createTransaction();
+        $otherAccountId = $this->accountRepository->create('Autre', Account::TYPE_BANK, null, null, null, 'intendant');
+        $foreignTransactionId = $this->transactionRepository->create(
+            $otherAccountId,
+            (int) $this->pdo->query('SELECT id FROM scout_years LIMIT 1')->fetchColumn(),
+            'ref-other',
+            '2026-10-02',
+            'y',
+            -2.0,
+            null,
+            null,
+            'manual',
+            null
+        );
+
+        $response = $this->controller->associate(
+            $this->jsonRequest('POST', '/finance/receipts/' . $attachment->id . '/associate', [
+                'transaction_ids' => [$ownTransactionId, $foreignTransactionId],
+                '_csrf_token' => $this->csrfToken(),
+            ]),
+            ['id' => (string) $attachment->id]
+        );
+
+        $this->assertSame(400, $response->getStatusCode());
+        $this->assertSame(
+            ['success' => false, 'error' => 'Ce mouvement appartient à un autre compte que le reçu.'],
+            json_decode($response->getBody(), true)
+        );
+        // Rejected as a whole: not even the movement of its own account.
+        $this->assertSame([], $this->transactionAttachmentRepository->findTransactionIdsForAttachment($attachment->id));
+        $this->assertSame(
+            0,
+            $this->countRows("SELECT COUNT(*) FROM event_log WHERE event_type = 'receipt_associated'")
+        );
+    }
+
     public function testMutationsRejectAttachmentBelowRoleFloor(): void
     {
         $this->controller->upload($this->uploadRequest($this->tmpPdfFile(), $this->csrfToken()), []);

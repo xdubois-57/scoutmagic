@@ -493,6 +493,34 @@ class ReceiptMatchingServiceTest extends TestCase
     }
 
     /**
+     * Filing the receipt is refused by the database (its file's owner
+     * cannot be rewritten): nothing is associated, and the receipt stays
+     * in the pile rather than on a movement of an account it is not on.
+     *
+     * Pins current behaviour: the refusal is swallowed whole — no
+     * exception, and no journal line saying a match was found and lost.
+     */
+    public function testAReceiptTheDatabaseRefusesToFileStaysInThePileUnmatched(): void
+    {
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $otherAccountId = (new AccountRepository($this->pdo, $encryption))
+            ->create('Autre compte', Account::TYPE_BANK, null, null, null, 'intendant');
+        $receipt = $this->createUnattributedReceipt(42.00, '2026-10-01', '2026-10-01 10:00:00');
+        $this->createTransaction('2026-10-02', -42.00, 'Fournitures', $otherAccountId);
+        $this->pdo->exec(
+            "CREATE TRIGGER refuse_file_owner BEFORE UPDATE OF owner_id ON files
+             BEGIN SELECT RAISE(ABORT, 'refused by the test'); END"
+        );
+
+        $this->service()->matchReceipt($receipt);
+
+        $this->assertSame([], $this->transactionAttachmentRepository->findTransactionIdsForAttachment($receipt->id));
+        $this->assertNull($this->attachmentRepository->findById($receipt->id)?->accountId);
+        $this->assertFalse($this->pdo->inTransaction());
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM event_log')->fetchColumn());
+    }
+
+    /**
      * Nothing is loosened to look wider: the amount is still the hard
      * gate, and an ambiguous set still ends in silence — on the sorting
      * pile more than anywhere, since a wrong guess there invents an

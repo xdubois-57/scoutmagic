@@ -413,6 +413,119 @@ class ReconciliationControllerTest extends TestCase
         $this->assertSame(675, $this->settlement($antoine)->amountAllocatedCents);
     }
 
+    // ── the refusals ────────────────────────────────────────────────────
+
+    /**
+     * @param array<string, mixed> $body
+     */
+    private function post(array $body): Request
+    {
+        return new Request('POST', '/x', [], $body + [
+            '_csrf_token' => $this->csrfToken(),
+            'account_id' => (string) $this->accountId,
+        ], [], []);
+    }
+
+    private function allocationCount(): int
+    {
+        return (int) $this->pdo->query('SELECT COUNT(*) FROM finance_receivable_allocations')->fetchColumn();
+    }
+
+    public function testASplitWithNoLineFilledInSaysSoAndAllocatesNothing(): void
+    {
+        $this->receivable('Lucie', 4500, '+++123/4567/89012+++');
+        $transactionId = $this->credit('DUPONT J « cotisation »', 90.00);
+        \Core\Http\FlashMessage::get();
+
+        $response = $this->controller->applySplit(
+            $this->post(['amount' => ['1' => '0,00']]),
+            ['transactionId' => (string) $transactionId]
+        );
+
+        $this->assertSame(
+            '/finance/reconciliation?account_id=' . $this->accountId . '&tab=split',
+            $response->getHeaders()['Location'] ?? null
+        );
+        $this->assertSame(
+            ['type' => 'error', 'message' => 'Indiquez au moins une créance à couvrir.'],
+            \Core\Http\FlashMessage::get()
+        );
+        $this->assertSame(0, $this->allocationCount());
+    }
+
+    public function testAttachingMoreThanTheReceivableStillAwaitsIsRefusedAndAttachesNothing(): void
+    {
+        $lucie = $this->receivable('Lucie', 4500, '+++123/4567/89012+++');
+        $transactionId = $this->credit('DUPONT J « cotisation »', 90.00);
+        \Core\Http\FlashMessage::get();
+
+        $response = $this->controller->attach(
+            $this->post(['receivable_id' => (string) $lucie, 'amount' => '90,00']),
+            ['transactionId' => (string) $transactionId]
+        );
+
+        $this->assertSame(
+            '/finance/reconciliation?account_id=' . $this->accountId . '&tab=orphans',
+            $response->getHeaders()['Location'] ?? null
+        );
+        $this->assertSame(
+            [
+                'type' => 'error',
+                'message' => 'Cette créance n\'attend plus que 45,00 €. Une créance n\'absorbe jamais plus que ce '
+                    . 'qu\'elle doit : le surplus reste non imputé et apparaît en trop-perçu.',
+            ],
+            \Core\Http\FlashMessage::get()
+        );
+        $this->assertSame(0, $this->allocationCount());
+        $this->assertSame(ReceivableSettlement::STATUS_UNPAID, $this->settlement($lucie)->status);
+    }
+
+    public function testADebitCannotBeDeclaredNoReceivable(): void
+    {
+        $transactionId = $this->credit('Achat Colruyt', -45.00);
+        \Core\Http\FlashMessage::get();
+
+        $response = $this->controller->declareNotAReceivable(
+            $this->post([]),
+            ['transactionId' => (string) $transactionId]
+        );
+
+        $this->assertSame(
+            '/finance/reconciliation?account_id=' . $this->accountId . '&tab=orphans',
+            $response->getHeaders()['Location'] ?? null
+        );
+        $this->assertSame(
+            ['type' => 'error', 'message' => "Ce mouvement est un débit : il n'attend aucune créance."],
+            \Core\Http\FlashMessage::get()
+        );
+        $this->assertNull($this->transactions->findById($transactionId)?->notAReceivableAt);
+    }
+
+    public function testARefundCannotBeRequestedOnAReceivableWithNoSurplus(): void
+    {
+        $lucie = $this->receivable('Lucie', 4500, '+++123/4567/89012+++');
+        \Core\Http\FlashMessage::get();
+
+        $response = $this->controller->resolveOverpayment(
+            $this->post(['action' => 'refund']),
+            ['receivableId' => (string) $lucie]
+        );
+
+        $this->assertSame(
+            '/finance/reconciliation?account_id=' . $this->accountId . '&tab=overpaid',
+            $response->getHeaders()['Location'] ?? null
+        );
+        $this->assertSame(
+            ['type' => 'error', 'message' => 'Cette créance ne porte aucun trop-perçu à rembourser.'],
+            \Core\Http\FlashMessage::get()
+        );
+        $this->assertNotSame(ReceivableSettlement::REFUND_REQUESTED, $this->settlement($lucie)->refundState);
+        $this->assertNull(
+            $this->pdo->query("SELECT refund_requested_at FROM finance_expected_receivables WHERE id = {$lucie}")
+                ->fetchColumn()
+        );
+    }
+
     // ── the QR ──────────────────────────────────────────────────────────
 
     /**

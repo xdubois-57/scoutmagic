@@ -88,6 +88,31 @@ class ExpectedReceivableRepositoryTest extends TestCase
         $this->assertSame(2500, $this->repository->findById($this->receivableId)?->amountDueCents);
     }
 
+    /**
+     * An empty list still runs its work in a transaction of its own, and
+     * a write the database refuses half-way rolls back the one before it.
+     */
+    public function testAnEmptyListOfLocksStillRollsBackWorkTheDatabaseRefuses(): void
+    {
+        $this->pdo->exec(
+            "CREATE TRIGGER refuse_amount BEFORE UPDATE ON finance_expected_receivables
+             WHEN NEW.amount_due_cents = 9999 BEGIN SELECT RAISE(ABORT, 'refused by the test'); END"
+        );
+
+        try {
+            $this->repository->withReceivablesLocked([], function (): void {
+                $this->repository->updateAmount($this->receivableId, 3000);
+                $this->repository->updateAmount($this->receivableId, 9999);
+            });
+            $this->fail('the refusal was swallowed');
+        } catch (\PDOException $e) {
+            $this->assertStringContainsString('refused by the test', $e->getMessage());
+        }
+
+        $this->assertFalse($this->pdo->inTransaction());
+        $this->assertSame(2500, $this->repository->findById($this->receivableId)?->amountDueCents);
+    }
+
     /** Inside a transaction already open, it joins it rather than committing on its own. */
     public function testTheLockJoinsATransactionAlreadyOpen(): void
     {
