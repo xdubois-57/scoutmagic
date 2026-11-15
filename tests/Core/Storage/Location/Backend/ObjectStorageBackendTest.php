@@ -532,6 +532,19 @@ class ObjectStorageBackendTest extends TestCase
         $this->assertNull($backend->announcedChecksum('multipart.mp4'));
     }
 
+    public function testAnObjectTheBucketCannotDescribeAnnouncesNoChecksum(): void
+    {
+        // HEAD refused: nothing comparable was announced, so the caller
+        // falls back on the size rather than meeting an exception.
+        $mock = new MockHandler();
+        $mock->appendException(new S3Exception('Not Found', new Command('HeadObject'), ['code' => 'NoSuchKey']));
+        $mock->append(new Result(['ETag' => '"' . str_repeat('b', 32) . '"']));
+        $backend = $this->backendWithMockClient($mock);
+
+        $this->assertNull($backend->announcedChecksum('1/gone.jpg'));
+        $this->assertSame(str_repeat('b', 32), $backend->announcedChecksum('1/here.jpg'), 'the null was not HEAD\'s');
+    }
+
     public function testAnEncryptedObjectAnnouncesNoChecksumEvenThoughItsEtagLooksLikeOne(): void
     {
         // With SSE-C or SSE-KMS the ETag is not a digest of the content at

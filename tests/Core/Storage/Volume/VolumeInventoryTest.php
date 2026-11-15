@@ -228,6 +228,27 @@ class VolumeInventoryTest extends TestCase
         $this->assertCount(1, $volumes[0]->directories);
     }
 
+    /**
+     * A folder this application refuses to open — a relative path climbing
+     * out of `storage/` — is the location's fault, told on its own health
+     * row; it is not invented as a volume, and the others are still listed.
+     */
+    public function testALocationWhosePathIsRefusedIsNotAVolume(): void
+    {
+        $photos = $this->storagePath . '/photos';
+        mkdir($photos);
+        $this->declareLocal('Photos', $photos);
+        $this->repository->create(StorageLocationType::Local, 'Web', new LocalLocationConfig('../public'), null);
+
+        $volumes = $this->inventory([$this->storagePath => '8', $photos => '8'])->measure();
+
+        $this->assertCount(1, $volumes);
+        $this->assertSame(
+            [$this->storagePath, $photos],
+            array_map(static fn ($d): string => $d->path, $volumes[0]->directories)
+        );
+    }
+
     // ————— Which measurement the screen announces —————
 
     /**
