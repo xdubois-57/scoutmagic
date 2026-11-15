@@ -909,10 +909,11 @@ final class GoogleDriveBackendTest extends TestCase
     public function testTheSizeOfAnObjectOnAnUnreachableDriveIsUnknown(): void
     {
         $this->backend()->put('rapport.txt', 'bonjour', 'text/plain');
+        $reader = $this->backend();
         $this->drive->failNextWith = 503;
 
-        $this->assertNull($this->backend()->size('rapport.txt'));
-        $this->assertSame(7, $this->backend()->size('rapport.txt'), 'the null was not the failure\'s');
+        $this->assertNull($reader->size('rapport.txt'));
+        $this->assertSame(7, $reader->size('rapport.txt'), 'the null was not the failure\'s, or it was kept');
     }
 
     /**
