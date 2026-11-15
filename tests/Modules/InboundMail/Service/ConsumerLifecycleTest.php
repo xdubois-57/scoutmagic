@@ -116,6 +116,43 @@ class ConsumerLifecycleTest extends TestCase
         $this->assertTrue($this->messages->hasLink($id, 'rental', 'LOC-1'));
     }
 
+    /**
+     * A module that fails while taking back what it filed must not turn a
+     * filing correction into an error: the association is already gone,
+     * and a move still reaches its second half — the new object is
+     * associated and its module is told.
+     */
+    public function testAConsumerThatThrowsOnUnlinkedDoesNotFailTheMove(): void
+    {
+        $consumer = new FakeMessageConsumer(id: 'rental', throwsOnUnlinked: true);
+        $this->consumers->register($consumer);
+
+        $id = $this->storeMessage('a@example.be');
+        $this->messages->addLink($id, 'rental', 'LOC-1', LinkOrigin::REFERENCE);
+
+        $this->assertTrue($this->service->move('rental', 'LOC-1', 'LOC-2', $id, 42));
+
+        $this->assertCount(1, $consumer->unlinked, 'told about the old object, and failed');
+        $this->assertFalse($this->messages->hasLink($id, 'rental', 'LOC-1'));
+        $this->assertTrue($this->messages->hasLink($id, 'rental', 'LOC-2'));
+        $this->assertCount(1, $consumer->linked, 'and still told about the new one');
+        $this->assertSame('LOC-2', $consumer->linked[0][1]->businessReference);
+    }
+
+    public function testAConsumerThatThrowsOnUnlinkedDoesNotFailTheDetach(): void
+    {
+        $consumer = new FakeMessageConsumer(id: 'rental', throwsOnUnlinked: true);
+        $this->consumers->register($consumer);
+
+        $id = $this->storeMessage('a@example.be');
+        $this->messages->addLink($id, 'rental', 'LOC-1', LinkOrigin::REFERENCE);
+
+        $this->assertTrue($this->service->detach('rental', 'LOC-1', $id));
+
+        $this->assertCount(1, $consumer->unlinked);
+        $this->assertSame(0, $this->messages->countLinks($id));
+    }
+
     // ── Manual association (D20) ────────────────────────────────────────
 
     public function testAManualAssociationNamesItsAuthorAndSaysItWasManual(): void

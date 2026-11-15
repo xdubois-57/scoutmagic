@@ -20,8 +20,10 @@ class FakeDirectoryConsumer extends FakeMessageConsumer implements ReferenceDire
 {
     /**
      * @param array<string, string> $objects reference => label
+     * @param bool $broken a directory whose search and links throw — a
+     *                     module whose own tables are unreachable
      */
-    public function __construct(string $id, private array $objects = [])
+    public function __construct(string $id, private array $objects = [], private bool $broken = false)
     {
         parent::__construct($id);
     }
@@ -31,6 +33,10 @@ class FakeDirectoryConsumer extends FakeMessageConsumer implements ReferenceDire
      */
     public function searchReferences(string $query, int $limit = 10): array
     {
+        if ($this->broken) {
+            throw new \RuntimeException('directory unavailable');
+        }
+
         $needle = mb_strtolower(trim($query));
         $found = [];
         foreach ($this->objects as $reference => $label) {
@@ -44,6 +50,10 @@ class FakeDirectoryConsumer extends FakeMessageConsumer implements ReferenceDire
 
     public function referenceUrl(string $businessReference): ?string
     {
+        if ($this->broken) {
+            throw new \RuntimeException('directory unavailable');
+        }
+
         return isset($this->objects[$businessReference]) ? '/objets/' . $businessReference : null;
     }
 }

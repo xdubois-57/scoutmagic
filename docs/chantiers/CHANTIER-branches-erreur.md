@@ -143,9 +143,9 @@ l'ordre des lots (ceux à zéro, 11 domaines, ne figurent pas) :
 | `core/Storage` | ~~31~~ **0** (lot 5) | ~~9~~ 0 | 1 | 67 |
 | `modules/finance` | ~~23~~ **0** (lot 6) | 0 | 3 | 54 |
 | `core/Maintenance` | ~~21~~ **0** (lot 7) | ~~3~~ 0 | 1 | 55 |
-| `modules/inbound_mail` | 21 | 4 | 0 | 40 |
+| `modules/inbound_mail` | ~~21~~ **0** (lot 8) | ~~4~~ 0 | 1 | 42 |
 | `core/Support` | ~~20~~ **0** (lot 9) | ~~4~~ 0 | 1 | 29 |
-| `modules/registration` | 17 | 4 | 0 | 47 |
+| `modules/registration` | ~~17~~ **0** (lot 10) | ~~4~~ 0 | 1 | 47 |
 | `modules/camps` | 15 | 1 | 0 | 34 |
 | `core/Member` | 11 | 2 | 0 | 19 |
 | `modules/attestations` | 11 | 1 | 0 | 20 |
@@ -428,3 +428,66 @@ par `command -v` ou dans une liste fixe.
 la fiche ne se relit pas soit oublié quand même. C'est exactement ce que #1251
 a corrigé (les octets restaient sur le disque sans rien pour les retrouver) ;
 son propre test couvre le même `catch` avec le comportement voulu.
+
+### Lot 10 — `modules/registration` — 2026-11-15
+
+**17 → 0** jamais exécutés ; un marqueur. Remesuré sur `tests/Modules/Registration`
+(PCOV), après fusion de `main`.
+
+**16 branches atteintes** par un état réel : ligne de réglage absente, trigger
+qui refuse une écriture, adresse qui ne se déchiffre plus, jeton chiffré sous
+une autre clé, course perdue, transport qui refuse l'envoi. Chaque test vérifie
+l'effet et échoue quand le `catch` relance ou change ce qu'il fait.
+
+**Le marqueur** : la boucle du retrait ou du refus groupé. Rien n'y lève
+l'exception attrapée. `findNonFinalForYear()` ne rend que des demandes en
+attente ou acceptées, qui peuvent toutes deux passer à « refusée » et à
+« retirée ». La raison est vérifiée avant la boucle. Un refus ne prend jamais le
+verrou de place, et la planification d'un e-mail répond `null` plutôt que de
+lever.
+
+**Trouvé en chemin, ouvert à part.**
+- **#1235** : une demande encodée pendant un retrait ou un refus groupé est
+  écrasée, pas sautée. La transition juge le statut lu avant la boucle, et
+  l'`UPDATE` ne pose aucune condition sur le statut courant.
+  `testABulkWithdrawalOverwritesARequestEncodedMeanwhile` fige ce comportement
+  et dit ce qui changera quand il sera corrigé.
+- **#1236** : un souhait d'ami perdu ou une confirmation d'adresse non envoyée
+  ne laissent aucune trace.
+
+`MigrationServiceTest::testFailedMigrationDoesNotPartiallyApply` échouait avant
+d'ouvrir la transaction qu'il disait tester ; il la traverse désormais.
+
+### Lot 8 — `modules/inbound_mail` — 2026-11-15
+
+**21 → 0** jamais exécutés ; un marqueur. Remesuré sur
+`tests/Modules/InboundMail` (PCOV, MariaDB), après fusion de `main` : #1249 y
+a ajouté deux `catch` (42 blocs au lieu de 40), tous deux atteints par ses
+propres tests.
+
+**20 branches atteintes** par un état réel :
+- consommateur qui échoue ;
+- trigger qui refuse une purge, sur SQLite et sur MariaDB ;
+- quota disque déclaré dépassé ;
+- contenu chiffré illisible ;
+- course réelle à deux sessions sur MariaDB ;
+- refus d'un serveur IMAP scripté que la vraie bibliothèque webklex lit (seul
+  le socket est remplacé).
+
+Chaque test vérifie l'effet et échoue quand le `catch` relance ou change ce
+qu'il fait.
+
+**Le marqueur** : le garde de conversion de `ImapMailboxClient::fetchSince()`,
+autour de `toFetchedMessage()`. Avant #1249, un dossier factice faisait arriver
+un message illisible jusqu'à lui. Depuis, le client construit lui-même
+`TolerantMessageQuery`, qui ne consulte plus ce dossier. Aucune entrée réelle
+n'y mène :
+- la bibliothèque analyse chaque message dans `make()`, où l'échec est déjà
+  rattrapé ;
+- `toFetchedMessage()` ne lit que ce qui est déjà analysé ;
+- essayés sur le serveur scripté, un Message-ID, un In-Reply-To ou un
+  References malformé, des en-têtes doublés, un jeu de caractères inconnu et
+  un base64 cassé reviennent tous comme des messages.
+
+Le garde reste, pour une version de la bibliothèque qui lirait paresseusement.
+Le test et ses doublures sont retirés.
