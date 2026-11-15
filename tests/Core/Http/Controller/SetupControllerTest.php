@@ -600,6 +600,37 @@ class SetupControllerTest extends TestCase
     }
 
     /**
+     * The three names are one decision: the table refusing the SECOND of
+     * them leaves the first unwritten too. Written one by one, the new
+     * site name stayed on file under an error saying nothing was saved.
+     */
+    public function testARefusedShortNameLeavesTheNewSiteNameUnwrittenToo(): void
+    {
+        $this->initialisedSiteSecrets();
+        $pdo = DatabaseTestHelper::createTestDatabase();
+        $settings = new SettingService(new SettingRepository($pdo));
+        $settings->register('site_name', 'Mon Unité', 'text', 'Nom', 'Nom');
+        $settings->register('short_name', '24SV', 'text', 'Nom court', 'Nom court');
+        $settings->register('base_url', 'https://old.example.com', 'url', 'URL', 'URL');
+        $pdo->exec(
+            "CREATE TRIGGER refuse_short_name BEFORE UPDATE ON settings WHEN NEW.setting_key = 'short_name'
+             BEGIN SELECT RAISE(ABORT, 'écriture refusée'); END"
+        );
+        $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath);
+        $controller->setSettingService($settings);
+
+        $response = $this->postConfigUpdate($controller, 'Mon Unité renommée');
+
+        $this->assertSame('/setup', $response->getHeaders()['Location'] ?? null);
+        $this->assertSame('error', \Core\Http\FlashMessage::get()['type'] ?? null);
+        $settings->clearCache();
+        $this->assertSame(
+            ['Mon Unité', '24SV', 'https://old.example.com'],
+            [$settings->get('site_name'), $settings->get('short_name'), $settings->get('base_url')]
+        );
+    }
+
+    /**
      * secrets.enc that the master key no longer opens: the save is refused
      * with the same sentence, and the file is left exactly as it was.
      */

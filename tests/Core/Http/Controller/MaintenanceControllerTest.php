@@ -1595,8 +1595,9 @@ class MaintenanceControllerTest extends TestCase
             json_decode($created->getBody(), true)
         );
         $this->assertSame([], $this->schedulerRepository->findByModuleAndTaskKey('core', 'create_backup'));
-        $failed = $this->pdo->query("SELECT status, error_message FROM backups WHERE id <> {$kept}")
-            ->fetch(\PDO::FETCH_ASSOC);
+        $statement = $this->pdo->prepare('SELECT status, error_message FROM backups WHERE id <> ?');
+        $statement->execute([$kept]);
+        $failed = $statement->fetch(\PDO::FETCH_ASSOC);
         $this->assertSame(
             ['status' => 'failed', 'error_message' => 'Le mot de passe de l\'archive n\'a pas pu être conservé.'],
             $failed

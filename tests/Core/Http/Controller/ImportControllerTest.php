@@ -755,9 +755,18 @@ class ImportControllerTest extends TestCase
             false,
             true
         );
+        // The CSV the controller deposits exists when the barrier stops it —
+        // the stub writes it where move_uploaded_file() would have, since a
+        // test cannot upload — so the absence asserted at the end is the
+        // controller's cleanup, not a file that was never there.
+        $deposited = [];
         $service = $this->createStub(DeskImportService::class);
-        $service->method('import')->willThrowException(
-            new \Core\Import\RosterReplacementRefusedException($assessment)
+        $service->method('import')->willReturnCallback(
+            static function (string $filePath) use ($assessment, &$deposited): never {
+                file_put_contents($filePath, "Nom;Prénom\nDupont;Marie\n");
+                $deposited[] = $filePath;
+                throw new \Core\Import\RosterReplacementRefusedException($assessment);
+            }
         );
         $controller = ($this->rebuildController)($this->roomyBudget(), $service);
 
@@ -786,6 +795,8 @@ class ImportControllerTest extends TestCase
             $body
         );
         $this->assertNull(\Core\Http\FlashMessage::get());
+        $this->assertCount(1, $deposited, 'the barrier was reached with a deposited file');
+        $this->assertFileDoesNotExist($deposited[0], 'the deposited CSV was kept');
         $this->assertSame([], glob($this->storagePath . '/temp/import_*.csv') ?: [], 'the deposited CSV was kept');
     }
 

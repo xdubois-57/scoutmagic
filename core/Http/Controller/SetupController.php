@@ -1820,13 +1820,19 @@ class SetupController extends AbstractController
                 // here is the settings table itself — and a swallowed
                 // refusal ended on « Configuration enregistrée avec
                 // succès » for a name that was never saved.
+                //
+                // One batch: setMany() checks all three before writing any,
+                // in one transaction, so a refused short_name does not
+                // leave a new site_name behind. The secrets written above
+                // are not part of that transaction.
                 $nonSecretKeys = ['site_name', 'short_name', 'base_url'];
+                $nonSecretValues = [];
                 foreach ($nonSecretKeys as $nsKey) {
                     if (isset($data[$nsKey])) {
-                        $this->settingService->set($nsKey, $data[$nsKey]);
+                        $nonSecretValues[$nsKey] = $data[$nsKey];
                     }
                 }
-                $this->settingService->clearCache();
+                $this->settingService->setMany($nonSecretValues);
             }
 
             // Regenerating the DKIM key moved to « Courrier sortant ›

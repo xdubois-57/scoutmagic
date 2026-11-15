@@ -804,7 +804,7 @@ class EmailTemplateControllerTest extends TestCase
         );
         $journal = new JournalService(new JournalRepository($this->pdo));
         $controller = new EmailTemplateController(
-            TwigFactory::create(dirname(__DIR__, 4) . '/core/View/templates', false),
+            \Tests\TestTwig::create(),
             $this->registry,
             $this->overrides,
             $this->renderer,
