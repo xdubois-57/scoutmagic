@@ -88,6 +88,9 @@ class RentalRequestControllerTest extends TestCase
     /** @var list<array{to: string, subject: string, html: string, text: string, headers: array<string, string>}> */
     private array $sentMail = [];
 
+    /** The address whose mail the transport refuses, when a test needs one to. */
+    private ?string $refusedRecipient = null;
+
     /** @var list<array{typeId: string, recipients: array<int, array{userAccountId: int, memberId: ?int}>, payload: array<string, mixed>}> */
     private array $notifications = [];
 
@@ -341,6 +344,9 @@ class RentalRequestControllerTest extends TestCase
                 ?string $fromNameOverride = null,
                 array $extraHeaders = []
             ): void {
+                if ($to === $this->refusedRecipient) {
+                    throw new \Core\Mail\MailException('Every transport refused the message.');
+                }
                 $this->sentMail[] = [
                     'to' => $to,
                     'subject' => $subject,
@@ -1254,6 +1260,57 @@ class RentalRequestControllerTest extends TestCase
         $this->assertSame(1, $this->bookingCount());
     }
 
+    /**
+     * The managers cannot be looked up — their table is gone here — and
+     * the renter is none the wiser: the request is stored, acknowledged,
+     * and nothing on their screen speaks of a notification.
+     */
+    public function testManagersWhoCannotBeLookedUpCostTheRenterNothing(): void
+    {
+        $assetId = $this->createAsset();
+        $this->addAccount('gestionnaire@test.be');
+        $this->addManager($assetId, 'gestionnaire@test.be');
+        $this->pdo->exec('DROP TABLE rental_asset_managers');
+
+        $response = $this->submit($this->validBody());
+
+        $this->assertSame(302, $response->getStatusCode(), (string) $response->getBody());
+        $this->assertStringStartsWith('/locations/suivi/1/', (string) $response->getHeaders()['Location']);
+        $this->assertSame(1, $this->bookingCount());
+        $this->assertNotNull($this->mailTo('jeanne.martin@example.be'), 'the acknowledgement still goes out');
+        $this->assertSame([], $this->notifications);
+        $this->assertNull(\Core\Http\FlashMessage::get());
+    }
+
+    /**
+     * The acknowledgement the transport refuses: the request is kept, the
+     * renter lands on their page — the only way back in — and is told to
+     * keep its link. The managers are told all the same.
+     */
+    public function testAnAcknowledgementThatCannotLeaveKeepsTheRequestAndSaysToKeepTheLink(): void
+    {
+        $assetId = $this->createAsset();
+        $manager = $this->addAccount('gestionnaire@test.be');
+        $this->addManager($assetId, 'gestionnaire@test.be');
+        $this->refusedRecipient = 'jeanne.martin@example.be';
+
+        $response = $this->submit($this->validBody());
+
+        $this->assertSame(302, $response->getStatusCode(), (string) $response->getBody());
+        $this->assertStringStartsWith('/locations/suivi/1/', (string) $response->getHeaders()['Location']);
+        $this->assertSame(1, $this->bookingCount());
+        $this->assertNull($this->mailTo('jeanne.martin@example.be'));
+        $this->assertSame(
+            [
+                'type' => 'warning',
+                'message' => "Votre demande est bien enregistrée, mais l'email de confirmation n'a pas pu partir. "
+                    . 'Conservez le lien de cette page.',
+            ],
+            \Core\Http\FlashMessage::get()
+        );
+        $this->assertSame([$manager], array_column($this->notifications[0]['recipients'] ?? [], 'userAccountId'));
+    }
+
     // ── The tracking page ───────────────────────────────────────────────
 
     private function tokenFromRedirect(string $location): string
@@ -2057,6 +2114,34 @@ class RentalRequestControllerTest extends TestCase
 
         $this->assertSame('error', \Core\Http\FlashMessage::get()['type'] ?? null);
         $this->assertSame([], glob($this->storagePath . '/rental/documents/*') ?: []);
+    }
+
+    /**
+     * A file of a kind the copy cannot be: the upload's own French reason
+     * is what the renter reads, on their page, and nothing is stored.
+     */
+    public function testACopyOfAKindThatIsNotAcceptedSaysWhyAndIsNotStored(): void
+    {
+        $this->createAsset();
+        [$bookingId, $token] = $this->submitAndTrack();
+        $this->sendTheContract($bookingId);
+        \Core\Http\FlashMessage::get();
+        $stored = glob($this->storagePath . '/rental/documents/*') ?: [];
+
+        $response = $this->postSignedCopy($bookingId, $token, "J'ai bien signé le contrat.\n");
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertStringEndsWith('#contrat', (string) $response->getHeaders()['Location']);
+        $this->assertSame(
+            ['type' => 'error', 'message' => 'Type de fichier non autorisé (text/plain).'],
+            \Core\Http\FlashMessage::get()
+        );
+        $this->assertNull($this->signedContractService->pendingCopy($bookingId));
+        $this->assertSame(
+            $stored,
+            glob($this->storagePath . '/rental/documents/*') ?: [],
+            'only the contract is on disk'
+        );
     }
 
     /**

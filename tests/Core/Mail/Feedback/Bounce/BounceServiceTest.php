@@ -468,4 +468,76 @@ class BounceServiceTest extends TestCase
             'an error nobody could be told about must still be news.'
         );
     }
+
+    // ── a journal that cannot be written (#449) ───────────────────────
+
+    /**
+     * **The block is placed whether or not the journal can say so.** Its
+     * entry is the record of a decision, written after it; letting the
+     * insert's failure escape would leave the address suspended in the
+     * database while `record()` — called by the bounce consumer for a
+     * whole mailbox of reports — throws, and the member would never be
+     * told the address had stopped receiving.
+     */
+    public function testABlockIsPlacedAndToldEvenWhenItsJournalEntryFails(): void
+    {
+        $this->journalThatCannotBeWritten();
+
+        $this->bounce('5.1.1');
+        $state = $this->bounce('5.1.1');
+
+        $this->assertTrue($state?->isBlocked(), 'record() returns the blocked state, not an exception.');
+        $this->assertTrue($this->bounces->isBlocked('parent@exemple.be'));
+        $this->assertSame(
+            ['email' => 'parent@exemple.be', 'blocking' => true],
+            $this->told[count($this->told) - 1] ?? null,
+            'The statement after the journal line ran: the member is told the address is suspended.'
+        );
+    }
+
+    /**
+     * And lifting it is the same: the address is back in service and the
+     * caller — the member's own page, or the super-admin's — is told so,
+     * rather than shown an error about a gesture that took effect.
+     */
+    public function testAnUnblockSucceedsEvenWhenItsJournalEntryFails(): void
+    {
+        $this->bounce('5.1.1');
+        $state = $this->bounce('5.1.1');
+        $this->assertTrue($state?->isBlocked());
+        $this->journalThatCannotBeWritten();
+
+        $this->assertTrue(
+            $this->bounces->unblock($state->id, true),
+            'The block was lifted, so the caller must hear that it was.'
+        );
+        $this->assertFalse($this->bounces->isBlocked('parent@exemple.be'));
+    }
+
+    /**
+     * The service under test, now with a journal whose table is gone —
+     * the `PDOException` a real database refusing the insert throws, and
+     * the same recording notifier as setUp() so `told` still reads.
+     */
+    private function journalThatCannotBeWritten(): void
+    {
+        $this->pdo->exec('DROP TABLE event_log');
+        $this->bounces = new BounceService(
+            $this->states,
+            new \Core\Journal\JournalService(new \Core\Journal\JournalRepository($this->pdo)),
+            new class ($this->told) implements BounceNotifier {
+                /** @param list<array{email: string, blocking: bool}> $told */
+                public function __construct(private array &$told)
+                {
+                }
+
+                public function notify(BounceState $state, bool $blocking): bool
+                {
+                    $this->told[] = ['email' => $state->email, 'blocking' => $blocking];
+
+                    return true;
+                }
+            }
+        );
+    }
 }

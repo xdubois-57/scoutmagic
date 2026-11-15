@@ -168,8 +168,10 @@ class RentalSignedContractServiceTest extends TestCase
     }
 
     /** The service as public/index.php wires it, with or without the notifications. */
-    private function buildService(?NotificationService $notifications): RentalSignedContractService
-    {
+    private function buildService(
+        ?NotificationService $notifications,
+        ?\Modules\Rental\Service\ManagerRecipientResolver $recipients = null
+    ): RentalSignedContractService {
         return new RentalSignedContractService(
             $this->documents,
             $this->documentRepository,
@@ -179,7 +181,7 @@ class RentalSignedContractServiceTest extends TestCase
             new PdfCompressor($this->storagePath . '/temp'),
             $this->journal,
             $notifications,
-            null,
+            $recipients,
             null,
             // As public/index.php wires it: a copy received or refused is a
             // write of an occupation (#927, chantier §2.1).
@@ -891,6 +893,117 @@ class RentalSignedContractServiceTest extends TestCase
         $this->assertSame(2, self::pageCount($path));
         // Signed by both parties: nothing left to send.
         $this->assertFalse($this->service->acceptsCopy($booking));
+    }
+
+    /**
+     * A PDF of the kind a phone's scanner writes — its cross-references in
+     * a stream, which this build of FPDI refuses — is rewritten once and
+     * then countersigned: the renter's own page comes first, at its own
+     * size, then the unit's.
+     */
+    public function testAPdfThisParserCannotReadAsItCameIsRewrittenThenCountersigned(): void
+    {
+        exec('which gs 2>/dev/null', $out, $exit);
+        if ($exit !== 0) {
+            $this->markTestSkipped('Ghostscript not available in this environment.');
+        }
+        $booking = $this->booking();
+        $copy = $this->service->receiveCopy(
+            $booking,
+            $this->asset(),
+            $this->storedFile(self::pdfWithACrossReferenceStream(), 'pdf', 'application/pdf')
+        );
+        $account = $this->account();
+        $this->signatures->save($account, SignatureImage::fromBytes(self::signaturePng()), new \DateTimeImmutable());
+
+        $final = $this->service->countersign(
+            $booking,
+            $this->asset(),
+            $copy->id,
+            $this->stored($account),
+            null,
+            new \DateTimeImmutable()
+        );
+
+        $path = $this->documents->absolutePath($final);
+        $this->assertIsString($path);
+        $pdf = new Fpdi();
+        $this->assertSame(2, $pdf->setSourceFile($path));
+        $this->assertEqualsWithDelta(
+            300 * 25.4 / 72,
+            $pdf->getTemplateSize($pdf->importPage(1))['width'],
+            0.5,
+            'the first page is the renter\'s, at its own size'
+        );
+    }
+
+    /**
+     * A one-page PDF 1.5 whose cross-reference table is a stream, written
+     * by hand so the fixture does not depend on the tool that rewrites it.
+     */
+    private static function pdfWithACrossReferenceStream(): string
+    {
+        $objects = [
+            1 => '<< /Type /Catalog /Pages 2 0 R >>',
+            2 => '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+            3 => '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 400] >>',
+        ];
+        $pdf = "%PDF-1.5\n";
+        $offsets = [];
+        foreach ($objects as $number => $body) {
+            $offsets[$number] = strlen($pdf);
+            $pdf .= $number . " 0 obj\n" . $body . "\nendobj\n";
+        }
+        $offsets[4] = strlen($pdf);
+        $rows = pack('CnC', 0, 0, 255);
+        foreach ($offsets as $offset) {
+            $rows .= pack('CnC', 1, $offset, 0);
+        }
+
+        return $pdf . "4 0 obj\n<< /Type /XRef /Size 5 /W [1 2 1] /Root 1 0 R /Length " . strlen($rows) . " >>\n"
+            . "stream\n" . $rows . "\nendstream\nendobj\nstartxref\n" . $offsets[4] . "\n%%EOF\n";
+    }
+
+    /**
+     * The managers cannot be looked up — their table is gone here — and
+     * the renter's copy is received all the same: nobody is told, and
+     * nothing of it reaches the renter.
+     */
+    public function testACopyIsReceivedWhenTheManagersCannotBeLookedUp(): void
+    {
+        $scoutYearId = (int) (new \Core\Config\ScoutYearService($this->pdo))->getCurrentYear()['id'];
+        $memberId = RentalTestHelper::insertMember($this->pdo, 'D-GEST0001');
+        RentalTestHelper::insertMemberYear(
+            $this->pdo,
+            $this->encryption,
+            $memberId,
+            $scoutYearId,
+            'gestionnaire@test.be'
+        );
+        $managers = new \Modules\Rental\Repository\RentalAssetManagerRepository($this->pdo);
+        $managers->grant($this->assetId, $memberId, false);
+        $this->pdo->prepare('INSERT INTO user_accounts (email_encrypted, email_blind_index) VALUES (?, ?)')
+            ->execute([
+                $this->encryption->encrypt('gestionnaire@test.be', 'user_accounts.email'),
+                $this->encryption->blindIndex('gestionnaire@test.be', 'email'),
+            ]);
+        $resolver = new \Modules\Rental\Service\ManagerRecipientResolver(
+            $managers,
+            new \Core\Import\MemberYearRepository($this->pdo),
+            new UserAccountRepository($this->pdo, $this->encryption),
+            $this->journal
+        );
+        $this->assertCount(1, $resolver->recipientsFor($this->assetId, 'test'), 'the premise: one manager to tell');
+        $sent = [];
+        $service = $this->buildService($this->notifications($sent), $resolver);
+        $booking = $this->booking();
+        $this->pdo->exec('DROP TABLE rental_asset_managers');
+
+        $copy = $service->receiveCopy($booking, $this->asset(), $this->storedFile(self::photo(), 'jpg', 'image/jpeg'));
+
+        $this->assertSame(DocumentType::SIGNED_COPY, $copy->type);
+        $this->assertSame($copy->id, $service->pendingCopy($booking->id)?->id);
+        $this->assertSame([], $sent);
     }
 
     public function testACopyOfAnotherBookingCannotBeAnsweredThroughThisOne(): void

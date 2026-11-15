@@ -207,6 +207,32 @@ class ReturnPathVerifierTest extends TestCase
         $this->assertSame(0, $this->verifierWith(null)->scopedMailboxCount());
     }
 
+    /**
+     * **A module that cannot say which boxes are open is « impossible »,
+     * never an error page and never a probe sent blind.** The question
+     * reads the module's own tables, and the outbound-mail screens are the
+     * ones somebody opens when things are already failing. The failure is
+     * the module's, so the gateway is the double here.
+     */
+    public function testAModuleThatCannotNameItsBoxesMakesTheCheckImpossibleAndSendsNothing(): void
+    {
+        $gateway = $this->createStub(InboundMailInterface::class);
+        $gateway->method('isCollecting')->willReturn(true);
+        $gateway->method('probeAddressesFor')->willThrowException(new \PDOException('SQLSTATE[HY000]: gone away'));
+        $sent = [];
+        $verifier = $this->verifierWith($gateway, $this->mailServiceRecording($sent));
+
+        $this->assertSame(0, $verifier->scopedMailboxCount());
+        $this->assertFalse($verifier->isPossible());
+        $this->assertFalse(ReturnPathVerifier::possibleWith($gateway), 'The support collector reads the same.');
+        $this->assertSame(ReturnState::IMPOSSIBLE, $verifier->stateFor('info@unite.be')['state']);
+
+        $result = $verifier->launch(['info@unite.be']);
+        $this->assertTrue($result['impossible']);
+        $this->assertSame([], $sent, 'No probe goes out into boxes nobody could name.');
+        $this->assertNull($this->probes->findByAddress('info@unite.be'));
+    }
+
     // ── a send that never leaves ──────────────────────────────────────
 
     /**
@@ -474,6 +500,45 @@ class ReturnPathVerifierTest extends TestCase
 
         $this->pdo->rollBack();
         $this->assertNull($this->probes->findByAddress('info@unite.be'), 'And can still undo the write.');
+    }
+
+    /**
+     * **A new probe that cannot be written leaves the previous one in
+     * force.** The DELETE has already run when the INSERT is refused; the
+     * rollback is what keeps the earlier run, and with it the answer the
+     * screen shows. The refusal itself reaches the caller.
+     */
+    public function testAProbeThatCannotBeWrittenLeavesThePreviousOneStanding(): void
+    {
+        $this->probes->issue(
+            'info@unite.be',
+            'RET-ABCDEFGHJK',
+            new \DateTimeImmutable('2026-09-01 08:00:00'),
+            new \DateTimeImmutable('2026-09-01 14:00:00')
+        );
+        $this->pdo->exec(
+            'CREATE TRIGGER refuse_probe_writes BEFORE INSERT ON mail_return_probes
+             BEGIN SELECT RAISE(FAIL, \'sondes indisponibles\'); END'
+        );
+
+        try {
+            $this->probes->issue(
+                'info@unite.be',
+                'RET-MNPQRSTUVW',
+                new \DateTimeImmutable('2026-09-02 08:00:00'),
+                new \DateTimeImmutable('2026-09-02 14:00:00')
+            );
+            $this->fail('A refused write must reach the caller.');
+        } catch (\PDOException $refused) {
+            $this->assertStringContainsString('sondes indisponibles', $refused->getMessage());
+        }
+
+        $this->assertFalse($this->pdo->inTransaction(), 'The transaction it opened is closed.');
+        $this->assertSame(
+            'RET-ABCDEFGHJK',
+            $this->probes->findByAddress('info@unite.be')?->correlationKey,
+            'The DELETE was rolled back with the refused INSERT.'
+        );
     }
 
     // ── helpers ───────────────────────────────────────────────────────

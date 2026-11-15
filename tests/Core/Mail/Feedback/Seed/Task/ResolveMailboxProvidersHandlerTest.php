@@ -284,4 +284,36 @@ class ResolveMailboxProvidersHandlerTest extends TestCase
         $this->assertStringContainsString('"attributed":1', $context);
         $this->assertStringNotContainsString('dupont', $context);
     }
+
+    /**
+     * **A cache table that cannot be read ends this run, not the chain.**
+     * The failure is journalled by its class alone — a PDO message quotes
+     * the statement, and the statement can name a domain — no resolver is
+     * asked anything, and the task is re-armed for tomorrow.
+     */
+    public function testAnUnreadableCacheIsJournalledAndTheTaskRearmsItself(): void
+    {
+        $this->pdo->exec('DROP TABLE mail_domain_providers');
+        $lookup = $this->lookup(['famille.be' => ['aspmx.l.google.com']]);
+
+        (new ResolveMailboxProvidersHandler($lookup))->handle([], $this->context);
+
+        $statement = $this->pdo->prepare(
+            "SELECT level, context FROM event_log WHERE event_type = 'mail_domain_providers_failed'"
+        );
+        $statement->execute();
+        $row = $statement->fetch(\PDO::FETCH_ASSOC);
+        $this->assertNotFalse($row, 'The failure is journalled.');
+        $this->assertSame('error', $row['level']);
+        $this->assertSame(['error' => \PDOException::class], json_decode((string) $row['context'], true));
+        $this->assertSame([], $lookup->asked, 'No resolver is asked about a cache nobody can read.');
+        $this->assertSame(
+            1,
+            (int) $this->pdo->query(
+                "SELECT COUNT(*) FROM scheduled_actions WHERE task_key = '"
+                    . ResolveMailboxProvidersHandler::TASK_KEY . "'"
+            )?->fetchColumn(),
+            'And it re-armed itself for tomorrow.'
+        );
+    }
 }

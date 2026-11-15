@@ -370,6 +370,8 @@ final class MailTransportChain implements MailTransportInterface
             } catch (\Throwable) {
                 // Same posture as the breaker: a reserve that cannot be
                 // computed must not become a reason to stop sending.
+                // @catch-unreachable forProvider() reads only the two tables candidates() read a moment
+                // earlier in this send, with no I/O between; only a connection lost in that gap lands here.
             }
         }
 

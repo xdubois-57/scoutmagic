@@ -72,6 +72,37 @@ class ErrorHandlerTest extends TestCase
     }
 
     /**
+     * And when it throws, the generic page is sent, the detail goes to the
+     * server's log only, and the request ENDS there — nothing the caller
+     * would have run after the dispatch reaches the visitor.
+     *
+     * Without register(), and with PHP displaying its errors: what guard()
+     * promises is not to leave the throwable to PHP's default handler,
+     * which would print it — so the promise is checked where that handler
+     * is the only other one. In a PHP process of its own, because guard()
+     * exits: inside this one it would end PHPUnit's child before the
+     * result is reported.
+     */
+    public function testGuardSendsTheGenericPageAndEndsTheRequestWhenTheCallbackThrows(): void
+    {
+        $script = 'require ' . var_export(dirname(__DIR__, 3) . '/vendor/autoload.php', true) . ';'
+            . 'ini_set("error_log", ' . var_export($this->logFile, true) . ');'
+            . 'ini_set("display_errors", "1");'
+            . '\\Core\\Http\\ErrorHandler::guard(static function (): never {'
+            . ' throw new \\RuntimeException("needle-in-the-guard"); });'
+            . 'echo "after-the-dispatch";';
+
+        $output = (string) shell_exec(
+            sprintf('%s -r %s 2>/dev/null', escapeshellarg(PHP_BINARY), escapeshellarg($script))
+        );
+
+        $this->assertStringContainsString('Une erreur est survenue', $output);
+        $this->assertStringNotContainsString('needle-in-the-guard', $output);
+        $this->assertStringNotContainsString('after-the-dispatch', $output, 'guard() let the request carry on');
+        $this->assertStringContainsString('needle-in-the-guard', (string) file_get_contents($this->logFile));
+    }
+
+    /**
      * A production 500 page must never contain the exception message,
      * class, file path or trace — that is the whole point of the handler.
      */
