@@ -215,6 +215,11 @@ class ImapMailboxClient implements IncomingMailboxClientInterface, PruningMailbo
             try {
                 $fetched[] = $this->toFetchedMessage($message, $folder, $uid);
             } catch (\Throwable $e) {
+                // @catch-unreachable the library parses every message eagerly, inside
+                // TolerantMessageQuery::make(), and what fails there is caught there; toFetchedMessage()
+                // only reads what it already parsed. Malformed Message-ID, In-Reply-To and References,
+                // doubled headers, an unknown charset and broken base64 all come back as messages. Kept
+                // for a library release that reads lazily: one message must still cost only itself.
                 self::trace($folder, $uid, 'could not be read (' . self::safeReason($e) . '); skipped');
                 $this->lastSkippedUid = max($this->lastSkippedUid, $uid);
                 continue;
