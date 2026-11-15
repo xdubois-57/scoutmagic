@@ -1914,14 +1914,16 @@ class RegistrationConfigControllerTest extends TestCase
         $first = $this->createRequest($this->targetYearId, 'Alix');
         $second = $this->createRequest($this->targetYearId, 'Basile');
         $member = RegistrationTestHelper::insertMember($this->pdo, 'DESK-BASILE');
-        // A trigger body takes no bound parameters: the three ids are the
-        // fixture's own integers, cast so nothing else can reach the text.
-        [$first, $second, $member] = [(int) $first, (int) $second, (int) $member];
+        // A trigger body takes no bound parameters, so it reads the three
+        // ids from a fixture table the test fills through a prepared insert.
+        $this->pdo->exec('CREATE TABLE encode_meanwhile_ids (first_id INTEGER, second_id INTEGER, member_id INTEGER)');
+        $this->pdo->prepare('INSERT INTO encode_meanwhile_ids VALUES (?, ?, ?)')->execute([$first, $second, $member]);
         $this->pdo->exec(
             "CREATE TRIGGER encode_meanwhile AFTER UPDATE OF status ON registration_requests
-             WHEN NEW.id = {$first} BEGIN
-                 UPDATE registration_requests SET status = 'encoded', linked_member_id = {$member}
-                  WHERE id = {$second};
+             WHEN NEW.id = (SELECT first_id FROM encode_meanwhile_ids) BEGIN
+                 UPDATE registration_requests
+                    SET status = 'encoded', linked_member_id = (SELECT member_id FROM encode_meanwhile_ids)
+                  WHERE id = (SELECT second_id FROM encode_meanwhile_ids);
              END"
         );
 
