@@ -134,7 +134,8 @@ class PostControllerTest extends TestCase
         string $role = 'identified',
         bool $completeProfile = true,
         ?DelegatedAlbumManager $delegatedAlbumManager = null,
-        ?LinkPreviewFetcher $linkPreviewFetcher = null
+        ?LinkPreviewFetcher $linkPreviewFetcher = null,
+        ?\Modules\Groups\Service\ModerationService $moderationService = null
     ): PostController {
         AuthSession::login($accountId, 'parent@test.be', $role);
 
@@ -163,7 +164,12 @@ class PostControllerTest extends TestCase
         $resolver->method('getAuthorizationYear')->willReturn(new EffectiveScoutYear($this->currentYearId, '2025-2026', null));
 
         $activityService = new GroupActivityService($this->groupRepo, $this->postRepo);
-        $postService = new PostService($this->postRepo, $activityService, GroupsTestHelper::rateLimitService($this->pdo));
+        $postService = new PostService(
+            $this->postRepo,
+            $activityService,
+            GroupsTestHelper::rateLimitService($this->pdo),
+            $moderationService
+        );
         $postMediaService = new PostMediaService(
             $delegatedAlbumManager ?? $this->createStub(DelegatedAlbumManager::class),
             new PostMediaRepository($this->pdo), $this->groupRepo, new \Modules\Groups\Repository\ReplyRepository($this->pdo)
@@ -814,6 +820,38 @@ class PostControllerTest extends TestCase
 
         $this->assertSame(302, $response->getStatusCode());
         $this->assertSame('Corrigé', $this->postRepo->findById($postId)->body);
+    }
+
+    /**
+     * An edit runs the same a-priori check as a new post: a correction
+     * the AI flags is refused, the published text stays as it was, and
+     * the author gets their words back with the suggested rewording.
+     */
+    public function testAnEditTheModerationFlagsIsRefusedAndHandedBackToItsAuthor(): void
+    {
+        $postId = $this->seedPost(2);
+        $this->withCsrf(['body' => 'Tu es nul']);
+        $moderation = GroupsTestHelper::flaggingModeration(
+            $this->pdo,
+            'Ce message vise une personne plutôt qu\'un fait.',
+            'Je ne suis pas d\'accord avec ce choix.'
+        );
+
+        $response = $this->controller([$this->memberId], moderationService: $moderation)
+            ->edit($this->request(), $this->params($postId));
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('/groups/' . $this->groupId, $response->getHeaders()['Location'] ?? null);
+        $this->assertSame(
+            ['type' => 'error', 'message' => 'Ce message vise une personne plutôt qu\'un fait.'],
+            FlashMessage::get()
+        );
+        $this->assertSame(
+            ['body' => 'Tu es nul', 'suggestion' => 'Je ne suis pas d\'accord avec ce choix.', 'post_id' => null],
+            \Modules\Groups\Support\RejectedDraft::take()
+        );
+        $this->assertSame('Bonjour', $this->postRepo->findById($postId)->body);
+        $this->assertNull($this->postRepo->findById($postId)->editedAt);
     }
 
     public function testTheAuthorMayNotEditOnceTheWindowHasPassed(): void

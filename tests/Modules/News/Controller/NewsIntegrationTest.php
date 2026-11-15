@@ -1144,6 +1144,67 @@ class NewsIntegrationTest extends TestCase
         );
     }
 
+    /**
+     * The mass-mail module refusing the draft — here with the sentence it
+     * really says when no row can reach anybody — sends the chief back to
+     * the responses with that sentence, and journals no draft that was
+     * never made.
+     */
+    public function testAMailDraftTheMassMailModuleRefusesSendsTheChiefBackWithItsReason(): void
+    {
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+        $articleId = $this->articleWithOneResponse();
+        $draft = $this->createStub(\Modules\MassMail\Api\MassMailDraftInterface::class);
+        $draft->method('createMergeDraft')->willThrowException(new \Modules\MassMail\Api\MassMailException(
+            'Personne à qui écrire : aucune ligne ne porte un membre ou une adresse.'
+        ));
+        $this->journalService->expects($this->never())->method('log');
+
+        $response = $this->formControllerWithMassMail($draft)->createMailDraft(
+            new Request('POST', '/news/' . $articleId . '/form/responses/mail-draft', [], [
+                '_csrf_token' => CsrfGuard::generateToken(),
+            ], [], []),
+            ['id' => (string) $articleId]
+        );
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('/news/' . $articleId . '/form/responses', $response->getHeaders()['Location'] ?? null);
+        $this->assertSame(
+            ['type' => 'error', 'message' => 'Personne à qui écrire : aucune ligne ne porte un membre ou une adresse.'],
+            \Core\Http\FlashMessage::get()
+        );
+    }
+
+    /**
+     * Pins what happens today, not what should: the catch takes every
+     * throwable and shows its message as it is, so a technical failure of
+     * the mass-mail module reaches the chief's screen in its own words.
+     * Reported to be routed through Core\Exception\UserFacingMessage; this
+     * test is meant to change when that is done.
+     */
+    public function testAMailDraftThatFailsTechnicallyCurrentlyShowsTheRawMessage(): void
+    {
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+        $articleId = $this->articleWithOneResponse();
+        $draft = $this->createStub(\Modules\MassMail\Api\MassMailDraftInterface::class);
+        $draft->method('createMergeDraft')->willThrowException(
+            new \PDOException('SQLSTATE[HY000]: General error: 1 no such table: mass_mail_audiences')
+        );
+
+        $response = $this->formControllerWithMassMail($draft)->createMailDraft(
+            new Request('POST', '/news/' . $articleId . '/form/responses/mail-draft', [], [
+                '_csrf_token' => CsrfGuard::generateToken(),
+            ], [], []),
+            ['id' => (string) $articleId]
+        );
+
+        $this->assertSame('/news/' . $articleId . '/form/responses', $response->getHeaders()['Location'] ?? null);
+        $this->assertSame(
+            'SQLSTATE[HY000]: General error: 1 no such table: mass_mail_audiences',
+            \Core\Http\FlashMessage::get()['message'] ?? null
+        );
+    }
+
     private function articleWithOneResponse(string $responseRoleMin = 'chief'): int
     {
         $articleId = NewsTestHelper::publish($this->pdo, $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId));
@@ -2264,6 +2325,80 @@ class NewsIntegrationTest extends TestCase
     }
 
     /**
+     * A file that is no image is refused with the reason, as JSON the
+     * editor shows beside its toolbar — and nothing is stored.
+     */
+    public function testABodyImageThatIsNoImageIsRefusedWithTheReason(): void
+    {
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+        $path = tempnam(sys_get_temp_dir(), 'news_test_text_');
+        file_put_contents($path, "Ceci n'est pas une image.\n");
+        $_FILES['image'] = [
+            'name' => 'photo.jpg', 'tmp_name' => $path, 'error' => UPLOAD_ERR_OK,
+            'size' => (int) filesize($path), 'type' => 'image/jpeg',
+        ];
+
+        try {
+            $response = $this->newsController->uploadBodyImage(new Request('POST', '/news/images/upload', [], [
+                '_csrf_token' => CsrfGuard::generateToken(),
+            ], [], []), []);
+        } finally {
+            @unlink($path);
+        }
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertSame(
+            ['success' => false, 'error' => 'Type de fichier non autorisé (text/plain).'],
+            json_decode($response->getBody(), true)
+        );
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM files')->fetchColumn());
+    }
+
+    /**
+     * « Générer avec l'IA » on a site with no AI provider: the editor is
+     * told so, as JSON, and keeps whatever the author already typed.
+     */
+    public function testGeneratingKeywordsWithoutAnAiProviderSaysSo(): void
+    {
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+
+        $response = $this->newsController->generateSeoKeywords(
+            new RequestWithInput('POST', '/news/seo/generate-keywords', [], [], [], [], (string) json_encode([
+                '_csrf_token' => CsrfGuard::generateToken(),
+                'title' => 'Camp',
+                'body_html' => '<p>Le camp commence samedi.</p>',
+            ])),
+            []
+        );
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertSame(
+            ['success' => false, 'error' => 'Service IA non disponible.'],
+            json_decode($response->getBody(), true)
+        );
+    }
+
+    public function testGeneratingASummaryWithoutAnAiProviderSaysSo(): void
+    {
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+
+        $response = $this->newsController->generateSummary(
+            new RequestWithInput('POST', '/news/seo/generate-summary', [], [], [], [], (string) json_encode([
+                '_csrf_token' => CsrfGuard::generateToken(),
+                'title' => 'Camp',
+                'body_html' => '<p>Le camp commence samedi.</p>',
+            ])),
+            []
+        );
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertSame(
+            ['success' => false, 'error' => 'Service IA non disponible.'],
+            json_decode($response->getBody(), true)
+        );
+    }
+
+    /**
      * An article written before #883 carries its text images as originals.
      * The page shows the `md` rendition wherever it exists, and leaves an
      * image without one alone: a heavy image beats a broken one.
@@ -2705,6 +2840,110 @@ class NewsIntegrationTest extends TestCase
         $response = $this->formController->updateResponse($request, ['id' => (string) $articleId, 'response_id' => (string) $responseId]);
 
         $this->assertSame(302, $response->getStatusCode());
+    }
+
+    /**
+     * An edit asking more places than the others left: refused on the
+     * edit form itself, with the reason, the stored answer untouched and
+     * the transaction the check ran in rolled back — not left open under
+     * the rest of the request.
+     */
+    public function testAnEditAskingMorePlacesThanRemainIsRefusedOnTheEditForm(): void
+    {
+        $articleId = $this->publishedArticle();
+        $formId = $this->formRepository->create(
+            $articleId,
+            NewsForm::ACCESS_PUBLIC,
+            NewsForm::RESPONSE_LIMIT_UNLIMITED,
+            null,
+            null,
+            false,
+            'chief',
+            null,
+            null
+        );
+        $fieldId = $this->fieldRepository->create(
+            $formId, 0, FormField::TYPE_NUMBER, 'Places', true, null, null, 3, null, null
+        );
+        $responseId = $this->responseRepository->create(
+            $formId, null, null, 'parent@test.com', [$fieldId => '1'], null, null
+        );
+        $this->responseRepository->create($formId, null, null, 'autre@test.com', [$fieldId => '2'], null, null);
+        AuthSession::login($this->chiefAccountId, 'admin@test.com', 'admin');
+        $this->journalService->expects($this->never())->method('log');
+
+        $response = $this->formController->updateResponse(
+            new Request('POST', '/news/' . $articleId . '/form/responses/' . $responseId . '/edit', [], [
+                '_csrf_token' => CsrfGuard::generateToken(),
+                'contact_email' => 'parent@test.com',
+                'field_' . $fieldId => '2',
+            ], [], []),
+            ['id' => (string) $articleId, 'response_id' => (string) $responseId]
+        );
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertStringContainsString(
+            'Il n&#039;y a plus assez de places disponibles pour &quot;Places&quot;.',
+            $response->getBody()
+        );
+        $this->assertSame([$fieldId => '1'], $this->responseRepository->getValues($responseId));
+        $this->assertFalse($this->pdo->inTransaction());
+    }
+
+    /**
+     * A reorder naming questions that are not the form's: refused as
+     * JSON, and the questions keep their order.
+     */
+    public function testReorderingWithAForeignQuestionIsRefusedAndChangesNothing(): void
+    {
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+        $articleId = $this->publishedArticle();
+        $formId = $this->formRepository->create(
+            $articleId,
+            NewsForm::ACCESS_PUBLIC,
+            NewsForm::RESPONSE_LIMIT_UNLIMITED,
+            null,
+            null,
+            false,
+            'chief',
+            null,
+            null
+        );
+        $first = $this->fieldRepository->create(
+            $formId, 0, FormField::TYPE_SHORT_TEXT, 'Nom', true, null, null, null, null, null
+        );
+        $second = $this->fieldRepository->create(
+            $formId, 1, FormField::TYPE_SHORT_TEXT, 'Prénom', true, null, null, null, null, null
+        );
+        $body = (string) json_encode(['_csrf_token' => CsrfGuard::generateToken(), 'ids' => [$second, 999]]);
+
+        $response = $this->formController->reorderFields(
+            new RequestWithInput('PATCH', '/news/' . $articleId . '/form/fields/reorder', [], [], [], [], $body),
+            ['id' => (string) $articleId]
+        );
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertSame(
+            ['success' => false, 'error' => 'Liste de champs invalide.'],
+            json_decode($response->getBody(), true)
+        );
+        $this->assertSame(
+            [$first, $second],
+            array_map(static fn (FormField $field): int => $field->id, $this->fieldRepository->findByFormId($formId))
+        );
+    }
+
+    /** A public article, published, by the chief — the fixture the two tests above start from. */
+    private function publishedArticle(): int
+    {
+        return NewsTestHelper::publish($this->pdo, $this->articleRepository->create(
+            'Camp',
+            Article::VISIBILITY_PUBLIC,
+            false,
+            null,
+            null,
+            $this->chiefAccountId
+        ));
     }
 
     public function testSubmitJournalsTheResponseSubmission(): void

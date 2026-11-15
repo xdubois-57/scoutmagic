@@ -263,6 +263,36 @@ final class TicketDnsSnapshotTest extends TestCase
         $this->assertNotContains('support_ticket_dns_failed', $this->journalTypes());
     }
 
+    /**
+     * A queue that cannot take the read: the ticket is filed and answered
+     * all the same, and the journal says the zone read was never even
+     * queued — naming the ticket and the exception's class, so an absent
+     * snapshot does not pass for a domain with nothing in it.
+     */
+    public function testAQueueThatRefusesTheReadStillFilesTheTicketAndSaysSo(): void
+    {
+        $this->registerInstallation('https://unite.example.be');
+        $this->pdo->exec('DROP TABLE scheduled_actions');
+
+        $this->assertTrue($this->file(withScheduler: true));
+
+        $this->assertSame(1, $this->countTickets());
+        $this->assertNull($this->column('dns_snapshot_encrypted'));
+        $stmt = $this->pdo->prepare('SELECT description, context FROM event_log WHERE event_type = ?');
+        $stmt->execute(['support_ticket_dns_skipped']);
+        $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+        $this->assertCount(1, $rows);
+        $this->assertSame('Le relevé DNS de ce ticket n\'a pas pu être mis en file', $rows[0]['description']);
+        $this->assertSame(
+            [
+                'installation_id' => self::INSTALLATION_ID,
+                'ticket_reference' => $this->storedReference(),
+                'exception' => \PDOException::class,
+            ],
+            json_decode((string) $rows[0]['context'], true)
+        );
+    }
+
     // ── Helpers ─────────────────────────────────────────────────────────
 
     /**

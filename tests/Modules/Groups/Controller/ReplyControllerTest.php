@@ -39,7 +39,8 @@ class ReplyControllerTest extends GroupsControllerTestCase
         int $accountId = self::AUTHOR_ACCOUNT,
         string $role = 'identified',
         bool $completeProfile = true,
-        ?DelegatedAlbumManager $delegatedAlbumManager = null
+        ?DelegatedAlbumManager $delegatedAlbumManager = null,
+        ?\Modules\Groups\Service\ModerationService $moderationService = null
     ): ReplyController {
         AuthSession::login($accountId, 'parent@test.be', $role);
 
@@ -55,7 +56,9 @@ class ReplyControllerTest extends GroupsControllerTestCase
             $this->pdo,
             new GroupActivityService($this->groupRepo, $this->postRepo),
             $postMediaService,
-            new PostAuthorResolver(GroupsTestHelper::identityService($this->pdo))
+            new PostAuthorResolver(GroupsTestHelper::identityService($this->pdo)),
+            null,
+            $moderationService
         );
 
         return new ReplyController(
@@ -392,6 +395,44 @@ class ReplyControllerTest extends GroupsControllerTestCase
         $this->assertSame(0, $this->replyRepo->countForPost($this->postId));
     }
 
+    /**
+     * The image is uploaded before the reply row exists, so a reply the
+     * service then refuses — here the member's hourly burst already spent
+     * — takes its picture back out of the group album rather than leaving
+     * it there with nothing pointing at it.
+     */
+    public function testARefusedReplyTakesItsUploadedImageBackOut(): void
+    {
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO discussion_group_rate_limits (member_id, action_type, created_at) VALUES (?, ?, ?)'
+        );
+        for ($i = 0; $i < 40; $i++) {
+            $stmt->execute([
+                $this->memberId,
+                \Modules\Groups\Service\RateLimitService::ACTION_REPLY,
+                Timestamps::now(),
+            ]);
+        }
+        $album = $this->createMock(DelegatedAlbumManager::class);
+        $album->method('ensureAlbum')->willReturn(new DelegatedAlbum(55, 'Louveteaux', '2026-01-01'));
+        $album->method('addMedia')
+            ->willReturn(new DelegatedMedia(77, 'photo', 'pending', 0, 'photo0.jpg', '2026-01-01 10:00:00'));
+        $album->expects($this->once())->method('deleteMedia')->with(55, 77);
+        $this->withCsrf(['body' => 'encore une']);
+        $this->withImageFiles(1);
+
+        $response = $this->controller([$this->memberId], self::AUTHOR_ACCOUNT, 'identified', true, $album)
+            ->create($this->request(), $this->params($this->postId));
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('/groups/' . $this->groupId, $response->getHeaders()['Location'] ?? null);
+        $this->assertSame(
+            'Vous avez publié beaucoup de messages coup sur coup — merci de patienter quelques instants.',
+            \Core\Http\FlashMessage::get()['message'] ?? null
+        );
+        $this->assertSame(0, $this->replyRepo->countForPost($this->postId));
+    }
+
     public function testTheAuthorMayEditInsideTheWindow(): void
     {
         $replyId = GroupsTestHelper::createReplyAt(
@@ -403,6 +444,39 @@ class ReplyControllerTest extends GroupsControllerTestCase
 
         $this->assertSame(302, $response->getStatusCode());
         $this->assertSame('après', $this->replyRepo->findById($replyId)->body);
+    }
+
+    /**
+     * The same a-priori check as a new reply: an edit the AI flags leaves
+     * the published reply as it was and hands the author their words
+     * back, under the post they were answering.
+     */
+    public function testAnEditTheModerationFlagsIsRefusedAndHandedBackToItsAuthor(): void
+    {
+        $replyId = GroupsTestHelper::createReplyAt(
+            $this->pdo, $this->postId, 'avant', Timestamps::at('-60 seconds'), self::AUTHOR_ACCOUNT, $this->memberId
+        );
+        $this->withCsrf(['body' => 'Tu es nul']);
+        $moderation = GroupsTestHelper::flaggingModeration(
+            $this->pdo,
+            'Cette réponse vise une personne plutôt qu\'un fait.',
+            null
+        );
+
+        $response = $this->controller([$this->memberId], moderationService: $moderation)
+            ->edit($this->request(), $this->params(null, $replyId));
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('/groups/' . $this->groupId, $response->getHeaders()['Location'] ?? null);
+        $this->assertSame(
+            ['type' => 'error', 'message' => 'Cette réponse vise une personne plutôt qu\'un fait.'],
+            \Core\Http\FlashMessage::get()
+        );
+        $this->assertSame(
+            ['body' => 'Tu es nul', 'suggestion' => null, 'post_id' => $this->postId],
+            \Modules\Groups\Support\RejectedDraft::take()
+        );
+        $this->assertSame('avant', $this->replyRepo->findById($replyId)->body);
     }
 
     public function testTheAuthorMayNotEditOutsideTheWindow(): void

@@ -147,13 +147,13 @@ l'ordre des lots (ceux à zéro, 11 domaines, ne figurent pas) :
 | `core/Support` | ~~20~~ **0** (lot 9) | ~~4~~ 0 | 1 | 29 |
 | `modules/registration` | ~~17~~ **0** (lot 10) | ~~4~~ 0 | 1 | 47 |
 | `modules/camps` | ~~15~~ **0** (lot 11) | ~~1~~ 0 | 1 | 34 |
-| `core/Member` | 11 | 2 | 0 | 19 |
-| `modules/attestations` | 11 | 1 | 0 | 20 |
-| `modules/data_migration` | 11 | 0 | 0 | 28 |
-| `modules/groups` | 10 | 2 | 0 | 24 |
-| `modules/news` | 9 | 0 | 0 | 25 |
-| `modules/sos_staff` | 9 | 0 | 0 | 23 |
-| `modules/support_dashboard` | 9 | 2 | 0 | 13 |
+| `core/Member` | ~~11~~ **0** (lot 12) | ~~2~~ 0 | 3 | 19 |
+| `modules/attestations` | ~~11~~ **0** (lot 13) | ~~1~~ 0 | 0 | 20 |
+| `modules/data_migration` | ~~11~~ **0** (lot 14) | 0 | 0 | 28 |
+| `modules/groups` | ~~10~~ **0** (lot 15) | ~~2~~ 0 | 1 | 24 |
+| `modules/news` | ~~9~~ **0** (lot 16) | 0 | 0 | 25 |
+| `modules/sos_staff` | ~~9~~ **0** (lot 17) | 0 | 1 | 23 |
+| `modules/support_dashboard` | ~~9~~ **0** (lot 18) | ~~2~~ 0 | 0 | 13 |
 | `modules/gallery` | 8 | 0 | 0 | 35 |
 | `modules/social` | 8 | 0 | 0 | 23 |
 | `core/Photo` | 6 | 0 | 0 | 8 |
@@ -520,3 +520,91 @@ des lieux sont des valeurs qu'ils acceptent :
 - un type de séjour choisi parmi les types connus ;
 - un statut fixe et aucune section ;
 - un lieu nommé seulement depuis une réponse non vide du modèle.
+
+### Lot 12 — `core/Member` — 2026-11-15
+
+**11 → 0** jamais exécutés ; trois marqueurs. Remesuré sur `tests/Core/Member`
+(PCOV), après fusion de `main`. Les deux `catch` de
+`EmailAddressReactivationService` sont exécutés par
+`tests/Modules/MassMail` (`AddressReactivationServiceTest` et son pendant
+MariaDB), ce qui met le domaine à zéro sur la suite entière.
+
+**Branches atteintes** par un état réel : transport qui refuse, note vide ou
+d'un autre membre, course réelle à deux sessions sur MariaDB, nom chiffré
+sous une autre clé, trigger qui refuse une écriture, fichier disparu.
+
+**Les marqueurs** : trois relectures, dans la même requête, d'une fiche lue
+juste au-dessus (`findById()`, `findMostRecentForMember()` ou
+`findByMemberAndYear()`, toutes jointes à `members`). `getMemberProfile()` ne
+lève que si la fiche a disparu entre les deux lectures, ce que seule une
+suppression concurrente produit.
+
+### Lot 13 — `modules/attestations` — 2026-11-15
+
+**11 → 0** jamais exécutés ; aucun marqueur. Remesuré sur
+`tests/Modules/Attestations` (PCOV), après fusion de `main`.
+
+**11 branches atteintes** par un état réel : PDF illisible, page abîmée,
+membre non proposé, trigger qui refuse une publication, une reprise ou un
+dépôt.
+
+### Lot 14 — `modules/data_migration` — 2026-11-15
+
+**11 → 0** jamais exécutés ; aucun marqueur. Remesuré sur
+`tests/Modules/DataMigration` (PCOV), après fusion de `main`.
+
+**11 branches atteintes** par un état réel : fragment hors séquence,
+identifiant de dépôt hors du dossier, ICS mal formé, fuseau inconnu, aperçu
+en panne, archive disparue ou plus grosse que son budget.
+
+Pour les trois lots, chaque test vérifie l'effet et échoue quand le `catch`
+relance ou change ce qu'il fait.
+
+### Lot 15 — `modules/groups` — 2026-11-15
+
+**10 → 0** jamais exécutés ; un marqueur. Remesuré sur `tests/Modules/Groups`
+(PCOV), après fusion de `main`.
+
+**9 branches atteintes** par un état réel : marque de lecture refusée, média
+déjà supprimé, modération qui refuse, limite de cadence, trigger, adresse
+chiffrée sous une autre clé, double appui sur un sondage.
+
+**Le marqueur** : le second `catch` d'une transaction dont le premier prend
+déjà `PDOException`. Tous les appels du `try` sont ceux de PDO, sur la
+connexion en `ERRMODE_EXCEPTION` qu'ouvre `Core\Database\Connection`, la
+seule avec laquelle ce dépôt est construit : leurs échecs sont tous des
+`PDOException`.
+
+### Lot 16 — `modules/news` — 2026-11-15
+
+**9 → 0** jamais exécutés ; aucun marqueur. Remesuré sur `tests/Modules/News`
+(PCOV), après fusion de `main`.
+
+**9 branches atteintes** par un état réel : pas de fournisseur IA, image qui
+n'en est pas une, brouillon refusé par l'envoi groupé, places insuffisantes,
+champ étranger, collision de référence, trigger.
+
+### Lot 17 — `modules/sos_staff` — 2026-11-15
+
+**9 → 0** jamais exécutés ; un marqueur. Remesuré sur `tests/Modules/SosStaff`
+(PCOV), après fusion de `main`.
+
+**8 branches atteintes** par un état réel : heure invalide, étapes OVH
+manquantes ou non approuvées, doublon de garde, alerte qui échoue sur chacun
+de ses canaux.
+
+**Le marqueur** : la lecture des lignes d'un fournisseur simulé
+(`ProviderConfigService`). Le seul simulateur qu'une racine de composition
+fournit est `SimulatedPhoneProvider` de `test_tools`, dont `listLines()` rend
+une ligne constante sans rien toucher qui puisse échouer.
+
+### Lot 18 — `modules/support_dashboard` — 2026-11-15
+
+**9 → 0** jamais exécutés ; aucun marqueur. Remesuré sur
+`tests/Modules/SupportDashboard` (PCOV), après fusion de `main`.
+
+**9 branches atteintes** par un état réel : tables absentes, trigger, archive
+qui n'est pas un zip, classeur illisible.
+
+Pour les quatre lots, chaque test vérifie l'effet et échoue quand le `catch`
+relance ou change ce qu'il fait.

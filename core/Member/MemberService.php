@@ -289,6 +289,9 @@ class MemberService
         try {
             return $this->getMemberProfile($row['id']);
         } catch (MemberNotFoundException $e) {
+            // @catch-unreachable findByMemberAndYear() has just read this row; getMemberProfile() rereads it
+            // joined to members, which fk_my_member (no cascade) guarantees, so only a delete of the row
+            // between the two reads of this call lands here.
             return null;
         }
     }

@@ -44,6 +44,13 @@ final class TestImporter implements Importer
     /** @var (\Closure(SourceItem): void)|null runs at the start of write() */
     public ?\Closure $onWrite = null;
 
+    /**
+     * A member write() reads whole from the archive, as the importers that
+     * store a file per item do (member photos, news images): what it reads
+     * counts against the archive's budget like any other read.
+     */
+    public ?string $readOnWrite = null;
+
     public function __construct(
         private \PDO $pdo,
         private string $key = 'essai',
@@ -122,6 +129,10 @@ final class TestImporter implements Importer
     {
         if ($this->onWrite !== null) {
             ($this->onWrite)($item);
+        }
+        if ($this->readOnWrite !== null) {
+            $context->source->archive()->stream($this->readOnWrite, static function (string $chunk): void {
+            });
         }
         $this->pdo->prepare('INSERT INTO test_written (source_id) VALUES (?)')->execute([$item->sourceId]);
         if (in_array($item->sourceId, $this->failingIds, true)) {

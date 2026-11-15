@@ -68,6 +68,93 @@ final class MemberEmailRepositoryOnMysqlTest extends TestCase
         $this->assertSame(0, $this->repository->deleteStaleDeskOverrides(new \DateTimeImmutable('2026-11-12'), [$current]));
     }
 
+    /**
+     * Two mailings resolve the same Desk address at once. The other one
+     * has inserted the override row and not committed yet: this one does
+     * not see it, its own insert waits on the unique index, and fails once
+     * the other commits. It then takes the row the other one wrote rather
+     * than failing the mailing.
+     */
+    public function testADeskOverrideThatLosesTheRaceTakesTheRowTheOtherRequestWrote(): void
+    {
+        $member = $this->member('D1');
+        $credentials = self::productionEngineCredentials();
+        $code = <<<'PHP'
+            require 'vendor/autoload.php';
+            [, $host, $port, $database, $user, $password, $member] = $argv;
+            $pdo = (new Core\Database\Connection($host, (int) $port, $database, $user, $password))->getPdo();
+            $encryption = new Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+            $pdo->beginTransaction();
+            $id = (new Core\Member\MemberEmailRepository($pdo, $encryption))->create(
+                (int) $member, 'race@test.com', 'desk', 'valid', null, null
+            );
+            fwrite(STDOUT, "INSERTED $id\n");
+            fflush(STDOUT);
+            usleep(1500000);
+            $pdo->commit();
+            fwrite(STDOUT, "COMMITTED\n");
+            PHP;
+        $process = proc_open(
+            [
+                PHP_BINARY, '-r', $code, '--',
+                $credentials['host'], (string) $credentials['port'],
+                (string) $this->pdo->query('SELECT DATABASE()')->fetchColumn(),
+                $credentials['user'], $credentials['password'], (string) $member,
+            ],
+            [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+            $pipes,
+            dirname(__DIR__, 3)
+        );
+        $this->assertIsResource($process);
+
+        try {
+            $line = (string) fgets($pipes[1]);
+            if (preg_match('/^INSERTED (\d+)$/', trim($line), $match) !== 1) {
+                $this->fail('the other session did not insert: ' . $line . stream_get_contents($pipes[2]));
+            }
+
+            $row = $this->repository->findOrCreateDeskOverride($member, 'race@test.com');
+
+            $this->assertSame("COMMITTED\n", stream_get_contents($pipes[1]));
+        } finally {
+            proc_close($process);
+        }
+
+        $this->assertSame((int) $match[1], $row->id, 'the row the other request wrote is the one returned');
+        $this->assertSame(MemberEmail::SOURCE_DESK, $row->source);
+        $this->assertSame(
+            1,
+            (int) $this->pdo->query('SELECT COUNT(*) FROM member_emails')->fetchColumn(),
+            'no second row'
+        );
+    }
+
+    /**
+     * Pinned, not endorsed: the catch reads every PDOException as the race
+     * above. A write the database refuses for another reason finds no row
+     * on the re-read, and ends in an \Error (the assertion, or the return
+     * type where assertions are off) instead of the database's own error.
+     */
+    public function testARefusedDeskOverrideWriteIsTakenForTheRaceAndEndsInAnError(): void
+    {
+        $member = $this->member('D1');
+        $this->pdo->exec(
+            "CREATE TRIGGER refuse_member_emails BEFORE INSERT ON member_emails FOR EACH ROW
+             SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'adresse refusée'"
+        );
+
+        try {
+            $this->repository->findOrCreateDeskOverride($member, 'refused@test.com');
+            $this->fail('a refused write cannot produce a row');
+        } catch (\Error $e) {
+            $this->assertNotInstanceOf(\PDOException::class, $e->getPrevious());
+        } finally {
+            $this->pdo->exec('DROP TRIGGER refuse_member_emails');
+        }
+
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM member_emails')->fetchColumn());
+    }
+
     /** is_current = 1, as ScoutYearService::ensureYear() writes every row. */
     private function scoutYear(string $start, string $end): int
     {

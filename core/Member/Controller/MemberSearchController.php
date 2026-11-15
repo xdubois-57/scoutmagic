@@ -151,6 +151,9 @@ class MemberSearchController extends AbstractController
         try {
             $profile = $this->memberService->getMemberProfile($memberYearId);
         } catch (MemberNotFoundException) {
+            // @catch-unreachable The id was read just above, by findById() or by findMostRecentForMember()
+            // (both join members), in this request; getMemberProfile() throws only when findById() then
+            // finds nothing, which takes a delete of that row between the two reads.
             return $this->notFound();
         }
 
@@ -441,6 +444,9 @@ class MemberSearchController extends AbstractController
         try {
             return [$this->memberService->getMemberProfile((int) ($latest['id'] ?? $memberYearId)), null];
         } catch (MemberNotFoundException) {
+            // @catch-unreachable The id was read two lines up, by findById() or by findMostRecentForMember()
+            // (both join members), in this request; getMemberProfile() throws only when findById() then
+            // finds nothing, which takes a delete of that row between the two reads.
             return [null, $this->notFound()];
         }
     }
