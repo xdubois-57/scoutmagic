@@ -967,7 +967,7 @@
             if (!badge) {
                 badge = document.createElement('span');
                 badge.className = 'badge text-bg-danger';
-                badge.setAttribute('data-backup-missing', '');
+                /** @type {HTMLElement} */ (badge).dataset.backupMissing = '';
                 badges.children[0]?.after(badge);
             }
             badge.textContent = 'Archive absente';
@@ -1124,9 +1124,12 @@
                 // itself says how it went once signed in again.
                 if (response.redirected) {
                     window.location.reload();
-                    return Promise.reject(new Error('redirected'));
+                    throw new Error('redirected');
                 }
-                return response.ok ? response.text() : Promise.reject(new Error(String(response.status)));
+                if (!response.ok) {
+                    throw new Error(String(response.status));
+                }
+                return response.text();
             })
             .then(function (html) {
                 if (!remoteCopies) return;
@@ -1139,6 +1142,17 @@
                 if (!remoteCopies) return;
                 remoteCopies.textContent = 'Les copies hors site n\'ont pas pu être lues.';
             });
+    }
+
+    /**
+     * @param {Element|null} errorEl
+     * @param {string} message
+     * @returns {void}
+     */
+    function showRestoreError(errorEl, message) {
+        if (!errorEl) return;
+        errorEl.textContent = message;
+        errorEl.classList.remove('d-none');
     }
 
     /** @returns {void} */
@@ -1171,13 +1185,8 @@
 
         form.addEventListener('submit', function (event) {
             event.preventDefault();
-            var showError = function (/** @type {string} */ message) {
-                if (!errorEl) return;
-                errorEl.textContent = message;
-                errorEl.classList.remove('d-none');
-            };
             if (keywordInput.value !== 'RESTAURER') {
-                showError('Tapez RESTAURER pour confirmer.');
+                showRestoreError(errorEl, 'Tapez RESTAURER pour confirmer.');
                 return;
             }
             submit.disabled = true;
@@ -1189,7 +1198,7 @@
                 submit.disabled = false;
                 if (!res.data?.success) {
                     // `error` is the session-expired answer of the CSRF guard.
-                    showError(res.data?.message || res.data?.error || 'La restauration n\'a pas pu être lancée.');
+                    showRestoreError(errorEl, res.data?.message || res.data?.error || 'La restauration n\'a pas pu être lancée.');
                     return;
                 }
                 loadRemoteCopies();

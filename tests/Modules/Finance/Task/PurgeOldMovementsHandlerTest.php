@@ -240,6 +240,57 @@ class PurgeOldMovementsHandlerTest extends TestCase
         $this->assertSame(850.0, $balanceAfter);
     }
 
+    /**
+     * The consolidated checkpoint is the last write of the purge's
+     * transaction; refused, the movements, their receipt links and the
+     * receipt itself are all still there, and nothing claims a purge.
+     */
+    public function testACheckpointTheDatabaseRefusesRollsBackThePurgeAndKeepsTheReceipt(): void
+    {
+        $fiscalYearId = FinanceTestHelper::createScoutYear($this->pdo, '2014-2015', '2014-09-01', '2015-08-31');
+        $transactionId = $this->createTransaction($fiscalYearId, '2015-01-01', -10.0);
+        $this->checkpointRepository->create($this->accountId, '2014-09-01', 100.0, BalanceCheckpoint::SOURCE_MANUAL);
+        $fileId = $this->fileStorage->store(
+            'receipt content', 'application/pdf', 'r.pdf', 'finance/receipts', 'intendant'
+        );
+        $attachmentId = $this->attachmentRepository->create(
+            null, $fileId, 'application/pdf', 'r.pdf', null, null, null, 1
+        );
+        $this->transactionAttachmentRepository->associate($transactionId, $attachmentId);
+        $this->pdo->exec(
+            "CREATE TRIGGER refuse_checkpoint BEFORE INSERT ON finance_balance_checkpoints
+             BEGIN SELECT RAISE(ABORT, 'refused by the test'); END"
+        );
+
+        try {
+            (new PurgeOldMovementsHandler())->handle([], $this->createTaskContext());
+            $this->fail('the refusal was swallowed');
+        } catch (\PDOException $e) {
+            $this->assertStringContainsString('refused by the test', $e->getMessage());
+        }
+
+        $this->assertFalse($this->pdo->inTransaction());
+        $this->assertCount(1, $this->transactionRepository->findByAccountId($this->accountId));
+        $this->assertSame(
+            [$transactionId],
+            $this->transactionAttachmentRepository->findTransactionIdsForAttachment($attachmentId)
+        );
+        $this->assertNotNull($this->attachmentRepository->findById($attachmentId));
+        $stored = (new FileRepository($this->pdo))->findById($fileId);
+        $this->assertNotNull($stored, 'the receipt\'s file row is gone');
+        $this->assertFileExists($this->storagePath . '/' . $stored->relativePath, 'the receipt\'s bytes are gone');
+        $this->assertSame(
+            1,
+            (int) $this->pdo->query('SELECT COUNT(*) FROM finance_balance_checkpoints')->fetchColumn(),
+            'the opening checkpoint the purge deleted is back'
+        );
+        $this->assertSame(
+            0,
+            (int) $this->pdo->query("SELECT COUNT(*) FROM event_log WHERE event_type = 'movements_purged'")
+                ->fetchColumn()
+        );
+    }
+
     public function testHandleJournalsThePurge(): void
     {
         $fiscalYearId = FinanceTestHelper::createScoutYear($this->pdo,'2014-2015', '2014-09-01', '2015-08-31');

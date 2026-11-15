@@ -14,6 +14,7 @@ use Modules\Registration\Service\AutomaticAcceptancePolicy;
 use Modules\Registration\Service\AutomaticDecisionEmailService;
 use Modules\Registration\Service\DecisionEmailService;
 use Modules\Registration\Service\Recommendation;
+use Modules\Registration\Service\RegistrationException;
 use Modules\Registration\Service\RecommendationService;
 use Modules\Registration\Service\SlotMath;
 use PHPUnit\Framework\Attributes\Group;
@@ -109,6 +110,37 @@ class AutomaticAcceptancePolicyTest extends TestCase
         // does not run all the same.
         $this->assertNull($this->policy->missingPrerequisite());
         $this->assertFalse($this->policy->isActive());
+    }
+
+    /**
+     * One of the sub-box's settings gone from the database — the module
+     * reinstalled from an older manifest — refuses the whole save with a
+     * sentence a chief can act on, and none of the other values is written.
+     */
+    public function testASaveMissingOneOfItsSettingsIsRefusedAndWritesNothing(): void
+    {
+        $this->pdo->prepare('DELETE FROM settings WHERE setting_key = ?')
+            ->execute([AutomaticAcceptancePolicy::SETTING_EFFECTIVE_FROM]);
+        $sendBefore = $this->settings->get(AutomaticDecisionEmailService::SETTING_ENABLED, 'registration');
+        $delayBefore = $this->settings->get(AutomaticDecisionEmailService::SETTING_DELAY_HOURS, 'registration');
+
+        try {
+            $this->policy->save(true, '48', false, null);
+            $this->fail('the save went through without one of its settings');
+        } catch (RegistrationException $e) {
+            $this->assertSame(AutomaticDecisionEmailService::MESSAGE_SAVE_FAILED, $e->getMessage());
+            $this->assertInstanceOf(\Core\Config\SettingException::class, $e->getPrevious());
+        }
+
+        $this->assertSame(
+            $sendBefore,
+            $this->settings->get(AutomaticDecisionEmailService::SETTING_ENABLED, 'registration')
+        );
+        $this->assertNotSame('48', $delayBefore);
+        $this->assertSame(
+            $delayBefore,
+            $this->settings->get(AutomaticDecisionEmailService::SETTING_DELAY_HOURS, 'registration')
+        );
     }
 
     public function testSwitchOffSaysWhetherItWasOn(): void

@@ -394,6 +394,37 @@ class SendDecisionEmailsHandlerTest extends TestCase
     }
 
     /**
+     * The same unreadable request, with the failure itself refused by the
+     * database: the row stays claimed — never sent, never re-armed for the
+     * next pass — the error is still journaled, and the batch goes on.
+     */
+    public function testAFailureThatCannotBeRecordedLeavesTheRowClaimedAndTheBatchGoesOn(): void
+    {
+        $broken = $this->decide('accepted', 'Alix');
+        $this->decide('accepted', 'Basile');
+        $this->pdo->prepare("UPDATE registration_requests SET email_encrypted = 'not-a-ciphertext' WHERE id = ?")
+            ->execute([$broken->id]);
+        $this->pdo->exec(
+            "CREATE TRIGGER refuse_failed_state BEFORE UPDATE OF state ON registration_decision_emails
+             WHEN NEW.state = 'failed' BEGIN SELECT RAISE(ABORT, 'failure not recorded'); END"
+        );
+
+        $this->runAt('2027-01-11 08:00:00');
+
+        $this->assertSame(['basile@example.com'], array_column($this->sent, 'to'));
+        $this->assertSame([DecisionEmail::STATE_SENDING], $this->states($broken->id));
+        $this->assertSame(
+            ['sent' => 1, 'failed' => 1, 'skipped' => 0],
+            $this->journalContext('registration_decision_emails_auto_sent')
+        );
+        $this->assertSame(
+            $broken->id,
+            $this->journalContext('registration_decision_email_auto_send_error')['request_id'] ?? null
+        );
+        $this->assertSame([], $this->emails->findDue(new \DateTimeImmutable('2027-01-12 08:00:00'), 10));
+    }
+
+    /**
      * Something other than a refusal breaks the transport itself: whether
      * that e-mail left is unknown, which its row says — never a success,
      * never resent — and the rest of the batch still leaves.

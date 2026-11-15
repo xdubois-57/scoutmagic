@@ -196,7 +196,7 @@
         // testing for one without this would have made every card inert.
         const control = event.target.closest('a, button');
 
-        return control && control !== row && !control.hasAttribute('data-movement-details') ? null : row;
+        return control && control !== row && /** @type {HTMLElement} */ (control).dataset.movementDetails === undefined ? null : row;
     }
 
     document.addEventListener('click', (e) => {

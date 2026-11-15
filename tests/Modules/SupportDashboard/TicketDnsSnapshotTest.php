@@ -290,6 +290,7 @@ final class TicketDnsSnapshotTest extends TestCase
             $this->installations,
             $this->tickets,
             new JournalService(new JournalRepository($this->pdo)),
+            SupportDashboardTestHelper::intakeGuard($this->pdo),
             null,
             $withScheduler ? new SchedulerService(new SchedulerRepository($this->pdo)) : null
         );

@@ -84,6 +84,13 @@ class TicketIntakeService
         private SupportTicketRepository $tickets,
         private JournalService $journal,
         /**
+         * The per-address limit, the journal cap and the quota on new
+         * registrations (issue #1113) — required, because each one is what
+         * stands between an anonymous script and this receiver's disk,
+         * journal and superadmins' phones.
+         */
+        private SupportIntakeGuard $guard,
+        /**
          * Null when nothing wired one — a ticket is then stored and
          * journaled exactly as before, silently. The queue is not a
          * mailbox anybody watches, so this is how a ticket stops waiting
@@ -119,6 +126,15 @@ class TicketIntakeService
         // strlen(), not a JSON decode.
         if (strlen($rawBody) > self::MAX_BODY_BYTES) {
             return $this->refuse(TicketIntakeResult::REJECT_PAYLOAD_TOO_LARGE, $clientIp);
+        }
+
+        // The source address before anything that costs (issue #1113): a
+        // script that invents a new installation id on every call starts
+        // each time with a fresh per-installation quota, so the limit that
+        // holds it has to be one it cannot reset — and it has to come
+        // before the password_hash() and the row a new id would cost.
+        if (!$this->guard->admitRequest($clientIp)) {
+            return $this->refuse(TicketIntakeResult::REJECT_RATE_LIMITED, $clientIp);
         }
 
         // Credentials before the parse, so an unsigned caller gets its 403
@@ -157,16 +173,31 @@ class TicketIntakeService
             // installation, which is noise a superadmin deletes, but can
             // never take over a real one.
             //
+            // That « noise » is bounded twice (issue #1113): per source
+            // address above, and here by a quota every address shares, so a
+            // flood spread over many addresses still mints no more than a
+            // handful of rows. Past it, an id nobody knows is refused before
+            // its secret is hashed; a known installation never comes here.
+            //
             // The row is marked as having no telemetry: without that it
             // would read on the dashboard as an installation silent for
-            // months, which is the one thing it is not.
-            $installationRowId = $this->installations->register(
-                $installationId,
-                password_hash($secret, PASSWORD_DEFAULT),
-                '',
-                [],
-                false
+            // months, which is the one thing it is not. And as not
+            // established: holding the secret it chose a moment ago proves
+            // nothing, so the mail probes stay closed to it until a report
+            // arrives on the statistics route or a superadmin validates it.
+            $installationRowId = $this->guard->registerWithinQuota(
+                fn (): int => $this->installations->register(
+                    $installationId,
+                    password_hash($secret, PASSWORD_DEFAULT),
+                    '',
+                    [],
+                    false,
+                    false
+                )
             );
+            if ($installationRowId === null) {
+                return $this->refuse(TicketIntakeResult::REJECT_RATE_LIMITED, $clientIp);
+            }
 
             $this->journal->log(
                 'support_dashboard',
@@ -396,13 +427,19 @@ class TicketIntakeService
 
     /**
      * A refusal the caller is told about in a 200 body, and that the
-     * receiver writes down.
+     * receiver writes down — up to {@see SupportIntakeGuard::REFUSAL_JOURNAL_LIMIT}
+     * entries an hour per source address; past that the refusal stands
+     * and only its entry is dropped.
      *
      * `warning` rather than `security`: a category nobody knows or a quota
      * spent is a client being wrong, not somebody trying to get in.
      */
     private function refuse(string $reason, string $clientIp, ?string $installationId = null): TicketIntakeResult
     {
+        if (!$this->guard->mayJournalRefusal($clientIp)) {
+            return TicketIntakeResult::refused($reason);
+        }
+
         $context = ['reason' => $reason, 'source_ip' => $clientIp];
         if ($installationId !== null) {
             $context['installation_id'] = $installationId;
@@ -425,10 +462,15 @@ class TicketIntakeService
      *
      * The entry says the source address and nothing else — naming the
      * installation id somebody TRIED would file a failed attempt under a
-     * unit that may have had nothing to do with it.
+     * unit that may have had nothing to do with it. Capped per source
+     * address like every refusal of this route.
      */
     private function rejectUnauthenticated(string $clientIp): TicketIntakeResult
     {
+        if (!$this->guard->mayJournalRefusal($clientIp)) {
+            return TicketIntakeResult::unauthenticated();
+        }
+
         $this->journal->log(
             'support_dashboard',
             'support_ticket_unauthenticated',

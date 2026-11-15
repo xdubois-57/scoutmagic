@@ -173,6 +173,29 @@ class DuplicateMemberDetectorTest extends TestCase
 
     /* ------------------------------------------------------------------ */
 
+    /**
+     * A former member whose name was encrypted under a key the site no
+     * longer holds cannot be compared: that row is left out, and the
+     * detection still proposes the readable one rather than stopping.
+     */
+    public function testAnUnreadableFormerRowIsSkippedAndTheDetectionGoesOn(): void
+    {
+        $readable = $this->createMember('T001', $this->lastYear, 'Grosjean', 'Pierre', '2010-04-12');
+        $unreadable = $this->createMember('T002', $this->lastYear, 'Grosjean', 'Pierre', '2010-04-12');
+        $otherKey = new EncryptionService(str_repeat('c', 32), str_repeat('d', 32));
+        $this->pdo->prepare('UPDATE member_years SET first_name_encrypted = ? WHERE member_id = ?')
+            ->execute([$otherKey->encrypt('Pierre', 'member_years.first_name'), $unreadable]);
+        $new = $this->createMember('T900', $this->thisYear, 'Grosjean', 'Pierre', '2010-04-12');
+
+        $identities = $this->repository->findIdentitiesBeforeYear($this->thisYear);
+        $this->assertSame([$readable], array_column($identities, 'member_id'));
+
+        $this->assertSame(1, $this->detector->detect([$new], $this->thisYear));
+        $pending = $this->repository->findPending();
+        $this->assertCount(1, $pending);
+        $this->assertSame($readable, $pending[0]['kept_member_id']);
+    }
+
     private function createMember(string $deskId, int $scoutYearId, string $lastName, string $firstName, ?string $birthDate): int
     {
         $stmt = $this->pdo->prepare('SELECT id FROM members WHERE desk_id = ?');

@@ -22,7 +22,7 @@ catches what, and what each one cannot see.
 | **SonarQube Cloud** | CI; release gate | Quality, duplication, security hotspots | Intent |
 | **AI triage** | Every issue opened or reopened, plus a nightly pass over the untriaged backlog | Whether a report is a real defect, the one fact a blocked report is missing, and the workaround when the behaviour is correct — and, when the reporter cited a support ticket, what that site's anonymised logs show | Anything a running installation shows that its diagnostic archive does not — it reads the code and an extract, but reproduces nothing, changes nothing, and gates nothing |
 | **AI review** | Pull requests it is eligible for — not drafts, and `Claude review` not on forks | Cross-file reasoning, stale documentation, intent mismatches | Nothing reliably — it is a reader, not a gate |
-| **Release gates** | `scripts/release.sh` | Deployment state, the CI verdict on the released commit, security advisories, dependency freshness, whether an engine has removed the deprecated browser API the editors need, Sonar | What the AI reviewers read — intent, cross-file reasoning, stale docs. It runs no test and no scan of its own: it reads the runner's verdict on all of them |
+| **Release gates** | `scripts/release.sh` | Deployment state, the CI verdict on the released commit, security advisories, dependency freshness, how long since each dependency last released (a warning), whether an engine has removed the deprecated browser API the editors need, Sonar | What the AI reviewers read — intent, cross-file reasoning, stale docs. It runs no test and no scan of its own: it reads the runner's verdict on all of them |
 | **Release workflow** | `.github/workflows/release.yml`, on the tag | The same gates a second time, on a runner nobody configured by hand, with each tool's native output kept, signed and attached to the Release | Nothing the gates themselves are blind to — it is a record of them, not a new judge |
 
 No single layer is trusted alone, and the ones that overlap do so on
@@ -1205,11 +1205,12 @@ acceptable only for a manual release — see the end of this section.
 security item: CodeQL alerts, Dependabot alerts, and active SonarQube Cloud
 findings. The gates below are the final check, not the fix.
 
-Seven gates, all run **before** any commit or tag, one after another, and
+Eight gates, all run **before** any commit or tag, one after another, and
 the release stops at the first one that refuses. Six of them fail closed;
-the exception is the deprecated browser API gate, which reports « non
-vérifié » rather than refusing — see below for why, and § The failure mode
-this repository keeps meeting for what makes that safe:
+the two exceptions are the dependency age gate, which only ever warns, and
+the deprecated browser API gate, which reports « non vérifié » rather than
+refusing — see below for why, and § The failure mode this repository keeps
+meeting for what makes that safe:
 
 | Gate | What it checks |
 |---|---|
@@ -1217,7 +1218,8 @@ this repository keeps meeting for what makes that safe:
 | **Continuous integration** | `All checks` is green on the commit being released, and the working tree is clean |
 | **Security** | `composer audit`, `npm audit`, open CodeQL findings, open Dependabot alerts |
 | **Dependency freshness** | `composer outdated --direct`, and every vendored front-end library against its upstream release |
-| **Deprecated browser API** | `scripts/check-deprecated-api.php` — whether any engine has removed `document.execCommand`, generic entry and per-command entries alike. The one gate that does not fail closed |
+| **Dependency age** | `scripts/check-dependency-age.php` — the date of each dependency's most recent release, written into the notes; a warning for any that has published nothing for more than a year. Never refuses |
+| **Deprecated browser API** | `scripts/check-deprecated-api.php` — whether any engine has removed `document.execCommand`, generic entry and per-command entries alike. Does not fail closed (with Dependency age, which only warns) |
 | **SonarQube Cloud** | `scripts/check-sonar-release.sh` — see below |
 | **External sources** | `scripts/check-external-sources.php`: every page in `Core\ExternalSource\ExternalSources` — federation pages answer 200 with their expected content and the fees page's three amounts readable and equal to the scale shipped in `modules/fees/data/federal-scale.json`; provider console and legal links alive (2xx, 3xx, 401, 403) |
 
@@ -1276,8 +1278,35 @@ fixed, except those that are *all three at once* — software quality
 a *list* of impacts and is exempt only when every one of them qualifies; an
 issue with no impacts at all is not exempt.
 
+**The dependency age gate** (`scripts/check-dependency-age.php`, issue #841)
+answers what neither of the two before it can. The Security gate asks
+whether a shipped version is *known* to be vulnerable and the freshness
+gate whether a newer one *exists*; neither notices a dependency whose
+maintainers have stopped, since nobody files an advisory against code
+nobody reads and « up to date » is trivially true of a package that
+publishes nothing. So this gate dates every dependency the notes'
+inventory lists — each PHP package in `composer.lock` through Packagist,
+each JavaScript package `package.json` names through the npm registry,
+each vendored library through its upstream's latest GitHub release — by
+its most recent publication of *any* version (a project still shipping
+fixes to an older branch is maintained). The dates go into the notes as
+« Dernières publications des dépendances », just before the inventory,
+and a dependency silent for more than 365 days is marked ⚠️ there, named
+on « Vérifications effectuées », and warned about on the console.
+
+**It warns and never refuses**, by the issue's own wording: a stale
+dependency is a question for the maintainer — replace it, fork it, or
+accept it knowingly — not a defect in the commit being released. For the
+same reason it is not fail closed: a registry that does not answer leaves
+that package « non vérifiée » in the table and in the report line rather
+than stopping a release. Only the script's own failure, a lock file or
+`package.json` it cannot read, exits non-zero, since a table that silently dated half the
+dependencies would read as a complete one. `--skip-dependency-age-gate`
+leaves the notes without the table.
+
 **The deprecated browser API gate** (`scripts/check-deprecated-api.php`) is
-the odd one out here: it is the only gate that does **not** fail closed. It
+the other gate that does **not** fail closed — and, unlike the dependency
+age gate above, one that can still refuse. It
 asks whether any engine has removed `document.execCommand`, which six files
 under `public/assets/js/` are built on (issue #379), by reading MDN's
 `browser-compat-data` — the machine-readable form of what caniuse.com shows.
@@ -1290,7 +1319,7 @@ real Chromium — see § The layers, and what each is for.
 
 **Bypass flags** (`--skip-deployment-check`, `--skip-ci-gate`,
 `--skip-security-gate`, `--skip-dependency-check`,
-`--skip-deprecated-api-gate`, `--skip-sonar-gate`, `--skip-sources-gate`)
+`--skip-dependency-age-gate`, `--skip-deprecated-api-gate`, `--skip-sonar-gate`, `--skip-sources-gate`)
 exist for genuine emergencies. Each prints a warning naming exactly what
 was not checked. Using one to route around a real finding is how a release
 ships a known defect — and `--skip-ci-gate` is the widest of them by far,

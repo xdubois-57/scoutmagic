@@ -26,6 +26,7 @@ use Modules\Camps\Service\ContactService;
 use Modules\Camps\Service\DocumentService;
 use Modules\Camps\Service\LinkService;
 use Modules\Camps\Service\ReviewService;
+use Modules\Gallery\Api\DelegatedAlbumManager;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Camps\CampsTestHelper;
@@ -47,6 +48,7 @@ class CampsAttachmentControllerTest extends TestCase
     private ContactRepository $contacts;
     private CampsAttachmentController $controller;
     private int $campId;
+    private ?string $galleryStorage = null;
 
     protected function setUp(): void
     {
@@ -71,20 +73,52 @@ class CampsAttachmentControllerTest extends TestCase
             []
         );
 
-        $audit = new AuditService(new AuditRepository($this->pdo, $encryption));
         $this->contacts = new ContactRepository($this->pdo, $encryption);
+        $this->controller = $this->controllerWith(null);
+
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+        AuthSession::login(1, 'chief@test.com', 'chief');
+    }
+
+    protected function tearDown(): void
+    {
+        AuthSession::logout();
+        \Core\Http\FlashMessage::get();
+        if ($this->galleryStorage !== null && is_dir($this->galleryStorage)) {
+            $items = new \RecursiveIteratorIterator(
+                new \RecursiveDirectoryIterator($this->galleryStorage, \FilesystemIterator::SKIP_DOTS),
+                \RecursiveIteratorIterator::CHILD_FIRST
+            );
+            foreach ($items as $item) {
+                $item->isDir() ? rmdir((string) $item) : unlink((string) $item);
+            }
+            rmdir($this->galleryStorage);
+        }
+    }
+
+    /**
+     * The controller as the composition root builds it, with the gallery
+     * module present or absent.
+     */
+    private function controllerWith(?DelegatedAlbumManager $gallery): CampsAttachmentController
+    {
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $audit = new AuditService(new AuditRepository($this->pdo, $encryption));
+        $places = new PlaceRepository($this->pdo);
         $links = new LinkRepository($this->pdo);
         $documents = new DocumentRepository($this->pdo);
         $reviews = new ReviewRepository($this->pdo);
         $root = dirname(__DIR__, 4);
 
-        $this->controller = new CampsAttachmentController(
+        return new CampsAttachmentController(
             \Core\View\TwigFactory::create(
                 $root . '/core/View/templates',
                 false,
                 ['camps' => $root . '/modules/camps/views', 'inbound_mail' => $root . '/modules/inbound_mail/views']
             ),
-            $camps,
+            new CampRepository($this->pdo, $encryption),
             $places,
             $this->contacts,
             $links,
@@ -99,21 +133,10 @@ class CampsAttachmentControllerTest extends TestCase
                 new \Core\File\UploadHandler(new \Core\File\FileRepository($this->pdo), sys_get_temp_dir()),
                 $audit
             ),
-            new CampAlbumService($audit, null),
+            new CampAlbumService($audit, $gallery),
             new ReviewService($reviews, $audit, $places),
             $reviews
         );
-
-        if (session_status() === PHP_SESSION_NONE) {
-            session_start();
-        }
-        AuthSession::login(1, 'chief@test.com', 'chief');
-    }
-
-    protected function tearDown(): void
-    {
-        AuthSession::logout();
-        \Core\Http\FlashMessage::get();
     }
 
     /**
@@ -214,5 +237,209 @@ class CampsAttachmentControllerTest extends TestCase
         );
 
         $this->assertSame(404, $response->getStatusCode());
+    }
+
+    // ── Refusals: what the chief is told, and what is left alone ────
+
+    public function testAnEditWithAMalformedAddressSaysWhyAndKeepsTheContact(): void
+    {
+        $this->postContact();
+        $contact = $this->contacts->findByCamp($this->campId)[0];
+
+        $response = $this->controller->updateContact(
+            new Request('POST', '/chefs/camps/contacts/' . $contact->id, [], [
+                '_csrf_token' => CsrfGuard::generateToken(),
+                'name' => 'Mme Lambert-Dupuis',
+                'role_label' => 'gestionnaire',
+                'email' => 'lambert.example.org',
+                'phone' => '',
+                'other_details' => '',
+            ], [], []),
+            ['id' => (string) $contact->id]
+        );
+
+        $this->assertSame('/chefs/camps/sejours/' . $this->campId, $response->getHeaders()['Location'] ?? null);
+        $this->assertSame(
+            ['type' => 'error', 'message' => 'Cette adresse e-mail n\'est pas une adresse valide.'],
+            \Core\Http\FlashMessage::get()
+        );
+        $kept = $this->contacts->findById($contact->id);
+        $this->assertSame('Mme Lambert', $kept?->name);
+        $this->assertSame('lambert@example.org', $kept->email);
+    }
+
+    public function testALinkThatIsNotAWebAddressSaysWhyAndStoresNothing(): void
+    {
+        $response = $this->controller->storeLink(
+            new Request('POST', '/chefs/camps/sejours/' . $this->campId . '/liens', [], [
+                '_csrf_token' => CsrfGuard::generateToken(),
+                'url' => 'javascript:alert(1)',
+            ], [], []),
+            ['id' => (string) $this->campId]
+        );
+
+        $this->assertSame('/chefs/camps/sejours/' . $this->campId, $response->getHeaders()['Location'] ?? null);
+        $this->assertSame(
+            ['type' => 'error', 'message' => 'Cette adresse n\'est pas une adresse web valide.'],
+            \Core\Http\FlashMessage::get()
+        );
+        $this->assertSame([], (new LinkRepository($this->pdo))->findByCamp($this->campId));
+    }
+
+    public function testADocumentOfARefusedTypeSaysWhyAndStoresNothing(): void
+    {
+        $path = (string) tempnam(sys_get_temp_dir(), 'camps_refused_doc_');
+        file_put_contents($path, "<?php echo 'pas un document';\n");
+        $_FILES['document'] = [
+            'tmp_name' => $path, 'name' => 'notes.php', 'size' => filesize($path), 'error' => UPLOAD_ERR_OK,
+        ];
+
+        try {
+            $response = $this->controller->storeDocument(
+                new Request('POST', '/chefs/camps/sejours/' . $this->campId . '/documents', [], [
+                    '_csrf_token' => CsrfGuard::generateToken(),
+                    'title' => 'Notes',
+                ], [], []),
+                ['id' => (string) $this->campId]
+            );
+        } finally {
+            unset($_FILES['document']);
+            @unlink($path);
+        }
+
+        $this->assertSame(
+            '/chefs/camps/sejours/' . $this->campId . '/documents',
+            $response->getHeaders()['Location'] ?? null
+        );
+        $this->assertSame(
+            ['type' => 'error', 'message' => 'Type de fichier non autorisé (text/x-php).'],
+            \Core\Http\FlashMessage::get()
+        );
+        $this->assertSame([], (new DocumentRepository($this->pdo))->findByCamp($this->campId));
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM files')->fetchColumn());
+    }
+
+    public function testAReviewBeforeTheStayHasHappenedSaysWhyAndStoresNothing(): void
+    {
+        // The stay of this suite is in July 2028: still to come.
+        $response = $this->controller->saveReview(
+            new Request('POST', '/chefs/camps/sejours/' . $this->campId . '/avis', [], [
+                '_csrf_token' => CsrfGuard::generateToken(),
+                'rating' => '4',
+                'comment' => 'Terrain plat.',
+            ], [], []),
+            ['id' => (string) $this->campId]
+        );
+
+        $this->assertSame('/chefs/camps/sejours/' . $this->campId, $response->getHeaders()['Location'] ?? null);
+        $this->assertSame(
+            [
+                'type' => 'error',
+                'message' => 'L\'avis s\'ouvrira au retour du camp — il n\'y a encore rien à raconter.',
+            ],
+            \Core\Http\FlashMessage::get()
+        );
+        $this->assertNull((new ReviewRepository($this->pdo))->findByCamp($this->campId));
+    }
+
+    // ── Photos, through the real gallery module ─────────────────────
+
+    public function testAPhotoTheGalleryRefusesTellsTheChiefTheGallerysReason(): void
+    {
+        $controller = $this->controllerWith($this->gallery());
+        $path = (string) tempnam(sys_get_temp_dir(), 'camps_refused_photo_');
+        file_put_contents($path, "Ceci n'est pas une photo.\n");
+        $_FILES['photo'] = [
+            'tmp_name' => $path, 'name' => 'feu-de-camp.jpg', 'size' => filesize($path), 'error' => UPLOAD_ERR_OK,
+        ];
+
+        try {
+            $response = $controller->storePhoto(
+                new Request('POST', '/chefs/camps/sejours/' . $this->campId . '/photos', [], [
+                    '_csrf_token' => CsrfGuard::generateToken(),
+                ], [], []),
+                ['id' => (string) $this->campId]
+            );
+        } finally {
+            unset($_FILES['photo']);
+            @unlink($path);
+        }
+
+        $this->assertSame(
+            '/chefs/camps/sejours/' . $this->campId . '/photos',
+            $response->getHeaders()['Location'] ?? null
+        );
+        $this->assertSame(
+            ['type' => 'error', 'message' => 'Type de fichier non autorisé.'],
+            \Core\Http\FlashMessage::get()
+        );
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM gallery_media')->fetchColumn());
+        $this->assertNotContains('Photo ajoutée', $this->historySummaries());
+    }
+
+    public function testDeletingAPhotoOfAnotherAlbumSaysWhyAndIsNotRecordedAsDone(): void
+    {
+        $controller = $this->controllerWith($this->gallery());
+
+        $response = $controller->deletePhoto(
+            new Request('POST', '/chefs/camps/sejours/' . $this->campId . '/photos/supprimer', [], [
+                '_csrf_token' => CsrfGuard::generateToken(),
+                'media_id' => '999',
+            ], [], []),
+            ['id' => (string) $this->campId]
+        );
+
+        $this->assertSame(
+            '/chefs/camps/sejours/' . $this->campId . '/photos',
+            $response->getHeaders()['Location'] ?? null
+        );
+        $this->assertSame(
+            ['type' => 'error', 'message' => 'Ce média n\'appartient pas à cet album.'],
+            \Core\Http\FlashMessage::get()
+        );
+        $this->assertNotContains('Photo supprimée', $this->historySummaries());
+    }
+
+    /**
+     * The gallery module as a scheduled task gets it, through its own
+     * published factory: every piece of it real, over this suite's
+     * database and a storage directory of its own.
+     */
+    private function gallery(): DelegatedAlbumManager
+    {
+        \Tests\Modules\Gallery\GalleryTestHelper::createTables($this->pdo);
+        $this->pdo->exec(
+            "INSERT INTO scout_years (label, start_date, end_date, is_current) "
+            . "VALUES ('2027-2028', '2027-09-01', '2028-08-31', 1)"
+        );
+        $this->galleryStorage = sys_get_temp_dir() . '/camps-photos-' . bin2hex(random_bytes(6));
+        mkdir($this->galleryStorage, 0777, true);
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+
+        return \Modules\Gallery\Api\DelegatedAlbumManagerFactory::fromTaskContext(new \Core\Scheduler\TaskContext(
+            \Core\Database\Connection::withPdo($this->pdo),
+            $encryption,
+            $this->createStub(\Core\Mail\MailService::class),
+            new \Core\Journal\JournalService(new \Core\Journal\JournalRepository($this->pdo)),
+            new \Core\Config\SettingService(new \Core\Config\SettingRepository($this->pdo)),
+            new \Core\Security\UserAccountRepository($this->pdo, $encryption),
+            $this->galleryStorage
+        ));
+    }
+
+    /**
+     * @return list<?string> the stay's history, newest first
+     */
+    private function historySummaries(): array
+    {
+        $audit = new AuditService(new AuditRepository(
+            $this->pdo,
+            new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))
+        ));
+
+        return array_map(
+            static fn($entry): ?string => $entry->summary,
+            $audit->page(\Modules\Camps\Service\CampService::ENTITY_TYPE, $this->campId, 1, 50)->entries
+        );
     }
 }

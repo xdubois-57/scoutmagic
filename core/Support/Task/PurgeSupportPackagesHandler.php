@@ -23,7 +23,11 @@ use Core\Support\SupportPackageService;
  * The archive is the most sensitive artefact this codebase produces on
  * demand (PHP configuration, server logs, filesystem diagnostics), so it
  * does not linger: seven days after generation it is deleted, file and
- * FileRecord alike, whether or not anyone downloaded it. Self-rescheduling,
+ * FileRecord alike, whether or not anyone downloaded it — and so is any
+ * stored archive file past that age that nothing references any more
+ * (SupportPackageService::sweepExpiredFiles()), and any unencrypted
+ * working copy a generation killed mid-run left in `storage/temp/`
+ * (SupportPackageService::sweepAbandonedWorkingFiles()). Self-rescheduling,
  * same precedent as Core\Notification\Task\PurgeNotificationsHandler.
  */
 class PurgeSupportPackagesHandler implements TaskHandlerInterface
@@ -35,15 +39,26 @@ class PurgeSupportPackagesHandler implements TaskHandlerInterface
     public function handle(array $payload, TaskContext $context): void
     {
         try {
-            $purged = SupportPackageFactory::service($context)->purgeExpired();
+            $service = SupportPackageFactory::service($context);
 
-            if ($purged) {
-                $context->journal->log(
-                    'core',
-                    'support_package_purged',
-                    'info',
-                    'Paquet de support supprimé après ' . SupportPackageService::RETENTION_DAYS . ' jours'
-                );
+            try {
+                $purged = $service->purgeExpired();
+
+                if ($purged) {
+                    $context->journal->log(
+                        'core',
+                        'support_package_purged',
+                        'info',
+                        'Paquet de support supprimé après ' . SupportPackageService::RETENTION_DAYS . ' jours'
+                    );
+                }
+            } finally {
+                // Runs even when the purge above failed on the database:
+                // the sweep works from the directory, and bytes nothing
+                // references any more are exactly what a failing database
+                // leaves behind.
+                $service->sweepExpiredFiles();
+                $service->sweepAbandonedWorkingFiles();
             }
         } finally {
             $scheduler = new SchedulerService(new SchedulerRepository($context->connection->getPdo()));

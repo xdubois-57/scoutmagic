@@ -192,6 +192,42 @@ class UploadControllerTest extends TestCase
     }
 
     /**
+     * A file that is not an image, whatever its name says: the person is
+     * sent back to the same upload form, with what it asked for, and told
+     * why; no photo is set and nothing is journaled.
+     */
+    public function testAFileThatIsNotAnImageSendsThePersonBackToTheFormWithTheReason(): void
+    {
+        $tmpFile = $this->tmpDir . '/not-an-image.jpg';
+        file_put_contents($tmpFile, "Ceci n'est pas une photo.\n");
+        $_FILES['file'] = [
+            'tmp_name' => $tmpFile,
+            'name' => 'me.jpg',
+            'size' => filesize($tmpFile),
+            'error' => UPLOAD_ERR_OK,
+        ];
+
+        try {
+            $response = $this->controller->store($this->accountPhotoRequest('1'), []);
+        } finally {
+            unset($_FILES['file']);
+        }
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame(
+            '/upload?context=account_photo&key=1&return=%2Faccount',
+            $response->getHeaders()['Location'] ?? null
+        );
+        $this->assertSame(
+            ['type' => 'error', 'message' => 'Type de fichier non autorisé (text/plain).'],
+            \Core\Http\FlashMessage::get()
+        );
+        $this->assertNull($this->accountPhotoService->resolveFileId(1));
+        $stmt = $this->pdo->query("SELECT COUNT(*) FROM event_log WHERE event_type = 'account_photo_updated'");
+        $this->assertSame(0, (int) $stmt->fetchColumn());
+    }
+
+    /**
      * The whole boundary of this context: an account id in a request is
      * not an authorisation to set that account's face. Configuration
      * mode does not widen it either — which is why this test runs with it

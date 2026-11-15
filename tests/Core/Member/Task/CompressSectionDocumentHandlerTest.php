@@ -173,6 +173,36 @@ class CompressSectionDocumentHandlerTest extends TestCase
         $this->assertNull($updated->sizeAfterBytes);
     }
 
+    /**
+     * The stored file is gone from the disk by the time the task runs: the
+     * document is marked skipped, nothing is compressed, and the row keeps
+     * no « Compression en cours… » for ever.
+     */
+    public function testAFileMissingFromTheDiskIsSkippedWithoutCompressing(): void
+    {
+        $document = $this->createDocument('application/pdf', '%PDF-1.4 ' . str_repeat('x', 1000));
+        $file = $this->fileRepository->findById($document->fileId);
+        \assert($file !== null);
+        unlink($this->storagePath . '/' . $file->relativePath);
+        $compressed = 0;
+
+        $handler = new CompressSectionDocumentHandler($this->fakeCompressor(
+            PdfCompressor::BACKEND_GHOSTSCRIPT,
+            function () use (&$compressed): string {
+                $compressed++;
+
+                return '%PDF-1.4x';
+            }
+        ));
+        $handler->handle(['section_document_id' => $document->id], $this->context);
+
+        $updated = $this->documentRepository->findById($document->id);
+        $this->assertSame(SectionDocument::COMPRESSION_SKIPPED, $updated->compressionStatus);
+        $this->assertNull($updated->sizeAfterBytes);
+        $this->assertSame(0, $compressed);
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM event_log')->fetchColumn());
+    }
+
     public function testNoBackendAvailableSkips(): void
     {
         $document = $this->createDocument('application/pdf', '%PDF-1.4 ' . str_repeat('x', 1000));

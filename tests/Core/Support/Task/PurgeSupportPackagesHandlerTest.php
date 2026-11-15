@@ -7,16 +7,21 @@ namespace Tests\Core\Support\Task;
 use Core\Config\SettingRepository;
 use Core\Config\SettingService;
 use Core\Database\Connection;
+use Core\File\EncryptedFileStorageService;
 use Core\File\FileRepository;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Mail\DkimManager;
 use Core\Mail\MailService;
+use Core\Mail\Transport\MailProviderRepository;
+use Core\Mail\Transport\ProviderConnections;
 use Core\Scheduler\TaskContext;
 use Core\Security\EncryptionService;
 use Core\Security\SecretManager;
 use Core\Security\UserAccountRepository;
 use Core\Statistics\InstallationIdentityService;
+use Core\Support\SupportCollectionOutcome;
+use Core\Support\SupportPackageService;
 use Core\Support\SupportPackageState;
 use Core\Support\Task\GenerateSupportPackageHandler;
 use Core\Support\Task\PurgeSupportPackagesHandler;
@@ -99,6 +104,31 @@ class PurgeSupportPackagesHandlerTest extends TestCase
             }
         }
         rmdir($path);
+    }
+
+    /**
+     * @return array<string, string> archive entry name => content
+     */
+    private function archiveEntries(int $fileId): array
+    {
+        $storage = new EncryptedFileStorageService(
+            new FileRepository($this->pdo),
+            $this->context->encryption,
+            $this->storagePath
+        );
+        $zipPath = $this->storagePath . '/temp/read-' . bin2hex(random_bytes(6)) . '.zip';
+        file_put_contents($zipPath, $storage->retrieve($fileId));
+
+        $entries = [];
+        $zip = new \ZipArchive();
+        $this->assertTrue($zip->open($zipPath) === true);
+        for ($i = 0; $i < $zip->numFiles; $i++) {
+            $entries[(string) $zip->getNameIndex($i)] = (string) $zip->getFromIndex($i);
+        }
+        $zip->close();
+        unlink($zipPath);
+
+        return $entries;
     }
 
     /**
@@ -219,6 +249,42 @@ class PurgeSupportPackagesHandlerTest extends TestCase
         $this->assertNotNull((new FileRepository($this->pdo))->findById($second));
     }
 
+    /**
+     * `secrets.enc` is there and cannot be decrypted. The package is still
+     * produced, and the outbound mail file is still in it: the relay is
+     * listed, its host — read from that file a moment ago — now printed as
+     * « (vide) », and the collector counts as having worked.
+     */
+    public function testAnUndecryptableSecretsFileStillYieldsTheOutboundMailFile(): void
+    {
+        $relay = (new MailProviderRepository($this->pdo))->create('Relais de l’unité', null, 50, 10);
+        $secretManager = new SecretManager(
+            $this->storagePath . '/keys/master.key',
+            $this->storagePath . '/config/secrets.enc'
+        );
+        $secretManager->writeSecrets([ProviderConnections::prefixFor($relay) . '_host' => 'smtp.relais.test']);
+
+        (new GenerateSupportPackageHandler())->handle([], $this->context);
+        $this->settings->clearCache();
+        $readable = $this->archiveEntries((int) $this->settings->get(SupportPackageState::FILE_ID));
+        $this->assertStringContainsString('hôte        : smtp.relais.test', $readable['outbound-mail.txt'] ?? '');
+
+        file_put_contents($this->storagePath . '/config/secrets.enc', base64_encode(random_bytes(64)));
+
+        (new GenerateSupportPackageHandler())->handle([], $this->context);
+
+        $this->settings->clearCache();
+        $entries = $this->archiveEntries((int) $this->settings->get(SupportPackageState::FILE_ID));
+        $outbound = $entries['outbound-mail.txt'] ?? '';
+        $this->assertStringContainsString("Relais de l’unité\n  hôte        : (vide)", $outbound);
+        $this->assertStringNotContainsString('smtp.relais.test', $outbound);
+
+        $status = json_decode($entries['collection-status.json'] ?? '', true);
+        $this->assertIsArray($status);
+        $byName = array_column($status['collectors'], 'status', 'name');
+        $this->assertSame(SupportCollectionOutcome::STATUS_SUCCESS, $byName['outbound_mail'] ?? null);
+    }
+
     public function testThePurgeReschedulesItselfDaily(): void
     {
         (new PurgeSupportPackagesHandler())->handle([], $this->context);
@@ -258,5 +324,84 @@ class PurgeSupportPackagesHandlerTest extends TestCase
         (new PurgeSupportPackagesHandler())->handle([], $this->context);
 
         $this->assertNotNull((new FileRepository($this->pdo))->findById($fileId));
+    }
+
+    /**
+     * The daily task is what keeps the retention promise for bytes no
+     * record or setting points at any more, so it sweeps the directory on
+     * every run, with or without a current package.
+     */
+    public function testThePurgeSweepsAnOrphanedArchivePastRetention(): void
+    {
+        $orphan = $this->orphanPastRetention();
+
+        (new PurgeSupportPackagesHandler())->handle([], $this->context);
+
+        $this->assertFileDoesNotExist($orphan);
+        $stmt = $this->pdo->query('SELECT event_type FROM event_log');
+        $types = $stmt !== false ? $stmt->fetchAll(\PDO::FETCH_COLUMN) : [];
+        $this->assertContains('support_package_files_swept', $types);
+    }
+
+    /**
+     * A database failure is what orphans the bytes in the first place, so
+     * the sweep cannot depend on the purge before it having worked.
+     */
+    public function testTheSweepStillRunsWhenThePurgeFailsOnTheDatabase(): void
+    {
+        $orphan = $this->orphanPastRetention();
+        $workingDirectory = $this->abandonedWorkingDirectory();
+        $this->settings->clearCache();
+        $this->pdo->exec('DROP TABLE settings');
+
+        try {
+            (new PurgeSupportPackagesHandler())->handle([], $this->context);
+            $this->fail('the purge was expected to fail without its settings table');
+        } catch (\PDOException) {
+            // Expected: the failure is the scheduler's to record.
+        }
+
+        $this->assertFileDoesNotExist($orphan);
+        $this->assertDirectoryDoesNotExist($workingDirectory);
+        $this->assertCount(1, $this->scheduled(PurgeSupportPackagesHandler::TASK_KEY));
+    }
+
+    /**
+     * The archive in clear that a generation killed mid-run leaves in
+     * `storage/temp/` goes with the same daily task.
+     */
+    public function testThePurgeRemovesAnAbandonedWorkingDirectory(): void
+    {
+        $workingDirectory = $this->abandonedWorkingDirectory();
+
+        (new PurgeSupportPackagesHandler())->handle([], $this->context);
+
+        $this->assertDirectoryDoesNotExist($workingDirectory);
+        $stmt = $this->pdo->query('SELECT event_type FROM event_log');
+        $types = $stmt !== false ? $stmt->fetchAll(\PDO::FETCH_COLUMN) : [];
+        $this->assertContains('support_package_working_files_swept', $types);
+    }
+
+    private function abandonedWorkingDirectory(): string
+    {
+        $old = time() - SupportPackageService::ABANDONED_WORKING_FILE_SECONDS - 3600;
+        $directory = $this->storagePath . '/temp/support-' . bin2hex(random_bytes(8));
+        mkdir($directory, 0700);
+        file_put_contents($directory . '/scoutmagic-support.zip', 'journaux en clair');
+        touch($directory . '/scoutmagic-support.zip', $old);
+        touch($directory, $old);
+
+        return $directory;
+    }
+
+    private function orphanPastRetention(): string
+    {
+        $directory = $this->storagePath . '/' . SupportPackageService::STORAGE_SUBDIRECTORY;
+        mkdir($directory, 0755, true);
+        $path = $directory . '/' . bin2hex(random_bytes(16)) . '.bin.enc';
+        file_put_contents($path, 'chiffré');
+        touch($path, time() - (SupportPackageService::RETENTION_DAYS + 1) * 86400);
+
+        return $path;
     }
 }

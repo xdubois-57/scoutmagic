@@ -293,6 +293,63 @@ class AttestationsRbacTest extends TestCase
         }
     }
 
+    /**
+     * Bytes that start like a PDF pass the type check, then the reader
+     * refuses them: its own French sentence is what the page says, and the
+     * form keeps what was typed.
+     */
+    public function testAPdfTheReaderCannotOpenIsRefusedWithTheReadersOwnSentence(): void
+    {
+        AuthSession::login(1, 'chef-unite@test.be', 'admin');
+
+        $path = sys_get_temp_dir() . '/attestations_broken_' . bin2hex(random_bytes(4)) . '.pdf';
+        file_put_contents($path, "%PDF-1.4\n" . str_repeat('pas un objet PDF ', 40));
+
+        try {
+            $response = $this->post($path, [
+                'scout_year_id' => (string) $this->scoutYearId,
+                'category' => AttestationCategory::Tax->value,
+                'label' => 'Attestation fiscale 2025',
+            ]);
+        } finally {
+            @unlink($path);
+        }
+
+        $body = html_entity_decode((string) $response->getBody(), ENT_QUOTES);
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertStringContainsString(
+            "Ce fichier n'a pas pu être ouvert comme un PDF. S'il est protégé par un mot de passe, "
+                . "demandez à la fédération une version qui ne l'est pas.",
+            $body
+        );
+        $this->assertStringContainsString('value="Attestation fiscale 2025"', $body);
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM attestation_batches')->fetchColumn());
+        $this->assertSame([], glob($this->storageRoot . '/temp/*') ?: []);
+    }
+
+    /**
+     * A failure that is not the module's own — here the line table is
+     * gone — shows the generic sentence, never the database's text.
+     */
+    public function testADepositTheDatabaseRefusesShowsTheGenericSentence(): void
+    {
+        AuthSession::login(1, 'chef-unite@test.be', 'admin');
+        $this->pdo->exec('DROP TABLE attestation_batch_lines');
+
+        $response = $this->post(AttestationsTestHelper::goldenFixturePath(), [
+            'scout_year_id' => (string) $this->scoutYearId,
+            'category' => AttestationCategory::Tax->value,
+            'label' => 'Attestation fiscale 2025',
+        ]);
+
+        $body = html_entity_decode((string) $response->getBody(), ENT_QUOTES);
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertStringContainsString('Le dépôt a échoué. Réessayez dans un instant.', $body);
+        $this->assertStringNotContainsString('attestation_batch_lines', $body);
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM attestation_batches')->fetchColumn());
+        $this->assertSame([], glob($this->storageRoot . '/temp/*') ?: []);
+    }
+
     public function testADepositWithNoLabelIsRefusedBeforeTheFileIsEvenRead(): void
     {
         AuthSession::login(1, 'chef-unite@test.be', 'admin');

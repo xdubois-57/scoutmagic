@@ -211,6 +211,43 @@ class AuthServiceTest extends TestCase
         $this->assertFalse($this->emailSent);
     }
 
+    /**
+     * A failed send answers exactly like a successful one and like an
+     * unknown address: anything else tells whoever typed the address that
+     * it has an account, whenever mail is failing. The failure goes to the
+     * journal instead (AuthControllerMagicLinkEnumerationTest).
+     */
+    public function testRequestMagicLinkWhoseSendFailsStillAnswersSuccess(): void
+    {
+        $this->userRepo->create('refused@test.com');
+
+        $refusing = $this->createStub(MailService::class);
+        $refusing->method('send')->willThrowException(
+            new \Core\Mail\MailException('Destinataire refusé : refused@test.com')
+        );
+        $connection = $this->createStub(Connection::class);
+        $connection->method('getPdo')->willReturn($this->pdo);
+        $twig = new Environment(new ArrayLoader([
+            'email/magic_link.html.twig' => '<a href="{{ magic_link_url }}">Login</a>',
+            'email/magic_link.text.twig' => '{{ magic_link_url }}',
+        ]));
+        $authService = new AuthService(
+            $connection,
+            $this->encryption,
+            $refusing,
+            EmailTemplateRendererFactory::overTestDatabase($this->pdo, $twig),
+            'https://example.com',
+            'Test Unit'
+        );
+
+        $result = $authService->requestMagicLink('refused@test.com');
+
+        $this->assertTrue($result->success);
+        $this->assertNotNull($result->magicLinkId);
+        $this->assertNull($result->error);
+        $this->assertMatchesRegularExpression('/^\d{6}$/', (string) $result->matchCode);
+    }
+
     public function testRequestMagicLinkWithValidSecondaryEmailSendsAndStoresTheSubmittedAddress(): void
     {
         $this->userRepo->create('primary@test.com');

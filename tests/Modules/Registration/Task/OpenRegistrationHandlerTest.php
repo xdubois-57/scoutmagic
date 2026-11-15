@@ -249,6 +249,31 @@ class OpenRegistrationHandlerTest extends TestCase
         );
     }
 
+    /**
+     * A marker missing from the database — the schedule read from an
+     * older registration of the same block — is skipped: the manual
+     * toggle is not turned into an error page, and the other occurrence
+     * is still settled.
+     */
+    public function testSettlingSkipsAMarkerThatIsNotRegisteredAndSettlesTheOther(): void
+    {
+        $this->settingService->set('registration_scheduled_open_at', '10-10', 'registration');
+        $this->settingService->set('registration_scheduled_close_at', '10-11', 'registration');
+        $this->pdo->prepare('DELETE FROM settings WHERE setting_key = ?')
+            ->execute(['registration_scheduled_open_applied_on']);
+
+        $settled = OpenRegistrationHandler::settleDueOccurrences(
+            $this->settingService,
+            new \DateTimeImmutable('2026-10-12 10:00:00')
+        );
+
+        $this->assertSame(['registration_scheduled_close_applied_on' => '2026-10-11'], $settled);
+        $this->assertSame(
+            '2026-10-11',
+            $this->settingService->get('registration_scheduled_close_applied_on', 'registration')
+        );
+    }
+
     public function testSettlingLeavesAnOccurrenceOutsideTheWindowAlone(): void
     {
         $this->settingService->set(

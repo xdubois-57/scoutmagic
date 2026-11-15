@@ -302,6 +302,31 @@ class SupportTicketRepository
     }
 
     /**
+     * The bytes the diagnostic archives still held occupy — every
+     * installation's, or one installation's when $installationRowId is
+     * given — read from the stored file's own size (issue #1113). An
+     * archive purged by retention is detached first, so it no longer
+     * counts.
+     */
+    public function archiveBytes(?int $installationRowId = null): int
+    {
+        $sql = 'SELECT COALESCE(SUM(f.size_bytes), 0)
+                FROM support_tickets t
+                JOIN files f ON f.id = t.archive_file_id
+                WHERE t.archive_file_id IS NOT NULL';
+        $params = [];
+        if ($installationRowId !== null) {
+            $sql .= ' AND t.installation_id = ?';
+            $params[] = $installationRowId;
+        }
+
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute($params);
+
+        return (int) $stmt->fetchColumn();
+    }
+
+    /**
      * Record that this ticket's diagnostic archive arrived (roadmap
      * IT-26). Written only once — the caller checks first, and a second
      * copy of the same archive would be storage nobody asked for.

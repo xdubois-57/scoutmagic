@@ -134,29 +134,44 @@ class MigrationServiceTest extends TestCase
         $this->service->migrate($requestId2, $memberId);
     }
 
+    /**
+     * The encoding refused by the database AFTER the secondary e-mail was
+     * copied to the member: the whole migration is undone — no address on
+     * the member, the request still accepted and unlinked, nothing
+     * journaled — and the error reaches the caller.
+     *
+     * The refusal is a trigger on the request's UPDATE, so the failure
+     * happens inside the transaction rather than at the « already linked »
+     * check before it, which the test above covers.
+     */
     public function testFailedMigrationDoesNotPartiallyApply(): void
     {
-        // Force a failure mid-transaction by linking the member to a
-        // DIFFERENT request first, then attempting to migrate a second
-        // request to that same member with a secondary email present —
-        // the whole operation (including the secondary email move) must
-        // never partially apply.
-        $requestId1 = $this->createAcceptedRequest();
+        $requestId = $this->createAcceptedRequest();
+        $this->createConfirmedSecondaryEmail($requestId, 'blocked@example.com');
         $memberId = RegistrationTestHelper::insertMember($this->pdo, 'M6');
-        $this->service->migrate($requestId1, $memberId);
-
-        $requestId2 = $this->createAcceptedRequest();
-        $this->createConfirmedSecondaryEmail($requestId2, 'blocked@example.com');
+        $this->pdo->exec(
+            "CREATE TRIGGER refuse_encoding BEFORE UPDATE OF status ON registration_requests
+             WHEN NEW.status = 'encoded' BEGIN SELECT RAISE(ABORT, 'encoding refused'); END"
+        );
 
         try {
-            $this->service->migrate($requestId2, $memberId);
-            $this->fail('Expected RegistrationException');
-        } catch (RegistrationException) {
-            // expected
+            $this->service->migrate($requestId, $memberId);
+            $this->fail('the refused encoding did not reach the caller');
+        } catch (\PDOException $e) {
+            $this->assertStringContainsString('encoding refused', $e->getMessage());
         }
 
-        $this->assertSame('accepted', $this->requestRepository->findById($requestId2)->status);
+        $this->assertFalse($this->pdo->inTransaction(), 'the transaction was left open');
+        $request = $this->requestRepository->findById($requestId);
+        $this->assertSame('accepted', $request->status);
+        $this->assertNull($request->linkedMemberId);
         $this->assertNull($this->memberEmailRepository->findByMemberAndEmail($memberId, 'blocked@example.com'));
+        $this->assertSame(
+            0,
+            (int) $this->pdo->query(
+                "SELECT COUNT(*) FROM event_log WHERE event_type = 'registration_request_migrated'"
+            )->fetchColumn()
+        );
     }
 
     public function testMigrationJournalNeverContainsPersonalData(): void

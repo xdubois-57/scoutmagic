@@ -90,7 +90,11 @@ final class CampPlacesImporter implements Importer
     {
         foreach ($source->jsonLines(self::MEMBER, $from) as $position => $row) {
             if ($row === null) {
-                yield $position => SourceItem::unreadable(self::SOURCE_KIND, 'ligne ' . ($position + 1), 'Ligne illisible');
+                yield $position => SourceItem::unreadable(
+                    self::SOURCE_KIND,
+                    'ligne ' . ($position + 1),
+                    'Ligne illisible'
+                );
                 continue;
             }
 
@@ -121,7 +125,8 @@ final class CampPlacesImporter implements Importer
         }
         if ($existing !== null) {
             return ItemVerdict::ambiguous(
-                'Ressemble à « ' . $existing->name . ' »' . ($existing->locality !== null ? ', ' . $existing->locality : '')
+                'Ressemble à « ' . $existing->name . ' »'
+                    . ($existing->locality !== null ? ', ' . $existing->locality : '')
             );
         }
 
@@ -146,19 +151,20 @@ final class CampPlacesImporter implements Importer
         $notes = [];
         if ($summary->ambiguous > 0) {
             $notes[] = PreviewNote::warning($summary->ambiguous === 1
-                ? '1 lieu ressemble à un lieu déjà présent sans certitude. Il n\'est ni créé ni fusionné : vérifiez-le dans Camps.'
-                : $summary->ambiguous . ' lieux ressemblent à un lieu déjà présent sans certitude. Ils ne sont ni créés ni '
-                    . 'fusionnés : vérifiez-les dans Camps.');
+                ? '1 lieu ressemble à un lieu déjà présent sans certitude. Il n\'est ni créé ni fusionné : '
+                    . 'vérifiez-le dans Camps.'
+                : $summary->ambiguous . ' lieux ressemblent à un lieu déjà présent sans certitude. Ils ne sont ni '
+                    . 'créés ni fusionnés : vérifiez-les dans Camps.');
         }
         $notes[] = PreviewNote::info('Les lieux archivés sont aussi comparés, pour ne pas les recréer.');
 
         $unrecognised = $summary->tag(self::TAG_UNRECOGNISED);
         if ($unrecognised > 0) {
             $notes[] = PreviewNote::warning($unrecognised === 1
-                ? '1 lieu a des informations non reconnues (coordonnées incomplètes ou hors limites, site web invalide, '
-                    . 'texte trop long). Il est créé sans elles.'
-                : $unrecognised . ' lieux ont des informations non reconnues (coordonnées incomplètes ou hors limites, '
-                    . 'site web invalide, texte trop long). Ils sont créés sans elles.');
+                ? '1 lieu a des informations non reconnues (coordonnées incomplètes ou hors limites, '
+                    . 'site web invalide, texte trop long). Il est créé sans elles.'
+                : $unrecognised . ' lieux ont des informations non reconnues (coordonnées incomplètes ou hors '
+                    . 'limites, site web invalide, texte trop long). Ils sont créés sans elles.');
         }
 
         $archived = $summary->tag(self::TAG_ARCHIVED);

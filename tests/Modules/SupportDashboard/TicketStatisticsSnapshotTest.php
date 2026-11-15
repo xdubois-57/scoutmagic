@@ -46,7 +46,8 @@ class TicketStatisticsSnapshotTest extends TestCase
         $this->intake = new TicketIntakeService(
             $this->installations,
             $this->tickets,
-            new JournalService(new JournalRepository($this->pdo))
+            new JournalService(new JournalRepository($this->pdo)),
+            SupportDashboardTestHelper::intakeGuard($this->pdo)
         );
     }
 
