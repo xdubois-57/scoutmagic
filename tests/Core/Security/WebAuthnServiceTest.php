@@ -792,9 +792,6 @@ class WebAuthnServiceTest extends TestCase
     }
 
     /**
-     * The user.id of a fresh set of registration options, decoded.
-     */
-    /**
      * A stored public key that is no longer CBOR — a truncated column, a
      * restore gone wrong — verifies nothing: a correctly signed assertion
      * for that credential is refused, and its counter is not moved.
@@ -817,6 +814,9 @@ class WebAuthnServiceTest extends TestCase
         $this->assertSame(0, (int) $statement->fetchColumn());
     }
 
+    /**
+     * The user.id of a fresh set of registration options, decoded.
+     */
     private function userHandleFromOptions(int $userAccountId): string
     {
         $options = $this->service->generateRegistrationOptions($userAccountId, 'test@example.com');
