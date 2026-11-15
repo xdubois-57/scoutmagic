@@ -385,8 +385,8 @@ class PublicRegistrationControllerTest extends TestCase
      */
     public function testFriendWishesAreFiledWithTheRequest(): void
     {
+        $this->settingService->set('human_check_min_delay_seconds', '0');
         $hcFields = $this->humanCheckFields();
-        sleep(2);
 
         $response = $this->withFriendWishes->submit(new Request('POST', '/inscriptions', [], array_merge(
             $this->baseFields(['friend_names' => ['Zoé Martin', '  ']]),
@@ -412,8 +412,8 @@ class PublicRegistrationControllerTest extends TestCase
             "CREATE TRIGGER refuse_request_wishes BEFORE INSERT ON registration_request_friend_wishes
              BEGIN SELECT RAISE(ABORT, 'wishes refused'); END"
         );
+        $this->settingService->set('human_check_min_delay_seconds', '0');
         $hcFields = $this->humanCheckFields();
-        sleep(2);
 
         $response = $this->withFriendWishes->submit(new Request('POST', '/inscriptions', [], array_merge(
             $this->baseFields(['friend_names' => ['Zoé Martin']]),

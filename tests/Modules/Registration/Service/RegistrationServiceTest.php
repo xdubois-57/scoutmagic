@@ -299,11 +299,15 @@ class RegistrationServiceTest extends TestCase
         $this->journalService->method('log')->willReturnCallback(function (...$args) use (&$logged): void {
             $logged[(string) $args[1]] = [$args[2], $args[3], $args[4]];
         });
+        // The transport's own words, without an address: MailService
+        // redacts every recipient out of the MailException it throws
+        // (MailErrorRedaction::withoutAddresses), so that is all a module
+        // ever has to journal.
         $recipients = [];
         $this->mailService->expects($this->exactly(2))->method('send')->willReturnCallback(
             function (...$args) use (&$recipients): void {
                 $recipients[] = $args[0];
-                throw new MailException('Transport refusé pour ' . $args[0]);
+                throw new MailException('Transport refusé (envoi ' . count($recipients) . ')');
             }
         );
         $target = $this->service->resolveTargetYear(null);
@@ -323,7 +327,7 @@ class RegistrationServiceTest extends TestCase
             [
                 'info',
                 "Échec de l'envoi de l'accusé de réception",
-                ['error' => 'Transport refusé pour marie.dupont@example.com'],
+                ['error' => 'Transport refusé (envoi 1)'],
             ],
             $logged['registration_receipt_email_failed'] ?? null
         );
@@ -331,7 +335,7 @@ class RegistrationServiceTest extends TestCase
             [
                 'info',
                 "Échec de l'envoi de l'alerte à l'unité",
-                ['error' => 'Transport refusé pour unite@example.com'],
+                ['error' => 'Transport refusé (envoi 2)'],
             ],
             $logged['registration_unit_alert_email_failed'] ?? null
         );
