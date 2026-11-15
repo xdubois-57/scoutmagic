@@ -185,11 +185,6 @@ final class DataMigrationControllerTest extends TestCase
     }
 
     /**
-     * The six steps of the shared page, driven the way the browser does:
-     * a deposit, slices, the confirmation with a year ticked, slices, the
-     * report.
-     */
-    /**
      * A fragment that does not start where the stored file ends — a resume
      * from the wrong place — is refused with the store's own sentence, and
      * the answer says how much was really received so the page resumes
@@ -248,6 +243,11 @@ final class DataMigrationControllerTest extends TestCase
         $this->assertSame(['success' => true, 'received' => 0], json_decode((string) $response->getBody(), true));
     }
 
+    /**
+     * The six steps of the shared page, driven the way the browser does:
+     * a deposit, slices, the confirmation with a year ticked, slices, the
+     * report.
+     */
     public function testTheSharedPageWalksThroughTheSixSteps(): void
     {
         AuthSession::login(1, 'superadmin@test.be', 'superadmin');

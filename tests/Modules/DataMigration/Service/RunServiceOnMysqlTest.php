@@ -330,10 +330,6 @@ final class RunServiceOnMysqlTest extends TestCase
     }
 
     /**
-     * The purge: 24 hours after the last movement, whatever the idle state;
-     * never the file of a run that is moving.
-     */
-    /**
      * A run row whose file path does not lie in the module's directory (a
      * row altered by hand, say) is still abandoned, and the deletion that
      * follows touches nothing outside that directory.
@@ -356,6 +352,10 @@ final class RunServiceOnMysqlTest extends TestCase
         $this->assertFileExists($archive, 'the archive the row no longer names is the purge\'s, not this delete\'s');
     }
 
+    /**
+     * The purge: 24 hours after the last movement, whatever the idle state;
+     * never the file of a run that is moving.
+     */
     public function testThePurgeDeletesIdleFilesAndNeverAMovingOne(): void
     {
         $idle = $this->analysed(TestArchive::items([['id' => '1', 'name' => 'Un']]));

@@ -214,11 +214,6 @@ class BatchResetServiceTest extends TestCase
     }
 
     /**
-     * A batch deposited and never published has no documents to remove, but
-     * it does have cut certificates — and without this there would be no way
-     * to get rid of them at all.
-     */
-    /**
      * The batch row itself is refused last: the documents come back on the
      * members' pages, the lines and certificates stay, and the bytes are
      * untouched because they only go after the commit.
@@ -260,6 +255,11 @@ class BatchResetServiceTest extends TestCase
         );
     }
 
+    /**
+     * A batch deposited and never published has no documents to remove, but
+     * it does have cut certificates — and without this there would be no way
+     * to get rid of them at all.
+     */
     public function testADraftBatchIsTakenBackToo(): void
     {
         $fileIds = $this->lines->findFileIds($this->batchId);

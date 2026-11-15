@@ -250,11 +250,6 @@ class BatchVerificationServiceTest extends TestCase
     }
 
     /**
-     * A counter, never a list of names — that is the whole point of keeping
-     * it: it answers « pourquoi 43 attestations pour 55 membres ? » without
-     * keeping who the 12 were.
-     */
-    /**
      * The ticks, the deletion and the counters are one decision: a refusal
      * of the last write rolls the deletion back, and no certificate's bytes
      * are touched, since those go only once the rows are committed.
@@ -289,6 +284,11 @@ class BatchVerificationServiceTest extends TestCase
         );
     }
 
+    /**
+     * A counter, never a list of names — that is the whole point of keeping
+     * it: it answers « pourquoi 43 attestations pour 55 membres ? » without
+     * keeping who the 12 were.
+     */
     public function testTheBatchKeepsTheCountOfWhatWasDiscarded(): void
     {
         $this->service->commitSelection($this->batchId, [$this->lineIds['matched']]);
