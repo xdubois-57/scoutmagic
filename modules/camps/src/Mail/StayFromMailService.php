@@ -386,6 +386,11 @@ class StayFromMailService
                     AuditSource::Email
                 );
         } catch (CampsException) {
+            // @catch-unreachable Every value create() and the place service receive here is one they accept:
+            // readValues() gives dates range() already checked (ISO, end not before start), a price and a
+            // participant count the reader formats within CampService's rules, a stay type stayTypeFor()
+            // picks from the known ones, a fixed status and no section, and resolvePlaceId() only names a
+            // place from a trimmed, non-empty model answer. Neither service has a refusal left to raise.
             // A refusal here is not a failure of the synchronisation: the
             // message simply stays unattached, where the chief d'unité and
             // this module's own users both see it, and a human decides.

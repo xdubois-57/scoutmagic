@@ -221,6 +221,35 @@ class DocumentServiceTest extends TestCase
     }
 
     /**
+     * The bytes and their `files` row are written before the document row
+     * that points at them. When the database refuses that last row, the
+     * first two must not stay behind owned by nothing — and the refusal
+     * itself still reaches the caller.
+     */
+    public function testADocumentRowTheDatabaseRefusesLeavesNoFileBehind(): void
+    {
+        $this->pdo->exec(
+            "CREATE TRIGGER refuse_documents BEFORE INSERT ON camp_documents
+             BEGIN SELECT RAISE(ABORT, 'camp_documents refused'); END"
+        );
+        $upload = $this->anUploadedPdf();
+
+        try {
+            $this->service->upload(1, $upload, 'Contrat signé', 42);
+            $this->fail('the refused insert must reach the caller');
+        } catch (\PDOException $e) {
+            $this->assertStringContainsString('camp_documents refused', $e->getMessage());
+        }
+
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM files')->fetchColumn());
+        $stored = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($this->storagePath . '/camps', \FilesystemIterator::SKIP_DOTS)
+        );
+        $this->assertSame([], iterator_to_array($stored), 'the stored bytes are removed with their row');
+        $this->assertSame([], $this->audit->page(CampService::ENTITY_TYPE, 1, 1, 10)->entries);
+    }
+
+    /**
      * @return array<string, mixed> a $_FILES entry over a real temporary file
      */
     private function anUploadedPdf(string $browserName = 'contrat.pdf'): array
