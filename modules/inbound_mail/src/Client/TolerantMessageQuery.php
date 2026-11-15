@@ -26,8 +26,9 @@ use Webklex\PHPIMAP\Query\WhereQuery;
  * Its `soft_fail` option is not the answer, for three reasons: it is read
  * from the library's global configuration, never from the account options
  * `ImapMailboxClient::connect()` passes; it catches only four exception
- * classes, and the two-`Date:` case escapes as a Carbon exception that is
- * none of them; and what it does catch it drops without a word.
+ * classes, and the two-`Date:` case — where the PHP release refuses it —
+ * escapes as a Carbon exception that is none of them; and what it does
+ * catch it drops without a word.
  *
  * So the one per-message step, `make()`, is guarded here instead:
  *
