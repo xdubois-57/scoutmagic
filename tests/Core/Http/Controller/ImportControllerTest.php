@@ -726,6 +726,80 @@ class ImportControllerTest extends TestCase
         $this->assertNull(\Core\Http\FlashMessage::get());
     }
 
+    /**
+     * The roster barrier (SECURITY.md §13): a file that would deactivate
+     * most of the year is answered with the barrier screen — what the file
+     * holds, the word to type, the year carried to the second deposit —
+     * rather than an import, a flash, or an error page.
+     *
+     * The service is doubled, as for the refused file above: the CLI
+     * cannot `move_uploaded_file()`, so a real CSV never reaches the
+     * service through this controller. The assessment it throws is the
+     * one a section-filtered export produces (DeskImportBarrierTest).
+     */
+    public function testAFileTheBarrierStopsShowsTheBarrierScreenAndKeepsNothing(): void
+    {
+        $assessment = new \Core\Import\RosterReplacementAssessment(
+            \Core\Import\RosterReplacementVerdict::FILTERED_EXPORT,
+            1,
+            1,
+            ['BAL'],
+            3,
+            3,
+            null,
+            2,
+            [],
+            0,
+            0,
+            1,
+            false,
+            true
+        );
+        // The CSV the controller deposits exists when the barrier stops it —
+        // the stub writes it where move_uploaded_file() would have, since a
+        // test cannot upload — so the absence asserted at the end is the
+        // controller's cleanup, not a file that was never there.
+        $deposited = [];
+        $service = $this->createStub(DeskImportService::class);
+        $service->method('import')->willReturnCallback(
+            static function (string $filePath) use ($assessment, &$deposited): never {
+                file_put_contents($filePath, "Nom;Prénom\nDupont;Marie\n");
+                $deposited[] = $filePath;
+                throw new \Core\Import\RosterReplacementRefusedException($assessment);
+            }
+        );
+        $controller = ($this->rebuildController)($this->roomyBudget(), $service);
+
+        $_FILES['csv_file'] = [
+            'name' => 'effectifs.csv',
+            'type' => 'text/csv',
+            'tmp_name' => $this->storagePath . '/never-read.csv',
+            'error' => UPLOAD_ERR_OK,
+            'size' => 4096,
+        ];
+
+        try {
+            $response = $controller->import($this->postWithCsrf(), []);
+        } finally {
+            unset($_FILES['csv_file']);
+        }
+
+        $this->assertSame(200, $response->getStatusCode());
+        $body = html_entity_decode($response->getBody(), ENT_QUOTES | ENT_HTML5);
+        $this->assertStringContainsString("Ce fichier ne contient qu'une seule section", $body);
+        $this->assertStringContainsString('Seule la section BAL figure dans ce fichier', $body);
+        $this->assertStringContainsString('2 membres seraient désactivés', $body);
+        $this->assertStringContainsString('Tapez <strong>REMPLACER</strong> pour confirmer', $body);
+        $this->assertStringContainsString(
+            '<input type="hidden" name="scout_year_id" value="' . $this->publicYearId . '">',
+            $body
+        );
+        $this->assertNull(\Core\Http\FlashMessage::get());
+        $this->assertCount(1, $deposited, 'the barrier was reached with a deposited file');
+        $this->assertFileDoesNotExist($deposited[0], 'the deposited CSV was kept');
+        $this->assertSame([], glob($this->storagePath . '/temp/import_*.csv') ?: [], 'the deposited CSV was kept');
+    }
+
     private function postWithCsrf(): Request
     {
         $token = bin2hex(random_bytes(32));

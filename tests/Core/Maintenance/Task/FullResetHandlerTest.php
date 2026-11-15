@@ -75,9 +75,30 @@ class FullResetHandlerTest extends TestCase
         );
     }
 
+    protected function tearDown(): void
+    {
+        $this->removeTree($this->basePath);
+    }
+
+    private function removeTree(string $path): void
+    {
+        if (!is_dir($path)) {
+            return;
+        }
+        foreach (scandir($path) ?: [] as $entry) {
+            if ($entry !== '.' && $entry !== '..') {
+                $child = $path . '/' . $entry;
+                is_dir($child) && !is_link($child) ? $this->removeTree($child) : @unlink($child);
+            }
+        }
+        @rmdir($path);
+    }
+
     private function fakeBackupService(bool $canEncrypt = true): BackupServiceInterface
     {
-        $dbDumpDir = sys_get_temp_dir() . '/full_reset_fake_backups_' . uniqid();
+        // Inside this test's own tree, beside storage/ rather than in it:
+        // the reset wipes storage/, and tearDown() removes the whole tree.
+        $dbDumpDir = $this->basePath . '/fake_backups_' . uniqid();
         mkdir($dbDumpDir, 0755, true);
 
         return new class ($dbDumpDir, $canEncrypt) implements BackupServiceInterface {
@@ -437,5 +458,55 @@ class FullResetHandlerTest extends TestCase
 
         $rows = $this->pdo->query("SELECT * FROM event_log WHERE event_type = 'full_reset_failed'")->fetchAll(\PDO::FETCH_ASSOC);
         $this->assertCount(1, $rows);
+    }
+
+    /**
+     * A refusal before anything was erased must reach the scheduler as the
+     * refusal itself, even when the journal that should record it is gone:
+     * the operator is told why nothing happened, not that a table is missing.
+     */
+    public function testARefusalStillReachesTheSchedulerWhenTheJournalIsGone(): void
+    {
+        (new \Core\Security\SecretManager(
+            $this->storagePath . '/keys/master.key',
+            $this->storagePath . '/config/secrets.enc'
+        ))->writeSecrets(['db_password' => 'x']);
+        $this->pdo->exec('INSERT INTO user_accounts (email_encrypted, email_blind_index) VALUES (\'enc\', \'idx\')');
+        $this->pdo->exec('DROP TABLE event_log');
+
+        try {
+            (new FullResetHandler($this->fakeBackupService()))->handle([], $this->context);
+            $this->fail('A reset refused before erasing anything must fail its task.');
+        } catch (\Core\Maintenance\BackupException $e) {
+            $this->assertSame(
+                'Le mot de passe de la copie de sécurité n\'a pas été affiché : rien n\'a été effacé.',
+                $e->getMessage()
+            );
+        }
+
+        $this->assertSame('1', (string) $this->pdo->query('SELECT COUNT(*) FROM user_accounts')->fetchColumn());
+        $this->assertFileExists($this->storagePath . '/config/secrets.enc');
+    }
+
+    /**
+     * Once erasing has begun there is nobody left to tell: a journal that
+     * refuses every line (here a trigger, as a full disk or a broken table
+     * would) costs the record, never the reset — the task completes, the
+     * data is gone and the safety copy is where the page says it is.
+     */
+    public function testAJournalThatRefusesEveryLineDoesNotFailAResetAlreadyUnderWay(): void
+    {
+        $this->pdo->exec('INSERT INTO user_accounts (email_encrypted, email_blind_index) VALUES (\'enc\', \'idx\')');
+        $this->pdo->exec(
+            "CREATE TRIGGER refuse_every_journal_line BEFORE INSERT ON event_log
+             BEGIN SELECT RAISE(ABORT, 'journal refused'); END"
+        );
+
+        (new FullResetHandler($this->fakeBackupService()))->handle([], $this->context);
+
+        $this->assertSame('0', (string) $this->pdo->query('SELECT COUNT(*) FROM user_accounts')->fetchColumn());
+        $this->assertFileDoesNotExist($this->storagePath . '/config/secrets.enc');
+        $this->assertCount(1, glob($this->storagePath . '/maintenance/files_*.zip') ?: []);
+        $this->assertSame('0', (string) $this->pdo->query('SELECT COUNT(*) FROM event_log')->fetchColumn());
     }
 }

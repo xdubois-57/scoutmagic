@@ -112,6 +112,36 @@ class LocalStorageBackendHealthBudgetTest extends TestCase
     }
 
     /**
+     * Giving up on time names the step that ran out, and a witness the
+     * mount then refuses to remove does not replace that sentence: the
+     * cleanup failing is not what the administrator came to learn.
+     */
+    public function testAWitnessThatCannotBeRemovedAfterGivingUpKeepsTheTimeoutSentence(): void
+    {
+        $backend = new class ($this->directory, 3.0) extends LocalStorageBackend {
+            private float $clock = 0.0;
+
+            /** @phpstan-impure */
+            protected function now(): float
+            {
+                $this->clock += 1.0;
+
+                return $this->clock;
+            }
+
+            public function delete(string $key): void
+            {
+                throw new \RuntimeException("Stored file could not be removed: {$key}");
+            }
+        };
+
+        $error = (string) $backend->testConnection();
+
+        $this->assertStringContainsString('trop de temps à répondre en écrivant un fichier témoin', $error);
+        $this->assertCount(1, $this->witnessFiles(), 'the refused removal still removed the witness');
+    }
+
+    /**
      * A round trip that completed slowly is a location that WORKS.
      *
      * Five clock reads at one second each means the whole check takes four

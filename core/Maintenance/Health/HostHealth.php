@@ -605,6 +605,10 @@ final class HostHealth
         try {
             $value = $this->pdo->getAttribute($attribute);
         } catch (\Throwable) {
+            // @catch-unreachable only ATTR_DRIVER_NAME, answered by PDO itself, and ATTR_SERVER_VERSION are
+            // asked; pdo_mysql answers the latter from its cached handshake, even after the server killed the
+            // connection (measured on MariaDB 10.11), and pdo_sqlite and pdo_pgsql answer it locally. Only a
+            // driver this application never connects with refuses it.
             return '';
         }
 

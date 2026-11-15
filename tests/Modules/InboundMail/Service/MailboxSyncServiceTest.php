@@ -17,6 +17,8 @@ use Modules\InboundMail\Api\LinkOrigin;
 use Modules\InboundMail\Api\InboundMessage;
 use Modules\InboundMail\Api\MessageConsumerInterface;
 use Modules\InboundMail\Client\FakeMailboxClient;
+use Modules\InboundMail\Client\FetchedMessage;
+use Modules\InboundMail\Mime\MimeMessageParser;
 use Modules\InboundMail\Mailbox\ProviderType;
 use Modules\InboundMail\Repository\InboundMailboxRepository;
 use Modules\InboundMail\Repository\InboundMessageRepository;
@@ -115,12 +117,17 @@ class MailboxSyncServiceTest extends TestCase
 
     protected function tearDown(): void
     {
+        // A trigger outlives the rows: on the production engine the class
+        // keeps its database between tests, emptied but not rebuilt.
+        $this->pdo->exec('DROP TRIGGER IF EXISTS refuse_attachment_delete');
+
         if (is_dir($this->storagePath)) {
-            foreach (glob($this->storagePath . '/*/*') ?: [] as $file) {
-                @unlink($file);
-            }
-            foreach (glob($this->storagePath . '/*') ?: [] as $directory) {
-                @rmdir($directory);
+            $entries = new \RecursiveIteratorIterator(
+                new \RecursiveDirectoryIterator($this->storagePath, \FilesystemIterator::SKIP_DOTS),
+                \RecursiveIteratorIterator::CHILD_FIRST
+            );
+            foreach ($entries as $entry) {
+                $entry->isDir() ? @rmdir($entry->getPathname()) : @unlink($entry->getPathname());
             }
             @rmdir($this->storagePath);
         }
@@ -296,6 +303,42 @@ class MailboxSyncServiceTest extends TestCase
             $this->mailboxRepository->findCursor($this->mailboxId, 'INBOX')->lastUid,
             'the cursor stayed behind the poisoned message',
         );
+    }
+
+    /**
+     * A message the client cannot read at all, at the top of the folder
+     * with nothing after it to carry the cursor past: the cursor moves past
+     * it all the same. It is
+     * not among the messages the client hands back, and a cursor moved only
+     * past those would fetch it again on every pass — a batch of them would
+     * stop the box for good.
+     */
+    public function testAPoisonedMessageAtTheTopOfTheFolderIsNotFetchedAgain(): void
+    {
+        $this->client = new FakeMailboxClient(new class extends MimeMessageParser {
+            public function parse(string $raw, int $uid, string $folder): FetchedMessage
+            {
+                if ($uid === 11) {
+                    throw new \RuntimeException('illisible');
+                }
+
+                return parent::parse($raw, $uid, $folder);
+            }
+        });
+        $this->service = $this->createSyncService();
+        $this->registry->register($this->claimEverything());
+        $this->addMessage(10, messageId: 'sain-1@example.be');
+        $this->addMessage(11, messageId: 'illisible@example.be');
+
+        $this->sync();
+
+        $this->assertSame(11, $this->mailboxRepository->findCursor($this->mailboxId, 'INBOX')->lastUid);
+
+        $this->client->calls = [];
+        $this->sync();
+
+        $this->assertContains('fetchSince:INBOX:11', $this->client->calls, 'the next pass starts above it');
+        $this->assertSame(1, $this->countMessages());
     }
 
     public function testABoxNoModuleSortsIsStillReadAndStillKept(): void
@@ -1072,5 +1115,154 @@ class MailboxSyncServiceTest extends TestCase
         } finally {
             fclose($stream);
         }
+    }
+
+    // ── When storing an attachment cannot happen ───────────────────────
+
+    /**
+     * The disk is full when an attachment arrives: `UploadHandler` refuses
+     * the write before a byte lands. A refused file is a dropped file,
+     * never a failed synchronisation — the message is stored, the reader
+     * is told why the file is missing, and the box is not reported as
+     * failing.
+     */
+    public function testAnAttachmentTheDiskHasNoRoomForIsRecordedAsAStorageFailure(): void
+    {
+        // `DiskBudget` charges a declared quota for the whole installation
+        // around `storage/`, so it gets an installation of its own rather
+        // than the system temp directory.
+        $storage = $this->storagePath . '/installation/storage';
+        mkdir($storage, 0777, true);
+        $settings = new \Core\Config\SettingService(new \Core\Config\SettingRepository($this->pdo));
+        $settings->register(\Core\Storage\DiskBudget::QUOTA_SETTING, '', 'text', 'Quota', 'Quota');
+        $settings->set(\Core\Storage\DiskBudget::QUOTA_SETTING, '1 Mo');
+        $this->service = $this->syncServiceWith(new UploadHandler(
+            new FileRepository($this->pdo),
+            $storage,
+            new \Core\Storage\DiskBudget($storage, $settings)
+        ));
+        $this->registry->register($this->claimEverything());
+        $this->addMessageWithAttachment(10, 'disque@b', self::pdfBytes(), 'contrat.pdf');
+
+        $outcome = $this->sync();
+
+        $this->assertFalse($outcome->isFailure());
+        $this->assertSame(1, $outcome->messagesStored);
+        $messages = $this->messageRepository->findForReference('rental', 'LOC-K7Q2M4');
+        $this->assertCount(1, $messages, 'the message itself is kept');
+        $this->assertFalse($messages[0]->hasAttachments());
+        $omitted = $messages[0]->omittedAttachments[0];
+        $this->assertSame('contrat.pdf', $omitted->filename);
+        $this->assertSame(AttachmentOmission::STORAGE_ERROR, $omitted->reason);
+        $this->assertSame(
+            "Échec de l'enregistrement. Le message est bien arrivé ; le fichier n'a pas été conservé "
+                . "et reste disponible dans la boîte d'origine.",
+            $omitted->explanation()
+        );
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM files')->fetchColumn());
+        $this->assertNull($this->mailboxRepository->findById($this->mailboxId)?->lastError);
+    }
+
+    /**
+     * The module's ceiling is reached and the emergency purge that follows
+     * cannot delete what it chose: the database refuses. The refusal of the
+     * new file still stands, and the synchronisation still completes —
+     * a purge or an alert failing must not cost the unit the rest of its
+     * mail.
+     */
+    public function testAnEmergencyPurgeTheDatabaseRefusesDoesNotCostTheSynchronisation(): void
+    {
+        // An older message nobody claims, holding 2 MiB against a 1 MiB
+        // ceiling: the first candidate for the emergency purge.
+        $old = $this->messageRepository->create(
+            mailboxId: $this->mailboxId,
+            folder: 'INBOX',
+            uidValidity: 1,
+            imapUid: 1,
+            messageId: 'vieux@b',
+            inReplyTo: null,
+            subject: 'Ancien',
+            fromEmail: 'paul@example.be',
+            fromName: null,
+            bodyText: 'Bonjour',
+            bodyHtml: '',
+            sentAt: new \DateTimeImmutable('2027-01-04 09:00:00')
+        );
+        $this->messageRepository->addAttachment(
+            $old,
+            4242,
+            'ancien.pdf',
+            'application/pdf',
+            2 * 1024 * 1024,
+            str_repeat('a', 64)
+        );
+        $this->refuseDeletingAttachments();
+
+        $settings = new \Core\Config\SettingService(new \Core\Config\SettingRepository($this->pdo));
+        $settings->register(
+            \Modules\InboundMail\Service\StorageQuotaService::SETTING_QUOTA_MB,
+            '500',
+            'number',
+            'Quota',
+            'Quota',
+            'inbound_mail'
+        );
+        $settings->set(\Modules\InboundMail\Service\StorageQuotaService::SETTING_QUOTA_MB, '1', 'inbound_mail');
+        $this->service = $this->syncServiceWith(
+            new UploadHandler(new FileRepository($this->pdo), $this->storagePath),
+            new \Modules\InboundMail\Service\StorageQuotaService($this->messageRepository, $settings)
+        );
+        $this->registry->register($this->claimEverything());
+        $this->addMessageWithAttachment(10, 'nouveau@b', self::pdfBytes(), 'contrat.pdf');
+
+        $outcome = $this->sync();
+
+        $this->assertFalse($outcome->isFailure());
+        $this->assertSame(1, $outcome->messagesStored);
+        $this->assertNull($this->mailboxRepository->findById($this->mailboxId)?->lastError);
+        $messages = $this->messageRepository->findForReference('rental', 'LOC-K7Q2M4');
+        $this->assertCount(1, $messages);
+        $this->assertSame(AttachmentOmission::QUOTA_EXCEEDED, $messages[0]->omittedAttachments[0]->reason);
+        $this->assertNotNull($this->messageRepository->findAnyForAnalysis($old), 'the purge freed nothing');
+        $this->assertSame(2 * 1024 * 1024, $this->messageRepository->totalStoredBytes());
+    }
+
+    private function syncServiceWith(
+        UploadHandler $uploads,
+        ?\Modules\InboundMail\Service\StorageQuotaService $quota = null
+    ): MailboxSyncService {
+        $factory = new MailboxClientFactory();
+        $factory->register(ProviderType::FAKE, $this->client);
+
+        return new MailboxSyncService(
+            $this->mailboxRepository,
+            $this->messageRepository,
+            $this->registry,
+            new MessageContentSanitizer(new HtmlSanitizer()),
+            new AttachmentPolicy(),
+            new MailboxErrorFormatter(),
+            $factory,
+            new AnalysisResultApplier($this->messageRepository),
+            $uploads,
+            $quota
+        );
+    }
+
+    /** The database refuses to delete any attachment row, whichever engine runs. */
+    private function refuseDeletingAttachments(): void
+    {
+        if ($this->pdo->getAttribute(\PDO::ATTR_DRIVER_NAME) === 'sqlite') {
+            $this->pdo->exec(
+                "CREATE TRIGGER refuse_attachment_delete BEFORE DELETE ON inbound_message_attachments
+                 BEGIN SELECT RAISE(ABORT, 'disque plein'); END"
+            );
+
+            return;
+        }
+
+        $this->pdo->exec(
+            "CREATE TRIGGER refuse_attachment_delete BEFORE DELETE ON inbound_message_attachments
+             FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'disque plein'"
+        );
     }
 }

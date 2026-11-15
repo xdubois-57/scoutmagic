@@ -638,6 +638,9 @@ class ReceiptController extends AbstractController
         try {
             $this->receiptService->delete($id);
         } catch (FinanceException $e) {
+            // @catch-unreachable delete() throws only on a receipt findById() cannot read, and
+            // requireVisibleAttachment() read that row a line above in this request; receipt rows are
+            // never deleted but by the purge task, so only a purge between the two reads lands here.
             return $this->json(['success' => false, 'error' => $e->getMessage()], 400);
         }
 
@@ -821,6 +824,9 @@ class ReceiptController extends AbstractController
         try {
             $dropped = $this->receiptService->reassign($id, $newAccountId);
         } catch (FinanceException $e) {
+            // @catch-unreachable reassign() throws only on an unknown receipt or target account; this
+            // request just read both (requireVisibleAttachment(), then getAccount(), whose null is refused
+            // above). No code deletes an account; only a purge task run between the reads loses the receipt.
             return $this->json(['success' => false, 'error' => $e->getMessage()], 400);
         }
 
