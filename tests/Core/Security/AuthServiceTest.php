@@ -385,17 +385,16 @@ class AuthServiceTest extends TestCase
             ->method('send')
             ->with('user@test.com')
             ->willThrowException(new MailException('Destinataire refusé : user@test.com'));
+        // Since #1250 a failed send no longer ends the request: the visitor
+        // gets the same answer as for any address, so the request itself
+        // is journaled afterwards like every other one.
+        $logged = [];
         $journal = $this->createMock(JournalService::class);
-        $journal->expects($this->once())
+        $journal->expects($this->exactly(2))
             ->method('log')
-            ->with(
-                'core',
-                'magic_link_send_failed',
-                'info',
-                "Échec de l'envoi de l'email de lien magique",
-                ['error' => 'Destinataire refusé : [adresse]', 'via_secondary_email' => false],
-                $account->id
-            );
+            ->willReturnCallback(function (...$args) use (&$logged): void {
+                $logged[] = $args;
+            });
         $connection = $this->createStub(Connection::class);
         $connection->method('getPdo')->willReturn($this->pdo);
         $service = new AuthService(
@@ -409,6 +408,18 @@ class AuthServiceTest extends TestCase
         $service->setJournalService($journal);
 
         $service->requestMagicLink('user@test.com');
+
+        $this->assertSame([
+            [
+                'core',
+                'magic_link_send_failed',
+                'info',
+                "Échec de l'envoi de l'email de lien magique",
+                ['error' => 'Destinataire refusé : [adresse]', 'via_secondary_email' => false],
+                $account->id,
+            ],
+            ['core', 'magic_link_requested', 'info', 'Demande de lien magique', [], null],
+        ], $logged, 'the failure, with the address taken out, then the request — and no « sent » entry');
     }
 
     /**
