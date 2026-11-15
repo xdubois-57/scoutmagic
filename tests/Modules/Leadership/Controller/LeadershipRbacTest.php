@@ -597,6 +597,46 @@ class LeadershipRbacTest extends TestCase
     }
 
     /**
+     * @return array<string, array{\Throwable, string}>
+     */
+    public static function draftRefusals(): array
+    {
+        $noSection = "Aucune section n'est configurée : impossible de choisir une section expéditrice.";
+
+        return [
+            // mass_mail's own refusal is written for this reader: shown as it is.
+            'mass_mail refuses' => [new \Modules\MassMail\Api\MassMailException($noSection), $noSection],
+            // Anything else is not: the sentence written here replaces it.
+            'a technical failure' => [
+                new \PDOException('SQLSTATE[HY000]: General error: no such table: mass_mail_audiences'),
+                "Le brouillon n'a pas pu être créé. Vérifiez que le publipostage est configuré.",
+            ],
+        ];
+    }
+
+    #[DataProvider('draftRefusals')]
+    public function testADraftMassMailCannotCreateSendsTheAdminBackWithTheReason(
+        \Throwable $refusal,
+        string $shown
+    ): void {
+        AuthSession::login(1, 'chef-unite@test.be', 'admin');
+        $this->seedCandidateAndSteward();
+        \Core\Http\FlashMessage::get();
+        $this->draft->refusal = $refusal;
+        $body = ['list' => 'obligations-candidates', '_csrf_token' => \Core\Security\CsrfGuard::generateToken()];
+
+        $response = $this->frontController('/admin/leadership/draft', 'LeadershipController', 'draft', 'POST')
+            ->handle(new Request('POST', '/admin/leadership/draft', [], $body, [], []));
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('/admin/leadership/obligations', $response->getHeaders()['Location'] ?? null);
+        $this->assertSame(['type' => 'error', 'message' => $shown], \Core\Http\FlashMessage::get());
+        $stmt = $this->pdo->prepare('SELECT COUNT(*) FROM event_log WHERE event_type = ?');
+        $stmt->execute(['leadership_list_draft_created']);
+        $this->assertSame(0, (int) $stmt->fetchColumn());
+    }
+
+    /**
      * Each row carries its leader's member_id, read from the lines'
      * member_years ids in ONE grouped query: four leaders cost exactly
      * what one costs, never one more query per line (issue #999).
@@ -922,6 +962,9 @@ final class RecordingMassMailDraft implements \Modules\MassMail\Api\MassMailDraf
     /** @var list<array{label: string, rows: list<array{email?: string, member_id?: ?int, values: array<string, string>}>}> */
     public array $calls = [];
 
+    /** What mass_mail answers instead of a draft, when its refusal is the subject. */
+    public ?\Throwable $refusal = null;
+
     public function createMergeDraft(
         string $label,
         string $subject,
@@ -933,6 +976,9 @@ final class RecordingMassMailDraft implements \Modules\MassMail\Api\MassMailDraf
         ?string $bodyHtml = null
     ): string {
         $this->calls[] = ['label' => $label, 'rows' => $rows];
+        if ($this->refusal !== null) {
+            throw $this->refusal;
+        }
 
         return '/mass-mail/draft/9';
     }

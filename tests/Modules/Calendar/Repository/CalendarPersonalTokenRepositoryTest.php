@@ -76,4 +76,19 @@ class CalendarPersonalTokenRepositoryTest extends TestCase
 
         $this->assertSame($token, $this->repository->findTokenByUserAccountId($this->userAccountId));
     }
+
+    public function testATokenWhoseStoredCopyNoLongerDecryptsOpensNoFeed(): void
+    {
+        // The blind index still matches, but the ciphertext was sealed under
+        // another key (a rotated key nobody re-encrypted with): the exact
+        // match cannot be verified, so the token identifies no one.
+        $this->repository->setToken($this->userAccountId, 'tok-1');
+        $other = new \Core\Security\EncryptionService(str_repeat('c', 32), str_repeat('b', 32));
+        $stmt = $this->pdo->prepare(
+            'UPDATE calendar_personal_tokens SET token_encrypted = ? WHERE user_account_id = ?'
+        );
+        $stmt->execute([$other->encrypt('tok-1', 'calendar_personal_tokens.token'), $this->userAccountId]);
+
+        $this->assertNull($this->repository->findUserAccountIdByToken('tok-1'));
+    }
 }

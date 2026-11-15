@@ -599,6 +599,96 @@ class GalleryControllerTest extends TestCase
         $this->assertStringNotContainsString('unite', $response->getBody());
     }
 
+    /**
+     * A share that lost one file: the archive carries the media it still
+     * has, and the lost one is left out rather than failing the download.
+     */
+    public function testAZipLeavesOutAMediaTheShareHasLostAndKeepsTheOthers(): void
+    {
+        $share = new FakeWebDavServer();
+        $backend = $this->webDavBackendFor($share);
+        $backend->put('lg.jpg', 'les-octets-de-la-photo', 'image/jpeg');
+        $this->storageBackendFactory->method('create')->willReturn($backend);
+        $albumId = $this->createAlbumOn($this->createWebDavLocation());
+        // The lost one first, so the archive has to go past it.
+        $this->createDoneVideo($albumId);
+        $this->createDoneMediaNamed($albumId, 'IMG_0001.JPG');
+
+        $response = $this->controller->downloadZip(
+            new Request('GET', '/gallery/' . $albumId . '/download', [], [], [], []),
+            ['id' => (string) $albumId]
+        );
+
+        $this->assertSame(200, $response->getStatusCode());
+        $zipPath = (string) $response->getBodyFilePath();
+        $zip = new \ZipArchive();
+        $this->assertTrue($zip->open($zipPath));
+        $entries = $zip->numFiles;
+        $first = $zip->getFromIndex(0);
+        $zip->close();
+        @unlink($zipPath);
+        $this->assertSame(1, $entries);
+        $this->assertSame('les-octets-de-la-photo', $first);
+    }
+
+    public function testDownloadingAMediaTheShareHasLostIsANotFound(): void
+    {
+        $share = new FakeWebDavServer();
+        $this->storageBackendFactory->method('create')->willReturn($this->webDavBackendFor($share));
+        $mediaId = $this->createDoneMediaNamed($this->createAlbumOn($this->createWebDavLocation()), 'IMG_0001.JPG');
+
+        $response = $this->controller->downloadMedia(
+            new Request('GET', '/gallery/media/' . $mediaId . '/download', [], [], [], []),
+            ['media_id' => (string) $mediaId]
+        );
+
+        $this->assertSame(404, $response->getStatusCode());
+        $this->assertSame('Not Found', $response->getBody());
+        $this->assertArrayNotHasKey('Content-Disposition', $response->getHeaders());
+    }
+
+    /**
+     * A share that answers a `Range:` request with the whole file: the slice
+     * cannot be read, and the visitor gets a 404 rather than the share's
+     * words or a payload its header would not describe.
+     */
+    public function testASeekOnAShareThatIgnoresRangesIsANotFound(): void
+    {
+        $share = new FakeWebDavServer();
+        $backend = $this->webDavBackendFor($share);
+        $backend->put('med.mp4', '0123456789abcdefghij', 'video/mp4');
+        $share->ignoresRange = true;
+        $this->storageBackendFactory->method('create')->willReturn($backend);
+        $mediaId = $this->createDoneVideo($this->createAlbumOn($this->createWebDavLocation()));
+
+        $response = $this->controller->serveMedia(
+            new Request('GET', '/gallery/media/' . $mediaId . '/medium', [], [], [], [
+                'HTTP_RANGE' => 'bytes=10-14',
+            ]),
+            ['media_id' => (string) $mediaId, 'size' => 'medium']
+        );
+
+        $this->assertSame(404, $response->getStatusCode());
+        $this->assertSame('Not Found', $response->getBody());
+        $this->assertArrayNotHasKey('Content-Range', $response->getHeaders());
+    }
+
+    public function testADelegatedMediaTheShareHasLostIsANotFound(): void
+    {
+        $share = new FakeWebDavServer();
+        $this->storageBackendFactory->method('create')->willReturn($this->webDavBackendFor($share));
+        $mediaId = $this->createDoneMedia($this->createDelegatedAlbum($this->createWebDavLocation()));
+
+        $response = $this->controllerWithRegistry($this->allowingRegistry())->serveMedia(
+            new Request('GET', '/gallery/media/' . $mediaId . '/medium', [], [], [], []),
+            ['media_id' => (string) $mediaId, 'size' => 'medium']
+        );
+
+        $this->assertSame(404, $response->getStatusCode());
+        $this->assertSame('Not Found', $response->getBody());
+        $this->assertStringNotContainsString($share->baseUrl, $response->getBody());
+    }
+
     private function webDavBackendFor(FakeWebDavServer $share): WebDavBackend
     {
         return new WebDavBackend(

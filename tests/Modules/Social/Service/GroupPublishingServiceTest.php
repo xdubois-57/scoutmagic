@@ -162,6 +162,35 @@ final class GroupPublishingServiceTest extends TestCase
     }
 
     /**
+     * The groups module breaking (its own table gone, here) is not the
+     * group's refusal: the chief reads that the site itself failed, the
+     * journal names the kind of failure and nothing of its text, and the
+     * next group still gets its post.
+     */
+    public function testAGroupsModuleThatBreaksIsTheSitesFailureAndTheNextGroupStillGoes(): void
+    {
+        $this->groups->breakdowns[3] = new \PDOException(
+            'SQLSTATE[HY000]: General error: 1 no such table: groups_posts'
+        );
+
+        $outcomes = $this->publish($this->album(), [3, 4]);
+
+        $message = 'La publication a échoué sur le site lui-même. Réessayez plus tard.';
+        $this->assertSame([false, $message], [$outcomes[0]->published, $outcomes[0]->message]);
+        $this->assertTrue($outcomes[1]->published);
+        $row = $this->publications->forSource('album', 3)['group:3'];
+        $this->assertSame(['failed', $message], [$row->status, $row->errorMessage]);
+        $this->assertSame(1, $this->journal->countOf('publish_failed'));
+        $failure = array_values(array_filter(
+            $this->journal->entries,
+            static fn (array $entry): bool => $entry['type'] === 'publish_failed'
+        ))[0];
+        $this->assertSame('error', $failure['level']);
+        $this->assertStringContainsString('interrompue : PDOException', $failure['description']);
+        $this->assertStringNotContainsString('groups_posts', $this->journal->textOf('publish_failed'));
+    }
+
+    /**
      * **The card the browser drew wins**, down to the bytes: a group
      * receives exactly what Facebook and Instagram received.
      */

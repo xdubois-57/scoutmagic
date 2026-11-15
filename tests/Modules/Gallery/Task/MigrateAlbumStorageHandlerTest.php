@@ -225,6 +225,40 @@ class MigrateAlbumStorageHandlerTest extends TestCase
         $this->assertSame("thumb-bytes-{$mediaId}", $sourceBackend->get("{$this->albumId}/thumb_{$mediaId}.jpg"));
     }
 
+    /**
+     * A rendition the source has lost stops the migration where it stands:
+     * the album fails with the path that could not be read, keeps pointing
+     * at its source, and the rest of the source is untouched. The reason
+     * carries the storage's own message after the French sentence; pinned
+     * as it is.
+     */
+    public function testAFileMissingAtTheSourceFailsTheMigrationAndKeepsTheSource(): void
+    {
+        $mediaId = $this->createMediaWithFiles();
+        $mediumPath = "{$this->albumId}/med_{$mediaId}.jpg";
+        unlink($this->storagePath . '/source/' . $mediumPath);
+        $this->startMigration();
+
+        (new MigrateAlbumStorageHandler())->handle(['album_id' => $this->albumId], $this->buildContext());
+
+        $album = $this->albumRepository->findById($this->albumId);
+        $this->assertSame(Album::MIGRATION_FAILED, $album->migrationStatus);
+        $this->assertSame(
+            "Lecture impossible du fichier « {$mediumPath} » (média #{$mediaId}) sur l'emplacement source : "
+                . "Stored file not found: {$mediumPath}",
+            $album->migrationError
+        );
+        $this->assertSame($this->sourceId, $album->locationId);
+
+        $sourceBackend = new LocalStorageBackend($this->storagePath . '/source');
+        $this->assertSame("large-bytes-{$mediaId}", $sourceBackend->get("{$this->albumId}/lg_{$mediaId}.jpg"));
+        $targetBackend = new LocalStorageBackend($this->storagePath . '/target');
+        $this->assertFalse($targetBackend->exists("{$this->albumId}/lg_{$mediaId}.jpg"));
+        $this->assertFalse(
+            (bool) $this->pdo->query("SELECT 1 FROM event_log WHERE event_type = 'album_storage_migrated'")->fetch()
+        );
+    }
+
     public function testIsANoOpWhenMigrationStatusIsNone(): void
     {
         $this->createMediaWithFiles();

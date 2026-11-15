@@ -520,4 +520,53 @@ class CalendarEventServiceTest extends TestCase
 
         $this->assertNull((new CalendarEventRepository($this->pdo))->findById($event->id));
     }
+
+    /**
+     * A delete that fails part-way rolls back what it had already undone:
+     * the reminder it cancelled first is pending again, the event is still
+     * on the calendar, and the transaction it opened is closed.
+     */
+    public function testADeleteThatFailsPartWayRollsBackTheCancelledReminder(): void
+    {
+        $scheduler = new SchedulerService(new SchedulerRepository($this->pdo));
+        $service = new CalendarEventService(
+            new CalendarEventRepository($this->pdo),
+            $this->calendarService,
+            $this->notificationService,
+            null,
+            null,
+            $this->pdo
+        );
+        $event = $service->createEvent(
+            $this->calendarId, 'Réunion', '2026-03-15', null, null, null, null, null, null, false, Role::CHIEF
+        );
+        $scheduler->schedule(
+            CalendarNotificationService::MODULE_ID,
+            CalendarNotificationService::REMINDER_TASK_KEY,
+            new \DateTimeImmutable('+1 day'),
+            ['event_id' => $event->id],
+            'event-reminder-' . $event->id
+        );
+        $this->pdo->exec(
+            'CREATE TRIGGER refuse_event_delete BEFORE DELETE ON calendar_events '
+            . "BEGIN SELECT RAISE(ABORT, 'event delete refused'); END"
+        );
+
+        try {
+            $service->deleteEvent($event->id, Role::CHIEF);
+            $this->fail('The refused delete must reach the caller.');
+        } catch (\PDOException $e) {
+            $this->assertStringContainsString('event delete refused', $e->getMessage());
+        }
+
+        $this->assertFalse($this->pdo->inTransaction());
+        $this->assertNotNull((new CalendarEventRepository($this->pdo))->findById($event->id));
+        $reminder = $scheduler->find(
+            CalendarNotificationService::MODULE_ID,
+            CalendarNotificationService::REMINDER_TASK_KEY,
+            'event-reminder-' . $event->id
+        );
+        $this->assertNotNull($reminder);
+        $this->assertSame('pending', $reminder['status']);
+    }
 }

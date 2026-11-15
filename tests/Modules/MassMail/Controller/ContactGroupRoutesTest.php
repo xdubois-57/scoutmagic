@@ -247,6 +247,37 @@ class ContactGroupRoutesTest extends TestCase
         $this->assertFileDoesNotExist($upload);
     }
 
+    /** Over the cap, the analysis already says so — and the file is gone all the same. */
+    public function testAnAnalysisOverTheCapIsRefusedWithTheReasonAndTheFileIsDeleted(): void
+    {
+        $this->settings->register(
+            ContactGroupImportService::SETTING_MAX_CONTACTS,
+            '1',
+            'number',
+            'Contacts par groupe (maximum)',
+            'Plafond.',
+            'mass_mail'
+        );
+        $this->settings->clearCache();
+        $upload = $this->upload([['Nom', 'Adresse'], ['Un', 'un@test.be'], ['Deux', 'deux@test.be']]);
+
+        $response = $this->controller->analyseNew($this->uploadRequest(), ['id' => (string) $this->listId]);
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertSame(
+            [
+                'success' => false,
+                'errors' => [
+                    'Ce fichier porterait le groupe à 2 contacts, au-delà du maximum de 1 (réglage '
+                        . "« Contacts par groupe (maximum) »). Rien n'a été modifié.",
+                ],
+            ],
+            $this->payload($response)
+        );
+        $this->assertFileDoesNotExist($upload);
+        $this->assertCount(1, $this->blocks->findForList($this->listId));
+    }
+
     public function testTheAnalysisAnswersTheCountsAndWritesNothing(): void
     {
         $this->contacts->create($this->blockId, 'Part', 'part@test.be');

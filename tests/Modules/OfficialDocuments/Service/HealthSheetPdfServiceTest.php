@@ -340,4 +340,33 @@ final class HealthSheetPdfServiceTest extends TestCase
             @rmdir($directory);
         }
     }
+
+    /**
+     * A template that opens but lacks the second page — the one-page
+     * parental authorization dropped in under the health sheet's name — is
+     * the same French sentence, not FPDI's complaint about a page number.
+     */
+    public function testATemplateMissingItsSecondPageIsAFrenchSentenceToo(): void
+    {
+        $directory = sys_get_temp_dir() . '/official-documents-' . bin2hex(random_bytes(6));
+        mkdir($directory);
+        copy(
+            dirname(__DIR__, 4) . '/modules/official_documents/templates/' . TemplateLibrary::PARENTAL_AUTHORIZATION,
+            $directory . '/' . TemplateLibrary::HEALTH_SHEET
+        );
+
+        try {
+            $service = new HealthSheetPdfService(new TemplateLibrary($directory));
+
+            $this->expectException(OfficialDocumentsException::class);
+            $this->expectExceptionMessage(
+                'Le formulaire officiel n\'a pas pu être ouvert. Prévenez votre chef d\'unité.'
+            );
+
+            $service->render(HealthSheetFillingTest::member(), HealthSheet::empty());
+        } finally {
+            @unlink($directory . '/' . TemplateLibrary::HEALTH_SHEET);
+            @rmdir($directory);
+        }
+    }
 }

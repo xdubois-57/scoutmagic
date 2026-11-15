@@ -649,6 +649,41 @@ class PersonalFeedServiceTest extends TestCase
         $this->assertCount(1, $this->service->getVirtualEventsForToken($token, $this->scoutYearId, $registry));
     }
 
+    public function testAProviderThatFailsIsLeftOutAndTheOthersStillReachTheFeed(): void
+    {
+        // One module whose query fails (a table it lost, here) must cost the
+        // reader that module's events only, never the whole feed.
+        $userAccountId = $this->createUserAccount('x@test.be');
+        $token = $this->service->getOrCreateToken($userAccountId);
+
+        $registry = new VirtualEventRegistry();
+        $registry->register(new class ($this->pdo) implements VirtualEventProviderInterface {
+            public function __construct(private \PDO $pdo)
+            {
+            }
+
+            public function providerId(): string
+            {
+                return 'broken';
+            }
+
+            public function findVirtualEvents(
+                \DateTimeImmutable $windowStart,
+                \DateTimeImmutable $windowEnd,
+                VirtualEventViewer $viewer
+            ): array {
+                $this->pdo->query('SELECT id FROM a_table_this_module_lost');
+
+                return [];
+            }
+        });
+        $registry->register($this->capturingProvider([$this->virtualEvent('rental-booking-1@scoutmagic')], 'after'));
+
+        $events = $this->service->getVirtualEventsForToken($token, $this->scoutYearId, $registry);
+
+        $this->assertSame(['rental-booking-1@scoutmagic'], array_map(fn(VirtualEvent $e) => $e->uid, $events));
+    }
+
     public function testTheViewerHandedToProvidersIsResolvedAtGenerationTimeNotAtTokenIssue(): void
     {
         // A token issued while the reader was a chef must not keep granting

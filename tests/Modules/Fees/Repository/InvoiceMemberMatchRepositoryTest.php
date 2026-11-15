@@ -123,4 +123,22 @@ class InvoiceMemberMatchRepositoryTest extends TestCase
 
         $this->assertSame([], $this->repository->buildIndex($this->scoutYearId));
     }
+
+    /**
+     * A birth date sealed under another key (a key rotated without
+     * re-encrypting) reads as no birth date: that member gets no key, and
+     * the rest of the year is still indexed rather than the import failing.
+     */
+    public function testAnUnreadableBirthDateLeavesThatMemberOutAndTheOthersIn(): void
+    {
+        $readable = $this->createMember('Basile', 'Dubois', '15/03/2012');
+        $unreadable = $this->createMember('Zoé', 'Pissoort', '22/05/2019');
+        $other = new EncryptionService(str_repeat('c', 32), str_repeat('b', 32));
+        $stmt = $this->pdo->prepare('UPDATE member_years SET birth_date_encrypted = ? WHERE member_id = ?');
+        $stmt->execute([$other->encrypt('22/05/2019', 'member_years.birth_date'), $unreadable]);
+
+        $index = $this->repository->buildIndex($this->scoutYearId);
+
+        $this->assertSame([PersonMatchKey::for('Dubois', 'Basile', '2012-03-15') => $readable], $index);
+    }
 }
