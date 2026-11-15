@@ -150,10 +150,10 @@ l'ordre des lots (ceux à zéro, 11 domaines, ne figurent pas) :
 | `core/Member` | ~~11~~ **0** (lot 12) | ~~2~~ 0 | 3 | 19 |
 | `modules/attestations` | ~~11~~ **0** (lot 13) | ~~1~~ 0 | 0 | 20 |
 | `modules/data_migration` | ~~11~~ **0** (lot 14) | 0 | 0 | 28 |
-| `modules/groups` | 10 | 2 | 0 | 24 |
-| `modules/news` | 9 | 0 | 0 | 25 |
-| `modules/sos_staff` | 9 | 0 | 0 | 23 |
-| `modules/support_dashboard` | 9 | 2 | 0 | 13 |
+| `modules/groups` | ~~10~~ **0** (lot 15) | ~~2~~ 0 | 1 | 24 |
+| `modules/news` | ~~9~~ **0** (lot 16) | 0 | 0 | 25 |
+| `modules/sos_staff` | ~~9~~ **0** (lot 17) | 0 | 1 | 23 |
+| `modules/support_dashboard` | ~~9~~ **0** (lot 18) | ~~2~~ 0 | 0 | 13 |
 | `modules/gallery` | 8 | 0 | 0 | 35 |
 | `modules/social` | 8 | 0 | 0 | 23 |
 | `core/Photo` | 6 | 0 | 0 | 8 |
@@ -558,4 +558,53 @@ identifiant de dépôt hors du dossier, ICS mal formé, fuseau inconnu, aperçu
 en panne, archive disparue ou plus grosse que son budget.
 
 Pour les trois lots, chaque test vérifie l'effet et échoue quand le `catch`
+relance ou change ce qu'il fait.
+
+### Lot 15 — `modules/groups` — 2026-11-15
+
+**10 → 0** jamais exécutés ; un marqueur. Remesuré sur `tests/Modules/Groups`
+(PCOV), après fusion de `main`.
+
+**9 branches atteintes** par un état réel : marque de lecture refusée, média
+déjà supprimé, modération qui refuse, limite de cadence, trigger, adresse
+chiffrée sous une autre clé, double appui sur un sondage.
+
+**Le marqueur** : le second `catch` d'une transaction dont le premier prend
+déjà `PDOException`. Tous les appels du `try` sont ceux de PDO, sur la
+connexion en `ERRMODE_EXCEPTION` qu'ouvre `Core\Database\Connection`, la
+seule avec laquelle ce dépôt est construit : leurs échecs sont tous des
+`PDOException`.
+
+### Lot 16 — `modules/news` — 2026-11-15
+
+**9 → 0** jamais exécutés ; aucun marqueur. Remesuré sur `tests/Modules/News`
+(PCOV), après fusion de `main`.
+
+**9 branches atteintes** par un état réel : pas de fournisseur IA, image qui
+n'en est pas une, brouillon refusé par l'envoi groupé, places insuffisantes,
+champ étranger, collision de référence, trigger.
+
+### Lot 17 — `modules/sos_staff` — 2026-11-15
+
+**9 → 0** jamais exécutés ; un marqueur. Remesuré sur `tests/Modules/SosStaff`
+(PCOV), après fusion de `main`.
+
+**8 branches atteintes** par un état réel : heure invalide, étapes OVH
+manquantes ou non approuvées, doublon de garde, alerte qui échoue sur chacun
+de ses canaux.
+
+**Le marqueur** : la lecture des lignes d'un fournisseur simulé
+(`ProviderConfigService`). Le seul simulateur qu'une racine de composition
+fournit est `SimulatedPhoneProvider` de `test_tools`, dont `listLines()` rend
+une ligne constante sans rien toucher qui puisse échouer.
+
+### Lot 18 — `modules/support_dashboard` — 2026-11-15
+
+**9 → 0** jamais exécutés ; aucun marqueur. Remesuré sur
+`tests/Modules/SupportDashboard` (PCOV), après fusion de `main`.
+
+**9 branches atteintes** par un état réel : tables absentes, trigger, archive
+qui n'est pas un zip, classeur illisible.
+
+Pour les quatre lots, chaque test vérifie l'effet et échoue quand le `catch`
 relance ou change ce qu'il fait.
