@@ -1812,14 +1812,18 @@ class SetupController extends AbstractController
                 // refusing them HERE rather than trusting that is what
                 // makes a crafted POST unable to edit them behind the
                 // configuration page's back.
+                //
+                // A refused write is NOT swallowed: it reaches the catch
+                // below and its error message. The three keys are
+                // registered at every boot (public/index.php) and the form
+                // was validated against the same rules, so what refuses
+                // here is the settings table itself — and a swallowed
+                // refusal ended on « Configuration enregistrée avec
+                // succès » for a name that was never saved.
                 $nonSecretKeys = ['site_name', 'short_name', 'base_url'];
                 foreach ($nonSecretKeys as $nsKey) {
                     if (isset($data[$nsKey])) {
-                        try {
-                            $this->settingService->set($nsKey, $data[$nsKey]);
-                        } catch (\Throwable $e) {
-                            // Setting may not be registered yet during initial setup
-                        }
+                        $this->settingService->set($nsKey, $data[$nsKey]);
                     }
                 }
                 $this->settingService->clearCache();

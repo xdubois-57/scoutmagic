@@ -138,20 +138,27 @@ class MaintenanceControllerTest extends TestCase
             public ?CommitInfo $commitBySha = null;
             /** @var array<int, ReleaseInfo>|null every published release; null = fall back to $release alone */
             public ?array $releases = null;
+            /** What GitHub answers instead, when it fails: every read below throws it. */
+            public ?\Core\Maintenance\UpdateException $failure = null;
 
             public function getLatestRelease(): ?ReleaseInfo
             {
+                $this->failIfAsked();
+
                 return $this->release;
             }
 
             public function getReleaseByTag(string $tag): ?ReleaseInfo
             {
+                $this->failIfAsked();
+
                 return $this->releaseByTag;
             }
 
             /** @return array<int, ReleaseInfo> */
             public function listReleases(): array
             {
+                $this->failIfAsked();
                 if ($this->releases !== null) {
                     return $this->releases;
                 }
@@ -173,12 +180,23 @@ class MaintenanceControllerTest extends TestCase
 
             public function getLatestCommit(string $branch): ?CommitInfo
             {
+                $this->failIfAsked();
+
                 return $this->commit;
             }
 
             public function getCommit(string $sha): ?CommitInfo
             {
+                $this->failIfAsked();
+
                 return $this->commitBySha;
+            }
+
+            private function failIfAsked(): void
+            {
+                if ($this->failure !== null) {
+                    throw $this->failure;
+                }
             }
         };
 
@@ -1544,6 +1562,69 @@ class MaintenanceControllerTest extends TestCase
         $this->assertStringNotContainsString((string) $kept, (string) $rows[0]['context']);
     }
 
+    /**
+     * A `secrets.enc` the master key no longer opens — the one store a
+     * backup's password lives in. A new archive is refused before it is
+     * queued and its row says why; the list still renders, only without
+     * the reveal button it can no longer back; the full reset's password
+     * is not shown; and « Mise à jour » reads the webhook as not set up
+     * rather than failing.
+     */
+    public function testUnreadableSecretsRefuseNewArchivesAndCostOnlyThePasswordButtons(): void
+    {
+        $kept = $this->completedBackup('full_config');
+        \Core\Maintenance\BackupPasswords::forStorage($this->storagePath)->store($kept, 'mot-de-passe-garde');
+        $this->secretManager->updateSecrets(
+            static fn(array $secrets): array => ['github_webhook_secret' => 'x'] + $secrets
+        );
+        $button = 'data-backup-password="' . $kept . '"';
+        $this->assertStringContainsString($button, $this->pageResponse('recentBackupsPage')->getBody());
+        $this->assertStringContainsString('✓ Configuré', $this->pageResponse('updatePage')->getBody());
+        file_put_contents($this->storagePath . '/config/secrets.enc', 'plus un fichier de secrets');
+
+        $created = $this->controller->createFullBackup($this->jsonRequest([
+            'scope' => 'full_config', '_csrf_token' => $this->csrfToken(),
+        ]), []);
+        $this->assertSame(500, $created->getStatusCode());
+        $this->assertSame(
+            [
+                'success' => false,
+                'error' => 'Le mot de passe de l\'archive n\'a pas pu être conservé : la sauvegarde n\'est pas '
+                    . 'créée.',
+            ],
+            json_decode($created->getBody(), true)
+        );
+        $this->assertSame([], $this->schedulerRepository->findByModuleAndTaskKey('core', 'create_backup'));
+        $failed = $this->pdo->query("SELECT status, error_message FROM backups WHERE id <> {$kept}")
+            ->fetch(\PDO::FETCH_ASSOC);
+        $this->assertSame(
+            ['status' => 'failed', 'error_message' => 'Le mot de passe de l\'archive n\'a pas pu être conservé.'],
+            $failed
+        );
+
+        $list = $this->pageResponse('recentBackupsPage');
+        $this->assertSame(200, $list->getStatusCode());
+        $this->assertStringNotContainsString($button, $list->getBody());
+
+        $reveal = $this->controller->revealFullResetPassword(
+            $this->jsonRequest(['_csrf_token' => $this->csrfToken()]),
+            []
+        );
+        $this->assertSame(500, $reveal->getStatusCode());
+        $this->assertSame(
+            ['success' => false, 'error' => 'Le mot de passe de la copie de sécurité n\'a pas pu être conservé.'],
+            json_decode($reveal->getBody(), true)
+        );
+        $revealed = $this->pdo->query(
+            "SELECT COUNT(*) FROM event_log WHERE event_type = 'full_reset_password_revealed'"
+        );
+        $this->assertSame(0, (int) $revealed->fetchColumn());
+
+        $update = $this->pageResponse('updatePage');
+        $this->assertSame(200, $update->getStatusCode());
+        $this->assertStringContainsString('✗ Non configuré', $update->getBody());
+    }
+
     public function testRevealingRefusesWithoutTheCsrfToken(): void
     {
         $created = json_decode($this->controller->createFullBackup($this->jsonRequest([
@@ -1688,6 +1769,38 @@ class MaintenanceControllerTest extends TestCase
 
         $this->assertStringContainsString('Corrige un bug important dans le module Finances.', $response->getBody());
         $this->assertStringContainsString('https://github.com/x/y/releases/tag/v0.0.0', $response->getBody());
+    }
+
+    /**
+     * GitHub unreachable while the page loads: the installed version's
+     * notes are left out, the page is served all the same, and nothing is
+     * cached for this version — the next load asks again.
+     */
+    public function testIndexWithoutGitHubShowsNoNotesAndCachesNothing(): void
+    {
+        $this->fakeReleaseClient->failure = new \Core\Maintenance\UpdateException(
+            "L'API GitHub a répondu avec le statut 503."
+        );
+
+        $response = $this->pageResponse('updatePage');
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertStringNotContainsString("L'API GitHub", $response->getBody());
+        $this->settingService->clearCache();
+        $this->assertSame('', (string) $this->settingService->get('installed_version_notes_for'));
+
+        $this->fakeReleaseClient->failure = null;
+        $this->fakeReleaseClient->releaseByTag = new ReleaseInfo(
+            'v0.0.0',
+            'Corrige un bug important dans le module Finances.',
+            'https://github.com/x/y/releases/tag/v0.0.0',
+            null
+        );
+        $this->assertStringContainsString(
+            'Corrige un bug important dans le module Finances.',
+            $this->pageResponse('updatePage')->getBody(),
+            'a failed read was cached as « no notes »'
+        );
     }
 
     public function testIndexShowsTheInstalledCommitMessageForADevBuild(): void
@@ -1852,6 +1965,29 @@ class MaintenanceControllerTest extends TestCase
 
         $scheduled = $this->schedulerRepository->findByModuleAndTaskKey('core', 'install_update');
         $this->assertCount(1, $scheduled);
+    }
+
+    /**
+     * On the development channel the install re-reads the branch's head
+     * first; GitHub refusing it is said with GitHub's own French sentence,
+     * as a 502, and nothing is queued nor written to the history.
+     */
+    public function testADevInstallGitHubCannotAnswerQueuesNothing(): void
+    {
+        $this->settingService->set('auto_update_level', 'dev');
+        $this->fakeReleaseClient->failure = new \Core\Maintenance\UpdateException(
+            "L'API GitHub a répondu avec le statut 503 (commits)."
+        );
+
+        $response = $this->controller->installUpdate($this->jsonRequest(['_csrf_token' => $this->csrfToken()]), []);
+
+        $this->assertSame(502, $response->getStatusCode());
+        $this->assertSame(
+            ['success' => false, 'error' => "L'API GitHub a répondu avec le statut 503 (commits)."],
+            json_decode($response->getBody(), true)
+        );
+        $this->assertSame([], $this->schedulerRepository->findByModuleAndTaskKey('core', 'install_update'));
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM update_history')->fetchColumn());
     }
 
     public function testUpdateStatusReturns404ForUnknownId(): void
@@ -2766,6 +2902,64 @@ class MaintenanceControllerTest extends TestCase
         $this->assertSame([], glob($this->storagePath . '/temp/chunked_uploads/*.part') ?: [], 'the upload was kept');
     }
 
+    /**
+     * A malformed upload id — a stale page, a hand-made request — on a
+     * fragment: refused with the store's own sentence, and the resume
+     * offset it answers is 0, not an error page, since no upload by that
+     * name can exist. Nothing is written.
+     */
+    public function testAFragmentWithAMalformedUploadIdIsRefusedWithNothingReceived(): void
+    {
+        $token = $this->csrfToken();
+        $this->restoreChunkRequest('abcdef', 0, false, $token);
+        $request = new Request('POST', '/config/maintenance/restore-upload-chunk', [], [
+            '_csrf_token' => $token, 'upload_id' => 'pas-un-identifiant', 'chunk_offset' => '0', 'last' => '0',
+        ], [], []);
+
+        $response = $this->controller->restoreUploadChunk($request, []);
+        unset($_FILES['file']);
+
+        $this->assertSame(409, $response->getStatusCode());
+        $this->assertSame(
+            ['success' => false, 'error' => 'Identifiant d\'envoi invalide.', 'received' => 0],
+            json_decode($response->getBody(), true)
+        );
+        $this->assertSame([], glob($this->storagePath . '/temp/chunked_uploads/*') ?: []);
+    }
+
+    /**
+     * The same malformed id on a restore refused because another one is
+     * alive: the upload it names cannot be deleted — there is none — and
+     * the refusal is still the one sentence about the live restore, on
+     * both the fragment and the form.
+     */
+    public function testARefusedRestoreWithAMalformedUploadIdStillSaysWhyItWasRefused(): void
+    {
+        $token = $this->csrfToken();
+        $this->queueRestore('pending');
+        $this->restoreChunkRequest('abcdef', 0, false, $token);
+        $chunk = new Request('POST', '/config/maintenance/restore-upload-chunk', [], [
+            '_csrf_token' => $token, 'upload_id' => 'pas-un-identifiant', 'chunk_offset' => '0', 'last' => '0',
+        ], [], []);
+
+        $responses = [
+            $this->controller->restoreUploadChunk($chunk, []),
+            $this->controller->restoreBackup($this->restoreJsonRequest($token, [
+                'source' => 'upload', 'upload_id' => 'pas-un-identifiant',
+            ]), []),
+        ];
+        unset($_FILES['file']);
+
+        foreach ($responses as $response) {
+            $this->assertSame(409, $response->getStatusCode());
+            $this->assertSame(
+                'Une restauration est déjà en attente ou en cours. Attendez sa fin avant d\'en lancer une autre.',
+                json_decode($response->getBody(), true)['error']
+            );
+        }
+        $this->assertCount(1, $this->schedulerRepository->findByModuleAndTaskKey('core', 'restore_backup'));
+    }
+
     public function testARestoreThatEndedDoesNotBlockTheNext(): void
     {
         $this->queueRestore('failed');
@@ -3213,6 +3407,32 @@ class MaintenanceControllerTest extends TestCase
 
         $this->settingService->clearCache();
         $this->assertSame('99.0.0', $this->settingService->get('update_latest_version'));
+    }
+
+    /**
+     * « Vérifier maintenant » while GitHub cannot be read: its sentence,
+     * as a 502, and the last known version is left as it was rather than
+     * cleared or overwritten.
+     */
+    public function testCheckForUpdatesNowWhileGitHubFailsSaysSoAndKeepsTheLastReading(): void
+    {
+        $this->settingService->setInternal('update_latest_version', '1.2.3');
+        $this->fakeReleaseClient->failure = new \Core\Maintenance\UpdateException(
+            "L'API GitHub a répondu avec le statut 403 (releases)."
+        );
+
+        $response = $this->controller->checkForUpdatesNow(
+            $this->jsonRequest(['_csrf_token' => $this->csrfToken()]),
+            []
+        );
+
+        $this->assertSame(502, $response->getStatusCode());
+        $this->assertSame(
+            ['success' => false, 'error' => "L'API GitHub a répondu avec le statut 403 (releases)."],
+            json_decode($response->getBody(), true)
+        );
+        $this->settingService->clearCache();
+        $this->assertSame('1.2.3', $this->settingService->get('update_latest_version'));
     }
 
     public function testCheckForUpdatesNowReturnsNoUpdateWhenNoReleaseIsPublished(): void

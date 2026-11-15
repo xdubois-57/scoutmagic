@@ -510,6 +510,35 @@ class EmailTemplateControllerTest extends TestCase
         );
     }
 
+    /**
+     * A module whose shipped template moved away: the e-mail still opens,
+     * with an empty editor and an empty preview body, rather than an error
+     * page for the one screen where the wording could be rewritten.
+     */
+    public function testAnEmailWhoseShippedTemplateMovedOpensWithAnEmptyEditor(): void
+    {
+        $this->registry->registerModuleTemplates('demo', 'Démo', [[
+            'id' => 'demo.moved',
+            'label' => 'Message déplacé',
+            'description' => 'Son gabarit a changé de place.',
+            'default_subject' => 'Un sujet',
+            'template' => 'email/demo_moved_away.html.twig',
+            'editable' => true,
+            'variables' => [],
+        ]]);
+
+        $response = $this->controller->edit(
+            new Request('GET', '/config/emails/demo.moved', [], [], [], []),
+            ['template' => 'demo.moved']
+        );
+
+        $this->assertSame(200, $response->getStatusCode());
+        $body = $response->getBody();
+        $this->assertStringContainsString('Message déplacé', $body);
+        $this->assertMatchesRegularExpression('#data-key="email_body">\s*</div>#', $body, 'the editor is not empty');
+        $this->assertMatchesRegularExpression('#bg-body-tertiary">\s*</div>#', $body, 'the preview is not empty');
+    }
+
     public function testSavingOnlyTheSubjectStoresABodyThatStillSubstitutes(): void
     {
         $this->controller->saveSubject(
@@ -758,6 +787,52 @@ class EmailTemplateControllerTest extends TestCase
         $this->assertStringContainsString(
             self::OPEN_TEMPLATE,
             $this->journalContext(EmailTestSendThrottler::JOURNAL_TYPE)
+        );
+    }
+
+    /**
+     * A relay that refuses the test: the administrator reads a French
+     * sentence that says where to look, never the transport's English;
+     * the journal keeps the reason without the address; and the refused
+     * send is not counted, so a second try right after the fix goes out.
+     */
+    public function testATestTheRelayRefusesIsReportedInFrenchAndDoesNotCountAsSent(): void
+    {
+        $refusing = $this->createStub(MailService::class);
+        $refusing->method('send')->willThrowException(
+            new \Core\Mail\MailException('SMTP connect() failed for superadmin@test.be')
+        );
+        $journal = new JournalService(new JournalRepository($this->pdo));
+        $controller = new EmailTemplateController(
+            TwigFactory::create(dirname(__DIR__, 4) . '/core/View/templates', false),
+            $this->registry,
+            $this->overrides,
+            $this->renderer,
+            new EmailTemplateCustomisationService($this->registry, $this->overrides, new HtmlSanitizer()),
+            $journal,
+            $refusing,
+            new EmailTestSendThrottler($this->pdo)
+        );
+
+        $response = $controller->sendTest($this->formRequest([]), ['template' => self::OPEN_TEMPLATE]);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame(
+            [
+                'type' => 'error',
+                'message' => "L'envoi de test a échoué — vérifiez la configuration d'envoi du site "
+                    . '(Configuration > Email), puis réessayez.',
+            ],
+            \Core\Http\FlashMessage::get()
+        );
+        $this->assertSame(1, $this->journalCount('email_template_test_failed'));
+        $context = $this->journalContext('email_template_test_failed');
+        $this->assertStringContainsString('SMTP connect() failed for [adresse]', $context);
+        $this->assertStringNotContainsString('superadmin@test.be', $context, 'the journal kept the address');
+        $this->assertSame(
+            0,
+            $this->journalCount(EmailTestSendThrottler::JOURNAL_TYPE),
+            'a refused test was counted, so the next try would be throttled'
         );
     }
 

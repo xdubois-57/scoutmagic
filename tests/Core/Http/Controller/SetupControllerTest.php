@@ -560,6 +560,102 @@ class SetupControllerTest extends TestCase
      * passed, the write would have erased the relay — those four keys are
      * the first entry of the provider chain, not a copy of it.
      */
+    /**
+     * The settings table refusing the site's name — a trigger here, as an
+     * engine that refuses a write: the page says the configuration could
+     * not be saved, rather than « Configuration enregistrée avec succès »
+     * for a name that was not, and the name on file is the old one. It
+     * used to be swallowed, on the belief that the key might not be
+     * registered yet; on this path it always is (public/index.php).
+     */
+    public function testASettingTheTableRefusesIsReportedRatherThanCalledSaved(): void
+    {
+        $this->initialisedSiteSecrets();
+        $pdo = DatabaseTestHelper::createTestDatabase();
+        $settings = new SettingService(new SettingRepository($pdo));
+        $settings->register('site_name', 'Mon Unité', 'text', 'Nom', 'Nom');
+        $settings->register('short_name', '25SV', 'text', 'Nom court', 'Nom court');
+        $settings->register('base_url', 'https://example.com', 'url', 'URL', 'URL');
+        $pdo->exec(
+            "CREATE TRIGGER refuse_site_name BEFORE UPDATE ON settings WHEN NEW.setting_key = 'site_name'
+             BEGIN SELECT RAISE(ABORT, 'écriture refusée'); END"
+        );
+        $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath);
+        $controller->setSettingService($settings);
+
+        $response = $this->postConfigUpdate($controller, 'Mon Unité renommée');
+
+        $this->assertSame('/setup', $response->getHeaders()['Location'] ?? null);
+        $this->assertSame(
+            [
+                'type' => 'error',
+                'message' => 'Erreur lors de la sauvegarde : la configuration n\'a pas pu être enregistrée. '
+                    . 'Vérifiez les paramètres de la base de données et les droits d\'écriture sur storage/, '
+                    . 'puis réessayez.',
+            ],
+            \Core\Http\FlashMessage::get()
+        );
+        $settings->clearCache();
+        $this->assertSame('Mon Unité', $settings->get('site_name'));
+    }
+
+    /**
+     * secrets.enc that the master key no longer opens: the save is refused
+     * with the same sentence, and the file is left exactly as it was.
+     */
+    public function testAConfigUpdateOverUnreadableSecretsIsRefusedAndWritesNothing(): void
+    {
+        $this->initialisedSiteSecrets();
+        $unreadable = 'plus un fichier de secrets';
+        file_put_contents($this->tempDir . '/config/secrets.enc', $unreadable);
+        $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath);
+
+        $response = $this->postConfigUpdate($controller, 'Mon Unité renommée');
+
+        $this->assertSame('/setup', $response->getHeaders()['Location'] ?? null);
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertSame('error', $flash['type'] ?? null);
+        $this->assertStringStartsWith(
+            'Erreur lors de la sauvegarde : la configuration',
+            (string) ($flash['message'] ?? '')
+        );
+        $this->assertSame($unreadable, file_get_contents($this->tempDir . '/config/secrets.enc'));
+    }
+
+    private function initialisedSiteSecrets(): void
+    {
+        $this->secretManager->generateMasterKey();
+        $this->secretManager->writeSecrets([
+            'db_host' => '127.0.0.1',
+            'db_port' => 3306,
+            'db_name' => 'test',
+            'db_user' => 'root',
+            'db_password' => 'pass',
+        ]);
+    }
+
+    private function postConfigUpdate(SetupController $controller, string $siteName): \Core\Http\Response
+    {
+        $this->issueCsrfToken();
+        $log = (string) tempnam(sys_get_temp_dir(), 'setup_log_');
+        $previousLog = ini_set('error_log', $log);
+        try {
+            return $controller->save(new Request('POST', '/setup/save', [], [
+                'db_host' => '127.0.0.1',
+                'db_port' => '3306',
+                'db_name' => 'test',
+                'db_user' => 'root',
+                'db_password' => '',
+                'site_name' => $siteName,
+                'short_name' => '25SV',
+                'base_url' => 'https://example.com',
+            ], [], []), []);
+        } finally {
+            ini_set('error_log', (string) $previousLog);
+            @unlink($log);
+        }
+    }
+
     public function testAnInitialisedSiteSavesWithoutTheFieldsItNoLongerShows(): void
     {
         $this->secretManager->generateMasterKey();
@@ -1251,6 +1347,57 @@ class SetupControllerTest extends TestCase
     }
 
     /**
+     * A database the dump cannot read — a view left pointing at a table
+     * that is gone: the safety copy fails, the operator is told so with
+     * the backup's own sentence, and NOTHING is dropped. Emptying without
+     * a copy is the separate, confirmed action below.
+     *
+     * @group database
+     */
+    #[\PHPUnit\Framework\Attributes\Group('database')]
+    public function testBackupAndEmptyDatabaseDropsNothingWhenTheSafetyCopyFails(): void
+    {
+        [$pdo, $params] = $this->connectToTestDatabase();
+        $pdo->exec('CREATE TABLE leftover_table (id INT PRIMARY KEY)');
+        $pdo->exec('CREATE TABLE gone_table (id INT PRIMARY KEY)');
+        $pdo->exec('CREATE VIEW broken_view AS SELECT id FROM gone_table');
+        $pdo->exec('DROP TABLE gone_table');
+
+        $publicDir = $this->tempDir . '/public';
+        mkdir($publicDir, 0755, true);
+        $controller = new SetupController(
+            $this->twig,
+            $this->secretManager,
+            $this->dkimManager,
+            $this->schemaPath,
+            $publicDir
+        );
+        $token = \Core\Security\CsrfGuard::generateToken();
+        $_POST['_csrf_token'] = $token;
+        $body = array_merge($params, ['_csrf_token' => $token]);
+        $request = new Request('POST', '/setup/backup-and-empty-db', [], $body, [], []);
+
+        try {
+            $json = json_decode($controller->backupAndEmptyDatabase($request, [])->getBody(), true);
+            $tables = $pdo->query("SHOW FULL TABLES WHERE Table_type = 'BASE TABLE'")->fetchAll(\PDO::FETCH_COLUMN);
+        } finally {
+            $pdo->exec('DROP VIEW IF EXISTS broken_view');
+        }
+
+        $this->assertSame(
+            [
+                'success' => false,
+                'backup_failed' => true,
+                'message' => 'Échec de la sauvegarde : La génération du dump de la base de données a échoué. '
+                    . 'Consultez le journal des événements pour le détail, puis réessayez.',
+            ],
+            $json
+        );
+        $this->assertSame(['leftover_table'], $tables, 'the tables were dropped without a safety copy');
+        $this->assertArrayNotHasKey('setup_backup_download', $_SESSION);
+    }
+
+    /**
      * Regression: if the backup step fails (mysqldump unavailable, wrong
      * plugin, whatever) the operator must not be stuck unable to install
      * at all — force_without_backup=1 must always empty the database and
@@ -1726,6 +1873,78 @@ class SetupControllerTest extends TestCase
         );
 
         $this->dropAllTables($pdo);
+    }
+
+    /**
+     * The first run failing half-way — here the DKIM key, over a file
+     * that stands where its directory goes: the operator is sent back to
+     * the wizard with a French sentence, the master key and secrets.enc
+     * this run wrote are removed so the next attempt starts clean, no
+     * administrator exists, and the reason is in the server log.
+     *
+     * @group database
+     */
+    #[\PHPUnit\Framework\Attributes\Group('database')]
+    public function testAFirstRunThatFailsHalfWayUndoesWhatItWroteAndSaysSo(): void
+    {
+        [$pdo, $databaseFields] = $this->connectToTestDatabase();
+        $controller = new SetupController(
+            $this->twig,
+            $this->secretManager,
+            $this->dkimManager,
+            $this->schemaPath,
+            $this->publicDir()
+        );
+        $this->writeCronHeartbeat();
+        file_put_contents($this->tempDir . '/keys/dkim', 'pas un dossier');
+        $log = (string) tempnam(sys_get_temp_dir(), 'setup_log_');
+        $previousLog = ini_set('error_log', $log);
+        $request = new Request('POST', '/setup/save', [], [
+            '_csrf_token' => \Core\Security\CsrfGuard::generateToken(),
+            ...$databaseFields,
+            'site_name' => 'Test Unité',
+            'short_name' => '25SV',
+            'base_url' => 'https://test.example.com',
+            'mail_mode' => 'local',
+            'smtp_host' => '',
+            'smtp_port' => '587',
+            'smtp_user' => '',
+            'smtp_password' => '',
+            'mail_from_address' => 'unit@example.com',
+            'mail_from_name' => 'Test Unité',
+            'dkim_selector' => 'mail',
+            'dmarc_report_email' => 'dmarc@example.com',
+            'admin_email' => 'admin@example.com',
+            'admin_password' => 'Motdepasse-2027!',
+        ], [], []);
+
+        // mkdir() over the file warns before the manager throws; the
+        // warning is the production log's, not this test's.
+        set_error_handler(static fn(): bool => true, E_WARNING);
+        try {
+            $response = $controller->save($request, []);
+        } finally {
+            restore_error_handler();
+            ini_set('error_log', (string) $previousLog);
+        }
+        $logged = (string) file_get_contents($log);
+        @unlink($log);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('/setup', $response->getHeaders()['Location'] ?? null);
+        $this->assertSame(
+            [
+                'type' => 'error',
+                'message' => 'Erreur lors de l\'installation : l\'installation n\'a pas pu être terminée. '
+                    . 'Vérifiez les paramètres de la base de données et les droits d\'écriture sur storage/, '
+                    . 'puis réessayez.',
+            ],
+            \Core\Http\FlashMessage::get()
+        );
+        $this->assertFileDoesNotExist($this->tempDir . '/keys/master.key');
+        $this->assertFileDoesNotExist($this->tempDir . '/config/secrets.enc');
+        $this->assertSame([], $pdo->query('SHOW TABLES LIKE \'user_accounts\'')->fetchAll());
+        $this->assertStringContainsString('ScoutMagic setup failed: Cannot create the DKIM key directory', $logged);
     }
 
     /**
@@ -2214,6 +2433,48 @@ class SetupControllerTest extends TestCase
         $this->assertTrue($decoded['success']);
         $this->assertNotEmpty($decoded['public_key']);
         $this->assertTrue($this->dkimManager->hasKey());
+    }
+
+    /**
+     * A file where the key directory belongs — a deployment unpacked over
+     * `storage/`: the wizard is told in French what to check, never
+     * OpenSSL's or the filesystem's English, and the reason is journaled
+     * for whoever reads the log afterwards. No key is left half-made.
+     */
+    public function testAKeyThatCannotBeWrittenIsReportedInFrenchAndJournaled(): void
+    {
+        $_SESSION['setup_token_verified'] = true;
+        file_put_contents($this->tempDir . '/keys/dkim', 'pas un dossier');
+        $pdo = DatabaseTestHelper::createTestDatabase();
+        $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath);
+        $controller->setJournalService(new \Core\Journal\JournalService(new \Core\Journal\JournalRepository($pdo)));
+        $this->issueCsrfToken();
+
+        // mkdir() over the file warns, naming the path, before the manager
+        // throws; that warning is the production log's, not this test's.
+        set_error_handler(static fn(): bool => true, E_WARNING);
+        try {
+            $response = $controller->generateDkimKey(
+                new Request('POST', '/setup/generate-dkim-key', [], [], [], []),
+                []
+            );
+        } finally {
+            restore_error_handler();
+        }
+
+        $this->assertSame(500, $response->getStatusCode());
+        $this->assertSame(
+            [
+                'success' => false,
+                'message' => 'La clé DKIM n\'a pas pu être générée — vérifiez que l\'extension OpenSSL est '
+                    . 'active sur le serveur et que le dossier storage/ est accessible en écriture.',
+            ],
+            json_decode($response->getBody(), true)
+        );
+        $this->assertFalse($this->dkimManager->hasKey());
+        $context = $pdo->query("SELECT context FROM event_log WHERE event_type = 'setup_dkim_generation_failed'")
+            ->fetchColumn();
+        $this->assertStringContainsString('Cannot create the DKIM key directory', (string) $context);
     }
 
     /**
