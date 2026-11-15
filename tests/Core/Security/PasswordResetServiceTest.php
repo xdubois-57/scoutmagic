@@ -228,4 +228,56 @@ class PasswordResetServiceTest extends TestCase
         $this->assertTrue($this->service->checkToken($id, $token));
         $this->assertFalse($this->service->checkToken($id, 'not-the-token'));
     }
+
+    /**
+     * Issue #1115: what the reset page may list is gated by the same token
+     * check as the form itself — a dead link lists nothing — and with no
+     * revoker wired the lists are simply empty.
+     */
+    public function testLiveAccessesForTokenNeedsAValidTokenAndIsEmptyWithoutARevoker(): void
+    {
+        $this->userRepo->create('accesses@test.com');
+        $this->service->requestReset('accesses@test.com');
+        [$id, $raw] = $this->tokenFromCapturedUrl();
+
+        $this->assertNull($this->service->liveAccessesForToken($id, 'wrong'));
+        $this->assertNull($this->service->liveAccessesForToken($id + 1000, $raw));
+        $this->assertSame(['passkeys' => [], 'devices' => []], $this->service->liveAccessesForToken($id, $raw));
+    }
+
+    /**
+     * The reset is what revokes: a passkey added before it (by an attacker
+     * holding a stolen session) is gone after it, unless named as kept.
+     */
+    public function testResetPasswordRevokesEveryPasskeyExceptTheKeptOnes(): void
+    {
+        $account = $this->userRepo->create('revoke@test.com');
+        $passkeys = new \Core\Security\WebAuthnCredentialRepository($this->pdo);
+        $this->service->setAccessRevoker(new \Core\Security\AccountAccessRevoker(
+            $passkeys,
+            new \Core\Contact\Device\DeviceCredentialRepository($this->pdo),
+            new \Core\Journal\JournalService(new \Core\Journal\JournalRepository($this->pdo))
+        ));
+        $kept = $passkeys->create($account->id, random_bytes(16), 'pk', 'Le mien');
+        $passkeys->create($account->id, random_bytes(16), 'pk', 'Celui de l\'attaquant');
+
+        $this->service->requestReset('revoke@test.com');
+        [$id, $raw] = $this->tokenFromCapturedUrl();
+
+        $this->assertTrue($this->service->resetPassword($id, $raw, 'MyNewSecureP@ss1', [$kept], []));
+        $this->assertSame(
+            [$kept],
+            array_map(static fn(array $r): int => (int) $r['id'], $passkeys->findByUserAccountId($account->id))
+        );
+    }
+
+    /**
+     * @return array{0: int, 1: string}
+     */
+    private function tokenFromCapturedUrl(): array
+    {
+        $this->assertSame(1, preg_match('#/password-reset/(\d+)\#(.+)$#', $this->capturedResetUrl, $m));
+
+        return [(int) $m[1], rawurldecode($m[2])];
+    }
 }

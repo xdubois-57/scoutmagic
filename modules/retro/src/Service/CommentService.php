@@ -75,6 +75,14 @@ class CommentService
             || ($moderationMode === 'warning' && $acceptedWarning);
 
         if ($this->moderationService !== null && !$skipModeration) {
+            // A paid AI call: a public board's daily ceiling applies on top
+            // of the visitor's own (issue #1128). Past it the comment is
+            // refused rather than published unmoderated — a budget anyone
+            // can spend must not also switch moderation off. Without an
+            // AI provider no call is made, so nothing is counted either.
+            if ($this->moderationService->isAvailable()) {
+                $this->rateLimitService->checkAndRecordBoardAiCall($board, RateLimitService::BOARD_AI_MODERATION);
+            }
             $result = $this->moderationService->moderate($body, $board->maxCommentLength);
             if ($result !== null && $result['flagged']) {
                 throw new RetroException(

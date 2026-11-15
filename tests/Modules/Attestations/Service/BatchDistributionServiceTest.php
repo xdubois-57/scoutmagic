@@ -41,6 +41,7 @@ class BatchDistributionServiceTest extends TestCase
 {
     private \PDO $pdo;
     private string $storageRoot;
+    private EncryptedFileStorageService $fileStorage;
     private BatchRepository $batches;
     private BatchLineRepository $lines;
     private RecordingDocumentMailer $mailer;
@@ -69,6 +70,7 @@ class BatchDistributionServiceTest extends TestCase
         $this->batches = new BatchRepository($connection);
         $this->lines = new BatchLineRepository($connection, $encryption);
         $this->mailer = new RecordingDocumentMailer($fileStorage, $this->storageRoot);
+        $this->fileStorage = $fileStorage;
 
         $this->service = new BatchDistributionService(
             $this->batches,
@@ -179,6 +181,44 @@ class BatchDistributionServiceTest extends TestCase
     }
 
     /** Each family receives ITS certificate, never a neighbour's. */
+    /**
+     * Issue #1096: each message names the member its certificate belongs to
+     * — read from the line, never from the address — as the screens write
+     * it, and a line whose member has no readable name falls back to the
+     * label alone.
+     */
+    public function testEachCertificateNamesTheMemberItBelongsTo(): void
+    {
+        $this->service->sendSlice($this->batchId, 'Unité de test');
+
+        $margaux = $this->lines->findById($this->lineIds['margaux']);
+        $sacha = $this->lines->findById($this->lineIds['sacha']);
+        $this->assertNotNull($margaux);
+        $this->assertNotNull($sacha);
+        $this->assertSame('Margaux Vandenbrande', $this->mailer->memberNameByFileId[$margaux->fileId]);
+        $this->assertSame('Sacha Meunier', $this->mailer->memberNameByFileId[$sacha->fileId]);
+    }
+
+    /**
+     * Two children behind one parent's address get two messages, each
+     * naming its own child — the case the issue is about.
+     */
+    public function testTwoChildrenSharingOneAddressAreEachNamed(): void
+    {
+        $siblingFileId = $this->addPendingLine('lucas', 'Lucas', 'Vandenbrande', 'famille.vandenbrande@example.org');
+
+        $this->service->sendSlice($this->batchId, 'Unité de test');
+
+        $margaux = $this->lines->findById($this->lineIds['margaux']);
+        $this->assertNotNull($margaux);
+        $this->assertSame('Margaux Vandenbrande', $this->mailer->memberNameByFileId[$margaux->fileId]);
+        $this->assertSame('Lucas Vandenbrande', $this->mailer->memberNameByFileId[$siblingFileId]);
+        $this->assertSame(
+            'famille.vandenbrande@example.org',
+            $this->mailer->addressByFileId[$siblingFileId]
+        );
+    }
+
     public function testEachFamilyGetsItsOwnCertificate(): void
     {
         $this->service->sendSlice($this->batchId, 'Unité de test');
@@ -414,6 +454,42 @@ class BatchDistributionServiceTest extends TestCase
         );
     }
 
+    /**
+     * One more matched, published line for a new member: its file id.
+     */
+    private function addPendingLine(string $key, string $first, string $last, string $email): int
+    {
+        $encryption = AttestationsTestHelper::encryption();
+        $this->pdo->prepare('INSERT INTO members (desk_id) VALUES (?)')->execute(['D' . $key]);
+        $memberId = (int) $this->pdo->lastInsertId();
+        $this->pdo->prepare(
+            'INSERT INTO member_years
+             (member_id, scout_year_id, first_name_encrypted, last_name_encrypted, email_encrypted, email_blind_index)
+             VALUES (?, ?, ?, ?, ?, ?)'
+        )->execute([
+            $memberId,
+            $this->scoutYearId,
+            $encryption->encrypt($first, 'member_years.first_name'),
+            $encryption->encrypt($last, 'member_years.last_name'),
+            $encryption->encrypt($email, 'member_years.email'),
+            $encryption->blindIndex(strtolower($email), 'email'),
+        ]);
+
+        $fileId = $this->fileStorage->store(
+            '%PDF-1.4 fake',
+            'application/pdf',
+            'attestation.pdf',
+            'attestations/documents',
+            'admin',
+            'attestations',
+            null,
+            $memberId
+        );
+        $this->lines->create($this->batchId, 4, 7, 8, 'NOM Prenom', $memberId, MatchState::Matched, $fileId);
+
+        return $fileId;
+    }
+
     /** Counts and identifiers only — never an address, never a name. */
     public function testTheJournalNamesNobody(): void
     {
@@ -443,6 +519,12 @@ class RecordingDocumentMailer extends MemberDocumentMailer
     /** @var array<string, int> address => file id */
     public array $fileIdByAddress = [];
 
+    /** @var array<int, ?string> file id => the member name it was sent with */
+    public array $memberNameByFileId = [];
+
+    /** @var array<int, string> file id => address */
+    public array $addressByFileId = [];
+
     public ?string $failFor = null;
 
     /**
@@ -462,8 +544,13 @@ class RecordingDocumentMailer extends MemberDocumentMailer
         );
     }
 
-    public function send(string $title, int $fileId, string $toAddress, string $unitName): void
-    {
+    public function send(
+        string $title,
+        int $fileId,
+        string $toAddress,
+        string $unitName,
+        ?string $memberName = null
+    ): void {
         if ($this->suppressFor === $toAddress) {
             throw \Core\Mail\SuppressedRecipientException::blocked();
         }
@@ -474,5 +561,7 @@ class RecordingDocumentMailer extends MemberDocumentMailer
 
         $this->sentByAddress[$toAddress] = $title;
         $this->fileIdByAddress[$toAddress] = $fileId;
+        $this->memberNameByFileId[$fileId] = $memberName;
+        $this->addressByFileId[$fileId] = $toAddress;
     }
 }

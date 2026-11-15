@@ -38,7 +38,17 @@ class AttachmentPolicy
      * PDF, images and office documents — nothing else (§7.8). No archives:
      * a zip is a container whose contents nobody inspected, and it is the
      * standard way to smuggle everything on the other side of this list.
-     * No executables and no active types.
+     * No executables and no active types — which is why the binary Office
+     * formats of before 2007 (`.doc`, `.xls`) are not here (issue #1121):
+     * they carry macros in the same file as the text, and nothing about a
+     * `.doc` tells a reader whether it does. Their OOXML successors put
+     * macros in a separate part (`vbaProject.bin`) of a macro-enabled
+     * package, `.docm`/`.xlsm` — which finfo nevertheless reports as plain
+     * `.docx`/`.xlsx`, so omissionFor() opens every OOXML package and
+     * refuses one that carries such a part. ODF is not macro-free either: a
+     * document can bind a macro to its open event, which LibreOffice runs
+     * when the reader's macro-security settings allow it. It stays, as the
+     * one editable format a unit without Microsoft Office sends.
      *
      * @var string[]
      */
@@ -49,13 +59,14 @@ class AttachmentPolicy
         'image/webp',
         'image/heic',
         'image/heif',
-        'application/msword',
         'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-        'application/vnd.ms-excel',
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         'application/vnd.oasis.opendocument.text',
         'application/vnd.oasis.opendocument.spreadsheet',
     ];
+
+    /** How much of an OOXML package's `[Content_Types].xml` is read: a real one is a few kilobytes. */
+    private const CONTENT_TYPES_READ = 262144;
 
     public function __construct(
         private int $maxSizeBytes = 15 * 1024 * 1024,
@@ -136,7 +147,79 @@ class AttachmentPolicy
             return AttachmentOmission::MIME_REJECTED;
         }
 
+        if (str_starts_with($realType, 'application/vnd.openxmlformats-officedocument.')
+            && !self::isMacroFreePackage($attachment->bytes)
+        ) {
+            return AttachmentOmission::MIME_REJECTED;
+        }
+
         return null;
+    }
+
+    /**
+     * Whether an OOXML package carries no macro project (issue #1121): no
+     * `vbaProject.bin` part anywhere, and no macro-enabled content type
+     * declared — including a `vbaProject` content type, which is how a
+     * renamed macro part still shows. A package that cannot be opened is
+     * refused too — it is not
+     * the `.docx` finfo took it for — and so is every OOXML file on a host
+     * without the zip extension: unable to look is not the same as clean.
+     *
+     * Only the central directory and `[Content_Types].xml` are read, and
+     * that part only when its declared size fits {@see CONTENT_TYPES_READ}:
+     * a larger one is refused rather than read in part, so neither a
+     * decompression bomb nor padding that pushes the declaration past the
+     * window gets through.
+     */
+    private static function isMacroFreePackage(string $bytes): bool
+    {
+        $path = class_exists(\ZipArchive::class) ? tempnam(sys_get_temp_dir(), 'ooxml') : false;
+        if ($path === false) {
+            return false;
+        }
+
+        try {
+            file_put_contents($path, $bytes);
+            $zip = new \ZipArchive();
+            if ($zip->open($path, \ZipArchive::RDONLY) !== true) {
+                return false;
+            }
+            try {
+                for ($i = 0; $i < $zip->numFiles; $i++) {
+                    $name = (string) $zip->getNameIndex($i);
+                    if (str_ends_with(strtolower($name), 'vbaproject.bin')) {
+                        return false;
+                    }
+                }
+                // The content types are the real backstop: a macro part can be
+                // renamed (OPC finds it by relationship, not by file name),
+                // but it must still be declared. Every OOXML package has
+                // this part, so not finding it — under any case — or not
+                // being able to read all of it is « unable to look ».
+                $index = $zip->locateName('[Content_Types].xml', \ZipArchive::FL_NOCASE);
+                $stat = $index === false ? false : $zip->statIndex($index);
+                if ($index === false || !is_array($stat) || $stat['size'] > self::CONTENT_TYPES_READ) {
+                    return false;
+                }
+                $stream = $zip->getStream((string) $zip->getNameIndex($index));
+                if ($stream === false) {
+                    return false;
+                }
+                $types = (string) stream_get_contents($stream, self::CONTENT_TYPES_READ);
+                fclose($stream);
+                // XML, not opaque text: `&#80;` is the `P` Word reads, so a
+                // character reference must not hide the word from us.
+                // Decoded rather than parsed — no XML parser, no external
+                // entities to resolve.
+                $types = html_entity_decode($types, ENT_QUOTES | ENT_XML1, 'UTF-8');
+
+                return stripos($types, 'macroEnabled') === false && stripos($types, 'vbaProject') === false;
+            } finally {
+                $zip->close();
+            }
+        } finally {
+            @unlink($path);
+        }
     }
 
     /**

@@ -38,7 +38,11 @@ class FormService
         private FormRepository $formRepository,
         private FormFieldRepository $fieldRepository,
         private ArticleService $articleService,
-        private FormResponseRepository $responseRepository
+        private FormResponseRepository $responseRepository,
+        // The images of the article's text are put on its floor at every
+        // save of that text (issue #1110). Null only where a test builds
+        // the service for something else; public/index.php always wires it.
+        private ?BodyImageAccess $bodyImages = null
     ) {
         $this->htmlSanitizer = new HtmlSanitizer();
     }
@@ -119,6 +123,13 @@ class FormService
      */
     public function save(int $articleId, array $settings, array $fields): NewsForm
     {
+        // An imported article's form is history like the article (D11):
+        // closed for good, its questions as the old site had them.
+        $article = $this->articleService->findById($articleId);
+        if ($article !== null) {
+            ArticleService::assertNotImported($article);
+        }
+
         $access = $settings['access'] === NewsForm::ACCESS_PUBLIC
             ? NewsForm::ACCESS_PUBLIC
             : NewsForm::ACCESS_IDENTIFIED;
@@ -196,6 +207,9 @@ class FormService
 
         $this->reconcileFields($formId, $fields);
         $this->articleService->markHasForm($articleId, true);
+        // Saved after ArticleService::create()/update() in every route,
+        // so the visibility read here is the one just written.
+        $this->bodyImages?->syncArticle($articleId);
 
         return $this->formRepository->findById($formId);
     }
@@ -308,6 +322,12 @@ class FormService
      */
     public function reorderFields(int $formId, array $orderedFieldIds): void
     {
+        $form = $this->formRepository->findById($formId);
+        $article = $form !== null ? $this->articleService->findById($form->newsArticleId) : null;
+        if ($article !== null) {
+            ArticleService::assertNotImported($article);
+        }
+
         $existingIds = array_map(fn(FormField $f) => $f->id, $this->fieldRepository->findByFormId($formId));
         $validIds = array_values(array_intersect($orderedFieldIds, $existingIds));
 

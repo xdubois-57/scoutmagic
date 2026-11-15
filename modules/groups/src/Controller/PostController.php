@@ -12,7 +12,6 @@ use Core\Http\Controller\AbstractController;
 use Core\Http\FlashMessage;
 use Core\Http\Request;
 use Core\Http\Response;
-use Core\ScoutYear\ScoutYearSession;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Modules\Gallery\Api\GalleryException;
@@ -166,7 +165,7 @@ class PostController extends AbstractController
         }
 
         $post = $this->postRepository->findById((int) ($params['postId'] ?? 0));
-        if ($post === null || $post->groupId !== $group->id) {
+        if ($post === null || !$this->accessService->canReachPost($group, $post, $context)) {
             return new Response('Not Found', 404);
         }
 
@@ -702,8 +701,10 @@ class PostController extends AbstractController
 
     /**
      * The shared shape of every post write: CSRF, membership (404), the
-     * post actually belonging to that group (404), then the action's own
-     * rule.
+     * post actually belonging to that group and still reachable by this
+     * session (404 — a post moderation hid answers nothing to a
+     * non-moderator: not its poll, not an edit, issue #1119), then the
+     * action's own rule.
      *
      * @param array<string, string> $params
      * @param callable(DiscussionGroup, Post, GroupSessionContext): Response $action
@@ -723,7 +724,7 @@ class PostController extends AbstractController
         $post = $this->postRepository->findById((int) ($params['postId'] ?? 0));
         // A post id from another group is a 404, not someone else's post:
         // the group in the URL is the one that was authorised.
-        if ($post === null || $post->groupId !== $group->id) {
+        if ($post === null || !$this->accessService->canReachPost($group, $post, $context)) {
             return new Response('Not Found', 404);
         }
 
@@ -804,8 +805,7 @@ class PostController extends AbstractController
         return $this->contextFactory->build(
             AuthSession::getEmail(),
             AuthSession::getRole(),
-            AuthSession::getUserAccountId(),
-            ScoutYearSession::getPreviewId()
+            AuthSession::getUserAccountId()
         );
     }
 

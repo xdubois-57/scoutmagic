@@ -18,7 +18,29 @@
             status: email.status == 'draft' ? 'draft' : (email.status == 'test' ? 'pending' : (email.status == 'sending' ? 'in_progress' : 'done')),
             label: email.status == 'draft' ? 'Brouillon' : (email.status == 'test' ? 'Test' : (email.status == 'sending' ? 'Envoi en cours' : 'Envoyé')),
         } only %}
+        {% if email.importedAt %}
+            {% include '@mass_mail/partials/_imported_badge.html.twig' only %}
+        {% endif %}
     </p>
+
+    {# An email imported from a former site (D11): what that site knew of
+       each message, as it knew it — « Accepté par le serveur d'envoi » is
+       never « Remis », nothing proves it — and no « Renvoyer », which the
+       server refuses anyway (Service\MassMailService::resendDelivery()). #}
+    {% set imported = email.importedAt is not null %}
+    {% if imported %}
+        {% include '@mass_mail/partials/_imported_notice.html.twig' with { imported_at: email.importedAt } only %}
+        <p class="mb-4">
+            <strong>{{ counts.total }} message{{ counts.total > 1 ? 's' : '' }} connu{{ counts.total > 1 ? 's' : '' }} :
+            {{ counts.sent }} accepté{{ counts.sent > 1 ? 's' : '' }} par le serveur d'envoi,
+            {{ counts.unknown }} inconnu{{ counts.unknown > 1 ? 's' : '' }}{% if counts.error > 0 %},
+            {{ counts.error }} en erreur{% endif %}</strong>
+            {% if target_count > 0 %}
+                · {{ target_count }} animé{{ target_count > 1 ? 's' : '' }} concerné{{ target_count > 1 ? 's' : '' }}
+            {% endif %}
+            {% include '@mass_mail/partials/_imported_origin.html.twig' with { email: email, sender: original_sender } only %}
+        </p>
+    {% else %}
 
     {# Counts MESSAGES — one per address (issue #999) — and names, beside
        them, how many members the communication was meant for: three
@@ -48,6 +70,7 @@
             { label: 'Erreurs', value: counts.error, icon: 'bi-x-circle', tone: 'danger' },
         ],
     } only %}
+    {% endif %}
 
     <div class="row g-2 align-items-end mb-3">
         {# No `field_name`: mass-mail-tracking.js filters the table in the
@@ -68,7 +91,7 @@
                     { value: 'sent', label: 'Envoyé' },
                     { value: 'error', label: 'Erreur' },
                     { value: 'unsent', label: 'Non envoyée' },
-                ],
+                ]|merge(imported ? [{ value: 'unknown', label: 'Inconnu' }] : []),
             } only %}
         </div>
     </div>
@@ -97,18 +120,25 @@
                             {% if concerns %}<span class="d-block small text-body-secondary">{{ concerns }}</span>{% endif %}
                         </td>
                         <td>
-                            {% include 'partials/status_badge.html.twig' with {
-                                status: d.status == 'sent' ? 'done' : (d.status == 'error' ? 'error' : 'pending'),
-                                label: d.status == 'sent' ? 'Envoyé' : (d.status == 'error' ? 'Erreur' : 'En attente'),
-                            } only %}
+                            {% if imported %}
+                                {% include 'partials/status_badge.html.twig' with {
+                                    status: d.status == 'sent' ? 'info' : (d.status == 'error' ? 'error' : 'neutral'),
+                                    label: d.status == 'sent' ? "Accepté par le serveur d'envoi" : (d.status == 'error' ? 'Erreur' : 'Inconnu'),
+                                } only %}
+                            {% else %}
+                                {% include 'partials/status_badge.html.twig' with {
+                                    status: d.status == 'sent' ? 'done' : (d.status == 'error' ? 'error' : 'pending'),
+                                    label: d.status == 'sent' ? 'Envoyé' : (d.status == 'error' ? 'Erreur' : 'En attente'),
+                                } only %}
+                            {% endif %}
                             <span class="d-block small text-body-secondary">
-                                {% if d.status == 'sent' %}{{ d.sentAt|datetime_fr }}
+                                {% if d.status == 'sent' and d.sentAt %}{{ d.sentAt|datetime_fr }}
                                 {% elseif d.status == 'error' %}{{ d.errorMessage ?? '—' }}
                                 {% endif %}
                             </span>
                         </td>
                         <td class="text-end">
-                            {% if d.status in ['error', 'sent'] %}
+                            {% if not imported and d.status in ['error', 'sent'] %}
                                 <button type="button" class="btn btn-sm btn-outline-secondary mmt-resend-btn"
                                         data-id="{{ d.id }}" data-recipient="{{ d.emailAddress }}">Renvoyer</button>
                             {% endif %}
@@ -117,15 +147,18 @@
                 {% endfor %}
                 {% for item in unsent %}
                     {% set who = item.row_index is not null ? ('Ligne ' ~ item.row_index ~ ' · ' ~ item.label) : item.label %}
-                    <tr data-search="{{ who|lower }}" data-status="unsent">
+                    <tr data-search="{{ who|lower }}" data-status="{{ imported ? 'unknown' : 'unsent' }}">
                         <td class="text-body-secondary">
                             {{ who }}
-                            <span class="d-block small">Aucune adresse valide</span>
+                            {# On an imported email this member was concerned, and the
+                               former site did not say at which address: an unknown,
+                               not a failure. #}
+                            <span class="d-block small">{{ imported ? "Adresse inconnue de l'ancien site" : 'Aucune adresse valide' }}</span>
                         </td>
                         <td>
                             {% include 'partials/status_badge.html.twig' with {
-                                status: 'error',
-                                label: 'Non envoyée',
+                                status: imported ? 'neutral' : 'error',
+                                label: imported ? 'Inconnu' : 'Non envoyée',
                             } only %}
                         </td>
                         <td></td>

@@ -13,6 +13,7 @@ use Core\Storage\Location\Protection\StorageProtectionRepository;
 use Core\Storage\Location\StorageAttentionProvider;
 use Core\Storage\Location\StorageLocationRepository;
 use Core\Storage\Location\StorageLocationType;
+use Core\Storage\Location\WebServedArea;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 
@@ -239,5 +240,46 @@ final class StorageAttentionProviderTest extends TestCase
         (new StorageProtectionRepository($this->pdo))->save($this->local('Galerie', 'gallery'), $this->local('NAS', 'nas'), 30, 24, false);
 
         $this->assertSame([], $this->pointsWithCopies());
+    }
+    /**
+     * Issue #1129: a local folder the web server serves is said at once,
+     * from the stored path — not only after somebody opens the storage
+     * pages and a check runs.
+     */
+    public function testALocalFolderTheWebServerServesIsAnUrgentPoint(): void
+    {
+        $root = sys_get_temp_dir() . '/scoutmagic-served-' . bin2hex(random_bytes(6));
+        mkdir($root . '/public', 0777, true);
+        file_put_contents($root . '/public/index.php', '<?php');
+        file_put_contents($root . '/index.php', '<?php');
+        $id = $this->locations->create(StorageLocationType::Local, 'Galerie', new LocalLocationConfig($root . '/photos'), null);
+        $this->locations->create(StorageLocationType::Local, 'Ailleurs', new LocalLocationConfig('/mnt/nas/photos'), null);
+
+        try {
+            $points = (new StorageAttentionProvider(
+                $this->locations,
+                null,
+                null,
+                WebServedArea::of($root, $root . '/public')
+            ))->collect(1);
+        } finally {
+            @unlink($root . '/index.php');
+            @unlink($root . '/public/index.php');
+            @rmdir($root . '/public');
+            @rmdir($root);
+        }
+
+        $this->assertCount(1, $points);
+        $this->assertSame(AttentionPoint::SEVERITY_URGENT, $points[0]->severity);
+        $this->assertStringContainsString('« Galerie »', $points[0]->title);
+        $this->assertStringContainsString('servi directement par le serveur web', $points[0]->title);
+        $this->assertSame('/config/stockage/emplacements/' . $id . '/modification', $points[0]->actionUrl);
+    }
+
+    public function testWithoutTheLayoutNoPointIsGuessed(): void
+    {
+        $this->locations->create(StorageLocationType::Local, 'Galerie', new LocalLocationConfig('/var/www/photos'), null);
+
+        $this->assertSame([], $this->points());
     }
 }

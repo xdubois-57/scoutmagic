@@ -327,6 +327,10 @@ class ReceiptController extends AbstractController
                 fn(array $row) => [
                     'id' => $row['attachment']->id,
                     'file_id' => $row['attachment']->fileId,
+                    // The addresses, built here: the script never builds
+                    // one from file_id (issue #1109).
+                    'file_url' => \Core\File\FilePublicIds::urlFor($row['attachment']->fileId),
+                    'thumbnail_url' => \Core\File\FilePublicIds::urlFor($row['attachment']->fileId, 'thumbnail'),
                     'mime_type' => $row['attachment']->mimeType,
                     'original_filename' => $row['attachment']->originalFilename,
                     'uploaded_at' => $row['attachment']->uploadedAt,

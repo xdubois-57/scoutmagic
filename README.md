@@ -41,7 +41,8 @@ responsable et en contrôle de ses données.
 
 Il vous faut un hébergement web avec PHP 8.4, une base MySQL ou MariaDB,
 un nom de domaine en HTTPS, un accès FTP et la possibilité d'ajouter une
-tâche planifiée (cron).
+tâche planifiée (cron). ScoutMagic est prévu pour un serveur Linux
+uniquement : il n'est ni testé ni pris en charge sous Windows.
 
 1. Téléchargez `bootstrap.php` depuis la
    [dernière version](https://github.com/xdubois-57/scoutmagic/releases/latest).

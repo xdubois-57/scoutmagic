@@ -36,4 +36,26 @@ final class MemberRosterRow
         public readonly ?string $sectionTotem = null
     ) {
     }
+
+    /**
+     * This row with no way to reach the person — for a section the viewer
+     * may not see the contacts of (Core\Member\SectionContactAccess,
+     * issue #1116). Name, totem, function and movement stay.
+     */
+    public function withoutContacts(): self
+    {
+        return new self(
+            memberYearId: $this->memberYearId,
+            memberId: $this->memberId,
+            firstName: $this->firstName,
+            lastName: $this->lastName,
+            totem: $this->totem,
+            functionLabel: $this->functionLabel,
+            bucket: $this->bucket,
+            emails: [],
+            phones: [],
+            movement: $this->movement,
+            sectionTotem: $this->sectionTotem
+        );
+    }
 }

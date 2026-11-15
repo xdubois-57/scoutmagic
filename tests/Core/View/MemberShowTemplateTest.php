@@ -76,6 +76,32 @@ class MemberShowTemplateTest extends TestCase
             $this->render($this->makeMember(), false, ['member_emails' => [$row]]));
     }
 
+    /**
+     * Issue #1101: whoever holds an added address reaches everything about
+     * the member, every year — said where the address is typed, and tied
+     * to the field for a screen reader. The old sentence about group-mail
+     * unsubscription is gone (maintainer's request).
+     */
+    public function testTheAddAddressBoxSaysWhatAnAddressGivesAccessTo(): void
+    {
+        $html = (string) preg_replace('/\s+/', ' ', $this->render($this->makeMember(), true));
+
+        $this->assertStringContainsString(
+            'Une adresse ajoutée donne accès à toutes les informations personnelles de ce membre, '
+                . 'années passées comprises',
+            $html
+        );
+        $this->assertStringContainsString('Une adresse retirée perd aussitôt tout cet accès.', $html);
+        $this->assertMatchesRegularExpression(
+            '#<input type="email" name="email"[^>]*aria-describedby="member-email-add-scope"#',
+            $html
+        );
+        $this->assertStringNotContainsString(
+            'La désinscription des e-mails groupés ne change pas votre accès au site',
+            $html
+        );
+    }
+
     public function testGroupMailConsentIsShownBesideAValidAddressAndRestoredByItsOwnAction(): void
     {
         $row = new \Core\Member\MemberEmail(7, 1, 'parent@example.org', 'manual', 'valid',
@@ -281,6 +307,56 @@ class MemberShowTemplateTest extends TestCase
      * left for this member (issue #999) — and must say so, never let it
      * read as sent.
      */
+    /**
+     * An email imported from a former site (data_migration, D11) carries
+     * the « Importé » badge on the member page, as in the mass-mail list.
+     */
+    public function testAnImportedCommunicationCarriesTheImportedBadge(): void
+    {
+        $item = ['id' => 8, 'subject' => "Infos camp d'été 2024", 'sent_at' => '2024-05-21 18:30:00',
+            'section_name' => 'Éclaireurs', 'merge_purged' => false, 'not_sent' => false];
+        $context = ['mass_mail_enabled' => true];
+
+        $imported = $this->render(
+            $this->makeMember(),
+            true,
+            $context + ['recent_mass_mail_emails' => [$item + ['imported' => true]]],
+        );
+        $native = $this->render(
+            $this->makeMember(),
+            true,
+            $context + ['recent_mass_mail_emails' => [$item + ['imported' => false]]],
+        );
+
+        $this->assertStringContainsString('>Importé<', $imported);
+        $this->assertStringNotContainsString('>Importé<', $native);
+    }
+
+    /**
+     * An imported communication the former site recorded as failed reads
+     * « Non envoyée » like a native one, never as sent.
+     */
+    public function testAnImportedCommunicationRecordedAsFailedIsMarkedNonEnvoyee(): void
+    {
+        $item = ['id' => 9, 'subject' => 'Rappel', 'sent_at' => '2024-05-21 18:30:00',
+            'section_name' => 'Éclaireurs', 'merge_purged' => false, 'not_sent' => false, 'imported' => true];
+        $context = ['mass_mail_enabled' => true];
+
+        $failed = $this->render(
+            $this->makeMember(),
+            true,
+            $context + ['recent_mass_mail_emails' => [$item + ['failed' => true]]],
+        );
+        $unknown = $this->render(
+            $this->makeMember(),
+            true,
+            $context + ['recent_mass_mail_emails' => [$item + ['failed' => false]]],
+        );
+
+        $this->assertStringContainsString('Non envoyée', $failed);
+        $this->assertStringNotContainsString('Non envoyée', $unknown);
+    }
+
     public function testACommunicationNotSentIsMarkedNonEnvoyee(): void
     {
         $item = ['id' => 7, 'subject' => 'Réunion', 'sent_at' => '2026-01-01 10:00:00', 'section_name' => 'Meute A', 'merge_purged' => false];

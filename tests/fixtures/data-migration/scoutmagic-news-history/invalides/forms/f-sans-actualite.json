@@ -1,0 +1,10 @@
+{
+    "id": "f-sans-actualite",
+    "article_id": "a-inexistante",
+    "fields": [
+        {
+            "type": "short_text",
+            "label": "Nom du groupe"
+        }
+    ]
+}

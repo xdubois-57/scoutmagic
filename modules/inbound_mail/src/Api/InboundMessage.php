@@ -73,8 +73,30 @@ class InboundMessage
          */
         public readonly bool $isBulk = false,
         /** Received, or sent from the box (#720). */
-        public readonly MessageDirection $direction = MessageDirection::RECEIVED
+        public readonly MessageDirection $direction = MessageDirection::RECEIVED,
+        /**
+         * Whether the receiving server vouched for {@see $fromEmail}
+         * (issue #1121): computed once on arrival by inbound_mail from the
+         * topmost `Authentication-Results`
+         * (Core\Mail\MailAuthenticationResults::senderVerified()). `From:`
+         * is declarative — anybody can write a renter's address there — so
+         * a consumer that trusts the sender for anything (filing on it,
+         * learning an address, telling a person « from X ») must treat a
+         * false here as « se présente comme X ». Defaults to false: fail
+         * closed. Always true for a message the box itself sent.
+         */
+        public readonly bool $senderVerified = false
     ) {
+    }
+
+    /**
+     * « Expéditeur non vérifié » (issue #1121): a received message whose
+     * `From:` nobody vouched for. The one predicate every consumer and
+     * screen asks, so none re-derives it.
+     */
+    public function senderUnverified(): bool
+    {
+        return !$this->isSent() && !$this->senderVerified;
     }
 
     public function isSent(): bool

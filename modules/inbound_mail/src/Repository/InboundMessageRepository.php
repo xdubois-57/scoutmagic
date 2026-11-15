@@ -107,7 +107,8 @@ class InboundMessageRepository
         array $toEmails = [],
         bool $isBulk = false,
         ?string $rawHeaders = null,
-        MessageDirection $direction = MessageDirection::RECEIVED
+        MessageDirection $direction = MessageDirection::RECEIVED,
+        bool $senderVerified = false
     ): int {
         $stmt = $this->pdo->prepare(
             'INSERT INTO inbound_messages
@@ -115,8 +116,8 @@ class InboundMessageRepository
                  message_id_blind_index, in_reply_to_blind_index, from_email_blind_index,
                  subject_encrypted, from_email_encrypted, from_name_encrypted, message_id_encrypted,
                  in_reply_to_encrypted, to_emails_encrypted, body_text_encrypted, body_html_encrypted,
-                 raw_headers_encrypted, sent_at, is_bulk, direction)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                 raw_headers_encrypted, sent_at, is_bulk, direction, sender_verified)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([
             $mailboxId,
@@ -142,6 +143,7 @@ class InboundMessageRepository
             $sentAt->format('Y-m-d H:i:s'),
             $isBulk ? 1 : 0,
             $direction->value,
+            $senderVerified ? 1 : 0,
         ]);
 
         return (int) $this->pdo->lastInsertId();
@@ -1001,11 +1003,22 @@ class InboundMessageRepository
      * A message stored from the box's « Envoyés » that the box turns out to
      * have received as well: kept once, as received (#720). No-op on a row
      * that already is.
+     *
+     * The verdict on its sender goes with it (issue #1121): the sent copy
+     * was « verified » only because the box itself sent it, which says
+     * nothing about the copy the box received.
      */
-    public function markReceived(int $messageId): void
+    public function markReceived(int $messageId, bool $senderVerified): void
     {
-        $stmt = $this->pdo->prepare('UPDATE inbound_messages SET direction = ? WHERE id = ? AND direction = ?');
-        $stmt->execute([MessageDirection::RECEIVED->value, $messageId, MessageDirection::SENT->value]);
+        $stmt = $this->pdo->prepare(
+            'UPDATE inbound_messages SET direction = ?, sender_verified = ? WHERE id = ? AND direction = ?'
+        );
+        $stmt->execute([
+            MessageDirection::RECEIVED->value,
+            $senderVerified ? 1 : 0,
+            $messageId,
+            MessageDirection::SENT->value,
+        ]);
     }
 
     public function isOutboundMessageId(string $consumerId, string $messageId): bool
@@ -2242,7 +2255,8 @@ class InboundMessageRepository
                 ? $this->encryption->decrypt((string) $row['raw_headers_encrypted'], 'inbound_messages.raw_headers')
                 : null,
             isBulk: (bool) ($row['is_bulk'] ?? false),
-            direction: MessageDirection::tryFrom((string) ($row['direction'] ?? '')) ?? MessageDirection::RECEIVED
+            direction: MessageDirection::tryFrom((string) ($row['direction'] ?? '')) ?? MessageDirection::RECEIVED,
+            senderVerified: (bool) ($row['sender_verified'] ?? false)
         );
     }
 

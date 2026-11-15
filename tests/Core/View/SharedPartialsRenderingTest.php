@@ -596,4 +596,20 @@ final class SharedPartialsRenderingTest extends TestCase
         $this->assertStringContainsString('download="rapport.pdf"', $html);
         $this->assertStringNotContainsString('aria-label', $html);
     }
+
+    /**
+     * Issue #1109: `file_url()` is empty for a file that no longer exists.
+     * An empty href is the current page, and with `download` the button
+     * would save this page under the file's name: no link at all instead.
+     */
+    public function testFileLinkRendersNothingWithoutAnAddress(): void
+    {
+        $html = $this->render(
+            "{% include 'partials/file_link.html.twig' with {
+                href: '', label: 'Télécharger l\\'archive', classes: 'btn btn-outline-primary',
+            } only %}"
+        );
+
+        $this->assertSame('', trim($html));
+    }
 }

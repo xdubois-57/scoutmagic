@@ -687,6 +687,34 @@ class RecommendationServiceTest extends TestCase
     }
 
     /**
+     * Issue #919: the slot of one request — the one whose lock an
+     * acceptance by hand takes — is the slot its queue is in; none for a
+     * past year, which the automatic acceptance never looks at, nor for a
+     * child outside every bracket.
+     */
+    public function testTheSlotOfARequestIsTheSlotItsQueueIsIn(): void
+    {
+        $current = $this->file($this->targetYearId, 'Courant', 'Présent', '2019-05-04', '2026-10-01 10:00:00');
+        $second = $this->file($this->targetYearId, 'Second', 'Présent', '2018-03-02', '2026-10-01 10:00:00');
+        $tooOld = $this->file($this->targetYearId, 'Grand', 'Présent', '2000-01-01', '2026-10-01 10:00:00');
+        $past = $this->file($this->pastYearId, 'Ancien', 'Passé', '2018-05-05', '2025-10-01 10:00:00');
+
+        $this->assertSame(
+            ['age_branch_id' => $this->louveteauxId, 'year_in_branch' => 1],
+            $this->service->slotOf($this->requireRequest($current))
+        );
+        $queued = $this->service->forYear($this->targetYearId)[$current];
+        $this->assertSame($this->louveteauxId, $queued->ageBranchId);
+        $this->assertSame(1, $queued->yearInBranch);
+        $this->assertSame(
+            ['age_branch_id' => $this->louveteauxId, 'year_in_branch' => 2],
+            $this->service->slotOf($this->requireRequest($second))
+        );
+        $this->assertNull($this->service->slotOf($this->requireRequest($tooOld)));
+        $this->assertNull($this->service->slotOf($this->requireRequest($past)));
+    }
+
+    /**
      * A request's « Créneau » (IT-11): the slot as an explanation names it,
      * or « Hors des tranches d'âge » — outside every bracket, or in a
      * branch the brackets no longer carry.

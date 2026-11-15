@@ -37,7 +37,8 @@ final class MemberPhotosImporterTest extends TestCase
             new MemberRepository($pdo),
             new ImportedMemberPhotoWriter(
                 (new \ReflectionClass(\Core\Photo\PhotoIngestionService::class))->newInstanceWithoutConstructor(),
-                new \Core\Photo\MemberPhotoRepository($pdo)
+                new \Core\Photo\MemberPhotoRepository($pdo),
+                new \Core\File\AttachedFileRemover(new \Core\File\FileRepository($pdo), '')
             )
         );
     }

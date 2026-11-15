@@ -12,7 +12,6 @@ use Core\Http\Controller\AbstractController;
 use Core\Http\FlashMessage;
 use Core\Http\Request;
 use Core\Http\Response;
-use Core\ScoutYear\ScoutYearSession;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Modules\Gallery\Api\GalleryException;
@@ -82,7 +81,7 @@ class ReplyController extends AbstractController
             return new Response('Not Found', 404);
         }
 
-        $post = $this->postOf($group, $params);
+        $post = $this->postOf($group, $params, $context);
         if ($post === null) {
             return new Response('Not Found', 404);
         }
@@ -144,7 +143,7 @@ class ReplyController extends AbstractController
             return new Response('Not Found', 404);
         }
 
-        $post = $this->postOf($group, $params);
+        $post = $this->postOf($group, $params, $context);
         if ($post === null) {
             return new Response('Not Found', 404);
         }
@@ -425,8 +424,9 @@ class ReplyController extends AbstractController
 
     /**
      * The shared shape of every reply write: CSRF, membership (404), the
-     * reply actually belonging to a post of that group (404), then the
-     * action's own rule.
+     * reply actually belonging to a post of that group and still reachable
+     * by this session (404 — neither it nor its post hidden by moderation,
+     * for a non-moderator, issue #1119), then the action's own rule.
      *
      * @param array<string, string> $params
      * @param callable(DiscussionGroup, Reply, GroupSessionContext): Response $action
@@ -452,7 +452,7 @@ class ReplyController extends AbstractController
         // the group is what was authorised, so a reply id from anywhere
         // else is a 404, never someone else's reply.
         $post = $this->postRepository->findById($reply->postId);
-        if ($post === null || $post->groupId !== $group->id) {
+        if ($post === null || !$this->accessService->canReachReply($group, $post, $reply, $context)) {
             return new Response('Not Found', 404);
         }
 
@@ -460,13 +460,19 @@ class ReplyController extends AbstractController
     }
 
     /**
+     * The post a page of replies, or a new reply, hangs off — null (404)
+     * for a post of another group, and for a post moderation hid unless
+     * this session moderates: its replies are as hidden as it is, and
+     * answering it would add to a conversation moderation took down
+     * (issue #1119).
+     *
      * @param array<string, string> $params
      */
-    private function postOf(DiscussionGroup $group, array $params): ?Post
+    private function postOf(DiscussionGroup $group, array $params, GroupSessionContext $context): ?Post
     {
         $post = $this->postRepository->findById((int) ($params['postId'] ?? 0));
 
-        return $post !== null && $post->groupId === $group->id ? $post : null;
+        return $post !== null && $this->accessService->canReachPost($group, $post, $context) ? $post : null;
     }
 
     /**
@@ -529,8 +535,7 @@ class ReplyController extends AbstractController
         return $this->contextFactory->build(
             AuthSession::getEmail(),
             AuthSession::getRole(),
-            AuthSession::getUserAccountId(),
-            ScoutYearSession::getPreviewId()
+            AuthSession::getUserAccountId()
         );
     }
 }

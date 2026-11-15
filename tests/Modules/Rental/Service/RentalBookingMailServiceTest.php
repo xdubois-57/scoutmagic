@@ -399,6 +399,31 @@ final class RentalBookingMailServiceTest extends TestCase
         $this->assertStringContainsString('confirmée', $mail['subject']);
     }
 
+    /**
+     * Issue #1114: unless the caller says the request came from a signed-in
+     * account, the acknowledgement does not name the renter — the safe
+     * wording is the default, not something a caller has to remember.
+     */
+    public function testAnAcknowledgementGreetsAnAnonymousRenterWithoutTheirName(): void
+    {
+        $this->service->sendAcknowledgement($this->booking(), $this->asset(), str_repeat('a', 64));
+
+        $mail = $this->onlyMail();
+        foreach (['subject', 'html', 'text'] as $part) {
+            $this->assertStringNotContainsString('Camille', $mail[$part]);
+        }
+        $this->assertStringContainsString('Bonjour ' . RentalBookingMailService::ANONYMOUS_RENTER_NAME . ',', $mail['text']);
+        $this->assertStringContainsString('Le Chalet', $mail['text']);
+        $this->assertStringContainsString('LOC-K7Q2M4', $mail['text']);
+    }
+
+    public function testAnAcknowledgementNamesARenterWhoWasSignedIn(): void
+    {
+        $this->service->sendAcknowledgement($this->booking(), $this->asset(), str_repeat('a', 64), true);
+
+        $this->assertStringContainsString('Bonjour Camille Renard,', $this->onlyMail()['text']);
+    }
+
     public function testTheRenterIsAddressedByNameAndToldWhichStayThisIs(): void
     {
         $this->service->sendDecision($this->booking(), $this->asset(), RenterDecision::CONFIRMED, 'tok', null);
@@ -862,5 +887,82 @@ final class RentalBookingMailServiceTest extends TestCase
             $service->sendDecision($this->booking(), $this->asset(), RenterDecision::CONFIRMED, 'tok', null)
         );
         $this->assertSame([], $this->sent);
+    }
+
+    /**
+     * The four e-mails a run or a manager's gesture sends on the way —
+     * the signed copy's reminder, its refusal, a modification abandoned,
+     * the practical information — answer false when the transport
+     * refuses, and journal no « envoyé » for a mail that never left: the
+     * reminder run and the refusal go on, and the page says it did not go.
+     */
+    public function testEachSendThatAnswersABooleanReportsAFailedTransportAndJournalsNoSend(): void
+    {
+        $journal = $this->createMock(JournalService::class);
+        $journal->expects($this->never())->method('log');
+        $service = new RentalBookingMailService(
+            $this->recordingMailService(succeeds: false),
+            EmailTemplateRendererFactory::shippedOnlyForModule($this->twig, 'rental'),
+            $this->createStub(SettingService::class),
+            $journal
+        );
+        $token = str_repeat('a', 64);
+        $senders = [
+            'signed_copy_reminder' => fn(): bool => $service->sendSignedCopyReminder(
+                $this->booking(),
+                $this->asset(),
+                $token
+            ),
+            'copy_refused' => fn(): bool => $service->sendCopyRefused(
+                $this->booking(),
+                $this->asset(),
+                'La deuxième page n\'est pas signée.',
+                $token
+            ),
+            'modification_cancelled' => fn(): bool => $service->sendModificationCancelled(
+                $this->booking(),
+                $this->asset(),
+                $token
+            ),
+            'practical_info' => fn(): bool => $service->sendPracticalInfo($this->booking(), $this->asset()),
+        ];
+
+        foreach ($senders as $name => $send) {
+            $this->assertFalse($send(), $name);
+        }
+        $this->assertSame([], $this->sent);
+    }
+
+    /**
+     * « Et maintenant ? » that cannot be worked out — the journey's read
+     * of the booking failing — is no sentence at all: the tracking page
+     * gets null, and the e-mail still goes out, without the block.
+     */
+    public function testANextStepThatCannotBeReadIsLeftOutRatherThanThrown(): void
+    {
+        $unreadable = new \PDO('sqlite::memory:');
+        $unreadable->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_EXCEPTION);
+        $journey = new \Modules\Rental\Service\RentalJourneyService(
+            new \Modules\Rental\Repository\RentalBookingRepository(
+                $unreadable,
+                new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32))
+            )
+        );
+        $service = new RentalBookingMailService(
+            $this->recordingMailService(),
+            EmailTemplateRendererFactory::shippedOnlyForModule($this->twig, 'rental'),
+            $this->createStub(SettingService::class),
+            $this->createStub(JournalService::class),
+            journey: $journey
+        );
+
+        $this->assertNull($service->renterNextStep($this->booking(), $this->asset()));
+
+        $this->sent = [];
+        $this->assertTrue($service->sendTrackingLink($this->booking(), $this->asset(), str_repeat('a', 64)));
+        $mail = $this->onlyMail();
+        $this->assertSame('camille@example.test', $mail['to']);
+        $this->assertStringNotContainsString('Et maintenant ?', $mail['text']);
+        $this->assertStringNotContainsString('Et maintenant ?', $mail['html']);
     }
 }

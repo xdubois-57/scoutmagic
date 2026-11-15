@@ -46,9 +46,14 @@ class PresenceAnimeService
      * holds them — which is also the answer for a member id that is
      * nobody, an animateur, or somebody from another unit.
      */
-    public function buildProfile(int $memberId, string $email, string $role, int $scoutYearId): ?AnimeProfile
-    {
-        $sectionId = $this->resolveSection($memberId, $email, $role, $scoutYearId);
+    public function buildProfile(
+        int $memberId,
+        string $email,
+        string $role,
+        int $scoutYearId,
+        ?int $authorizationYearId = null
+    ): ?AnimeProfile {
+        $sectionId = $this->resolveSection($memberId, $email, $role, $scoutYearId, $authorizationYearId);
         if ($sectionId === null) {
             return null;
         }
@@ -103,11 +108,18 @@ class PresenceAnimeService
     /**
      * The section this animé belongs to among the ones this account
      * staffs, or null. See the class docblock for why it is an
-     * intersection rather than a lookup.
+     * intersection rather than a lookup. The sections staffed are those of
+     * $authorizationYearId when given — never a previewed year (#1124).
      */
-    private function resolveSection(int $memberId, string $email, string $role, int $scoutYearId): ?int
-    {
-        foreach ($this->authorization->staffedSectionIds($email, $role, $scoutYearId) as $sectionId) {
+    private function resolveSection(
+        int $memberId,
+        string $email,
+        string $role,
+        int $scoutYearId,
+        ?int $authorizationYearId
+    ): ?int {
+        $staffed = $this->authorization->staffedSectionIds($email, $role, $authorizationYearId ?? $scoutYearId);
+        foreach ($staffed as $sectionId) {
             if (in_array($memberId, $this->sheetService->animeMemberIds($sectionId, $scoutYearId), true)) {
                 return $sectionId;
             }

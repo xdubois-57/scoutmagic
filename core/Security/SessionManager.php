@@ -20,7 +20,20 @@ class SessionManager
     // own session GC doesn't purge the server-side session file before
     // the cookie itself expires — a cookie surviving longer than its
     // backing session data would otherwise silently re-log the user out.
-    private const COOKIE_LIFETIME_SECONDS = 30 * 24 * 60 * 60;
+    public const COOKIE_LIFETIME_SECONDS = 30 * 24 * 60 * 60;
+
+    /**
+     * When the signed-in session's cookie expires, in seconds since the epoch.
+     *
+     * The cookie carries its lifetime only when the session id is (re)issued —
+     * at login — and PHP does not send it again on later visits, so its end is
+     * counted from the session's issue time, never from the current request.
+     * An unknown or future issue time falls back to $now: the earlier bound.
+     */
+    public static function cookieExpiresAt(?int $issuedAt, int $now): int
+    {
+        return min($issuedAt ?? $now, $now) + self::COOKIE_LIFETIME_SECONDS;
+    }
 
     /**
      * Start the session with secure settings.

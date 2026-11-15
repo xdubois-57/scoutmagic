@@ -6,8 +6,10 @@ namespace Tests\Core\File;
 
 use Core\File\FileAccessGuard;
 use Core\File\FileIndexingPolicyInterface;
+use Core\File\FileLevelAccessPolicyInterface;
 use Core\File\FileOwnershipCheckerInterface;
 use Core\File\FileRepository;
+use Core\File\ReducedRenditionPolicyInterface;
 use Core\Security\Role;
 use PHPUnit\Framework\TestCase;
 
@@ -34,7 +36,8 @@ class FileAccessGuardTest extends TestCase
             owner_type TEXT,
             owner_id INTEGER,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            created_by INTEGER
+            created_by INTEGER,
+            public_id TEXT UNIQUE
         )');
 
         $this->repo = new FileRepository($this->pdo);
@@ -409,6 +412,141 @@ class FileAccessGuardTest extends TestCase
     }
 
     /**
+     * Issue #1108: a reduced rendition can have a wider audience than the
+     * original — but only when the checker says so. One that does not
+     * implement ReducedRenditionPolicyInterface keeps its rule for every
+     * rendition.
+     */
+    public function testARenditionIsJudgedLikeTheOriginalByACheckerWithNoRenditionPolicy(): void
+    {
+        $id = $this->repo->create('f.jpg', 'f.jpg', 'image/jpeg', 100, 'identified', null, null, false, null, 'doc', 5);
+        $guard = new FileAccessGuard($this->repo, Role::IDENTIFIED, [], [$this->recordingChecker('doc', false)]);
+
+        $this->assertNull($guard->check($id));
+        $this->assertNull($guard->check($id, 'thumb'));
+    }
+
+    /** A person's photo, with the real checker: a stranger gets the thumbnail and not the original. */
+    public function testAStrangerGetsTheThumbnailOfAMemberPhotoButNotTheOriginal(): void
+    {
+        $id = $this->memberPhoto(42);
+        $guard = $this->photoGuard(Role::IDENTIFIED, [7], 3);
+
+        $this->assertNull($guard->check($id), 'the original of another family\'s child');
+        $this->assertNotNull($guard->check($id, 'thumb'));
+        $this->assertNotNull($guard->check($id, 'md'));
+    }
+
+    public function testTheMemberAndTheirLinkedParentsGetTheOriginal(): void
+    {
+        $id = $this->memberPhoto(42);
+
+        $this->assertNotNull($this->photoGuard(Role::IDENTIFIED, [7, 42], 3)->check($id));
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('staffRoles')]
+    public function testTheStaffFromChiefUpGetEveryOriginal(Role $role): void
+    {
+        $this->assertNotNull($this->photoGuard($role, [], 3)->check($this->memberPhoto(42)));
+        $this->assertNotNull($this->photoGuard($role, [], 3)->check($this->accountPhoto(99)));
+    }
+
+    /** @return iterable<string, array{Role}> */
+    public static function staffRoles(): iterable
+    {
+        yield 'chief' => [Role::CHIEF];
+        yield 'admin' => [Role::ADMIN];
+        yield 'superadmin' => [Role::SUPERADMIN];
+    }
+
+    /** `intendant` sits below `chief`: it reads thumbnails like any identified account. */
+    public function testAnIntendantDoesNotGetAStrangersOriginal(): void
+    {
+        $guard = $this->photoGuard(Role::INTENDANT, [], 3);
+
+        $this->assertNull($guard->check($this->memberPhoto(42)));
+        $this->assertNotNull($guard->check($this->memberPhoto(42), 'thumb'));
+    }
+
+    public function testAnAccountPhotoOriginalIsItsHoldersAlone(): void
+    {
+        $id = $this->accountPhoto(99);
+
+        $this->assertNotNull($this->photoGuard(Role::IDENTIFIED, [], 99)->check($id));
+        $this->assertNull($this->photoGuard(Role::IDENTIFIED, [], 3)->check($id));
+        $this->assertNull($this->photoGuard(Role::IDENTIFIED, [], null)->check($id));
+        $this->assertNotNull($this->photoGuard(Role::IDENTIFIED, [], 3)->check($id, 'thumb'));
+    }
+
+    /**
+     * A member id and an account id are different numbers spaces: being
+     * account 42 says nothing about member 42, and being linked to member
+     * 99 says nothing about account 99.
+     */
+    public function testAMemberIdAndAnAccountIdAreNeverConfused(): void
+    {
+        $this->assertNull($this->photoGuard(Role::IDENTIFIED, [], 42)->check($this->memberPhoto(42)));
+        $this->assertNull($this->photoGuard(Role::IDENTIFIED, [99], 3)->check($this->accountPhoto(99)));
+    }
+
+    /** The thumbnail still needs the file's floor: a visitor gets nothing. */
+    public function testTheThumbnailStillRequiresTheRoleFloor(): void
+    {
+        $this->assertNull($this->photoGuard(Role::PUBLIC, [], null)->check($this->memberPhoto(42), 'thumb'));
+    }
+
+    /** Without the photo checkers wired, a person's photo is refused whole — fail-closed. */
+    public function testWithoutThePhotoCheckersEvenTheThumbnailIsRefused(): void
+    {
+        $guard = new FileAccessGuard($this->repo, Role::SUPERADMIN, [42], []);
+
+        $this->assertNull($guard->check($this->memberPhoto(42), 'thumb'));
+    }
+
+    private function memberPhoto(int $memberId): int
+    {
+        return $this->repo->create(
+            'core/member_photos/a.jpg',
+            'a.jpg',
+            'image/jpeg',
+            100,
+            'identified',
+            null,
+            null,
+            false,
+            null,
+            \Core\Photo\PersonPhotoOwnershipChecker::OWNER_MEMBER,
+            $memberId
+        );
+    }
+
+    private function accountPhoto(int $userAccountId): int
+    {
+        return $this->repo->create(
+            'core/account_photos/a.jpg',
+            'a.jpg',
+            'image/jpeg',
+            100,
+            'identified',
+            null,
+            null,
+            false,
+            null,
+            \Core\Photo\PersonPhotoOwnershipChecker::OWNER_ACCOUNT,
+            $userAccountId
+        );
+    }
+
+    /** @param array<int, int> $linkedMemberIds */
+    private function photoGuard(Role $role, array $linkedMemberIds, ?int $userAccountId): FileAccessGuard
+    {
+        return new FileAccessGuard($this->repo, $role, $linkedMemberIds, [
+            \Core\Photo\PersonPhotoOwnershipChecker::forMemberPhotos(),
+            \Core\Photo\PersonPhotoOwnershipChecker::forAccountPhotos($userAccountId),
+        ]);
+    }
+
+    /**
      * @return FileOwnershipCheckerInterface&object{consultedOwnerIds: int[]}
      */
     private function recordingChecker(string $ownerType, bool $allowed): FileOwnershipCheckerInterface
@@ -431,6 +569,107 @@ class FileAccessGuardTest extends TestCase
                 $this->consultedOwnerIds[] = $ownerId;
 
                 return $this->allowed;
+            }
+        };
+    }
+
+    // --- One file at a time (issue #1119) -----------------------------
+
+    /**
+     * A checker that also has a per-file rule is asked it once the owner's
+     * rule said yes, with the file's id and the login — and a refusal
+     * there refuses the file, its thumbnail included.
+     */
+    public function testAPerFileRuleIsAskedOnceTheOwnerAllowsAndCanRefuse(): void
+    {
+        $kept = $this->groupFile('a.jpg');
+        $withheld = $this->groupFile('b.jpg');
+        $checker = $this->perFileChecker(true, [$withheld], true);
+        $guard = new FileAccessGuard($this->repo, Role::IDENTIFIED, [3], [$checker], 50);
+
+        $this->assertNotNull($guard->check($kept));
+        $this->assertNull($guard->check($withheld));
+        $this->assertNull($guard->check($withheld, 'thumb'), 'a thumbnail of a withheld file is withheld too');
+        $this->assertSame([[7, $kept, [3], 50], [7, $withheld, [3], 50], [7, $withheld, [3], 50]], $checker->asked);
+    }
+
+    /** The owner's rule comes first: refused there, the per-file rule is never asked. */
+    public function testThePerFileRuleIsNotAskedWhenTheOwnerRefuses(): void
+    {
+        $id = $this->groupFile('a.jpg');
+        $checker = $this->perFileChecker(false, [], false);
+
+        $this->assertNull((new FileAccessGuard($this->repo, Role::IDENTIFIED, [], [$checker]))->check($id));
+        $this->assertSame([], $checker->asked);
+    }
+
+    /**
+     * A thumbnail the owner lets through on role_min alone
+     * (ReducedRenditionPolicyInterface) still answers to the file's own
+     * rule.
+     */
+    public function testAReducedRenditionShortcutStillAnswersToThePerFileRule(): void
+    {
+        $id = $this->groupFile('a.jpg');
+        $checker = $this->perFileChecker(false, [$id], true);
+
+        $this->assertNull((new FileAccessGuard($this->repo, Role::IDENTIFIED, [], [$checker]))->check($id, 'thumb'));
+        $this->assertCount(1, $checker->asked);
+    }
+
+    /** A file owned by owner 7 of type `grp`. */
+    private function groupFile(string $name): int
+    {
+        return $this->repo->create($name, $name, 'image/jpeg', 100, 'identified', null, null, false, null, 'grp', 7);
+    }
+
+    /**
+     * @param list<int> $withheld
+     * @return FileOwnershipCheckerInterface&object{asked: list<array<int, mixed>>}
+     */
+    private function perFileChecker(
+        bool $ownerAllows,
+        array $withheld,
+        bool $reducedRendition
+    ): FileOwnershipCheckerInterface {
+        return new class ($ownerAllows, $withheld, $reducedRendition) implements
+            FileOwnershipCheckerInterface,
+            FileLevelAccessPolicyInterface,
+            ReducedRenditionPolicyInterface
+        {
+            /** @var list<array<int, mixed>> */
+            public array $asked = [];
+
+            /** @param list<int> $withheld */
+            public function __construct(private bool $ownerAllows, private array $withheld, private bool $reduced)
+            {
+            }
+
+            public function supports(string $ownerType): bool
+            {
+                return $ownerType === 'grp';
+            }
+
+            public function isAllowed(int $ownerId, Role $currentRole, array $linkedMemberIds): bool
+            {
+                return $this->ownerAllows;
+            }
+
+            public function allowsReducedRendition(int $ownerId): bool
+            {
+                return $this->reduced;
+            }
+
+            public function isFileAllowed(
+                int $ownerId,
+                int $fileId,
+                Role $currentRole,
+                array $linkedMemberIds,
+                ?int $userAccountId
+            ): bool {
+                $this->asked[] = [$ownerId, $fileId, $linkedMemberIds, $userAccountId];
+
+                return !in_array($fileId, $this->withheld, true);
             }
         };
     }

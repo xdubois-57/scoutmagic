@@ -60,7 +60,7 @@ final class PersonAvatar
             // /files/… request a full application boot — only the visible
             // ones should fire. The inline width/height reserve the box,
             // so lazy-loading cannot shift the layout.
-            $inner = '<img src="/files/' . $fileId . '/thumb"'
+            $inner = '<img src="' . \Core\File\FilePublicIds::urlFor($fileId, 'thumb') . '"'
                 . ' alt="' . htmlspecialchars($name, ENT_QUOTES) . '"'
                 . ' class="' . htmlspecialchars($classes, ENT_QUOTES) . '"'
                 . ' width="' . $size . '" height="' . $size . '"'

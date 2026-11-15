@@ -57,6 +57,7 @@ class ReceiptControllerTest extends TestCase
     protected function setUp(): void
     {
         $this->pdo = DatabaseTestHelper::createTestDatabase();
+        \Core\File\FilePublicIds::useRepository(new \Core\File\FileRepository($this->pdo));
         FinanceTestHelper::createTables($this->pdo);
 
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
@@ -127,6 +128,7 @@ class ReceiptControllerTest extends TestCase
 
     protected function tearDown(): void
     {
+        \Core\File\FilePublicIds::useRepository(null);
         AuthSession::logout();
         if (is_dir($this->storagePath)) {
             $this->removeDirectory($this->storagePath);
@@ -326,6 +328,14 @@ class ReceiptControllerTest extends TestCase
         $this->assertCount(1, $data['receipts']);
         $this->assertTrue($data['receipts'][0]['is_pending']);
         $this->assertSame(12.5, $data['receipts'][0]['suggested_amount']);
+        // Issue #1109: the script is handed the addresses, built by the
+        // server from the file's opaque id — never the sequential file_id.
+        $this->assertMatchesRegularExpression('#^/files/[A-Za-z0-9_-]{22}$#', $data['receipts'][0]['file_url']);
+        $this->assertSame($data['receipts'][0]['file_url'] . '/thumbnail', $data['receipts'][0]['thumbnail_url']);
+        $this->assertStringNotContainsString(
+            '/files/' . $data['receipts'][0]['file_id'] . '/',
+            $data['receipts'][0]['thumbnail_url']
+        );
         $this->assertSame(1, $data['total']);
         $this->assertSame(1, $data['total_pages']);
     }

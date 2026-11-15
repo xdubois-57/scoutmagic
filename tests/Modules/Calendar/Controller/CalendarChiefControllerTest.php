@@ -22,6 +22,7 @@ use Core\Member\SectionStaffAuthorizationService;
 use Core\Scheduler\SchedulerRepository;
 use Core\Scheduler\SchedulerService;
 use Core\ScoutYear\ScoutYearResolver;
+use Core\ScoutYear\ScoutYearSession;
 use Core\Security\AuthSession;
 use Core\Security\EncryptionService;
 use Core\Security\RoleResolver;
@@ -184,7 +185,7 @@ class CalendarChiefControllerTest extends TestCase
      * treat the account as an animateur of it — and therefore the only
      * thing that lets the writes below through since IT-02.
      */
-    private function makeAnimateurOf(int $sectionId, string $email = 'chief@test.be'): void
+    private function makeAnimateurOf(int $sectionId, string $email = 'chief@test.be', ?int $scoutYearId = null): void
     {
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
 
@@ -196,7 +197,7 @@ class CalendarChiefControllerTest extends TestCase
         );
         $stmt->execute([
             $memberId,
-            $this->scoutYearId,
+            $scoutYearId ?? $this->scoutYearId,
             // Really encrypted, not a placeholder: "Mes évènements" walks
             // MemberService::getLinkedMembers(), which decrypts these.
             $encryption->encrypt('Alice', 'member_years.first_name'),
@@ -588,6 +589,43 @@ class CalendarChiefControllerTest extends TestCase
 
         $decoded = json_decode($response->getBody(), true);
         $this->assertFalse($decoded['success']);
+        $this->assertFalse($this->eventRepository->calendarHasEvents($theirsCalendar->id));
+    }
+
+    /**
+     * Issue #1124: a chief who animated the Éclaireurs in 2019-2020 and
+     * previews that year gets no write on the Éclaireurs' calendar back —
+     * the sections a write is allowed on are the ones animated in the
+     * authorization year, never in the year the chief chose to look at.
+     */
+    public function testPreviewingAYearTheAccountAnimatedAnotherSectionGrantsNoWriteOnItsCalendar(): void
+    {
+        $mine = $this->createSection('BAL01', 'Renards');
+        $theirs = $this->createSection('ECL01', 'Éclaireurs');
+        $this->makeAnimateurOf($mine);
+        $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date) VALUES ('2019-2020', '2019-09-01', '2020-08-31')");
+        $pastYearId = (int) $this->pdo->lastInsertId();
+        $this->makeAnimateurOf($theirs, 'chief@test.be', $pastYearId);
+        $this->calendarService->ensureSectionCalendars();
+        $theirsCalendar = $this->calendarRepository->findBySectionId($theirs);
+
+        $token = bin2hex(random_bytes(32));
+        $_SESSION['_csrf_token'] = $token;
+        ScoutYearSession::setPreview($pastYearId);
+        try {
+            $body = (string) $this->controller->index(new Request('GET', '/chefs/calendar', [], [], [], []), [])->getBody();
+            $response = $this->controller->createEvent($this->createJsonRequest([
+                'calendar_id' => $theirsCalendar->id,
+                'title' => 'Intrus',
+                'start_date' => '2026-03-15',
+                '_csrf_token' => $token,
+            ]), []);
+        } finally {
+            ScoutYearSession::clear();
+        }
+
+        $this->assertNotContains($theirsCalendar->id, $this->editableCalendarIdsFrom($body));
+        $this->assertFalse(json_decode($response->getBody(), true)['success']);
         $this->assertFalse($this->eventRepository->calendarHasEvents($theirsCalendar->id));
     }
 

@@ -20,6 +20,8 @@ use Twig\Environment;
 #[\PHPUnit\Framework\Attributes\Group('database')]
 class AuthControllerPasskeyTest extends TestCase
 {
+    private const CLIENT_DATA = '{"type":"webauthn.get","challenge":"x","origin":"https://localhost"}';
+
     private AuthController $controller;
     private \PDO $pdo;
 
@@ -73,6 +75,107 @@ class AuthControllerPasskeyTest extends TestCase
         $this->assertNotEmpty($data['challenge']);
     }
 
+    /** Readable, but answering no challenge: the ordinary failure, unchanged. */
+    public function testPasskeyVerifyWithAnUnverifiableAssertionReturnsTheUsualFailure(): void
+    {
+        $request = new RequestWithInput('POST', '/login/passkey/verify', [], [], [], [], (string) json_encode([
+            'rawId' => self::b64url(random_bytes(16)),
+            'response' => [
+                'clientDataJSON' => self::b64url(self::CLIENT_DATA),
+                'authenticatorData' => self::b64url(hash('sha256', 'localhost', true) . "\x05\x00\x00\x00\x01"),
+                'signature' => self::b64url(random_bytes(64)),
+            ],
+            'rgpd_consent' => true,
+        ]));
+        $_SESSION['webauthn_auth_challenge'] = ['challenge' => base64_encode(random_bytes(32)), 'issued_at' => time()];
+
+        $response = $this->controller->passkeyVerify($request, []);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame(
+            ['success' => false, 'error' => 'L\'authentification a échoué.'],
+            json_decode($response->getBody(), true)
+        );
+    }
+
+    /**
+     * Issue #1131: a body that cannot be read is a 400 with a generic
+     * French message — never a 500, never a word about what was wrong.
+     *
+     * @return iterable<string, array{string}>
+     */
+    public static function malformedBodies(): iterable
+    {
+        $valid = [
+            'rawId' => self::b64url(random_bytes(16)),
+            'response' => [
+                'clientDataJSON' => self::b64url(self::CLIENT_DATA),
+                'authenticatorData' => self::b64url(hash('sha256', 'localhost', true) . "\x05\x00\x00\x00\x01"),
+                'signature' => self::b64url(random_bytes(64)),
+            ],
+            'rgpd_consent' => true,
+        ];
+        $with = static function (array $changes) use ($valid): string {
+            return (string) json_encode(array_replace_recursive($valid, $changes));
+        };
+
+        yield 'invalid JSON' => ['not json{'];
+        yield 'a JSON string' => ['"rawId"'];
+        yield 'a JSON number' => ['42'];
+        yield 'response is a string' => [$with(['response' => 'abc'])];
+        yield 'rawId is a number' => [$with(['rawId' => 7])];
+        yield 'rawId is not base64url' => [$with(['rawId' => '!!'])];
+        yield 'signature is an object' => [$with(['response' => ['signature' => ['a' => 1]]])];
+        yield 'authenticatorData is truncated' => [$with(['response' => ['authenticatorData' => 'dGVzdA']])];
+        yield 'clientDataJSON is not JSON' => [$with(['response' => ['clientDataJSON' => 'e30x']])];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('malformedBodies')]
+    public function testAMalformedPasskeyLoginIsA400(string $body): void
+    {
+        $_SESSION['webauthn_auth_challenge'] = ['challenge' => base64_encode(random_bytes(32)), 'issued_at' => time()];
+        $request = new RequestWithInput('POST', '/login/passkey/verify', [], [], [], [], $body);
+
+        $response = $this->controller->passkeyVerify($request, []);
+
+        $this->assertSame(400, $response->getStatusCode());
+        $this->assertSame(
+            ['success' => false, 'error' => 'Requête invalide.'],
+            json_decode($response->getBody(), true)
+        );
+        $this->assertNull(AuthSession::getUserAccountId());
+    }
+
+    public function testAPasskeyLoginAnsweringAnExpiredChallengeIsAskedToRetry(): void
+    {
+        $_SESSION['webauthn_auth_challenge'] = [
+            'challenge' => base64_encode(random_bytes(32)),
+            'issued_at' => time() - WebAuthnService::CHALLENGE_TTL_SECONDS - 1,
+        ];
+        $request = new RequestWithInput('POST', '/login/passkey/verify', [], [], [], [], (string) json_encode([
+            'rawId' => self::b64url(random_bytes(16)),
+            'response' => [
+                'clientDataJSON' => self::b64url(self::CLIENT_DATA),
+                'authenticatorData' => self::b64url(hash('sha256', 'localhost', true) . "\x05\x00\x00\x00\x01"),
+                'signature' => self::b64url(random_bytes(64)),
+            ],
+            'rgpd_consent' => true,
+        ]));
+
+        $response = $this->controller->passkeyVerify($request, []);
+
+        $this->assertSame(
+            ['success' => false, 'error' => 'Le délai est dépassé. Veuillez réessayer.'],
+            json_decode($response->getBody(), true)
+        );
+        $this->assertArrayNotHasKey('webauthn_auth_challenge', $_SESSION);
+    }
+
+    private static function b64url(string $bytes): string
+    {
+        return rtrim(strtr(base64_encode($bytes), '+/', '-_'), '=');
+    }
+
     public function testPasskeyVerifyWithInvalidDataReturnsError(): void
     {
         $request = new RequestWithInput('POST', '/login/passkey/verify', [], [], [], [], json_encode([
@@ -88,6 +191,8 @@ class AuthControllerPasskeyTest extends TestCase
         $response = $this->controller->passkeyVerify($request, []);
         $data = json_decode($response->getBody(), true);
 
+        // clientDataJSON `{}` names no type, challenge nor origin: unreadable (issue #1131).
+        $this->assertSame(400, $response->getStatusCode());
         $this->assertFalse($data['success']);
         $this->assertArrayHasKey('error', $data);
     }
@@ -110,7 +215,9 @@ class AuthControllerPasskeyTest extends TestCase
         $response = $this->controller->passkeyVerify($request, []);
         $data = json_decode($response->getBody(), true);
 
+        $this->assertSame(400, $response->getStatusCode());
         $this->assertFalse($data['success']);
+        $this->assertSame('Requête invalide.', $data['error']);
     }
 
     /**

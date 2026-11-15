@@ -143,9 +143,10 @@ class MemberEmailService
      * row of its own yet), then every
      * 'manual' secondary address, most recent first. A stale 'desk'-
      * sourced row left over from an address Desk no longer imports for
-     * this member (rare — see schema/core.sql) is deliberately never
-     * shown here, since it matches neither $deskEmail's blind index nor
-     * source 'manual'.
+     * this member is never shown here, since it matches neither
+     * $deskEmail's blind index nor source 'manual' — and it grants
+     * nothing while it waits for the next import to delete it
+     * (StaleDeskEmailCleanup, issue #1100).
      *
      * @return MemberEmail[]
      */

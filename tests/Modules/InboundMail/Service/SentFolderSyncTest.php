@@ -226,6 +226,27 @@ class SentFolderSyncTest extends TestCase
         $this->assertSame(MessageDirection::RECEIVED, $this->messages->findForReference('rental', 'LOC-K7Q2MX')[0]->direction);
     }
 
+    /**
+     * Issue #1121: the sent copy was « verified » only because the box sent
+     * it. Once the row becomes the received copy, its verdict is the
+     * received copy's — here nobody vouched for it.
+     */
+    public function testASentCopyTurnedReceivedTakesTheReceivedCopysVerdict(): void
+    {
+        $this->client->markSent('Envoyés');
+        $this->addMessage('Envoyés', 1, 'self@unite.be', from: 'locations@unite.be', to: 'locations@unite.be');
+        $this->outbound(
+            fn(CandidateMessage $m) => AnalysisResult::linkedTo('rental', 'LOC-K7Q2MX', LinkOrigin::REFERENCE)
+        );
+        $this->sync();
+        $this->assertFalse($this->messages->findForReference('rental', 'LOC-K7Q2MX')[0]->senderUnverified());
+
+        $this->addMessage('INBOX', 1, 'self@unite.be', from: 'locations@unite.be', to: 'locations@unite.be');
+        $this->sync();
+
+        $this->assertTrue($this->messages->findForReference('rental', 'LOC-K7Q2MX')[0]->senderUnverified());
+    }
+
     public function testTheSentFolderHasItsOwnCursor(): void
     {
         $this->client->markSent('Envoyés');

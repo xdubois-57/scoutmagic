@@ -19,6 +19,14 @@ class PushSubscriptionRepository
      */
     public const FAILURE_THRESHOLD = 5;
 
+    /**
+     * The blind-index purpose of the recipient tag every push payload
+     * carries (recipientTag(), SECURITY.md §19). Its own domain: the tag
+     * of an account can never be confused with, or linked to, any index
+     * this application stores.
+     */
+    private const RECIPIENT_TAG_PURPOSE = 'push_recipient';
+
     public function __construct(
         private \PDO $pdo,
         private EncryptionService $encryption
@@ -95,6 +103,53 @@ class PushSubscriptionRepository
             'DELETE FROM push_subscriptions WHERE user_account_id = ? AND endpoint_blind_index = ?'
         );
         $stmt->execute([$userAccountId, $blindIndex]);
+    }
+
+    /**
+     * Forgets a device whoever it was registered for (issue #1123): one
+     * endpoint is one device, and a device belongs to the account signed
+     * in on it now, never to the one before. Used on logout and before a
+     * new registration of the same endpoint.
+     *
+     * @return int how many rows were removed
+     */
+    public function deleteAllByEndpoint(string $endpoint): int
+    {
+        $blindIndex = $this->encryption->blindIndex($endpoint, 'push_endpoint');
+        $stmt = $this->pdo->prepare('DELETE FROM push_subscriptions WHERE endpoint_blind_index = ?');
+        $stmt->execute([$blindIndex]);
+
+        return $stmt->rowCount();
+    }
+
+    /**
+     * The opaque tag naming the account a push payload is meant for, and
+     * the same tag the page hands the service worker for the account
+     * signed in on the device (base.html.twig, public/sw.js). The worker
+     * shows a payload's text only when the two agree, so a device that
+     * changed hands since it subscribed never displays the previous
+     * account's notifications (SECURITY.md §19).
+     *
+     * An HMAC under the application's blind-index key, never the id
+     * itself: the payload crosses a third-party push service and the
+     * page source is readable by anyone at the screen.
+     *
+     * It also covers the account's sessions_valid_from, the stamp every
+     * server-side revocation writes — « Déconnecter partout », a password
+     * change or reset, a deactivation (UserAccountRepository). The tag
+     * changes with it, so a device whose session was revoked elsewhere,
+     * and which will never load a page to learn so, stops matching on the
+     * next push; the tab that stays signed in stores the new tag on its
+     * next page.
+     */
+    public function recipientTag(int $userAccountId): string
+    {
+        $stmt = $this->pdo->prepare('SELECT sessions_valid_from FROM user_accounts WHERE id = ?');
+        $stmt->execute([$userAccountId]);
+        $validFrom = $stmt->fetchColumn();
+        $stamp = is_string($validFrom) ? $validFrom : '';
+
+        return $this->encryption->blindIndex($userAccountId . '|' . $stamp, self::RECIPIENT_TAG_PURPOSE);
     }
 
     public function deleteAllForUser(int $userAccountId): void

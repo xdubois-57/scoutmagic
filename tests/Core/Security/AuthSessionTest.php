@@ -203,6 +203,36 @@ class AuthSessionTest extends TestCase
         $this->assertSame(42, AuthSession::getUserAccountId());
     }
 
+    /**
+     * The cookie's lifetime starts when the id last rotated. A password
+     * change re-stamps 'issued_at' without a new cookie, so it must not
+     * push the cookie's start forward.
+     */
+    public function testTheCookieStartIgnoresAPasswordChangeButFollowsARotation(): void
+    {
+        $this->startTestSession();
+        AuthSession::login(42, 'test@example.com', 'admin');
+        $old = time() - 3600;
+        $_SESSION['_auth']['issued_at'] = $old;
+        $_SESSION['_auth']['authenticated_at'] = $old;
+
+        AuthSession::refreshIssuedAt();
+        $this->assertSame($old, AuthSession::cookieIssuedAt());
+
+        AuthSession::markAuthenticatedNow();
+        $this->assertGreaterThan($old, AuthSession::cookieIssuedAt());
+    }
+
+    public function testACookieStartPredatingTheAuthenticationStampFallsBackToTheIssueStamp(): void
+    {
+        $this->startTestSession();
+        AuthSession::login(42, 'test@example.com', 'admin');
+        $_SESSION['_auth']['issued_at'] = 1_700_000_000;
+        unset($_SESSION['_auth']['authenticated_at']);
+
+        $this->assertSame(1_700_000_000, AuthSession::cookieIssuedAt());
+    }
+
     public function testRecentAuthenticationUsesTheTenMinuteWindow(): void
     {
         $this->startTestSession();

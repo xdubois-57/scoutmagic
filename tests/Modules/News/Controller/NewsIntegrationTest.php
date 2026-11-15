@@ -2240,17 +2240,27 @@ class NewsIntegrationTest extends TestCase
         [$controller, $fileRepository, $variantService] = $this->controllerWithImageVariants();
 
         $_FILES['image'] = $this->fakeUploadedImage();
-        $response = $controller->uploadBodyImage(new Request('POST', '/news/images/upload', [], [
-            '_csrf_token' => CsrfGuard::generateToken(),
-        ], [], []), []);
+        // Issue #1109: the address handed to the editor is the opaque one.
+        \Core\File\FilePublicIds::useRepository($fileRepository);
+        try {
+            $response = $controller->uploadBodyImage(new Request('POST', '/news/images/upload', [], [
+                '_csrf_token' => CsrfGuard::generateToken(),
+            ], [], []), []);
+        } finally {
+            \Core\File\FilePublicIds::useRepository(null);
+        }
 
         $payload = json_decode($response->getBody(), true);
         $this->assertTrue($payload['success']);
-        $this->assertMatchesRegularExpression('~^/files/(\d+)/md$~', $payload['url']);
-        $file = $fileRepository->findById((int) explode('/', $payload['url'])[2]);
+        $this->assertMatchesRegularExpression('~^/files/[A-Za-z0-9_-]{22}/md$~', $payload['url']);
+        $file = $fileRepository->findByPublicId(explode('/', $payload['url'])[2]);
         $this->assertNotNull($file);
         $this->assertNotNull($variantService->resolvePath($file->relativePath, 'thumb'));
         $this->assertNotNull($variantService->resolvePath($file->relativePath, 'md'));
+        // Issue #1110: not saved in any article yet, so not public — the
+        // floor of whoever may write one, which the author holds.
+        $this->assertSame(\Modules\News\Service\BodyImageAccess::UNSAVED_ROLE_MIN, $file->roleMin);
+        $this->assertNotSame('public', $file->roleMin);
     }
 
     /**
@@ -2267,6 +2277,10 @@ class NewsIntegrationTest extends TestCase
         $variantService->generate($withMedium, 'md');
         $withoutMedium = $uploadHandler->handle($this->fakeUploadedImage(), 'news/images', ['image/jpeg'], 1_000_000, 'public', 'news', $this->chiefAccountId);
 
+        $withMediumPublic = (string) $fileRepository->findById($withMedium)?->publicId;
+        $withoutMediumPublic = (string) $fileRepository->findById($withoutMedium)?->publicId;
+        \Core\File\FilePublicIds::useRepository($fileRepository);
+
         $_FILES['image'] = $this->fakeUploadedImage();
         $controller->store(new Request('POST', '/news', [], [
             '_csrf_token' => CsrfGuard::generateToken(),
@@ -2280,16 +2294,24 @@ class NewsIntegrationTest extends TestCase
             'fields_json' => json_encode([[
                 'id' => null, 'field_type' => 'text', 'label' => null, 'is_required' => false,
                 'options_source' => null, 'options_manual' => null, 'capacity_max' => null, 'price_per_unit' => null,
-                'confirmation_text' => '<p><img src="/files/' . $withMedium . '" alt="Feu"><img src="/files/' . $withoutMedium . '" alt="Tente"></p>',
+                'confirmation_text' => '<p><img src="/files/' . $withMediumPublic . '" alt="Feu">'
+                    . '<img src="/files/' . $withoutMediumPublic . '" alt="Tente"></p>',
             ]]),
         ], [], []), []);
         $articleId = $this->articleRepository->findAll()[0]->id;
 
-        $html = $controller->show(new Request('GET', '/news/' . $articleId, [], [], [], []), ['id' => (string) $articleId])->getBody();
+        try {
+            $html = $controller->show(
+                new Request('GET', '/news/' . $articleId, [], [], [], []),
+                ['id' => (string) $articleId]
+            )->getBody();
+        } finally {
+            \Core\File\FilePublicIds::useRepository(null);
+        }
 
-        $this->assertStringContainsString('src="/files/' . $withMedium . '/md"', $html);
-        $this->assertStringContainsString('src="/files/' . $withoutMedium . '"', $html);
-        $this->assertStringNotContainsString('src="/files/' . $withMedium . '"', $html);
+        $this->assertStringContainsString('src="/files/' . $withMediumPublic . '/md"', $html);
+        $this->assertStringContainsString('src="/files/' . $withoutMediumPublic . '"', $html);
+        $this->assertStringNotContainsString('src="/files/' . $withMediumPublic . '"', $html);
     }
 
     /**
@@ -2403,6 +2425,113 @@ class NewsIntegrationTest extends TestCase
         $this->assertSame(422, $response->getStatusCode());
         $this->assertStringContainsString('ne peut pas contenir les caractères', $response->getBody());
         $this->assertSame('Avant', $this->articleRepository->findById($articleId)?->title);
+    }
+
+    /**
+     * The settings an author had just chosen, as the editor's POST sends
+     * them — and a field label the server refuses, so the form comes back
+     * with an error (issue #1140).
+     *
+     * @return array<string, string>
+     */
+    private function refusedSubmissionWithSettings(): array
+    {
+        return [
+            '_csrf_token' => CsrfGuard::generateToken(),
+            'title' => 'Souper',
+            'summary' => 'Un résumé en une phrase.',
+            'visibility' => 'public',
+            'form_response_limit' => 'one_per_account',
+            'form_response_role_min' => 'intendant',
+            'form_opens_at' => '2026-12-01',
+            'form_closes_at' => '2026-12-20',
+            'form_is_force_closed' => '1',
+            'form_issues_ticket' => '1',
+            'form_event_date' => '2026-12-24',
+            'form_event_location' => 'Salle paroissiale',
+            // Refused: the label may not carry `<` or `>`.
+            'fields_json' => (string) json_encode([['field_type' => 'short_text', 'label' => 'Nom >']]),
+        ];
+    }
+
+    private function assertTheRefusedSettingsAreShownAsSubmitted(string $html): void
+    {
+        $this->assertStringContainsString('ne peut pas contenir les caractères', $html);
+        $this->assertMatchesRegularExpression('/id="form_issues_ticket"[^>]*value="1"\s+checked/', $html, 'ticket switch');
+        $this->assertMatchesRegularExpression('/id="form_event_date"[^>]*value="2026-12-24"/', $html, 'event date');
+        $this->assertMatchesRegularExpression('/id="form_event_location"[^>]*value="Salle paroissiale"/', $html, 'event place');
+        $this->assertMatchesRegularExpression('/id="form_opens_at"[^>]*value="2026-12-01"/', $html, 'opening date');
+        $this->assertMatchesRegularExpression('/id="form_closes_at"[^>]*value="2026-12-20"/', $html, 'closing date');
+        $this->assertMatchesRegularExpression('/id="form_is_force_closed"[^>]*value="1"\s+checked/', $html, 'forced closure');
+        $this->assertMatchesRegularExpression('/<option value="one_per_account"\s+selected/', $html, 'response limit');
+        $this->assertMatchesRegularExpression('/id="resp-role-intendant"[^>]*value="intendant"\s+checked/', $html, 'minimum role');
+        $this->assertDoesNotMatchRegularExpression('/id="resp-role-chief"[^>]*value="chief"\s+checked/', $html);
+    }
+
+    /**
+     * Issue #1140: a refused CREATION shows the settings the author had
+     * just chosen, not the defaults of a new article. Without this the
+     * next submission quietly saved an event without its tickets.
+     */
+    public function testARefusedCreationShowsTheFormSettingsAsSubmitted(): void
+    {
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+        $_FILES['image'] = $this->fakeUploadedImage();
+
+        $response = $this->newsController->store(
+            new Request('POST', '/news', [], $this->refusedSubmissionWithSettings(), [], []),
+            []
+        );
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertTheRefusedSettingsAreShownAsSubmitted($response->getBody());
+    }
+
+    /**
+     * Issue #1140: and a refused MODIFICATION shows them over the saved
+     * ones — here a form that had no ticket, no dates and the lowest role.
+     */
+    public function testARefusedModificationShowsTheFormSettingsAsSubmittedNotAsSaved(): void
+    {
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+        $articleId = $this->articleRepository->create('Avant', Article::VISIBILITY_PUBLIC, true, null, null, $this->chiefAccountId);
+        $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', null, null);
+        $_FILES['image'] = $this->fakeUploadedImage();
+
+        $response = $this->newsController->update(
+            new Request('POST', '/news/' . $articleId, [], $this->refusedSubmissionWithSettings(), [], []),
+            ['id' => (string) $articleId]
+        );
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertTheRefusedSettingsAreShownAsSubmitted($response->getBody());
+        // The saved form is untouched: only the re-render changed.
+        $saved = $this->formRepository->findByArticleId($articleId);
+        $this->assertFalse($saved?->issuesTicket);
+        $this->assertSame('chief', $saved?->responseRoleMin);
+    }
+
+    /**
+     * Issue #1140: the Finances account and category come back too, and
+     * a cleared opening date stays cleared rather than reverting to today.
+     */
+    public function testARefusedSubmissionKeepsTheFinanceChoiceAndAClearedDate(): void
+    {
+        [$controller, $token] = $this->controllerWithFinanceAccounts();
+        $body = $this->refusedSubmissionWithSettings();
+        $body['_csrf_token'] = $token;
+        $body['form_finance_account_id'] = '42';
+        $body['form_finance_category_id'] = '5';
+        $body['form_opens_at'] = '';
+        $_FILES['image'] = $this->fakeUploadedImage();
+
+        $response = $controller->store(new Request('POST', '/news', [], $body, [], []), []);
+
+        $html = $response->getBody();
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertMatchesRegularExpression('/<option value="42"\s+selected/', $html, 'account');
+        $this->assertMatchesRegularExpression('/<option value="5"\s+selected/', $html, 'category');
+        $this->assertDoesNotMatchRegularExpression('/id="form_opens_at"[^>]*value="2\d{3}-/', $html, 'a cleared date came back');
     }
 
     /**

@@ -10,7 +10,7 @@ question: Comment définir un mot de passe pour me connecter ?
 question: Comment se connecter avec l'empreinte ou le visage ?
 question: Comment revoir les astuces du site ?
 paths: /account
-related: se-connecter, envoyer-une-photo, notifications-preferences, cookies, ma-signature
+related: se-connecter, envoyer-une-photo, notifications-preferences, cookies, ma-signature, alerte-securite-compte
 ---
 
 La page « Mon compte » rassemble ce qui appartient à votre connexion —
@@ -47,6 +47,9 @@ une clé de sécurité, sans rien taper. « Ajouter une clé » : donnez-lui
 un nom (« Téléphone de Marie »), puis suivez la demande de votre
 appareil. Chaque appareil enregistre la sienne. Supprimer une clé
 empêche définitivement de se connecter avec.
+
+Une alerte pour un ajout que vous n'avez pas fait ? Le sujet « Reprendre
+la main sur son compte » explique « Déconnecter partout ».
 
 ## Les astuces
 

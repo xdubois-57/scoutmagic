@@ -13,9 +13,18 @@ paths: /chefs/membres
 
 La page « Animés de la section » montre, pour l'année scoute en cours,
 qui compose chaque section : les animateurs, les intendants et les
-animés, avec leurs coordonnées. Elle sert uniquement à consulter — rien
+animés, avec leurs coordonnées (voir plus bas qui les voit). Elle sert uniquement à consulter — rien
 ne s'y modifie. Les données viennent du dernier import Desk réalisé par
 le Staff d'Unité.
+
+## Les coordonnées affichées
+
+À partir du rôle « Chef », on voit les coordonnées de toutes les
+sections. Un intendant ne voit que celles des
+sections où se trouve l'un de ses membres liés — lui-même ou ses enfants.
+Pour les autres, la page liste les noms et les fonctions et indique
+« Coordonnées non affichées ». L'export Excel suit la même règle : ces
+lignes y figurent sans adresse, e-mail, téléphone ni date de naissance.
 
 ## Choisir une section
 

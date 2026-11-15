@@ -386,6 +386,10 @@ class MovementController extends AbstractController
                 fn(Attachment $attachment) => [
                     'id' => $attachment->id,
                     'file_id' => $attachment->fileId,
+                    // The addresses, built here: the script never builds
+                    // one from file_id (issue #1109).
+                    'file_url' => \Core\File\FilePublicIds::urlFor($attachment->fileId),
+                    'thumbnail_url' => \Core\File\FilePublicIds::urlFor($attachment->fileId, 'thumbnail'),
                     'original_filename' => $attachment->originalFilename,
                     'mime_type' => $attachment->mimeType,
                     'suggested_amount' => $attachment->suggestedAmount,

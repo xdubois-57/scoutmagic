@@ -343,7 +343,7 @@ class MassMailServiceTest extends TestCase
         // left without any message (« Non envoyée »), never an error
         // message with no address (issue #999).
         $counts = $this->service->getStatusCounts($email->id);
-        $this->assertSame(['pending' => 1, 'sent' => 0, 'error' => 0, 'total' => 1], $counts);
+        $this->assertSame(['pending' => 1, 'sent' => 0, 'error' => 0, 'unknown' => 0, 'total' => 1], $counts);
         $this->assertSame(3, $this->service->getTargetCount($email->id));
         $tracking = $this->service->getTrackingData($email->id);
         $this->assertSame(2, $tracking['targets_without_message']);

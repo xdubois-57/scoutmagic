@@ -12,6 +12,9 @@ use Core\Security\EncryptionService;
 
 class ExpectedReceivableRepository
 {
+    /** Whether the transaction open on the connection is the READ COMMITTED one this repository opened. */
+    private bool $readCommittedOpen = false;
+
     public function __construct(
         private \PDO $pdo,
         private EncryptionService $encryption
@@ -167,7 +170,8 @@ class ExpectedReceivableRepository
      * write, because a second decision on the same receivable waits for
      * the first one to commit. A person's payment attached or detached
      * (paymentFromCandidate(), detachPayment()) takes it too, first, in
-     * the same order. Joins a transaction already open on the
+     * the same order, and so does every allocation a person or the
+     * automatic pass writes (issue #1118). Joins a transaction already open on the
      * connection rather than nesting one. SQLite, the ordinary test
      * engine, serialises writers on its own and has no `FOR UPDATE`.
      *
@@ -179,7 +183,7 @@ class ExpectedReceivableRepository
     {
         $ownTransaction = !$this->pdo->inTransaction();
         if ($ownTransaction) {
-            $this->pdo->beginTransaction();
+            $this->beginReadCommitted();
         }
 
         try {
@@ -191,14 +195,113 @@ class ExpectedReceivableRepository
 
             $result = $work();
             if ($ownTransaction) {
-                $this->pdo->commit();
+                $this->endOwnTransaction(true);
             }
 
             return $result;
         } catch (\Throwable $e) {
             if ($ownTransaction) {
-                $this->pdo->rollBack();
+                $this->endOwnTransaction(false);
             }
+            throw $e;
+        }
+    }
+
+    /**
+     * withReceivableLocked() over several receivables, taken in ascending
+     * id order inside one transaction (issue #1118) — « Répartir » and a
+     * surplus moved to another receivable hold every receivable they
+     * write before the movement, the order every other gesture takes, so
+     * two of them never wait on each other in a circle.
+     *
+     * @template T
+     * @param int[] $ids
+     * @param callable(): T $work
+     * @return T
+     */
+    public function withReceivablesLocked(array $ids, callable $work): mixed
+    {
+        $ids = array_values(array_unique(array_map('intval', $ids)));
+        sort($ids);
+        if ($ids === []) {
+            return $this->inTransaction($work);
+        }
+
+        $first = array_shift($ids);
+
+        return $this->withReceivableLocked(
+            $first,
+            fn (): mixed => $this->withReceivablesLocked($ids, $work)
+        );
+    }
+
+    /**
+     * Opens a transaction that reads what is committed, not a snapshot
+     * (issue #1118).
+     *
+     * Under the engine's default, REPEATABLE READ, the first plain read
+     * of a transaction fixes what every later one sees. A writer that
+     * waits on a movement's lock would then resume and still count the
+     * allocations as they stood before it waited, missing the very
+     * write it waited for, and give the movement away twice. READ
+     * COMMITTED makes each read after a lock see what the lock's previous
+     * holder committed — the guarantee the locks exist for. Set for the
+     * next transaction only; SQLite serialises writers and has no such
+     * level.
+     */
+    private function beginReadCommitted(): void
+    {
+        if ($this->pdo->getAttribute(\PDO::ATTR_DRIVER_NAME) !== 'sqlite') {
+            $this->pdo->exec('SET TRANSACTION ISOLATION LEVEL READ COMMITTED');
+        }
+        $this->pdo->beginTransaction();
+        $this->readCommittedOpen = true;
+    }
+
+    /** Commit or roll back the transaction beginReadCommitted() opened. */
+    private function endOwnTransaction(bool $commit): void
+    {
+        $this->readCommittedOpen = false;
+        $commit ? $this->pdo->commit() : $this->pdo->rollBack();
+    }
+
+    /**
+     * Whether a plain read here sees what other connections committed
+     * (issue #1118): outside any transaction, inside one this repository
+     * opened at READ COMMITTED, or on SQLite. False inside a transaction
+     * somebody else opened — a campaign imported, a module creating its
+     * receivable in its own TransactionScope — whose REPEATABLE READ
+     * snapshot a lock does not refresh: the reads under the lock must
+     * then be locking reads (ReceivableAllocationRepository's `$current`).
+     */
+    public function seesCommittedWrites(): bool
+    {
+        return $this->pdo->getAttribute(\PDO::ATTR_DRIVER_NAME) === 'sqlite'
+            || !$this->pdo->inTransaction()
+            || $this->readCommittedOpen;
+    }
+
+    /**
+     * $work in a transaction of its own, or in the one already open.
+     *
+     * @template T
+     * @param callable(): T $work
+     * @return T
+     */
+    private function inTransaction(callable $work): mixed
+    {
+        if ($this->pdo->inTransaction()) {
+            return $work();
+        }
+
+        $this->beginReadCommitted();
+        try {
+            $result = $work();
+            $this->endOwnTransaction(true);
+
+            return $result;
+        } catch (\Throwable $e) {
+            $this->endOwnTransaction(false);
             throw $e;
         }
     }
@@ -226,9 +329,18 @@ class ExpectedReceivableRepository
         return $digits;
     }
 
-    public function findById(int $id): ?ExpectedReceivable
+    /**
+     * @param bool $current what is committed now rather than what the
+     *     transaction's snapshot holds (issue #1118) — a shared locking read,
+     *     for a REPEATABLE READ transaction opened elsewhere that reads the
+     *     amount due under the receivable's lock (seesCommittedWrites())
+     */
+    public function findById(int $id, bool $current = false): ?ExpectedReceivable
     {
-        $stmt = $this->pdo->prepare('SELECT * FROM finance_expected_receivables WHERE id = ?');
+        $stmt = $this->pdo->prepare(
+            'SELECT * FROM finance_expected_receivables WHERE id = ?'
+            . ($current && $this->pdo->getAttribute(\PDO::ATTR_DRIVER_NAME) !== 'sqlite' ? ' LOCK IN SHARE MODE' : '')
+        );
         $stmt->execute([$id]);
         $row = $stmt->fetch(\PDO::FETCH_ASSOC);
         return $row !== false ? $this->hydrate($row) : null;

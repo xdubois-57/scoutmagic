@@ -51,6 +51,7 @@ class GroupDelegatedAlbumDescriberTest extends TestCase
         // string this test chose rather than the one the module uses.
         $resolver = $this->createStub(ScoutYearResolver::class);
         $resolver->method('getEffectiveYear')->willReturn(new EffectiveScoutYear(1, '2025-2026', null));
+        $resolver->method('getAuthorizationYear')->willReturn(new EffectiveScoutYear(1, '2025-2026', null));
         $this->describer = new GroupDelegatedAlbumDescriber(
             new GroupFileOwnershipChecker(
                 $this->groups,
@@ -59,7 +60,11 @@ class GroupDelegatedAlbumDescriberTest extends TestCase
                     new GroupSectionRepository($this->pdo),
                     new SectionMembershipRepository($this->pdo)
                 ),
-                $resolver
+                $resolver,
+                GroupsTestHelper::hiddenGroupFiles(
+                    $this->pdo,
+                    $this->createStub(\Modules\Gallery\Api\DelegatedAlbumManager::class)
+                )
             ),
             $this->groups
         );

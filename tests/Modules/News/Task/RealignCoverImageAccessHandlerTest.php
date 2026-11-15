@@ -97,9 +97,9 @@ class RealignCoverImageAccessHandlerTest extends TestCase
 
         (new RealignCoverImageAccessHandler())->handle([], $this->taskContext());
 
-        // The body image of an article is stored `public` by the product
-        // itself (NewsController::uploadBodyImage()) and is nobody's
-        // cover — the pass walks articles, not the storage directory.
+        // An image of an article's text is nobody's cover, and has its
+        // own pass (RealignBodyImageAccessHandler, issue #1110) — this one
+        // walks covers, not the storage directory.
         $this->assertSame('public', $this->roleMinOf($bodyImage));
         $this->assertSame('identified', $this->roleMinOf($memberPhoto));
     }

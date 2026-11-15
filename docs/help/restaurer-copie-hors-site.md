@@ -39,6 +39,24 @@ nouveau.
 S'il manque de place sur le serveur, le site refuse tout de suite et dit
 combien il en faut.
 
+## Qui peut écrire dans la destination
+
+Réservez l'écriture dans le dossier de destination au seul compte qui
+sert au site. Une personne qui peut y écrire, sans connaître la phrase
+de passe, peut glisser des fichiers dans une copie : retirez le partage
+à un ancien animateur dès son départ.
+
+## Une copie modifiée est refusée
+
+Chaque fichier d'une copie est authentifié par sa phrase de passe : une
+copie à laquelle quelqu'un a ajouté ou remplacé un fichier est refusée,
+sans rien modifier. Réservez tout de même l'accès en écriture à la
+destination hors site aux personnes qui en ont besoin.
+
+Une copie faite par une version de ScoutMagic antérieure à cette
+protection ne peut plus être restaurée : faites-en une nouvelle depuis
+le site, tant qu'il est en service.
+
 ## Sur une installation neuve
 
 Téléchargez une copie depuis la destination, puis déposez-la dans

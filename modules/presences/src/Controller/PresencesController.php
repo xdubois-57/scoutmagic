@@ -72,7 +72,14 @@ class PresencesController extends AbstractController
         $year = $this->scoutYearResolver->getEffectiveYear(ScoutYearSession::getPreviewId(), $role);
         $email = AuthSession::getEmail() ?? '';
 
-        $sections = $this->authorization->staffedSections($email, $role->value, $year->id);
+        // Which sections this account animates is decided in the
+        // authorization year, never the previewed one (issue #1124); the
+        // register below still shows the year on screen.
+        $sections = $this->authorization->staffedSections(
+            $email,
+            $role->value,
+            $this->scoutYearResolver->getAuthorizationYear()->id
+        );
         foreach ($sections as &$section) {
             $section['color'] = SectionService::colorForSection($section);
         }
@@ -132,7 +139,12 @@ class PresencesController extends AbstractController
         $email = AuthSession::getEmail() ?? '';
 
         $sectionId = (int) ($request->getQuery('section') ?? 0);
-        if (!$this->authorization->maySeeSection($email, $role->value, $year->id, $sectionId)) {
+        if (!$this->authorization->maySeeSection(
+            $email,
+            $role->value,
+            $this->scoutYearResolver->getAuthorizationYear()->id,
+            $sectionId
+        )) {
             return $this->json(['success' => false, 'error' => self::REFUSED], 403);
         }
 
@@ -193,7 +205,8 @@ class PresencesController extends AbstractController
             (int) ($params['memberId'] ?? 0),
             $email,
             $role->value,
-            $year->id
+            $year->id,
+            $this->scoutYearResolver->getAuthorizationYear()->id
         );
         // Same refusal as a sheet of another section: the site's 404, so
         // « not one of my animés » and « nobody » are indistinguishable.
@@ -227,7 +240,12 @@ class PresencesController extends AbstractController
         $email = AuthSession::getEmail() ?? '';
 
         $sectionId = (int) ($request->getQuery('section') ?? 0);
-        if (!$this->authorization->maySeeSection($email, $role->value, $year->id, $sectionId)) {
+        if (!$this->authorization->maySeeSection(
+            $email,
+            $role->value,
+            $this->scoutYearResolver->getAuthorizationYear()->id,
+            $sectionId
+        )) {
             return $this->notFound();
         }
 
@@ -263,7 +281,13 @@ class PresencesController extends AbstractController
         $year = $this->scoutYearResolver->getEffectiveYear(ScoutYearSession::getPreviewId(), $role);
         $email = AuthSession::getEmail() ?? '';
 
-        $sheet = $this->sheetService->buildSheet((int) ($params['eventId'] ?? 0), $email, $role->value, $year->id);
+        $sheet = $this->sheetService->buildSheet(
+            (int) ($params['eventId'] ?? 0),
+            $email,
+            $role->value,
+            $year->id,
+            $this->scoutYearResolver->getAuthorizationYear()->id
+        );
         // The site's own 404, not a 403: an event this account may not
         // point and an event that does not exist answer identically, so
         // the page cannot be used to find out which sections hold which
@@ -331,7 +355,8 @@ class PresencesController extends AbstractController
                 $email,
                 $role->value,
                 $year->id,
-                $userId
+                $userId,
+                $this->scoutYearResolver->getAuthorizationYear()->id
             );
 
             return $recorded
@@ -347,7 +372,8 @@ class PresencesController extends AbstractController
                 $email,
                 $role->value,
                 $year->id,
-                $userId
+                $userId,
+                $this->scoutYearResolver->getAuthorizationYear()->id
             );
 
             return $recorded

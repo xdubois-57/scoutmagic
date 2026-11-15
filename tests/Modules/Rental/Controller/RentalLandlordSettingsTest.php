@@ -128,17 +128,21 @@ final class RentalLandlordSettingsTest extends TestCase
     /**
      * @param array<string, string> $body
      */
-    private function save(array $body, string $slug = 'local-saint-georges'): Response
-    {
+    private function save(
+        array $body,
+        string $slug = 'local-saint-georges',
+        string $section = 'bailleur',
+        string $action = 'saveLandlord'
+    ): Response {
         $body['_csrf_token'] = CsrfGuard::generateToken();
         $_POST = $body;
 
         $router = new Router();
         $router->addRoute(
             'POST',
-            '/mes-locations/{slug}/reglages/bailleur',
+            '/mes-locations/{slug}/reglages/' . $section,
             RentalPricingController::class,
-            'saveLandlord',
+            $action,
             'identified'
         );
 
@@ -148,7 +152,7 @@ final class RentalLandlordSettingsTest extends TestCase
         $frontController = new FrontController($router, $this->twig, new AppConfig($configFile));
         $frontController->registerController(RentalPricingController::class, $this->controller);
         $response = $frontController->handle(
-            new Request('POST', '/mes-locations/' . $slug . '/reglages/bailleur', [], $body, [], [])
+            new Request('POST', '/mes-locations/' . $slug . '/reglages/' . $section, [], $body, [], [])
         );
 
         $_POST = [];
@@ -163,6 +167,26 @@ final class RentalLandlordSettingsTest extends TestCase
         $this->assertNotNull($asset);
 
         return $asset;
+    }
+
+    /**
+     * The booking rules, on the same controller (issue #1114): an empty
+     * longest stay or horizon is the default — never « unlimited », which
+     * is typed as 0, on purpose.
+     */
+    public function testAnEmptyLongestStayOrHorizonIsTheDefaultAndZeroIsUnlimited(): void
+    {
+        $constraints = new RentalConstraintsRepository($this->pdo);
+
+        $this->save(['max_nights' => '', 'max_horizon_days' => ''], section: 'regles', action: 'saveConstraints');
+        $saved = $constraints->load($this->assetId);
+        $this->assertSame(\Modules\Rental\Availability\BookingConstraints::DEFAULT_MAX_NIGHTS, $saved->maxNights);
+        $this->assertSame(\Modules\Rental\Availability\BookingConstraints::DEFAULT_MAX_HORIZON_DAYS, $saved->maxHorizonDays);
+
+        $this->save(['max_nights' => '0', 'max_horizon_days' => '0'], section: 'regles', action: 'saveConstraints');
+        $saved = $constraints->load($this->assetId);
+        $this->assertSame(0, $saved->maxNights);
+        $this->assertSame(0, $saved->maxHorizonDays);
     }
 
     public function testTheLandlordIsStoredWholeAndTheManagerLandsBackOnTheSection(): void

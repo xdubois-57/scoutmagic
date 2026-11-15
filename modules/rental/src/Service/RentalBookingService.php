@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\Rental\Service;
 
 use Core\Journal\JournalService;
+use Core\Mail\PublicFormName;
 use Core\Service\DateInput;
 use Modules\Rental\Audit\BookingAudit;
 use Modules\Rental\Availability\Occupancy;
@@ -44,6 +45,25 @@ class RentalBookingService implements OccupancyProvider
      */
     public const DEFAULT_AUTOMATIC_HOLD_DAYS = 30;
 
+    /** The renter's name, as the registration form bounds a parent's (issue #1114). */
+    public const MAX_RENTER_NAME_LENGTH = 150;
+
+    /**
+     * The longest stay a request may hold automatically (issue #1114).
+     * Longer, it is still recorded and answered, but blocks nothing until a
+     * manager places an option: nobody has looked at it yet, and a month
+     * of somebody else's calendar is not a visitor's to take on their own.
+     */
+    public const AUTOMATIC_HOLD_MAX_NIGHTS = 30;
+
+    /**
+     * How many automatic holds one requester may have running at once,
+     * every asset together (issue #1114) — counted on the address and, for
+     * a signed-in account, on the account. A family asking for two weekends
+     * gets both held; a third request waits like any other, unheld.
+     */
+    public const MAX_RUNNING_AUTOMATIC_HOLDS = 2;
+
     private BookingReference $references;
 
     public function __construct(
@@ -64,7 +84,15 @@ class RentalBookingService implements OccupancyProvider
          * (issue #927). Null where nothing expires, or without Finance —
          * the service then raises and moves nothing anyway.
          */
-        private ?RentalPaymentService $paymentService = null
+        private ?RentalPaymentService $paymentService = null,
+        /**
+         * Which address a manager may add to « Autres adresses du
+         * locataire » (issue #1106). Null: only Staff d'U may add one —
+         * never a free field for everyone — but nothing then knows the
+         * unit's own addresses, so that refusal is the rule's alone.
+         * public/index.php always wires it.
+         */
+        private ?\Modules\Rental\Mail\OtherRenterEmailRule $otherEmailRule = null
     ) {
         $this->references = $references ?? BookingReference::secure();
     }
@@ -117,7 +145,8 @@ class RentalBookingService implements OccupancyProvider
         array $acceptances,
         \DateTimeImmutable $now,
         int $automaticHoldDays = self::DEFAULT_AUTOMATIC_HOLD_DAYS,
-        ?callable $availableUnderLock = null
+        ?callable $availableUnderLock = null,
+        ?int $requesterAccountId = null
     ): array {
         $name = trim($renter['name']);
         $email = trim($renter['email']);
@@ -126,6 +155,21 @@ class RentalBookingService implements OccupancyProvider
 
         if ($name === '') {
             throw new RentalException('Votre nom est obligatoire.');
+        }
+
+        // A name, and nothing else (issue #1114): it is written into the
+        // messages the unit sends this renter, so it is bounded, on one
+        // line and without a web address — the browser's own limits are a
+        // convenience, never the boundary.
+        if (mb_strlen($name) > self::MAX_RENTER_NAME_LENGTH) {
+            throw new RentalException(
+                'Votre nom ne peut pas dépasser ' . self::MAX_RENTER_NAME_LENGTH . ' caractères.'
+            );
+        }
+
+        $nameViolation = PublicFormName::violation($name);
+        if ($nameViolation !== null) {
+            throw new RentalException($nameViolation);
         }
 
         if ($email === '' || filter_var($email, FILTER_VALIDATE_EMAIL) === false) {
@@ -189,7 +233,8 @@ class RentalBookingService implements OccupancyProvider
             self::hashAcceptedText($acceptances['conditions_text'] ?? ''),
             $acceptances['privacy_version'],
             self::hashAcceptedText($acceptances['privacy_text'] ?? ''),
-            $now
+            $now,
+            $requesterAccountId
         );
 
         // Checked and written as one: no other request, option or
@@ -429,18 +474,33 @@ class RentalBookingService implements OccupancyProvider
 
     /**
      * A manager adds one of the « Autres adresses du locataire » (#720,
-     * step 5): mail from or to it is matched like the renter's own.
+     * step 5): mail from or to it is matched like the renter's own, within
+     * the booking's window. Staff d'U may type any address but the unit's
+     * own; any other manager only one already on the booking's mail
+     * (`OtherRenterEmailRule`, issue #1106).
      *
      * @throws RentalException
      */
-    public function addOtherRenterEmail(RentalBooking $booking, string $email, ?int $actorMemberId): void
-    {
+    public function addOtherRenterEmail(
+        RentalBooking $booking,
+        string $email,
+        ?int $actorMemberId,
+        bool $actorIsUnitStaff = false
+    ): void {
         $normalized = RentalBookingRepository::normalizeEmail($email);
         if ($normalized === '' || filter_var($normalized, FILTER_VALIDATE_EMAIL) === false) {
             throw new RentalException("Cette adresse e-mail n'est pas valide.");
         }
         if ($this->bookingRepository->isAddressOfBooking($booking, $normalized)) {
             throw new RentalException('Cette adresse est déjà celle du locataire pour cette réservation.');
+        }
+        // Issue #1106: an address added here files the unit's mail with it
+        // on this booking, for its managers to read.
+        $refusal = $this->otherEmailRule === null
+            ? ($actorIsUnitStaff ? null : "Seul le staff d'unité peut ajouter une adresse.")
+            : $this->otherEmailRule->refusal($booking, $normalized, $actorIsUnitStaff);
+        if ($refusal !== null) {
+            throw new RentalException($refusal);
         }
         if (!$this->bookingRepository->addRenterEmail($booking->id, $normalized)) {
             throw new RentalException("L'adresse n'a pas pu être ajoutée.");
@@ -454,6 +514,17 @@ class RentalBookingService implements OccupancyProvider
             null,
             $actorMemberId
         );
+    }
+
+    /**
+     * The addresses a manager who is not Staff d'U may choose from: the
+     * ones already on the booking's own mail (issue #1106).
+     *
+     * @return list<string>
+     */
+    public function otherRenterEmailChoices(RentalBooking $booking): array
+    {
+        return $this->otherEmailRule?->seenAddresses($booking) ?? [];
     }
 
     /**
@@ -483,6 +554,56 @@ class RentalBookingService implements OccupancyProvider
             null,
             $actorMemberId
         );
+    }
+
+    /**
+     * How many days a public request's automatic hold lasts: the
+     * configured period, or 0 — no hold at all — when the request may not
+     * take its dates on its own (issue #1114):
+     *
+     * - **longer than AUTOMATIC_HOLD_MAX_NIGHTS**: a long stay is answered
+     *   by a manager before it blocks anything;
+     * - **the requester already has MAX_RUNNING_AUTOMATIC_HOLDS running**,
+     *   on their address or their account: the next one waits.
+     *
+     * Either way the request is recorded and answered as usual; it simply
+     * does not show its dates as taken. A request overlapping a hold already
+     * running needs no rule here: those dates are occupied, and the
+     * availability check refuses it.
+     *
+     * Read by the public form before it calls createFromPublicRequest(),
+     * outside the asset's lock. Two requests from one person at the same
+     * second can each see one hold fewer than there will be — an
+     * acceptable miss for a ceiling that exists to stop a visitor taking
+     * the calendar, not to count to the unit.
+     */
+    public function automaticHoldDaysFor(
+        string $arrivalDate,
+        string $departureDate,
+        string $renterEmail,
+        ?int $requesterAccountId,
+        int $configuredDays,
+        \DateTimeImmutable $now
+    ): int {
+        if ($configuredDays <= 0) {
+            return 0;
+        }
+
+        $arrival = DateInput::iso($arrivalDate);
+        $departure = DateInput::iso($departureDate);
+        if ($arrival === null || $departure === null
+            || (int) $arrival->diff($departure)->days > self::AUTOMATIC_HOLD_MAX_NIGHTS
+        ) {
+            return 0;
+        }
+
+        $running = $this->bookingRepository->countRunningAutomaticHolds(
+            trim($renterEmail),
+            $requesterAccountId,
+            $now
+        );
+
+        return $running >= self::MAX_RUNNING_AUTOMATIC_HOLDS ? 0 : $configuredDays;
     }
 
     /**

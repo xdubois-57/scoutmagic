@@ -28,7 +28,8 @@ peut les gérer — jamais un animateur.
 
 La première ligne est l'adresse importée depuis la base de la
 fédération : elle ne peut pas être supprimée ici — elle se corrige
-auprès du Staff d'Unité.
+auprès du Staff d'Unité. Si la fédération la remplace ou la retire,
+l'ancienne adresse perd aussitôt tout accès à cet animé.
 
 ## Ajouter une adresse
 
@@ -39,9 +40,11 @@ adresse email ». Le lien vaut 48 heures ; passé ce délai, utilisez
 ajouter au plus cinq adresses par animé.
 
 > Une adresse confirmée devient une vraie clé d'entrée : elle permet de
-> se connecter et donne accès aux animés auxquels elle est liée.
-> N'ajoutez que l'adresse d'une personne de confiance — typiquement
-> l'autre parent.
+> se connecter et donne accès à **toutes les informations personnelles**
+> de l'animé, années passées comprises — fiche santé, adresses,
+> documents. N'ajoutez que l'adresse d'une personne de confiance —
+> typiquement l'autre parent. Une adresse supprimée perd aussitôt tout
+> cet accès.
 
 ## Désactiver, réactiver, supprimer
 

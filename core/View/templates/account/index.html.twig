@@ -269,6 +269,26 @@
     </div>
     {% endif %}
 
+    {# « Déconnecter partout » (issue #1115): the one gesture that takes back
+       every way into the account at once — what to do on an alert about a
+       passkey or a device you did not add. Not gated on a recent login:
+       it only ever removes access. #}
+    <div class="card mb-3">
+        <div class="card-body">
+            <h2 class="h5 mb-3">Déconnecter partout</h2>
+            <p class="text-body-secondary small mb-3">
+                Ferme toutes vos sessions ouvertes, sur tous vos appareils, retire toutes vos clés
+                numériques et coupe la synchronisation de vos contacts. À utiliser si vous avez reçu
+                une alerte pour un ajout que vous n'avez pas fait.
+            </p>
+            <form method="post" action="/account/sign-out-everywhere"
+                  data-confirm="Déconnecter partout ? Toutes vos sessions seront fermées, y compris celle-ci, vos clés numériques retirées et vos appareils synchronisés déconnectés. Vous devrez vous reconnecter.">
+                {{ csrf_field()|raw }}
+                <button type="submit" class="btn btn-outline-danger">Déconnecter partout</button>
+            </form>
+        </div>
+    </div>
+
     {# Cookie preferences link #}
     <div class="card mb-3">
         <div class="card-body">

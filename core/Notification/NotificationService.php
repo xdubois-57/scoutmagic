@@ -66,6 +66,11 @@ class NotificationService
     private const SYSTEM_TYPE_ID = 'core.system';
     private const DISCRETION_TITLE = 'Nouvelle notification';
     private const PUSH_BATCH_SIZE = 20;
+    /**
+     * Longest endpoint forgetDevice() takes. Real ones (FCM, Mozilla
+     * autopush, Apple, WNS) stay well under 1 KiB.
+     */
+    private const MAX_ENDPOINT_LENGTH = 2048;
 
     /**
      * @var array<
@@ -664,6 +669,11 @@ class NotificationService
      * Registers a device for push notifications. Idempotent: re-
      * subscribing the same endpoint (e.g. the browser rotated its keys)
      * replaces the previous row rather than duplicating it.
+     *
+     * One endpoint is one account (issue #1123): every row for this
+     * endpoint is removed first, whichever account holds it. A device a
+     * second person subscribes on stops receiving the first person's
+     * notifications at that moment, rather than receiving both.
      */
     public function subscribe(
         int $userAccountId,
@@ -673,13 +683,55 @@ class NotificationService
         ?string $deviceLabel = null
     ): void
     {
-        $this->pushSubscriptionRepository->deleteByEndpoint($userAccountId, $endpoint);
+        $this->pushSubscriptionRepository->deleteAllByEndpoint($endpoint);
         $this->pushSubscriptionRepository->create($userAccountId, $endpoint, $authKey, $p256dhKey, $deviceLabel);
     }
 
     public function unsubscribe(int $userAccountId, string $endpoint): void
     {
         $this->pushSubscriptionRepository->deleteByEndpoint($userAccountId, $endpoint);
+    }
+
+    /**
+     * Forgets the device a logout came from (issue #1123), whatever
+     * account it is registered for — the browser has just been asked to
+     * unsubscribe it (public/assets/js/push-logout.js), and what the
+     * server still holds would otherwise keep sending to it.
+     *
+     * The endpoint comes from a form field and is only ever turned into a
+     * blind index, never fetched, so it is checked for shape only (no DNS
+     * lookup on a logout): an absolute https URL with a host, of bounded
+     * length. Anything else is ignored.
+     *
+     * @return bool whether the endpoint was plausible and looked up
+     */
+    public function forgetDevice(string $endpoint): bool
+    {
+        if (!self::isPlausibleEndpoint($endpoint)) {
+            return false;
+        }
+
+        $this->pushSubscriptionRepository->deleteAllByEndpoint($endpoint);
+
+        return true;
+    }
+
+    /**
+     * Whether a string has the shape of a Web Push endpoint. A shape
+     * check, not the SSRF check a stored endpoint goes through
+     * (PushSubscriptionController::subscribe()).
+     */
+    public static function isPlausibleEndpoint(string $endpoint): bool
+    {
+        if ($endpoint === '' || strlen($endpoint) > self::MAX_ENDPOINT_LENGTH) {
+            return false;
+        }
+        if (preg_match('/[\x00-\x20\x7f]/', $endpoint) === 1 || !str_starts_with($endpoint, 'https://')) {
+            return false;
+        }
+        $host = parse_url($endpoint, PHP_URL_HOST);
+
+        return is_string($host) && $host !== '';
     }
 
     /**
@@ -973,6 +1025,11 @@ class NotificationService
                 'url' => $record->url,
                 'unread_count' => $this->notificationRepository->countUnread($record->userAccountId),
                 'notification_id' => $record->id,
+                // Whom this is for, as an opaque tag the service worker
+                // compares with the account signed in on the device: a
+                // device that changed hands shows a neutral notice
+                // instead of this one (issue #1123, SECURITY.md §19).
+                'recipient' => $this->pushSubscriptionRepository->recipientTag($record->userAccountId),
             ], JSON_THROW_ON_ERROR);
         } catch (\JsonException) {
             return;

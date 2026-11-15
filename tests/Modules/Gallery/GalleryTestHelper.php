@@ -62,5 +62,12 @@ class GalleryTestHelper
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (album_id) REFERENCES gallery_albums(id)
         )');
+
+        $pdo->exec('CREATE TABLE gallery_zip_downloads (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_account_id INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (user_account_id) REFERENCES user_accounts(id) ON DELETE CASCADE
+        )');
     }
 }

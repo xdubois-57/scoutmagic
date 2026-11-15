@@ -48,24 +48,28 @@ final class ModuleManifestTest extends TestCase
     }
 
     /**
-     * What it writes is the unit's whole history: `admin`, the floor of
-     * Espace chefs d'U, on every route, and one labelled entry only — the
-     * imports are reached from the home page, never from a menu.
+     * What it writes is the unit's whole history: `superadmin`, the floor
+     * of Configuration, on every route (the maintainer's decision: the
+     * page lives with the site's other data and backup tools, not in
+     * Espace chefs d'U), and one labelled entry only — the imports are
+     * reached from the home page, never from a menu.
      */
-    public function testEveryRouteIsAdminAndOnlyTheHomePageIsInAMenu(): void
+    public function testEveryRouteIsSuperadminAndOnlyTheHomePageIsInAMenu(): void
     {
         $labelled = [];
         foreach ($this->manifest->routes as $route) {
-            $this->assertSame('admin', $route['role_min'], $route['path']);
-            $this->assertSame('espace_admin', $route['menu'], $route['path']);
+            $this->assertSame('superadmin', $route['role_min'], $route['path']);
+            $this->assertSame('configuration', $route['menu'], $route['path']);
+            $this->assertStringStartsWith('/config/migration-donnees', $route['path']);
             if ($route['label'] !== '') {
                 $labelled[] = $route;
             }
         }
 
         $this->assertCount(1, $labelled);
-        $this->assertSame('/admin/migration-donnees', $labelled[0]['path']);
-        $this->assertSame('services', $labelled[0]['menu_group']);
-        $this->assertSame(190, $labelled[0]['menu_order']);
+        $this->assertSame('/config/migration-donnees', $labelled[0]['path']);
+        $this->assertSame('donnees_sauvegardes', $labelled[0]['menu_group']);
+        $this->assertSame(170, $labelled[0]['menu_order']);
+        $this->assertSame(['Configuration'], $labelled[0]['breadcrumb']['parents'] ?? null);
     }
 }

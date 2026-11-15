@@ -12,7 +12,6 @@ use Core\Http\Controller\AbstractController;
 use Core\Http\FlashMessage;
 use Core\Http\Request;
 use Core\Http\Response;
-use Core\ScoutYear\ScoutYearSession;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Modules\Groups\Repository\DiscussionGroup;
@@ -97,14 +96,11 @@ class ReportController extends AbstractController
             int $memberId
         ) {
             $post = $this->postRepository->findById($itemId);
-            if ($post === null || $post->groupId !== $group->id) {
-                return false;
-            }
             // Already hidden from this member by moderation — reporting what
             // you cannot see adds nothing, and leaving it open lets the
             // endpoint confirm a hidden post still exists. Moderators, who
             // can see it, keep the ability.
-            if ($post->isHidden() && !$this->accessService->canModerate($group, $context)) {
+            if ($post === null || !$this->accessService->canReachPost($group, $post, $context)) {
                 return false;
             }
 
@@ -141,10 +137,7 @@ class ReportController extends AbstractController
             }
 
             $post = $this->postRepository->findById($reply->postId);
-            if ($post === null || $post->groupId !== $group->id) {
-                return false;
-            }
-            if (($reply->isHidden() || $post->isHidden()) && !$this->accessService->canModerate($group, $context)) {
+            if ($post === null || !$this->accessService->canReachReply($group, $post, $reply, $context)) {
                 return false;
             }
 
@@ -554,8 +547,7 @@ class ReportController extends AbstractController
         return $this->contextFactory->build(
             AuthSession::getEmail(),
             AuthSession::getRole(),
-            AuthSession::getUserAccountId(),
-            ScoutYearSession::getPreviewId()
+            AuthSession::getUserAccountId()
         );
     }
 }

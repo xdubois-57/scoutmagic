@@ -22,6 +22,19 @@ use Modules\News\Repository\FormRepository;
 
 class ArticleService implements HomeNewsProvider
 {
+    /**
+     * The refusal every change to an imported article gets (D11), from
+     * this service, Service\FormService and Service\ResponseService alike,
+     * and from the controllers that check first so as to write nothing.
+     */
+    public const IMPORTED_READ_ONLY_MESSAGE = 'Cette actualité vient de l\'ancien site : c\'est un élément '
+        . 'historique en lecture seule, qui ne peut être ni modifié, ni publié, ni repassé en brouillon, '
+        . 'ni supprimé.';
+
+    /** The refusal of a response to, or a change of a response to, an imported article's form. */
+    public const IMPORTED_FORM_MESSAGE = 'Ce formulaire vient de l\'ancien site : il est fermé et n\'accepte '
+        . 'aucune réponse.';
+
     public function __construct(
         private ArticleRepository $articleRepository,
         private FormRepository $formRepository,
@@ -118,6 +131,7 @@ class ArticleService implements HomeNewsProvider
     public function publish(int $id, ?\DateTimeImmutable $now = null): Article
     {
         $article = $this->requireArticle($id);
+        self::assertNotImported($article);
         $now ??= new \DateTimeImmutable();
         $publishedAt = self::readDate($article->publishedAt);
 
@@ -140,6 +154,7 @@ class ArticleService implements HomeNewsProvider
     public function schedule(int $id, \DateTimeImmutable $at, ?\DateTimeImmutable $now = null): Article
     {
         $article = $this->requireArticle($id);
+        self::assertNotImported($article);
         $now ??= new \DateTimeImmutable();
 
         $state = $this->state($article, $now);
@@ -187,6 +202,7 @@ class ArticleService implements HomeNewsProvider
     public function unpublish(int $id, ?\DateTimeImmutable $now = null): Article
     {
         $article = $this->requireArticle($id);
+        self::assertNotImported($article);
         $now ??= new \DateTimeImmutable();
         $publishedAt = self::readDate($article->publishedAt);
 
@@ -268,7 +284,9 @@ class ArticleService implements HomeNewsProvider
                 'summary' => $article->summary,
                 // The 192px thumb, not the original: the homepage card renders
                 // this in a 56px box, and originals can weigh several MB.
-                'image_url' => $article->imageFileId !== null ? '/files/' . $article->imageFileId . '/thumb' : null,
+                'image_url' => $article->imageFileId !== null
+                    ? \Core\File\FilePublicIds::urlFor($article->imageFileId, 'thumb')
+                    : null,
                 // The key keeps its name (Core\Module\HomeNewsProvider's
                 // contract); the date it carries is the publication date,
                 // the one every list shows since issue #845.
@@ -344,10 +362,9 @@ class ArticleService implements HomeNewsProvider
      * (issue #211) — see SOCIALLY_SHAREABLE_VISIBILITIES for what it
      * costs.
      *
-     * The in-body images are a different question and keep their own
-     * answer: Controller\NewsController::uploadBodyImage() stores them
-     * `public` because the article's visibility is not known yet at
-     * that point (mid-edit, possibly still unsaved).
+     * The images inserted in the text follow the text's floor, with no
+     * social exception (Service\BodyImageAccess::bodyImageRoleMin(),
+     * issue #1110): a crawler is shown the cover, never the body.
      */
     public static function coverImageRoleMin(string $visibility): string
     {
@@ -432,9 +449,12 @@ class ArticleService implements HomeNewsProvider
         string $summary,
         ?int $imageFileId
     ): Article {
+        $existing = $this->articleRepository->findById($id);
+        if ($existing !== null) {
+            self::assertNotImported($existing);
+        }
         $this->assertValidVisibility($visibility);
         $this->assertValidSummary($summary);
-        $existing = $this->articleRepository->findById($id);
         if ($imageFileId === null && ($existing === null || $existing->imageFileId === null)) {
             throw new NewsException('Une image est obligatoire pour l\'article.');
         }
@@ -513,6 +533,9 @@ class ArticleService implements HomeNewsProvider
         // that is online or scheduled goes back to draft first. Checked
         // here, where every route to a deletion passes.
         $article = $this->articleRepository->findById($id);
+        if ($article !== null) {
+            self::assertNotImported($article);
+        }
         if ($article !== null && $article->status !== Article::STATUS_DRAFT) {
             throw new NewsException('Pour supprimer cette actualité, repassez-la d\'abord en brouillon.');
         }
@@ -529,6 +552,22 @@ class ArticleService implements HomeNewsProvider
     public function markHasForm(int $articleId, bool $hasForm): void
     {
         $this->articleRepository->setHasForm($articleId, $hasForm);
+    }
+
+    /**
+     * The lock of an imported article (D11), in one place: every method of
+     * this service that changes an article calls it first, and so do
+     * Service\FormService and Service\ResponseService for the article's form
+     * and responses — whichever route, controller or future caller reaches
+     * them.
+     *
+     * @throws NewsException
+     */
+    public static function assertNotImported(Article $article): void
+    {
+        if ($article->isImported()) {
+            throw new NewsException(self::IMPORTED_READ_ONLY_MESSAGE);
+        }
     }
 
     private function requireArticle(int $id): Article

@@ -29,6 +29,8 @@ use Core\Journal\JournalService;
  *    login. Losing a function (or the whole membership) therefore didn't
  *    reduce anyone's access until they happened to log in again. It is
  *    re-resolved here every request, so a demotion lands on the next click.
+ *    A role that changes also drops the session's year preview, chosen
+ *    under the old one (issue #1124).
  *
  * Deliberately fail-safe rather than fail-open: an account that has
  * vanished, or is no longer allowed to log in at all, is logged out rather
@@ -127,6 +129,11 @@ class SessionRevalidator
                 $userAccountId
             );
             AuthSession::setRole($freshRole);
+            // A preview was chosen under the old role (issue #1124). It
+            // decides nothing any more, but a session demoted from admin
+            // to chief kept honouring it; the role changed, the choice
+            // made with it goes too.
+            \Core\ScoutYear\ScoutYearSession::clear();
         }
 
         return true;

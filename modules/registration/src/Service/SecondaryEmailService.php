@@ -24,11 +24,26 @@ use Modules\Registration\Repository\RegistrationSecondaryEmailRepository;
  * at all (it lives on registration_requests itself), so there is no
  * "Desk-sourced, cannot delete" case to special-case here — every row
  * this class touches really is a removable secondary address.
+ *
+ * Two bounds, because the tracking link that reaches this class is held by
+ * whoever filed a public form (issue #1126): at most MAX_SECONDARY_EMAILS
+ * addresses per request, and at most ConfirmationSendLimiter::LIMIT
+ * confirmation e-mails per request per hour — the second one because a
+ * removed address takes its row with it, so remove-then-add never meets
+ * the first. The confirmation token is stored as a SHA-256
+ * (Core\Security\CapabilityToken::hash()), not a password_hash().
  */
 class SecondaryEmailService
 {
     private const CONFIRMATION_EXPIRY_HOURS = 48;
     private const RESEND_COOLDOWN_MINUTES = 5;
+
+    /**
+     * Rows of registration_secondary_emails a request may hold, whatever
+     * their status — the same number as Core\Member\MemberEmailService::
+     * MAX_MANUAL_EMAILS.
+     */
+    public const MAX_SECONDARY_EMAILS = 5;
 
     public function __construct(
         private RegistrationSecondaryEmailRepository $repository,
@@ -36,7 +51,8 @@ class SecondaryEmailService
         private EmailTemplateRenderer $emailTemplateRenderer,
         private JournalService $journalService,
         private string $baseUrl,
-        private string $siteName
+        private string $siteName,
+        private ConfirmationSendLimiter $confirmationSendLimiter
     ) {
     }
 
@@ -49,7 +65,15 @@ class SecondaryEmailService
     }
 
     /**
-     * @throws RegistrationException on an invalid or already-present address
+     * Adding an address already on the request returns its row and, when it
+     * is still pending and the resend cooldown has elapsed, re-sends its
+     * confirmation — unless the hourly limit is spent, in which case the
+     * row is returned without a new e-mail, as within the cooldown.
+     *
+     * @throws RegistrationException on an invalid address, when the request
+     *         already holds MAX_SECONDARY_EMAILS addresses, or when its hourly
+     *         budget of confirmation e-mails is spent — the last two before
+     *         anything is hashed, written or sent
      */
     public function addEmail(int $requestId, string $rawEmail): RegistrationSecondaryEmail
     {
@@ -58,33 +82,65 @@ class SecondaryEmailService
             throw new RegistrationException('Adresse email invalide.');
         }
 
-        $existing = $this->repository->findByRequestAndEmail($requestId, $normalized);
-        if ($existing !== null) {
-            if ($existing->isPending() && $this->isCooldownElapsed($existing)) {
-                $this->resendConfirmation($requestId, $existing->id);
+        // The decision — cap, hourly budget, the row and its token — is taken
+        // under a lock on the request's own row, so two concurrent additions
+        // cannot both read « one left » and both pass (issue #1126). The
+        // e-mail leaves only after the commit: a rolled-back row never mails.
+        /** @var array{RegistrationSecondaryEmail, ?string, bool} $outcome */
+        $outcome = $this->repository->transactional(function () use ($requestId, $normalized): array {
+            $this->repository->lockRequest($requestId);
+
+            $existing = $this->repository->findByRequestAndEmail($requestId, $normalized);
+            if ($existing !== null) {
+                if (
+                    $existing->isPending()
+                    && $this->isCooldownElapsed($existing)
+                    && $this->confirmationSendLimiter->tryAcquire($requestId)
+                ) {
+                    return [$existing, $this->issueToken($existing->id), false];
+                }
+
+                return [$existing, null, false];
             }
-            return $existing;
+
+            // Only a genuinely new address reaches here. Every row counts, a
+            // pending or an inactive one too: a pending address is one more
+            // stranger who received a confirmation e-mail.
+            if (count($this->repository->findByRequest($requestId)) >= self::MAX_SECONDARY_EMAILS) {
+                throw new RegistrationException(
+                    'Vous avez atteint le nombre maximum d\'adresses email secondaires pour cette demande.'
+                );
+            }
+            if (!$this->confirmationSendLimiter->tryAcquire($requestId)) {
+                throw new RegistrationException(
+                    'Trop d\'emails de confirmation envoyés pour cette demande — réessayez dans une heure.'
+                );
+            }
+
+            $rawToken = CapabilityToken::generate();
+            $expiresAt = new \DateTimeImmutable('+' . self::CONFIRMATION_EXPIRY_HOURS . ' hours');
+            $id = $this->repository->create($requestId, $normalized, CapabilityToken::hash($rawToken), $expiresAt);
+            $created = $this->repository->findById($id);
+            \assert($created !== null);
+
+            return [$created, $rawToken, true];
+        });
+        [$row, $rawToken, $isNew] = $outcome;
+
+        if ($rawToken !== null) {
+            $this->sendConfirmationEmail($row->id, $row->email, $rawToken);
+        }
+        if ($isNew) {
+            $this->journalService->log(
+                'registration',
+                'registration_secondary_email_added',
+                'info',
+                'Adresse email secondaire ajoutée',
+                ['request_id' => $requestId, 'secondary_email_id' => $row->id]
+            );
         }
 
-        $rawToken = CapabilityToken::generate();
-        $tokenHash = password_hash($rawToken, PASSWORD_DEFAULT);
-        $expiresAt = new \DateTimeImmutable('+' . self::CONFIRMATION_EXPIRY_HOURS . ' hours');
-
-        $id = $this->repository->create($requestId, $normalized, $tokenHash, $expiresAt);
-        $created = $this->repository->findById($id);
-        \assert($created !== null);
-
-        $this->sendConfirmationEmail($created->id, $normalized, $rawToken);
-
-        $this->journalService->log(
-            'registration',
-            'registration_secondary_email_added',
-            'info',
-            'Adresse email secondaire ajoutée',
-            ['request_id' => $requestId, 'secondary_email_id' => $created->id]
-        );
-
-        return $created;
+        return $row;
     }
 
     /**
@@ -152,22 +208,24 @@ class SecondaryEmailService
         if ($row->confirmationExpiresAt === null || new \DateTimeImmutable() > $row->confirmationExpiresAt) {
             return null;
         }
-        if (!password_verify($rawToken, $row->confirmationTokenHash)) {
+        if (!CapabilityToken::verifyAgainstHash($rawToken, $row->confirmationTokenHash)) {
             return null;
         }
 
         return $row;
     }
 
-    private function resendConfirmation(int $requestId, int $emailId): void
+    /**
+     * A fresh confirmation token for a pending row, written in place of the
+     * old one; the caller sends it once its transaction has committed.
+     */
+    private function issueToken(int $emailId): string
     {
-        $row = $this->requireOwnRow($requestId, $emailId);
         $rawToken = CapabilityToken::generate();
-        $tokenHash = password_hash($rawToken, PASSWORD_DEFAULT);
         $expiresAt = new \DateTimeImmutable('+' . self::CONFIRMATION_EXPIRY_HOURS . ' hours');
+        $this->repository->refreshConfirmation($emailId, CapabilityToken::hash($rawToken), $expiresAt);
 
-        $this->repository->refreshConfirmation($emailId, $tokenHash, $expiresAt);
-        $this->sendConfirmationEmail($emailId, $row->email, $rawToken);
+        return $rawToken;
     }
 
     private function isCooldownElapsed(RegistrationSecondaryEmail $row): bool

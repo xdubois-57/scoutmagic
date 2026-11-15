@@ -10,6 +10,7 @@ namespace Core\Http\Controller;
 
 use Core\File\EncryptedFileStorageService;
 use Core\File\FileAccessGuard;
+use Core\File\FilePublicIds;
 use Core\File\FileRecord;
 use Core\File\PdfRasterizer;
 use Core\Http\Request;
@@ -57,7 +58,7 @@ class FileController extends AbstractController
      */
     public function serve(Request $request, array $params): Response
     {
-        $id = (int) ($params['id'] ?? 0);
+        $id = $this->fileIdFromSegment((string) ($params['file'] ?? ''));
 
         if ($id <= 0) {
             return (new Response('Not Found', 404));
@@ -213,6 +214,25 @@ class FileController extends AbstractController
     }
 
     /**
+     * The file the address segment names, or 0 for none (issue #1109).
+     *
+     * The segment is the file's opaque public id (Core\File\FilePublicIds):
+     * an unknown or malformed one — a sequential id included, which no
+     * longer names anything — is 0, answered 404 before the guard, so a
+     * malformed value costs no query. Everything after this — the guard,
+     * the journal, which keeps logging the numeric id and never the public
+     * one — is unchanged.
+     */
+    private function fileIdFromSegment(string $segment): int
+    {
+        if (!FilePublicIds::isWellFormed($segment)) {
+            return 0;
+        }
+
+        return $this->fileAccessGuard->fileIdForPublicId($segment) ?? 0;
+    }
+
+    /**
      * Owner-scoped files (member page private documents, §8.3) are the only
      * ones journaled on successful access — every other `/files/{id}` hit
      * (public assets, ordinary role-gated content) would be pure noise here.
@@ -270,7 +290,7 @@ class FileController extends AbstractController
      */
     public function thumbnail(Request $request, array $params): Response
     {
-        $id = (int) ($params['id'] ?? 0);
+        $id = $this->fileIdFromSegment((string) ($params['file'] ?? ''));
 
         if ($id <= 0) {
             return (new Response('Not Found', 404));
@@ -420,14 +440,16 @@ class FileController extends AbstractController
      */
     public function variant(Request $request, array $params): Response
     {
-        $id = (int) ($params['id'] ?? 0);
+        $id = $this->fileIdFromSegment((string) ($params['file'] ?? ''));
         $variant = (string) ($params['variant'] ?? '');
 
         if ($id <= 0 || !ImageVariantService::isValidVariant($variant)) {
             return new Response('Not Found', 404);
         }
 
-        $file = $this->fileAccessGuard->check($id);
+        // Named, because a reduced rendition can have a wider audience than
+        // the original (issue #1108: a person's photo).
+        $file = $this->fileAccessGuard->check($id, $variant);
 
         if ($file === null) {
             $this->journalService?->log(

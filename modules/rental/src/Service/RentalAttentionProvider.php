@@ -18,6 +18,7 @@ use Modules\Rental\Booking\BookingStatus;
 use Modules\Rental\Document\Landlord;
 use Modules\Rental\Repository\RentalAsset;
 use Modules\Rental\Repository\RentalAssetRepository;
+use Modules\Rental\Repository\RentalBookingRepository;
 use Modules\Rental\Repository\RentalComplianceRepository;
 use Modules\Rental\Repository\RentalStayRepository;
 
@@ -38,19 +39,28 @@ use Modules\Rental\Repository\RentalStayRepository;
  *   and the security deposit stays held meanwhile, while the standard
  *   contract promises it back within the month. The point says the
  *   booking's reference, the asset, how long and what the assessment
- *   waits for — never the renter's name.
+ *   waits for — never the renter's name;
+ * - **an automatic hold over more than LONG_AUTOMATIC_HOLD_NIGHTS nights**
+ *   (issue #1114): a request nobody has looked at yet is keeping a long
+ *   stretch of the calendar from everyone else. Reference, asset, dates
+ *   and the hold's end — never the renter.
  *
  * Registered only inside the module's enabled block of public/index.php,
  * so a site without Locations never runs it.
  */
 class RentalAttentionProvider implements AttentionPointProvider
 {
+    /** Longer than this, an automatic hold is worth a manager's look (issue #1114). */
+    public const LONG_AUTOMATIC_HOLD_NIGHTS = 14;
+
     public function __construct(
         private RentalAssetRepository $assets,
         private RentalComplianceRepository $compliance,
         private SettingService $settingService,
         /** Null leaves the damages out (a caller without the stay features). */
-        private ?RentalStayRepository $stay = null
+        private ?RentalStayRepository $stay = null,
+        /** Null leaves the long automatic holds out. */
+        private ?RentalBookingRepository $bookings = null
     ) {
     }
 
@@ -72,8 +82,55 @@ class RentalAttentionProvider implements AttentionPointProvider
         return array_merge(
             $this->missingLandlordAddresses($assets),
             $this->expiredCompliance($assets),
-            $this->longAssessments($assets)
+            $this->longAssessments($assets),
+            $this->longAutomaticHolds($assets)
         );
+    }
+
+    /**
+     * The automatic holds running over more than LONG_AUTOMATIC_HOLD_NIGHTS
+     * nights, one point each (issue #1114). A hold that long is possible —
+     * up to RentalBookingService::AUTOMATIC_HOLD_MAX_NIGHTS — and nobody has
+     * answered the request yet; the manager decides whether it deserves
+     * the dates. The point goes away with the hold: answered, lapsed or
+     * lifted.
+     *
+     * @param array<int, RentalAsset> $assets
+     * @return AttentionPoint[]
+     */
+    private function longAutomaticHolds(array $assets): array
+    {
+        if ($this->bookings === null) {
+            return [];
+        }
+
+        $points = [];
+        foreach ($this->bookings->findRunningAutomaticHolds(AppClock::now()) as $hold) {
+            $asset = $assets[$hold['asset_id']] ?? null;
+            $arrival = DateInput::iso($hold['arrival_date']);
+            $departure = DateInput::iso($hold['departure_date']);
+            $until = DateInput::fromStorage($hold['hold_until']);
+            if ($asset === null || $arrival === null || $departure === null || $until === null) {
+                continue;
+            }
+            $nights = (int) $arrival->diff($departure)->days;
+            if ($nights <= self::LONG_AUTOMATIC_HOLD_NIGHTS) {
+                continue;
+            }
+
+            $points[] = new AttentionPoint(
+                title: 'Option automatique de ' . $nights . ' nuits : ' . $hold['reference'],
+                why: 'La demande ' . $hold['reference'] . ' pour « ' . $asset->name . ' » bloque les dates du '
+                    . $arrival->format('d/m/Y') . ' au ' . $departure->format('d/m/Y') . " jusqu'au "
+                    . $until->format('d/m/Y') . ", sans que personne l'ait encore examinée. Répondez-y, ou levez "
+                    . "l'option si ces dates doivent rester libres.",
+                actionLabel: 'Examiner la demande',
+                actionUrl: '/mes-locations/' . rawurlencode($asset->slug) . '/reservations/' . $hold['id'],
+                severity: AttentionPoint::SEVERITY_ATTENTION
+            );
+        }
+
+        return $points;
     }
 
     /**

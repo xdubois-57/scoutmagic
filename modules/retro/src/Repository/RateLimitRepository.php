@@ -45,13 +45,24 @@ class RateLimitRepository
     }
 
     /**
-     * Deletes every row older than $beforeDatetime — Task\
-     * PurgeRateLimitHandler's scheduled cleanup.
+     * Deletes every row older than $beforeDatetime, except those of the
+     * action types in $keptActionTypes — Task\PurgeRateLimitHandler's
+     * scheduled cleanup, which keeps a board's daily budget longer than a
+     * visitor's short-lived rows.
+     *
+     * @param string[] $keptActionTypes
      */
-    public function deleteOlderThan(string $beforeDatetime): int
+    public function deleteOlderThan(string $beforeDatetime, array $keptActionTypes = []): int
     {
-        $stmt = $this->pdo->prepare('DELETE FROM retro_rate_limits WHERE created_at < ?');
-        $stmt->execute([$beforeDatetime]);
+        $sql = 'DELETE FROM retro_rate_limits WHERE created_at < ?';
+        $params = [$beforeDatetime];
+        if ($keptActionTypes !== []) {
+            $sql .= ' AND action_type NOT IN (' . implode(', ', array_fill(0, count($keptActionTypes), '?')) . ')';
+            array_push($params, ...array_values($keptActionTypes));
+        }
+
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute($params);
 
         return $stmt->rowCount();
     }

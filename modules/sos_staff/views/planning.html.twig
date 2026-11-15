@@ -41,6 +41,18 @@
         est de garde dans le planning. L'enregistrement est automatique.
     </p>
 
+    {# Issue #1125: these members stay in the grid, with the duties already
+       recorded for them, but the SOS number cannot be redirected to a GSM
+       that is no phone number — said where a duty is given them. #}
+    {% if unusable_mobiles|default([]) is not empty %}
+        <p class="text-warning-emphasis small" id="sos-planning-unusable-mobiles">
+            <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
+            Le GSM enregistré dans Desk n'est pas un numéro de téléphone valide pour :
+            {{ unusable_mobiles|map(member => member.label)|join(', ') }}.
+            Le numéro SOS ne pourra pas leur être redirigé : corrigez le GSM dans Desk, puis réimportez.
+        </p>
+    {% endif %}
+
     {# ------------------------------------------------------------------
        Month navigation — shared by both layouts.
        ------------------------------------------------------------------ #}

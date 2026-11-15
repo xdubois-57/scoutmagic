@@ -1,0 +1,10 @@
+{
+    "id": "f-type-inconnu",
+    "article_id": "a-valide",
+    "fields": [
+        {
+            "type": "signature",
+            "label": "Signature"
+        }
+    ]
+}

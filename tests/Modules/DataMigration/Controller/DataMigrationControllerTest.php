@@ -44,8 +44,9 @@ use Tests\UsesProductionEngine;
  * FrontController, and the real templates — the routes read from the
  * module's own manifest, so a route added there is exercised here.
  *
- * Three things are held: the RBAC boundary of each route (`admin` in, a
- * `chief` refused), an import whose module is off answering 404 at its
+ * Three things are held: the RBAC boundary of each route (`superadmin`
+ * in, an `admin` — a chef d'unité — refused: the page lives in
+ * Configuration), an import whose module is off answering 404 at its
  * address AND at its AJAX endpoints, and the shared page drawing each of
  * the six steps as a run goes through them.
  */
@@ -62,7 +63,7 @@ final class DataMigrationControllerTest extends TestCase
     protected function setUp(): void
     {
         $this->pdo = $this->productionEngine();
-        // The chef d'unité every test logs in as: runs record their author.
+        // The superadmin every test logs in as: runs record their author.
         $this->pdo->prepare('INSERT INTO user_accounts (id, email_encrypted, email_blind_index) VALUES (1, ?, ?)')
             ->execute(['x', str_repeat('a', 64)]);
         $this->storage = sys_get_temp_dir() . '/dm_ctrl_' . bin2hex(random_bytes(6));
@@ -102,9 +103,9 @@ final class DataMigrationControllerTest extends TestCase
     }
 
     #[DataProvider('routes')]
-    public function testASectionAnimateurIsRefusedOnEveryRoute(string $method, string $path): void
+    public function testAChefDUniteIsRefusedOnEveryRoute(string $method, string $path): void
     {
-        AuthSession::login(2, 'animateur@test.be', 'chief');
+        AuthSession::login(2, 'chef@test.be', 'admin');
 
         $response = $this->handle($method, $path, ['_csrf_token' => CsrfGuard::generateToken()]);
 
@@ -121,9 +122,9 @@ final class DataMigrationControllerTest extends TestCase
     }
 
     #[DataProvider('routes')]
-    public function testAChefDUniteIsLetThroughEveryRoute(string $method, string $path): void
+    public function testASuperadminIsLetThroughEveryRoute(string $method, string $path): void
     {
-        AuthSession::login(1, 'chef@test.be', 'admin');
+        AuthSession::login(1, 'superadmin@test.be', 'superadmin');
 
         $response = $this->handle($method, $path, ['_csrf_token' => CsrfGuard::generateToken()]);
 
@@ -136,18 +137,18 @@ final class DataMigrationControllerTest extends TestCase
 
     public function testTheHomePageListsOnlyTheImportsWhoseModuleIsActive(): void
     {
-        AuthSession::login(1, 'chef@test.be', 'admin');
+        AuthSession::login(1, 'superadmin@test.be', 'superadmin');
 
-        $body = (string) $this->handle('GET', '/admin/migration-donnees')->getBody();
+        $body = (string) $this->handle('GET', '/config/migration-donnees')->getBody();
 
         $this->assertStringContainsString('Imports disponibles', $body);
         $this->assertStringContainsString('Éléments d&#039;essai', $body);
         $this->assertStringContainsString('Jamais lancé', $body);
-        $this->assertStringNotContainsString('/admin/migration-donnees/galeries', $body);
+        $this->assertStringNotContainsString('/config/migration-donnees/galeries', $body);
 
         $this->enabledModules['gallery'] = true;
-        $body = (string) $this->handle('GET', '/admin/migration-donnees')->getBody();
-        $this->assertStringContainsString('/admin/migration-donnees/galeries', $body);
+        $body = (string) $this->handle('GET', '/config/migration-donnees')->getBody();
+        $this->assertStringContainsString('/config/migration-donnees/galeries', $body);
     }
 
     /**
@@ -156,18 +157,18 @@ final class DataMigrationControllerTest extends TestCase
     public static function inactiveModuleRoutes(): array
     {
         return [
-            'the page' => ['GET', '/admin/migration-donnees/galeries'],
-            'the deposit (AJAX)' => ['POST', '/admin/migration-donnees/galeries/depot'],
-            'a slice (AJAX)' => ['POST', '/admin/migration-donnees/galeries/avancer'],
-            'the confirmation' => ['POST', '/admin/migration-donnees/galeries/confirmer'],
-            'an import that does not exist' => ['GET', '/admin/migration-donnees/inconnu'],
+            'the page' => ['GET', '/config/migration-donnees/galeries'],
+            'the deposit (AJAX)' => ['POST', '/config/migration-donnees/galeries/depot'],
+            'a slice (AJAX)' => ['POST', '/config/migration-donnees/galeries/avancer'],
+            'the confirmation' => ['POST', '/config/migration-donnees/galeries/confirmer'],
+            'an import that does not exist' => ['GET', '/config/migration-donnees/inconnu'],
         ];
     }
 
     #[DataProvider('inactiveModuleRoutes')]
     public function testAnImportWhoseModuleIsOffIsNotFoundByItsAddressNorByAjax(string $method, string $path): void
     {
-        AuthSession::login(1, 'chef@test.be', 'admin');
+        AuthSession::login(1, 'superadmin@test.be', 'superadmin');
 
         $response = $this->handle($method, $path, ['_csrf_token' => CsrfGuard::generateToken()]);
 
@@ -176,9 +177,9 @@ final class DataMigrationControllerTest extends TestCase
 
     public function testASliceWithoutAValidTokenIsRefused(): void
     {
-        AuthSession::login(1, 'chef@test.be', 'admin');
+        AuthSession::login(1, 'superadmin@test.be', 'superadmin');
 
-        $response = $this->handle('POST', '/admin/migration-donnees/essai/avancer', ['_csrf_token' => 'faux']);
+        $response = $this->handle('POST', '/config/migration-donnees/essai/avancer', ['_csrf_token' => 'faux']);
 
         $this->assertSame(403, $response->getStatusCode());
     }
@@ -190,8 +191,8 @@ final class DataMigrationControllerTest extends TestCase
      */
     public function testTheSharedPageWalksThroughTheSixSteps(): void
     {
-        AuthSession::login(1, 'chef@test.be', 'admin');
-        $page = '/admin/migration-donnees/essai';
+        AuthSession::login(1, 'superadmin@test.be', 'superadmin');
+        $page = '/config/migration-donnees/essai';
 
         $body = $this->page($page);
         $this->assertStringContainsString('id="data-migration-drop-zone"', $body);
@@ -230,7 +231,7 @@ final class DataMigrationControllerTest extends TestCase
         $this->assertStringContainsString("Reprendre l'import", $this->page($page));
         $this->assertStringContainsString(
             'Interrompu à',
-            (string) $this->handle('GET', '/admin/migration-donnees')->getBody()
+            (string) $this->handle('GET', '/config/migration-donnees')->getBody()
         );
 
         $this->handle('POST', $page . '/reprendre', ['_csrf_token' => CsrfGuard::generateToken()]);
@@ -246,8 +247,8 @@ final class DataMigrationControllerTest extends TestCase
 
     public function testARejectedArchiveSaysWhyOnTheSourceStep(): void
     {
-        AuthSession::login(1, 'chef@test.be', 'admin');
-        $page = '/admin/migration-donnees/essai';
+        AuthSession::login(1, 'superadmin@test.be', 'superadmin');
+        $page = '/config/migration-donnees/essai';
 
         $this->deposit($page, TestArchive::build(['items.jsonl' => "{}\n"], ['format_version' => '3.0.0']));
 
@@ -264,8 +265,8 @@ final class DataMigrationControllerTest extends TestCase
      */
     public function testAFormSourceImportUsesItsOwnFirstStepAndTheSharedOthers(): void
     {
-        AuthSession::login(1, 'chef@test.be', 'admin');
-        $page = '/admin/migration-donnees/formulaire';
+        AuthSession::login(1, 'superadmin@test.be', 'superadmin');
+        $page = '/config/migration-donnees/formulaire';
 
         $body = $this->page($page);
         $this->assertStringContainsString('name="adresse"', $body);
@@ -367,8 +368,8 @@ final class DataMigrationControllerTest extends TestCase
             ['data_migration']
         );
         foreach ([
-            'site_name' => 'Test', 'is_authenticated' => true, 'current_user_email' => 'chef@test.be',
-            'current_user_role' => 'admin', 'config_mode' => false, 'cookie_consent_given' => true,
+            'site_name' => 'Test', 'is_authenticated' => true, 'current_user_email' => 'superadmin@test.be',
+            'current_user_role' => 'superadmin', 'config_mode' => false, 'cookie_consent_given' => true,
             'menus' => null, 'current_path' => '/', 'csp_nonce' => 'test-nonce',
         ] as $name => $value) {
             $twig->addGlobal($name, $value);

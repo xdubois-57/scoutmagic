@@ -1,0 +1,18 @@
+{#
+  « Expéditeur non vérifié » (issue #1121), the one way every screen says it.
+
+  A message's `From:` is declarative: anybody can write a renter's, a
+  contact's or a staff member's address there. When the receiving server
+  did not vouch for it (DMARC, or an aligned SPF/DKIM pass, read on
+  arrival), the message may be perfectly genuine — plenty of small
+  domains publish no DMARC — but it must not be presented as coming from
+  that person. Nothing is shown for a verified sender or a sent message.
+
+  Parameters:
+    message -- the Modules\InboundMail\Api\InboundMessage
+#}
+{% if message.senderUnverified %}
+    {% set why = "Le serveur de réception n'a pas confirmé que ce message vient bien de cette adresse : "
+        ~ "n'importe qui peut écrire une adresse d'expéditeur." %}
+    <span class="badge text-bg-warning" title="{{ why }}">Expéditeur non vérifié</span>
+{% endif %}

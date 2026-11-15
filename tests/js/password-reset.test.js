@@ -17,6 +17,10 @@ const PAGE = `
         <form method="post" action="/password-reset/17" id="reset-form">
             <input type="hidden" name="_csrf_token" value="tok-123">
             <input type="hidden" name="token" value="" id="reset-token">
+            <fieldset class="d-none" id="reset-accesses">
+                <input type="checkbox" id="reset-revoke-all" checked>
+                <ul id="reset-access-list"></ul>
+            </fieldset>
         </form>
     </div>`;
 
@@ -172,6 +176,100 @@ describe('password-reset.js', () => {
             await boot();
 
             await vi.waitFor(() => expect(shown('reset-invalid')).toBe(true));
+        });
+    });
+
+    // Issue #1115: the account's passkeys and synchronised devices, listed
+    // under « Tout révoquer », each ticked by default.
+    describe('the list of accesses to revoke', () => {
+        const ACCESSES = {
+            valid: true,
+            passkeys: [{ id: 4, label: 'Mon téléphone' }, { id: 9, label: '<img src=x onerror=alert(1)>' }],
+            devices: [{ id: 12, label: 'Ordinateur' }],
+        };
+
+        const form = () => new FormData(document.getElementById('reset-form'));
+        const box = (kind, id) => document.getElementById('reset-revoke-' + kind + '-' + id);
+        const master = () => document.getElementById('reset-revoke-all');
+
+        it('lists every passkey and device, each ticked and each listed', async () => {
+            fetch.mockImplementation(() => jsonResponse(ACCESSES));
+            await boot();
+            await vi.waitFor(() => expect(shown('reset-panel')).toBe(true));
+
+            expect(shown('reset-accesses')).toBe(true);
+            expect(form().getAll('listed_passkeys[]')).toEqual(['4', '9']);
+            expect(form().getAll('revoke_passkeys[]')).toEqual(['4', '9']);
+            expect(form().getAll('listed_devices[]')).toEqual(['12']);
+            expect(form().getAll('revoke_devices[]')).toEqual(['12']);
+            expect(master().checked).toBe(true);
+            expect(document.getElementById('reset-access-list').textContent)
+                .toContain('Appareil synchronisé : Ordinateur');
+        });
+
+        it('prints a label as text, never as markup', async () => {
+            fetch.mockImplementation(() => jsonResponse(ACCESSES));
+            await boot();
+            await vi.waitFor(() => expect(shown('reset-panel')).toBe(true));
+
+            expect(document.querySelector('#reset-access-list img')).toBeNull();
+            expect(document.getElementById('reset-access-list').textContent)
+                .toContain('Clé numérique : <img src=x onerror=alert(1)>');
+        });
+
+        it('keeps a row listed when its box is unticked, and shows « Tout révoquer » as partial', async () => {
+            fetch.mockImplementation(() => jsonResponse(ACCESSES));
+            await boot();
+            await vi.waitFor(() => expect(shown('reset-panel')).toBe(true));
+
+            box('passkeys', 4).click();
+
+            expect(form().getAll('listed_passkeys[]')).toEqual(['4', '9']);
+            expect(form().getAll('revoke_passkeys[]')).toEqual(['9']);
+            expect(master().checked).toBe(false);
+            expect(master().indeterminate).toBe(true);
+
+            box('passkeys', 4).click();
+            expect(master().checked).toBe(true);
+            expect(master().indeterminate).toBe(false);
+        });
+
+        it('« Tout révoquer » unticks and reticks every row at once', async () => {
+            fetch.mockImplementation(() => jsonResponse(ACCESSES));
+            await boot();
+            await vi.waitFor(() => expect(shown('reset-panel')).toBe(true));
+
+            master().click();
+            expect(form().getAll('revoke_passkeys[]')).toEqual([]);
+            expect(form().getAll('revoke_devices[]')).toEqual([]);
+
+            master().click();
+            expect(form().getAll('revoke_passkeys[]')).toEqual(['4', '9']);
+            expect(form().getAll('revoke_devices[]')).toEqual(['12']);
+        });
+
+        it('stays hidden when the account has nothing to revoke', async () => {
+            fetch.mockImplementation(() => jsonResponse({ valid: true, passkeys: [], devices: [] }));
+            await boot();
+            await vi.waitFor(() => expect(shown('reset-panel')).toBe(true));
+
+            expect(shown('reset-accesses')).toBe(false);
+            expect(form().getAll('listed_passkeys[]')).toEqual([]);
+        });
+
+        it('stays hidden on an answer without lists at all', async () => {
+            await boot();
+            await vi.waitFor(() => expect(shown('reset-panel')).toBe(true));
+
+            expect(shown('reset-accesses')).toBe(false);
+        });
+
+        it('still reveals the form on a page without the list', async () => {
+            document.getElementById('reset-accesses').remove();
+            fetch.mockImplementation(() => jsonResponse(ACCESSES));
+            await boot();
+
+            await vi.waitFor(() => expect(shown('reset-panel')).toBe(true));
         });
     });
 });

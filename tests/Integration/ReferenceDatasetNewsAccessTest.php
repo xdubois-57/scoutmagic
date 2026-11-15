@@ -117,6 +117,33 @@ final class ReferenceDatasetNewsAccessTest extends TestCase
         self::assertGreaterThan(0, $bodyImages, 'no body image: the test no longer proves anything');
     }
 
+    /**
+     * Issue #1109: a seeded article's body names its image by the opaque
+     * address, and that address resolves to a file. The numeric one the
+     * seeder used to write names nothing since the cutover.
+     */
+    public function testABodyImageIsAddressedByItsOpaqueId(): void
+    {
+        $this->seed();
+
+        $bodies = $this->pdo->query(
+            "SELECT content_value FROM editable_contents WHERE content_value LIKE '%<img%'"
+        )->fetchAll(\PDO::FETCH_COLUMN);
+        $files = new FileRepository($this->pdo);
+
+        $images = 0;
+        foreach ($bodies as $body) {
+            preg_match_all('~<img[^>]*\ssrc="([^"]*)"~', (string) $body, $matches);
+            foreach ($matches[1] as $src) {
+                self::assertMatchesRegularExpression('~^/files/[A-Za-z0-9_-]{22}$~', $src);
+                self::assertNotNull($files->findByPublicId(substr($src, strlen('/files/'))), $src);
+                $images++;
+            }
+        }
+
+        self::assertGreaterThan(0, $images, 'no body image: the test no longer proves anything');
+    }
+
     private function seed(): void
     {
         (new NewsSeeder(

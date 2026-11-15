@@ -40,6 +40,8 @@ class NewsTestHelper
             created_by INTEGER NOT NULL,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            imported_at TEXT NULL,
+            import_source TEXT NULL,
             FOREIGN KEY (created_by) REFERENCES user_accounts(id)
         )');
 

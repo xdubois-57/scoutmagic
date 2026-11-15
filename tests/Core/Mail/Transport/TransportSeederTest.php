@@ -169,6 +169,37 @@ class TransportSeederTest extends TestCase
     }
 
     /**
+     * **The flag that could not be written never fails a boot**, and the
+     * claim that makes it safe — « the seeding is idempotent » — holds:
+     * the chains are laid down, the flag stays unset, and the next boot
+     * runs the seed again without a second relay or a second entry.
+     *
+     * Writes to `settings` are refused by a trigger, reads left working,
+     * so the seed reads « not seeded yet » on both boots exactly as an
+     * installation whose settings write failed would.
+     */
+    public function testAFlagThatCannotBeWrittenFailsNoBootAndDuplicatesNothing(): void
+    {
+        $this->pdo->exec(
+            'CREATE TRIGGER refuse_setting_writes BEFORE UPDATE ON settings
+             BEGIN SELECT RAISE(FAIL, \'réglages indisponibles\'); END'
+        );
+        $secrets = ['mail_mode' => 'smtp', 'smtp_host' => 'smtp-relay.brevo.com'];
+
+        $this->seed($secrets);
+
+        $this->assertSame('0', (string) $this->settings->get(TransportSeeder::SETTING_SEEDED), 'Nothing was marked.');
+        $this->assertCount(1, $this->providers->findAll(), 'The relay was imported all the same.');
+
+        $this->seed($secrets);
+
+        $this->assertCount(1, $this->providers->findAll(), 'The second boot imported no second relay.');
+        foreach (MailLane::ordered() as $lane) {
+            $this->assertCount(2, $this->chains->forLane($lane), "No duplicate entry in the {$lane->value} lane.");
+        }
+    }
+
+    /**
      * The first of two findings a full review pass raised on this seam.
      *
      * `SetupController::handleConfigUpdate()` writes `smtp_host` back on

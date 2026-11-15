@@ -95,7 +95,14 @@ class DeskImportServiceTest extends TestCase
             ),
             new \Core\Import\ImportDiffCalculator(new \Core\Import\RosterSnapshotRepository($this->pdo)),
             new \Core\Config\ScoutYearService($this->pdo),
-            $policy ?? \Core\Import\DeskImportYearPolicy::unrestricted()
+            $policy ?? \Core\Import\DeskImportYearPolicy::unrestricted(),
+            staleDeskEmails: new \Core\Member\StaleDeskEmailCleanup(
+                new \Core\Member\MemberEmailRepository($this->pdo, $this->encryption),
+                new \Core\ScoutYear\AuthorizationYearService(
+                    new \Core\Config\ScoutYearService($this->pdo),
+                    new \Core\Config\SettingService(new \Core\Config\SettingRepository($this->pdo))
+                )
+            )
         );
     }
 
@@ -607,6 +614,40 @@ class DeskImportServiceTest extends TestCase
 
         $this->assertSame(2, $this->addressCountFor('T900'), 'both addresses must survive');
         $this->assertSame(1, $this->functionCountFor('T900'));
+    }
+
+    /**
+     * Issue #1100. A mailing wrote a status row for the member's Desk
+     * address; Desk then gives the member another one. The import deletes
+     * the former address's row — the row of the new one, written by the
+     * next mailing, starts fresh — and leaves the member's own confirmed
+     * secondary address alone.
+     */
+    public function testAChangedDeskAddressLosesTheStatusRowOfTheFormerOne(): void
+    {
+        $member = ['Tiers' => 'T950', 'Nom' => 'Leroy', 'Prenom' => 'Noa'];
+        $this->importRows([$this->row($member + ['Email Tiers' => 'former@example.com'])]);
+        $memberId = (int) $this->pdo->query("SELECT id FROM members WHERE desk_id = 'T950'")->fetchColumn();
+
+        $memberEmails = new \Core\Member\MemberEmailRepository($this->pdo, $this->encryption);
+        $memberEmails->findOrCreateDeskOverride($memberId, 'former@example.com');
+        $memberEmails->create(
+            $memberId,
+            'alias@example.com',
+            \Core\Member\MemberEmail::SOURCE_MANUAL,
+            \Core\Member\MemberEmail::STATUS_VALID,
+            null,
+            null
+        );
+
+        // Re-imported unchanged, the address is still the member's: its row stays.
+        $this->importRows([$this->row($member + ['Email Tiers' => 'former@example.com'])]);
+        $this->assertNotNull($memberEmails->findByMemberAndEmail($memberId, 'former@example.com'));
+
+        $this->importRows([$this->row($member + ['Email Tiers' => 'current@example.com'])]);
+
+        $this->assertNull($memberEmails->findByMemberAndEmail($memberId, 'former@example.com'));
+        $this->assertNotNull($memberEmails->findByMemberAndEmail($memberId, 'alias@example.com'));
     }
 
     /**

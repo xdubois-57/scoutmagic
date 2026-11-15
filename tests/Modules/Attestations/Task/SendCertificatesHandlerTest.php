@@ -199,8 +199,9 @@ class SendCertificatesHandlerTest extends TestCase
         $this->assertCount(1, $this->transport->delivered);
         $mail = $this->transport->delivered[0];
         $this->assertSame('famille1@example.org', $mail->getToAddresses()[0][0]);
-        // The site's short name prefixes every outgoing subject.
-        $this->assertStringEndsWith('Attestation fiscale 2025', $mail->Subject);
+        // The site's short name prefixes every outgoing subject, and the
+        // member the certificate belongs to closes it (issue #1096).
+        $this->assertStringEndsWith('Attestation fiscale 2025 — Prenom1 Nom1', $mail->Subject);
         $this->assertCount(1, $mail->getAttachments());
     }
 

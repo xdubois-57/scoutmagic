@@ -42,7 +42,8 @@ class UploadHandlerTest extends TestCase
             owner_type TEXT,
             owner_id INTEGER,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            created_by INTEGER
+            created_by INTEGER,
+            public_id TEXT UNIQUE
         )');
 
         $repo = new FileRepository($this->pdo);

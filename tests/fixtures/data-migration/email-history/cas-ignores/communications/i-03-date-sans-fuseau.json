@@ -1,0 +1,11 @@
+{
+    "id": "i-03-date-sans-fuseau",
+    "sent_at": "2021-03-01T10:00:00",
+    "subject": "Un sujet",
+    "sender": {
+        "address": "baladins@exemple.test"
+    },
+    "body": {
+        "html": "content/43850b18c97386a8fb44637e9e12f84876d0d52635b3b5ee0a63ec97743cb501.html"
+    }
+}

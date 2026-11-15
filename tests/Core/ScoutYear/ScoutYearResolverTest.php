@@ -157,6 +157,56 @@ class ScoutYearResolverTest extends TestCase
         $this->assertNull($effective->overrideType);
     }
 
+    /**
+     * Issue #1165: a caller resolving the year of an account named by its
+     * id passes that account's eligibility, and it wins over the session's
+     * in both directions — the session's answer is not even asked.
+     */
+    public function testAnEligibilityPassedForAnAccountWinsOverTheSessions(): void
+    {
+        $this->setPublicYear($this->year2024);
+        $this->setStaffYear($this->year2025);
+        $sessionAsked = 0;
+        $this->resolver->setStaffYearEligibility(function () use (&$sessionAsked): bool {
+            $sessionAsked++;
+
+            return true;
+        });
+
+        $notEligible = $this->resolver->getEffectiveYear(null, Role::CHIEF, static fn (int $yearId): bool => false);
+        $this->assertSame($this->year2024, $notEligible->id);
+
+        $this->resolver->setStaffYearEligibility(static fn (int $yearId): bool => false);
+        $eligible = $this->resolver->getEffectiveYear(null, Role::CHIEF, static fn (int $yearId): bool => true);
+        $this->assertSame($this->year2025, $eligible->id);
+        $this->assertSame('staff', $eligible->overrideType);
+
+        $this->assertSame(0, $sessionAsked);
+    }
+
+    /** With no session wiring at all — a background root — the account's answer still counts. */
+    public function testAnEligibilityPassedForAnAccountWorksWithNoSessionWired(): void
+    {
+        $this->setPublicYear($this->year2024);
+        $this->setStaffYear($this->year2025);
+
+        $effective = $this->resolver->getEffectiveYear(null, Role::CHIEF, static fn (int $yearId): bool => true);
+
+        $this->assertSame($this->year2025, $effective->id);
+    }
+
+    /** The adjacency bound still holds for an account's own eligibility. */
+    public function testAnEligibilityPassedForAnAccountStillRespectsAdjacency(): void
+    {
+        $this->setPublicYear($this->year2025);
+        $this->setStaffYear($this->year2023);
+
+        $effective = $this->resolver->getEffectiveYear(null, Role::CHIEF, static fn (int $yearId): bool => true);
+
+        $this->assertSame($this->year2025, $effective->id);
+        $this->assertNull($effective->overrideType);
+    }
+
     /** The question is asked about the staff year, not about some other one. */
     public function testEligibilityIsAskedAboutTheStaffYearItself(): void
     {

@@ -55,6 +55,8 @@ function receipt(overrides = {}) {
     return {
         id: 31,
         file_id: 99,
+        file_url: '/files/aBcDeFgHiJkLmNoPqRsT99',
+        thumbnail_url: '/files/aBcDeFgHiJkLmNoPqRsT99/thumbnail',
         mime_type: 'image/jpeg',
         original_filename: 'ticket.jpg',
         uploaded_at: '01/07/2026 14:00',
@@ -138,6 +140,37 @@ describe('finance-receipts.js: live search', () => {
         expect(title.getAttribute('title')).toBe('reçu "urgent" du 12.jpg');
         expect(card.querySelector('img').getAttribute('alt')).toBe('reçu "urgent" du 12.jpg');
         expect(card.textContent).toContain('En attente');
+    });
+
+    // Issue #1109: the card links and shows the file only under its opaque
+    // address, checked where it is written; anything else is unavailable.
+    it('links the card to the opaque address the server gave', async () => {
+        await boot();
+        fetch.mockReturnValue(jsonResponse({ success: true, page: 1, total_pages: 1, receipts: [receipt()] }));
+        document.getElementById('receipts-pending-only').dispatchEvent(new Event('change'));
+        await settle();
+
+        const card = document.querySelector('#receipts-grid [data-receipt-id="31"]');
+        expect(card.querySelector('a[href]').getAttribute('href')).toBe('/files/aBcDeFgHiJkLmNoPqRsT99');
+    });
+
+    it.each([
+        ['an unsafe scheme', 'javascript:alert(1)'],
+        ['a sequential address', '/files/99'],
+        ['no address at all', ''],
+    ])('never writes %s into the card', async (_label, url) => {
+        await boot();
+        fetch.mockReturnValue(jsonResponse({
+            success: true, page: 1, total_pages: 1, receipts: [receipt({ file_url: url, thumbnail_url: url })],
+        }));
+        document.getElementById('receipts-pending-only').dispatchEvent(new Event('change'));
+        await settle();
+
+        const card = document.querySelector('#receipts-grid [data-receipt-id="31"]');
+        expect(card.querySelector('a[target="_blank"]')).toBeNull();
+        expect(card.querySelector('img')).toBeNull();
+        expect(card.textContent).toContain('Fichier indisponible');
+        expect(card.innerHTML).not.toContain('javascript:');
     });
 
     it('says "Aucun reçu." when the search matches nothing', async () => {

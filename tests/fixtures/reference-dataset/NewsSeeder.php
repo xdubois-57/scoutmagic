@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Tests\Fixtures\ReferenceDataset;
 
+use Core\File\FilePublicIds;
 use Core\File\FileRepository;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
@@ -78,6 +79,7 @@ final class NewsSeeder
     private readonly EditableContentService $editableContent;
 
     private readonly UploadHandler $uploadHandler;
+    private readonly FileRepository $fileRepository;
 
     private readonly ImageVariantService $imageVariantService;
 
@@ -115,6 +117,7 @@ final class NewsSeeder
         $this->formService = new FormService($formRepository, new FormFieldRepository($pdo), $this->articleService, new FormResponseRepository($pdo, $encryption));
         $this->responseRepository = new FormResponseRepository($pdo, $encryption);
         $fileRepository = new FileRepository($pdo);
+        $this->fileRepository = $fileRepository;
         $this->uploadHandler = new UploadHandler($fileRepository, $this->storagePath);
         $this->imageVariantService = new ImageVariantService($fileRepository, new ImageVariantProcessor(), $this->storagePath);
         $this->journalService = new JournalService(new JournalRepository($pdo));
@@ -295,10 +298,16 @@ final class NewsSeeder
         }
 
         $fileId = $this->upload($declared['bodyImage']);
+        // The opaque address (issue #1109), from the public id the upload
+        // just minted: a seeding run does not wire FilePublicIds to a
+        // repository, so urlFor() is not the way here. The numeric address
+        // names nothing.
+        $publicId = $this->fileRepository->findById($fileId)->publicId
+            ?? throw new \RuntimeException("Uploaded body image {$fileId} has no public id.");
 
         return str_replace(
             NewsBlueprint::BODY_IMAGE_PLACEHOLDER,
-            '<p><img src="/files/' . $fileId . '" alt="Photo de section"></p>',
+            '<p><img src="' . FilePublicIds::addressOf($publicId) . '" alt="Photo de section"></p>',
             $declared['body'],
         );
     }

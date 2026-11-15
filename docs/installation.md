@@ -6,6 +6,7 @@ détail de chaque étape et les raisons de chaque exigence.
 
 ## Prérequis
 
+- **Un serveur Linux.** ScoutMagic est prévu pour Linux uniquement : il n'est ni testé ni pris en charge sous Windows (l'intégration continue ne tourne que sous Linux).
 - PHP >= 8.4
 - MySQL >= 8.0
 - **Une tâche planifiée (cron) exécutant `php <racine>/public/cron.php` chaque minute** — voir « La tâche cron » ci-dessous. Ce n'est pas une option de confort : c'est le seul mécanisme qui fait travailler le site.
@@ -29,6 +30,8 @@ Aucun SSH, Git ou Composer nécessaire sur le serveur — seulement le FTP, et u
 - **Content type** : `application/json`
 - **Secret** : la valeur générée sur la page Maintenance
 - **Events** : *Releases* et *Pushes* — les deux que la page Maintenance demande
+
+**Où placer un emplacement de stockage local** (Configuration › Stockage) : jamais dans la partie que le serveur web sert lui-même, où tout fichier se télécharge sans contrôle d'accès. Avec le type d'installation « naturel » (le site à côté de la racine web), c'est le dossier `public/` fusionné dans la racine web. Avec le type « arborescence unique » (tout le site dans la racine web), c'est presque toute l'installation : seuls `storage/` et les dossiers internes (`core/`, `modules/`, `config/`, `vendor/`…) sont refusés par le `.htaccess`. Choisissez alors un dossier sous `storage/`, ou hors de l'installation. Le site refuse un tel dossier à l'enregistrement, et cesse d'utiliser un emplacement déjà enregistré qui s'y trouve.
 
 Sans cela, le site n'apprend jamais qu'une nouvelle release existe — voir ARCHITECTURE.md §8.17 pour le fonctionnement de l'installation des mises à jour une fois notifié.
 

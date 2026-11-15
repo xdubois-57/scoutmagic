@@ -8,6 +8,8 @@ declare(strict_types=1);
 
 namespace Modules\News\Service;
 
+use Core\File\FilePublicIds;
+
 /**
  * Points the images of an article's text at their `md` rendition (#883).
  *
@@ -31,7 +33,7 @@ final class BodyImageVariants
      * A `src` naming an original, in double quotes — the only quoting the
      * sanitiser (Core\Security\HtmlSanitizer, DOM-serialised) ever writes.
      */
-    private const ORIGINAL_SRC = '~(<img\b[^>]*?\ssrc=")/files/(\d+)(")~i';
+    private const ORIGINAL_SRC = '~(<img\b[^>]*?\ssrc=")/files/([A-Za-z0-9_-]{22})(")~i';
 
     /**
      * @param \Closure(int): bool $hasMedium whether the file has an `md`
@@ -45,9 +47,16 @@ final class BodyImageVariants
 
         return (string) preg_replace_callback(
             self::ORIGINAL_SRC,
-            static fn (array $m): string => $hasMedium((int) $m[2])
-                ? $m[1] . '/files/' . $m[2] . '/md' . $m[3]
-                : $m[0],
+            static function (array $m) use ($hasMedium): string {
+                $fileId = FilePublicIds::fileIdOf($m[2]);
+                if ($fileId === null) {
+                    return $m[0];
+                }
+
+                $url = FilePublicIds::urlFor($fileId, $hasMedium($fileId) ? 'md' : null);
+
+                return $url === '' ? $m[0] : $m[1] . $url . $m[3];
+            },
             $html
         );
     }

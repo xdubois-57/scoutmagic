@@ -479,6 +479,8 @@ describe('finance-movements.js: receipts dialog', () => {
     const attachment = (overrides = {}) => ({
         id: 31,
         file_id: 99,
+        file_url: '/files/aBcDeFgHiJkLmNoPqRsT99',
+        thumbnail_url: '/files/aBcDeFgHiJkLmNoPqRsT99/thumbnail',
         mime_type: 'image/jpeg',
         original_filename: 'ticket.jpg',
         suggested_amount: null,
@@ -488,12 +490,29 @@ describe('finance-movements.js: receipts dialog', () => {
         ...overrides,
     });
 
+    // Issue #1109: the address is checked where it is written. Anything
+    // but /files/{opaque id} — another scheme, a numeric id, nothing at all —
+    // shows the receipt as unavailable, never as a link or an image.
+    it.each([
+        ['an unsafe scheme', 'javascript:alert(1)'],
+        ['a sequential address', '/files/99'],
+        ['no address at all', ''],
+    ])('never writes %s into a link or an image', async (_label, url) => {
+        await openReceipts([attachment({ file_url: url, thumbnail_url: url })]);
+
+        const list = document.getElementById('attachments-list');
+        expect(list.querySelector('a')).toBeNull();
+        expect(list.querySelector('img')).toBeNull();
+        expect(list.textContent).toContain('ticket.jpg');
+        expect(list.innerHTML).not.toContain('javascript:');
+    });
+
     it('lists the associated receipts of the clicked movement', async () => {
         await openReceipts([attachment({ suggested_amount: 45.9, suggested_date: '01/07/2026' })]);
 
         expect(document.getElementById('attachments-modal').classList.contains('show')).toBe(true);
         const list = document.getElementById('attachments-list');
-        expect(list.querySelector('a').getAttribute('href')).toBe('/files/99');
+        expect(list.querySelector('a').getAttribute('href')).toBe('/files/aBcDeFgHiJkLmNoPqRsT99');
         expect(list.textContent).toContain('ticket.jpg');
         expect(list.textContent).toContain('45,90 € — 01/07/2026');
         expect(list.querySelector('.dissociate-btn').dataset.attachmentId).toBe('31');
@@ -540,7 +559,7 @@ describe('finance-movements.js: receipts dialog', () => {
         await openReceipts([attachment({ mime_type: 'application/pdf', original_filename: 'facture.pdf' })]);
 
         const thumbnail = document.querySelector('#attachments-list img.pdf-thumbnail');
-        expect(thumbnail.getAttribute('src')).toBe('/files/99/thumbnail');
+        expect(thumbnail.getAttribute('src')).toBe('/files/aBcDeFgHiJkLmNoPqRsT99/thumbnail');
         thumbnail.dispatchEvent(new Event('error'));
 
         expect(document.querySelector('#attachments-list img.pdf-thumbnail')).toBeNull();

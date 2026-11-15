@@ -140,7 +140,10 @@ final class EncryptedCoreColumnsAreAccountedForTest extends TestCase
         // never rewrites it. Same nature as the Desk totem, same place on
         // the page.
         'member_section_totems' => [6, 'the page\'s opening sections (what the unit collects about a member)'],
-        'user_accounts' => [17, 'the page\'s opening sections (a member\'s or a leader\'s account)'],
+        // Issue #1131 added webauthn_user_handle: 32 random bytes naming the
+        // account to its passkeys, no more about the person than the
+        // passkeys already say — nothing for the page to add.
+        'user_accounts' => [18, 'the page\'s opening sections (a member\'s or a leader\'s account)'],
         // Issue #926: the signature an account keeps for signing documents
         // in any module. The image only — never the stroke's dynamics — and
         // readable by its owner alone; rule 37 holds sections 2.1 and 3.1 to

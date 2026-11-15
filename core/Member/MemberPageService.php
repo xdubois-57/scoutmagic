@@ -367,7 +367,7 @@ class MemberPageService
      *
      * @return array<int, array{
      *     id: int, subject: string, sent_at: string, section_name: string,
-     *     merge_purged: bool, not_sent: bool
+     *     merge_purged: bool, not_sent: bool, imported: bool
      * }>
      */
     private function getRecentMassMailEmails(MemberProfile $profile): array

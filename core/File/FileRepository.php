@@ -12,6 +12,9 @@ use Core\Database\Connection;
 
 class FileRepository
 {
+    private const RECORD_COLUMNS = 'id, relative_path, original_name, mime_type, size_bytes, role_min, '
+        . 'custom_resolver, encrypted, owner_member_id, owner_type, owner_id, public_id';
+
     public function __construct(private \PDO $pdo)
     {
     }
@@ -27,18 +30,150 @@ class FileRepository
 
     public function findById(int $id): ?FileRecord
     {
-        $stmt = $this->pdo->prepare(
-            'SELECT id, relative_path, original_name, mime_type, size_bytes, role_min, custom_resolver, encrypted, '
-                . 'owner_member_id, owner_type, owner_id
-             FROM files WHERE id = ?'
-        );
+        $stmt = $this->pdo->prepare('SELECT ' . self::RECORD_COLUMNS . ' FROM files WHERE id = ?');
         $stmt->execute([$id]);
         $row = $stmt->fetch(\PDO::FETCH_ASSOC);
 
-        if (!$row) {
+        return $row ? $this->hydrate($row) : null;
+    }
+
+    /**
+     * The file served under $publicId (issue #1109, Core\File\FilePublicIds).
+     * A malformed value never reaches the database.
+     */
+    public function findByPublicId(string $publicId): ?FileRecord
+    {
+        if (!FilePublicIds::isWellFormed($publicId)) {
             return null;
         }
 
+        $stmt = $this->pdo->prepare('SELECT ' . self::RECORD_COLUMNS . ' FROM files WHERE public_id = ?');
+        $stmt->execute([$publicId]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+        // A collation that folds case would match « abc » to « ABC »: the
+        // id is compared exactly here, whatever the column's collation.
+        if (!$row || !hash_equals((string) $row['public_id'], $publicId)) {
+            return null;
+        }
+
+        return $this->hydrate($row);
+    }
+
+    /**
+     * The public id of each of $fileIds that has one, keyed by file id —
+     * one query for a whole page's addresses (FilePublicIds::prime()).
+     *
+     * @param list<int> $fileIds
+     * @return array<int, string>
+     */
+    public function publicIdsFor(array $fileIds): array
+    {
+        $ids = array_values(array_unique(array_filter(
+            array_map('intval', $fileIds),
+            static fn(int $id): bool => $id > 0
+        )));
+        if ($ids === []) {
+            return [];
+        }
+
+        $found = [];
+        foreach (array_chunk($ids, 500) as $chunk) {
+            $placeholders = implode(',', array_fill(0, count($chunk), '?'));
+            $stmt = $this->pdo->prepare(
+                'SELECT id, public_id FROM files WHERE public_id IS NOT NULL AND id IN (' . $placeholders . ')'
+            );
+            $stmt->execute($chunk);
+            foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+                $found[(int) $row['id']] = (string) $row['public_id'];
+            }
+        }
+
+        return $found;
+    }
+
+    /**
+     * Give each of $fileIds that exists but has no public id yet one now,
+     * and return the public id of each that exists, keyed by file id
+     * (issue #1109). A page naming a file that predates the column then
+     * still gets its opaque address, rather than an empty one, without
+     * waiting for the scheduled backfill to reach that row.
+     *
+     * @param list<int> $fileIds
+     * @return array<int, string>
+     */
+    public function mintPublicIdsFor(array $fileIds): array
+    {
+        $ids = array_values(array_unique(array_filter(
+            array_map('intval', $fileIds),
+            static fn(int $id): bool => $id > 0
+        )));
+        if ($ids === []) {
+            return [];
+        }
+
+        foreach (array_chunk($ids, 500) as $chunk) {
+            $placeholders = implode(',', array_fill(0, count($chunk), '?'));
+            $stmt = $this->pdo->prepare(
+                'SELECT id FROM files WHERE public_id IS NULL AND id IN (' . $placeholders . ')'
+            );
+            $stmt->execute($chunk);
+            $this->mintPublicIds(array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN)));
+        }
+
+        // Read back rather than trust what was minted here: a concurrent
+        // request or the backfill may have given the row its id first.
+        return $this->publicIdsFor($ids);
+    }
+
+    /**
+     * Give up to $limit files that predate the column a public id, and say
+     * how many were done (issue #1109).
+     */
+    public function backfillPublicIds(int $limit = 500): int
+    {
+        $stmt = $this->pdo->prepare('SELECT id FROM files WHERE public_id IS NULL ORDER BY id LIMIT ?');
+        $stmt->bindValue(1, max(1, $limit), \PDO::PARAM_INT);
+        $stmt->execute();
+        $ids = array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN));
+
+        $this->mintPublicIds($ids);
+
+        return count($ids);
+    }
+
+    /**
+     * Each id is minted on its own, never derived from the row; a collision
+     * with an existing id (2^-128) is retried rather than reported.
+     *
+     * « AND public_id IS NULL »: the backfill and a page resolving its
+     * addresses can reach the same row at once; the second must not
+     * replace an id the first already handed out.
+     *
+     * @param list<int> $ids
+     */
+    private function mintPublicIds(array $ids): void
+    {
+        $update = $this->pdo->prepare('UPDATE files SET public_id = ? WHERE id = ? AND public_id IS NULL');
+        foreach ($ids as $id) {
+            for ($attempt = 0; ; $attempt++) {
+                try {
+                    $update->execute([FilePublicIds::generate(), $id]);
+                    break;
+                } catch (\PDOException $e) {
+                    if ($attempt >= 2) {
+                        throw $e;
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     */
+    private function hydrate(array $row): FileRecord
+    {
         return new FileRecord(
             id: (int) $row['id'],
             relativePath: $row['relative_path'],
@@ -50,7 +185,8 @@ class FileRepository
             encrypted: (bool) $row['encrypted'],
             ownerMemberId: $row['owner_member_id'] !== null ? (int) $row['owner_member_id'] : null,
             ownerType: $row['owner_type'] !== null ? (string) $row['owner_type'] : null,
-            ownerId: $row['owner_id'] !== null ? (int) $row['owner_id'] : null
+            ownerId: $row['owner_id'] !== null ? (int) $row['owner_id'] : null,
+            publicId: $row['public_id'] !== null ? (string) $row['public_id'] : null
         );
     }
 
@@ -69,11 +205,11 @@ class FileRepository
     ): int {
         $stmt = $this->pdo->prepare(
             'INSERT INTO files (relative_path, original_name, mime_type, size_bytes, role_min, module_id, created_by, '
-                . 'encrypted, owner_member_id, owner_type, owner_id)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                . 'encrypted, owner_member_id, owner_type, owner_id, public_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([$relativePath, $originalName, $mimeType, $sizeBytes, $roleMin, $moduleId, $createdBy,
-            $encrypted ? 1 : 0, $ownerMemberId, $ownerType, $ownerId]);
+            $encrypted ? 1 : 0, $ownerMemberId, $ownerType, $ownerId, FilePublicIds::generate()]);
 
         return (int) $this->pdo->lastInsertId();
     }

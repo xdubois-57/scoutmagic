@@ -1,0 +1,10 @@
+{
+    "id": "f-libelle-html",
+    "article_id": "a-valide",
+    "fields": [
+        {
+            "type": "short_text",
+            "label": "Âge <12 ans"
+        }
+    ]
+}

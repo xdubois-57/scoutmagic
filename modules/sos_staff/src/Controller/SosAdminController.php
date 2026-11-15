@@ -26,6 +26,7 @@ use Modules\Calendar\Api\CalendarEventLookupInterface;
 use Modules\SosStaff\Api\ProviderException;
 use Modules\SosStaff\Repository\OnCallAssignment;
 use Modules\SosStaff\Service\OnCallService;
+use Modules\SosStaff\Service\PhoneNumber;
 use Modules\SosStaff\Service\ProviderConfigService;
 use Modules\SosStaff\Service\RedirectReconciler;
 use Modules\SosStaff\Service\RedirectService;
@@ -151,6 +152,10 @@ class SosAdminController extends AbstractController
             'sos_year_notice' => $this->yearNotice(),
             'staff_options' => $staffOptions,
             'default_number_label' => $this->labelFromOptions($staffOptions, $defaultMemberId),
+            // Issue #1125: they stay in the grid, their duties with them,
+            // but a redirection to them would be refused — said here, where
+            // a duty is given them.
+            'unusable_mobiles' => $this->settingsService->getStaffWithUnusableMobile($effectiveYear->id),
             'year' => $year,
             'month' => $month,
             'today' => $today,
@@ -188,15 +193,30 @@ class SosAdminController extends AbstractController
 
         $effectiveYear = $this->operationalYear();
 
-        $staffOptions = $this->settingsService->getStaffOptions($effectiveYear->id);
-        $orderedStaffMemberIds = array_column($staffOptions, 'member_id');
+        $orderedStaffMemberIds = array_column(
+            $this->settingsService->getStaffOptions($effectiveYear->id),
+            'member_id'
+        );
+        // Only who may hold the default number (issue #1125).
+        $staffOptions = $this->settingsService->getDefaultNumberOptions($effectiveYear->id);
+
+        $selectedMemberId = $this->settingsService->resolveDefaultNumberMemberId($effectiveYear->id);
+        $staleMemberId = $this->settingsService->staleDefaultNumberMemberId($effectiveYear->id);
 
         return $this->render('@sos_staff/settings.html.twig', [
             'sos_page' => self::PAGE_SETTINGS,
             'sos_year_notice' => $this->yearNotice(),
             'staff_options' => $staffOptions,
-            'default_number_selection_member_id' => $this->settingsService
-                ->resolveDefaultNumberMemberId($effectiveYear->id),
+            'default_number_selection_member_id' => $selectedMemberId,
+            // A choice that no longer holds (issue #1125) is what is stored,
+            // not what is selected: comparing against it is what lets
+            // « Enregistrer » confirm the fallback the select now shows.
+            'default_number_saved_member_id' => $staleMemberId ?? $selectedMemberId,
+            'default_number_stale_label' => $staleMemberId !== null
+                ? ($this->settingsService->labelForMember($staleMemberId, $effectiveYear->id)
+                    ?? 'La personne choisie')
+                : null,
+            'unusable_mobiles' => $this->settingsService->getStaffWithUnusableMobile($effectiveYear->id),
             // §4b: the warning beside the default-number picker is shown
             // only when saving would really change who the SOS line rings
             // — exactly when the reconciliation after saving moves the line
@@ -255,6 +275,14 @@ class SosAdminController extends AbstractController
             return $this->json([
                 'success' => false,
                 'error' => "Aucun destinataire valide : ni garde aujourd'hui, ni numéro par défaut utilisable.",
+            ], 409);
+        }
+        if (PhoneNumber::normalize($status['expected_number']) === null) {
+            return $this->json([
+                'success' => false,
+                'error' => 'Le GSM de ' . $this->destinationLabel($status['expected_member_id'], $scoutYearId)
+                    . " dans Desk n'est pas un numéro de téléphone valide : la redirection ne peut pas être "
+                    . 'corrigée depuis cette page. Corrigez le GSM dans Desk, puis réimportez.',
             ], 409);
         }
         if ($status['action'] === null) {
@@ -349,17 +377,23 @@ class SosAdminController extends AbstractController
         $expectedNumber = $expected['number'];
 
         $action = null;
-        if ($live['error'] === null && $expectedNumber !== null) {
+        // A planned GSM that is no phone number is no misalignment a click
+        // can fix (review of #1194): offering « Resynchroniser » would refuse
+        // it and alert every chef d'unité once per click. The page and the
+        // attention point name the member instead.
+        if ($live['error'] === null && PhoneNumber::normalize($expectedNumber) !== null) {
             if (!$live['active']) {
                 $action = 'reactivate';
-            } elseif ($live['number'] !== $expectedNumber) {
+            } elseif (!PhoneNumber::same($live['number'], $expectedNumber)) {
+                // As numbers, not strings: the operator answers in its own
+                // spelling (issue #1125).
                 $action = 'resync';
             }
         }
 
         $expectedLabel = null;
         foreach ($staffOptions as $option) {
-            if ($option['mobile'] === $expectedNumber) {
+            if (PhoneNumber::same($option['mobile'], $expectedNumber)) {
                 $expectedLabel = $option['label'];
                 break;
             }
@@ -392,6 +426,13 @@ class SosAdminController extends AbstractController
             'redirect_action' => $status['action'],
             'redirect_expected_number' => $status['expected_number'],
             'redirect_expected_label' => $status['expected_label'],
+            // Who the planned destination is when their GSM is no phone
+            // number (review of #1194): no button to offer, but the block
+            // must say why rather than fall silent.
+            'redirect_unusable_label' => $status['expected_number'] !== null
+                    && PhoneNumber::normalize($status['expected_number']) === null
+                ? $this->destinationLabel($status['expected_member_id'], $this->operationalYear()->id)
+                : null,
         ];
     }
 
@@ -582,7 +623,7 @@ class SosAdminController extends AbstractController
         $memberId = (int) $data['member_id'];
         $effectiveYear = $this->operationalYear();
         $isStaffOption = false;
-        foreach ($this->settingsService->getStaffOptions($effectiveYear->id) as $option) {
+        foreach ($this->settingsService->getDefaultNumberOptions($effectiveYear->id) as $option) {
             if ($option['member_id'] === $memberId) {
                 $isStaffOption = true;
                 break;
@@ -793,7 +834,7 @@ class SosAdminController extends AbstractController
         $memberId = null;
         if ($state->number !== null) {
             foreach ($this->settingsService->getStaffOptions($scoutYearId) as $option) {
-                if ($option['mobile'] === $state->number) {
+                if (PhoneNumber::same($option['mobile'], $state->number)) {
                     $label = $option['label'];
                     $memberId = (int) $option['member_id'];
                     break;
@@ -1001,6 +1042,10 @@ class SosAdminController extends AbstractController
                 . 'fois par panne.',
             RedirectReconciler::NO_DESTINATION => "Attention : personne n'est de garde et aucun numéro par "
                 . "défaut n'est utilisable — choisissez un numéro par défaut dans les réglages.",
+            RedirectReconciler::UNUSABLE_NUMBER => 'Attention : le GSM de '
+                . $this->destinationLabel($reconciled['expected_member_id'], $scoutYearId)
+                . " dans Desk n'est pas un numéro de téléphone valide, la redirection n'a pas été modifiée. "
+                . 'Corrigez le GSM dans Desk, puis réimportez.',
             default => "La téléphonie n'est pas configurée : la redirection ne suit pas le planning.",
         };
 

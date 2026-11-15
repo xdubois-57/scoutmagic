@@ -127,6 +127,18 @@ le perd — ou l'a transmis à quelqu'un qui ne devait pas le recevoir —
 nouveau et l'envoie au locataire par email. L'ancien cesse de fonctionner
 immédiatement.
 
+Cet accusé part tout de suite, sans que personne ait lu la demande, vers
+l'adresse saisie et au nom de l'unité. Pour une demande envoyée **sans être
+connecté**, il ne reprend donc rien de ce que le visiteur a tapé : il
+commence par « Bonjour Madame, Monsieur », et donne le bien, les dates, la
+référence et le lien. Sinon, n'importe qui pourrait faire envoyer par
+l'unité son propre texte à une adresse de son choix. Une demande envoyée
+depuis un compte connecté garde le nom. Vos réponses, elles, portent
+toujours le nom du locataire : vous les envoyez après avoir lu la demande.
+
+Le nom du demandeur tient en 150 caractères, sur une ligne, sans adresse
+web : le formulaire refuse le reste avec une phrase qui le dit.
+
 Les dates sont **bloquées** pendant un délai réglable — 30 jours par
 défaut, jamais au-delà du début du séjour —, le temps que vous
 répondiez. Ce blocage qui expire **ne refuse rien** : la demande reste en
@@ -134,6 +146,20 @@ attente, les dates redeviennent simplement libres pour les autres, et la
 page de la réservation vous en avertit. Vous recevez un rappel juste
 avant. Une **option**, elle, fait expirer la réservation si elle passe
 sans confirmation.
+
+Deux exceptions, pour qu'une seule demande ne puisse pas prendre tout le
+calendrier : un séjour de **plus de 30 nuits** ne bloque rien de
+lui-même, et une même adresse e-mail, ou un même compte connecté, ne peut
+avoir que **deux blocages en cours** à la fois, tous biens confondus. La
+demande est enregistrée et vous parvient comme les autres ; c'est à vous
+de poser une option si elle mérite les dates. Un blocage automatique de
+plus de 14 nuits apparaît dans les points d'attention, tant que la
+demande attend votre première réponse.
+
+Chaque bien a aussi, par défaut, une **durée maximum de 30 nuits** et un
+**horizon de 548 jours** (18 mois) ; les biens qui n'avaient pas de
+limite les reçoivent à la mise à jour. « Illimité » reste possible en
+tapant 0 dans les réglages, en connaissance de cause.
 
 Vous recevez aussi une notification à chaque nouvelle demande — dans
 l'application, en push et par email, chaque canal se réglant dans vos
@@ -353,14 +379,27 @@ aucune réservation, et personne n'a de tri à faire.
 
 Quand un e-mail est rattaché à une réservation, ses gestionnaires
 reçoivent une notification « Nouveau message du locataire », qui mène à
-la page « Courrier ». Chacun a sa **pastille de non-lus** : « Courrier (2) »
+la page « Courrier ».
+
+**« Expéditeur non vérifié ».** N'importe qui peut écrire l'adresse d'un
+locataire comme expéditeur d'un e-mail. Quand le serveur qui reçoit le
+courrier de l'unité n'a pas pu confirmer que le message vient bien de
+cette adresse, le message est quand même rattaché, mais il porte ce
+marquage sur la page Courrier, et la notification devient « Message non
+vérifié se présentant comme le locataire ». Beaucoup de messages
+légitimes le portent (de petits fournisseurs de messagerie ne publient pas
+de quoi le vérifier) : ce n'est pas une preuve de fraude, c'est une raison
+de ne pas agir sur sa seule foi — un changement de compte bancaire ou une
+annulation se confirment par téléphone. Un tel message ne fait jamais
+apprendre son adresse à la réservation, même si vous le rattachez à la
+main. Chacun a sa **pastille de non-lus** : « Courrier (2) »
 dans les onglets de la réservation, et un encadré « Nouveaux messages »
 sur la vue d'ensemble du bien. Elle retombe quand **vous** ouvrez la page,
 pas quand un autre gestionnaire l'ouvre.
 
 Une pièce jointe — d'un e-mail reçu comme d'un e-mail envoyé depuis la
 boîte de l'unité — devient un document de la réservation quand c'est un
-PDF, un fichier Word ou une photo, en « Non classé » et en visibilité
+PDF, un fichier Word (`.docx`) ou une photo, en « Non classé » et en visibilité
 interne — jamais présumée être le contrat signé. Vous la reclassez en un
 clic. Un fichier que la réservation a déjà, comme le contrat généré puis
 renvoyé à la main, n'est pas ajouté une seconde fois. Les autres fichiers
@@ -378,7 +417,13 @@ trésorier du groupe, un conjoint, une adresse de travail. Un e-mail venant
 de l'une d'elles, ou envoyé à l'une d'elles, est reconnu comme s'il
 s'agissait du locataire. Vous en ajoutez ou en retirez une ; chaque
 changement figure dans l'historique de la réservation, et les messages
-déjà rattachés restent quand vous en retirez une. Quand quelqu'un
+déjà rattachés restent quand vous en retirez une. Un gestionnaire qui
+n'est pas du staff d'unité choisit l'adresse dans une liste : celles qui
+apparaissent déjà dans le courrier de la réservation. Le staff d'unité
+peut en taper une autre. Une adresse de l'unité elle-même (sa boîte, son
+adresse d'envoi ou de contact) est toujours refusée, et une adresse tapée
+à la main ne rattache que les messages datés de la demande à 60 jours
+après le départ. Quand quelqu'un
 rattache un message à la main depuis le courrier général de l'unité, ou
 que l'IA tranche,
 l'adresse de l'expéditeur (ou le destinataire unique d'un e-mail envoyé)

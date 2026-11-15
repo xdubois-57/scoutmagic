@@ -1,0 +1,10 @@
+{
+    "id": "f-sans-question",
+    "article_id": "a-valide",
+    "fields": [
+        {
+            "type": "text",
+            "content": "<p>Rien à remplir.</p>"
+        }
+    ]
+}

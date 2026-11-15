@@ -57,7 +57,8 @@ class FileControllerTest extends TestCase
             owner_type TEXT,
             owner_id INTEGER,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            created_by INTEGER
+            created_by INTEGER,
+            public_id TEXT UNIQUE
         )');
         $this->pdo->exec('CREATE TABLE event_log (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -85,23 +86,26 @@ class FileControllerTest extends TestCase
     {
         $id = $this->fileRepository->create('a.pdf', 'a.pdf', 'application/pdf', 100, 'admin', null, null);
 
-        $response = $this->controller->thumbnail(new Request('GET', "/files/{$id}/thumbnail", [], [], [], []), ['id' => (string) $id]);
+        $response = $this->controller->thumbnail($this->fileRequest(), ['file' => $this->segmentOf($id)]);
 
         $this->assertSame(403, $response->getStatusCode());
     }
 
-    public function testThumbnailReturns403ForUnknownFile(): void
+    public function testThumbnailReturns404ForUnknownFile(): void
     {
-        $response = $this->controller->thumbnail(new Request('GET', '/files/999/thumbnail', [], [], [], []), ['id' => '999']);
+        $response = $this->controller->thumbnail(
+            new Request('GET', '/files/x/thumbnail', [], [], [], []),
+            ['file' => str_repeat('U', 22)]
+        );
 
-        $this->assertSame(403, $response->getStatusCode());
+        $this->assertSame(404, $response->getStatusCode());
     }
 
     public function testThumbnailReturns415ForNonPdfMimeType(): void
     {
         $id = $this->fileRepository->create('a.jpg', 'a.jpg', 'image/jpeg', 100, 'intendant', null, null);
 
-        $response = $this->controller->thumbnail(new Request('GET', "/files/{$id}/thumbnail", [], [], [], []), ['id' => (string) $id]);
+        $response = $this->controller->thumbnail($this->fileRequest(), ['file' => $this->segmentOf($id)]);
 
         $this->assertSame(415, $response->getStatusCode());
     }
@@ -112,7 +116,7 @@ class FileControllerTest extends TestCase
         $storage = new EncryptedFileStorageService($this->fileRepository, $encryption, $this->storagePath);
         $fileId = $storage->store('not a real pdf', 'application/pdf', 'a.pdf', 'test', 'intendant');
 
-        $response = $this->controller->thumbnail(new Request('GET', "/files/{$fileId}/thumbnail", [], [], [], []), ['id' => (string) $fileId]);
+        $response = $this->controller->thumbnail($this->fileRequest(), ['file' => $this->segmentOf($fileId)]);
 
         $this->assertSame(404, $response->getStatusCode());
     }
@@ -130,7 +134,7 @@ class FileControllerTest extends TestCase
     {
         $id = $this->fileRepository->create('absent.zip', 'absent.zip', 'application/zip', 10, 'intendant', null, null);
 
-        $response = $this->controller->serve(new Request('GET', "/files/{$id}", [], [], [], []), ['id' => (string) $id]);
+        $response = $this->controller->serve($this->fileRequest(), ['file' => $this->segmentOf($id)]);
 
         $this->assertSame(404, $response->getStatusCode());
         $this->assertSame("Ce fichier n'est plus sur le serveur.", $response->getBody());
@@ -150,7 +154,7 @@ class FileControllerTest extends TestCase
         $stmt->execute(['doc.pdf', 'doc.pdf', 'application/pdf', 7, 'identified', 42]);
         $id = (int) $this->pdo->lastInsertId();
 
-        $response = $controller->serve(new Request('GET', "/files/{$id}", [], [], [], []), ['id' => (string) $id]);
+        $response = $controller->serve($this->fileRequest(), ['file' => $this->segmentOf($id)]);
 
         $this->assertSame(200, $response->getStatusCode());
         $stmt = $this->pdo->query("SELECT * FROM event_log WHERE event_type = 'owner_scoped_file_accessed'");
@@ -184,7 +188,7 @@ class FileControllerTest extends TestCase
         $stmt->execute(['doc.pdf', 'doc.pdf', 'application/pdf', 7, 'identified', 42]);
         $id = (int) $this->pdo->lastInsertId();
 
-        $response = $controller->serve(new Request('GET', "/files/{$id}", [], [], [], []), ['id' => (string) $id]);
+        $response = $controller->serve($this->fileRequest(), ['file' => $this->segmentOf($id)]);
 
         $this->assertSame(200, $response->getStatusCode());
 
@@ -218,7 +222,7 @@ class FileControllerTest extends TestCase
         $stmt->execute(['pic.jpg', 'pic.jpg', 'image/jpeg', 7, 'public']);
         $id = (int) $this->pdo->lastInsertId();
 
-        $response = $controller->serve(new Request('GET', "/files/{$id}", [], [], [], []), ['id' => (string) $id]);
+        $response = $controller->serve($this->fileRequest(), ['file' => $this->segmentOf($id)]);
 
         $this->assertSame(200, $response->getStatusCode());
         $stmt = $this->pdo->query("SELECT COUNT(*) FROM event_log WHERE event_type = 'owner_scoped_file_accessed'");
@@ -255,8 +259,8 @@ class FileControllerTest extends TestCase
         $stmt->execute(['owned.pdf', 'owned.pdf', 'application/pdf', 7, 'public', 'granted', 1]);
         $owned = (int) $this->pdo->lastInsertId();
 
-        $plainResponse = $controller->serve(new Request('GET', "/files/{$plain}", [], [], [], []), ['id' => (string) $plain]);
-        $ownedResponse = $controller->serve(new Request('GET', "/files/{$owned}", [], [], [], []), ['id' => (string) $owned]);
+        $plainResponse = $controller->serve($this->fileRequest(), ['file' => $this->segmentOf($plain)]);
+        $ownedResponse = $controller->serve($this->fileRequest(), ['file' => $this->segmentOf($owned)]);
 
         $this->assertSame('public, max-age=86400', $plainResponse->getHeaders()['Cache-Control']);
         $this->assertSame(200, $ownedResponse->getStatusCode());
@@ -283,12 +287,12 @@ class FileControllerTest extends TestCase
         [$controller, $refused, $allowed] = $this->indexingFixture();
 
         $refusedResponse = $controller->serve(
-            new Request('GET', "/files/{$refused}", [], [], [], []),
-            ['id' => (string) $refused]
+            $this->fileRequest(),
+            ['file' => $this->segmentOf($refused)]
         );
         $allowedResponse = $controller->serve(
-            new Request('GET', "/files/{$allowed}", [], [], [], []),
-            ['id' => (string) $allowed]
+            $this->fileRequest(),
+            ['file' => $this->segmentOf($allowed)]
         );
 
         $this->assertSame(200, $refusedResponse->getStatusCode());
@@ -311,13 +315,13 @@ class FileControllerTest extends TestCase
         [$controller, $refused] = $this->indexingFixture();
 
         $first = $controller->serve(
-            new Request('GET', "/files/{$refused}", [], [], [], []),
-            ['id' => (string) $refused]
+            $this->fileRequest(),
+            ['file' => $this->segmentOf($refused)]
         );
         $etag = $first->getHeaders()['ETag'];
 
         $revalidation = new Request('GET', "/files/{$refused}", [], [], [], ['HTTP_IF_NONE_MATCH' => $etag]);
-        $response = $controller->serve($revalidation, ['id' => (string) $refused]);
+        $response = $controller->serve($revalidation, ['file' => $this->segmentOf($refused)]);
 
         $this->assertSame(304, $response->getStatusCode());
         $this->assertSame('noindex', $response->getHeaders()['X-Robots-Tag'] ?? null);
@@ -390,7 +394,7 @@ class FileControllerTest extends TestCase
         file_put_contents($this->storagePath . '/doc.pdf', self::BLANK_PDF);
         $id = $this->fileRepository->create('doc.pdf', 'doc.pdf', 'application/pdf', strlen(self::BLANK_PDF), 'public', null, null);
 
-        $first = $this->controller->thumbnail(new Request('GET', "/files/{$id}/thumbnail", [], [], [], []), ['id' => (string) $id]);
+        $first = $this->controller->thumbnail($this->fileRequest(), ['file' => $this->segmentOf($id)]);
         $this->assertSame(200, $first->getStatusCode());
 
         $cachePath = $this->storagePath . '/temp/pdf_thumb/' . $id . '.jpg';
@@ -399,7 +403,7 @@ class FileControllerTest extends TestCase
         // Delete the source PDF: a second call must still succeed, proving it
         // served the cached JPEG rather than re-rasterizing.
         unlink($this->storagePath . '/doc.pdf');
-        $second = $this->controller->thumbnail(new Request('GET', "/files/{$id}/thumbnail", [], [], [], []), ['id' => (string) $id]);
+        $second = $this->controller->thumbnail($this->fileRequest(), ['file' => $this->segmentOf($id)]);
         $this->assertSame(200, $second->getStatusCode());
         $this->assertSame($first->getBody(), $second->getBody());
     }
@@ -415,7 +419,7 @@ class FileControllerTest extends TestCase
         $controller = new FileController(new Environment(new ArrayLoader(self::REFUSAL_TEMPLATE)), new FileAccessGuard($this->fileRepository, Role::PUBLIC), $this->storagePath, $storage, $this->imageVariantService);
 
         $fileId = $storage->store(self::BLANK_PDF, 'application/pdf', 'doc.pdf', 'documents', 'public', null, null);
-        $response = $controller->thumbnail(new Request('GET', "/files/{$fileId}/thumbnail", [], [], [], []), ['id' => (string) $fileId]);
+        $response = $controller->thumbnail($this->fileRequest(), ['file' => $this->segmentOf($fileId)]);
 
         $this->assertSame(200, $response->getStatusCode());
         $this->assertFileDoesNotExist(
@@ -430,7 +434,7 @@ class FileControllerTest extends TestCase
         file_put_contents($this->storagePath . '/pic.jpg', 'the-file-bytes');
         $id = $this->fileRepository->create('pic.jpg', 'pic.jpg', 'image/jpeg', 14, 'public', null, null);
 
-        $response = $this->controller->serve(new Request('GET', "/files/{$id}", [], [], [], []), ['id' => (string) $id]);
+        $response = $this->controller->serve($this->fileRequest(), ['file' => $this->segmentOf($id)]);
 
         $this->assertSame(200, $response->getStatusCode());
         // Streamed from disk: the response points at the file rather than
@@ -476,7 +480,7 @@ class FileControllerTest extends TestCase
         $controller = new FileController(new Environment(new ArrayLoader(self::REFUSAL_TEMPLATE)), $guard, $this->storagePath, new EncryptedFileStorageService($this->fileRepository, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)), $this->storagePath), $this->imageVariantService);
         $id = $this->storeFileWithVariant('public');
 
-        $response = $controller->variant(new Request('GET', "/files/{$id}/thumb", [], [], [], []), ['id' => (string) $id, 'variant' => 'thumb']);
+        $response = $controller->variant($this->fileRequest(), ['file' => $this->segmentOf($id), 'variant' => 'thumb']);
 
         $this->assertSame(200, $response->getStatusCode());
         $this->assertSame('image/webp', $response->getHeaders()['Content-Type']);
@@ -493,7 +497,7 @@ class FileControllerTest extends TestCase
         $controller = new FileController(new Environment(new ArrayLoader(self::REFUSAL_TEMPLATE)), $guard, $this->storagePath, new EncryptedFileStorageService($this->fileRepository, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)), $this->storagePath), $this->imageVariantService);
         $id = $this->storeFileWithVariant('admin');
 
-        $response = $controller->variant(new Request('GET', "/files/{$id}/thumb", [], [], [], []), ['id' => (string) $id, 'variant' => 'thumb']);
+        $response = $controller->variant($this->fileRequest(), ['file' => $this->segmentOf($id), 'variant' => 'thumb']);
 
         $this->assertSame(403, $response->getStatusCode());
     }
@@ -508,9 +512,68 @@ class FileControllerTest extends TestCase
         $controller = new FileController(new Environment(new ArrayLoader(self::REFUSAL_TEMPLATE)), $guard, $this->storagePath, new EncryptedFileStorageService($this->fileRepository, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)), $this->storagePath), $this->imageVariantService);
         $id = $this->storeFileWithVariant('identified', 42);
 
-        $response = $controller->variant(new Request('GET', "/files/{$id}/thumb", [], [], [], []), ['id' => (string) $id, 'variant' => 'thumb']);
+        $response = $controller->variant($this->fileRequest(), ['file' => $this->segmentOf($id), 'variant' => 'thumb']);
 
         $this->assertSame(403, $response->getStatusCode());
+    }
+
+    /**
+     * Issue #1108, end to end through the controller: the same person's
+     * photo answers 403 for its original and 200 for its thumbnail to an
+     * account with no link to the child, and 200 for both to a parent
+     * linked to them. The refusal is journalled like any other.
+     */
+    public function testAPersonPhotoGivesAStrangerTheThumbnailAndNotTheOriginal(): void
+    {
+        $id = $this->storeFileWithVariant('identified');
+        $this->fileRepository->updateOwner($id, \Core\Photo\PersonPhotoOwnershipChecker::OWNER_MEMBER, 42);
+
+        $stranger = $this->photoController([7]);
+        $this->assertSame(
+            403,
+            $stranger->serve($this->fileRequest(), ['file' => $this->segmentOf($id)])->getStatusCode()
+        );
+        $this->assertSame(
+            200,
+            $stranger->variant($this->fileRequest(), ['file' => $this->segmentOf($id), 'variant' => 'thumb'])
+                ->getStatusCode()
+        );
+        $this->assertSame(
+            1,
+            (int) $this->pdo->query("SELECT COUNT(*) FROM event_log WHERE event_type = 'file_access_denied'")
+                ->fetchColumn()
+        );
+
+        $parent = $this->photoController([7, 42]);
+        $this->assertSame(
+            200,
+            $parent->serve($this->fileRequest(), ['file' => $this->segmentOf($id)])->getStatusCode()
+        );
+    }
+
+    /** @param array<int, int> $linkedMemberIds */
+    private function photoController(array $linkedMemberIds): FileController
+    {
+        $guard = new FileAccessGuard($this->fileRepository, Role::IDENTIFIED, $linkedMemberIds, [
+            \Core\Photo\PersonPhotoOwnershipChecker::forMemberPhotos(),
+            \Core\Photo\PersonPhotoOwnershipChecker::forAccountPhotos(3),
+        ]);
+        $controller = new FileController(
+            new Environment(new ArrayLoader(self::REFUSAL_TEMPLATE)),
+            $guard,
+            $this->storagePath,
+            new EncryptedFileStorageService(
+                $this->fileRepository,
+                new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)),
+                $this->storagePath
+            ),
+            $this->imageVariantService
+        );
+        $controller->setJournalService(
+            new \Core\Journal\JournalService(new \Core\Journal\JournalRepository($this->pdo))
+        );
+
+        return $controller;
     }
 
     public function testVariantAllowsAnOwnerScopedFileTheSessionDoesOwn(): void
@@ -519,7 +582,7 @@ class FileControllerTest extends TestCase
         $controller = new FileController(new Environment(new ArrayLoader(self::REFUSAL_TEMPLATE)), $guard, $this->storagePath, new EncryptedFileStorageService($this->fileRepository, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)), $this->storagePath), $this->imageVariantService);
         $id = $this->storeFileWithVariant('identified', 42);
 
-        $response = $controller->variant(new Request('GET', "/files/{$id}/thumb", [], [], [], []), ['id' => (string) $id, 'variant' => 'thumb']);
+        $response = $controller->variant($this->fileRequest(), ['file' => $this->segmentOf($id), 'variant' => 'thumb']);
 
         $this->assertSame(200, $response->getStatusCode());
     }
@@ -530,7 +593,10 @@ class FileControllerTest extends TestCase
         $controller = new FileController(new Environment(new ArrayLoader(self::REFUSAL_TEMPLATE)), $guard, $this->storagePath, new EncryptedFileStorageService($this->fileRepository, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)), $this->storagePath), $this->imageVariantService);
         $id = $this->storeFileWithVariant('public');
 
-        $response = $controller->variant(new Request('GET', "/files/{$id}/original", [], [], [], []), ['id' => (string) $id, 'variant' => 'original']);
+        $response = $controller->variant(
+            $this->fileRequest(),
+            ['file' => $this->segmentOf($id), 'variant' => 'original']
+        );
 
         $this->assertSame(404, $response->getStatusCode());
     }
@@ -548,7 +614,7 @@ class FileControllerTest extends TestCase
 
         $response = $controller->variant(
             new Request('GET', "/files/{$id}/../../../etc/passwd", [], [], [], []),
-            ['id' => (string) $id, 'variant' => '../../../etc/passwd']
+            ['file' => $this->segmentOf($id), 'variant' => '../../../etc/passwd']
         );
 
         $this->assertSame(404, $response->getStatusCode());
@@ -568,7 +634,7 @@ class FileControllerTest extends TestCase
         $stmt->execute(['core/member_photos/nogen.jpg', 'photo.jpg', 'image/jpeg', 100, 'public']);
         $id = (int) $this->pdo->lastInsertId();
 
-        $response = $controller->variant(new Request('GET', "/files/{$id}/thumb", [], [], [], []), ['id' => (string) $id, 'variant' => 'thumb']);
+        $response = $controller->variant($this->fileRequest(), ['file' => $this->segmentOf($id), 'variant' => 'thumb']);
 
         $this->assertSame(404, $response->getStatusCode());
     }
@@ -589,7 +655,7 @@ class FileControllerTest extends TestCase
 
         $response = $this->controller->serve(
             new Request('GET', "/files/{$id}", [], [], [], ['HTTP_SEC_FETCH_DEST' => 'image']),
-            ['id' => (string) $id]
+            ['file' => $this->segmentOf($id)]
         );
 
         $this->assertSame('inline', $response->getHeaders()['Content-Disposition'] ?? null);
@@ -615,7 +681,7 @@ class FileControllerTest extends TestCase
 
         $response = $this->controller->serve(
             new Request('GET', "/files/{$id}", [], [], [], ['HTTP_SEC_FETCH_DEST' => 'document']),
-            ['id' => (string) $id]
+            ['file' => $this->segmentOf($id)]
         );
 
         $this->assertStringStartsWith(
@@ -641,8 +707,8 @@ class FileControllerTest extends TestCase
         $id = $this->seedImage();
 
         $response = $this->controller->serve(
-            new Request('GET', "/files/{$id}", [], [], [], []),
-            ['id' => (string) $id]
+            $this->fileRequest(),
+            ['file' => $this->segmentOf($id)]
         );
 
         $this->assertSame('inline', $response->getHeaders()['Content-Disposition'] ?? null);
@@ -659,7 +725,7 @@ class FileControllerTest extends TestCase
         foreach (['document', 'image', ''] as $dest) {
             $response = $this->controller->serve(
                 new Request('GET', "/files/{$id}", [], [], [], $dest === '' ? [] : ['HTTP_SEC_FETCH_DEST' => $dest]),
-                ['id' => (string) $id]
+                ['file' => $this->segmentOf($id)]
             );
 
             $this->assertStringStartsWith(
@@ -667,6 +733,131 @@ class FileControllerTest extends TestCase
                 (string) ($response->getHeaders()['Content-Disposition'] ?? '')
             );
         }
+    }
+
+    /**
+     * Issue #1109: the file is served under its opaque public id, through
+     * the same guard.
+     */
+    public function testServeAnswersTheOpaqueAddress(): void
+    {
+        $id = $this->seedImage();
+        $this->pdo->prepare('UPDATE files SET public_id = ? WHERE id = ?')->execute([str_repeat('A', 22), $id]);
+        $controller = $this->publicController();
+
+        $response = $controller->serve(new Request('GET', '/files/x', [], [], [], []), ['file' => str_repeat('A', 22)]);
+
+        $this->assertSame(200, $response->getStatusCode());
+    }
+
+    /**
+     * An unknown or malformed opaque id is a 404 before the guard: nothing
+     * is journalled as a refusal, and no guess reaches a file.
+     *
+     * @return iterable<string, array{0: string}>
+     */
+    public static function segmentsThatNameNoFile(): iterable
+    {
+        yield 'an unknown public id' => [str_repeat('Z', 22)];
+        yield 'a malformed value' => ['abc.def'];
+        yield 'a public id one character short' => [str_repeat('A', 21)];
+        yield 'the sequential id' => ['1'];
+        yield 'a number followed by letters' => ['1abc'];
+        yield 'a negative number' => ['-1'];
+        yield 'zero' => ['0'];
+        yield 'empty' => [''];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('segmentsThatNameNoFile')]
+    public function testASegmentThatNamesNoFileIsA404(string $segment): void
+    {
+        $id = $this->seedImage();
+        $this->pdo->prepare('UPDATE files SET public_id = ? WHERE id = ?')->execute([str_repeat('A', 22), $id]);
+        $controller = $this->publicController();
+        $controller->setJournalService(new JournalService(new JournalRepository($this->pdo)));
+
+        $serve = $controller->serve(new Request('GET', '/files/x', [], [], [], []), ['file' => $segment]);
+        $variant = $controller->variant(
+            new Request('GET', '/files/x/md', [], [], [], []),
+            ['file' => $segment, 'variant' => 'md']
+        );
+        $thumbnail = $controller->thumbnail(
+            new Request('GET', '/files/x/thumbnail', [], [], [], []),
+            ['file' => $segment]
+        );
+
+        $this->assertSame([404, 404, 404], [
+            $serve->getStatusCode(),
+            $variant->getStatusCode(),
+            $thumbnail->getStatusCode(),
+        ]);
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM event_log')->fetchColumn());
+    }
+
+    /**
+     * A refusal on the opaque address journals the numeric id, never the
+     * public one: the journal must not become a list of working addresses.
+     */
+    public function testARefusalOnTheOpaqueAddressJournalsTheNumericIdOnly(): void
+    {
+        $id = $this->fileRepository->create('secret.pdf', 'secret.pdf', 'application/pdf', 1, 'superadmin', null, null);
+        $public = (string) $this->fileRepository->findById($id)?->publicId;
+        $this->controller->setJournalService(new JournalService(new JournalRepository($this->pdo)));
+
+        $response = $this->controller->serve(new Request('GET', '/files/x', [], [], [], []), ['file' => $public]);
+
+        $this->assertSame(403, $response->getStatusCode());
+        $context = (string) $this->pdo->query("SELECT context FROM event_log WHERE event_type = 'file_access_denied'")
+            ->fetchColumn();
+        $this->assertSame($id, json_decode($context, true)['file_id']);
+        $this->assertStringNotContainsString($public, $context);
+    }
+
+    /**
+     * Issue #1109: the sequential address names nothing any more — a 404,
+     * like any other segment that is not a public id, so counting reaches
+     * no file.
+     */
+    public function testTheSequentialAddressNamesNothing(): void
+    {
+        $id = $this->seedImage();
+        $this->segmentOf($id);
+
+        $response = $this->publicController()->serve(
+            new Request('GET', '/files/' . $id, [], [], [], []),
+            ['file' => (string) $id]
+        );
+
+        $this->assertSame(404, $response->getStatusCode());
+    }
+
+    /**
+     * The address segment of file $id: its public id, minted here for a row
+     * a test inserted by hand.
+     */
+    private function fileRequest(): Request
+    {
+        return new Request('GET', '/files/x', [], [], [], []);
+    }
+
+    private function segmentOf(int $id): string
+    {
+        $this->fileRepository->backfillPublicIds();
+
+        return (string) $this->fileRepository->findById($id)?->publicId;
+    }
+
+    private function publicController(): FileController
+    {
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+
+        return new FileController(
+            \Tests\TestTwig::withTemplates(self::REFUSAL_TEMPLATE),
+            new FileAccessGuard($this->fileRepository, Role::PUBLIC),
+            $this->storagePath,
+            new EncryptedFileStorageService($this->fileRepository, $encryption, $this->storagePath),
+            $this->imageVariantService
+        );
     }
 
     private function seedImage(): int

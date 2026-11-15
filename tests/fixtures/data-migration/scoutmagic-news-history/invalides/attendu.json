@@ -1,0 +1,28 @@
+{
+    "_": "Ce que l'import doit faire de chaque élément de invalides/ (référence => motif). Ce fichier ne fait pas partie de l'archive.",
+    "imported": [
+        "a-valide",
+        "f-valide-1"
+    ],
+    "ignored": {
+        "a-sans-titre": "Sans titre",
+        "a-futur": "Date de publication à venir",
+        "a-brouillon": "Pas publiée sur l'ancien site",
+        "a-sans-fuseau": "Date de publication absente ou illisible",
+        "a-date-impossible": "Date de publication absente ou illisible",
+        "a-resume-long": "Résumé de plus de 300 caractères",
+        "a-resume-nombre": "Champ de type inattendu",
+        "a-nom-different": "Nom de fichier différent de l'identifiant",
+        "articles/a-id-numerique.json": "Identifiant d'origine absent ou qui n'est pas une chaîne de caractères",
+        "articles/a-pas-du-json.json": "Fichier illisible",
+        "f-orphelin": "Formulaire sans actualité reconnue",
+        "f-sans-actualite": "Formulaire sans actualité reconnue",
+        "f-type-inconnu": "Question d'un type non reconnu",
+        "f-sans-options": "Question à choix sans options valides",
+        "f-libelle-html": "Question sans libellé ou au libellé invalide",
+        "f-sans-question": "Formulaire sans question",
+        "f-valide-2": "L'actualité a déjà un formulaire",
+        "responses/f-0412.jsonl": "Réponses de formulaire : jamais importées",
+        "export/journal.csv": "Fichier non prévu par ce format"
+    }
+}

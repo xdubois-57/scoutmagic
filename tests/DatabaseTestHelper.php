@@ -220,6 +220,7 @@ class DatabaseTestHelper
             notification_discretion INTEGER NOT NULL DEFAULT 0,
             help_discovery_snoozed_until TEXT,
             push_invitation_dismissed_at TEXT,
+            webauthn_user_handle BLOB UNIQUE,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             last_login_at TEXT
         )');
@@ -488,7 +489,8 @@ class DatabaseTestHelper
             owner_type TEXT,
             owner_id INTEGER,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            created_by INTEGER
+            created_by INTEGER,
+            public_id TEXT UNIQUE
         )');
 
         $pdo->exec('CREATE TABLE webauthn_credentials (

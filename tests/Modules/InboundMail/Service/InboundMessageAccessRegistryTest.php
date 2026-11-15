@@ -280,9 +280,11 @@ class InboundMessageAccessRegistryTest extends TestCase
         );
         $controller->setJournalService(new JournalService(new JournalRepository($this->pdo)));
 
+        // Addressed by its opaque public id (issue #1109).
+        $files->backfillPublicIds();
         $response = $controller->serve(
-            new Request('GET', "/files/{$fileId}", [], [], [], []),
-            ['id' => (string) $fileId]
+            new Request('GET', '/files/x', [], [], [], []),
+            ['file' => (string) $files->findById($fileId)?->publicId]
         );
 
         $this->assertSame(403, $response->getStatusCode());

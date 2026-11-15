@@ -63,6 +63,27 @@ class PurgeRateLimitHandlerTest extends TestCase
         $this->assertSame(1, $this->repository->countSince('recent', 'comment', '2000-01-01 00:00:00'));
     }
 
+    /**
+     * Issue #1128: a public board's AI budget counts over a day, so its
+     * rows outlive the visitors' six hours — and still go after a day.
+     */
+    public function testKeepsABoardBudgetForADayButNoLonger(): void
+    {
+        $stmt = $this->pdo->prepare('INSERT INTO retro_rate_limits (identifier_hash, action_type, created_at) VALUES (?, ?, ?)');
+        $twelveHoursAgo = (new \DateTimeImmutable('-12 hours'))->format('Y-m-d H:i:s');
+        $twoDaysAgo = (new \DateTimeImmutable('-2 days'))->format('Y-m-d H:i:s');
+        $stmt->execute(['visitor', 'shorten', $twelveHoursAgo]);
+        $stmt->execute(['board', 'board_ai_moderation', $twelveHoursAgo]);
+        $stmt->execute(['old-board', 'board_ai_moderation', $twoDaysAgo]);
+
+        (new PurgeRateLimitHandler())->handle([], $this->context);
+
+        $since = '2000-01-01 00:00:00';
+        $this->assertSame(0, $this->repository->countSince('visitor', 'shorten', $since));
+        $this->assertSame(1, $this->repository->countSince('board', 'board_ai_moderation', $since));
+        $this->assertSame(0, $this->repository->countSince('old-board', 'board_ai_moderation', $since));
+    }
+
     public function testReschedulesItselfForTheNextDay(): void
     {
         (new PurgeRateLimitHandler())->handle([], $this->context);

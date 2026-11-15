@@ -76,14 +76,17 @@
                    — the one key to a copy already downloaded —, and
                    « Supprimer » always. #}
                 <div class="d-inline-flex flex-nowrap gap-2 ms-auto">
-                    {% if backup.canDownload %}
+                    {# file_url() is empty for a file not yet given its opaque
+                       id (issue #1109): no link rather than one to this page. #}
+                    {% set download_url = file_url(backup.fileId) %}
+                    {% if backup.canDownload and download_url %}
                         {# The wrapper is the hook maintenance.js asks the
                            presence route from before the link is followed:
                            an archive gone since the page loaded is said on
                            the row, never answered with a 404. #}
                         <span class="d-inline-flex" data-backup-download="{{ backup.id }}">
                             {% include 'partials/file_link.html.twig' with {
-                                href: '/files/' ~ backup.fileId,
+                                href: download_url,
                                 label: '',
                                 aria_label: 'Télécharger la sauvegarde « ' ~ backup.typeLabel ~ ' » du ' ~ backup.createdAt,
                                 title: 'Télécharger',

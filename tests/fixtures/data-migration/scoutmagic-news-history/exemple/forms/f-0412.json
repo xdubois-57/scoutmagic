@@ -1,0 +1,33 @@
+{
+    "id": "f-0412",
+    "article_id": "a-1187",
+    "status": "closed",
+    "fields": [
+        {
+            "type": "text",
+            "content": "<p>Réservez avant le 25 février.</p>"
+        },
+        {
+            "type": "number",
+            "label": "Nombre d'adultes",
+            "required": true
+        },
+        {
+            "type": "number",
+            "label": "Nombre d'enfants"
+        },
+        {
+            "type": "radio",
+            "label": "Menu",
+            "required": true,
+            "options": [
+                "Bolognaise",
+                "Végétarien"
+            ]
+        },
+        {
+            "type": "long_text",
+            "label": "Allergies"
+        }
+    ]
+}

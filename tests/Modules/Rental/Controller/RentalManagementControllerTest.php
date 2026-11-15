@@ -442,6 +442,9 @@ class RentalManagementControllerTest extends TestCase
     /** @var list<int> the bookings whose renter was told a modification was cancelled */
     private array $cancellationEmails = [];
 
+    /** Whether the transport refuses the contract's e-mail: a replacement contract's, in practice. */
+    private bool $contractMailFails = false;
+
     private \Modules\Rental\Service\RentalSignedContractService $signedContractService;
     private \Core\Signature\PersonalSignatureService $personalSignatures;
 
@@ -519,6 +522,13 @@ class RentalManagementControllerTest extends TestCase
                 return true;
             }
         );
+        $mock->method('sendContract')->willReturnCallback(function (): string {
+            if ($this->contractMailFails) {
+                throw new \Core\Mail\MailException('SMTP connect() failed.');
+            }
+
+            return '<test@scoutmagic>';
+        });
         $mock->method('sendModificationCancelled')->willReturnCallback(
             function (RentalBooking $booking): bool {
                 $this->cancellationEmails[] = $booking->id;
@@ -907,6 +917,11 @@ class RentalManagementControllerTest extends TestCase
         $this->assertStringContainsString('Lire le message', $body);
         // Filed on the reference here: certain, so no warning.
         $this->assertStringNotContainsString('Rattachement incertain', $body);
+        // Built with no verdict, so nobody vouched for its sender (issue
+        // #1121): said on the card AND in the « Lire le message » dialog,
+        // where the manager actually reads it.
+        $this->assertStringContainsString('Expéditeur non vérifié</span>', $body);
+        $this->assertMatchesRegularExpression('/data-mail-message-meta="[^"]*· Expéditeur non vérifié"/u', $body);
         foreach (['Rattacher', 'Écarter', "Relancer l'analyse", 'Propositions', '/mes-locations/courrier/rattacher'] as $gone) {
             $this->assertStringNotContainsString($gone, $body);
         }
@@ -1028,7 +1043,7 @@ class RentalManagementControllerTest extends TestCase
     // ── « Autres adresses du locataire » (#720, step 5) ─────────────────
 
     /** The service with its journal, as public/index.php wires it. */
-    private function withAuditedBookingService(): void
+    private function withAuditedBookingService(?\Modules\Rental\Mail\OtherRenterEmailRule $otherEmailRule = null): void
     {
         (new \ReflectionProperty(RentalManagementController::class, 'bookingService'))->setValue(
             $this->controller,
@@ -1036,9 +1051,92 @@ class RentalManagementControllerTest extends TestCase
                 $this->bookingRepository,
                 new JournalService(new JournalRepository($this->pdo)),
                 null,
-                RentalTestHelper::bookingAudit($this->pdo, $this->encryption)
+                RentalTestHelper::bookingAudit($this->pdo, $this->encryption),
+                null,
+                null,
+                $otherEmailRule
             )
         );
+    }
+
+    /**
+     * The rule of « Autres adresses du locataire » (issue #1106) over a
+     * box whose address is locations@unite.example, the booking's mail
+     * holding two messages: one from the group's treasurer to the unit
+     * and the renter, and one the unit sent from its public alias
+     * (contact@scouts-alias.example, not the box's own address) to the
+     * group's president.
+     */
+    private function otherEmailRuleWithMail(): \Modules\Rental\Mail\OtherRenterEmailRule
+    {
+        $sent = new \Modules\InboundMail\Api\InboundMessage(
+            id: 10,
+            mailboxId: 3,
+            consumerId: 'rental',
+            businessReference: 'LOC-K7Q2M4',
+            linkOrigin: \Modules\InboundMail\Api\LinkOrigin::THREAD,
+            subject: 'Re: La caution',
+            fromEmail: 'contact@scouts-alias.example',
+            fromName: 'Les Scouts',
+            messageId: '<m10@scouts-alias.example>',
+            inReplyTo: null,
+            sentAt: new \DateTimeImmutable('2027-06-02 10:00:00'),
+            bodyText: 'Bonjour,',
+            bodyHtml: '',
+            toEmails: ['president@groupe.example'],
+            direction: \Modules\InboundMail\Api\MessageDirection::SENT
+        );
+        $message = new \Modules\InboundMail\Api\InboundMessage(
+            id: 9,
+            mailboxId: 3,
+            consumerId: 'rental',
+            businessReference: 'LOC-K7Q2M4',
+            linkOrigin: \Modules\InboundMail\Api\LinkOrigin::THREAD,
+            subject: 'Re: La caution',
+            fromEmail: 'Tresorier@Groupe.example',
+            fromName: 'Le trésorier',
+            messageId: '<m9@groupe.example>',
+            inReplyTo: null,
+            sentAt: new \DateTimeImmutable('2027-06-01 10:00:00'),
+            bodyText: 'Bonjour,',
+            bodyHtml: '',
+            toEmails: ['locations+loc-k7q2m4@unite.example', 'jeanne@example.be', 'contact@scouts-alias.example']
+        );
+        $inbound = $this->createMock(\Modules\InboundMail\Api\InboundMailInterface::class);
+        $inbound->method('findForReference')->willReturn([$message, $sent]);
+        $inbound->method('probeAddressesFor')->willReturn(['locations@unite.example']);
+
+        return new \Modules\Rental\Mail\OtherRenterEmailRule($this->bookingRepository, $inbound);
+    }
+
+    /**
+     * Logged in as a unit chief (Staff d'U), who manages every asset
+     * without a grant: the MemberService answers « chief » for this
+     * address, the way RentalAuthorizationServiceTest stubs it.
+     */
+    private function loginAsUnitStaff(): void
+    {
+        $memberService = new class extends MemberService {
+            public function __construct()
+            {
+                // No parent: this stub only answers who is a unit chief.
+            }
+
+            public function isUnitChief(string $email, int $scoutYearId): bool
+            {
+                return $email === 'chef@test.be';
+            }
+
+            public function getLinkedMembers(string $email, int $scoutYearId): array
+            {
+                return [];
+            }
+        };
+        (new \ReflectionProperty(RentalManagementController::class, 'authorizationService'))->setValue(
+            $this->controller,
+            new RentalAuthorizationService($memberService, $this->assetRepository, $this->managerRepository)
+        );
+        AuthSession::login(2, 'chef@test.be', 'identified');
     }
 
     /** @param array<string, string> $fields */
@@ -1066,7 +1164,6 @@ class RentalManagementControllerTest extends TestCase
         $this->assertStringContainsString('partenaire@maison.example', $body);
         $this->assertStringContainsString('tresorier@groupe.example', $body);
         $this->assertSame(1, substr_count($body, 'ajoutée automatiquement'));
-        $this->assertStringContainsString('action="/mes-locations/courrier/adresse-ajouter"', $body);
         $this->assertMatchesRegularExpression(
             '#action="/mes-locations/courrier/adresse-retirer" class="ms-auto"\s+data-confirm="Retirer partenaire@maison.example \?#',
             $body
@@ -1083,10 +1180,17 @@ class RentalManagementControllerTest extends TestCase
         $this->assertStringContainsString('Aucune autre adresse.', $body);
     }
 
-    public function testAManagerAddsAnAddressAndTheHistorySaysSo(): void
+    // ── Who may add which address (issue #1106) ────────────────────────
+
+    /**
+     * Staff d'U types an address; it may already read the unit's mail, and
+     * adding the renter's address before the box is opened is how its
+     * first message is filed straight away.
+     */
+    public function testTheUnitStaffTypesAnAddressAndTheHistorySaysSo(): void
     {
-        $this->loginAsManager();
-        $this->withAuditedBookingService();
+        $this->loginAsUnitStaff();
+        $this->withAuditedBookingService($this->otherEmailRuleWithMail());
         $booking = $this->createBooking();
 
         $response = $this->addressPost('addOtherRenterEmail', $booking, ['email' => ' Tresorier@Groupe.example ']);
@@ -1118,8 +1222,8 @@ class RentalManagementControllerTest extends TestCase
     #[\PHPUnit\Framework\Attributes\DataProvider('refusedAddresses')]
     public function testAnAddressThatAddsNothingIsRefused(string $email): void
     {
-        $this->loginAsManager();
-        $this->withAuditedBookingService();
+        $this->loginAsUnitStaff();
+        $this->withAuditedBookingService($this->otherEmailRuleWithMail());
         $booking = $this->createBooking();
         $this->bookingRepository->addRenterEmail($booking->id, 'partenaire@maison.example');
 
@@ -1127,6 +1231,143 @@ class RentalManagementControllerTest extends TestCase
 
         $this->assertSame('error', \Core\Http\FlashMessage::get()['type'] ?? null);
         $this->assertCount(1, $this->bookingRepository->otherRenterEmails($booking->id));
+    }
+
+    /**
+     * A manager outside Staff d'U typing any correspondent of the unit
+     * would read the unit's mail with them (issue #1106): only an address
+     * already on the booking's mail is theirs to add.
+     */
+    public function testAManagerCannotTypeAnAddressTheBookingsMailNeverShowed(): void
+    {
+        $this->loginAsManager();
+        $this->withAuditedBookingService($this->otherEmailRuleWithMail());
+        $booking = $this->createBooking();
+
+        $this->addressPost('addOtherRenterEmail', $booking, ['email' => 'federation@example.org']);
+
+        $this->assertSame('error', \Core\Http\FlashMessage::get()['type'] ?? null);
+        $this->assertSame([], $this->bookingRepository->otherRenterEmails($booking->id));
+    }
+
+    public function testAManagerAddsAnAddressSeenOnTheBookingsMail(): void
+    {
+        $this->loginAsManager();
+        $this->withAuditedBookingService($this->otherEmailRuleWithMail());
+        $booking = $this->createBooking();
+
+        $this->addressPost('addOtherRenterEmail', $booking, ['email' => 'tresorier@groupe.example']);
+
+        $this->assertSame('success', \Core\Http\FlashMessage::get()['type'] ?? null);
+        $others = $this->bookingRepository->otherRenterEmails($booking->id);
+        $this->assertSame(['tresorier@groupe.example'], array_map(static fn($o) => $o->email, $others));
+    }
+
+    /**
+     * The unit's public alias is on the booking's mail, on the unit's side:
+     * a manager cannot add it, although no box is named after it.
+     */
+    public function testAManagerCannotAddTheAliasTheUnitWritesUnder(): void
+    {
+        $this->loginAsManager();
+        $this->withAuditedBookingService($this->otherEmailRuleWithMail());
+        $booking = $this->createBooking();
+
+        $this->addressPost('addOtherRenterEmail', $booking, ['email' => 'contact@scouts-alias.example']);
+
+        $this->assertSame('error', \Core\Http\FlashMessage::get()['type'] ?? null);
+        $this->assertSame([], $this->bookingRepository->otherRenterEmails($booking->id));
+    }
+
+    /** Without the rule wired, nobody but Staff d'U adds anything: closed, not open. */
+    public function testWithoutTheRuleAManagerAddsNothing(): void
+    {
+        $this->loginAsManager();
+        $this->withAuditedBookingService();
+        $booking = $this->createBooking();
+
+        $this->addressPost('addOtherRenterEmail', $booking, ['email' => 'tresorier@groupe.example']);
+
+        $this->assertSame('error', \Core\Http\FlashMessage::get()['type'] ?? null);
+        $this->assertSame([], $this->bookingRepository->otherRenterEmails($booking->id));
+    }
+
+    /** The free field of « Ajouter une adresse », as Staff d'U gets it. */
+    private const OTHER_EMAIL_FREE_FIELD = 'type="email" class="form-control form-control-sm" id="other-renter-email"';
+
+    /** @return array<string, array{string}> */
+    public static function unitAddresses(): array
+    {
+        return [
+            'the box' => ['locations@unite.example'],
+            'the box, tagged' => ['Locations+LOC-K7Q2M4@unite.example'],
+            'the box, another tag' => ['locations+autre@unite.example'],
+        ];
+    }
+
+    /**
+     * Matched as « the renter », one of the unit's own addresses would file
+     * its whole correspondence on one booking — refused to Staff d'U too,
+     * and never offered to a manager although it is on the booking's mail.
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('unitAddresses')]
+    public function testNobodyAddsOneOfTheUnitsOwnAddresses(string $email): void
+    {
+        $this->loginAsUnitStaff();
+        $this->withAuditedBookingService($this->otherEmailRuleWithMail());
+        $booking = $this->createBooking();
+
+        $this->addressPost('addOtherRenterEmail', $booking, ['email' => $email]);
+
+        $this->assertSame('error', \Core\Http\FlashMessage::get()['type'] ?? null);
+        $this->assertSame([], $this->bookingRepository->otherRenterEmails($booking->id));
+    }
+
+    public function testAManagerChoosesAmongTheAddressesOnTheBookingsMail(): void
+    {
+        $this->loginAsManager();
+        $this->withAuditedBookingService($this->otherEmailRuleWithMail());
+        $booking = $this->createBooking();
+
+        $body = (string) $this->filePage(BookingPage::MAIL, 'local-saint-georges', $booking->id)->getBody();
+
+        $this->assertStringContainsString('data-other-renter-email-choices', $body);
+        // The other side of each message: the sender of a received one,
+        // the recipient of a sent one.
+        $this->assertStringContainsString('<option value="tresorier@groupe.example">', $body);
+        $this->assertStringContainsString('<option value="president@groupe.example">', $body);
+        // Neither the renter's own nor the unit's side: its box, and the
+        // alias it receives and sends under, which no box is named after.
+        $this->assertStringNotContainsString('<option value="jeanne@example.be">', $body);
+        $this->assertStringNotContainsString('unite.example">', $body);
+        $this->assertStringNotContainsString('scouts-alias.example">', $body);
+        $this->assertStringNotContainsString(self::OTHER_EMAIL_FREE_FIELD, $body);
+    }
+
+    public function testWithNothingOnTheBookingsMailAManagerIsToldWhoAddsAnAddress(): void
+    {
+        $this->loginAsManager();
+        $this->withAuditedBookingService();
+        $booking = $this->createBooking();
+
+        $body = (string) $this->filePage(BookingPage::MAIL, 'local-saint-georges', $booking->id)->getBody();
+
+        $this->assertStringContainsString('data-other-renter-email-none', $body);
+        $this->assertStringContainsString("adressez-vous au staff d'unité", $body);
+        $this->assertStringNotContainsString('action="/mes-locations/courrier/adresse-ajouter"', $body);
+    }
+
+    public function testTheUnitStaffGetsTheFreeField(): void
+    {
+        $this->loginAsUnitStaff();
+        $this->withAuditedBookingService($this->otherEmailRuleWithMail());
+        $booking = $this->createBooking();
+
+        $body = (string) $this->filePage(BookingPage::MAIL, 'local-saint-georges', $booking->id)->getBody();
+
+        $this->assertStringContainsString('action="/mes-locations/courrier/adresse-ajouter"', $body);
+        $this->assertStringContainsString(self::OTHER_EMAIL_FREE_FIELD, $body);
+        $this->assertStringNotContainsString('data-other-renter-email-choices', $body);
     }
 
     public function testAManagerRemovesALearnedAddress(): void
@@ -1359,6 +1600,149 @@ class RentalManagementControllerTest extends TestCase
         $this->assertStringContainsString('remplacé', $refusal['message'] ?? '');
         $this->assertSame([], $this->resends);
         $this->assertNotSame(BookingStatus::CONTRACT_SENT, $this->bookingRepository->findById($booking->id)?->status);
+    }
+
+    /**
+     * « Renvoyer » that the transport refuses again: the manager is told
+     * in a sentence that says what to do, the log keeps it « Non envoyé »,
+     * and the contract it carried is not recorded as gone out.
+     */
+    public function testRenvoyerThatTheTransportRefusesAgainSaysSoAndChangesNothing(): void
+    {
+        $this->loginAsManager();
+        $this->setContractTemplate();
+        $log = $this->withSentLog();
+        $booking = $this->createBooking();
+        $this->post('/mes-locations/document-generer', 'generateDocument', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'document_type' => 'contract',
+        ]);
+        $contract = $this->documentService->forBooking($booking->id)[0];
+        $id = $this->logEmail(
+            $log,
+            $booking,
+            \Modules\Rental\Mail\SentEmail::STATUS_FAILED,
+            'Contrat',
+            'rental.contract',
+            [$contract->id]
+        );
+        // The real service, over a transport that refuses every message.
+        $transport = $this->createStub(\Core\Mail\MailService::class);
+        $transport->method('send')->willThrowException(
+            new \Core\Mail\MailException('SMTP 421 for jeanne@example.be')
+        );
+        (new \ReflectionProperty(RentalManagementController::class, 'mailService'))->setValue(
+            $this->controller,
+            new \Modules\Rental\Service\RentalBookingMailService(
+                $transport,
+                \Tests\Core\Mail\Template\EmailTemplateRendererFactory::shippedOnlyForModule($this->twig, 'rental'),
+                new SettingService(new SettingRepository($this->pdo)),
+                new JournalService(new JournalRepository($this->pdo)),
+                sentEmails: $log
+            )
+        );
+        \Core\Http\FlashMessage::get();
+
+        $response = $this->post('/mes-locations/courrier/renvoyer', 'resendEmail', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'booking_page' => 'mail',
+            'sent_email_id' => (string) $id,
+        ]);
+
+        $this->assertStringEndsWith('/courrier', (string) $response->getHeaders()['Location']);
+        $this->assertSame(
+            [
+                'type' => 'error',
+                'message' => "L'e-mail n'a pas pu partir. Il reste « Non envoyé » ; réessayez plus tard.",
+            ],
+            \Core\Http\FlashMessage::get()
+        );
+        $this->assertTrue($log->findById($id)?->failed());
+        $this->assertFalse($this->documentService->find($contract->id)?->hasBeenSent());
+        $this->assertNotSame(BookingStatus::CONTRACT_SENT, $this->bookingRepository->findById($booking->id)?->status);
+    }
+
+    /**
+     * @param array<string, string> $body
+     */
+    private function uploadDocument(RentalBooking $booking, string $bytes, string $name, array $body): Response
+    {
+        $temporary = (string) tempnam(sys_get_temp_dir(), 'document-');
+        file_put_contents($temporary, $bytes);
+        $_FILES['document'] = [
+            'name' => $name,
+            'type' => 'application/octet-stream',
+            'tmp_name' => $temporary,
+            'error' => UPLOAD_ERR_OK,
+            'size' => strlen($bytes),
+        ];
+
+        try {
+            return $this->post('/mes-locations/document-ajouter', 'uploadDocument', $body + [
+                'asset_id' => (string) $this->assetId,
+                'booking_id' => (string) $booking->id,
+                'booking_page' => 'documents',
+            ]);
+        } finally {
+            unset($_FILES['document']);
+            @unlink($temporary);
+        }
+    }
+
+    private function fileCount(): int
+    {
+        return (int) $this->pdo->query('SELECT COUNT(*) FROM files')->fetchColumn();
+    }
+
+    /** A file of a kind the booking does not keep: the upload's own reason, and nothing stored. */
+    public function testADocumentOfAKindThatIsNotAcceptedSaysWhyAndIsNotStored(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+
+        $response = $this->uploadDocument($booking, "Liste des clés remises.\n", 'cles.txt', [
+            'document_type' => 'unsorted',
+        ]);
+
+        $this->assertStringEndsWith('/documents', (string) $response->getHeaders()['Location']);
+        $this->assertSame(
+            ['type' => 'error', 'message' => 'Type de fichier non autorisé (text/plain).'],
+            \Core\Http\FlashMessage::get()
+        );
+        $this->assertSame([], $this->documentService->forBooking($booking->id));
+        $this->assertSame(0, $this->fileCount());
+    }
+
+    /**
+     * A signed copy a manager brings in for dates somebody else took since
+     * this booking's hold lapsed is refused by the same guard as the
+     * renter's own — and the file already stored is not left behind.
+     */
+    public function testASignedCopyTheGuardRefusesLeavesNoFileBehind(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+        $this->bookingRepository->setHold($booking->id, new \DateTimeImmutable('-2 days'), HoldOrigin::AUTOMATIC);
+        $other = $this->createBooking(null, 'LOC-A2B3C5');
+        $this->bookingRepository->setHold($other->id, new \DateTimeImmutable('+20 days'), HoldOrigin::MANAGER);
+
+        $this->uploadDocument($booking, self::phonePhoto(600, 800), 'contrat-signe.jpg', [
+            'document_type' => 'signed_copy',
+        ]);
+
+        $this->assertSame(
+            [
+                'type' => 'error',
+                'message' => 'Les dates de cette réservation ne sont plus bloquées et sont occupées par ailleurs : '
+                    . 'une copie signée ne peut plus les bloquer. Changez les dates ou refusez la demande.',
+            ],
+            \Core\Http\FlashMessage::get()
+        );
+        $this->assertSame([], $this->documentService->forBooking($booking->id));
+        $this->assertSame(0, $this->fileCount(), 'the stored upload is discarded');
+        $this->assertSame([], glob($this->storagePath . '/rental/documents/*') ?: []);
     }
 
     public function testAnAnonymousVisitorCannotAddAnAddressToABooking(): void
@@ -8317,6 +8701,110 @@ class RentalManagementControllerTest extends TestCase
         $this->assertSame(200, $page->getStatusCode());
         $this->assertStringContainsString('Nouvelles valeurs', (string) $page->getBody());
         $this->assertStringContainsString('action="/mes-locations/modification"', (string) $page->getBody());
+    }
+
+    /**
+     * A booking the tariff can no longer price as it stands — taken for two
+     * units of an asset that counts one now — still opens its form, which
+     * starts from the booking's own price instead of today's tariff.
+     */
+    public function testABookingTheTariffCannotPriceAnyMoreStillOpensItsModificationForm(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+        $this->pdo->prepare('UPDATE rental_bookings SET units = 2 WHERE id = ?')->execute([$booking->id]);
+        $fresh = $this->bookingRepository->findById($booking->id);
+        $this->assertNotNull($fresh);
+        $this->assertNotNull($asset = $this->assetRepository->findById($this->assetId));
+        $current = $this->operationsService->workingQuote($fresh, $asset);
+
+        $page = $this->modificationPage($fresh, 'nouvelle');
+
+        $this->assertSame(200, $page->getStatusCode());
+        $body = (string) $page->getBody();
+        $this->assertStringContainsString('Nouvelles valeurs', $body);
+        $this->assertStringContainsString(
+            number_format($current->totalCents / 100, 2, ',', ' '),
+            $body,
+            'the form proposes the booking\'s own price'
+        );
+        $this->assertStringNotContainsString('unités au plus', $body);
+    }
+
+    /**
+     * « Envoyer » posted for a modification with no replacement contract —
+     * one applied straight away, from a page left open — is refused on the
+     * modification's own page, and nothing is sent.
+     */
+    public function testSendingAModificationThatHasNoReplacementContractIsRefusedOnItsPage(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+        $this->post('/mes-locations/modification', 'saveModification', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'arrival' => '2027-07-10',
+            'departure' => '2027-07-14',
+            'persons' => '20',
+        ]);
+        $applied = $this->modificationService->history($booking->id)[0];
+        $this->assertTrue($applied->status->isApplied(), 'the premise: no contract had gone out');
+        \Core\Http\FlashMessage::get();
+
+        $response = $this->post('/mes-locations/modification-envoyer', 'sendModification', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'modification_id' => (string) $applied->id,
+        ]);
+
+        $this->assertSame(
+            '/mes-locations/local-saint-georges/reservations/' . $booking->id . '/modifications/' . $applied->id,
+            $response->getHeaders()['Location'] ?? null
+        );
+        $this->assertSame(
+            ['type' => 'error', 'message' => "Cette modification n'a pas de contrat de remplacement à renvoyer."],
+            \Core\Http\FlashMessage::get()
+        );
+        $this->assertSame([], $this->documentEmails);
+    }
+
+    /**
+     * A replacement contract whose e-mail the transport refuses: the
+     * project is sent all the same — its terms are frozen, the contract
+     * filed — the manager is told to resend it from the page, the journal
+     * says it failed, and the contract carries no date of sending.
+     */
+    public function testAReplacementContractWhoseEmailFailsIsReadyAndSaysToResendIt(): void
+    {
+        [$booking, , $project] = $this->bookingWithAProject();
+        $this->contractMailFails = true;
+
+        $this->post('/mes-locations/modification-envoyer', 'sendModification', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'modification_id' => (string) $project->id,
+        ]);
+
+        $this->assertSame(
+            [
+                'type' => 'warning',
+                'message' => "Le contrat de remplacement est prêt, mais l'e-mail au locataire n'a pas pu partir : "
+                    . 'renvoyez-le depuis cette page.',
+            ],
+            \Core\Http\FlashMessage::get()
+        );
+        $sent = $this->modificationRepository->findById($project->id);
+        $this->assertNotNull($sent);
+        $this->assertSame(\Modules\Rental\Booking\ModificationStatus::SENT, $sent->status);
+        $this->assertNotNull($sent->contractDocumentId);
+        $this->assertNull($this->documentService->find($sent->contractDocumentId)?->sentAt);
+        $logged = $this->pdo->query(
+            "SELECT context FROM event_log WHERE event_type = 'rental_replacement_contract_send_failed'"
+        )->fetchAll(\PDO::FETCH_COLUMN);
+        $this->assertSame(
+            [['booking_id' => $booking->id, 'document_id' => $sent->contractDocumentId]],
+            array_map(static fn(mixed $context): mixed => json_decode((string) $context, true), $logged)
+        );
     }
 
     /**

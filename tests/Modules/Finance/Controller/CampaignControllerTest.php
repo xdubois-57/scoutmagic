@@ -45,6 +45,7 @@ use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Finance\FinanceTestHelper;
+use Tests\Support\PdfImages;
 use Tests\TestTwig;
 use Twig\Environment;
 use Core\Member\Repository\MemberProfileRepository;
@@ -639,7 +640,7 @@ class CampaignControllerTest extends TestCase
             $headers['Content-Disposition'] ?? null
         );
         $this->assertStringStartsWith('%PDF-', $response->getBody());
-        $this->assertSame(2, preg_match_all('#/Subtype\s*/Image#', $response->getBody()));
+        $this->assertSame(2, PdfImages::count($response->getBody()));
     }
 
     /**
@@ -663,8 +664,8 @@ class CampaignControllerTest extends TestCase
 
         $this->assertSame(200, $paid->getStatusCode());
         $this->assertSame(
-            preg_match_all('#/Subtype\s*/Image#', $todo->getBody()),
-            preg_match_all('#/Subtype\s*/Image#', $paid->getBody()),
+            PdfImages::count($todo->getBody()),
+            PdfImages::count($paid->getBody()),
             'the same two labels whichever filter the screen was on'
         );
     }

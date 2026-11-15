@@ -162,7 +162,8 @@ class RentalBookingRepository
         ?string $conditionsHash,
         ?string $privacyVersion,
         ?string $privacyHash,
-        \DateTimeImmutable $now
+        \DateTimeImmutable $now,
+        ?int $requestedByAccountId = null
     ): array {
         $trackingToken = CapabilityToken::generate();
         $timestamp = $now->format('Y-m-d H:i:s');
@@ -178,8 +179,8 @@ class RentalBookingRepository
                 estimated_price_snapshot, estimated_total_cents,
                 conditions_version, conditions_hash, conditions_accepted_at,
                 privacy_version, privacy_hash, privacy_acknowledged_at,
-                tracking_token_encrypted, created_at, updated_at
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                tracking_token_encrypted, requested_by_account_id, created_at, updated_at
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
 
         $stmt->execute([
@@ -210,6 +211,7 @@ class RentalBookingRepository
             $privacyHash,
             $privacyVersion !== null ? $timestamp : null,
             $this->encryption->encrypt($trackingToken, self::CTX_TRACKING_TOKEN),
+            $requestedByAccountId,
             $timestamp,
             $timestamp,
         ]);
@@ -439,6 +441,77 @@ class RentalBookingRepository
 
         return array_map(fn(array $row) => $this->hydrate($row), $stmt->fetchAll(\PDO::FETCH_ASSOC));
     }
+
+    /**
+     * How many AUTOMATIC holds a requester has running at $now, across
+     * every asset (issue #1114) — the cap RentalBookingService::
+     * automaticHoldDaysFor() applies. Counted on the address's blind index
+     * and, for a signed-in requester, on the account too: an account could
+     * otherwise type a new address each time. A provisional request only;
+     * a confirmed one holds by its status, not by this.
+     */
+    public function countRunningAutomaticHolds(string $email, ?int $accountId, \DateTimeImmutable $now): int
+    {
+        // Fixed SQL either way: an account id of 0 matches nobody, which is
+        // what an anonymous requester's « account » should match.
+        $stmt = $this->pdo->prepare(
+            'SELECT COUNT(*) FROM rental_bookings
+             WHERE hold_origin = ? AND hold_until > ?
+               AND status IN (?, ?, ?, ?)
+               AND (renter_email_blind_index = ? OR requested_by_account_id = ?)'
+        );
+        $stmt->execute([
+            HoldOrigin::AUTOMATIC->value,
+            $now->format('Y-m-d H:i:s'),
+            ...self::PROVISIONAL_STATUSES,
+            $this->encryption->blindIndex(self::normalizeEmail($email), self::BLIND_INDEX_PURPOSE),
+            $accountId ?? 0,
+        ]);
+
+        return (int) $stmt->fetchColumn();
+    }
+
+    /**
+     * The automatic holds running at $now on requests nobody has answered
+     * yet, every asset, for the managers' attention point on long ones
+     * (issue #1114). Reference, asset and dates only — nothing about the
+     * renter. Answering a request keeps its hold's origin, so the status
+     * is what says it was examined: once a manager has asked a question,
+     * made a proposal or sent a contract, the dates are theirs to keep.
+     *
+     * @return list<array{id: int, asset_id: int, reference: string, arrival_date: string,
+     *     departure_date: string, hold_until: string}>
+     */
+    public function findRunningAutomaticHolds(\DateTimeImmutable $now): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT id, asset_id, reference, arrival_date, departure_date, hold_until
+             FROM rental_bookings
+             WHERE hold_origin = ? AND hold_until > ? AND status = ?
+             ORDER BY arrival_date ASC, id ASC'
+        );
+        $stmt->execute([HoldOrigin::AUTOMATIC->value, $now->format('Y-m-d H:i:s'), BookingStatus::RECEIVED->value]);
+
+        return array_map(
+            static fn(array $row): array => [
+                'id' => (int) $row['id'],
+                'asset_id' => (int) $row['asset_id'],
+                'reference' => (string) $row['reference'],
+                'arrival_date' => (string) $row['arrival_date'],
+                'departure_date' => (string) $row['departure_date'],
+                'hold_until' => (string) $row['hold_until'],
+            ],
+            $stmt->fetchAll(\PDO::FETCH_ASSOC)
+        );
+    }
+
+    /** The statuses in which a booking takes its dates only while a hold runs. */
+    private const PROVISIONAL_STATUSES = [
+        BookingStatus::RECEIVED->value,
+        BookingStatus::INFO_REQUESTED->value,
+        BookingStatus::PROPOSED->value,
+        BookingStatus::CONTRACT_SENT->value,
+    ];
 
     /**
      * Bookings whose temporary hold has lapsed — the expiry sweep's input.
@@ -1096,6 +1169,38 @@ class RentalBookingRepository
         $stmt->execute([$index, $index]);
 
         return array_map(fn(array $row) => $this->hydrate($row), $stmt->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
+    /**
+     * The bookings $email reaches only because a manager TYPED it into
+     * their « Autres adresses du locataire » (issue #1106) — not the
+     * renter's own address, not one a filing taught.
+     *
+     * A typed address is the one nobody vouched for: neither the renter
+     * nor a message a person or the model filed. The mail matching holds
+     * it to the booking's window (`RentalMessageConsumer::addressMatch()`),
+     * so a correspondent of the unit typed onto a booking does not bring
+     * along every message they ever exchanged with it.
+     *
+     * @return array<int, true> keyed by booking id
+     */
+    public function bookingIdsReachedOnlyByTypedEmail(string $email): array
+    {
+        $index = $this->encryption->blindIndex(self::normalizeEmail($email), self::BLIND_INDEX_PURPOSE);
+        $stmt = $this->pdo->prepare(
+            'SELECT e.booking_id FROM rental_booking_emails e
+               JOIN rental_bookings b ON b.id = e.booking_id
+              WHERE e.email_blind_index = ? AND e.learned_from_message_id IS NULL
+                AND b.renter_email_blind_index <> ?'
+        );
+        $stmt->execute([$index, $index]);
+
+        $ids = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_COLUMN) as $id) {
+            $ids[(int) $id] = true;
+        }
+
+        return $ids;
     }
 
     /**

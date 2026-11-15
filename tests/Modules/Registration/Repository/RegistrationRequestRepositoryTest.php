@@ -6,6 +6,7 @@ namespace Tests\Modules\Registration\Repository;
 
 use Core\Member\Household\HouseholdKey;
 use Core\Member\Household\HouseholdRepository;
+use Core\Security\CapabilityToken;
 use Core\Security\EncryptionService;
 use Modules\Registration\Repository\DecisionEmailRepository;
 use Modules\Registration\Repository\RegistrationRequest;
@@ -349,7 +350,8 @@ class RegistrationRequestRepositoryTest extends TestCase
         )->fetch(\PDO::FETCH_ASSOC);
         $this->assertStringNotContainsString($created['tracking_token'], (string) $row['tracking_token_hash']);
         $this->assertStringNotContainsString($created['tracking_token'], (string) $row['tracking_token_encrypted']);
-        $this->assertTrue(password_verify($created['tracking_token'], (string) $row['tracking_token_hash']));
+        $this->assertMatchesRegularExpression('/^[0-9a-f]{64}$/', (string) $row['tracking_token_hash']);
+        $this->assertSame(CapabilityToken::hash($created['tracking_token']), $row['tracking_token_hash']);
         $this->assertSame($created['tracking_token'], $this->repository->trackingLinkOf($created['id'])['token'] ?? null);
     }
 
@@ -446,25 +448,28 @@ class RegistrationRequestRepositoryTest extends TestCase
     }
 
     /**
-     * An unknown request id is checked against a dummy hash of the same
-     * cost as a real one, so its latency does not tell which ids exist: the
-     * dummy must be a valid hash at the cost PASSWORD_DEFAULT uses, the
-     * same one on every call, and must never match a presented token.
+     * Issue #1126: the hash is a SHA-256, and nothing else verifies — a
+     * bcrypt hash of the right token, as stored before, is refused (no
+     * fallback). An unknown id, a wrong token and an expired link all
+     * answer the same false.
      */
-    public function testAnUnknownRequestPaysTheSameHashCostAsAKnownOne(): void
+    public function testVerificationIsAgainstASha256OnlyAndEveryRefusalIsFalse(): void
     {
-        $method = new \ReflectionMethod(RegistrationRequestRepository::class, 'dummyTrackingHash');
-        $dummy = $method->invoke(null);
+        $created = $this->repository->create($this->scoutYearId, $this->sampleFields(), null, []);
+        $token = $created['tracking_token'];
+        $this->assertTrue($this->repository->verifyTrackingToken($created['id'], $token));
 
-        $info = password_get_info($dummy);
-        $this->assertSame('bcrypt', $info['algoName']);
-        $this->assertSame(
-            password_get_info(password_hash('x', PASSWORD_DEFAULT))['options']['cost'],
-            $info['options']['cost']
+        $this->assertFalse($this->repository->verifyTrackingToken(999999, $token));
+        $this->assertFalse($this->repository->verifyTrackingToken(999999, ''));
+        $this->assertFalse($this->repository->verifyTrackingToken($created['id'], CapabilityToken::generate()));
+        $this->assertFalse($this->repository->verifyTrackingToken($created['id'], ''));
+        $this->assertFalse(
+            $this->repository->verifyTrackingToken($created['id'], $token, new \DateTimeImmutable('+10 years'))
         );
-        $this->assertSame($dummy, $method->invoke(null));
-        $this->assertFalse(password_verify('dummy-token-never-issued', $dummy));
-        $this->assertFalse($this->repository->verifyTrackingToken(999999, 'dummy-token-never-issued'));
+
+        $this->pdo->prepare('UPDATE registration_requests SET tracking_token_hash = ? WHERE id = ?')
+            ->execute([password_hash($token, PASSWORD_DEFAULT), $created['id']]);
+        $this->assertFalse($this->repository->verifyTrackingToken($created['id'], $token));
     }
 
     /** A removed request leaves nothing to follow — before its expiry too. */

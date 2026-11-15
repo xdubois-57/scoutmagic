@@ -49,6 +49,10 @@ l'autre parent, typiquement. Chaque adresse ajoutée reçoit un e-mail
 de confirmation à valider ; elle suit alors la demande elle aussi. Une
 adresse en attente peut être renvoyée ou supprimée.
 
+Une demande compte au plus cinq adresses ajoutées, et au plus vingt
+e-mails de confirmation par heure : au-delà, le site vous demande de
+réessayer plus tard.
+
 ## Après l'acceptation
 
 Une fois l'enfant enregistré à la fédération et les données importées

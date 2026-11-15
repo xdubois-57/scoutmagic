@@ -13,27 +13,36 @@
         {% set attachment = row.attachment %}
         <div class="col-12 col-md-4" data-receipt-id="{{ attachment.id }}">
             <div class="border rounded-3 p-3 h-100 d-flex flex-column gap-2">
-                {# Ouvre la visionneuse intégrée (partials/file_viewer.html.twig)
-                   plutôt que de naviguer : dans l'application installée, une
-                   navigation vers une image remplace la fenêtre et il n'y a
-                   plus rien pour revenir. Le href reste, pour le cas sans
-                   JavaScript — FileController répond alors « attachment » à
-                   une navigation, ce qui télécharge sans bouger la page. #}
-                <a href="/files/{{ attachment.fileId }}"
-                   data-file-viewer="/files/{{ attachment.fileId }}"
+                {# Opens the built-in viewer (partials/file_viewer.html.twig)
+                   rather than navigating: in the installed application, a
+                   navigation to an image replaces the window and nothing is
+                   left to come back with. The href stays for the case without
+                   JavaScript — FileController then answers a navigation with
+                   « attachment », which downloads without leaving the page. #}
+                {% set receipt_url = file_url(attachment.fileId) %}
+                {% if receipt_url %}
+                <a href="{{ receipt_url }}"
+                   data-file-viewer="{{ receipt_url }}"
                    data-file-name="{{ attachment.originalFilename }}"
                    data-file-image="{{ attachment.mimeType starts with 'image/' ? '1' : '0' }}"
                    download="{{ attachment.originalFilename }}" target="_blank" rel="noopener">
                     {% if attachment.mimeType starts with 'image/' %}
-                        <img src="/files/{{ attachment.fileId }}" alt="{{ attachment.originalFilename }}" class="img-fluid rounded" style="max-height:160px;object-fit:cover;width:100%;">
+                        <img src="{{ receipt_url }}" alt="{{ attachment.originalFilename }}" class="img-fluid rounded" style="max-height:160px;object-fit:cover;width:100%;">
                     {% elseif attachment.mimeType == 'application/pdf' %}
-                        <img src="/files/{{ attachment.fileId }}/thumbnail" alt="{{ attachment.originalFilename }}" class="img-fluid rounded pdf-thumbnail" style="max-height:160px;object-fit:cover;width:100%;">
+                        <img src="{{ file_url(attachment.fileId, 'thumbnail') }}" alt="{{ attachment.originalFilename }}" class="img-fluid rounded pdf-thumbnail" style="max-height:160px;object-fit:cover;width:100%;">
                     {% else %}
                         <div class="d-flex align-items-center justify-content-center bg-body-secondary rounded" style="height:160px;">
                             <i class="bi bi-file-earmark-word fs-1" aria-hidden="true"></i>
                         </div>
                     {% endif %}
                 </a>
+                {% else %}
+                    {# No opaque address yet (issue #1109): no link to nowhere. #}
+                    <div class="d-flex align-items-center justify-content-center bg-body-secondary rounded" style="height:160px;">
+                        <i class="bi bi-file-earmark-x fs-1" aria-hidden="true"></i>
+                        <span class="visually-hidden">Fichier indisponible</span>
+                    </div>
+                {% endif %}
                 <div class="fw-semibold text-truncate" title="{{ attachment.originalFilename }}">{{ attachment.originalFilename }}</div>
                 <div class="text-body-secondary small">{{ attachment.uploadedAt }}</div>
                 {% if attachment.suggestedAmount or attachment.suggestedDate or attachment.suggestedLabel %}

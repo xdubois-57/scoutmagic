@@ -13,6 +13,7 @@ use Core\Http\FlashMessage;
 use Core\Http\Request;
 use Core\Http\Response;
 use Core\Photo\AccountPhotoService;
+use Core\Security\AccountAccessRevoker;
 use Core\Security\AccountSecurityAlertService;
 use Core\Security\AccountSecurityChange;
 use Core\Security\AuthSession;
@@ -21,7 +22,9 @@ use Core\Security\PasswordPolicy;
 use Core\Security\ProfileCompletionGate;
 use Core\Security\RecentAuthentication;
 use Core\Security\UserAccountRepository;
+use Core\Security\WebAuthnChallengeExpired;
 use Core\Security\WebAuthnCredentialRepository;
+use Core\Security\WebAuthnMalformedRequest;
 use Core\Security\WebAuthnService;
 use Core\Signature\PersonalSignatureService;
 use Twig\Environment;
@@ -50,7 +53,11 @@ class AccountController extends AbstractController
         // as it did before issue #1115. Production always wires it — it is
         // what tells the holder that a stolen session just gave itself a
         // way back in.
-        private ?AccountSecurityAlertService $securityAlerts = null
+        private ?AccountSecurityAlertService $securityAlerts = null,
+        // Same rule: with none, « Déconnecter partout » still ends every
+        // session but leaves passkeys and devices in place. Production
+        // always wires it (issue #1115).
+        private ?AccountAccessRevoker $accessRevoker = null
     ) {
     }
 
@@ -350,24 +357,34 @@ class AccountController extends AbstractController
             return $this->json(RecentAuthentication::jsonRefusal('/account'), 403);
         }
 
+        // A body that cannot be read is a 400, never a 500 (issue #1131).
         $body = json_decode((string) $request->getRawBody(), true);
         if (!is_array($body)) {
-            return $this->json(['success' => false, 'error' => 'Données invalides.']);
+            return $this->malformedPasskeyRequest();
         }
 
         // CSRF: the client sends the token in the X-CSRF-Token header (fallback to body).
-        $csrfToken = (string) ($request->getServer('HTTP_X_CSRF_TOKEN', '') ?: ($body['_csrf_token'] ?? ''));
+        $bodyToken = is_string($body['_csrf_token'] ?? null) ? $body['_csrf_token'] : '';
+        $csrfToken = (string) ($request->getServer('HTTP_X_CSRF_TOKEN', '') ?: $bodyToken);
         if (($guard = $this->guardCsrfJson($request, $csrfToken)) !== null) {
             return $guard;
         }
 
-        $deviceLabel = trim((string) ($body['device_label'] ?? 'Clé sans nom'));
+        $deviceLabel = $body['device_label'] ?? 'Clé sans nom';
+        if (!is_string($deviceLabel)) {
+            return $this->malformedPasskeyRequest();
+        }
+        $deviceLabel = trim($deviceLabel);
         if ($deviceLabel === '') {
             $deviceLabel = 'Clé sans nom';
         }
 
         try {
             $credentialId = $this->webAuthnService->verifyRegistration($userId, $body, $deviceLabel);
+        } catch (WebAuthnMalformedRequest) {
+            return $this->malformedPasskeyRequest();
+        } catch (WebAuthnChallengeExpired) {
+            return $this->json(['success' => false, 'error' => WebAuthnChallengeExpired::USER_MESSAGE]);
         } catch (\RuntimeException $e) {
             return $this->json(['success' => false, 'error' => 'L\'enregistrement a échoué.']);
         }
@@ -375,6 +392,49 @@ class AccountController extends AbstractController
         $this->securityAlerts?->report($userId, AccountSecurityChange::PasskeyAdded, $credentialId, $deviceLabel);
 
         return $this->json(['success' => true]);
+    }
+
+    private function malformedPasskeyRequest(): Response
+    {
+        return $this->json(['success' => false, 'error' => WebAuthnMalformedRequest::USER_MESSAGE], 400);
+    }
+
+    /**
+     * POST /account/sign-out-everywhere — « Déconnecter partout » (issue
+     * #1115): every session of the account ends, this one included, every
+     * passkey is removed and every device credential revoked, in one
+     * gesture. What a holder does on an alert about an access they did not
+     * add.
+     *
+     * Deliberately not gated on a recent login
+     * (Core\Security\RecentAuthentication): it only ever takes access
+     * away, and an attacker running it achieves nothing the holder cannot
+     * undo by signing back in.
+     *
+     * @param array<string, string> $params
+     */
+    public function signOutEverywhere(Request $request, array $params): Response
+    {
+        $userId = AuthSession::getUserAccountId();
+        if ($userId === null) {
+            return $this->redirect('/login');
+        }
+
+        if (($guard = $this->guardCsrf($request, '/account')) !== null) {
+            return $guard;
+        }
+
+        $this->accessRevoker?->revoke($userId, [], [], AccountAccessRevoker::REASON_SIGN_OUT_EVERYWHERE, $userId);
+        $this->userAccountRepo->revokeSessions($userId);
+        AuthSession::logout();
+
+        FlashMessage::set(
+            'success',
+            'Déconnexion partout effectuée : sessions fermées, clés numériques retirées et appareils'
+                . ' synchronisés déconnectés. Reconnectez-vous pour continuer.'
+        );
+
+        return $this->redirect('/login');
     }
 
     /**

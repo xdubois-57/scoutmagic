@@ -148,7 +148,12 @@ class EmailRepository
     {
         $this->pdo->beginTransaction();
         try {
-            $stmt = $this->pdo->prepare('DELETE FROM mass_mail_emails WHERE id = ? AND status IN (?, ?)');
+            // An imported email is never deleted from here, whatever its
+            // status (D11) — the service refuses first, and this refuses
+            // again for any other caller.
+            $stmt = $this->pdo->prepare(
+                'DELETE FROM mass_mail_emails WHERE id = ? AND status IN (?, ?) AND imported_at IS NULL'
+            );
             $stmt->execute([$id, Email::STATUS_DRAFT, Email::STATUS_TEST]);
             if ($stmt->rowCount() !== 1) {
                 $this->pdo->rollBack();
@@ -262,8 +267,13 @@ class EmailRepository
 
         if ($search !== '') {
             $like = '%' . $search . '%';
-            $searchConditions = ['e.subject LIKE ?', 'sender.name LIKE ?', 'list_sec.name LIKE ?', 'ml.name LIKE ?'];
-            array_push($params, $like, $like, $like, $like);
+            // original_audience_name: an imported email's list is only a
+            // name, and that name is what a chief remembers it by.
+            $searchConditions = [
+                'e.subject LIKE ?', 'sender.name LIKE ?', 'list_sec.name LIKE ?', 'ml.name LIKE ?',
+                'e.original_audience_name LIKE ?',
+            ];
+            array_push($params, $like, $like, $like, $like, $like);
             foreach ($matchedDefaultListTypes as $listType) {
                 $searchConditions[] = 'e.list_type = ?';
                 $params[] = $listType;
@@ -370,7 +380,9 @@ class EmailRepository
             createdAt: (string) $row['created_at'],
             updatedAt: (string) $row['updated_at'],
             sentAt: $row['sent_at'] !== null ? (string) $row['sent_at'] : null,
-            createdBy: $row['created_by'] !== null ? (int) $row['created_by'] : null
+            createdBy: $row['created_by'] !== null ? (int) $row['created_by'] : null,
+            importedAt: isset($row['imported_at']) ? (string) $row['imported_at'] : null,
+            originalAudienceName: isset($row['original_audience_name']) ? (string) $row['original_audience_name'] : null
         );
     }
 }

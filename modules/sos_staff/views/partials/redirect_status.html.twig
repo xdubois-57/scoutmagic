@@ -58,6 +58,16 @@
                     <span class="spinner-border spinner-border-sm me-1 d-none" aria-hidden="true" data-redirect-spinner></span>
                     <span data-redirect-label>{{ redirect_action == 'reactivate' ? 'Réactiver la redirection' : 'Resynchroniser la redirection' }}</span>
                 </button>
+            {% elseif redirect_unusable_label|default(null) and not live_state.error %}
+                {# Issue #1125: the planned destination's Desk GSM is no
+                   phone number; a click could only be refused, so the block
+                   names who and what to fix instead. #}
+                <p class="small text-warning-emphasis mb-0 mt-2" id="sos-redirect-unusable">
+                    <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
+                    D'après les gardes, les appels devraient être redirigés vers <strong>{{ redirect_unusable_label }}</strong>,
+                    mais son GSM dans Desk n'est pas un numéro de téléphone valide : la redirection ne peut pas être
+                    corrigée d'ici. Corrigez le GSM dans Desk, puis réimportez.
+                </p>
             {% elseif redirect_expected_number is null and not live_state.error %}
                 <p class="small text-warning-emphasis mb-0 mt-2" id="sos-redirect-no-destination">
                     <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
