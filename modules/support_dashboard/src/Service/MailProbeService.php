@@ -63,7 +63,14 @@ class MailProbeService
         private SupportMailProbeRepository $probes,
         private SupportInstallationRepository $installations,
         private JournalService $journal,
-        private ?InboundMailInterface $inboundMail = null
+        private ?InboundMailInterface $inboundMail = null,
+        /**
+         * The per-address limit of the machine routes (issue #1113). Null
+         * only where nothing ever issues a probe — the inbound-mail
+         * consumer, which claims them — and issueFor() then refuses every
+         * caller rather than answer without the limit.
+         */
+        private ?SupportIntakeGuard $guard = null
     ) {
     }
 
@@ -90,15 +97,32 @@ class MailProbeService
      * answers the same `rejected`, so a caller cannot learn which
      * installation ids exist by watching which refusal comes back.
      *
+     * **And the identity has to be established** (issue #1113). The ticket
+     * route registers an unknown id on its first call, so a correct secret
+     * alone proves only that the caller chose it a moment ago — which a
+     * script can do as easily as a unit. An installation registered that
+     * way is refused here, with the same `rejected`, until a usage report
+     * arrives on the statistics route or a superadmin validates it from
+     * the dashboard. Every installation the statistics route registered,
+     * and every one that existed before the rule, is established already.
+     *
+     * The source address is counted first, with the ticket and archive
+     * routes', before the password_verify() it would otherwise cost.
+     *
      * @return array{status: string, correlation_key?: string, addresses?: list<string>, expires_at?: string}
      */
     public function issueFor(
         string $installationId,
         string $authorizationHeader,
         bool $isSecureTransport,
-        \DateTimeImmutable $now
+        \DateTimeImmutable $now,
+        string $clientIp
     ): array {
         if (!$isSecureTransport) {
+            return ['status' => self::STATUS_REJECTED];
+        }
+
+        if ($this->guard === null || !$this->guard->admitRequest($clientIp)) {
             return ['status' => self::STATUS_REJECTED];
         }
 
@@ -109,6 +133,12 @@ class MailProbeService
 
         $installation = $this->installations->findByInstallationId(trim($installationId));
         if ($installation === null || !password_verify($secret, (string) $installation['secret_hash'])) {
+            return ['status' => self::STATUS_REJECTED];
+        }
+
+        // After the secret, so a wrong secret and an unestablished
+        // installation cost the same and answer the same.
+        if (!(bool) ($installation['established'] ?? true)) {
             return ['status' => self::STATUS_REJECTED];
         }
 

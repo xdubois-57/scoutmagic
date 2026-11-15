@@ -899,6 +899,146 @@ final class GoogleDriveBackendTest extends TestCase
         $this->assertNull($backend->stableDirectUrl('a.txt'));
     }
 
+    // ————— A failure beside the operation —————
+
+    /**
+     * « Cannot be determined » is what an unreachable destination means
+     * for a size, and what a caller serving a range already handles; an
+     * exception out of here would be an error page instead.
+     */
+    public function testTheSizeOfAnObjectOnAnUnreachableDriveIsUnknown(): void
+    {
+        $this->backend()->put('rapport.txt', 'bonjour', 'text/plain');
+        $reader = $this->backend();
+        // The outage is Drive's own lookup, not the token refresh a fresh
+        // backend sends first: only the first request to the Drive API fails.
+        $failed = [];
+        $this->drive->intercept = static function (string $method, string $url) use (&$failed): ?int {
+            if ($failed !== [] || !str_contains($url, '/drive/v3/files')) {
+                return null;
+            }
+            $failed[] = $method . ' ' . $url;
+
+            return 503;
+        };
+
+        $this->assertNull($reader->size('rapport.txt'));
+        $this->assertCount(1, $failed, 'the outage never reached the lookup');
+        $this->assertSame(7, $reader->size('rapport.txt'), 'the null was not the failure\'s, or it was kept');
+    }
+
+    /**
+     * A server whose PHP cannot make the request at all — no cURL — is not
+     * a refusal from Google, and the sentence says the connection is not
+     * at fault rather than leaking PHP's English.
+     */
+    public function testAConnectionTestThisServerCannotCarryOutSaysSoInFrench(): void
+    {
+        $this->drive->intercept = static function (): never {
+            throw new \Error('Call to undefined function curl_init()');
+        };
+
+        $this->assertSame(
+            'Le test n\'a pas pu être mené à son terme sur ce serveur. Le raccordement n\'est pas en '
+            . 'cause ; consultez le journal du site.',
+            $this->backend()->testConnection()
+        );
+    }
+
+    /**
+     * The witness went in and came back, so the connection works: a
+     * refusal to remove it afterwards leaves it behind, and is no reason
+     * for a diagnostic button to throw.
+     */
+    public function testAWitnessThatCannotBeRemovedDoesNotFailTheConnectionTest(): void
+    {
+        $this->drive->intercept = static fn (string $method): ?int => $method === 'DELETE' ? 500 : null;
+
+        $this->assertNull($this->backend()->testConnection());
+        $this->assertSame(['.scoutmagic-healthcheck.txt'], $this->drive->names(), 'the witness was removed');
+    }
+
+    /**
+     * The media type is stated at promotion, and only that: the file is
+     * there and complete, so Google refusing the label must not fail a copy
+     * the caller would then send whole again tomorrow.
+     */
+    public function testALargeUploadWhoseMediaTypeIsRefusedIsStillPromoted(): void
+    {
+        $content = str_repeat('a', GoogleDriveBackend::BUFFERED_UPLOAD_LIMIT_BYTES + 1024);
+        $backend = $this->backend();
+        $backend->beginPartial('film.mp4', strlen($content));
+        $backend->appendToPartial('film.mp4', $content);
+        $this->drive->failPatchesWith = 500;
+
+        $backend->promotePartial('film.mp4', 'video/mp4');
+
+        $this->assertSame($content, $this->drive->contentOf('film.mp4'));
+        $this->assertSame(['film.mp4'], $this->drive->names(), 'the bookkeeping note outlived the promotion');
+        $this->assertTrue($this->backend()->exists('film.mp4'));
+    }
+
+    /**
+     * Collapsing namesakes is tidying after a write that succeeded; a
+     * refusal there leaves the duplicate and reports the write as written,
+     * rather than having the caller send the whole object again.
+     */
+    public function testAWriteWhoseNamesakesCannotBeLookedUpIsStillAWrite(): void
+    {
+        $this->drive->put('rapport.txt', 'vieux');
+        $this->drive->intercept = static fn (string $method, string $url): ?int
+            => $method === 'GET' && str_contains($url, 'fields=files%28id%29') ? 500 : null;
+
+        $this->backend()->put('rapport.txt', 'neuf', 'text/plain');
+
+        $this->assertSame(2, $this->drive->countNamed('rapport.txt'), 'the namesake was collapsed after all');
+        $this->drive->intercept = null;
+        $this->assertSame('neuf', $this->backend()->get('rapport.txt'), 'the newest is not the one read');
+    }
+
+    /**
+     * The note of a finished transfer is invisible to every listing and
+     * names a session Google forgets within a week; failing to delete it
+     * must not undo a copy that arrived.
+     */
+    public function testANoteThatCannotBeDeletedDoesNotUndoAPromotion(): void
+    {
+        $content = str_repeat('b', GoogleDriveBackend::BUFFERED_UPLOAD_LIMIT_BYTES + 1024);
+        $backend = $this->backend();
+        $backend->beginPartial('archive.zip', strlen($content));
+        $backend->appendToPartial('archive.zip', $content);
+        $this->drive->intercept = static fn (string $method): ?int => $method === 'DELETE' ? 500 : null;
+
+        $backend->promotePartial('archive.zip', 'application/zip');
+
+        $this->assertSame($content, $this->drive->contentOf('archive.zip'));
+        $this->assertContains('.scoutmagic-part-' . sha1('archive.zip') . '.json', $this->drive->names());
+        $this->assertSame(['archive.zip'], $this->sortedKeys($this->backend()->list('')->objects));
+    }
+
+    /**
+     * The loser of a race to create album 5 gives way to the older folder;
+     * when its own empty folder cannot be deleted, it is left behind and
+     * the photograph still lands where every reader will look.
+     */
+    public function testAFolderLostToARaceThatCannotBeDeletedDoesNotFailTheWrite(): void
+    {
+        $backend = $this->backend();
+        $this->assertFalse($backend->exists('5/a.jpg'));
+        $winner = $this->drive->addFolder('5', 'folder-1');
+        $this->drive->intercept = static fn (string $method): ?int => $method === 'DELETE' ? 500 : null;
+
+        $backend->put('5/a.jpg', 'x', 'image/jpeg');
+
+        $this->assertSame($winner, $this->drive->folderAt('ScoutMagic/Photos des galeries/5'));
+        $this->assertSame('x', $this->backend()->get('5/a.jpg'));
+        $folders = array_filter(
+            $this->drive->files,
+            static fn (array $f): bool => $f['name'] === '5' && $f['parent'] === 'folder-1'
+        );
+        $this->assertCount(2, $folders, 'the younger folder was deleted after all');
+    }
+
     private function backend(): GoogleDriveBackend
     {
         return $this->backendOn((string) $this->drive->folderId);

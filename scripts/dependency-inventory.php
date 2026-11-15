@@ -150,8 +150,11 @@ const INVENTORY_LICENCE_UNKNOWN = '**À examiner** — licence absente de la tab
 
 // Guarded the same way scripts/authz-support.php is: the test suite defines
 // DEPENDENCY_INVENTORY_TEST and includes this file for its functions, and
-// the command must not run when it does.
-if (!defined('DEPENDENCY_INVENTORY_TEST')) {
+// the command must not run when it does. scripts/check-dependency-age.php
+// includes it too, for the same functions — the dependency list it dates
+// has to be exactly the one this inventory publishes — and defines
+// DEPENDENCY_INVENTORY_LIBRARY for the same reason.
+if (!defined('DEPENDENCY_INVENTORY_TEST') && !defined('DEPENDENCY_INVENTORY_LIBRARY')) {
     inventoryMain($argv);
 }
 

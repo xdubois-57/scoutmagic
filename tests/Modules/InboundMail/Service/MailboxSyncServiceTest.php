@@ -17,6 +17,8 @@ use Modules\InboundMail\Api\LinkOrigin;
 use Modules\InboundMail\Api\InboundMessage;
 use Modules\InboundMail\Api\MessageConsumerInterface;
 use Modules\InboundMail\Client\FakeMailboxClient;
+use Modules\InboundMail\Client\FetchedMessage;
+use Modules\InboundMail\Mime\MimeMessageParser;
 use Modules\InboundMail\Mailbox\ProviderType;
 use Modules\InboundMail\Repository\InboundMailboxRepository;
 use Modules\InboundMail\Repository\InboundMessageRepository;
@@ -296,6 +298,42 @@ class MailboxSyncServiceTest extends TestCase
             $this->mailboxRepository->findCursor($this->mailboxId, 'INBOX')->lastUid,
             'the cursor stayed behind the poisoned message',
         );
+    }
+
+    /**
+     * A message the client cannot read at all, at the top of the folder
+     * with nothing after it to carry the cursor past: the cursor moves past
+     * it all the same. It is
+     * not among the messages the client hands back, and a cursor moved only
+     * past those would fetch it again on every pass — a batch of them would
+     * stop the box for good.
+     */
+    public function testAPoisonedMessageAtTheTopOfTheFolderIsNotFetchedAgain(): void
+    {
+        $this->client = new FakeMailboxClient(new class extends MimeMessageParser {
+            public function parse(string $raw, int $uid, string $folder): FetchedMessage
+            {
+                if ($uid === 11) {
+                    throw new \RuntimeException('illisible');
+                }
+
+                return parent::parse($raw, $uid, $folder);
+            }
+        });
+        $this->service = $this->createSyncService();
+        $this->registry->register($this->claimEverything());
+        $this->addMessage(10, messageId: 'sain-1@example.be');
+        $this->addMessage(11, messageId: 'illisible@example.be');
+
+        $this->sync();
+
+        $this->assertSame(11, $this->mailboxRepository->findCursor($this->mailboxId, 'INBOX')->lastUid);
+
+        $this->client->calls = [];
+        $this->sync();
+
+        $this->assertContains('fetchSince:INBOX:11', $this->client->calls, 'the next pass starts above it');
+        $this->assertSame(1, $this->countMessages());
     }
 
     public function testABoxNoModuleSortsIsStillReadAndStillKept(): void

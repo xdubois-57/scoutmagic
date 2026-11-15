@@ -224,6 +224,27 @@ class SupportRedactionTest extends TestCase
         $this->assertContains('an smtp password', $needles);
     }
 
+    /**
+     * The file is there and cannot be decrypted: there is nothing to use
+     * as a needle, and a package must still be producible, so the answer
+     * is no needle rather than a failure.
+     */
+    public function testTheFactoryReturnsNoNeedlesFromAnUndecryptableSecretsFile(): void
+    {
+        $secretManager = new SecretManager(
+            $this->storagePath . '/keys/master.key',
+            $this->storagePath . '/config/secrets.enc'
+        );
+        $secretManager->generateMasterKey();
+        $secretManager->writeSecrets(['db_password' => 'a database password']);
+        $this->assertSame(['a database password'], SupportPackageFactory::secretsToRedact($secretManager));
+
+        file_put_contents($this->storagePath . '/config/secrets.enc', base64_encode(random_bytes(64)));
+
+        $this->assertTrue($secretManager->isInitialized());
+        $this->assertSame([], SupportPackageFactory::secretsToRedact($secretManager));
+    }
+
     public function testTheFactoryReturnsNoNeedlesBeforeTheSiteIsInitialized(): void
     {
         $secretManager = new SecretManager(

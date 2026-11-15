@@ -65,7 +65,8 @@ final class SupportPackageFactory
             StatisticsServiceFactory::projectRoot($context),
             $context->storagePath,
             self::collectors($context),
-            self::secretsToRedact(StatisticsServiceFactory::secretManager($context))
+            self::secretsToRedact(StatisticsServiceFactory::secretManager($context)),
+            $context->journal
         );
     }
 

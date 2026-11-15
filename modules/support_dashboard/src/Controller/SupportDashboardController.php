@@ -110,6 +110,36 @@ class SupportDashboardController extends AbstractController
     }
 
     /**
+     * `POST /support-dashboard/installations/{id}/valider` — a superadmin
+     * vouching for an installation that a first ticket registered, so the
+     * mail probes, whose answer is this receiver's own mailbox addresses,
+     * open to it (issue #1113). The statistics route does the same on its
+     * own when a usage report arrives; this is for the unit that refused
+     * telemetry and whom the superadmin knows.
+     *
+     * @param array<string, string> $params
+     */
+    public function establish(Request $request, array $params): Response
+    {
+        if (($guard = $this->guardCsrf($request, '/support-dashboard')) !== null) {
+            return $guard;
+        }
+
+        $id = (int) ($params['id'] ?? 0);
+        if ($this->dashboardService->establish($id)) {
+            $this->journalService->log(
+                'support_dashboard',
+                'support_installation_established',
+                'info',
+                'Installation validée manuellement : les sondes e-mail lui sont ouvertes.',
+                ['installation_row_id' => $id]
+            );
+        }
+
+        return $this->redirect('/support-dashboard');
+    }
+
+    /**
      * `POST /support-dashboard/installations/{id}/delete` — a superadmin
      * removing one record before retention would. The confirmation dialog
      * lives on the page; this end only enforces the CSRF token, because a

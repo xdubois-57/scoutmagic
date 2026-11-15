@@ -229,6 +229,49 @@ final class BackupRetentionTest extends TestCase
     }
 
     /**
+     * A `secrets.enc` that no longer decrypts cannot have the password
+     * taken out of it, and that must not undo a deletion already done: the
+     * archive, its rows and its files go, and the server log says which
+     * password stayed behind — by class, never the secret's own text.
+     */
+    public function testAnUnreadableSecretsFileDoesNotUndoTheDeletion(): void
+    {
+        @mkdir($this->storagePath . '/keys', 0700, true);
+        @mkdir($this->storagePath . '/config', 0700, true);
+        file_put_contents($this->storagePath . '/keys/master.key', random_bytes(32));
+        file_put_contents($this->storagePath . '/config/secrets.enc', 'des octets qui ne veulent rien dire');
+        $log = $this->storagePath . '/error.log';
+        $previousLog = ini_set('error_log', $log);
+
+        $id = $this->completed('full_config', archive: 'illisible.zip');
+        $backup = $this->backups->findById($id) ?? throw new \LogicException('fixture');
+
+        try {
+            $this->retention()->forget($backup);
+
+            $this->assertNull($this->backups->findById($id));
+            $this->assertNull($this->files->findById((int) $backup->fileId));
+            $this->assertFileDoesNotExist($this->storagePath . '/maintenance/illisible.zip');
+            $this->assertStringContainsString(
+                'Backup password could not be forgotten for backup ' . $id . ': '
+                    . \Core\Security\DecryptionException::class,
+                (string) file_get_contents($log)
+            );
+            $this->assertSame(
+                'des octets qui ne veulent rien dire',
+                file_get_contents($this->storagePath . '/config/secrets.enc')
+            );
+        } finally {
+            ini_set('error_log', $previousLog === false ? '' : $previousLog);
+            foreach (['config/secrets.enc', 'config/secrets.enc.lock', 'keys/master.key', 'error.log'] as $file) {
+                @unlink($this->storagePath . '/' . $file);
+            }
+            @rmdir($this->storagePath . '/config');
+            @rmdir($this->storagePath . '/keys');
+        }
+    }
+
+    /**
      * A file already gone is the ordinary case, not an edge one — a purge
      * that half-succeeded, an archive removed over FTP. Leaving the row
      * would leave a line offering the download of nothing.

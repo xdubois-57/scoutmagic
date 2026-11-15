@@ -132,7 +132,10 @@ class DataMigrationController extends AbstractController
         $chunk = $request->getFile('file');
         if ($chunk === null || empty($chunk['tmp_name'])) {
             if ((string) $request->getBody('probe', '') === '1') {
-                return $this->json(['success' => true, 'received' => $this->runs->receivedBytes($uploadId, session_id())]);
+                return $this->json([
+                    'success' => true,
+                    'received' => $this->runs->receivedBytes($uploadId, session_id()),
+                ]);
             }
 
             return $this->json(['success' => false, 'error' => 'Aucun fragment envoyé.'], 400);
@@ -152,12 +155,19 @@ class DataMigrationController extends AbstractController
         } catch (UploadException $e) {
             return $this->json([
                 'success' => false,
-                'error' => UserFacingMessage::from($e, 'Ce fragment du fichier n\'a pas pu être enregistré. Relancez l\'envoi.'),
+                'error' => UserFacingMessage::from(
+                    $e,
+                    'Ce fragment du fichier n\'a pas pu être enregistré. Relancez l\'envoi.'
+                ),
                 'received' => $this->runs->receivedBytes($uploadId, session_id()),
             ], 409);
         }
 
-        return $this->json(['success' => true, 'received' => $result['received'], 'complete' => $result['run'] !== null]);
+        return $this->json([
+            'success' => true,
+            'received' => $result['received'],
+            'complete' => $result['run'] !== null,
+        ]);
     }
 
     /**
@@ -262,7 +272,10 @@ class DataMigrationController extends AbstractController
         return $this->act($request, $params, function (Importer $importer, Run $run): void {
             if ($run->isActive()) {
                 $this->runs->abandon($run);
-                FlashMessage::set('success', 'Import abandonné. Ce qui était déjà importé est conservé, le fichier est effacé.');
+                FlashMessage::set(
+                    'success',
+                    'Import abandonné. Ce qui était déjà importé est conservé, le fichier est effacé.'
+                );
             }
         });
     }

@@ -436,6 +436,57 @@ class ReceiptServiceTest extends TestCase
         $this->assertSame(20, imagesy($stored));
     }
 
+    /**
+     * A phone photo whose header claims more pixels than the ceiling is
+     * never decoded to be rotated: it is stored byte for byte, rather
+     * than exhausting memory on what may be a decompression bomb.
+     */
+    public function testAJpegClaimingMorePixelsThanTheCeilingIsStoredUnrotated(): void
+    {
+        $jpeg = $this->createJpegWithOrientation(20, 10, 6);
+        $sof = strpos($jpeg, "\xFF\xC0");
+        $this->assertNotFalse($sof, 'the test JPEG must carry a baseline frame header');
+        // Height then width, big-endian, after the marker, its length and the precision byte.
+        $bomb = substr_replace($jpeg, pack('n', 10_000) . pack('n', 10_000), $sof + 5, 4);
+        $this->assertGreaterThan(
+            \Core\Image\ImageDimensionGuard::MAX_PIXELS,
+            array_product(array_slice((array) getimagesizefromstring($bomb), 0, 2))
+        );
+
+        $attachment = $this->service->upload($bomb, 'image/jpeg', 'ticket.jpg', $this->accountId, null, null, 1);
+
+        $this->assertSame($bomb, $this->fileStorage->retrieve($attachment->fileId));
+    }
+
+    /**
+     * The receipt row is the second write; refused, the file stored just
+     * before it is deleted again rather than left belonging to nothing.
+     */
+    public function testAReceiptRowTheDatabaseRefusesTakesItsStoredFileWithIt(): void
+    {
+        $this->pdo->exec(
+            "CREATE TRIGGER refuse_receipt BEFORE INSERT ON finance_attachments
+             BEGIN SELECT RAISE(ABORT, 'refused by the test'); END"
+        );
+
+        try {
+            $this->service->upload(
+                '%PDF-1.4 receipt', 'application/pdf', 'facture.pdf', $this->accountId, null, null, 1
+            );
+            $this->fail('the refusal was swallowed');
+        } catch (\PDOException $e) {
+            $this->assertStringContainsString('refused by the test', $e->getMessage());
+        }
+
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM files')->fetchColumn());
+        $blobs = is_dir($this->storagePath)
+            ? iterator_count(new \RecursiveIteratorIterator(
+                new \RecursiveDirectoryIterator($this->storagePath, \FilesystemIterator::SKIP_DOTS)
+            ))
+            : 0;
+        $this->assertSame(0, $blobs, 'the stored file must be deleted again');
+    }
+
     public function testUploadLeavesJpegWithoutOrientationTagUntouched(): void
     {
         $img = imagecreatetruecolor(20, 10);
