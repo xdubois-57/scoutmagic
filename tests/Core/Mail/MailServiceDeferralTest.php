@@ -163,6 +163,32 @@ class MailServiceDeferralTest extends TestCase
     }
 
     /**
+     * **And a deferral whose note cannot be written is still a deferral.**
+     * The queue took the message, so `send()` owes its caller the return
+     * that says « it will leave »; the journal insert failing after the
+     * row was written must not turn that into a failure the caller would
+     * retry — putting a second copy in the queue, and then in somebody's
+     * inbox.
+     */
+    public function testADeferralWhoseJournalEntryFailsIsStillADeferral(): void
+    {
+        $this->pdo->exec('DROP TABLE event_log');
+
+        $this->serviceDeferring(MailLane::Transactional, journal: true)->send(
+            to: 'parent@exemple.test',
+            subject: 'Reçu de paiement',
+            bodyHtml: '<p>Bonjour</p>',
+            bodyText: 'Bonjour'
+        );
+
+        $this->assertSame(
+            ['transactional' => 1],
+            $this->repository->pendingCountByLane(),
+            'send() returned and the message is waiting in the queue.'
+        );
+    }
+
+    /**
      * **The clone the drain sends through has no queue** — and that is
      * what keeps a deferred message mortal. Replaying through an
      * instance that can defer again would write a NEW row with its
