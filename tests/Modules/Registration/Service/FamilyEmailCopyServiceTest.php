@@ -127,6 +127,31 @@ class FamilyEmailCopyServiceTest extends TestCase
         $this->assertSame('', $this->service->configuredAddress());
     }
 
+    /**
+     * The address setting gone from the database (a module reinstalled
+     * from an older manifest): the box is refused with a sentence that
+     * says to reload, the underlying refusal kept for the journal, and the
+     * switch — valid on its own — is not written without it.
+     */
+    public function testSaveMissingTheAddressSettingIsRefusedAndKeepsTheSwitch(): void
+    {
+        $this->pdo->prepare('DELETE FROM settings WHERE setting_key = ?')
+            ->execute([FamilyEmailCopyService::SETTING_ADDRESS]);
+
+        try {
+            $this->service->save(false, 'secretariat@unite.example.com');
+            $this->fail('The save went through without its address setting.');
+        } catch (RegistrationException $e) {
+            $this->assertSame(
+                "Les réglages n'ont pas pu être enregistrés — rechargez la page et réessayez.",
+                $e->getMessage()
+            );
+            $this->assertInstanceOf(\Core\Config\SettingException::class, $e->getPrevious());
+        }
+
+        $this->assertTrue($this->service->isEnabled(), 'the switch is not saved either.');
+    }
+
     public function testSaveRefusesToSwitchOnWithNothingToResolve(): void
     {
         $this->settings->setInternal(FamilyEmailCopyService::SETTING_ENABLED, '0', 'registration');

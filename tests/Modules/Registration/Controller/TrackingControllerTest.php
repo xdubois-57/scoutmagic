@@ -374,6 +374,51 @@ class TrackingControllerTest extends TestCase
     }
 
     /**
+     * A family linked to two requests cannot remove the address of one
+     * through the other's page: the address is not found there, the
+     * family is told so, and the row stays.
+     */
+    public function testRemovingAnAddressOfAnotherRequestIsRefusedAndKeepsIt(): void
+    {
+        $sibling = $this->requestRepository->create(
+            $this->scoutYearIdOf($this->created['id']),
+            $this->fields('marie@example.com'),
+            null,
+            []
+        );
+        $siblingAddressId = (new RegistrationSecondaryEmailRepository($this->pdo, $this->encryption))->create(
+            $sibling['id'],
+            'papa@example.com',
+            str_repeat('0', 64),
+            new \DateTimeImmutable('+48 hours')
+        );
+        AuthSession::login(1, 'marie@example.com', 'identified');
+
+        $response = $this->controller->removeEmail(
+            new Request(
+                'POST',
+                '/inscriptions/suivi/demande/' . $this->created['id'] . '/emails/' . $siblingAddressId . '/remove',
+                [],
+                ['_csrf_token' => CsrfGuard::generateToken()],
+                [],
+                []
+            ),
+            ['id' => (string) $this->created['id'], 'email_id' => (string) $siblingAddressId]
+        );
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame(
+            '/inscriptions/suivi/demande/' . $this->created['id'],
+            $response->getHeaders()['Location'] ?? null
+        );
+        $this->assertSame(['type' => 'error', 'message' => 'Adresse introuvable.'], FlashMessage::get());
+        $this->assertSame(
+            1,
+            (int) $this->pdo->query('SELECT COUNT(*) FROM registration_secondary_emails')->fetchColumn()
+        );
+    }
+
+    /**
      * Issue #843: the recommendation, its explanation and the refusal
      * reason are the staff's alone. Neither tracking view — by token, or
      * linked to the visitor's account — shows any of them, even when the
