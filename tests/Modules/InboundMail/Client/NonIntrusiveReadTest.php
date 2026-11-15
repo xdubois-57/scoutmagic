@@ -89,12 +89,12 @@ class NonIntrusiveReadTest extends TestCase
         // EXAMINE is the read-only open; SELECT sets \Recent on some
         // servers, which is already a modification.
         $this->assertStringContainsString('->examine()', self::imapClientSource());
-        $this->assertStringNotContainsString('->select()', self::readingSource());
+        $this->assertStringNotContainsString('->select()', self::readingSource() . self::otherClientSources());
     }
 
     public function testTheImapClientNeverCallsAWriteOperation(): void
     {
-        $source = self::readingSource();
+        $source = self::readingSource() . self::otherClientSources();
 
         foreach (['->setFlag(', '->addFlag(', '->delete(', '->move(', '->copy(', '->expunge(', '->appendMessage('] as $call) {
             $this->assertStringNotContainsString(
@@ -173,6 +173,31 @@ class NonIntrusiveReadTest extends TestCase
         }
 
         return substr($source, 0, $at) . self::afterPruningMethod($source, $at);
+    }
+
+    /**
+     * Every other file under `Client/`, so a class the reading path gains
+     * — `TolerantMessageQuery`, which opens no folder but runs the
+     * library's per-message step — is held to the same rule without being
+     * named here first. `ImapMailboxClient.php` is read through
+     * `readingSource()`, without its one declared exception, and
+     * `PruningMailboxClientInterface.php` only declares that exception.
+     */
+    private static function otherClientSources(): string
+    {
+        $files = glob(dirname(__DIR__, 4) . '/modules/inbound_mail/src/Client/*.php');
+        self::assertNotFalse($files);
+
+        $sources = '';
+        foreach ($files as $file) {
+            if (in_array(basename($file), ['ImapMailboxClient.php', 'PruningMailboxClientInterface.php'], true)) {
+                continue;
+            }
+            $sources .= (string) file_get_contents($file);
+        }
+        self::assertStringContainsString('class TolerantMessageQuery', $sources);
+
+        return $sources;
     }
 
     /**
