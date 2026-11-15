@@ -289,6 +289,31 @@ final class RemoteBackupControllerTest extends TestCase
         $this->assertStringNotContainsString($phrase, $recorded, 'the journal now carries the phrase itself');
     }
 
+    /**
+     * A `secrets.enc` the master key no longer opens (a restored file, a
+     * replaced key): the screen says the phrase cannot be read, with a 500,
+     * and nothing is journaled as revealed — nothing was.
+     */
+    public function testAnUnreadableSecretsFileRevealsNothingAndSaysWhy(): void
+    {
+        $this->connectSite();
+        file_put_contents($this->base . '/config/secrets.enc', 'plus un fichier de secrets');
+
+        $controller = $this->controller();
+        $response = $controller->revealPassphrase($this->jsonRequest(), []);
+
+        $this->assertSame(500, $response->getStatusCode());
+        $this->assertSame(
+            [
+                'success' => false,
+                'message' => 'Les secrets de ce site sont illisibles : la phrase de passe des sauvegardes distantes '
+                    . 'ne peut pas être lue.',
+            ],
+            json_decode($response->getBody(), true)
+        );
+        $this->assertSame(0, $this->journal->countOf('remote_backup_passphrase_revealed'));
+    }
+
     /** No token, no phrase: it cannot be pulled out by a link. */
     public function testRevealingThePhraseNeedsTheCsrfToken(): void
     {
@@ -340,6 +365,31 @@ final class RemoteBackupControllerTest extends TestCase
         $this->assertStringContainsString('"generation":2', $recorded);
         $this->assertStringNotContainsString($first, $recorded);
         $this->assertStringNotContainsString($this->passphrase->stored(), $recorded);
+    }
+
+    /**
+     * The same unreadable file at « Régénérer »: nothing is drawn, the
+     * generation does not move, the refusal says nothing changed, and no
+     * regeneration is journaled.
+     */
+    public function testRegeneratingOverUnreadableSecretsChangesNothingAndSaysSo(): void
+    {
+        $this->connectSite();
+        $this->passphrase->current();
+        $generation = $this->passphrase->generation();
+        $unreadable = 'plus un fichier de secrets';
+        file_put_contents($this->base . '/config/secrets.enc', $unreadable);
+
+        $response = $this->controller()->regeneratePassphrase($this->postRequest([]), []);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame(
+            ['type' => 'error', 'message' => 'Les secrets de ce site sont illisibles : rien n\'a été modifié.'],
+            \Core\Http\FlashMessage::get()
+        );
+        $this->assertSame($generation, $this->passphrase->generation());
+        $this->assertSame($unreadable, file_get_contents($this->base . '/config/secrets.enc'));
+        $this->assertSame(0, $this->journal->countOf('remote_backup_passphrase_regenerated'));
     }
 
     /** Without the token, nothing is drawn — the old archives stay open. */

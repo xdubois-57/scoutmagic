@@ -346,6 +346,13 @@ final class ClaudeReviewIsVerifiableTest extends TestCase
             $args,
             'The per-push guarantee `synchronize` exists for is no longer stated to the reviewer.',
         );
+        // Issue #1160: the run that stopped had found Claude's own inline
+        // comments on an EARLIER head, which the sentence above did not name.
+        $this->assertStringContainsString(
+            'comments Claude left on an earlier commit of this pull request review that commit, not this head',
+            $args,
+            'Nothing tells the reviewer that its own inline comments on an earlier head are no reason to stop.',
+        );
     }
 
     /**
@@ -447,6 +454,18 @@ final class ClaudeReviewIsVerifiableTest extends TestCase
             $result['subagent_stats'] = $subagentStats;
         }
 
+        return self::evidenceForTranscript([$result]);
+    }
+
+    /**
+     * Runs the reader over a whole transcript — the messages the SDK writes,
+     * in order — and returns the `key=value` lines it wrote.
+     *
+     * @param  list<array<string, mixed>> $messages
+     * @return array<string, string>
+     */
+    private static function evidenceForTranscript(array $messages): array
+    {
         $transcript = tempnam(sys_get_temp_dir(), 'claude-review-transcript-');
         $program = tempnam(sys_get_temp_dir(), 'claude-review-filter-');
 
@@ -454,7 +473,7 @@ final class ClaudeReviewIsVerifiableTest extends TestCase
         self::assertIsString($program);
 
         try {
-            file_put_contents($transcript, (string) json_encode([$result]));
+            file_put_contents($transcript, (string) json_encode($messages));
             file_put_contents($program, self::jqProgram());
 
             $output = [];
@@ -544,6 +563,9 @@ final class ClaudeReviewIsVerifiableTest extends TestCase
             'SUBAGENTS_BACKGROUND' => '0',
             'SUBAGENTS_NESTED' => '0',
             'SUBAGENTS_GONE' => '0',
+            'DIFF_READS' => '40',
+            'DECLINED' => 'false',
+            'RESULT_EXCERPT' => 'Found 2 issues, posted as inline comments.',
             'DELIBERATE_DENIALS' => implode(',', self::deliberateDenials()),
         ] + [];
 
@@ -668,6 +690,39 @@ final class ClaudeReviewIsVerifiableTest extends TestCase
                 'expect' => 'Green without a review',
                 'unreviewed' => '1',
             ],
+            // Run 43150076305 on #1148 (issue #1160): two eligibility
+            // agents launched and finished, nothing read, and a final
+            // message saying so. Every count above agreed with itself.
+            'a run that stopped after its eligibility checks' => [
+                'evidence' => [
+                    'AGENT_CALLS' => '2', 'SUBAGENTS_SPAWNED' => '2', 'SUBAGENTS_COMPLETED' => '2', 'TURNS' => '3',
+                    'DIFF_READS' => '0', 'DECLINED' => 'true',
+                    'RESULT_EXCERPT' => 'I must stop and not proceed with another review. No further action taken',
+                ],
+                'expect' => 'The reviewer declined to review',
+                'unreviewed' => '1',
+            ],
+            // The same skip worded in a way the pattern does not know: the
+            // transcript still shows the code was never opened.
+            'a skip whose wording is new' => [
+                'evidence' => [
+                    'AGENT_CALLS' => '2', 'SUBAGENTS_SPAWNED' => '2', 'SUBAGENTS_COMPLETED' => '2', 'DIFF_READS' => '0',
+                ],
+                'expect' => 'never opened the code',
+                'unreviewed' => '1',
+            ],
+            // And the wording alone is enough when something was read on
+            // the way to deciding to stop.
+            'a run that read a file and then said it stopped' => [
+                'evidence' => ['DIFF_READS' => '1', 'DECLINED' => 'true', 'RESULT_EXCERPT' => 'Skipping this review.'],
+                'expect' => 'its final message says it stopped: « Skipping this review. »',
+                'unreviewed' => '1',
+            ],
+            'a transcript that cannot say whether the code was read' => [
+                'evidence' => ['DIFF_READS' => '-1', 'DECLINED' => ''],
+                'expect' => 'did not say whether any of them read the code',
+                'unreviewed' => '1',
+            ],
         ];
 
         foreach ($cases as $label => $case) {
@@ -687,6 +742,77 @@ final class ClaudeReviewIsVerifiableTest extends TestCase
                 . ', which is the opposite of what this run showed.',
             );
         }
+    }
+
+    /**
+     * Issue #1160, read off a transcript rather than handed to the verdict
+     * as numbers: what the eligibility-only run of 43150076305 recorded —
+     * two `Agent` launches, a `gh pr view` from each, a final message
+     * refusing to go on — and a real review beside it.
+     */
+    public function testTheReaderTellsAnEligibilitySkipFromAReview(): void
+    {
+        if (shell_exec('command -v jq') === null) {
+            self::markTestSkipped('jq is not installed, so the evidence reader cannot be run here.');
+        }
+
+        $use = static fn (string $name, array $input): array => [
+            'type' => 'assistant',
+            'message' => ['content' => [['type' => 'tool_use', 'name' => $name, 'input' => $input]]],
+        ];
+        $result = static fn (string $said): array => [
+            'type' => 'result',
+            'subtype' => 'success',
+            'is_error' => false,
+            'num_turns' => 3,
+            'permission_denials' => [],
+            'result' => $said,
+            'subagent_stats' => [
+                'spawned' => 2, 'completed' => 2, 'started_in_background' => 0, 'spawned_by_subagents' => 0,
+                'failed' => 0, 'killed' => ['parent' => 0, 'user' => 0, 'system' => 0],
+            ],
+        ];
+
+        $skip = self::evidenceForTranscript([
+            $use('Agent', [
+                'description' => 'Check eligibility',
+                'prompt' => 'Is this PR closed, a draft, or already reviewed?',
+            ]),
+            $use('Bash', ['command' => 'gh pr view 1148 --comments']),
+            $use('Agent', ['description' => 'Check eligibility again', 'prompt' => '…']),
+            $use('Bash', ['command' => 'gh pr view 1148 --json state,isDraft']),
+            $result("Claude has already left substantive review comments on this PR.\nI must stop and not proceed "
+                . 'with another review. No further action taken.'),
+        ]);
+
+        $this->assertSame('0', $skip['diff_reads'], 'a `gh pr view` is not a reading of the code');
+        $this->assertSame('true', $skip['declined']);
+        $this->assertStringStartsWith(
+            'Claude has already left substantive review comments on this PR. I must stop',
+            $skip['result_excerpt']
+        );
+
+        $review = self::evidenceForTranscript([
+            $use('Agent', ['description' => 'Find bugs', 'prompt' => '…']),
+            $use('Bash', ['command' => 'gh pr diff 1148']),
+            $use('Bash', ['command' => 'git diff origin/main...HEAD -- scripts/release.sh']),
+            $use('Read', ['file_path' => 'scripts/release.sh']),
+            $use('Grep', ['pattern' => 'run_gate']),
+            $result('Found 1 issue, posted as an inline comment.'),
+        ]);
+
+        $this->assertSame('4', $review['diff_reads']);
+        $this->assertSame('false', $review['declined']);
+
+        // `gh pr diff` named inside another command's argument is not a
+        // reading of the diff, and a word that merely contains `git show`
+        // is not one either.
+        $lookalike = self::evidenceForTranscript([
+            $use('Bash', ['command' => 'echo "run gh pr diff later"']),
+            $use('Bash', ['command' => 'gh pr view 1 --json body']),
+            $result('Done.'),
+        ]);
+        $this->assertSame('0', $lookalike['diff_reads']);
     }
 
     /**

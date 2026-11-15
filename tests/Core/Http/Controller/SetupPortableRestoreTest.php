@@ -547,6 +547,77 @@ final class SetupPortableRestoreTest extends TestCase
         $this->assertFalse($this->secretManager->isInitialized());
     }
 
+    /**
+     * An archive newer than the code installed here is refused at the
+     * passphrase check, with the two versions named and what to do; the
+     * deposit is kept for after the update, and nothing is written.
+     */
+    #[Group('database')]
+    public function testCheckingAnArchiveNewerThanThisInstallationSaysToUpdateFirst(): void
+    {
+        $connection = $this->realDbConnection();
+        $origin = $this->buildOriginArchive($connection, '2.1.0');
+        $deposit = $this->deposit($origin['zipPath']);
+        file_put_contents($this->installRoot . '/VERSION', "2.0.3\n");
+        $_SESSION['setup_token_verified'] = true;
+
+        $response = $this->controller()->checkDepositedArchive(new Request(
+            'POST',
+            '/setup/restore-deposited/check',
+            [],
+            ['_csrf_token' => $this->issueCsrfToken(), 'passphrase' => self::PASSPHRASE],
+            [],
+            []
+        ), []);
+
+        $this->assertSame(
+            [
+                'success' => false,
+                'message' => 'Cette sauvegarde a été faite avec une version plus récente de ScoutMagic (2.1.0) que '
+                    . 'celle installée ici (2.0.3). Mettez ce site à jour, puis recommencez la restauration.',
+            ],
+            json_decode($response->getBody(), true)
+        );
+        $this->assertTrue($deposit->exists());
+        $this->assertFalse($this->secretManager->isInitialized());
+    }
+
+    /**
+     * An upload the server cannot keep as the deposit — something already
+     * stands where the archive goes and cannot be replaced: the wizard is
+     * told so, the upload is not left lying in the temp store, and nothing
+     * is restored.
+     */
+    #[Group('database')]
+    public function testAnUploadThatCannotBeKeptAsTheDepositIsRefusedAndRemoved(): void
+    {
+        $this->realDbConnection();
+        $zip = $this->tempDir . '/anything.zip';
+        file_put_contents($zip, 'PK');
+        $uploadId = $this->assembleUpload($zip);
+        $blocking = (new DepositedArchive($this->installRoot))->path();
+        mkdir($blocking, 0755, true);
+        file_put_contents($blocking . '/occupe', 'x');
+        $_SESSION['setup_token_verified'] = true;
+
+        $body = $this->targetCredentials() + [
+            '_csrf_token' => $this->issueCsrfToken(),
+            'upload_id' => $uploadId,
+            'passphrase' => self::PASSPHRASE,
+        ];
+        $response = $this->controller()->restorePortable(
+            new Request('POST', '/setup/restore-portable', [], $body, [], ['HTTP_HOST' => 'nouveau.example']),
+            []
+        );
+
+        $this->assertSame(
+            ['success' => false, 'message' => 'L\'archive envoyée n\'a pas pu être conservée sur le serveur.'],
+            json_decode($response->getBody(), true)
+        );
+        $this->assertSame([], glob($this->installRoot . '/storage/temp/chunked_uploads/*.part') ?: []);
+        $this->assertFalse($this->secretManager->isInitialized());
+    }
+
     public function testAbandoningTheDepositedArchiveRemovesIt(): void
     {
         $zip = $this->tempDir . '/anything.zip';
@@ -759,7 +830,7 @@ final class SetupPortableRestoreTest extends TestCase
      *
      * @return array{zipPath: string, masterKey: string}
      */
-    private function buildOriginArchive(Connection $connection): array
+    private function buildOriginArchive(Connection $connection, string $version = '0.0.1'): array
     {
         $originBase = $this->tempDir . '/origin';
         $masterKey = random_bytes(32);
@@ -791,7 +862,7 @@ final class SetupPortableRestoreTest extends TestCase
         $this->seedSetting($connection->getPdo(), InstallationIdentityService::INSTALLATION_ID_SETTING, self::ORIGIN_ID);
         $this->seedSetting($connection->getPdo(), InstallationIdentityService::RESTORED_FROM_SETTING, '');
 
-        $result = $service->createPortableBackup(self::PASSPHRASE, PortableHints::sample('0.0.1'), self::ORIGIN_ID);
+        $result = $service->createPortableBackup(self::PASSPHRASE, PortableHints::sample($version), self::ORIGIN_ID);
         $this->cleanupPaths[] = $result['dbDumpPath'];
         $this->cleanupPaths[] = $result['zipPath'];
 

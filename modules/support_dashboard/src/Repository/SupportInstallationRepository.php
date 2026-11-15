@@ -92,7 +92,8 @@ class SupportInstallationRepository
         string $secretHash,
         string $rawPayload,
         array $denormalized,
-        bool $telemetryEnabled = true
+        bool $telemetryEnabled = true,
+        bool $established = true
     ): int {
         // Both timestamps are written from PHP rather than left to the
         // column's DEFAULT CURRENT_TIMESTAMP. recordReport() has always
@@ -105,11 +106,23 @@ class SupportInstallationRepository
         $now = (new \DateTimeImmutable())->format('Y-m-d H:i:s');
 
         $columns = array_merge(
-            ['installation_id', 'secret_hash', 'payload', 'first_seen_at', 'last_received_at', 'telemetry_enabled'],
+            [
+                'installation_id', 'secret_hash', 'payload', 'first_seen_at', 'last_received_at',
+                'telemetry_enabled', 'established',
+            ],
             array_keys($denormalized)
         );
         $values = self::bindable(array_merge(
-            [$installationId, $secretHash, $rawPayload, $now, $now, $telemetryEnabled],
+            [
+                $installationId, $secretHash,
+                // No report yet — a row a first ticket registered — is NULL,
+                // never '': the column is JSON, and MySQL and MariaDB refuse
+                // an empty string in one, which made every first-ticket
+                // registration fail on the production engines while SQLite
+                // stored it without a word (found with issue #1113).
+                $rawPayload === '' ? null : $rawPayload,
+                $now, $now, $telemetryEnabled, $established,
+            ],
             array_values($denormalized)
         ));
 
@@ -258,6 +271,33 @@ class SupportInstallationRepository
             // the download of everything else somebody asked for.
             return null;
         }
+    }
+
+    /**
+     * Allow this installation the mail probes (issue #1113): a usage
+     * report arrived on the statistics route, or a superadmin vouched for
+     * it. True when the row exists, whether or not it already was.
+     */
+    public function markEstablished(int $id): bool
+    {
+        $stmt = $this->pdo->prepare('UPDATE support_installations SET established = 1 WHERE id = ?');
+        $stmt->execute([$id]);
+
+        return $stmt->rowCount() > 0 || $this->findById($id) !== null;
+    }
+
+    /**
+     * How many installations this receiver first saw at or after
+     * $sinceDatetime, by whichever route — the measure the global quota
+     * on new registrations reads (issue #1113). first_seen_at is written
+     * from PHP by register(), so the cutoff and the column share a clock.
+     */
+    public function countFirstSeenSince(string $sinceDatetime): int
+    {
+        $stmt = $this->pdo->prepare('SELECT COUNT(*) FROM support_installations WHERE first_seen_at >= ?');
+        $stmt->execute([$sinceDatetime]);
+
+        return (int) $stmt->fetchColumn();
     }
 
     public function delete(int $id): bool

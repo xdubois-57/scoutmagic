@@ -583,8 +583,9 @@ class RentalDocumentRepository implements AttachedFileRepository
                 try {
                     $this->pdo->rollBack();
                 } catch (\Throwable) {
-                    // Nothing left to roll back — a commit that threw
-                    // after doing its work leaves no transaction open.
+                    // Nothing left to roll back — the engine already
+                    // abandoned the transaction (a deadlock on MySQL), or
+                    // a commit that threw after doing its work closed it.
                     // Swallowed on purpose: the caller is about to
                     // receive the original failure, which is the one
                     // sentence they can act on.

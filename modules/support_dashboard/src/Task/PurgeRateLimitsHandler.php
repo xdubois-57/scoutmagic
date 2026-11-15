@@ -14,7 +14,7 @@ use Core\Scheduler\TaskContext;
 use Core\Scheduler\TaskHandlerInterface;
 use Modules\SupportDashboard\Repository\SupportMailProbeRepository;
 use Modules\SupportDashboard\Repository\SupportReportRateLimitRepository;
-use Modules\SupportDashboard\Service\StatisticsIntakeService;
+use Modules\SupportDashboard\Service\SupportIntakeGuard;
 
 /**
  * Clears rate-limit rows past their window
@@ -40,7 +40,12 @@ class PurgeRateLimitsHandler implements TaskHandlerInterface
     public function handle(array $payload, TaskContext $context): void
     {
         try {
-            $cutoff = (new \DateTimeImmutable('-' . StatisticsIntakeService::RATE_LIMIT_WINDOW_MINUTES . ' minutes'))
+            // The longest window anything in the table is read over: a
+            // day, for the quota on new installations and for the markers
+            // the attention page reads (issue #1113). Purging at the
+            // statistics' hour would forget a quota refusal before anybody
+            // opened the page.
+            $cutoff = (new \DateTimeImmutable('-' . SupportIntakeGuard::RETENTION_MINUTES . ' minutes'))
                 ->format('Y-m-d H:i:s');
 
             (new SupportReportRateLimitRepository($context->connection->getPdo()))->deleteOlderThan($cutoff);

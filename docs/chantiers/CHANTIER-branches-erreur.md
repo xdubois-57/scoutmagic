@@ -137,11 +137,11 @@ l'ordre des lots (ceux à zéro, 11 domaines, ne figurent pas) :
 
 | Domaine | Jamais exécutés | dont vides | Marqués | Blocs |
 |---|---|---|---|---|
-| `modules/rental` | 42 | 6 | 0 | 102 |
-| `core/Http` | 36 | 4 | 0 | 134 |
+| `modules/rental` | ~~42~~ **0** (lots 3a-3b) | ~~6~~ 0 | 1 | 102 |
+| `core/Http` | ~~36~~ **1** (lot 4, voir le journal) | ~~4~~ 0 | 1 | 133 |
 | `core/Mail` | ~~35~~ **0** (lots 1-2) | ~~16~~ 0 | 2 | 77 |
-| `core/Storage` | 31 | 9 | 0 | 67 |
-| `modules/finance` | 23 | 0 | 0 | 54 |
+| `core/Storage` | ~~31~~ **0** (lot 5) | ~~9~~ 0 | 1 | 67 |
+| `modules/finance` | ~~23~~ **0** (lot 6) | 0 | 3 | 54 |
 | `core/Maintenance` | 21 | 3 | 0 | 55 |
 | `modules/inbound_mail` | 21 | 4 | 0 | 40 |
 | `core/Support` | 20 | 4 | 0 | 27 |
@@ -257,3 +257,129 @@ entrant qui ne répond pas).
   qu'un fournisseur a été mesuré ; un cache de réglages vide mémorisé après un
   échec).
 
+### Lots 3a et 3b — `modules/rental` — 2026-11-14
+
+**42 → 0** jamais exécutés, dont les 6 vides ; un marqueur. Remesuré sur
+`tests/Modules/Rental` avant et après (PCOV, MariaDB).
+
+**Lot 3a — les vides, les contrôleurs et les dépôts (25).** Saisie refusée
+(fichier non autorisé, copie signée en texte), bien supprimé entre-temps,
+réservation dont le maintien a expiré pendant qu'une autre tient les dates,
+table absente, trigger qui refuse une écriture, identifiants de boîte
+illisibles (clé changée sans rechiffrer), PDF à tables de références en flux
+(ce qu'écrit le scanner d'un téléphone), course réelle à deux sessions sur
+MariaDB pour les marques et positions de lecture. Le transport d'e-mail n'est
+doublé que là où sa panne est le sujet.
+
+**Lot 3b — les services (18).** Photo d'état des lieux illisible, ligne de
+facture antérieure à #980, catégorie Finances archivée, trop-perçu refusé par
+les Finances, réservation sans prix confirmée, `SIGNAL 45000` sur MariaDB pour
+distinguer un refus d'une collision de clé (SQLite les confond sous 23000).
+Aucun changement de code produit : chaque branche n'avait simplement jamais
+reçu sa panne.
+
+**Le marqueur** : `RentalSignedContractService`, la reprise du PDF que
+Ghostscript vient de réécrire. `rewriteForImport()` demande un PDF 1.4, que
+FPDI lit ; seuls un Ghostscript qui écrirait un fichier illisible ou un disque
+plein y mènent, et un test devrait truquer la sortie de Ghostscript.
+
+**Trouvé en chemin, ouvert à part.**
+- **#1212 — perte de données** : supprimer un bien efface ses réservations
+  malgré l'avertissement « Possible seulement pour un bien qui n'a encore
+  aucune réservation » (`hasHistory()` répond toujours `false`, et
+  `rental_bookings.asset_id` est en `ON DELETE CASCADE`).
+- **#1213** : sur une copie signée illisible, Ghostscript « réussit » en
+  écrivant une page blanche, contresignée comme un contrat.
+
+**Et #1221**, deux échecs silencieux : `RentalBookingRepository::addRenterEmail()` prend tout
+`PDOException` pour « déjà là » (le message du service reste juste, mais
+l'apprentissage d'adresse échoue en silence) ; les deux `catch` de
+notification des gestionnaires n'écrivent rien au journal quand la recherche
+des destinataires échoue (le journal du service de notification ne couvre que
+l'envoi).
+
+### Lot 4 — `core/Http` — 2026-11-15
+
+**36 → 1** jamais exécuté au rapport, dont les 4 vides ; un marqueur, un
+`catch` retiré avec le défaut qu'il cachait. Remesuré sur `tests/Core/Http`
+avant et après (PCOV, MariaDB).
+
+**34 branches atteintes** par un état réel : restauration déjà en attente,
+table ou ligne de réglage absente, badge supprimé, fichier chiffré perdu ou
+corrompu, fichier des secrets illisible, archive d'une autre version, dossier
+de clés occupé par un fichier, vue sur une table supprimée, fichier texte nommé
+`.jpg`, trigger qui refuse une écriture. GitHub et le transport d'e-mail ne
+sont doublés que là où leur panne est le sujet.
+
+**Celle que le rapport ne voit pas** : `ErrorHandler::guard()` (≈ l. 168).
+Son test la traverse, dans un processus PHP à part puisque `guard()` termine
+la requête par `exit` ; ce même `exit` empêche ce processus de rendre sa
+couverture. La branche est atteinte et son effet asserté (page générique,
+détail au seul journal du serveur, rien après), mais elle reste comptée
+« jamais exécutée ». Elle sera traitée avec la mesure, avant le dernier lot :
+ce n'est pas une branche inatteignable, et le marqueur ne doit pas servir à
+la masquer.
+
+**Le défaut corrigé** : `SetupController::handleConfigUpdate()` enveloppait
+l'écriture de `site_name`, `short_name` et `base_url` dans un `catch` vide,
+puis affichait « Configuration enregistrée avec succès ». Le `catch` est
+retiré : un refus atteint le message d'erreur qui existait déjà.
+
+**Le marqueur** : la suppression d'un document de section, dont la seule
+exception métier relit une ligne lue deux lignes plus haut dans la même
+requête.
+
+### Lot 5 — `core/Storage` — 2026-11-15
+
+**31 → 0** jamais exécutés, dont les 9 vides ; un marqueur. Remesuré sur
+`tests/Core/Storage` et `tests/Core/Maintenance` avant et après (PCOV,
+MariaDB).
+
+**30 branches atteintes** par un état réel : panne de Google Drive (statut
+503 ou 500 sur une requête précise, PHP sans cURL), de S3 (`NoSuchKey`) ou
+de WebDAV (404, 401), disque qui refuse l'écriture d'un fichier témoin,
+horloge qui épuise le budget d'un contrôle, ligne `../public` parmi les
+emplacements, table absente, trigger qui refuse une écriture, secret
+illisible, dossier de destination occupé par un fichier. `FakeDrive` gagne
+un crochet `$intercept` qui répond un statut ou lève une exception pour une
+requête choisie.
+
+**Le marqueur** : la marche tolérante de `DirectorySize`. La racine est
+ouverte par le constructeur, `CATCH_GET_CHILD` avale chaque enfant
+illisible, et lire les entrées d'un dossier déjà ouvert ne lève rien — même
+la racine supprimée en cours de marche (vérifié).
+
+**Trouvé en chemin, ouvert à part.**
+- **#1223** : une copie de protection peut être enregistrée comme protégée
+  sans aucun contrôle, quand la destination ne répond ni sa somme ni sa
+  taille pendant une panne.
+- **#1224** : un refus de Google Drive n'affiche jamais le « rien n'a été
+  changé » prévu pour lui.
+- **#1230** (trouvé au lot de la maintenance) : un sous-dossier dont le
+  chemin dépasse PATH_MAX est omis sans le dire.
+
+### Lot 6 — `modules/finance` — 2026-11-15
+
+**23 → 0** jamais exécutés ; trois marqueurs. Remesuré sur
+`tests/Modules/Finance` avant et après (PCOV, MariaDB).
+
+**20 branches atteintes** par un état réel : fichier refusé (un vrai fichier
+texte déposé comme reçu), catégorie encore utilisée, créance dépassée,
+débit déclaré « sans créance », trigger qui refuse une écriture (rattachement
+d'un reçu, campagne, import de relevé, purge), fichier disparu du disque, JPEG
+annonçant plus de pixels que le plafond, répertoire des membres illisible,
+clé étrangère réelle sur MariaDB.
+
+**Les marqueurs** : trois relectures, dans la même requête, d'une ligne lue
+juste au-dessus — supprimer un reçu, changer son compte, ouvrir le
+rapprochement d'un compte visible. Seule une purge ou une modification
+concurrente entre les deux lectures y mène.
+
+**Trouvé en chemin, ouvert à part.**
+- **#1225 — perte de données** : sur MySQL/MariaDB, la purge des reçus
+  orphelins efface le fichier chiffré puis échoue sur la clé étrangère ; le
+  reçu reste listé et ne se télécharge plus. La suite SQLite, sans clés
+  étrangères, ne pouvait pas le voir.
+- **#1226** : remplacer un reçu de la pile à trier répond « Reçu introuvable. ».
+- **#1227** : un reçu reconnu dont le classement échoue est abandonné sans
+  trace.

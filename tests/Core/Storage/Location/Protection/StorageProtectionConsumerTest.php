@@ -195,6 +195,26 @@ final class StorageProtectionConsumerTest extends TestCase
     }
 
     /**
+     * The dashboard's list of usages decides nothing, so a consumer that
+     * cannot answer — here its table is gone — is left off it, and the
+     * consumers that can still answer are listed.
+     */
+    public function testTheListOfUsagesSkipsAConsumerThatCannotAnswer(): void
+    {
+        $source = $this->declareLocal('Galerie', 'gallery');
+        $destination = $this->declareLocal('NAS', 'nas');
+        $this->protections->save($source, $destination, 30, 24, true);
+        $broken = DatabaseTestHelper::createTestDatabase();
+        $broken->exec('DROP TABLE storage_protections');
+
+        $registry = new StorageLocationConsumerRegistry();
+        $registry->register(new StorageProtectionConsumer(new StorageProtectionRepository($broken), $this->locations));
+        $registry->register(new StorageProtectionConsumer($this->protections, $this->locations));
+
+        $this->assertSame([['usage' => 'Copies de secours', 'locationIds' => [$destination]]], $registry->all());
+    }
+
+    /**
      * And it is registered where no module can take it away.
      *
      * The registry is filled by each module's own block further down

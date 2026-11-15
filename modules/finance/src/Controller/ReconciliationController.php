@@ -130,6 +130,10 @@ class ReconciliationController extends AbstractController
                 ? $this->reconciliation->attachableCredit($account->id, $requestedId, $role)
                 : null;
         } catch (FinanceException) {
+            // @catch-unreachable build() and attachableCredit() throw only on an account the viewer may not
+            // see, and resolveSelectedAccount() returned this one as visible a few lines up, through the same
+            // AccountVisibility and its per-request treasurer scope; only a concurrent edit of the account
+            // row between the two reads lands here (reconcileAccount() throws no FinanceException).
             return $this->notFound();
         }
 

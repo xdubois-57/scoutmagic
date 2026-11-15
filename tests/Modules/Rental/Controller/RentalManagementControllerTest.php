@@ -442,6 +442,9 @@ class RentalManagementControllerTest extends TestCase
     /** @var list<int> the bookings whose renter was told a modification was cancelled */
     private array $cancellationEmails = [];
 
+    /** Whether the transport refuses the contract's e-mail: a replacement contract's, in practice. */
+    private bool $contractMailFails = false;
+
     private \Modules\Rental\Service\RentalSignedContractService $signedContractService;
     private \Core\Signature\PersonalSignatureService $personalSignatures;
 
@@ -519,6 +522,13 @@ class RentalManagementControllerTest extends TestCase
                 return true;
             }
         );
+        $mock->method('sendContract')->willReturnCallback(function (): string {
+            if ($this->contractMailFails) {
+                throw new \Core\Mail\MailException('SMTP connect() failed.');
+            }
+
+            return '<test@scoutmagic>';
+        });
         $mock->method('sendModificationCancelled')->willReturnCallback(
             function (RentalBooking $booking): bool {
                 $this->cancellationEmails[] = $booking->id;
@@ -1590,6 +1600,149 @@ class RentalManagementControllerTest extends TestCase
         $this->assertStringContainsString('remplacé', $refusal['message'] ?? '');
         $this->assertSame([], $this->resends);
         $this->assertNotSame(BookingStatus::CONTRACT_SENT, $this->bookingRepository->findById($booking->id)?->status);
+    }
+
+    /**
+     * « Renvoyer » that the transport refuses again: the manager is told
+     * in a sentence that says what to do, the log keeps it « Non envoyé »,
+     * and the contract it carried is not recorded as gone out.
+     */
+    public function testRenvoyerThatTheTransportRefusesAgainSaysSoAndChangesNothing(): void
+    {
+        $this->loginAsManager();
+        $this->setContractTemplate();
+        $log = $this->withSentLog();
+        $booking = $this->createBooking();
+        $this->post('/mes-locations/document-generer', 'generateDocument', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'document_type' => 'contract',
+        ]);
+        $contract = $this->documentService->forBooking($booking->id)[0];
+        $id = $this->logEmail(
+            $log,
+            $booking,
+            \Modules\Rental\Mail\SentEmail::STATUS_FAILED,
+            'Contrat',
+            'rental.contract',
+            [$contract->id]
+        );
+        // The real service, over a transport that refuses every message.
+        $transport = $this->createStub(\Core\Mail\MailService::class);
+        $transport->method('send')->willThrowException(
+            new \Core\Mail\MailException('SMTP 421 for jeanne@example.be')
+        );
+        (new \ReflectionProperty(RentalManagementController::class, 'mailService'))->setValue(
+            $this->controller,
+            new \Modules\Rental\Service\RentalBookingMailService(
+                $transport,
+                \Tests\Core\Mail\Template\EmailTemplateRendererFactory::shippedOnlyForModule($this->twig, 'rental'),
+                new SettingService(new SettingRepository($this->pdo)),
+                new JournalService(new JournalRepository($this->pdo)),
+                sentEmails: $log
+            )
+        );
+        \Core\Http\FlashMessage::get();
+
+        $response = $this->post('/mes-locations/courrier/renvoyer', 'resendEmail', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'booking_page' => 'mail',
+            'sent_email_id' => (string) $id,
+        ]);
+
+        $this->assertStringEndsWith('/courrier', (string) $response->getHeaders()['Location']);
+        $this->assertSame(
+            [
+                'type' => 'error',
+                'message' => "L'e-mail n'a pas pu partir. Il reste « Non envoyé » ; réessayez plus tard.",
+            ],
+            \Core\Http\FlashMessage::get()
+        );
+        $this->assertTrue($log->findById($id)?->failed());
+        $this->assertFalse($this->documentService->find($contract->id)?->hasBeenSent());
+        $this->assertNotSame(BookingStatus::CONTRACT_SENT, $this->bookingRepository->findById($booking->id)?->status);
+    }
+
+    /**
+     * @param array<string, string> $body
+     */
+    private function uploadDocument(RentalBooking $booking, string $bytes, string $name, array $body): Response
+    {
+        $temporary = (string) tempnam(sys_get_temp_dir(), 'document-');
+        file_put_contents($temporary, $bytes);
+        $_FILES['document'] = [
+            'name' => $name,
+            'type' => 'application/octet-stream',
+            'tmp_name' => $temporary,
+            'error' => UPLOAD_ERR_OK,
+            'size' => strlen($bytes),
+        ];
+
+        try {
+            return $this->post('/mes-locations/document-ajouter', 'uploadDocument', $body + [
+                'asset_id' => (string) $this->assetId,
+                'booking_id' => (string) $booking->id,
+                'booking_page' => 'documents',
+            ]);
+        } finally {
+            unset($_FILES['document']);
+            @unlink($temporary);
+        }
+    }
+
+    private function fileCount(): int
+    {
+        return (int) $this->pdo->query('SELECT COUNT(*) FROM files')->fetchColumn();
+    }
+
+    /** A file of a kind the booking does not keep: the upload's own reason, and nothing stored. */
+    public function testADocumentOfAKindThatIsNotAcceptedSaysWhyAndIsNotStored(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+
+        $response = $this->uploadDocument($booking, "Liste des clés remises.\n", 'cles.txt', [
+            'document_type' => 'unsorted',
+        ]);
+
+        $this->assertStringEndsWith('/documents', (string) $response->getHeaders()['Location']);
+        $this->assertSame(
+            ['type' => 'error', 'message' => 'Type de fichier non autorisé (text/plain).'],
+            \Core\Http\FlashMessage::get()
+        );
+        $this->assertSame([], $this->documentService->forBooking($booking->id));
+        $this->assertSame(0, $this->fileCount());
+    }
+
+    /**
+     * A signed copy a manager brings in for dates somebody else took since
+     * this booking's hold lapsed is refused by the same guard as the
+     * renter's own — and the file already stored is not left behind.
+     */
+    public function testASignedCopyTheGuardRefusesLeavesNoFileBehind(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+        $this->bookingRepository->setHold($booking->id, new \DateTimeImmutable('-2 days'), HoldOrigin::AUTOMATIC);
+        $other = $this->createBooking(null, 'LOC-A2B3C5');
+        $this->bookingRepository->setHold($other->id, new \DateTimeImmutable('+20 days'), HoldOrigin::MANAGER);
+
+        $this->uploadDocument($booking, self::phonePhoto(600, 800), 'contrat-signe.jpg', [
+            'document_type' => 'signed_copy',
+        ]);
+
+        $this->assertSame(
+            [
+                'type' => 'error',
+                'message' => 'Les dates de cette réservation ne sont plus bloquées et sont occupées par ailleurs : '
+                    . 'une copie signée ne peut plus les bloquer. Changez les dates ou refusez la demande.',
+            ],
+            \Core\Http\FlashMessage::get()
+        );
+        $this->assertSame([], $this->documentService->forBooking($booking->id));
+        $this->assertSame(0, $this->fileCount(), 'the stored upload is discarded');
+        $this->assertSame([], glob($this->storagePath . '/rental/documents/*') ?: []);
     }
 
     public function testAnAnonymousVisitorCannotAddAnAddressToABooking(): void
@@ -8548,6 +8701,110 @@ class RentalManagementControllerTest extends TestCase
         $this->assertSame(200, $page->getStatusCode());
         $this->assertStringContainsString('Nouvelles valeurs', (string) $page->getBody());
         $this->assertStringContainsString('action="/mes-locations/modification"', (string) $page->getBody());
+    }
+
+    /**
+     * A booking the tariff can no longer price as it stands — taken for two
+     * units of an asset that counts one now — still opens its form, which
+     * starts from the booking's own price instead of today's tariff.
+     */
+    public function testABookingTheTariffCannotPriceAnyMoreStillOpensItsModificationForm(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+        $this->pdo->prepare('UPDATE rental_bookings SET units = 2 WHERE id = ?')->execute([$booking->id]);
+        $fresh = $this->bookingRepository->findById($booking->id);
+        $this->assertNotNull($fresh);
+        $this->assertNotNull($asset = $this->assetRepository->findById($this->assetId));
+        $current = $this->operationsService->workingQuote($fresh, $asset);
+
+        $page = $this->modificationPage($fresh, 'nouvelle');
+
+        $this->assertSame(200, $page->getStatusCode());
+        $body = (string) $page->getBody();
+        $this->assertStringContainsString('Nouvelles valeurs', $body);
+        $this->assertStringContainsString(
+            number_format($current->totalCents / 100, 2, ',', ' '),
+            $body,
+            'the form proposes the booking\'s own price'
+        );
+        $this->assertStringNotContainsString('unités au plus', $body);
+    }
+
+    /**
+     * « Envoyer » posted for a modification with no replacement contract —
+     * one applied straight away, from a page left open — is refused on the
+     * modification's own page, and nothing is sent.
+     */
+    public function testSendingAModificationThatHasNoReplacementContractIsRefusedOnItsPage(): void
+    {
+        $this->loginAsManager();
+        $booking = $this->createBooking();
+        $this->post('/mes-locations/modification', 'saveModification', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'arrival' => '2027-07-10',
+            'departure' => '2027-07-14',
+            'persons' => '20',
+        ]);
+        $applied = $this->modificationService->history($booking->id)[0];
+        $this->assertTrue($applied->status->isApplied(), 'the premise: no contract had gone out');
+        \Core\Http\FlashMessage::get();
+
+        $response = $this->post('/mes-locations/modification-envoyer', 'sendModification', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'modification_id' => (string) $applied->id,
+        ]);
+
+        $this->assertSame(
+            '/mes-locations/local-saint-georges/reservations/' . $booking->id . '/modifications/' . $applied->id,
+            $response->getHeaders()['Location'] ?? null
+        );
+        $this->assertSame(
+            ['type' => 'error', 'message' => "Cette modification n'a pas de contrat de remplacement à renvoyer."],
+            \Core\Http\FlashMessage::get()
+        );
+        $this->assertSame([], $this->documentEmails);
+    }
+
+    /**
+     * A replacement contract whose e-mail the transport refuses: the
+     * project is sent all the same — its terms are frozen, the contract
+     * filed — the manager is told to resend it from the page, the journal
+     * says it failed, and the contract carries no date of sending.
+     */
+    public function testAReplacementContractWhoseEmailFailsIsReadyAndSaysToResendIt(): void
+    {
+        [$booking, , $project] = $this->bookingWithAProject();
+        $this->contractMailFails = true;
+
+        $this->post('/mes-locations/modification-envoyer', 'sendModification', [
+            'asset_id' => (string) $this->assetId,
+            'booking_id' => (string) $booking->id,
+            'modification_id' => (string) $project->id,
+        ]);
+
+        $this->assertSame(
+            [
+                'type' => 'warning',
+                'message' => "Le contrat de remplacement est prêt, mais l'e-mail au locataire n'a pas pu partir : "
+                    . 'renvoyez-le depuis cette page.',
+            ],
+            \Core\Http\FlashMessage::get()
+        );
+        $sent = $this->modificationRepository->findById($project->id);
+        $this->assertNotNull($sent);
+        $this->assertSame(\Modules\Rental\Booking\ModificationStatus::SENT, $sent->status);
+        $this->assertNotNull($sent->contractDocumentId);
+        $this->assertNull($this->documentService->find($sent->contractDocumentId)?->sentAt);
+        $logged = $this->pdo->query(
+            "SELECT context FROM event_log WHERE event_type = 'rental_replacement_contract_send_failed'"
+        )->fetchAll(\PDO::FETCH_COLUMN);
+        $this->assertSame(
+            [['booking_id' => $booking->id, 'document_id' => $sent->contractDocumentId]],
+            array_map(static fn(mixed $context): mixed => json_decode((string) $context, true), $logged)
+        );
     }
 
     /**
