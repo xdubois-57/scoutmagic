@@ -77,6 +77,43 @@ class DomainPreferencesTest extends TestCase
         return array_map(static fn(MailProvider $p): string => $p->name, $candidates);
     }
 
+    /**
+     * **An MX cache that cannot be read leaves a domain as its own
+     * provider, and the message leaves all the same.** This is the send
+     * path: a preference recorded under « gmail.com » then no longer
+     * reaches « famille.be », which is the lane's own order — never an
+     * exception costing the message. Both halves, the table being the
+     * only difference.
+     */
+    public function testAnUnreadableMxCacheIsTheDomainItselfAndTheLaneKeepsItsOrder(): void
+    {
+        $pdo = DatabaseTestHelper::createTestDatabase();
+        $settings = new SettingService(new SettingRepository($pdo));
+        $settings->register(DomainPreferences::SETTING_KEY, '', 'text', 'Routage par domaine', '');
+        $encryption = new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $cache = new \Core\Mail\Transport\MailboxProviderRepository($pdo, $encryption);
+        $cache->note('famille.be', new \DateTimeImmutable());
+        $cache->recordResolved('famille.be', 'gmail.com', new \DateTimeImmutable());
+        (new DomainPreferences($settings))->prefer('gmail.com', 2);
+
+        $readable = new DomainPreferences($settings, $cache);
+        $this->assertSame('gmail.com', $readable->providerOf('famille.be'), 'The premise: the cache folds it.');
+        $this->assertSame(['OVH', 'Brevo', 'Envoi local'], $this->names(
+            $readable->reorder($this->chain(), MailLane::Bulk, 'parent@famille.be')
+        ));
+
+        $pdo->exec('DROP TABLE mail_domain_providers');
+        $unreadable = new DomainPreferences(
+            $settings,
+            new \Core\Mail\Transport\MailboxProviderRepository($pdo, $encryption)
+        );
+
+        $this->assertSame('famille.be', $unreadable->providerOf(' Famille.BE '));
+        $this->assertSame(['Brevo', 'OVH', 'Envoi local'], $this->names(
+            $unreadable->reorder($this->chain(), MailLane::Bulk, 'parent@famille.be')
+        ), 'The lane keeps its own order.');
+    }
+
     public function testADomainWithNoPreferenceHasNone(): void
     {
         $this->assertNull($this->preferences->forDomain('gmail.com'));

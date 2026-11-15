@@ -557,4 +557,78 @@ class DomainRoutingTest extends TestCase
         $this->assertSame('famille.be', $this->routing->providerOf('famille.be'));
         $this->assertSame(0, $this->routing->attributedDomains());
     }
+
+    // ── what an unreadable table costs the screen ─────────────────────
+
+    /**
+     * **An MX cache that cannot be read puts every domain back in its own
+     * column**, as if the cache did not exist — never an error on the
+     * page that shows the seed results. Both halves, the table being the
+     * only difference.
+     */
+    public function testAnUnreadableMxCacheLeavesEveryDomainItsOwnColumn(): void
+    {
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $cache = new \Core\Mail\Transport\MailboxProviderRepository($this->pdo, $encryption);
+        $now = new \DateTimeImmutable();
+        $cache->note('famille.be', $now);
+        $cache->recordResolved('famille.be', 'gmail.com', $now);
+        $readable = new DomainRouting($this->copies, $this->settings, mailboxProviders: $cache);
+        $this->assertSame('gmail.com', $readable->providerOf('famille.be'), 'The premise: the cache folds it.');
+        $this->assertSame(1, $readable->attributedDomains());
+
+        $this->pdo->exec('DROP TABLE mail_domain_providers');
+        $routing = new DomainRouting(
+            $this->copies,
+            $this->settings,
+            mailboxProviders: new \Core\Mail\Transport\MailboxProviderRepository($this->pdo, $encryption)
+        );
+
+        $this->assertSame('famille.be', $routing->providerOf(' Famille.BE '), 'Its own column, normalised.');
+        $this->assertSame(0, $routing->attributedDomains(), 'No domain is said to be moved by the MX records.');
+    }
+
+    /**
+     * **A mailing chain that cannot be read offers no alternative, and
+     * applying writes nothing** — the same answer as a unit with one
+     * relay, and the honest one: a decision taken on a chain nobody could
+     * read would route a domain somewhere unknown.
+     */
+    public function testAnUnreadableMailingChainOffersNoAlternativeAndApplyingWritesNothing(): void
+    {
+        $this->relay('Brevo', 1);
+        $this->relay('OVH', 2);
+        $this->assertSame('OVH', $this->routingWithChain()->alternativeFor('gmail.com')?->name, 'The premise.');
+
+        $this->pdo->exec('DROP TABLE mail_lane_entries');
+        $routing = $this->routingWithChain();
+
+        $this->assertSame([], $routing->bulkChain());
+        $this->assertNull($routing->alternativeFor('gmail.com'));
+        $this->assertNull($routing->apply('gmail.com'));
+        $this->assertNull($this->preferences->forDomain('gmail.com'), 'Nothing was decided.');
+    }
+
+    /**
+     * **Decisions that cannot be read are not listed, and the screen
+     * still renders.** With nothing measured in the window, the decisions
+     * still in force are the only rows; a settings table that cannot be
+     * read leaves the table empty rather than the page broken.
+     */
+    public function testUnreadableDecisionsLeaveAnEmptyTableRatherThanABrokenPage(): void
+    {
+        $brevo = $this->relay('Brevo', 1);
+        $this->preferences->prefer('hotmail.com', $brevo);
+        $this->assertSame(
+            ['hotmail.com'],
+            array_column($this->routingWithChain()->readings(new \DateTimeImmutable('-30 days')), 'provider'),
+            'The premise: an unmeasured decision is a row of its own.'
+        );
+
+        $this->pdo->exec('DROP TABLE settings');
+        $unreadable = new SettingService(new SettingRepository($this->pdo));
+        $routing = new DomainRouting($this->copies, $unreadable, new DomainPreferences($unreadable));
+
+        $this->assertSame([], $routing->readings(new \DateTimeImmutable('-30 days')));
+    }
 }

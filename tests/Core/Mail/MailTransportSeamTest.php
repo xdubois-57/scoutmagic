@@ -495,6 +495,57 @@ class MailTransportSeamTest extends TestCase
     }
 
     /**
+     * **A withheld message is written down, and its note never decides
+     * what the caller is told.** The suppression is invisible to whoever
+     * triggered it, which is why it is journalled at all; the insert
+     * failing must still end in `SuppressedRecipientException` — the
+     * signal `BatchDistributionService` reads as « not sent » — and not
+     * in a `PDOException` no caller of `send()` catches.
+     *
+     * Both halves, and the journal is the only difference: written when
+     * it can be, so the silence of the second half is the catch's and not
+     * a send that never journals anything.
+     */
+    public function testASuppressionIsJournalledAndItsJournalFailingStillSuppresses(): void
+    {
+        $pdo = \Tests\DatabaseTestHelper::createTestDatabase();
+        $this->blockedAddress($pdo, 'rebond@exemple.be');
+        $transport = $this->recordingTransport();
+        $service = new \Core\Mail\MailService(
+            mode: 'local',
+            fromAddress: 'unite@example.com',
+            fromName: 'Unité',
+            shortName: '25SV',
+            dkimManager: new \Core\Mail\DkimManager($this->tempDir),
+            dkimSelector: 'mail',
+            transport: $transport,
+            journal: new \Core\Journal\JournalService(new \Core\Journal\JournalRepository($pdo)),
+            sendReceipts: $this->receiptsOver($pdo)
+        );
+
+        $this->sendExpectingSuppression($service);
+        $logged = $pdo->prepare('SELECT COUNT(*) FROM event_log WHERE event_type = ?');
+        $logged->execute(['mail_suppressed_blocked_address']);
+        $this->assertSame(1, (int) $logged->fetchColumn(), 'The withheld message is on record.');
+        $logged->closeCursor();
+
+        $pdo->exec('DROP TABLE event_log');
+        $this->sendExpectingSuppression($service);
+
+        $this->assertSame(0, $transport->calls, 'Neither message reached the transport.');
+    }
+
+    private function sendExpectingSuppression(\Core\Mail\MailService $service): void
+    {
+        try {
+            $service->send('rebond@exemple.be', 'Sujet', '<p>x</p>', 'x', vouchesForRecipient: true);
+            $this->fail('A suppressed send must not return normally.');
+        } catch (\Core\Mail\SuppressedRecipientException) {
+            // The signal a caller reads as « not sent ».
+        }
+    }
+
+    /**
      * **Asking whether the address is suspended must not be able to break
      * the send**, and it used to.
      *

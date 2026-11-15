@@ -415,6 +415,37 @@ final class RentalStayRepositoryOnMysqlTest extends TestCase
      * bound PHP computed, the abandoned statuses left out, and the two
      * texts decrypted.
      */
+    /**
+     * Only two additions colliding on a position are a refusal (23000).
+     * A photo the engine refuses for any other reason — a trigger here,
+     * SQLSTATE 45000 — is a failure the caller hears about, and the photo
+     * written before it in the same addition is taken back.
+     */
+    public function testAPhotoTheEngineRefusesSurfacesAndTheAdditionIsTakenBack(): void
+    {
+        $incident = (int) $this->repository->createIncident($this->bookingId, 'Vitre cassée', null, [11], 7);
+        $this->pdo->exec(
+            "CREATE TRIGGER refuse_third_photo BEFORE INSERT ON rental_incident_photos FOR EACH ROW
+             BEGIN
+                 IF NEW.position = 3 THEN
+                     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'photo refusée';
+                 END IF;
+             END"
+        );
+
+        try {
+            $this->repository->addIncidentPhotos($incident, $this->bookingId, [12, 13], 7, 5);
+            $this->fail('a refusal that is not a collision must not read as one');
+        } catch (\PDOException $e) {
+            $this->assertSame('45000', (string) $e->getCode());
+        } finally {
+            $this->pdo->exec('DROP TRIGGER refuse_third_photo');
+        }
+
+        $this->assertFalse($this->pdo->inTransaction());
+        $this->assertSame([1], $this->photoPositions($incident));
+    }
+
     public function testThePendingIncidentsOfBookingsGoneByADateAreReadOnThisEngine(): void
     {
         $id = $this->repository->createIncident($this->bookingId, 'Porte fendue', 30000, [], 7);
