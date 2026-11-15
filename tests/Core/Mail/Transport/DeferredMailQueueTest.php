@@ -93,6 +93,33 @@ class DeferredMailQueueTest extends TestCase
     }
 
     /**
+     * **A queue that cannot be written to says so: `false`, and the
+     * caller's failure stands.** Answering `true` would report a deferral
+     * that never happened — the sender told a message will be retried
+     * when it exists nowhere. Both halves, the trigger being the only
+     * difference.
+     */
+    public function testAQueueThatRefusesTheWriteDoesNotClaimToHaveDeferred(): void
+    {
+        $this->pdo->exec(
+            'CREATE TRIGGER refuse_deferrals BEFORE INSERT ON mail_deferred_messages
+             BEGIN SELECT RAISE(FAIL, \'file indisponible\'); END'
+        );
+
+        $this->assertFalse(
+            $this->queue->defer(MailLane::Transactional, MailPurpose::Ordinary, $this->payload(), 'quota épuisé'),
+            'Nothing was queued, so nothing may be said to have been.'
+        );
+        $this->assertSame([], $this->repository->pendingCountByLane());
+
+        $this->pdo->exec('DROP TRIGGER refuse_deferrals');
+        $this->assertTrue(
+            $this->queue->defer(MailLane::Transactional, MailPurpose::Ordinary, $this->payload(), 'quota épuisé')
+        );
+        $this->assertSame(['transactional' => 1], $this->repository->pendingCountByLane());
+    }
+
+    /**
      * What the queue holds is the CALL, and it survives the round trip
      * intact — including an attachment, whose bytes are carried because
      * its path will not exist tomorrow.
@@ -249,6 +276,49 @@ class DeferredMailQueueTest extends TestCase
             static fn($message): int => $message->id,
             $this->repository->due(10, '2099-01-01 00:00:00')
         ));
+    }
+
+    /**
+     * **A relaunch that cannot be journalled is still a relaunch.** The
+     * rows are put back before the note is written, so a failing insert
+     * escaping here would show the super-admin an error about messages
+     * already queued again — and the retry they would press next would
+     * find nothing left to relaunch, with nothing on the screen to say
+     * the first press had worked.
+     *
+     * Both halves, the journal being the only difference.
+     */
+    public function testARelaunchWhoseJournalEntryFailsStillRelaunchesAndSaysHowMany(): void
+    {
+        $queue = new DeferredMailQueue(
+            $this->repository,
+            $this->settings,
+            new \Core\Journal\JournalService(new \Core\Journal\JournalRepository($this->pdo))
+        );
+        $first = $this->abandonAged('2026-09-13 09:00:00');
+
+        $this->assertSame(
+            1,
+            $queue->relaunch([MailLane::Bulk], DeferredMailQueue::DEFAULT_WINDOW, '2026-09-13 12:00:00')
+        );
+        $logged = $this->pdo->prepare('SELECT COUNT(*) FROM event_log WHERE event_type = ?');
+        $logged->execute(['mail_deferred_relaunched']);
+        $this->assertSame(1, (int) $logged->fetchColumn(), 'A relaunch that can be journalled is.');
+        $logged->closeCursor();
+
+        $this->pdo->exec('DROP TABLE event_log');
+        $second = $this->abandonAged('2026-09-13 10:00:00');
+
+        $this->assertSame(
+            1,
+            $queue->relaunch([MailLane::Bulk], DeferredMailQueue::DEFAULT_WINDOW, '2026-09-13 12:00:00'),
+            'The count of what was put back reaches the caller.'
+        );
+        $this->assertSame([], $this->repository->abandonedIds(), 'Nothing is left abandoned.');
+        $this->assertSame([$first, $second], array_map(
+            static fn($message): int => $message->id,
+            $this->repository->due(10, '2099-01-01 00:00:00')
+        ), 'Both messages are due again.');
     }
 
     /** And the default really is the shortest one the dialog offers. */

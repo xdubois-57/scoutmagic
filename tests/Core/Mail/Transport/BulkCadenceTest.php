@@ -134,6 +134,31 @@ class BulkCadenceTest extends TestCase
         $this->assertSame(25, $this->cadence()->current()['batch_size']);
     }
 
+    /**
+     * **A lane whose state cannot be read goes at the local send's
+     * prudent pace** — slower, never stopped. Here the day's counters are
+     * missing, as on a database the migration has not reached: a
+     * mailing's pacing must not become an exception. Both halves, the
+     * table being the only difference.
+     */
+    public function testALaneThatCannotBeReadFallsBackToTheLocalSendsPrudentCadence(): void
+    {
+        $first = $this->addRelay('Premier', batchSize: 30, interval: 7);
+        $this->chains->append(MailLane::Bulk, $first, true);
+        $this->assertSame(30, $this->cadence()->current()['batch_size'], 'The premise: the relay sets the pace.');
+
+        $this->pdo->exec('DROP TABLE mail_send_counters');
+
+        $this->assertSame(MailProvider::LOCAL_ID, $this->cadence()->activeProvider()->id);
+        $this->assertSame(
+            [
+                'batch_size' => MailProviderDirectory::DEFAULT_LOCAL_BATCH_SIZE,
+                'interval_minutes' => MailProviderDirectory::DEFAULT_LOCAL_BATCH_INTERVAL,
+            ],
+            $this->cadence()->current()
+        );
+    }
+
     private function addRelay(string $name, int $batchSize, int $interval, ?int $dailyQuota = null): int
     {
         $id = $this->providers->create($name, $dailyQuota, $batchSize, $interval);
