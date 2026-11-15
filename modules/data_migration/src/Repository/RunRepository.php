@@ -159,17 +159,20 @@ class RunRepository
      */
     public function updateIfState(Run $run, string $expectedState, array $changes, string $now): ?Run
     {
-        return \Core\Database\TransactionScope::run($this->pdo, function () use ($run, $expectedState, $changes, $now): ?Run {
-            $stmt = $this->pdo->prepare('SELECT state FROM data_migration_runs WHERE id = ? FOR UPDATE');
-            $stmt->execute([$run->id]);
-            $state = $stmt->fetchColumn();
-            $stmt->closeCursor();
-            $fresh = $state === $expectedState ? $this->find($run->id) : null;
+        return \Core\Database\TransactionScope::run(
+            $this->pdo,
+            function () use ($run, $expectedState, $changes, $now): ?Run {
+                $stmt = $this->pdo->prepare('SELECT state FROM data_migration_runs WHERE id = ? FOR UPDATE');
+                $stmt->execute([$run->id]);
+                $state = $stmt->fetchColumn();
+                $stmt->closeCursor();
+                $fresh = $state === $expectedState ? $this->find($run->id) : null;
 
-            // Written over the row as it is NOW, never over the caller's
-            // snapshot: the columns it does not change keep their value.
-            return $fresh === null ? null : $this->update($fresh, $changes, $now);
-        });
+                // Written over the row as it is NOW, never over the caller's
+                // snapshot: the columns it does not change keep their value.
+                return $fresh === null ? null : $this->update($fresh, $changes, $now);
+            }
+        );
     }
 
     public function find(int $id): ?Run
@@ -244,7 +247,10 @@ class RunRepository
     {
         $parameters = [];
         if ($row['source_parameters'] !== null && $row['source_parameters'] !== '') {
-            $decoded = json_decode($this->encryption->decrypt((string) $row['source_parameters'], self::ENCRYPTION_CONTEXT), true);
+            $decoded = json_decode(
+                $this->encryption->decrypt((string) $row['source_parameters'], self::ENCRYPTION_CONTEXT),
+                true
+            );
             $parameters = is_array($decoded) ? $decoded : [];
         }
 

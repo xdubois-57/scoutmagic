@@ -13512,7 +13512,9 @@ if ($isEnabled('data_migration')) {
         $calendarImportWriterForOthers ?? null,
         $urlMetadataFetcher
     ));
-    $dataMigrationImporters->add(new \Modules\DataMigration\Importer\CampPlacesImporter($campsPlaceImportWriterForOthers ?? null));
+    $dataMigrationImporters->add(new \Modules\DataMigration\Importer\CampPlacesImporter(
+        $campsPlaceImportWriterForOthers ?? null
+    ));
     $dataMigrationImporters->add(new \Modules\DataMigration\Importer\EmailHistoryImporter(
         $massMailHistoryImportForOthers ?? null,
         $memberRepo,

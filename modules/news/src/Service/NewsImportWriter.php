@@ -314,7 +314,11 @@ class NewsImportWriter implements NewsImportWriterInterface
                     );
                     $this->bodyImageIds[] = $resolved[$key];
 
-                    return str_replace($src[0], ' src="' . \Core\File\FilePublicIds::urlFor($resolved[$key]) . '"', $tag[0]);
+                    return str_replace(
+                        $src[0],
+                        ' src="' . \Core\File\FilePublicIds::urlFor($resolved[$key]) . '"',
+                        $tag[0]
+                    );
                 },
                 $html
             );

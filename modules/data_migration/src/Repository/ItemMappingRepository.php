@@ -42,7 +42,9 @@ class ItemMappingRepository
         $stmt->execute([$installationId, $format, $kind, $sourceId]);
         $row = $stmt->fetch(\PDO::FETCH_ASSOC);
 
-        return $row === false ? null : ['target_type' => (string) $row['target_type'], 'target_id' => (string) $row['target_id']];
+        return $row === false
+            ? null
+            : ['target_type' => (string) $row['target_type'], 'target_id' => (string) $row['target_id']];
     }
 
     /**
