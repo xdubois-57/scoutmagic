@@ -76,7 +76,8 @@ final class InboundMessageRepositoryOnMysqlTest extends TestCase
 
     protected function tearDown(): void
     {
-        if ($this->pdo->inTransaction()) {
+        // Unset when productionEngine() skipped the test.
+        if (isset($this->pdo) && $this->pdo->inTransaction()) {
             $this->pdo->rollBack();
         }
     }
