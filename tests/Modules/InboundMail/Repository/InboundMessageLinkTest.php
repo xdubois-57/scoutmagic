@@ -348,6 +348,40 @@ class InboundMessageLinkTest extends TestCase
         $this->assertSame(1, $this->messages->countLinks($id));
     }
 
+    /**
+     * The release that drops the legacy triplet (`drops.sql` holds it back
+     * for now) still runs the reprise: the composition root calls it on
+     * boot. On a schema without the columns it answers -1 — "nothing to
+     * carry over" — rather than a database error on every page.
+     */
+    public function testTheBackfillOnASchemaWithoutTheLegacyColumnsHasNothingToDo(): void
+    {
+        $id = $this->storeMessage('a@example.be');
+        $this->pdo->exec('ALTER TABLE inbound_messages DROP COLUMN consumer_id');
+
+        $this->assertSame(-1, $this->messages->backfillLinks());
+        $this->assertSame(0, $this->messages->countLinks($id), 'and nothing was invented in its place');
+    }
+
+    // ── The Message-IDs the site sent ────────────────────────────────────
+
+    /**
+     * The same id recorded twice — a retried send, or two call sites for one
+     * mail — is refused by the unique index, and that refusal is the state
+     * the caller asked for: no error reaches the send that just went out,
+     * and a reply to that mail still lands on the object it was first
+     * recorded for rather than on the second one.
+     */
+    public function testRecordingTheSameSentMessageIdTwiceKeepsTheFirstObjectAndRaisesNothing(): void
+    {
+        $this->messages->recordOutboundMessageId('rental', 'LOC-1', '<envoi-1@unite.be>');
+        $this->messages->recordOutboundMessageId('rental', 'LOC-2', '<envoi-1@unite.be>');
+
+        $this->assertSame(1, $this->countRows('inbound_outbound_message_ids'));
+        $found = $this->messages->findReferenceByThread($this->mailboxId, 'rental', ['envoi-1@unite.be']);
+        $this->assertSame(['reference' => 'LOC-1', 'consumer_id' => 'rental'], $found);
+    }
+
     // ── The reprise of the stored HTML bodies (issue #1122) ─────────────
 
     public function testTheHtmlReprisePullsARemoteImageAnEarlierRegexLetThrough(): void
@@ -412,6 +446,31 @@ class InboundMessageLinkTest extends TestCase
 
         $this->assertSame(['last_id' => $next, 'done' => true, 'rewritten' => 1, 'failed' => 1], $step);
         $this->assertSame('<p>Deux</p>', $this->storedHtml($next));
+    }
+
+    /**
+     * A body whose ciphertext no longer opens — a key rotated without its
+     * data, a row restored from another installation — is counted as
+     * failed and stepped over. The pass must not stop on it (every later
+     * page view would meet it again), and must not overwrite it either:
+     * the bytes may still open with the key that wrote them.
+     */
+    public function testTheHtmlRepriseStepsOverABodyItCannotDecryptAndLeavesItAsItWas(): void
+    {
+        $unreadable = $this->storeMessageWithHtml('<p>Un</p>');
+        $next = $this->storeMessageWithHtml('<p>Deux</p><img src="https://traceur.exemple/2.gif">');
+        $this->pdo->prepare('UPDATE inbound_messages SET body_html_encrypted = ? WHERE id = ?')
+            ->execute(['pas-un-chiffre', $unreadable]);
+        $sanitizer = new \Modules\InboundMail\Service\MessageContentSanitizer(new \Core\Security\HtmlSanitizer());
+
+        $step = $this->service->resanitizeStoredHtmlBodies($sanitizer, 0, 50);
+
+        $this->assertSame(['last_id' => $next, 'done' => true, 'rewritten' => 1, 'failed' => 1], $step);
+        $this->assertNull($this->storedHtml($unreadable));
+        $this->assertSame('<p>Deux</p>', $this->storedHtml($next));
+        $stored = $this->pdo->prepare('SELECT body_html_encrypted FROM inbound_messages WHERE id = ?');
+        $stored->execute([$unreadable]);
+        $this->assertSame('pas-un-chiffre', $stored->fetchColumn(), 'the unreadable bytes are kept as they were');
     }
 
     public function testTheHtmlRepriseEmptiesABodyThatWasOnlyAnImageAndNeverCutsTwice(): void
