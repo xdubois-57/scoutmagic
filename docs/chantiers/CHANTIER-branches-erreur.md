@@ -137,7 +137,7 @@ l'ordre des lots (ceux à zéro, 11 domaines, ne figurent pas) :
 
 | Domaine | Jamais exécutés | dont vides | Marqués | Blocs |
 |---|---|---|---|---|
-| `modules/rental` | 42 | 6 | 0 | 102 |
+| `modules/rental` | ~~42~~ **0** (lots 3a-3b) | ~~6~~ 0 | 1 | 102 |
 | `core/Http` | 36 | 4 | 0 | 134 |
 | `core/Mail` | ~~35~~ **0** (lots 1-2) | ~~16~~ 0 | 2 | 77 |
 | `core/Storage` | 31 | 9 | 0 | 67 |
@@ -256,4 +256,45 @@ entrant qui ne répond pas).
   #1211 (la page des boîtes témoins tombe si les réglages sont illisibles et
   qu'un fournisseur a été mesuré ; un cache de réglages vide mémorisé après un
   échec).
+
+### Lots 3a et 3b — `modules/rental` — 2026-11-14
+
+**42 → 0** jamais exécutés, dont les 6 vides ; un marqueur. Remesuré sur
+`tests/Modules/Rental` avant et après (PCOV, MariaDB).
+
+**Lot 3a — les vides, les contrôleurs et les dépôts (25).** Saisie refusée
+(fichier non autorisé, copie signée en texte), bien supprimé entre-temps,
+réservation dont le maintien a expiré pendant qu'une autre tient les dates,
+table absente, trigger qui refuse une écriture, identifiants de boîte
+illisibles (clé changée sans rechiffrer), PDF à tables de références en flux
+(ce qu'écrit le scanner d'un téléphone), course réelle à deux sessions sur
+MariaDB pour les marques et positions de lecture. Le transport d'e-mail n'est
+doublé que là où sa panne est le sujet.
+
+**Lot 3b — les services (18).** Photo d'état des lieux illisible, ligne de
+facture antérieure à #980, catégorie Finances archivée, trop-perçu refusé par
+les Finances, réservation sans prix confirmée, `SIGNAL 45000` sur MariaDB pour
+distinguer un refus d'une collision de clé (SQLite les confond sous 23000).
+Aucun changement de code produit : chaque branche n'avait simplement jamais
+reçu sa panne.
+
+**Le marqueur** : `RentalSignedContractService`, la reprise du PDF que
+Ghostscript vient de réécrire. `rewriteForImport()` demande un PDF 1.4, que
+FPDI lit ; seuls un Ghostscript qui écrirait un fichier illisible ou un disque
+plein y mènent, et un test devrait truquer la sortie de Ghostscript.
+
+**Trouvé en chemin, ouvert à part.**
+- **#1212 — perte de données** : supprimer un bien efface ses réservations
+  malgré l'avertissement « Possible seulement pour un bien qui n'a encore
+  aucune réservation » (`hasHistory()` répond toujours `false`, et
+  `rental_bookings.asset_id` est en `ON DELETE CASCADE`).
+- **#1213** : sur une copie signée illisible, Ghostscript « réussit » en
+  écrivant une page blanche, contresignée comme un contrat.
+
+**Et #1221**, deux échecs silencieux : `RentalBookingRepository::addRenterEmail()` prend tout
+`PDOException` pour « déjà là » (le message du service reste juste, mais
+l'apprentissage d'adresse échoue en silence) ; les deux `catch` de
+notification des gestionnaires n'écrivent rien au journal quand la recherche
+des destinataires échoue (le journal du service de notification ne couvre que
+l'envoi).
 
