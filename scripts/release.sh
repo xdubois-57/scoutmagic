@@ -4,13 +4,15 @@ set -euo pipefail
 # Usage: ./scripts/release.sh [--minor|--major] [--notes-file <path>]
 #                             [--skip-deployment-check] [--skip-ci-gate]
 #                             [--skip-security-gate] [--skip-dependency-check]
+#                             [--skip-dependency-age-gate]
 #                             [--skip-deprecated-api-gate] [--skip-sonar-gate]
 #                             [--skip-sources-gate]
 # Default: increments patch level, computes release notes from the commit
 # list (fetched via the same GitHub API `--generate-notes` itself calls),
-# and requires seven gates to pass, in order, before anything is committed
+# and requires eight gates to pass, in order, before anything is committed
 # or tagged: deployment, continuous integration, security, dependency
-# freshness, deprecated browser API, SonarQube Cloud, external sources. Each finishes in seconds
+# freshness, dependency age, deprecated browser API, SonarQube Cloud,
+# external sources. Each finishes in seconds
 # (the last in under a minute), each is a
 # PRECONDITION rather than a statement about the code, and the release
 # stops at the first one that refuses.
@@ -111,6 +113,12 @@ set -euo pipefail
 #                               Bootstrap Icons, Chart.js). Emergency use
 #                               only — prints a warning. See
 #                               check_dependency_freshness_gate.
+#   --skip-dependency-age-gate Bypass the dependency age check (when did
+#                               each dependency last publish a release —
+#                               issue #841). Rarely needed: that gate
+#                               warns rather than blocks, so all this
+#                               skips is the dates in the release notes.
+#                               See check_dependency_age_gate.
 #   --skip-deployment-check    Bypass the production deployment check
 #                               (www.scoutmagic.be up to date and healthy).
 #                               Emergency use only — prints a warning. See
@@ -159,6 +167,7 @@ NOTES_FILE=""
 SKIP_SECURITY_GATE=0
 SKIP_CI_GATE=0
 SKIP_DEPENDENCY_CHECK=0
+SKIP_DEPENDENCY_AGE_GATE=0
 SKIP_DEPLOYMENT_CHECK=0
 SKIP_SONAR_GATE=0
 SKIP_DEPRECATED_API_GATE=0
@@ -177,13 +186,14 @@ while [[ $# -gt 0 ]]; do
         --skip-security-gate) SKIP_SECURITY_GATE=1; shift ;;
         --skip-ci-gate) SKIP_CI_GATE=1; shift ;;
         --skip-dependency-check) SKIP_DEPENDENCY_CHECK=1; shift ;;
+        --skip-dependency-age-gate) SKIP_DEPENDENCY_AGE_GATE=1; shift ;;
         --skip-deployment-check) SKIP_DEPLOYMENT_CHECK=1; shift ;;
         --skip-sonar-gate) SKIP_SONAR_GATE=1; shift ;;
         --skip-deprecated-api-gate) SKIP_DEPRECATED_API_GATE=1; shift ;;
         --skip-sources-gate) SKIP_SOURCES_GATE=1; shift ;;
         *)
             echo "ERROR: unknown argument: $1" >&2
-            echo "Usage: $0 [--minor|--major] [--notes-file <path>] [--skip-deployment-check] [--skip-ci-gate] [--skip-security-gate] [--skip-dependency-check] [--skip-sonar-gate] [--skip-deprecated-api-gate] [--skip-sources-gate]" >&2
+            echo "Usage: $0 [--minor|--major] [--notes-file <path>] [--skip-deployment-check] [--skip-ci-gate] [--skip-security-gate] [--skip-dependency-check] [--skip-dependency-age-gate] [--skip-sonar-gate] [--skip-deprecated-api-gate] [--skip-sources-gate]" >&2
             exit 1
             ;;
     esac
@@ -656,6 +666,36 @@ check_dependency_freshness_gate() {
 }
 
 # ---------------------------------------------------------------
+# Dependency age gate (issue #841) — delegates to
+# scripts/check-dependency-age.php, which dates every dependency the
+# release notes' inventory lists by its most recent publication
+# (Packagist, the npm registry, the vendored libraries' GitHub releases)
+# and flags the ones that have published nothing for more than a year.
+#
+# The freshness gate above asks whether a newer version exists; this one
+# asks whether anybody is still making new versions at all — the risk an
+# advisory database cannot see, since nobody files one against code
+# nobody reads any more.
+#
+# A WARNING, NEVER A REFUSAL, as the issue asks: a stale dependency is a
+# question for the maintainer, not a defect in this commit, and a registry
+# that does not answer leaves a package « non vérifié » rather than a
+# release refused. Only the script's own failure — a lock file or
+# package.json it cannot read — exits non-zero. The dated table goes to ${GATE_TMP_DIR}, from
+# where the notes pick it up beside the dependency inventory.
+# ---------------------------------------------------------------
+check_dependency_age_gate() {
+    command -v php &> /dev/null || { echo "ERROR: php is required for the dependency age gate." >&2; exit 1; }
+
+    local script_dir
+    script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+    # errexit is off here (see run_gate), so the failure is propagated by
+    # hand. The script writes its own report line to ${GATE_REPORT_FILE}.
+    php "${script_dir}/check-dependency-age.php" --markdown "${GATE_TMP_DIR}/dependency_age.md" || exit 1
+}
+
+# ---------------------------------------------------------------
 # Deprecated browser API gate — delegates to
 # scripts/check-deprecated-api.php (kept as a separate script for the same
 # reason check-sonar-release.sh is: its logic is a shape-sensitive read of
@@ -755,7 +795,7 @@ check_sources_gate() {
 }
 
 # ---------------------------------------------------------------
-# Gate execution — seven gates, in this order, one after another, and
+# Gate execution — eight gates, in this order, one after another, and
 # the release stops at the first one that refuses.
 #
 # They are ordered by what they are about rather than by cost, because
@@ -771,8 +811,8 @@ check_sources_gate() {
 # fought over the same local MySQL server, and a collection loop that
 # reported every failure together. All of it existed to overlap runs
 # measured in tens of minutes. With none of those left, the machinery
-# would be a page of orchestration for seven checks that finish before
-# it could have forked them.
+# would be a page of orchestration for checks that each finish before it
+# could have forked them.
 #
 # Each gate still runs in a subshell under `set +e`, because several are
 # WRITTEN for errexit being off and say so in their own comments —
@@ -846,6 +886,13 @@ else
     run_gate dependency "Dependency freshness" check_dependency_freshness_gate
 fi
 
+if [[ "${SKIP_DEPENDENCY_AGE_GATE}" -eq 1 ]]; then
+    echo "WARNING: --skip-dependency-age-gate used — nothing dated the dependencies' last releases for this release, and the notes carry no « Dernières publications des dépendances » section." >&2
+    DEPENDENCY_AGE_GATE_REPORT_LINE="ignoré (\`--skip-dependency-age-gate\`) — dates de dernière publication non relevées."
+else
+    run_gate dependency_age "Dependency age" check_dependency_age_gate
+fi
+
 if [[ "${SKIP_DEPRECATED_API_GATE}" -eq 1 ]]; then
     echo "WARNING: --skip-deprecated-api-gate used — nothing checked whether a browser engine has removed document.execCommand, which the rich-text editors depend on (issue #379). Verify it by hand on https://caniuse.com/document-execcommand." >&2
     DEPRECATED_API_GATE_REPORT_LINE="ignoré (\`--skip-deprecated-api-gate\`) — à vérifier manuellement sur https://caniuse.com/document-execcommand."
@@ -874,7 +921,11 @@ DEPLOYMENT_GATE_REPORT_LINE="${DEPLOYMENT_GATE_REPORT_LINE:-$(cat "${GATE_TMP_DI
 CI_GATE_REPORT_LINE="${CI_GATE_REPORT_LINE:-$(cat "${GATE_TMP_DIR}/ci.report" 2>/dev/null)}"
 SECURITY_GATE_REPORT_LINE="${SECURITY_GATE_REPORT_LINE:-$(cat "${GATE_TMP_DIR}/security.report" 2>/dev/null)}"
 DEPENDENCY_GATE_REPORT_LINE="${DEPENDENCY_GATE_REPORT_LINE:-$(cat "${GATE_TMP_DIR}/dependency.report" 2>/dev/null)}"
+DEPENDENCY_AGE_GATE_REPORT_LINE="${DEPENDENCY_AGE_GATE_REPORT_LINE:-$(cat "${GATE_TMP_DIR}/dependency_age.report" 2>/dev/null)}"
 DEPRECATED_API_GATE_REPORT_LINE="${DEPRECATED_API_GATE_REPORT_LINE:-$(cat "${GATE_TMP_DIR}/deprecated_api.report" 2>/dev/null)}"
+# The dated table itself, read now because ${GATE_TMP_DIR} goes below and
+# the notes are composed much later. Empty when the gate was skipped.
+DEPENDENCY_AGE_SECTION="$(cat "${GATE_TMP_DIR}/dependency_age.md" 2>/dev/null || true)"
 SONAR_GATE_REPORT_LINE="${SONAR_GATE_REPORT_LINE:-$(cat "${GATE_TMP_DIR}/sonar.report" 2>/dev/null)}"
 SOURCES_GATE_REPORT_LINE="${SOURCES_GATE_REPORT_LINE:-$(cat "${GATE_TMP_DIR}/sources.report" 2>/dev/null)}"
 
@@ -882,6 +933,7 @@ GATE_REPORT="- **Déploiement** : ${DEPLOYMENT_GATE_REPORT_LINE}
 - **Intégration continue** : ${CI_GATE_REPORT_LINE}
 - **Sécurité** : ${SECURITY_GATE_REPORT_LINE}
 - **Dépendances** : ${DEPENDENCY_GATE_REPORT_LINE}
+- **Ancienneté des dépendances** : ${DEPENDENCY_AGE_GATE_REPORT_LINE}
 - **API navigateur dépréciée** : ${DEPRECATED_API_GATE_REPORT_LINE}
 - **SonarQube Cloud** : ${SONAR_GATE_REPORT_LINE}
 - **Sources externes** : ${SOURCES_GATE_REPORT_LINE}
@@ -1118,7 +1170,8 @@ fi
 #   4. The dependency inventory — scripts/dependency-inventory.php, read
 #      from the lock files and the vendored banners so it says what
 #      shipped rather than what a constraint allowed. Last because it is
-#      the longest.
+#      the longest — preceded by the dependency age gate's dated table
+#      (issue #841), the same list with each one's last publication.
 # ---------------------------------------------------------------
 if [[ -n "${NOTES_FILE}" ]]; then
     cat "${NOTES_FILE}" > "${FINAL_NOTES_FILE}"
@@ -1138,6 +1191,9 @@ fi
     echo ""
     gh release view "${TAG}" --json body -q .body
     echo ""
+    if [[ -n "${DEPENDENCY_AGE_SECTION}" ]]; then
+        printf '%s\n\n' "${DEPENDENCY_AGE_SECTION}"
+    fi
     php "${ARTIFACT_SCRIPT_DIR}/dependency-inventory.php"
 } >> "${FINAL_NOTES_FILE}" \
     || { echo "ERROR: could not compose the release notes (evidence body or dependency inventory). Release ${TAG} is still a draft; nothing was published." >&2; exit 1; }

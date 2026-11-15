@@ -301,6 +301,36 @@ class BadgeConfigurationControllerTest extends TestCase
         $this->assertFalse($this->badgeRepository->findById($badge->id)->isActive);
     }
 
+    /**
+     * A badge deleted in another tab, then toggled from this one: the page
+     * is told the badge is gone, and no activation is journaled for it.
+     */
+    public function testToggleBadgeActiveOnADeletedBadgeIsRefusedAndNothingIsJournaled(): void
+    {
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+        $token = bin2hex(random_bytes(32));
+        $_SESSION['_csrf_token'] = $token;
+        AuthSession::login(1, 'admin@test.com', 'admin');
+
+        $badge = $this->badgeService->create('Communication');
+        $this->badgeService->delete($badge->id);
+
+        $request = $this->createJsonRequest(['badge_id' => $badge->id, 'active' => true, '_csrf_token' => $token]);
+        $response = $this->controller->toggleBadgeActive($request, []);
+
+        $this->assertSame(400, $response->getStatusCode());
+        $this->assertSame(
+            ['success' => false, 'error' => 'Badge introuvable.'],
+            json_decode($response->getBody(), true)
+        );
+        $count = $this->pdo->query(
+            "SELECT COUNT(*) FROM event_log WHERE event_type IN ('badge_activated', 'badge_deactivated')"
+        )->fetchColumn();
+        $this->assertSame(0, (int) $count, 'a toggle of a badge that is gone was journaled');
+    }
+
     public function testDeleteBadgeRejectsDefaultBadge(): void
     {
         if (session_status() === PHP_SESSION_NONE) {

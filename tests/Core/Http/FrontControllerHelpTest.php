@@ -125,6 +125,36 @@ class FrontControllerHelpTest extends TestCase
         $this->assertStringNotContainsString('sujet-chefs', $rendered);
     }
 
+    /**
+     * A topic file gone between the index read at the start of the request
+     * and the body read for the panel — an update copying over the live
+     * install: the page is served without its help panel, and the server
+     * log says which page lost it.
+     */
+    public function testATopicWhoseFileVanishedMidRequestLeavesThePageWithoutItsPanel(): void
+    {
+        $dir = $this->makeTopicDir();
+        $path = $this->writeTopic($dir, 'sujet-page', ['paths' => '/covered-page'], 'Contenu **rendu**.');
+        $helpService = new HelpService(new HelpRegistry($dir));
+        $this->assertCount(1, $helpService->findForPath('/covered-page', \Core\Security\Role::PUBLIC));
+        unlink($path);
+        $log = (string) tempnam(sys_get_temp_dir(), 'help_log_');
+        $previousLog = ini_set('error_log', $log);
+
+        try {
+            $response = $this->frontController($helpService)
+                ->handle(new Request('GET', '/covered-page', [], [], [], []));
+        } finally {
+            ini_set('error_log', (string) $previousLog);
+        }
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame('', $this->renderedRouteHelp());
+        $logged = (string) file_get_contents($log);
+        @unlink($log);
+        $this->assertStringContainsString('ScoutMagic contextual help unavailable for /covered-page', $logged);
+    }
+
     public function testRouteHelpIsEmptyOnAPostRequest(): void
     {
         $fc = $this->frontController($this->helpServiceWithTopics());

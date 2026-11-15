@@ -706,6 +706,64 @@ class RentalMessageConsumerTest extends TestCase
     }
 
     /**
+     * The re-run after a decision fails — the mailbox it would read no
+     * longer decrypts, a key rotated without re-encrypting — and the
+     * manager's click still does all of its own work: the address is
+     * learned and the attachment of the message they filed becomes a
+     * document of the booking. Only the other messages wait.
+     */
+    public function testAReanalysisThatFailsDoesNotUndoTheFilingItFollows(): void
+    {
+        $booking = $this->createBooking();
+        $this->client->addRawMessage('INBOX', 10, implode("\r\n", [
+            'Authentication-Results: mx.unite.be; dmarc=pass header.from=groupe.example',
+            'From: Le trésorier <tresorier@groupe.example>',
+            'To: locations@unite.be',
+            'Subject: Le contrat signé',
+            'Message-ID: <one@groupe.example>',
+            'Date: Mon, 12 Jul 2027 09:30:00 +0200',
+            'Content-Type: multipart/mixed; boundary="frontier"',
+            '',
+            '--frontier',
+            'Content-Type: text/plain',
+            '',
+            'Voici le contrat signé.',
+            '--frontier',
+            'Content-Type: application/pdf',
+            'Content-Disposition: attachment; filename="contrat.pdf"',
+            'Content-Transfer-Encoding: base64',
+            '',
+            base64_encode(self::PDF_BYTES),
+            '--frontier--',
+        ]));
+        $this->deliver(11, 'Question sur les clés', from: 'tresorier@groupe.example', messageId: 'two@groupe.example');
+        $this->sync();
+        $this->assertSame(0, $this->countRentalAssociations());
+        $this->pdo->prepare('UPDATE inbound_mailboxes SET username_encrypted = ? WHERE id = ?')
+            ->execute(['illisible', $this->mailboxId]);
+
+        $this->assertTrue($this->inboundMail->attach(
+            RentalMessageConsumer::CONSUMER_ID,
+            $booking->reference,
+            $this->storedMessageIds()[0],
+            7
+        ));
+
+        $this->assertSame(
+            [$booking->id],
+            array_map(
+                static fn(RentalBooking $b): int => $b->id,
+                $this->bookingRepository->findByRenterEmail('tresorier@groupe.example')
+            ),
+            'the address is learned'
+        );
+        $documents = $this->documentRepository->findForBooking($booking->id);
+        $this->assertCount(1, $documents, 'the attachment of the filed message is still filed');
+        $this->assertSame(DocumentType::UNSORTED, $documents[0]->type);
+        $this->assertCount(1, $this->communicationService->timeline($booking), 'the re-run did not happen');
+    }
+
+    /**
      * #231. The reference is sequential and printed on every contract, so
      * it is guessable — and the rule asked nothing else: any sender who
      * quoted `[LOC-K7Q2M4]` had their message, and its attachments,

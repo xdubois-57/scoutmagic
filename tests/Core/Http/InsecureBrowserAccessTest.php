@@ -120,6 +120,29 @@ class InsecureBrowserAccessTest extends TestCase
     }
 
     /**
+     * The row deleted under a running request — a restore, a reset — after
+     * this request's settings were read: the observation cannot be written,
+     * record() says so, and the request carrying it goes on rather than
+     * failing on a statement about its own connection.
+     */
+    public function testAnObservationWhoseRowVanishedIsNotWrittenAndFailsNothing(): void
+    {
+        $pdo = DatabaseTestHelper::createTestDatabase();
+        $settings = new SettingService(new SettingRepository($pdo));
+        $access = new InsecureBrowserAccess($settings);
+        $this->assertTrue($access->record(self::T));
+        // This request's read of the settings, as every page's first one.
+        $this->assertSame(self::T, $access->lastObservedAt());
+        $pdo->prepare('DELETE FROM settings WHERE setting_key = ?')->execute([InsecureBrowserAccess::SETTING]);
+
+        $this->assertFalse($access->record(self::T + InsecureBrowserAccess::WRITE_THROTTLE_SECONDS));
+
+        $stmt = $pdo->prepare('SELECT COUNT(*) FROM settings WHERE setting_key = ?');
+        $stmt->execute([InsecureBrowserAccess::SETTING]);
+        $this->assertSame(0, (int) $stmt->fetchColumn(), 'the observation was written after all');
+    }
+
+    /**
      * Later HTTPS visits do not erase the observation: nothing but a new
      * insecure one ever writes, so the window runs from the last of them.
      */

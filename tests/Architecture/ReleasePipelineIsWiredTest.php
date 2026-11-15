@@ -495,6 +495,22 @@ final class ReleasePipelineIsWiredTest extends TestCase
         $this->assertStringContainsString('gh release view "${TAG}" --json body -q .body', $notes, 'the workflow\'s description of the pack is dropped from the notes');
         $this->assertStringContainsString('dependency-inventory.php', $notes, 'the dependency inventory no longer reaches the notes');
         $this->assertStringContainsString('## Dépendances livrées', self::read('scripts/dependency-inventory.php'));
+        // Issue #841: the last release date of every dependency, from the
+        // dependency age gate, beside the inventory it dates.
+        $this->assertStringContainsString(
+            '"${DEPENDENCY_AGE_SECTION}"',
+            $notes,
+            'the dependency age table no longer reaches the notes'
+        );
+        $this->assertStringContainsString(
+            'DEPENDENCY_AGE_SECTION="$(cat "${GATE_TMP_DIR}/dependency_age.md"',
+            self::read(self::RELEASE_SCRIPT),
+            'the dependency age table is not read before the gates\' directory is removed'
+        );
+        $this->assertStringContainsString(
+            '--markdown "${GATE_TMP_DIR}/dependency_age.md"',
+            self::read(self::RELEASE_SCRIPT)
+        );
     }
 
     public function testARerunAfterARedWorkflowDoesNotDieOnAnUnchangedVersionFile(): void

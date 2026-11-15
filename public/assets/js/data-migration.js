@@ -42,7 +42,7 @@
      * @returns {number} whole percent, 0..100
      */
     function percentOf(sent, total) {
-        if (!(total > 0)) {
+        if (Number.isNaN(total) || total <= 0) {
             return 0;
         }
         return Math.max(0, Math.min(100, Math.floor((100 * sent) / total)));
@@ -88,6 +88,7 @@
             var raw = window.sessionStorage.getItem(key);
             return raw ? JSON.parse(raw) : null;
         } catch (e) {
+            // Storage blocked or value not valid JSON: treated as no saved state.
             return null;
         }
     }
@@ -183,7 +184,7 @@
             writeSession(key, null);
             window.location.reload();
         }, function (/** @type {Error} */ failure) {
-            showError(error, failure && failure.message ? failure.message : 'L\'envoi a échoué.');
+            showError(error, failure?.message ? failure.message : 'L\'envoi a échoué.');
         });
     }
 
@@ -234,9 +235,9 @@
 
         slot.start(window.ScoutMagicApi.poll(function () {
             return window.ScoutMagicApi.postJson(page.urls.advance, {}).then(function (res) {
-                if (!res.ok || !res.data || res.data.success !== true) {
+                if (!res.ok || res.data?.success !== true) {
                     if (errorBox && res.status !== 0) {
-                        errorBox.textContent = res.data && res.data.error ? String(res.data.error) : 'Le serveur n\'a pas répondu. Nouvel essai…';
+                        errorBox.textContent = res.data?.error ? String(res.data.error) : 'Le serveur n\'a pas répondu. Nouvel essai…';
                         errorBox.hidden = false;
                     }
                     return true;
@@ -283,7 +284,7 @@
 
     function init() {
         var page = window.ScoutMagicApi.pageData('data-migration-page');
-        if (!page || !page.urls || !isMigrationUrl(page.urls.upload) || !isMigrationUrl(page.urls.advance)) {
+        if (!page?.urls || !isMigrationUrl(page.urls.upload) || !isMigrationUrl(page.urls.advance)) {
             return;
         }
 

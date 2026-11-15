@@ -84,6 +84,58 @@ class WebhookControllerTest extends TestCase
         $this->assertSame(1, $count);
     }
 
+    /**
+     * A `secrets.enc` the master key no longer opens leaves the site with
+     * no secret to check against: every delivery is refused and journaled
+     * as an invalid signature, even one signed with the secret the site
+     * used to hold, and no release is queued. The real service and the
+     * real secrets file here: refusing is the subject.
+     */
+    public function testAnUnreadableSecretsFileRefusesEveryDelivery(): void
+    {
+        $base = sys_get_temp_dir() . '/webhook_ctrl_' . uniqid();
+        mkdir($base, 0700, true);
+        $secrets = new SecretManager($base . '/master.key', $base . '/secrets.enc');
+        $secrets->generateMasterKey();
+        $secrets->writeSecrets(['github_webhook_secret' => 'test-secret']);
+        file_put_contents($base . '/secrets.enc', 'plus un fichier de secrets');
+        $journal = new JournalService(new JournalRepository($this->pdo));
+        $scheduler = new \Core\Scheduler\SchedulerRepository($this->pdo);
+        $controller = new WebhookController(
+            TestTwig::create(),
+            new GitHubWebhookService(
+                new \Core\Config\SettingService(new \Core\Config\SettingRepository($this->pdo)),
+                new \Core\Scheduler\SchedulerService($scheduler),
+                new \Core\Maintenance\UpdateHistoryRepository($this->pdo),
+                $journal,
+                $base
+            ),
+            $secrets,
+            $journal
+        );
+        $body = '{"action":"published","release":{"tag_name":"v9.9.9"}}';
+
+        try {
+            $response = $controller->github($this->requestWithBody($body, [
+                'HTTP_X_HUB_SIGNATURE_256' => 'sha256=' . hash_hmac('sha256', $body, 'test-secret'),
+                'HTTP_X_GITHUB_EVENT' => 'release',
+            ]), []);
+        } finally {
+            @unlink($base . '/master.key');
+            @unlink($base . '/secrets.enc');
+            @rmdir($base);
+        }
+
+        $this->assertSame(403, $response->getStatusCode());
+        $this->assertSame(['status' => 'forbidden'], json_decode($response->getBody(), true));
+        $count = (int) $this->pdo->query(
+            "SELECT COUNT(*) FROM event_log WHERE event_type = 'github_webhook_signature_invalid'"
+        )->fetchColumn();
+        $this->assertSame(1, $count);
+        $queued = (int) $this->pdo->query('SELECT COUNT(*) FROM scheduled_actions')->fetchColumn();
+        $this->assertSame(0, $queued, 'a delivery nobody could verify queued an update');
+    }
+
     public function testDispatchesAValidReleaseEventToTheService(): void
     {
         $this->webhookService->method('verifySignature')->willReturn(true);

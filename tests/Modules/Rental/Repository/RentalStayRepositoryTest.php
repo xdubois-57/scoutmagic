@@ -696,6 +696,49 @@ class RentalStayRepositoryTest extends TestCase
         $this->assertSame([], $this->repository->findIncidents($this->bookingId));
     }
 
+    /**
+     * An incident never exists without the photos it was reported with: a
+     * photo the database refuses takes the incident back with it.
+     */
+    public function testAnIncidentWhosePhotoIsRefusedIsNotRecordedAtAll(): void
+    {
+        $this->pdo->exec(
+            "CREATE TRIGGER refuse_second_photo BEFORE INSERT ON rental_incident_photos
+             WHEN NEW.position = 2 BEGIN SELECT RAISE(ABORT, 'photo refusée'); END"
+        );
+
+        try {
+            $this->repository->createIncident($this->bookingId, 'Vitre cassée', 4500, [12, 13], 7);
+            $this->fail('a refused photo must reach the caller');
+        } catch (\PDOException $e) {
+            $this->assertStringContainsString('photo refusée', $e->getMessage());
+        }
+
+        $this->assertFalse($this->pdo->inTransaction());
+        $this->assertSame([], $this->repository->findIncidents($this->bookingId));
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM rental_incident_photos')->fetchColumn());
+    }
+
+    /**
+     * Photos are added all or none: a refused second photo is a refusal
+     * of the whole addition, and the first one is not kept. SQLite reports
+     * a trigger's refusal under the unique key's code (23000), the code two
+     * additions colliding on a position produce.
+     */
+    public function testAPhotoTheDatabaseRefusesCostsTheWholeAddition(): void
+    {
+        $incident = (int) $this->repository->createIncident($this->bookingId, 'Vitre cassée', null, [11], 7);
+        $this->pdo->exec(
+            "CREATE TRIGGER refuse_third_photo BEFORE INSERT ON rental_incident_photos
+             WHEN NEW.position = 3 BEGIN SELECT RAISE(ABORT, 'photo refusée'); END"
+        );
+
+        $this->assertFalse($this->repository->addIncidentPhotos($incident, $this->bookingId, [12, 13], 7, 5));
+
+        $this->assertFalse($this->pdo->inTransaction());
+        $this->assertSame([1], $this->photoPositions($incident), 'the photo before the refused one is not kept');
+    }
+
     // ── Settlements ─────────────────────────────────────────────────────
 
     public function testTheVersionCounterStartsAtOneAndMovesForward(): void
