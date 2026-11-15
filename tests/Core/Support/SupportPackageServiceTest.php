@@ -9,6 +9,8 @@ use Core\Config\SettingService;
 use Core\Database\Connection;
 use Core\File\EncryptedFileStorageService;
 use Core\File\FileRepository;
+use Core\Journal\JournalRepository;
+use Core\Journal\JournalService;
 use Core\Security\EncryptionService;
 use Core\Statistics\InstallationIdentityService;
 use Core\Statistics\StatisticsPayloadBuilder;
@@ -560,7 +562,10 @@ class SupportPackageServiceTest extends TestCase
 
         $record = (new FileRepository($this->pdo))->findById($first);
         $this->assertNotNull($record);
-        @unlink($this->storagePath . '/' . $record->storagePath);
+        $bytes = $this->storagePath . '/' . $record->relativePath;
+        $this->assertFileExists($bytes);
+        unlink($bytes);
+        $this->assertFileDoesNotExist($bytes);
 
         $second = $service->generate(null);
 
@@ -584,5 +589,244 @@ class SupportPackageServiceTest extends TestCase
         $this->settings->clearCache();
         $this->assertSame($fileId, $service->currentPackageFileId());
         $this->assertNotNull($service->currentPackageGeneratedAt());
+    }
+
+    /**
+     * Reading the previous package's FileRecord failing is a database
+     * failure, and the archive's randomised path is written down nowhere
+     * else. Dropping the record anyway, as the fallback once did, left the
+     * encrypted server logs on disk with nothing able to find them. The
+     * record now stays, the failure is journaled, and the new package is
+     * still produced.
+     */
+    public function testAPreviousPackageWhoseRecordCannotBeReadKeepsItsRecord(): void
+    {
+        $service = $this->journaledService();
+        $first = $service->generate(null);
+        $firstPath = $this->storedPath($first);
+
+        // Only findById() reads this column: the INSERT and the DELETE
+        // still work, which is exactly the state that orphaned the bytes.
+        $this->pdo->exec('ALTER TABLE files DROP COLUMN custom_resolver');
+
+        $second = $service->generate(null);
+
+        $this->assertNotSame($first, $second);
+        $this->assertTrue($this->recordExists($first), 'the only pointer to the old bytes must survive');
+        $this->assertFileExists($firstPath);
+        $this->assertContains('support_package_delete_failed', $this->journaledTypes());
+        $this->settings->clearCache();
+        $this->assertSame((string) $second, $this->settings->get(SupportPackageState::FILE_ID));
+    }
+
+    /**
+     * The same failure seen through to the end of retention: the bytes the
+     * failed deletion left behind are gone once they are seven days old,
+     * found from the directory even though their record still cannot be
+     * read, and their record goes with them.
+     */
+    public function testBytesLeftByAFailedDeletionAreSweptOncePastRetention(): void
+    {
+        $service = $this->journaledService();
+        $first = $service->generate(null);
+        $firstPath = $this->storedPath($first);
+        $this->pdo->exec('ALTER TABLE files DROP COLUMN custom_resolver');
+        $service->deleteCurrentPackage();
+
+        $this->assertSame(0, $service->sweepExpiredFiles(), 'within retention, nothing is swept');
+        $this->assertFileExists($firstPath);
+
+        touch($firstPath, time() - (SupportPackageService::RETENTION_DAYS + 1) * 86400);
+
+        $this->assertSame(1, $service->sweepExpiredFiles());
+        $this->assertFileDoesNotExist($firstPath);
+        $this->assertFalse($this->recordExists($first));
+        $this->assertContains('support_package_files_swept', $this->journaledTypes());
+    }
+
+    /**
+     * A database that refuses to drop the record must not block the next
+     * package either, and must not keep the old bytes: they are deleted
+     * first, and the record left behind names nothing.
+     */
+    public function testARefusedRecordDeletionStillRemovesTheBytesAndProducesTheNextPackage(): void
+    {
+        $service = $this->journaledService();
+        $first = $service->generate(null);
+        $firstPath = $this->storedPath($first);
+
+        $this->pdo->exec(
+            "CREATE TRIGGER refuse_file_delete BEFORE DELETE ON files BEGIN SELECT RAISE(ABORT, 'refusé'); END"
+        );
+
+        $second = $service->generate(null);
+
+        $this->assertNotSame($first, $second);
+        $this->assertFileDoesNotExist($firstPath);
+        $this->assertContains('support_package_delete_failed', $this->journaledTypes());
+        $this->assertFileExists($this->storedPath($second));
+    }
+
+    /**
+     * Files nothing references at all — the bookkeeping after a store()
+     * never landed, or a record was lost some other way — are found from
+     * the directory. Only stored-archive names past retention go: the
+     * current package, a fresh orphan, and anything this service did not
+     * write are left alone.
+     */
+    public function testTheSweepRemovesOnlyStoredArchivesPastRetention(): void
+    {
+        $service = $this->journaledService();
+        $current = $service->generate(null);
+        $currentPath = $this->storedPath($current);
+
+        $directory = $this->storagePath . '/' . SupportPackageService::STORAGE_SUBDIRECTORY;
+        $expired = time() - (SupportPackageService::RETENTION_DAYS + 1) * 86400;
+        $oldOrphan = $directory . '/' . bin2hex(random_bytes(16)) . '.bin.enc';
+        $freshOrphan = $directory . '/' . bin2hex(random_bytes(16)) . '.bin.enc';
+        $foreign = $directory . '/notes.txt';
+        foreach ([$oldOrphan, $freshOrphan, $foreign] as $path) {
+            file_put_contents($path, 'chiffré');
+        }
+        touch($oldOrphan, $expired);
+        touch($foreign, $expired);
+
+        $this->assertSame(1, $service->sweepExpiredFiles());
+
+        $this->assertFileDoesNotExist($oldOrphan);
+        $this->assertFileExists($freshOrphan);
+        $this->assertFileExists($foreign);
+        $this->assertFileExists($currentPath);
+        $this->assertArrayHasKey('README.txt', $this->readArchive($current));
+    }
+
+    /**
+     * Bytes past retention are removed even when they are still the
+     * current package, and the settings stop naming a package that no
+     * longer exists.
+     */
+    public function testACurrentPackageWhoseBytesArePastRetentionIsForgottenEntirely(): void
+    {
+        $service = $this->journaledService();
+        $fileId = $service->generate(null);
+        $path = $this->storedPath($fileId);
+        touch($path, time() - (SupportPackageService::RETENTION_DAYS + 1) * 86400);
+
+        $this->assertSame(1, $service->sweepExpiredFiles());
+
+        $this->assertFileDoesNotExist($path);
+        $this->assertFalse($this->recordExists($fileId));
+        $this->settings->clearCache();
+        $this->assertNull($service->currentPackageFileId());
+    }
+
+    /**
+     * A generation killed outright never reaches its `finally`, and its
+     * working directory holds the archive in clear. The sweep removes it,
+     * and the structure dump written beside it, once a day old, and leaves
+     * alone everything a live generation could still be writing, anything
+     * it did not create, and every symbolic link.
+     */
+    public function testAbandonedWorkingFilesAreSweptAndLiveOnesAreNot(): void
+    {
+        $temp = $this->storagePath . '/temp';
+        $old = time() - SupportPackageService::ABANDONED_WORKING_FILE_SECONDS - 3600;
+
+        $abandoned = $this->workingDirectory($temp, $old, $old);
+        $stillWriting = $this->workingDirectory($temp, $old, time());
+        $fresh = $this->workingDirectory($temp, time(), time());
+
+        $dump = $temp . '/support-structure-' . bin2hex(random_bytes(8)) . '.sql';
+        file_put_contents($dump, 'CREATE TABLE members (id INT);');
+        touch($dump, $old);
+        $foreign = $temp . '/import-' . bin2hex(random_bytes(8));
+        file_put_contents($foreign, 'autre');
+        touch($foreign, $old);
+
+        $outside = $this->projectRoot . '/outside';
+        mkdir($outside);
+        file_put_contents($outside . '/scoutmagic-support.zip', 'ailleurs');
+        touch($outside . '/scoutmagic-support.zip', $old);
+        touch($outside, $old);
+        $linked = $temp . '/support-' . bin2hex(random_bytes(8));
+        symlink($outside, $linked);
+        $holdingALink = $this->workingDirectory($temp, $old, $old);
+        symlink($outside . '/scoutmagic-support.zip', $holdingALink . '/lien');
+        touch($holdingALink, $old);
+
+        try {
+            $this->assertSame(2, $this->journaledService()->sweepAbandonedWorkingFiles());
+
+            $this->assertDirectoryDoesNotExist($abandoned);
+            $this->assertFileDoesNotExist($dump);
+            $this->assertFileExists($stillWriting . '/scoutmagic-support.zip');
+            $this->assertFileExists($fresh . '/scoutmagic-support.zip');
+            $this->assertFileExists($holdingALink . '/scoutmagic-support.zip');
+            $this->assertFileExists($foreign);
+            $this->assertTrue(is_link($linked));
+            $this->assertFileExists($outside . '/scoutmagic-support.zip');
+            $this->assertContains('support_package_working_files_swept', $this->journaledTypes());
+            $this->assertContains('support_package_working_files_sweep_failed', $this->journaledTypes());
+        } finally {
+            // tearDown() would follow these links; remove them first.
+            @unlink($holdingALink . '/lien');
+            @unlink($linked);
+        }
+    }
+
+    /**
+     * A working directory as generate() names it, holding a stand-in
+     * archive whose mtime is $fileTime, the directory itself at $directoryTime.
+     */
+    private function workingDirectory(string $temp, int $directoryTime, int $fileTime): string
+    {
+        $directory = $temp . '/support-' . bin2hex(random_bytes(8));
+        mkdir($directory, 0700);
+        file_put_contents($directory . '/scoutmagic-support.zip', 'journaux en clair');
+        touch($directory . '/scoutmagic-support.zip', $fileTime);
+        touch($directory, $directoryTime);
+
+        return $directory;
+    }
+
+    private function journaledService(): SupportPackageService
+    {
+        return new SupportPackageService(
+            $this->connection,
+            $this->settings,
+            $this->fileRepository,
+            $this->encryptedStorage,
+            $this->projectRoot,
+            $this->storagePath,
+            [],
+            [],
+            new JournalService(new JournalRepository($this->pdo))
+        );
+    }
+
+    private function storedPath(int $fileId): string
+    {
+        $record = $this->fileRepository->findById($fileId);
+        $this->assertNotNull($record);
+
+        return $this->storagePath . '/' . $record->relativePath;
+    }
+
+    private function recordExists(int $fileId): bool
+    {
+        $stmt = $this->pdo->prepare('SELECT COUNT(*) FROM files WHERE id = ?');
+        $stmt->execute([$fileId]);
+
+        return (int) $stmt->fetchColumn() === 1;
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function journaledTypes(): array
+    {
+        $stmt = $this->pdo->query('SELECT event_type FROM event_log');
+
+        return $stmt !== false ? array_values(array_map('strval', $stmt->fetchAll(\PDO::FETCH_COLUMN))) : [];
     }
 }
