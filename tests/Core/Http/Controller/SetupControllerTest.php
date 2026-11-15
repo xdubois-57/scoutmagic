@@ -551,16 +551,6 @@ class SetupControllerTest extends TestCase
     }
 
     /**
-     * **Hiding a field does not stop a POST carrying it**, and here that
-     * was the whole danger rather than a theoretical one.
-     *
-     * With the relay fields gone from the form, `mail_mode` fell back to
-     * 'smtp' and `smtp_host` to '': the validation then refused EVERY save
-     * of this page (« L'hôte SMTP est requis en mode SMTP. ») and, had it
-     * passed, the write would have erased the relay — those four keys are
-     * the first entry of the provider chain, not a copy of it.
-     */
-    /**
      * The settings table refusing the site's name — a trigger here, as an
      * engine that refuses a write: the page says the configuration could
      * not be saved, rather than « Configuration enregistrée avec succès »
@@ -687,6 +677,16 @@ class SetupControllerTest extends TestCase
         }
     }
 
+    /**
+     * **Hiding a field does not stop a POST carrying it**, and here that
+     * was the whole danger rather than a theoretical one.
+     *
+     * With the relay fields gone from the form, `mail_mode` fell back to
+     * 'smtp' and `smtp_host` to '': the validation then refused EVERY save
+     * of this page (« L'hôte SMTP est requis en mode SMTP. ») and, had it
+     * passed, the write would have erased the relay — those four keys are
+     * the first entry of the provider chain, not a copy of it.
+     */
     public function testAnInitialisedSiteSavesWithoutTheFieldsItNoLongerShows(): void
     {
         $this->secretManager->generateMasterKey();
