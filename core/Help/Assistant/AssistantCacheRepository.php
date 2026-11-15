@@ -56,14 +56,16 @@ class AssistantCacheRepository
         $normalised = trim((string) preg_replace('/\s+/u', ' ', mb_strtolower($question, 'UTF-8')));
 
         // A new key namespace also makes pre-fix, context-blind rows unreachable.
-        return hash('sha256', (string) json_encode([
+        $context = [
             'route-context-v1',
             $normalised,
             $role,
             $appVersion,
             $routePattern,
             $routeTopicIds,
-        ], JSON_THROW_ON_ERROR));
+        ];
+
+        return hash('sha256', (string) json_encode($context, JSON_THROW_ON_ERROR));
     }
 
     /**
