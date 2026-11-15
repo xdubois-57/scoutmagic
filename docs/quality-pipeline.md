@@ -1067,6 +1067,23 @@ before. The status comment now carries the commit the run actually
 loaded, which turns "the reviewer behaves differently today" from a
 mystery into a diff between two rows.
 
+**A skip after the eligibility checks is no longer a review** (issue
+#1160). The code-review procedure opens with eligibility agents — is the
+pull request closed, a draft, already reviewed by Claude — and stops there
+when one of them says yes. Run 43150076305 did exactly that on #1148: it
+found Claude's own inline comments on an *earlier* head, launched two
+agents, collected both, and ended « I must stop and not proceed with
+another review » — and every count above agreed with itself, so the
+comment said "Reviewed, nothing to report". The evidence step now reads
+two more things off the transcript: `diff_reads`, the tool calls that open
+the code (`Read`, `Grep`, `Glob`, or a `Bash` call that *is* a `gh pr
+diff`, `git diff` or `git show`; an eligibility check needs none of them),
+and `declined`, whether the final message says it stopped. Either one
+gives the verdict « The reviewer declined to review », red — the wording is
+the second line of evidence rather than the only one, since the procedure
+is not pinned and its sentence can change. The prompt now also says that
+comments on an earlier commit review that commit, not the new head.
+
 **And the reviewer was told to stop trying to save the diff to a file.**
 One run on #403 spent 40 refused `Bash` calls on it — `>`, `|`, `tee`, a
 heredoc, twice with `dangerouslyDisableSandbox: true` — before falling
