@@ -386,6 +386,55 @@ class StatisticsIntakeServiceTest extends TestCase
         $this->assertSame('info', $entries[0]['level']);
     }
 
+    // --- bookkeeping that fails must not cost the report ---
+
+    public function testAMonthlyContributionThatCannotBeRecordedStillAcceptsTheReport(): void
+    {
+        $this->pdo->exec('DROP TABLE support_monthly_contributions');
+
+        $result = $this->serviceWithBookkeeping()
+            ->receive($this->payload(), 'Bearer ' . self::SECRET, '203.0.113.1', true);
+
+        $this->assertTrue($result->accepted);
+        $this->assertSame(204, $result->statusCode);
+        $this->assertNotNull($this->installations->findByInstallationId(self::INSTALLATION_ID));
+        $this->assertSame(['statistics_report_received'], array_column($this->journalEntries(), 'type'));
+    }
+
+    public function testADeskVocabularyGapThatCannotBeRecordedStillAcceptsTheReport(): void
+    {
+        $this->pdo->exec('DROP TABLE support_desk_mapping_gaps');
+        $payload = $this->payload([
+            'desk_unresolved' => ['total' => 1, 'listed' => [['kind' => 'function', 'value' => 'Animateur Nutons']]],
+        ]);
+
+        $result = $this->serviceWithBookkeeping()->receive($payload, 'Bearer ' . self::SECRET, '203.0.113.1', true);
+
+        $this->assertTrue($result->accepted);
+        $this->assertSame(204, $result->statusCode);
+        $this->assertNotNull($this->installations->findByInstallationId(self::INSTALLATION_ID));
+        $this->assertSame(['statistics_report_received'], array_column($this->journalEntries(), 'type'));
+    }
+
+    /** The intake as the composition root wires it, with its two pieces of bookkeeping. */
+    private function serviceWithBookkeeping(): StatisticsIntakeService
+    {
+        $journal = new JournalService(new JournalRepository($this->pdo));
+
+        return new StatisticsIntakeService(
+            $this->installations,
+            $this->rateLimits,
+            new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)),
+            $journal,
+            new \Modules\SupportDashboard\Repository\SupportMonthlyAggregateRepository($this->pdo),
+            null,
+            new \Modules\SupportDashboard\Service\DeskMappingGapRecorder(
+                new \Modules\SupportDashboard\Repository\DeskMappingGapRepository($this->pdo),
+                $journal
+            )
+        );
+    }
+
     // --- bearer parsing ---
 
     /**

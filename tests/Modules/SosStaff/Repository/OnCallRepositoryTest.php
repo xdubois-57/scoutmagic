@@ -119,4 +119,33 @@ class OnCallRepositoryTest extends TestCase
         $this->assertSame([], $this->repo->findForRange('2024-01-01', '2024-01-31'));
         $this->assertCount(1, $this->repo->findForRange('2026-07-01', '2026-07-31'));
     }
+
+    /**
+     * A month saved with the same member twice on one day breaks the
+     * (member, day) unique index halfway through. The save is all or
+     * nothing: the month keeps the assignments it had, the error reaches
+     * the caller, and no transaction is left open behind it.
+     */
+    public function testAMonthThatBreaksTheOneRowPerDayRuleKeepsTheMonthItHad(): void
+    {
+        $this->repo->replaceRange('2026-07-01', '2026-07-31', [
+            new OnCallAssignment(1, '2026-07-05', OnCallAssignment::STATE_ONCALL),
+        ]);
+
+        try {
+            $this->repo->replaceRange('2026-07-01', '2026-07-31', [
+                new OnCallAssignment(2, '2026-07-10', OnCallAssignment::STATE_ONCALL),
+                new OnCallAssignment(2, '2026-07-10', OnCallAssignment::STATE_UNAVAILABLE),
+            ]);
+            $this->fail('A duplicate (member, day) must reach the caller.');
+        } catch (\PDOException $e) {
+            $this->assertSame('23000', $e->getCode());
+        }
+
+        $this->assertFalse($this->pdo->inTransaction());
+        $found = $this->repo->findForRange('2026-07-01', '2026-07-31');
+        $this->assertCount(1, $found);
+        $this->assertSame(1, $found[0]->memberId);
+        $this->assertSame('2026-07-05', $found[0]->date);
+    }
 }

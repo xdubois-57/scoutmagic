@@ -267,6 +267,9 @@ class PollRepository
                 throw $e;
             }
         } catch (\Throwable $e) {
+            // @catch-unreachable only a throwable that is not a PDOException lands here, and every call in the
+            // try is PDO's own: on the ERRMODE_EXCEPTION connection Core\Database\Connection opens (the only one
+            // this repository is built with), each of their failures is a PDOException, taken by the catch above.
             if ($this->pdo->inTransaction()) {
                 $this->pdo->rollBack();
             }

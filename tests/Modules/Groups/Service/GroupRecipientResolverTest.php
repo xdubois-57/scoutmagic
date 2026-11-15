@@ -326,6 +326,31 @@ class GroupRecipientResolverTest extends TestCase
         $this->assertFalse($this->resolver($roleResolver)->isSiteAdminAccount(4242));
     }
 
+    /**
+     * An account whose stored address this key cannot read — written
+     * under another key, as a row predating a rotation is — is not a site
+     * admin to the notification path: under-notified, never an exception
+     * that would cost every other recipient their notification. The role
+     * resolver would have said « admin » to anybody.
+     */
+    public function testAnAccountWhoseAddressCannotBeReadIsNotASiteAdmin(): void
+    {
+        $otherKey = new EncryptionService(str_repeat('c', 32), str_repeat('d', 32));
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO user_accounts (email_encrypted, email_blind_index, created_at) VALUES (?, ?, ?)'
+        );
+        $stmt->execute([
+            $otherKey->encrypt('admin@test.be', 'user_accounts.email'),
+            $this->encryption->blindIndex('admin@test.be', 'email'),
+            '2026-01-01 00:00:00',
+        ]);
+        $accountId = (int) $this->pdo->lastInsertId();
+        $roleResolver = $this->createStub(RoleResolver::class);
+        $roleResolver->method('resolve')->willReturn('admin');
+
+        $this->assertFalse($this->resolver($roleResolver)->isSiteAdminAccount($accountId));
+    }
+
     // ---- fixtures ----
 
     private function resolver(?RoleResolver $roleResolver = null): GroupRecipientResolver

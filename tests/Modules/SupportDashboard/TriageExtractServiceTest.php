@@ -293,6 +293,41 @@ class TriageExtractServiceTest extends TestCase
         $this->assertSame(TriageExtractResult::REJECT_NO_ARCHIVE, $this->serve()->rejectionReason);
     }
 
+    /**
+     * An archive that is no zip — damaged in transit, or never one — is
+     * refused as unbuildable: nothing is served, the refusal is journaled
+     * with its reason, and the issue keeps its claim on the reference.
+     */
+    public function testAnArchiveThatIsNoZipIsRefusedAsUnbuildable(): void
+    {
+        $fileId = $this->storage->store(
+            'not a zip at all',
+            'application/zip',
+            'support.zip',
+            'support-tickets',
+            'superadmin'
+        );
+        $this->tickets->attachArchive($this->ticketId, $fileId);
+
+        $result = $this->serve();
+
+        $this->assertFalse($result->accepted);
+        $this->assertSame(TriageExtractResult::REJECT_UNBUILDABLE, $result->rejectionReason);
+        $this->assertSame([], $this->journal('support_triage_extract_served'));
+        $this->assertSame(
+            [[
+                'reason' => TriageExtractResult::REJECT_UNBUILDABLE,
+                'github_issue_number' => 181,
+                'ticket_reference' => $this->reference,
+            ]],
+            array_map(
+                static fn(?string $context): mixed => json_decode((string) $context, true),
+                $this->contexts('support_triage_extract_refused')
+            )
+        );
+        $this->assertSame(181, $this->tickets->find($this->ticketId)['github_issue_number']);
+    }
+
     public function testTheJournalNamesTheReferenceAndTheIssueAndNothingOfTheContent(): void
     {
         $this->attachArchive();

@@ -588,6 +588,31 @@ class SosAdminControllerTest extends TestCase
         $this->assertSame('08:30', $this->settingsService->getTransitionHour());
     }
 
+    /**
+     * An hour that is no hour is refused with the format to type, the
+     * stored hour stays, and no settings change is journaled.
+     */
+    public function testUpdateSettingsRefusesAnHourThatIsNoHour(): void
+    {
+        $before = $this->settingsService->getTransitionHour();
+        $token = $this->csrfToken();
+
+        $response = $this->controller->updateSettings(
+            $this->jsonRequest(['transition_hour' => '25:00', '_csrf_token' => $token]),
+            []
+        );
+
+        $this->assertSame(400, $response->getStatusCode());
+        $this->assertSame(
+            ['success' => false, 'error' => 'Heure invalide — format HH:MM attendu (ex : 10:00).'],
+            json_decode($response->getBody(), true)
+        );
+        $this->assertSame($before, $this->settingsService->getTransitionHour());
+        $stmt = $this->pdo->prepare('SELECT COUNT(*) FROM event_log WHERE event_type = ?');
+        $stmt->execute(['settings_updated']);
+        $this->assertSame(0, (int) $stmt->fetchColumn());
+    }
+
     public function testUpdateSettingsPersistsEmailToggle(): void
     {
         $token = $this->csrfToken();

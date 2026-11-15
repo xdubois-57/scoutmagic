@@ -403,6 +403,46 @@ class GroupsTestHelper
     }
 
     /**
+     * The real a-priori check over the test database's settings, asking a
+     * provider that flags every text it is shown — the AI provider being
+     * the only external part, and its verdict the subject.
+     */
+    public static function flaggingModeration(
+        \PDO $pdo,
+        string $reason,
+        ?string $suggestion
+    ): \Modules\Groups\Service\ModerationService {
+        $connector = new class ($reason, $suggestion) implements \Modules\LlmConnector\Api\LlmConnectorInterface {
+            public function __construct(private string $reason, private ?string $suggestion)
+            {
+            }
+
+            public function isAvailable(): bool
+            {
+                return true;
+            }
+
+            public function isTierAvailable(\Modules\LlmConnector\Api\LlmTier $tier): bool
+            {
+                return true;
+            }
+
+            public function complete(
+                \Modules\LlmConnector\Api\LlmRequest $request
+            ): \Modules\LlmConnector\Api\LlmResponse {
+                $parsed = ['flagged' => true, 'reason' => $this->reason, 'suggestion' => $this->suggestion];
+
+                return new \Modules\LlmConnector\Api\LlmResponse((string) json_encode($parsed), $parsed, 1, 1);
+            }
+        };
+
+        return new \Modules\Groups\Service\ModerationService(
+            new \Core\Config\SettingService(new \Core\Config\SettingRepository($pdo)),
+            $connector
+        );
+    }
+
+    /**
      * The reaction-notification debounce over the real (in-memory)
      * tables, wired the way public/index.php wires it.
      */
@@ -454,7 +494,8 @@ class GroupsTestHelper
         \Modules\Groups\Service\GroupActivityService $activityService,
         \Modules\Groups\Service\PostMediaService $postMediaService,
         \Modules\Groups\Service\PostAuthorResolver $authorResolver,
-        ?\Modules\Groups\Service\ReportService $reportService = null
+        ?\Modules\Groups\Service\ReportService $reportService = null,
+        ?\Modules\Groups\Service\ModerationService $moderationService = null
     ): array {
         $reportService ??= self::reportService(
             $pdo,
@@ -466,7 +507,8 @@ class GroupsTestHelper
             $replyRepository,
             $activityService,
             $postMediaService,
-            self::rateLimitService($pdo)
+            self::rateLimitService($pdo),
+            $moderationService
         );
         $reactionService = new \Modules\Groups\Service\ReactionService(
             \Modules\Groups\Repository\ReactionRepository::forPosts($pdo),
