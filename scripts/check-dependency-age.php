@@ -100,11 +100,28 @@ function dependencyAgeCollect(string $root): array
         ];
     }
 
+    // Driven by the DIRECTORIES present, as inventoryVendoredLibraries() is,
+    // not by the map alone: a library vendored without an entry in
+    // INVENTORY_VENDORED_LIBRARIES has no upstream to ask, so it is listed
+    // as undated — « non vérifiée » in the notes and named in the report —
+    // rather than left out of a table that would then read as complete.
+    // A mapped library whose directory is gone shipped nothing, so it is
+    // not dated either (the inventory's rule).
     $vendorDir = $root . '/public/assets/vendor';
-    foreach (INVENTORY_VENDORED_LIBRARIES as $directory => $library) {
-        // Same rule as the inventory: a library whose directory is gone
-        // shipped nothing, so there is nothing to date.
-        if (!is_dir($vendorDir . '/' . $directory)) {
+    $directories = is_dir($vendorDir) ? array_values(array_filter(
+        scandir($vendorDir) ?: [],
+        static fn (string $entry): bool => $entry !== '.' && $entry !== '..' && is_dir($vendorDir . '/' . $entry)
+    )) : [];
+    foreach ($directories as $directory) {
+        $library = INVENTORY_VENDORED_LIBRARIES[$directory] ?? null;
+        if ($library === null) {
+            $rows[] = [
+                'surface' => 'Front-end vendorisé',
+                'name' => $directory,
+                'version' => 'à déclarer dans `scripts/dependency-inventory.php`',
+                'source' => 'undeclared',
+                'key' => $directory,
+            ];
             continue;
         }
         $rows[] = [
@@ -194,6 +211,12 @@ function dependencyAgeDate(array $rows, callable $fetch): array
 {
     $dated = [];
     foreach ($rows as $row) {
+        if ($row['source'] === 'undeclared') {
+            // Nowhere to ask: the map is what names a library's upstream.
+            $row['released'] = null;
+            $dated[] = $row;
+            continue;
+        }
         $row['released'] = dependencyAgeLatestRelease(
             $row['source'],
             $row['key'],

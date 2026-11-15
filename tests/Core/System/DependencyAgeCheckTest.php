@@ -421,6 +421,40 @@ class DependencyAgeCheckTest extends TestCase
         @unlink($file);
     }
 
+    /**
+     * A library vendored without an entry in the inventory's map has no
+     * upstream to ask, so it is listed undated — never left out of a table
+     * that would then read as complete (the inventory lists it « à
+     * déclarer » for the same reason). Nothing is fetched for it.
+     */
+    public function testAnUndeclaredVendoredLibraryIsListedUndatedRatherThanDropped(): void
+    {
+        mkdir($this->root . '/public/assets/vendor/mystery-lib');
+        $asked = [];
+        $bodies = self::registries();
+
+        $dated = dependencyAgeDate(
+            dependencyAgeCollect($this->root),
+            static function (string $url) use (&$asked, $bodies): ?string {
+                $asked[] = $url;
+
+                return $bodies[$url] ?? null;
+            }
+        );
+        rmdir($this->root . '/public/assets/vendor/mystery-lib');
+
+        $findings = dependencyAgeFindings($dated, self::now());
+        $this->assertSame(['mystery-lib'], $findings['unverified']);
+        $this->assertSame(6, count($dated));
+        foreach ($asked as $url) {
+            $this->assertStringNotContainsString('mystery-lib', $url);
+        }
+        $this->assertStringContainsString(
+            '| `mystery-lib` | à déclarer dans `scripts/dependency-inventory.php` | **non vérifiée** | — |',
+            dependencyAgeMarkdown($dated, self::now())
+        );
+    }
+
     /** What the gate dates is exactly what the inventory publishes: the same lock readers and vendored map. */
     public function testItDatesTheRealRepositorysInventory(): void
     {
