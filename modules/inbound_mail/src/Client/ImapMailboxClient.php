@@ -56,6 +56,9 @@ class ImapMailboxClient implements IncomingMailboxClientInterface, PruningMailbo
 
     private ?Client $client = null;
 
+    /** See `IncomingMailboxClientInterface::lastSkippedUid()`. */
+    private int $lastSkippedUid = 0;
+
     public function __construct(private ?ClientManager $clientManager = null)
     {
     }
@@ -147,6 +150,8 @@ class ImapMailboxClient implements IncomingMailboxClientInterface, PruningMailbo
      */
     public function fetchSince(string $folder, int $sinceUid, int $limit): array
     {
+        $this->lastSkippedUid = 0;
+
         $imapFolder = $this->requireFolder($folder);
 
         try {
@@ -154,7 +159,15 @@ class ImapMailboxClient implements IncomingMailboxClientInterface, PruningMailbo
             // rather than listing the folder and filtering here — the
             // difference on a mailbox with 40 000 messages is the whole
             // sync.
-            $messages = $imapFolder->query()
+            //
+            // Through TolerantMessageQuery rather than `query()`: the
+            // library parses every message inside `get()`, and one it
+            // cannot parse (an unreadable or doubled `Date:`) used to fail
+            // the whole batch here, as a connection problem — the cursor
+            // never moved and the box was stuck behind that message for
+            // good. What still fails here is the server or the network.
+            $query = TolerantMessageQuery::on($imapFolder);
+            $messages = $query
                 ->leaveUnread()
                 ->whereUid(($sinceUid + 1) . ':*')
                 ->setFetchOrderAsc()
@@ -162,6 +175,20 @@ class ImapMailboxClient implements IncomingMailboxClientInterface, PruningMailbo
                 ->get();
         } catch (\Throwable $e) {
             throw new MailboxConnectionException(self::safeReason($e), 0, $e);
+        }
+
+        // Above the cursor only, like the loop below: the cursor message a
+        // `*` can hand back was already read, and traced, by an earlier pass.
+        foreach ($query->undatedUids() as $uid) {
+            if ($uid > $sinceUid) {
+                self::trace($folder, $uid, 'has an unreadable Date header; kept, dated at this sync');
+            }
+        }
+        foreach ($query->unreadableUids() as $uid) {
+            if ($uid > $sinceUid) {
+                self::trace($folder, $uid, 'could not be parsed; skipped');
+                $this->lastSkippedUid = max($this->lastSkippedUid, $uid);
+            }
         }
 
         $fetched = [];
@@ -179,22 +206,37 @@ class ImapMailboxClient implements IncomingMailboxClientInterface, PruningMailbo
                 continue;
             }
 
-            // Parsing is INSIDE the loop's own guard, not only the IMAP
-            // request above. One unparseable message must cost that
-            // message and nothing else: an exception escaping here loses
-            // the whole batch, leaves the cursor where it was, and makes
-            // every later pass re-download the same message —
-            // Service\MailboxSyncService only catches
-            // MailboxConnectionException and RuntimeException, and a
-            // ValueError is neither.
+            // Converting is INSIDE the loop's own guard, not only the
+            // IMAP request above. One message that cannot be turned into
+            // ours must cost that message and nothing else: an exception
+            // escaping here would reach Service\MailboxSyncService's
+            // catch-all, which records the whole pass as failed and saves
+            // no cursor — so every later pass would meet the same message.
             try {
                 $fetched[] = $this->toFetchedMessage($message, $folder, $uid);
-            } catch (\Throwable) {
+            } catch (\Throwable $e) {
+                self::trace($folder, $uid, 'could not be read (' . self::safeReason($e) . '); skipped');
+                $this->lastSkippedUid = max($this->lastSkippedUid, $uid);
                 continue;
             }
         }
 
         return $fetched;
+    }
+
+    public function lastSkippedUid(): int
+    {
+        return $this->lastSkippedUid;
+    }
+
+    /**
+     * A line in the server's error log about one message, named by folder
+     * and UID — never by its sender, subject or Message-ID, and never with
+     * the library's own exception text, which quotes the headers.
+     */
+    private static function trace(string $folder, int $uid, string $what): void
+    {
+        error_log('Inbound mail: message UID ' . $uid . ' in folder "' . $folder . '" ' . $what . '.');
     }
 
     private function toFetchedMessage(Message $message, string $folder, int $uid): FetchedMessage
