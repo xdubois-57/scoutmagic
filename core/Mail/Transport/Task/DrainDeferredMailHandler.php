@@ -302,6 +302,11 @@ class DrainDeferredMailHandler implements TaskHandlerInterface
                 $files[] = ['path' => $path, 'name' => $attachment['name']];
             }
         } catch (\Throwable $e) {
+            // @catch-unreachable only tempnam() or file_put_contents() failing in the system temporary
+            // directory lands here (a full or refusing disk): DeferredMailRepository::hydrate() has
+            // already turned every attachment into a string, this class takes no directory a test
+            // could point elsewhere, and a suite running as root cannot make that directory refuse (#1217).
+            //
             // The ones already written go now: `trySend()`'s `finally`
             // cleans up what this method RETURNED, and it is about to
             // receive an exception instead.

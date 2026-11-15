@@ -200,6 +200,41 @@ class TransportServiceTest extends TestCase
     }
 
     /**
+     * **A rollback that itself fails half-way never replaces the failure
+     * being reported**, and its first half still runs.
+     *
+     * The lane table is gone, so the credentials are written, the lane
+     * append fails, and the rollback's own `removeProvider()` fails on
+     * the same missing table. That second exception is swallowed: the
+     * caller gets the `TransportException` the controller turns into a
+     * sentence, carrying the append's failure — not a bare `PDOException`
+     * from the clean-up, which would reach the superadmin as a 500.
+     *
+     * And `forget()` ran first, as the docblock of `rollBack()` orders:
+     * the relay's password is not left in the secrets file beside a row
+     * the failed clean-up could not take back.
+     */
+    public function testARollBackThatFailsHalfWayStillReportsTheOriginalFailure(): void
+    {
+        $this->pdo->exec('DROP TABLE mail_lane_entries');
+
+        try {
+            $this->service->addProvider('Brevo', 'smtp-relay.brevo.com', 587, 'u', 'mot-de-passe', 300, 50, 10);
+            $this->fail('A provider that could not be placed in the lanes must not be reported as created.');
+        } catch (TransportException $e) {
+            $this->assertStringNotContainsString($this->secretsDirectory, $e->getMessage());
+            $this->assertInstanceOf(\PDOException::class, $e->getPrevious(), 'The cause is the append\'s failure.');
+            $this->assertStringContainsString('mail_lane_entries', $e->getPrevious()->getMessage());
+        }
+
+        $secrets = (new \Core\Security\SecretManager(
+            $this->secretsDirectory . '/master.key',
+            $this->secretsDirectory . '/secrets.enc'
+        ))->readSecrets();
+        $this->assertSame([], $secrets, 'The credentials written before the failure were erased.');
+    }
+
+    /**
      * And an edit that cannot store its credentials changes nothing.
      *
      * Here the order CAN be chosen, so it is: credentials first. Written

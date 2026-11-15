@@ -810,6 +810,10 @@ class RentalSignedContractService
                     return $fresh;
                 } catch (\Throwable) {
                     // Reported below.
+                    // @catch-unreachable only Ghostscript writing a PDF this FPDI cannot parse, or a full system
+                    // temporary directory, lands here: rewriteForImport() asks pdfwrite for a 1.4 file, with the
+                    // classic cross-reference table FPDI reads, and the constructor's font already loaded once
+                    // in assemble(). A test would have to fake Ghostscript's output or fill the disk.
                 } finally {
                     @unlink($temporary);
                 }
