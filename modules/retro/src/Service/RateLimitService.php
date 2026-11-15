@@ -142,7 +142,8 @@ class RateLimitService
         // a board id in clear next to them would read as one.
         $boardHash = $this->encryption->blindIndex('board:' . $board->id, 'retro_rate_limit');
 
-        if (!$this->reserve($boardHash, $budget, self::BOARD_AI_DAILY_BUDGETS[$budget], self::BOARD_AI_WINDOW_MINUTES)) {
+        $dailyBudget = self::BOARD_AI_DAILY_BUDGETS[$budget];
+        if (!$this->reserve($boardHash, $budget, $dailyBudget, self::BOARD_AI_WINDOW_MINUTES)) {
             throw new RetroException(
                 $budget === self::BOARD_AI_SHORTEN
                     ? '« Raccourcir » a atteint sa limite du jour pour ce tableau — réessaie demain.'
