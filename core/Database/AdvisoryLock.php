@@ -32,12 +32,16 @@ namespace Core\Database;
  * entry-processes ceiling around twenty, that is the failure this is meant
  * to prevent, arriving by another road.
  *
- * **A driver without `GET_LOCK()` gets `true`, not `false`.** The function
- * is MySQL/MariaDB-only and absent from the SQLite connections the fast
- * tests use. Proceeding without mutual exclusion is right there: those
- * tests never run two of anything at once against one in-memory database,
- * and refusing instead would turn every such test into a silent no-op that
- * still passes — the worst of both.
+ * **A driver without `GET_LOCK()` gets `true`, not `false` — and only that
+ * driver.** The function is MySQL/MariaDB-only and absent from the SQLite
+ * connections the fast tests use. Proceeding without mutual exclusion is
+ * right there: those tests never run two of anything at once against one
+ * in-memory database, and refusing instead would turn every such test into
+ * a silent no-op that still passes — the worst of both. On MySQL or MariaDB
+ * the same exception means the lock query FAILED, and that is answered
+ * `false`: the caller stands down as if another process held the lock. It
+ * used to be `true` on every driver, so a transient error there ran the
+ * critical section unserialised (issue #1113).
  *
  * **The name is BOUND, never interpolated.** The three copies this
  * replaces each spliced a class constant into the SQL, which is a literal
@@ -97,7 +101,28 @@ final class AdvisoryLock
 
             return $acquired === 1;
         } catch (\PDOException) {
-            return true;
+            // The SQLite fallback below, and only that: on MySQL or MariaDB
+            // the statement exists, so an error means the lock is NOT known
+            // to be held, and proceeding would run the caller's critical
+            // section unserialised (issue #1113 — two requests passing the
+            // same quota at once). Standing down is what every caller is
+            // written for: the loser of a lock retries on its next pass.
+            return self::hasNoAdvisoryLocks($pdo);
+        }
+    }
+
+    /**
+     * Whether $pdo speaks to an engine without `GET_LOCK()` at all — SQLite,
+     * the fast tests' engine — where proceeding without mutual exclusion is
+     * the documented fallback. Any other driver has the function, so a
+     * failure there is a failure, never a licence.
+     */
+    private static function hasNoAdvisoryLocks(\PDO $pdo): bool
+    {
+        try {
+            return $pdo->getAttribute(\PDO::ATTR_DRIVER_NAME) === 'sqlite';
+        } catch (\PDOException) {
+            return false;
         }
     }
 

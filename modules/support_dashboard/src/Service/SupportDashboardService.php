@@ -261,6 +261,16 @@ class SupportDashboardService
      * already gone, so the caller can say so rather than claiming a
      * deletion that did not happen.
      */
+    /**
+     * A superadmin vouching for an installation a first ticket registered,
+     * so the mail probes open to it (issue #1113). False when the row is
+     * gone.
+     */
+    public function establish(int $id): bool
+    {
+        return $this->installations->markEstablished($id);
+    }
+
     public function delete(int $id): bool
     {
         return $this->installations->delete($id);
@@ -295,6 +305,9 @@ class SupportDashboardService
         // XLSX export have no use for it, and a field added to the shared
         // shape is a field every one of them has to be taught to ignore.
         $installation['whois'] = self::whoisOf($row);
+        // Whether it may ask for the mail probes (issue #1113). Here for
+        // the same reason: only the dialog offers to validate it.
+        $installation['established'] = !array_key_exists('established', $row) || (bool) $row['established'];
 
         return $installation;
     }

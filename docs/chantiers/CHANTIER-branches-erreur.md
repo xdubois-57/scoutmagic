@@ -138,7 +138,7 @@ l'ordre des lots (ceux à zéro, 11 domaines, ne figurent pas) :
 | Domaine | Jamais exécutés | dont vides | Marqués | Blocs |
 |---|---|---|---|---|
 | `modules/rental` | ~~42~~ **0** (lots 3a-3b) | ~~6~~ 0 | 1 | 102 |
-| `core/Http` | 36 | 4 | 0 | 134 |
+| `core/Http` | ~~36~~ **1** (lot 4, voir le journal) | ~~4~~ 0 | 1 | 133 |
 | `core/Mail` | ~~35~~ **0** (lots 1-2) | ~~16~~ 0 | 2 | 77 |
 | `core/Storage` | 31 | 9 | 0 | 67 |
 | `modules/finance` | 23 | 0 | 0 | 54 |
@@ -298,3 +298,33 @@ notification des gestionnaires n'écrivent rien au journal quand la recherche
 des destinataires échoue (le journal du service de notification ne couvre que
 l'envoi).
 
+### Lot 4 — `core/Http` — 2026-11-15
+
+**36 → 1** jamais exécuté au rapport, dont les 4 vides ; un marqueur, un
+`catch` retiré avec le défaut qu'il cachait. Remesuré sur `tests/Core/Http`
+avant et après (PCOV, MariaDB).
+
+**34 branches atteintes** par un état réel : restauration déjà en attente,
+table ou ligne de réglage absente, badge supprimé, fichier chiffré perdu ou
+corrompu, fichier des secrets illisible, archive d'une autre version, dossier
+de clés occupé par un fichier, vue sur une table supprimée, fichier texte nommé
+`.jpg`, trigger qui refuse une écriture. GitHub et le transport d'e-mail ne
+sont doublés que là où leur panne est le sujet.
+
+**Celle que le rapport ne voit pas** : `ErrorHandler::guard()` (≈ l. 168).
+Son test la traverse, dans un processus PHP à part puisque `guard()` termine
+la requête par `exit` ; ce même `exit` empêche ce processus de rendre sa
+couverture. La branche est atteinte et son effet asserté (page générique,
+détail au seul journal du serveur, rien après), mais elle reste comptée
+« jamais exécutée ». Elle sera traitée avec la mesure, avant le dernier lot :
+ce n'est pas une branche inatteignable, et le marqueur ne doit pas servir à
+la masquer.
+
+**Le défaut corrigé** : `SetupController::handleConfigUpdate()` enveloppait
+l'écriture de `site_name`, `short_name` et `base_url` dans un `catch` vide,
+puis affichait « Configuration enregistrée avec succès ». Le `catch` est
+retiré : un refus atteint le message d'erreur qui existait déjà.
+
+**Le marqueur** : la suppression d'un document de section, dont la seule
+exception métier relit une ligne lue deux lignes plus haut dans la même
+requête.
