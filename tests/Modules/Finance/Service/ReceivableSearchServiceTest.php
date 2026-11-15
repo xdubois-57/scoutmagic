@@ -215,4 +215,38 @@ class ReceivableSearchServiceTest extends TestCase
 
         $this->assertSame([], $this->service()->search($reserved, Role::INTENDANT, 'location'));
     }
+
+    /**
+     * The composition root's own resolver, over a directory that cannot
+     * be read: the picker still answers, its rows read by their
+     * communication, which is what they read before names existed.
+     */
+    public function testThePickerStillAnswersWhenTheDirectoryCannotBeRead(): void
+    {
+        $id = $this->receivable($this->accountId, 4500, '+++001/0001/00001+++', null, 7);
+        $this->pdo->exec('DROP TABLE member_years');
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $memberService = new \Core\Member\MemberService(
+            new \Core\Import\MemberYearRepository($this->pdo),
+            new \Core\Member\Repository\MemberProfileRepository(
+                \Core\Database\Connection::withPdo($this->pdo),
+                $encryption
+            )
+        );
+        $service = new ReceivableSearchService(
+            $this->receivables,
+            $this->allocations,
+            new AccountRepository($this->pdo, $encryption),
+            new AccountVisibility(TreasurerScope::systemCaller()),
+            static fn (array $memberIds): array => $memberService->findNamesForMembers($memberIds)
+        );
+
+        $rows = $service->search($this->accountId, Role::ADMIN, '');
+
+        $this->assertSame(
+            [['id' => $id, 'label' => '+++001/0001/00001+++', 'communication' => '+++001/0001/00001+++',
+                'remaining_cents' => 4500]],
+            $rows
+        );
+    }
 }

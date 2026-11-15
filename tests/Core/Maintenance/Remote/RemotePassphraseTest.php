@@ -144,6 +144,29 @@ final class RemotePassphraseTest extends TestCase
     }
 
     /**
+     * Regenerating over unreadable secrets refuses before it writes: the
+     * generation stays where it was, and the file is left exactly as it is
+     * rather than rewritten around a phrase nobody could read back.
+     */
+    public function testRegeneratingOverUnreadableSecretsChangesNothing(): void
+    {
+        $this->passphrase->current();
+        $generation = $this->passphrase->generation();
+        file_put_contents($this->base . '/config/secrets.enc', 'ceci n\'est pas un coffre');
+
+        try {
+            $this->passphrase->regenerate();
+            $this->fail('A phrase was regenerated over unreadable secrets.');
+        } catch (RemoteBackupException $e) {
+            $this->assertSame('Les secrets de ce site sont illisibles : rien n\'a été modifié.', $e->getMessage());
+            $this->assertInstanceOf(\Core\Security\DecryptionException::class, $e->getPrevious());
+        }
+
+        $this->assertSame($generation, $this->passphrase->generation());
+        $this->assertSame('ceci n\'est pas un coffre', file_get_contents($this->base . '/config/secrets.enc'));
+    }
+
+    /**
      * **Shaped to be copied onto paper and typed back.**
      *
      * This phrase is written down and re-entered months later, possibly

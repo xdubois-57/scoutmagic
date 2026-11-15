@@ -138,14 +138,14 @@ l'ordre des lots (ceux à zéro, 11 domaines, ne figurent pas) :
 | Domaine | Jamais exécutés | dont vides | Marqués | Blocs |
 |---|---|---|---|---|
 | `modules/rental` | ~~42~~ **0** (lots 3a-3b) | ~~6~~ 0 | 1 | 102 |
-| `core/Http` | 36 | 4 | 0 | 134 |
+| `core/Http` | ~~36~~ **1** (lot 4, voir le journal) | ~~4~~ 0 | 1 | 133 |
 | `core/Mail` | ~~35~~ **0** (lots 1-2) | ~~16~~ 0 | 2 | 77 |
-| `core/Storage` | 31 | 9 | 0 | 67 |
-| `modules/finance` | 23 | 0 | 0 | 54 |
-| `core/Maintenance` | 21 | 3 | 0 | 55 |
+| `core/Storage` | ~~31~~ **0** (lot 5) | ~~9~~ 0 | 1 | 67 |
+| `modules/finance` | ~~23~~ **0** (lot 6) | 0 | 3 | 54 |
+| `core/Maintenance` | ~~21~~ **0** (lot 7) | ~~3~~ 0 | 1 | 55 |
 | `modules/inbound_mail` | 21 | 4 | 0 | 40 |
-| `core/Support` | 20 | 4 | 0 | 27 |
-| `modules/registration` | 17 | 4 | 0 | 47 |
+| `core/Support` | ~~20~~ **0** (lot 9) | ~~4~~ 0 | 1 | 29 |
+| `modules/registration` | ~~17~~ **0** (lot 10) | ~~4~~ 0 | 1 | 47 |
 | `modules/camps` | 15 | 1 | 0 | 34 |
 | `core/Member` | 11 | 2 | 0 | 19 |
 | `modules/attestations` | 11 | 1 | 0 | 20 |
@@ -298,3 +298,162 @@ notification des gestionnaires n'écrivent rien au journal quand la recherche
 des destinataires échoue (le journal du service de notification ne couvre que
 l'envoi).
 
+### Lot 4 — `core/Http` — 2026-11-15
+
+**36 → 1** jamais exécuté au rapport, dont les 4 vides ; un marqueur, un
+`catch` retiré avec le défaut qu'il cachait. Remesuré sur `tests/Core/Http`
+avant et après (PCOV, MariaDB).
+
+**34 branches atteintes** par un état réel : restauration déjà en attente,
+table ou ligne de réglage absente, badge supprimé, fichier chiffré perdu ou
+corrompu, fichier des secrets illisible, archive d'une autre version, dossier
+de clés occupé par un fichier, vue sur une table supprimée, fichier texte nommé
+`.jpg`, trigger qui refuse une écriture. GitHub et le transport d'e-mail ne
+sont doublés que là où leur panne est le sujet.
+
+**Celle que le rapport ne voit pas** : `ErrorHandler::guard()` (≈ l. 168).
+Son test la traverse, dans un processus PHP à part puisque `guard()` termine
+la requête par `exit` ; ce même `exit` empêche ce processus de rendre sa
+couverture. La branche est atteinte et son effet asserté (page générique,
+détail au seul journal du serveur, rien après), mais elle reste comptée
+« jamais exécutée ». Elle sera traitée avec la mesure, avant le dernier lot :
+ce n'est pas une branche inatteignable, et le marqueur ne doit pas servir à
+la masquer.
+
+**Le défaut corrigé** : `SetupController::handleConfigUpdate()` enveloppait
+l'écriture de `site_name`, `short_name` et `base_url` dans un `catch` vide,
+puis affichait « Configuration enregistrée avec succès ». Le `catch` est
+retiré : un refus atteint le message d'erreur qui existait déjà.
+
+**Le marqueur** : la suppression d'un document de section, dont la seule
+exception métier relit une ligne lue deux lignes plus haut dans la même
+requête.
+
+### Lot 5 — `core/Storage` — 2026-11-15
+
+**31 → 0** jamais exécutés, dont les 9 vides ; un marqueur. Remesuré sur
+`tests/Core/Storage` et `tests/Core/Maintenance` avant et après (PCOV,
+MariaDB).
+
+**30 branches atteintes** par un état réel : panne de Google Drive (statut
+503 ou 500 sur une requête précise, PHP sans cURL), de S3 (`NoSuchKey`) ou
+de WebDAV (404, 401), disque qui refuse l'écriture d'un fichier témoin,
+horloge qui épuise le budget d'un contrôle, ligne `../public` parmi les
+emplacements, table absente, trigger qui refuse une écriture, secret
+illisible, dossier de destination occupé par un fichier. `FakeDrive` gagne
+un crochet `$intercept` qui répond un statut ou lève une exception pour une
+requête choisie.
+
+**Le marqueur** : la marche tolérante de `DirectorySize`. La racine est
+ouverte par le constructeur, `CATCH_GET_CHILD` avale chaque enfant
+illisible, et lire les entrées d'un dossier déjà ouvert ne lève rien — même
+la racine supprimée en cours de marche (vérifié).
+
+**Trouvé en chemin, ouvert à part.**
+- **#1223** : une copie de protection peut être enregistrée comme protégée
+  sans aucun contrôle, quand la destination ne répond ni sa somme ni sa
+  taille pendant une panne.
+- **#1224** : un refus de Google Drive n'affiche jamais le « rien n'a été
+  changé » prévu pour lui.
+- **#1230** (trouvé au lot de la maintenance) : un sous-dossier dont le
+  chemin dépasse PATH_MAX est omis sans le dire.
+
+### Lot 6 — `modules/finance` — 2026-11-15
+
+**23 → 0** jamais exécutés ; trois marqueurs. Remesuré sur
+`tests/Modules/Finance` avant et après (PCOV, MariaDB).
+
+**20 branches atteintes** par un état réel : fichier refusé (un vrai fichier
+texte déposé comme reçu), catégorie encore utilisée, créance dépassée,
+débit déclaré « sans créance », trigger qui refuse une écriture (rattachement
+d'un reçu, campagne, import de relevé, purge), fichier disparu du disque, JPEG
+annonçant plus de pixels que le plafond, répertoire des membres illisible,
+clé étrangère réelle sur MariaDB.
+
+**Les marqueurs** : trois relectures, dans la même requête, d'une ligne lue
+juste au-dessus — supprimer un reçu, changer son compte, ouvrir le
+rapprochement d'un compte visible. Seule une purge ou une modification
+concurrente entre les deux lectures y mène.
+
+**Trouvé en chemin, ouvert à part.**
+- **#1225 — perte de données** : sur MySQL/MariaDB, la purge des reçus
+  orphelins efface le fichier chiffré puis échoue sur la clé étrangère ; le
+  reçu reste listé et ne se télécharge plus. La suite SQLite, sans clés
+  étrangères, ne pouvait pas le voir.
+- **#1226** : remplacer un reçu de la pile à trier répond « Reçu introuvable. ».
+- **#1227** : un reçu reconnu dont le classement échoue est abandonné sans
+  trace.
+
+### Lot 7 — `core/Maintenance` — 2026-11-15
+
+**21 → 0** jamais exécutés ; un marqueur. Remesuré sur `tests/Core/Maintenance`
+(PCOV, MariaDB) : il en reste un, `Remote/RemoteCopies.php:63`, que
+`RemoteCopiesControllerTest` (sous `tests/Core/Http`) exécute déjà — zéro sur
+la suite entière.
+
+**20 branches atteintes** par un état réel : secrets illisibles, table
+absente, trigger qui refuse une écriture, `SIGNAL` sur MariaDB, archive ou
+sauvegarde de sécurité abîmée, quota dépassé, lien symbolique refusé. Chaque
+test vérifie l'effet et échoue quand le `catch` relance.
+
+**Le marqueur** : la lecture de `ATTR_SERVER_VERSION` dans `HostHealth`.
+`pdo_mysql` la sert depuis la poignée de main mise en cache, même après que le
+serveur a coupé la connexion (mesuré sur MariaDB 10.11), et `pdo_sqlite` comme
+`pdo_pgsql` la répondent localement. Seul un pilote que l'application n'utilise
+jamais la refuse.
+
+En chemin, `FullResetHandlerTest` et `RestoreBackupHandlerTest` ne laissent
+plus de dossiers temporaires derrière eux.
+
+### Lot 9 — `core/Support` — 2026-11-15
+
+**20 → 0** jamais exécutés ; un marqueur. Remesuré sur `tests/Core/Support`
+(PCOV), après fusion de `main` : #1251 y a ajouté deux `catch` (29 blocs au
+lieu de 27), atteints eux aussi.
+
+**21 branches atteintes** par un état réel : ligne de réglage absente, table
+absente ou amputée d'une colonne, secrets illisibles, archive disparue du
+disque, trigger qui refuse une écriture, serveur de base injoignable, journal
+impossible à écrire ; le transport n'est doublé que là où sa panne est le
+sujet. Chaque test vérifie l'effet et échoue quand le `catch` relance ou
+change ce qu'il fait.
+
+**Le marqueur** : la lecture de version d'une commande dans
+`CommandsCollector`. `run()` et l'échappement autour ne lèvent que sur un octet
+nul, un argument au-delà d'`ARG_MAX` ou un délai sous une seconde ; le délai
+est celui par défaut, l'option une constante, et le chemin un exécutable trouvé
+par `command -v` ou dans une liste fixe.
+
+**Un test retiré à la fusion** : celui qui exigeait qu'un paquet précédent dont
+la fiche ne se relit pas soit oublié quand même. C'est exactement ce que #1251
+a corrigé (les octets restaient sur le disque sans rien pour les retrouver) ;
+son propre test couvre le même `catch` avec le comportement voulu.
+
+### Lot 10 — `modules/registration` — 2026-11-15
+
+**17 → 0** jamais exécutés ; un marqueur. Remesuré sur `tests/Modules/Registration`
+(PCOV), après fusion de `main`.
+
+**16 branches atteintes** par un état réel : ligne de réglage absente, trigger
+qui refuse une écriture, adresse qui ne se déchiffre plus, jeton chiffré sous
+une autre clé, course perdue, transport qui refuse l'envoi. Chaque test vérifie
+l'effet et échoue quand le `catch` relance ou change ce qu'il fait.
+
+**Le marqueur** : la boucle du retrait ou du refus groupé. Rien n'y lève
+l'exception attrapée. `findNonFinalForYear()` ne rend que des demandes en
+attente ou acceptées, qui peuvent toutes deux passer à « refusée » et à
+« retirée ». La raison est vérifiée avant la boucle. Un refus ne prend jamais le
+verrou de place, et la planification d'un e-mail répond `null` plutôt que de
+lever.
+
+**Trouvé en chemin, ouvert à part.**
+- **#1235** : une demande encodée pendant un retrait ou un refus groupé est
+  écrasée, pas sautée. La transition juge le statut lu avant la boucle, et
+  l'`UPDATE` ne pose aucune condition sur le statut courant.
+  `testABulkWithdrawalOverwritesARequestEncodedMeanwhile` fige ce comportement
+  et dit ce qui changera quand il sera corrigé.
+- **#1236** : un souhait d'ami perdu ou une confirmation d'adresse non envoyée
+  ne laissent aucune trace.
+
+`MigrationServiceTest::testFailedMigrationDoesNotPartiallyApply` échouait avant
+d'ouvrir la transaction qu'il disait tester ; il la traverse désormais.

@@ -431,6 +431,92 @@ final class PortableMaintenanceRestoreTest extends TestCase
         $this->assertSame([], $this->journalEntries('remote_backup_interrupted'));
     }
 
+    /**
+     * No room for the safety copy, no restore: a declared quota the site
+     * already fills refuses the copy before it is written, and the portable
+     * path stops there with the running site untouched.
+     */
+    public function testASafetyCopyWithoutRoomStopsThePortableRestoreBeforeAnythingIsReplaced(): void
+    {
+        $archivePath = $this->buildOriginArchive();
+        $keyBefore = file_get_contents($this->siteBase . '/storage/keys/master.key');
+        $this->seedSetting(\Core\Storage\DiskBudget::QUOTA_SETTING, '1048576');
+
+        $this->handler->handle([
+            'source' => 'upload',
+            'uploaded_temp_path' => $archivePath,
+            'encrypted_password' => $this->encryptedPassphrase(self::PASSPHRASE),
+            'requested_by_user_account_id' => $this->userId,
+        ], $this->context);
+
+        $failed = $this->journalEntries('backup_restore_failed');
+        $this->assertCount(1, $failed);
+        $this->assertSame(
+            'Échec de la sauvegarde de sécurité préalable à la restauration portable',
+            $failed[0]['description']
+        );
+        $this->assertStringStartsWith(
+            'Espace disque insuffisant',
+            (string) (json_decode((string) $failed[0]['context'], true)['error'] ?? '')
+        );
+        $this->assertSame($keyBefore, file_get_contents($this->siteBase . '/storage/keys/master.key'));
+        $this->assertFileDoesNotExist($this->siteBase . '/storage/uploads/tresorerie.pdf');
+        $this->assertFileDoesNotExist($archivePath);
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM backups')->fetchColumn());
+        $this->assertSame(
+            0,
+            (int) $this->pdo->query("SELECT COUNT(*) FROM scheduled_actions WHERE task_key = 'restore_backup'")
+                ->fetchColumn()
+        );
+    }
+
+    /**
+     * An archive whose own key cannot read its own secrets is only found
+     * out at the last step, once the database and the files have been
+     * replaced: the restore rolls back to the safety copy, and the site's
+     * own keys are put back before that copy is opened.
+     */
+    public function testAnArchiveWhoseKeysCannotReadItsSecretsIsRolledBackWithTheSitesOwnKeys(): void
+    {
+        file_put_contents($this->originBase . '/storage/config/secrets.enc', 'des octets qui ne veulent rien dire');
+        $archivePath = $this->buildOriginArchive();
+        $keyBefore = file_get_contents($this->siteBase . '/storage/keys/master.key');
+        $secretsBefore = (new SecretManager(
+            $this->siteBase . '/storage/keys/master.key',
+            $this->siteBase . '/storage/config/secrets.enc'
+        ))->readSecrets();
+
+        $this->handler->handle([
+            'source' => 'upload',
+            'uploaded_temp_path' => $archivePath,
+            'encrypted_password' => $this->encryptedPassphrase(self::PASSPHRASE),
+            'requested_by_user_account_id' => $this->userId,
+        ], $this->context);
+
+        $this->assertNotSame([], $this->journalEntries('backup_restore_rolled_back'));
+        $this->assertSame([], $this->journalEntries('backup_restore_rollback_failed'));
+        // Pinned, not endorsed: the line that carried the error is written
+        // before the rollback restores the safety dump, which predates it,
+        // so a rollback that succeeds also erases why it was needed.
+        $this->assertSame([], $this->journalEntries('backup_restore_failed'));
+
+        $this->assertSame($keyBefore, file_get_contents($this->siteBase . '/storage/keys/master.key'));
+        $restored = (new SecretManager(
+            $this->siteBase . '/storage/keys/master.key',
+            $this->siteBase . '/storage/config/secrets.enc'
+        ))->readSecrets();
+        // The safety copy legitimately adds its own kept password.
+        $this->assertSame($secretsBefore, array_intersect_key($restored, $secretsBefore));
+        $this->assertSame([], glob($this->siteBase . '/storage/temp/portable_secrets_*') ?: []);
+        $this->assertSame(
+            0,
+            (int) $this->pdo->query(
+                "SELECT COUNT(*) FROM scheduled_actions WHERE task_key = 'restore_backup' AND status = 'pending'"
+            )->fetchColumn(),
+            'a rolled-back restore queued a resume pass'
+        );
+    }
+
     private function seedSetting(string $key, string $value): void
     {
         $this->pdo->prepare('DELETE FROM settings WHERE setting_key = ?')->execute([$key]);

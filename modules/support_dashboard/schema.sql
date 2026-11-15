@@ -53,6 +53,19 @@ CREATE TABLE support_installations (
     -- true the day a real report arrives, because the reason for the mark
     -- has gone.
     telemetry_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    -- Whether this installation may ask for the mail probes, whose answer
+    -- is the list of this receiver's own mailbox addresses (issue #1113).
+    -- A row registered by a FIRST TICKET starts false: trust on first use
+    -- proves only that the caller holds the secret it just chose, which
+    -- any script can do. It turns true when a usage report arrives on the
+    -- statistics route — not one carried inside a ticket, which is the
+    -- very call that created the row — or when a superadmin validates the
+    -- installation from the dashboard.
+    --
+    -- DEFAULT TRUE so the rows that existed before the column keep the
+    -- probes they were already receiving, and so does every row the
+    -- statistics route registers.
+    established BOOLEAN NOT NULL DEFAULT TRUE,
     -- Who registered the domain this installation answers on, asked of the
     -- registry when a daily report arrives (Core\Net\WhoisClient).
     --

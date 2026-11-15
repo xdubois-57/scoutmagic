@@ -66,7 +66,10 @@ final class ImporterRegistry
      */
     public function available(): array
     {
-        return array_values(array_filter($this->importers, fn (Importer $importer): bool => $this->isAvailable($importer)));
+        return array_values(array_filter(
+            $this->importers,
+            fn (Importer $importer): bool => $this->isAvailable($importer)
+        ));
     }
 
     private function isAvailable(Importer $importer): bool

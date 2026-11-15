@@ -1039,6 +1039,152 @@ class StorageLocationServiceTest extends TestCase
         $this->assertSame($expected, StorageLocationService::driveFolderIdFrom($reference));
     }
 
+    // ————— A Drive location whose second step fails —————
+
+    /**
+     * The folder took the new name, the database refused the save, and
+     * Google then refused the old name back: the save's own refusal is
+     * what reaches the caller, and the folder keeps a name that breaks
+     * nothing — it is found by id.
+     */
+    public function testAFailedSaveWhoseRenameCannotBeUndoneStillReportsTheSave(): void
+    {
+        [$drive, $service, $id] = $this->connectedDriveLocation();
+        $this->pdo->exec(
+            "CREATE TRIGGER refuse_save BEFORE UPDATE ON storage_locations
+             BEGIN SELECT RAISE(ABORT, 'refused'); END"
+        );
+        $patches = 0;
+        $drive->intercept = static function (string $method) use (&$patches): ?int {
+            return $method === 'PATCH' && ++$patches > 1 ? 500 : null;
+        };
+
+        try {
+            $service->update($id, 'Galeries du groupe', $this->driveConfig($drive), null);
+            $this->fail('The failed save must reach the caller.');
+        } catch (\PDOException $e) {
+            $this->assertStringContainsString('refused', $e->getMessage());
+        }
+
+        $this->assertSame(2, $patches, 'the old name was never asked back');
+        $this->assertSame('Galeries du groupe', $drive->files['folder-1']['name']);
+        $this->assertSame('Photos des galeries', $this->repository->findById($id)?->label);
+    }
+
+    /**
+     * A credential the site can no longer decrypt cannot reach Google: the
+     * rename is refused in French, and the label stays.
+     */
+    public function testARenameWithAnUnreadableCredentialIsRefusedAndTheLabelStays(): void
+    {
+        [$drive, $service, $id] = $this->connectedDriveLocation();
+        $this->corruptSecretOf($id);
+
+        try {
+            $service->update($id, 'Galeries du groupe', $this->driveConfig($drive), null);
+            $this->fail('A rename that could not reach Google must not be saved.');
+        } catch (StorageLocationException $e) {
+            $this->assertStringStartsWith(
+                'Le nom n\'a pas été changé : le dossier de cet emplacement sur Google Drive n\'a pas pu être '
+                    . 'renommé. Google Drive n\'a pas répondu comme prévu.',
+                $e->getMessage()
+            );
+        }
+
+        $this->assertSame('Photos des galeries', $this->repository->findById($id)?->label);
+        $this->assertSame('Photos des galeries', $drive->files['folder-1']['name']);
+    }
+
+    /**
+     * Google refusing to describe the folder is its own French sentence,
+     * passed on as it stands; nothing is attached.
+     */
+    public function testAFolderGoogleRefusesToDescribeIsNotAttached(): void
+    {
+        [$drive, $service, $id] = $this->connectedDriveLocation();
+        $drive->addFolder('Anciennes photos', 'scoutmagic-1', 'anciennes-photos-01');
+        $drive->intercept = static fn (string $method, string $url): ?int
+            => $method === 'GET' && str_contains($url, '/files/anciennes-photos-01?') ? 500 : null;
+
+        try {
+            $service->attachDriveFolder($id, 'anciennes-photos-01', true);
+            $this->fail('A folder Google would not describe must not be attached.');
+        } catch (StorageLocationException $e) {
+            $this->assertSame('Google Drive n\'a pas pu décrire le dossier de cet emplacement.', $e->getMessage());
+        }
+
+        $this->assertSame('folder-1', $this->driveFolderOf($id));
+    }
+
+    /**
+     * What is not Google's own refusal — here a credential that no longer
+     * decrypts — says that nothing was changed, never PHP's words.
+     */
+    public function testAFolderThatCannotBeLookedAtForAnotherReasonIsNotAttached(): void
+    {
+        [$drive, $service, $id] = $this->connectedDriveLocation();
+        $drive->addFolder('Anciennes photos', 'scoutmagic-1', 'anciennes-photos-01');
+        $this->corruptSecretOf($id);
+
+        try {
+            $service->attachDriveFolder($id, 'anciennes-photos-01', true);
+            $this->fail('A folder nobody could look at must not be attached.');
+        } catch (StorageLocationException $e) {
+            $this->assertSame(
+                'Google Drive n\'a pas pu montrer ce dossier : rien n\'a été changé. Réessayez dans un instant.',
+                $e->getMessage()
+            );
+            $this->assertInstanceOf(\Core\Security\DecryptionException::class, $e->getPrevious());
+        }
+
+        $this->assertSame('folder-1', $this->driveFolderOf($id));
+    }
+
+    /** The same for a new folder: none is created, and the old id stays. */
+    public function testANewFolderThatCannotBeAskedForIsNotCreated(): void
+    {
+        [$drive, $service, $id] = $this->connectedDriveLocation();
+        $drive->files['folder-1']['trashed'] = true;
+        $this->corruptSecretOf($id);
+        $before = count($drive->files);
+
+        try {
+            $service->createDriveFolder($id);
+            $this->fail('A folder nobody could ask for must not be recorded.');
+        } catch (StorageLocationException $e) {
+            $this->assertSame(
+                'Google Drive n\'a pas pu créer le dossier : rien n\'a été changé. Réessayez dans un instant.',
+                $e->getMessage()
+            );
+        }
+
+        $this->assertSame('folder-1', $this->driveFolderOf($id));
+        $this->assertCount($before, $drive->files);
+    }
+
+    /**
+     * A reconnection catches up with a label changed while disconnected;
+     * Google refusing that rename still answers the folder, which is found
+     * by id and holds the files.
+     */
+    public function testAReconnectionWhoseCatchUpRenameIsRefusedStillFindsTheFolder(): void
+    {
+        [$drive, $service, $id] = $this->connectedDriveLocation();
+        $drive->files['folder-1']['name'] = 'Ancien nom';
+        $drive->failPatchesWith = 500;
+        $location = $this->repository->findById($id);
+        $this->assertNotNull($location);
+
+        $this->assertSame('folder-1', $service->resolveDriveFolder($drive->client(), 'ya29.test', $location));
+        $this->assertSame('Ancien nom', $drive->files['folder-1']['name']);
+    }
+
+    private function corruptSecretOf(int $id): void
+    {
+        $this->pdo->prepare('UPDATE storage_locations SET secret_encrypted = ? WHERE id = ?')
+            ->execute([base64_encode(random_bytes(48)), $id]);
+    }
+
     private function localPathOf(int $id): string
     {
         $config = $this->repository->findById($id)?->config;

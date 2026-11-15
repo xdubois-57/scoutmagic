@@ -997,6 +997,31 @@ class CampsChiefControllerTest extends TestCase
         $this->assertStringContainsString('name="place_name" value=""', $html);
     }
 
+    /**
+     * A message stating an amount no stay can cost used to take this page
+     * down: the reader overflowed to a float and threw a TypeError. The
+     * form now arrives with everything else and the price left empty.
+     */
+    public function testAnAbsurdAmountInTheMessageLeavesThePriceEmpty(): void
+    {
+        $moves = [];
+        $controller = $this->controllerWithUnsortedMessage(
+            $moves,
+            null,
+            'Nous confirmons du 12 au 19 juillet 2028. Total : 1.000.000.000.000.000.000 €.'
+        );
+
+        $response = $controller->create(
+            new Request('GET', '/chefs/camps/nouveau', ['message' => '42'], [], [], []),
+            []
+        );
+        $html = (string) preg_replace('/\s+/', ' ', $response->getBody());
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertStringContainsString('2028-07-12', $html);
+        $this->assertMatchesRegularExpression('/<input[^>]*name="price"[^>]*value=""/', $html);
+    }
+
     public function testAKnownPlaceIsSelectedRatherThanDescribedAgain(): void
     {
         $placeId = $this->places->create('Domaine de Mozet', null, null, 'Mozet', null, null);

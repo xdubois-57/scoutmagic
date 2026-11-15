@@ -1163,6 +1163,29 @@ class RegistrationConfigControllerTest extends TestCase
     }
 
     /**
+     * The switch's setting gone from the database (a module reinstalled
+     * from an older manifest): the save answers 400 with the setting
+     * service's own French sentence, and nothing is journaled as toggled.
+     */
+    public function testAWaitlistSaveWithoutItsSettingAnswersTheRefusal(): void
+    {
+        $this->pdo->exec("DELETE FROM settings WHERE setting_key = 'registration_waitlist_enabled'");
+
+        $response = $this->postWaitlist(['enabled' => false]);
+
+        $this->assertSame(400, $response->getStatusCode());
+        $this->assertSame(
+            [
+                'success' => false,
+                'error' => 'Le réglage « registration_waitlist_enabled » est introuvable — il a peut-être été '
+                    . 'supprimé, rechargez la page.',
+            ],
+            json_decode((string) $response->getBody(), true)
+        );
+        $this->assertSame([], $this->journalEntries('registration_waitlist_toggled'));
+    }
+
+    /**
      * With the waitlist off, the capacity table drops the columns that
      * describe it, and the thresholds sub-box stays on the page — greyed,
      * its fieldset disabled, the stored values shown and kept (chantier
@@ -1297,6 +1320,35 @@ class RegistrationConfigControllerTest extends TestCase
         $this->assertCount(1, $this->journalEntries('registration_thresholds_saved'));
         // The capacity grid is another sub-box, untouched.
         $this->assertSame(10, $this->slotCapacityRepository->capacityFor($this->baladinsId, 1));
+    }
+
+    /**
+     * One of the two thresholds gone from the database: the pair is
+     * refused with the setting service's sentence, back on « Réglages »,
+     * and the other threshold — valid on its own — is not written alone.
+     */
+    public function testThresholdsMissingOneOfTheirSettingsSaveNeither(): void
+    {
+        $this->pdo->exec("DELETE FROM settings WHERE setting_key = 'registration_threshold_maybe_percent'");
+
+        $response = $this->controller->saveThresholds(new Request('POST', '/config/inscriptions/seuils', [], [
+            '_csrf_token' => CsrfGuard::generateToken(),
+            'threshold_yes_percent' => '60',
+            'threshold_maybe_percent' => '90',
+        ], [], []), []);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('/config/inscriptions/reglages', $response->getHeaders()['Location'] ?? null);
+        $this->assertSame(
+            [
+                'type' => 'error',
+                'message' => 'Le réglage « registration_threshold_maybe_percent » est introuvable — il a peut-être '
+                    . 'été supprimé, rechargez la page.',
+            ],
+            FlashMessage::get()
+        );
+        $this->assertSame('70', $this->settingService->get('registration_threshold_yes_percent', 'registration', ''));
+        $this->assertSame([], $this->journalEntries('registration_thresholds_saved'));
     }
 
     /**
@@ -1845,6 +1897,48 @@ class RegistrationConfigControllerTest extends TestCase
 
         $this->assertSame('withdrawn', $this->requestRepository->findById($id)->status);
         $this->assertNull($this->requestRepository->findById($id)->refusalReason);
+    }
+
+    /**
+     * PINS A DEFECT, it does not endorse it. A request encoded by somebody
+     * else while a bulk withdrawal is running — played here by a trigger
+     * that encodes the second request when the first is withdrawn — is
+     * overwritten: the loop checks each transition against the status it
+     * read before the first write, and the UPDATE has no condition on the
+     * current one. So the encoded request ends up withdrawn and counted.
+     * When this is fixed, the second request stays encoded and the count
+     * is one.
+     */
+    public function testABulkWithdrawalOverwritesARequestEncodedMeanwhile(): void
+    {
+        $first = $this->createRequest($this->targetYearId, 'Alix');
+        $second = $this->createRequest($this->targetYearId, 'Basile');
+        $member = RegistrationTestHelper::insertMember($this->pdo, 'DESK-BASILE');
+        // A trigger body takes no bound parameters, so it reads the three
+        // ids from a fixture table the test fills through a prepared insert.
+        $this->pdo->exec('CREATE TABLE encode_meanwhile_ids (first_id INTEGER, second_id INTEGER, member_id INTEGER)');
+        $this->pdo->prepare('INSERT INTO encode_meanwhile_ids VALUES (?, ?, ?)')->execute([$first, $second, $member]);
+        $this->pdo->exec(
+            "CREATE TRIGGER encode_meanwhile AFTER UPDATE OF status ON registration_requests
+             WHEN NEW.id = (SELECT first_id FROM encode_meanwhile_ids) BEGIN
+                 UPDATE registration_requests
+                    SET status = 'encoded', linked_member_id = (SELECT member_id FROM encode_meanwhile_ids)
+                  WHERE id = (SELECT second_id FROM encode_meanwhile_ids);
+             END"
+        );
+
+        $this->controller->bulkWithdraw(new Request('POST', '/config/inscriptions/bulk/withdraw', [], [
+            '_csrf_token' => CsrfGuard::generateToken(), 'scout_year_id' => (string) $this->targetYearId,
+        ], [], []), []);
+
+        $this->assertSame('withdrawn', $this->requestRepository->findById($first)->status);
+        $overwritten = $this->requestRepository->findById($second);
+        $this->assertSame($member, $overwritten->linkedMemberId, 'the encoding meanwhile did happen');
+        $this->assertSame('withdrawn', $overwritten->status);
+        $context = json_decode((string) $this->pdo->query(
+            "SELECT context FROM event_log WHERE event_type = 'registration_bulk_action'"
+        )->fetchColumn(), true);
+        $this->assertSame(2, $context['count'] ?? null);
     }
 
     public function testBulkActionsRefusedForPastYear(): void

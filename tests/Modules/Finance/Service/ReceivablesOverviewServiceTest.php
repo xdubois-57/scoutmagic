@@ -486,6 +486,43 @@ class ReceivablesOverviewServiceTest extends TestCase
         $this->assertSame('Location LOC-D4E5F6 — Loyer', $labels[$rent]);
     }
 
+    /**
+     * The composition root's own resolver, over a directory that cannot
+     * be read: a movement's description still names what it pays, only
+     * without the debtor — never a page that fails on a missing name.
+     */
+    public function testAMovementsLabelsSurviveADirectoryThatCannotBeRead(): void
+    {
+        $receivableId = $this->receivableService->createReceivable(
+            'news', 1, $this->accountId, 2500, '+++100/0000/00034+++', null, $this->categoryId, 42
+        );
+        $this->pdo->exec('DROP TABLE member_years');
+
+        $labels = $this->serviceWith(memberNames: $this->productionNameResolver())
+            ->labelsFor($this->repository->findByIds([$receivableId]));
+
+        $this->assertSame([$receivableId => 'News #1'], $labels);
+    }
+
+    /**
+     * What public/index.php hands this service: Core\Member\MemberService
+     * asked for names, over this test's database.
+     *
+     * @return \Closure(int[]): array<int, string>
+     */
+    private function productionNameResolver(): \Closure
+    {
+        $memberService = new \Core\Member\MemberService(
+            new \Core\Import\MemberYearRepository($this->pdo),
+            new \Core\Member\Repository\MemberProfileRepository(
+                \Core\Database\Connection::withPdo($this->pdo),
+                new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))
+            )
+        );
+
+        return static fn(array $memberIds): array => $memberService->findNamesForMembers($memberIds);
+    }
+
     public function testAMovementThatPaysNothingListsNothing(): void
     {
         $this->assertSame([], $this->linkedService()->linkedToMovement($this->movement(10.00), new ReceivableViewer('a@example.org', Role::INTENDANT)));

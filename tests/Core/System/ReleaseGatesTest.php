@@ -7,7 +7,7 @@ namespace Tests\Core\System;
 use PHPUnit\Framework\TestCase;
 
 /**
- * `scripts/release.sh` runs seven gates, and adding one means touching NINE
+ * `scripts/release.sh` runs eight gates, and adding one means touching NINE
  * places that no compiler connects: the skip flag's variable, its argument
  * case, its documentation in the header, the `run_gate` call, the line that
  * reads the gate's report file, the assembled Markdown report — and then
@@ -60,7 +60,7 @@ class ReleaseGatesTest extends TestCase
     }
 
     /**
-     * The seven, by key and in order. Written out rather than counted:
+     * The eight, by key and in order. Written out rather than counted:
      * the order is the documented one (a precondition about production,
      * then the verdict on the code, then what ships), and a gate silently
      * dropped from the sequence is exactly what this file exists to
@@ -71,11 +71,14 @@ class ReleaseGatesTest extends TestCase
      * than anything about this commit. It was added for issue #379, in a
      * pull request that crossed the one adding `sources` (issue #355): two
      * gates, added independently, each touching the same nine places.
+     * `dependency_age` (issue #841) sits right after `dependency` for the
+     * same reason: freshness asks whether a newer version exists, age
+     * whether anybody still makes new versions at all.
      */
-    public function testTheSevenGatesRunInTheDocumentedOrder(): void
+    public function testTheEightGatesRunInTheDocumentedOrder(): void
     {
         $this->assertSame(
-            ['deployment', 'ci', 'security', 'dependency', 'deprecated_api', 'sonar', 'sources'],
+            ['deployment', 'ci', 'security', 'dependency', 'dependency_age', 'deprecated_api', 'sonar', 'sources'],
             self::launchedKeys()
         );
     }
@@ -177,7 +180,7 @@ class ReleaseGatesTest extends TestCase
      * That is exactly how this drifted. The gate added for issue #379 was
      * written into the per-flag block and into the usage string printed on
      * an unrecognized argument, and left out of the synopsis — which went
-     * on advertising six flags for seven gates. Every test in this file
+     * on advertising one flag fewer than there were gates. Every test in this file
      * passed; a reviewer noticed.
      *
      * So each enumeration is checked against the argument loop separately,
@@ -271,7 +274,7 @@ class ReleaseGatesTest extends TestCase
     public function testEverySkipFlagIsInTheReleaseDocumentation(): void
     {
         preg_match_all('/^\s*(--skip-[a-z-]+)\)\s*SKIP_/m', self::script(), $flags);
-        $this->assertCount(7, $flags[1], 'one bypass flag per gate');
+        $this->assertCount(8, $flags[1], 'one bypass flag per gate');
 
         $root = dirname(__DIR__, 3);
         $missing = [];
@@ -483,9 +486,9 @@ class ReleaseGatesTest extends TestCase
         $root = dirname(__DIR__, 3);
 
         // One phrase is exempt, and it is prose about the PAST: release.sh
-        // records that gate execution "used to be a parallel scheduler:
-        // seven gates in background subshells". It states a number about a
-        // design that no longer exists.
+        // records that gate execution "used to be a parallel scheduler:",
+        // followed by how many gates ran in background subshells then. It
+        // states a number about a design that no longer exists.
         //
         // Anchored to the words IMMEDIATELY before the numeral rather than
         // by looking back a few hundred characters for them, because the

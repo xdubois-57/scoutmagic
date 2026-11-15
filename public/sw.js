@@ -1836,10 +1836,11 @@ const NEUTRAL_PUSH_BODY = 'Connectez-vous pour la lire.';
 
 function forgetPushRecipient() {
     return getOfflineConfig().then(function (config) {
-        return storeOfflineConfig(Object.assign({}, config || {}, {
+        return storeOfflineConfig({
+            ...config,
             push_recipient_tag: '',
             push_recipient_expires_at: 0,
-        }));
+        });
     });
 }
 
@@ -1852,18 +1853,19 @@ function forgetPushRecipient() {
  * @returns {Promise<Record<string, unknown>>}
  */
 function withStoredPushRecipient(data) {
-    if (Object.prototype.hasOwnProperty.call(data, 'push_recipient_tag')) {
+    if (Object.hasOwn(data, 'push_recipient_tag')) {
         return Promise.resolve(data);
     }
 
     return getOfflineConfig().then(function (stored) {
-        if (!stored || !Object.prototype.hasOwnProperty.call(stored, 'push_recipient_tag')) {
+        if (!stored || !Object.hasOwn(stored, 'push_recipient_tag')) {
             return data;
         }
-        return Object.assign({}, data, {
+        return {
+            ...data,
             push_recipient_tag: stored.push_recipient_tag,
             push_recipient_expires_at: stored.push_recipient_expires_at,
-        });
+        };
     }, function () { return data; });
 }
 
@@ -1891,7 +1893,7 @@ function isForSignedInAccount(data) {
         // before any page had told it who is signed in. Until a page of
         // this version stores a tag ('' for a guest, which IS refused),
         // the old behaviour stands.
-        if (config && !Object.prototype.hasOwnProperty.call(config, 'push_recipient_tag')) {
+        if (config && !Object.hasOwn(config, 'push_recipient_tag')) {
             return true;
         }
         const expected = config?.push_recipient_tag;
