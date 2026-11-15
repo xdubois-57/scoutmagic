@@ -1429,4 +1429,113 @@ class InstallUpdateHandlerTest extends TestCase
 
         $this->assertCount(0, $repository->findByUserAccountId($superadminId));
     }
+
+    /**
+     * Telling the requester is the last thing a failed update does, and a
+     * notification store that refuses (its table gone) must not undo what
+     * came before: the row is failed, and the journal says the notice
+     * could not leave rather than nothing at all.
+     */
+    public function testANotificationThatCannotBeSentIsJournaledAndTheUpdateStillRecordedAsFailed(): void
+    {
+        $id = $this->updateHistoryRepository->create('1.0.0', '1.1.0', false, $this->userId);
+        $this->pdo->exec('DROP TABLE notifications');
+
+        $this->handler->handle(['history_id' => $id, 'download_url' => self::ARTIFACT_URL], $this->context);
+
+        $this->assertSame('failed', $this->updateHistoryRepository->findById($id)?->status);
+        $row = $this->pdo->query(
+            "SELECT level, description, context, user_account_id FROM event_log
+             WHERE event_type = 'update_notification_failed'"
+        )->fetch(\PDO::FETCH_ASSOC);
+        $this->assertIsArray($row, 'a notice that could not leave left no trace');
+        $this->assertSame('La notification de fin de mise à jour n\'a pas pu être envoyée', $row['description']);
+        $this->assertSame($this->userId, (int) $row['user_account_id']);
+        $context = json_decode((string) $row['context'], true);
+        $this->assertSame('core.update_failed', $context['type_id']);
+        $this->assertStringContainsString('notifications', (string) $context['error']);
+    }
+
+    /**
+     * A migration resumed on a later pass that fails, with no safety copy
+     * recorded to roll back to: the row says so in a sentence that names
+     * nothing internal, the journal keeps the detail, and the requester is
+     * told a person has to step in.
+     */
+    public function testAResumedMigrationThatFailsWithoutASafetyCopyAsksForAPerson(): void
+    {
+        $id = $this->updateHistoryRepository->create('1.0.0', '1.1.0', false, $this->userId);
+        $this->updateHistoryRepository->setStatus($id, 'migrating');
+
+        $this->handler->handle(['history_id' => $id, 'download_url' => self::ARTIFACT_URL], $this->context);
+
+        $history = $this->updateHistoryRepository->findById($id);
+        $this->assertSame('failed', $history?->status);
+        $this->assertSame(
+            'Échec de la migration, et la sauvegarde de sécurité est introuvable pour une restauration automatique. '
+            . 'Consultez le journal des événements pour le détail — une intervention manuelle est nécessaire.',
+            $history?->errorMessage
+        );
+        $row = $this->pdo->query("SELECT context FROM event_log WHERE event_type = 'update_failed'")
+            ->fetch(\PDO::FETCH_ASSOC);
+        $this->assertIsArray($row);
+        $this->assertStringContainsString('SQLSTATE', (string) json_decode((string) $row['context'], true)['error']);
+
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $notifications = (new NotificationRepository($this->pdo, $encryption))->findByUserAccountId($this->userId);
+        $this->assertCount(1, $notifications);
+        $this->assertSame('Échec critique de la mise à jour', $notifications[0]->title);
+    }
+
+    /**
+     * The same resumed failure, with a safety copy recorded but its files
+     * gone from the disk since: the rollback cannot restore from them, and
+     * the row, the journal and the requester all say that the rollback
+     * failed too — never that the previous version is back.
+     */
+    public function testAResumedMigrationWhoseSafetyCopyLeftTheDiskReportsTheFailedRollback(): void
+    {
+        $id = $this->updateHistoryRepository->create('1.0.0', '1.1.0', false, $this->userId);
+        $files = new \Core\File\FileRepository($this->pdo);
+        $backups = new \Core\Maintenance\BackupRepository($this->pdo);
+        $zipId = $files->create(
+            'maintenance/files_parti.zip',
+            'sauvegarde.zip',
+            'application/zip',
+            10,
+            'admin',
+            null,
+            null
+        );
+        $dumpId = $files->create(
+            'maintenance/database_parti.sql',
+            'database.sql',
+            'application/sql',
+            10,
+            'admin',
+            null,
+            null
+        );
+        $backupId = $backups->create('auto_update', $this->userId);
+        $backups->markCompleted($backupId, $zipId, $dumpId);
+        $this->updateHistoryRepository->setBackupId($id, $backupId);
+        $this->updateHistoryRepository->setStatus($id, 'migrating');
+
+        $this->handler->handle(['history_id' => $id, 'download_url' => self::ARTIFACT_URL], $this->context);
+
+        $history = $this->updateHistoryRepository->findById($id);
+        $this->assertSame('failed', $history?->status);
+        $this->assertSame(
+            'Échec de la mise à jour et de la restauration automatique. Fichier de sauvegarde introuvable.',
+            $history?->errorMessage
+        );
+        $types = $this->pdo->query('SELECT event_type FROM event_log ORDER BY id')->fetchAll(\PDO::FETCH_COLUMN);
+        $this->assertContains('update_rollback_failed', $types);
+        $this->assertNotContains('update_rolled_back', $types);
+
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $notifications = (new NotificationRepository($this->pdo, $encryption))->findByUserAccountId($this->userId);
+        $this->assertCount(1, $notifications);
+        $this->assertSame('Échec critique de la mise à jour', $notifications[0]->title);
+    }
 }

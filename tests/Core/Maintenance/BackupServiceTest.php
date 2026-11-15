@@ -304,6 +304,49 @@ class BackupServiceTest extends TestCase
         $this->assertTrue($this->service->supportsZipEncryption());
     }
 
+    /**
+     * A tree the walk cannot open part-way through stops the archive rather
+     * than leaving a partial one in the staging folder, and the reason
+     * reaches the caller unchanged.
+     *
+     * The directory is made unopenable by the one means that holds for the
+     * root this suite runs as: the process runs out of file descriptors, a
+     * kernel limit a shared host really sets. Each level of the recursive
+     * walk keeps its directory open, so a tree deeper than the descriptors
+     * left fails on its way down — after core/ and modules/ were added.
+     */
+    public function testAWalkThatCannotOpenADirectoryLeavesNoPartialArchive(): void
+    {
+        if (!function_exists('posix_setrlimit') || !is_dir('/proc/self/fd')) {
+            $this->markTestSkipped('Needs posix_setrlimit() and /proc to lower the descriptor limit.');
+        }
+        $deep = $this->basePath . '/public';
+        for ($level = 0; $level < 12; $level++) {
+            $deep .= '/n' . $level;
+        }
+        $this->makeFile(substr($deep, strlen($this->basePath) + 1) . '/profond.txt', 'tout au fond');
+        // Loaded before the limit is lowered: autoloading opens a file too.
+        class_exists(\Core\Storage\DirectorySize::class);
+        class_exists(\Core\Storage\DirectoryWalk::class);
+
+        $limits = posix_getrlimit();
+        $soft = (int) $limits['soft openfiles'];
+        $hard = $limits['hard openfiles'] === 'unlimited' ? -1 : (int) $limits['hard openfiles'];
+        $open = count(scandir('/proc/self/fd') ?: []) - 2;
+        $this->assertTrue(posix_setrlimit(POSIX_RLIMIT_NOFILE, $open + 4, $hard));
+        try {
+            $this->service->createFileBackup();
+            $this->fail('An archive that could not walk its trees was reported as written.');
+        } catch (\UnexpectedValueException $e) {
+            $caught = $e;
+        } finally {
+            posix_setrlimit(POSIX_RLIMIT_NOFILE, $soft, $hard);
+        }
+
+        $this->assertStringContainsString('Too many open files', $caught->getMessage());
+        $this->assertSame([], glob($this->storagePath . '/maintenance/files_*') ?: []);
+    }
+
     public function testCreateFileBackupExcludesKeysConfigAndTempByDefault(): void
     {
         $zipPath = $this->service->createFileBackup();
