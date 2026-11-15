@@ -167,6 +167,33 @@ class MonthlyHistoryTest extends TestCase
         NothingInClear::inValuesOf($this->aggregates->find($month))->assertAbsent('aaaa', 'example.be');
     }
 
+    /**
+     * The aggregate and the deletion of the rows it counts are one write.
+     * When the deletion is refused, no aggregate is left claiming a month
+     * whose contributions are still there — the month stays open for the
+     * next pass, and the connection is handed back with no transaction.
+     */
+    public function testAFinalizationWhoseDeletionIsRefusedLeavesTheMonthOpen(): void
+    {
+        $month = self::monthsAgo(1);
+        $this->aggregates->recordContribution($month, 'aaaa');
+        $this->pdo->exec(
+            "CREATE TRIGGER refuse_contribution_delete BEFORE DELETE ON support_monthly_contributions
+             BEGIN SELECT RAISE(ABORT, 'contributions are read-only'); END"
+        );
+
+        try {
+            $this->aggregates->finalize($month);
+            $this->fail('A refused deletion must reach the caller.');
+        } catch (\PDOException $e) {
+            $this->assertStringContainsString('contributions are read-only', $e->getMessage());
+        }
+
+        $this->assertFalse($this->pdo->inTransaction());
+        $this->assertNull($this->aggregates->find($month));
+        $this->assertSame(1, $this->aggregates->countContributions($month));
+    }
+
     public function testASecondFinalizationOfTheSameMonthHasNoEffect(): void
     {
         $month = self::monthsAgo(1);

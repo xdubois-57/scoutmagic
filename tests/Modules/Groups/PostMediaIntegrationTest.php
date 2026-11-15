@@ -493,6 +493,27 @@ class PostMediaIntegrationTest extends TestCase
         $this->assertSame(1, (int) $this->pdo->query('PRAGMA foreign_keys')->fetchColumn());
     }
 
+    /**
+     * Removing a reply's image that is already gone — a second delete, or
+     * a sweep after the media went some other way — is a no-op, not an
+     * error: the real gallery refuses a media it no longer holds, and the
+     * deletion that asked must still go through. The album's other media
+     * are untouched.
+     */
+    public function testDeletingAReplyImageThatIsAlreadyGoneIsANoOp(): void
+    {
+        $group = $this->groupRepo->findById($this->groupId);
+        $service = $this->postMediaService();
+        $goneId = $service->addOne($group, $this->fakeUploadedImage(), $this->creatorAccountId);
+        $keptId = $service->addOne($group, $this->fakeUploadedImage(), $this->creatorAccountId);
+        $service->deleteOne($group, $goneId);
+        $this->assertNull($this->mediaRepo->findById($goneId));
+
+        $service->deleteOne($group, $goneId);
+
+        $this->assertNotNull($this->mediaRepo->findById($keptId), 'the album keeps its other media');
+    }
+
     private function countRows(string $table): int
     {
         return (int) $this->pdo->query("SELECT COUNT(*) FROM {$table}")->fetchColumn();

@@ -163,4 +163,22 @@ class FormResponseRepositoryTest extends TestCase
 
         $this->assertCount(1, $recent);
     }
+
+    /**
+     * Two responses drawing the same ten characters: the unique index
+     * refuses the second, which reads as « not claimed » so the caller
+     * draws again — and the second response is left without a reference
+     * rather than sharing the first one's.
+     */
+    public function testAReferenceAlreadyHeldByAnotherResponseIsNotClaimed(): void
+    {
+        $first = $this->repository->create($this->formId, null, null, 'a@example.com', [], null, null);
+        $second = $this->repository->create($this->formId, null, null, 'b@example.com', [], null, null);
+        $this->assertTrue($this->repository->claimTicketReference($first, 'K7QW3XPM2R'));
+
+        $this->assertFalse($this->repository->claimTicketReference($second, 'K7QW3XPM2R'));
+
+        $this->assertNull($this->repository->findById($second)?->ticketReference);
+        $this->assertSame('K7QW3XPM2R', $this->repository->findById($first)?->ticketReference);
+    }
 }

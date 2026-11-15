@@ -231,6 +231,9 @@ class ProviderConfigService
             try {
                 return ($this->simulatedProvider->listLines()[0] ?? null)?->number;
             } catch (ProviderException) {
+                // @catch-unreachable the only stand-in any composition root hands over is test_tools'
+                // SimulatedPhoneProvider, whose listLines() returns one constant line and touches nothing
+                // that could fail; only a double written to throw would land here.
                 return null;
             }
         }

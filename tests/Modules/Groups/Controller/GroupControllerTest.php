@@ -657,6 +657,44 @@ class GroupControllerTest extends TestCase
     }
 
     /**
+     * A read mark the database refuses costs the page nothing: the group
+     * still renders, and the earlier mark simply stays where it was (the
+     * badge stays too). The refusal is a trigger on the UPDATE a second
+     * visit falls through to, after the INSERT meets the existing row.
+     */
+    public function testShowStillRendersWhenTheReadMarkCannotBeWritten(): void
+    {
+        $creator = GroupsTestHelper::createMember($this->pdo, 'C3W');
+        $groupId = $this->groupService->createSectionGroup(
+            'Louveteaux',
+            $this->sectionId,
+            $this->currentYearId,
+            $creator,
+            1
+        );
+        $member = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'M2W', $this->sectionId, $this->currentYearId);
+        (new \Modules\Groups\Repository\GroupReadRepository($this->pdo))
+            ->markRead($groupId, $member, '2020-01-01 00:00:00');
+        $this->pdo->exec(
+            "CREATE TRIGGER refuse_read_mark BEFORE UPDATE ON discussion_group_reads
+             BEGIN SELECT RAISE(ABORT, 'read marks are read-only'); END"
+        );
+
+        $response = $this->controller([$member])->show(
+            new Request('GET', '/groups/' . $groupId, [], [], [], []),
+            ['id' => (string) $groupId]
+        );
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertStringContainsString('Louveteaux', $response->getBody());
+        $stmt = $this->pdo->prepare(
+            'SELECT last_read_at FROM discussion_group_reads WHERE group_id = ? AND member_id = ?'
+        );
+        $stmt->execute([$groupId, $member]);
+        $this->assertSame('2020-01-01 00:00:00', $stmt->fetchColumn());
+    }
+
+    /**
      * The group page's desktop side column (views/partials/
      * side_column.html.twig, drawn from 992px up — components.css).
      *

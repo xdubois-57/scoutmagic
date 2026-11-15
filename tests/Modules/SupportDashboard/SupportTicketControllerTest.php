@@ -410,7 +410,8 @@ class SupportTicketControllerTest extends TestCase
         string $action,
         string $method = 'GET',
         bool $withAnalysis = true,
-        bool $withTriageTokens = false
+        bool $withTriageTokens = false,
+        ?\Core\File\StoredFileReader $files = null
     ): FrontController {
         $router = new Router();
         $router->addRoute($method, $path, SupportTicketController::class, $action, 'superadmin');
@@ -435,11 +436,12 @@ class SupportTicketControllerTest extends TestCase
                 )
                 : null,
             // The dossier the ticket page offers. Built with no file
-            // reader: the receiver's own knowledge is what these tests
-            // are about, and an uploaded archive is covered by
-            // TicketDossierBuilderTest.
+            // reader unless a test hands one: the receiver's own knowledge
+            // is what these tests are about, and an uploaded archive is
+            // covered by TicketDossierBuilderTest.
             new \Modules\SupportDashboard\Service\TicketDossierBuilder(
-                new \Modules\SupportDashboard\Repository\SupportInstallationRepository($this->pdo)
+                new \Modules\SupportDashboard\Repository\SupportInstallationRepository($this->pdo),
+                $files
             ),
             $withTriageTokens ? $this->triageTokens($journal) : null
         );
@@ -531,6 +533,41 @@ class SupportTicketControllerTest extends TestCase
             ->handle(new Request('GET', '/support-dashboard/tickets/999999/dossier', [], [], [], []));
 
         $this->assertSame(404, $response->getStatusCode());
+    }
+
+    /**
+     * A dossier that cannot be composed — here the stored files cannot be
+     * looked up at all — sends the superadmin back to the ticket with a
+     * sentence, rather than handing the browser a broken download.
+     */
+    public function testADossierThatCannotBeComposedSendsTheReaderBackToTheTicket(): void
+    {
+        AuthSession::login(1, 'superadmin@test.com', 'superadmin');
+        $this->tickets->attachArchive($this->ticketId, 12);
+        $files = new \Core\File\FileRepository($this->pdo);
+        $reader = new \Core\File\StoredFileReader(
+            $files,
+            new \Core\File\EncryptedFileStorageService(
+                $files,
+                new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)),
+                sys_get_temp_dir()
+            ),
+            sys_get_temp_dir()
+        );
+        $this->pdo->exec('DROP TABLE files');
+
+        $response = $this->frontController('/support-dashboard/tickets/{id}/dossier', 'dossier', files: $reader)
+            ->handle(new Request('GET', '/support-dashboard/tickets/' . $this->ticketId . '/dossier', [], [], [], []));
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame(
+            '/support-dashboard/tickets/' . $this->ticketId,
+            $response->getHeaders()['Location'] ?? null
+        );
+        $this->assertSame(
+            ['type' => 'error', 'message' => "Le dossier de support n'a pas pu être composé."],
+            \Core\Http\FlashMessage::get()
+        );
     }
 
 }
