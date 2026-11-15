@@ -394,6 +394,22 @@ class LocalStorageBackendTest extends TestCase
         $this->assertSame("Le fichier témoin n'a pas pu être supprimé.", $backend->testConnection());
     }
 
+    public function testAWitnessTheDiskRefusesToHoldIsNamedInFrenchRatherThanThrown(): void
+    {
+        // The folder exists and is writable, and the write still fails: a
+        // full disk, or a quota, answers only to the write itself. The
+        // double is that disk; nothing must reach it after the refusal.
+        $backend = new class ($this->storagePath . '/gallery') extends LocalStorageBackend {
+            public function put(string $key, string $contents, string $mimeType): void
+            {
+                throw new \RuntimeException("Stored file could not be written: {$key}");
+            }
+        };
+
+        $this->assertSame("L'écriture d'un fichier témoin a échoué dans ce dossier.", $backend->testConnection());
+        $this->assertSame([], $backend->list('')->objects);
+    }
+
     public function testAFailedReadBackIsReportedEvenWhenTheCleanupAlsoFails(): void
     {
         // Two failures at once, and only one of them is the diagnosis: the

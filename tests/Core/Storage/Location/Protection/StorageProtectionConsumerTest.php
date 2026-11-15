@@ -205,6 +205,26 @@ final class StorageProtectionConsumerTest extends TestCase
      * disabled — and a destination would delete straight into the foreign
      * key.
      */
+    /**
+     * The dashboard's list of usages decides nothing, so a consumer that
+     * cannot answer — here its table is gone — is left off it, and the
+     * consumers that can still answer are listed.
+     */
+    public function testTheListOfUsagesSkipsAConsumerThatCannotAnswer(): void
+    {
+        $source = $this->declareLocal('Galerie', 'gallery');
+        $destination = $this->declareLocal('NAS', 'nas');
+        $this->protections->save($source, $destination, 30, 24, true);
+        $broken = DatabaseTestHelper::createTestDatabase();
+        $broken->exec('DROP TABLE storage_protections');
+
+        $registry = new StorageLocationConsumerRegistry();
+        $registry->register(new StorageProtectionConsumer(new StorageProtectionRepository($broken), $this->locations));
+        $registry->register(new StorageProtectionConsumer($this->protections, $this->locations));
+
+        $this->assertSame([['usage' => 'Copies de secours', 'locationIds' => [$destination]]], $registry->all());
+    }
+
     public function testTheCompositionRootRegistersItOutsideEveryModuleBlock(): void
     {
         $index = (string) file_get_contents(dirname(__DIR__, 5) . '/public/index.php');

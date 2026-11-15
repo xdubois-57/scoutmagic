@@ -338,6 +338,20 @@ final class StorageBindingReconcilerTest extends TestCase
         @rmdir($directory);
     }
 
+    /**
+     * An installation older than storage locations has no table to read
+     * before its restore: nothing to keep, and the restore goes ahead.
+     */
+    public function testADatabaseWithoutTheLocationsTableHasNothingToKeep(): void
+    {
+        $this->insert(2, 'google_drive', 'Drive', $this->drive('dossier'), 'grant');
+        $this->assertCount(1, $this->snapshot()->rows);
+
+        $this->pdo->exec('DROP TABLE storage_locations');
+
+        $this->assertSame([], $this->snapshot()->rows);
+    }
+
     public function testAMissingOrForeignFileIsNoSnapshot(): void
     {
         $this->assertNull(StorageBindingSnapshot::readHeldAside('/nulle/part.json'));
