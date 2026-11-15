@@ -74,6 +74,16 @@ final class FakeDrive
     public ?int $failPatchesWith = null;
 
     /**
+     * Asked before every request with its method and URL: a status it
+     * returns is answered instead (with Drive's error body), null lets the
+     * request through, and whatever it throws comes out of the transport —
+     * as an `\Error` does from a server whose PHP has no cURL.
+     *
+     * @var (\Closure(string, string): ?int)|null
+     */
+    public ?\Closure $intercept = null;
+
+    /**
      * When set, the only client secret Google accepts: a token request
      * carrying another one is refused as Google refuses it (`invalid_client`).
      */
@@ -255,6 +265,11 @@ final class FakeDrive
     private function answer(string $method, string $url, array $headers, ?string $body): array
     {
         $this->requests++;
+
+        $intercepted = $this->intercept === null ? null : ($this->intercept)($method, $url);
+        if ($intercepted !== null) {
+            return ['status' => $intercepted, 'body' => '{"error":{"message":"refused"}}'];
+        }
 
         if ($this->failNextWith !== null) {
             $status = $this->failNextWith;
