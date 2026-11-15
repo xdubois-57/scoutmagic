@@ -56,6 +56,12 @@ declare(strict_types=1);
 /** The comment that marks a `catch` as unreachable, followed by its reason. */
 const CATCH_COVERAGE_MARKER = '@catch-unreachable';
 
+/** The token id of a structural `{` (a single-character token's id is its code). */
+const CATCH_COVERAGE_OPEN = 123;
+
+/** The token id of a structural `}`. */
+const CATCH_COVERAGE_CLOSE = 125;
+
 // Guarded the same way scripts/sonar-evidence.php is: the test suite defines
 // CATCH_COVERAGE_TEST and includes this file for its functions, and the
 // command must not run when it does.
@@ -175,7 +181,8 @@ function catchCoverageSourceFiles(string $root): array
 /**
  * Every `catch` of one PHP source.
  *
- * @return list<array{line: int, bodyLines: list<int>, empty: bool, marker: ?string, sharedLine: bool}>
+ * @return list<array{line: int, bodyLines: list<int>, empty: bool, marker: ?string, sharedLine: bool,
+ *   sharedCloseLine: ?int}>
  *   line       the line of the `catch` keyword;
  *   bodyLines  the lines on which a statement token of the body starts, in
  *              order (comments and whitespace excluded) — empty for an empty
@@ -187,7 +194,10 @@ function catchCoverageSourceFiles(string $root): array
  *              line (`try { a(); } catch (X) {}`), or anything follows a body
  *              that closes on that line (`} catch (X) {} finally { f(); }`):
  *              line coverage cannot then tell that code's execution from the
- *              `catch`'s, so that line proves nothing about the `catch`
+ *              `catch`'s, so that line proves nothing about the `catch`;
+ *   sharedCloseLine the line of the closing brace when code follows it there
+ *              and it is not the catch's own line (`recover(); } after();`):
+ *              that line proves nothing either; null otherwise
  */
 function catchCoverageScan(string $source): array
 {
@@ -204,7 +214,7 @@ function catchCoverageScan(string $source): array
         // that line shared.
         $sharedLine = false;
         for ($k = $i - 1; $k >= 0 && $tokens[$k]->line === $tokens[$i]->line; $k--) {
-            if ($tokens[$k]->id !== T_WHITESPACE && $tokens[$k]->text !== '}') {
+            if ($tokens[$k]->id !== T_WHITESPACE && $tokens[$k]->id !== CATCH_COVERAGE_CLOSE) {
                 $sharedLine = true;
                 break;
             }
@@ -212,7 +222,7 @@ function catchCoverageScan(string $source): array
 
         // The body opens at the first `{` after the caught types.
         $open = $i + 1;
-        while ($open < $count && $tokens[$open]->text !== '{') {
+        while ($open < $count && $tokens[$open]->id !== CATCH_COVERAGE_OPEN) {
             $open++;
         }
         $depth = 0;
@@ -220,14 +230,15 @@ function catchCoverageScan(string $source): array
         $marker = null;
         for ($j = $open; $j < $count; $j++) {
             $token = $tokens[$j];
-            // `{` — including the `{` of "{$var}", whose token text is `{` too — and
-            // the `${` of "${var}" each open a level that a `}` closes.
-            if ($token->text === '{' || $token->id === T_DOLLAR_OPEN_CURLY_BRACES) {
+            // `{`, the `{` of "{$var}" and the `${` of "${var}" each open a level
+            // that a `}` closes. Read by token identity, never by text: a string
+            // fragment whose text is a lone `}` closes nothing.
+            if (in_array($token->id, [CATCH_COVERAGE_OPEN, T_CURLY_OPEN, T_DOLLAR_OPEN_CURLY_BRACES], true)) {
                 $depth++;
                 if ($j === $open) {
                     continue;
                 }
-            } elseif ($token->text === '}') {
+            } elseif ($token->id === CATCH_COVERAGE_CLOSE) {
                 $depth--;
                 if ($depth === 0) {
                     break;
@@ -249,14 +260,21 @@ function catchCoverageScan(string $source): array
                 $bodyLines[] = $token->line;
             }
         }
-        // And after it: when the body closes on the catch's own line, code
-        // that follows there (`} catch (A) {} finally { f(); }`, or a chained
-        // `catch (B) { g(); }`) runs on that line too.
+        // And after it: code that follows the closing brace on its own line
+        // (`} catch (A) {} finally { f(); }`, a chained `catch (B) { g(); }`,
+        // or `recover(); } after();`) runs on that line too. On the catch's
+        // own line, that line is shared; on a later one, the closing line is.
         $catchLine = $tokens[$i]->line;
-        for ($k = $j + 1; !$sharedLine && $k < $count && $tokens[$k]->line === $catchLine; $k++) {
+        $closeLine = $j < $count ? $tokens[$j]->line : $catchLine;
+        $closeShared = false;
+        for ($k = $j + 1; $k < $count && $tokens[$k]->line === $closeLine; $k++) {
             if (!in_array($tokens[$k]->id, [T_WHITESPACE, T_COMMENT, T_DOC_COMMENT], true)) {
-                $sharedLine = true;
+                $closeShared = true;
+                break;
             }
+        }
+        if ($closeShared && $closeLine === $catchLine) {
+            $sharedLine = true;
         }
 
         $catches[] = [
@@ -265,6 +283,7 @@ function catchCoverageScan(string $source): array
             'empty' => $bodyLines === [],
             'marker' => $marker,
             'sharedLine' => $sharedLine,
+            'sharedCloseLine' => $closeShared && $closeLine !== $catchLine ? $closeLine : null,
         ];
         $i = $open;
     }
@@ -277,11 +296,15 @@ function catchCoverageScan(string $source): array
  * file is absent from the report altogether, which phpunit.xml's <source>
  * makes mean « never loaded by any test ».
  *
- * A line shared with code before `catch` is never taken as evidence (see
- * catchCoverageScan()): an empty body there is `unknown`, and a body is judged
- * on its other lines only.
+ * A shared line — the catch's own, or a closing line code follows — is never
+ * taken as evidence (see catchCoverageScan()). Once such a line is set aside
+ * from the body's entry, the lines left can only prove that the body ran: the
+ * first of them may sit in a branch the body did not take, so finding none of
+ * them executed is `unknown`, never `never`. An empty body on a shared line
+ * is `unknown` likewise.
  *
- * @param array{line: int, bodyLines: list<int>, empty: bool, marker: ?string, sharedLine?: bool} $catch
+ * @param array{line: int, bodyLines: list<int>, empty: bool, marker: ?string, sharedLine?: bool,
+ *   sharedCloseLine?: ?int} $catch
  * @param array<int, array<int, string>|null>|null $lines
  * @return 'executed'|'never'|'never-empty'|'unreachable'|'unknown'
  */
@@ -303,13 +326,23 @@ function catchCoverageJudge(array $catch, ?array $lines): string
     // The first line of the body the driver records as executable; for an
     // empty body, the `catch` line itself.
     $candidates = $empty ? [$catch['line']] : $catch['bodyLines'];
+    $shared = [];
     if ($catch['sharedLine'] ?? false) {
-        $candidates = array_values(array_diff($candidates, [$catch['line']]));
+        $shared[] = $catch['line'];
     }
+    if (($catch['sharedCloseLine'] ?? null) !== null) {
+        $shared[] = $catch['sharedCloseLine'];
+    }
+    $entrySetAside = $candidates !== [] && in_array($candidates[0], $shared, true);
+    $candidates = array_values(array_diff($candidates, $shared));
     foreach ($candidates as $line) {
         if (array_key_exists($line, $lines) && is_array($lines[$line])) {
             if ($lines[$line] !== []) {
                 return 'executed';
+            }
+            if ($entrySetAside) {
+                // Not the entry: a later line that did not run says nothing.
+                continue;
             }
 
             return $empty ? 'never-empty' : 'never';
@@ -346,8 +379,8 @@ function catchCoverageSummarise(array $catches): array
             $invalid++;
         }
     }
-    uasort($byDomain, static fn(array $a, array $b): int
-        => ($b['never'] + $b['never-empty']) <=> ($a['never'] + $a['never-empty']));
+    $neverCount = static fn(array $domain): int => $domain['never'] + $domain['never-empty'];
+    uasort($byDomain, static fn(array $a, array $b): int => $neverCount($b) <=> $neverCount($a));
     arsort($byFile);
 
     return [

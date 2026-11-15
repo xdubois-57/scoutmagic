@@ -117,6 +117,14 @@ final class ErrorHandler
     private static ?JournalService $journal = null;
 
     /**
+     * What ends the request once guard() has sent the generic page: exit,
+     * unless a test put something else here. Null means exit.
+     *
+     * @var (\Closure(): never)|null
+     */
+    private static ?\Closure $terminate = null;
+
+    /**
      * Arm the handler. Safe to call twice: the first call (before config
      * exists) installs the production-safe defaults; the second, once
      * AppConfig::isDebug() is known, only adjusts the debug flag.
@@ -156,6 +164,19 @@ final class ErrorHandler
     }
 
     /**
+     * Replace how guard() ends the request, for the tests only: exit would
+     * end PHPUnit's process with it, and with it the coverage of the very
+     * branch the test exercised. A terminator must not return — throwing
+     * is how a test stops the request where exit would. Null restores exit.
+     *
+     * @param (\Closure(): never)|null $terminate
+     */
+    public static function setTerminator(?\Closure $terminate): void
+    {
+        self::$terminate = $terminate;
+    }
+
+    /**
      * Run $callback, turning any throwable it raises into the generic 500
      * response instead of letting it bubble to PHP's default handler. Used
      * to wrap the front controller dispatch so a controller-level fault is
@@ -167,6 +188,9 @@ final class ErrorHandler
             return $callback();
         } catch (\Throwable $e) {
             self::handleThrowable($e);
+            if (self::$terminate !== null) {
+                (self::$terminate)();
+            }
             exit;
         }
     }
