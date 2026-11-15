@@ -573,6 +573,26 @@ class SupportPackageServiceTest extends TestCase
         $this->assertNull((new FileRepository($this->pdo))->findById($first));
     }
 
+    /**
+     * The bookkeeping row is gone — an installation whose settings never
+     * received it — and the package is still produced and stored: the
+     * archive is what the administrator asked for, the setting only
+     * remembers where it is. The write that can still land does.
+     */
+    public function testAMissingBookkeepingSettingDoesNotCostThePackage(): void
+    {
+        $this->pdo->prepare('DELETE FROM settings WHERE setting_key = ?')->execute([SupportPackageState::FILE_ID]);
+        $this->settings->clearCache();
+
+        $fileId = $this->service([$this->statisticsCollector()])->generate(null);
+
+        $this->assertNotNull($this->fileRepository->findById($fileId));
+        $this->assertArrayHasKey('collection-status.json', $this->readArchive($fileId));
+        $this->settings->clearCache();
+        $this->assertNull($this->settings->get(SupportPackageState::FILE_ID), 'Nothing recreated the row.');
+        $this->assertNotSame('', (string) $this->settings->get(SupportPackageState::GENERATED_AT));
+    }
+
     public function testTheCurrentPackageAccessorsReportNothingBeforeAnyGeneration(): void
     {
         $service = $this->service();
@@ -642,6 +662,56 @@ class SupportPackageServiceTest extends TestCase
         $this->assertFileDoesNotExist($firstPath);
         $this->assertFalse($this->recordExists($first));
         $this->assertContains('support_package_files_swept', $this->journaledTypes());
+    }
+
+    /**
+     * The sweep deletes the expired bytes, then the record that named them.
+     * A database that refuses that second step costs the record only: the
+     * bytes are gone, which is what retention is about, and the sweep still
+     * counts and journals them.
+     */
+    public function testAnExpiredFileIsSweptEvenWhenItsRecordCannotBeDropped(): void
+    {
+        $service = $this->journaledService();
+        $fileId = $service->generate(null);
+        $path = $this->storedPath($fileId);
+        touch($path, time() - (SupportPackageService::RETENTION_DAYS + 1) * 86400);
+        $this->pdo->exec(
+            "CREATE TRIGGER refuse_file_delete BEFORE DELETE ON files BEGIN SELECT RAISE(ABORT, 'refusé'); END"
+        );
+
+        $this->assertSame(1, $service->sweepExpiredFiles());
+
+        $this->assertFileDoesNotExist($path);
+        $this->assertTrue($this->recordExists($fileId), 'the refused deletion left the record');
+        $this->assertContains('support_package_files_swept', $this->journaledTypes());
+    }
+
+    /**
+     * The journal is often the very database that is failing. When it
+     * cannot be written, the sweep still does its work, and the event type
+     * — never any part of the archive — reaches the server log instead.
+     */
+    public function testASweepWhoseJournalCannotBeWrittenFallsBackToTheServerLog(): void
+    {
+        $service = $this->journaledService();
+        $fileId = $service->generate(null);
+        $path = $this->storedPath($fileId);
+        touch($path, time() - (SupportPackageService::RETENTION_DAYS + 1) * 86400);
+        $this->pdo->exec('DROP TABLE event_log');
+
+        $log = (string) tempnam(sys_get_temp_dir(), 'supportlog');
+        $previous = ini_set('error_log', $log);
+        try {
+            $this->assertSame(1, $service->sweepExpiredFiles());
+            $written = (string) file_get_contents($log);
+        } finally {
+            ini_set('error_log', (string) $previous);
+            @unlink($log);
+        }
+
+        $this->assertFileDoesNotExist($path);
+        $this->assertStringContainsString('ScoutMagic support package: support_package_files_swept', $written);
     }
 
     /**

@@ -224,6 +224,9 @@ class CommandsCollector implements SupportCollectorInterface
                 escapeshellcmd($path) . ' ' . escapeshellarg($versionFlag) . ' 2>&1'
             );
         } catch (\Throwable) {
+            // @catch-unreachable run() and the escaping around it throw only on a NUL byte, an argument over
+            // ARG_MAX or a timeout under 1 s; the timeout is the default, the flag a constant, and $path the first
+            // line of `command -v` or a fixed COMMON_BIN_DIRS candidate, an executable path that holds neither.
             return '(non obtenue)';
         }
 
