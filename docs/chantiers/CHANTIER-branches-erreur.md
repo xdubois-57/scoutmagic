@@ -144,7 +144,7 @@ l'ordre des lots (ceux à zéro, 11 domaines, ne figurent pas) :
 | `modules/finance` | ~~23~~ **0** (lot 6) | 0 | 3 | 54 |
 | `core/Maintenance` | ~~21~~ **0** (lot 7) | ~~3~~ 0 | 1 | 55 |
 | `modules/inbound_mail` | 21 | 4 | 0 | 40 |
-| `core/Support` | 20 | 4 | 0 | 27 |
+| `core/Support` | ~~20~~ **0** (lot 9) | ~~4~~ 0 | 1 | 29 |
 | `modules/registration` | 17 | 4 | 0 | 47 |
 | `modules/camps` | 15 | 1 | 0 | 34 |
 | `core/Member` | 11 | 2 | 0 | 19 |
@@ -404,3 +404,27 @@ jamais la refuse.
 
 En chemin, `FullResetHandlerTest` et `RestoreBackupHandlerTest` ne laissent
 plus de dossiers temporaires derrière eux.
+
+### Lot 9 — `core/Support` — 2026-11-15
+
+**20 → 0** jamais exécutés ; un marqueur. Remesuré sur `tests/Core/Support`
+(PCOV), après fusion de `main` : #1251 y a ajouté deux `catch` (29 blocs au
+lieu de 27), atteints eux aussi.
+
+**21 branches atteintes** par un état réel : ligne de réglage absente, table
+absente ou amputée d'une colonne, secrets illisibles, archive disparue du
+disque, trigger qui refuse une écriture, serveur de base injoignable, journal
+impossible à écrire ; le transport n'est doublé que là où sa panne est le
+sujet. Chaque test vérifie l'effet et échoue quand le `catch` relance ou
+change ce qu'il fait.
+
+**Le marqueur** : la lecture de version d'une commande dans
+`CommandsCollector`. `run()` et l'échappement autour ne lèvent que sur un octet
+nul, un argument au-delà d'`ARG_MAX` ou un délai sous une seconde ; le délai
+est celui par défaut, l'option une constante, et le chemin un exécutable trouvé
+par `command -v` ou dans une liste fixe.
+
+**Un test retiré à la fusion** : celui qui exigeait qu'un paquet précédent dont
+la fiche ne se relit pas soit oublié quand même. C'est exactement ce que #1251
+a corrigé (les octets restaient sur le disque sans rien pour les retrouver) ;
+son propre test couvre le même `catch` avec le comportement voulu.
