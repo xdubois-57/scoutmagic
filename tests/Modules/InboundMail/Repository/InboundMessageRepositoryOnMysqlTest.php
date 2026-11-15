@@ -106,6 +106,13 @@ final class InboundMessageRepositoryOnMysqlTest extends TestCase
      */
     public function testTheSecondOfTwoConcurrentAssociationsIsReadAsAlreadyThere(): void
     {
+        // A real author: the column has a foreign key to user_accounts, and
+        // an unknown id would be refused by that key instead — which
+        // addLink() reads exactly like the duplicate this test is about.
+        $this->pdo->prepare('INSERT INTO user_accounts (email_encrypted, email_blind_index) VALUES (?, ?)')
+            ->execute(['chef-chiffre', str_repeat('c', 64)]);
+        $author = (int) $this->pdo->lastInsertId();
+
         $this->openSnapshot();
         $this->secondSession()->prepare(
             'INSERT INTO inbound_message_links
@@ -113,7 +120,7 @@ final class InboundMessageRepositoryOnMysqlTest extends TestCase
              VALUES (?, ?, ?, 0, ?, NULL)'
         )->execute([$this->messageId, 'camps', 'camp-1', LinkOrigin::MANUAL->value]);
 
-        $created = $this->messages->addLink($this->messageId, 'camps', 'camp-1', LinkOrigin::MANUAL, 0, 42);
+        $created = $this->messages->addLink($this->messageId, 'camps', 'camp-1', LinkOrigin::MANUAL, 0, $author);
         $this->pdo->commit();
 
         $this->assertFalse($created);
