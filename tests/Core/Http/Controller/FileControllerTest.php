@@ -141,6 +141,41 @@ class FileControllerTest extends TestCase
         $this->assertSame('text/plain; charset=UTF-8', $response->getHeaders()['Content-Type'] ?? null);
     }
 
+    /**
+     * The same for an encrypted file: its blob deleted from the disk, or
+     * one that no longer decrypts (a key rotated without it, a corrupted
+     * copy), answers the French sentence rather than a raw 500.
+     */
+    public function testAnEncryptedFileWhoseBlobIsGoneOrUnreadableIsSaidInFrench(): void
+    {
+        $storage = new EncryptedFileStorageService(
+            $this->fileRepository,
+            new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)),
+            $this->storagePath
+        );
+        $gone = $storage->store('%PDF-1.4 contenu', 'application/pdf', 'a.pdf', 'test', 'intendant');
+        unlink($this->storagePath . '/' . $this->fileRepository->findById($gone)?->relativePath);
+        $corrupt = $storage->store('%PDF-1.4 contenu', 'application/pdf', 'b.pdf', 'test', 'intendant');
+        file_put_contents(
+            $this->storagePath . '/' . $this->fileRepository->findById($corrupt)?->relativePath,
+            str_repeat('x', 64)
+        );
+
+        foreach ([$gone, $corrupt] as $id) {
+            foreach (['serve', 'thumbnail'] as $action) {
+                $response = $this->controller->{$action}($this->fileRequest(), ['file' => $this->segmentOf($id)]);
+
+                $this->assertSame(404, $response->getStatusCode(), $action);
+                $this->assertSame("Ce fichier n'est plus sur le serveur.", $response->getBody(), $action);
+                $this->assertSame(
+                    'text/plain; charset=UTF-8',
+                    $response->getHeaders()['Content-Type'] ?? null,
+                    $action
+                );
+            }
+        }
+    }
+
     public function testServeJournalsAccessToAnOwnerScopedFile(): void
     {
         $guard = new FileAccessGuard($this->fileRepository, Role::IDENTIFIED, [42]);

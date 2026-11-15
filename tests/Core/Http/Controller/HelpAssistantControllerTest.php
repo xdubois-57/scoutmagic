@@ -248,6 +248,28 @@ final class HelpAssistantControllerTest extends TestCase
         );
     }
 
+    /**
+     * A failure that is neither the assistant's nor the provider's — here
+     * its cache table, which a migration never created — is a 500 with
+     * the controller's own French sentence, never the driver's message,
+     * and the provider is not called for an answer nobody could keep.
+     */
+    public function testAnUnexpectedFailureIsA500WithAFrenchSentenceAndNoDriverText(): void
+    {
+        $this->pdo->exec('DROP TABLE help_assistant_cache');
+        $connector = $this->connectorAnswering();
+
+        $response = $this->controller($connector)
+            ->ask($this->request(['question' => 'Comment écrire aux parents ?']), []);
+
+        $this->assertSame(500, $response->getStatusCode());
+        $this->assertSame(
+            ['success' => false, 'error' => "L'assistant n'a pas pu répondre. Réessayez dans un instant."],
+            $this->decode($response->getBody())
+        );
+        $this->assertSame(0, $connector->callCount());
+    }
+
     // --- The answer ---------------------------------------------------
 
     public function testTheAnswerComesBackRenderedAndEscaped(): void
