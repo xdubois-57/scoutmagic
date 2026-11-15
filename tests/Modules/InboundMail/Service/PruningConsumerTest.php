@@ -77,12 +77,12 @@ class PruningConsumerTest extends TestCase
     /**
      * A consumer that declares the pruning contract and answers as told.
      */
-    private function pruningConsumer(bool $answer): object
+    private function pruningConsumer(bool $answer, bool $fails = false): object
     {
-        return new class ($answer) extends FakeMessageConsumer implements PruningConsumerInterface {
+        return new class ($answer, $fails) extends FakeMessageConsumer implements PruningConsumerInterface {
             public int $asked = 0;
 
-            public function __construct(private bool $answer)
+            public function __construct(private bool $answer, private bool $fails)
             {
                 parent::__construct(
                     id: 'core_mail_seed',
@@ -93,6 +93,9 @@ class PruningConsumerTest extends TestCase
             public function shouldPruneAfterAnalysis(CandidateMessage $message): bool
             {
                 $this->asked++;
+                if ($this->fails) {
+                    throw new \RuntimeException('the seed module could not decide');
+                }
 
                 return $this->answer;
             }
@@ -270,5 +273,27 @@ class PruningConsumerTest extends TestCase
             $this->countMessages(),
             'the message is still in the mailbox, so it is still the sync\'s to record.'
         );
+    }
+
+    /**
+     * **A consumer that fails while deciding removes nothing**, and the
+     * sync keeps the message. Housekeeping never costs the unit its mail:
+     * a failure here reads as « not pruned », which is the direction that
+     * loses nothing — the copy stays in the box and is written down.
+     */
+    public function testAConsumerThatFailsWhileDecidingRemovesNothingAndTheMessageIsStored(): void
+    {
+        $consumer = $this->pruningConsumer(true, fails: true);
+        $this->registry->register($consumer);
+        $client = new PruningFakeMailboxClient();
+
+        $this->syncWith($client);
+
+        $this->assertSame(1, $consumer->asked);
+        $this->assertSame([], $client->deleted);
+        $this->assertSame(1, $this->countMessages());
+        $state = $this->pdo->query('SELECT sync_state, last_error FROM inbound_mailboxes')->fetch(\PDO::FETCH_ASSOC);
+        $this->assertIsArray($state);
+        $this->assertNull($state['last_error'], 'and the box is not reported as failing');
     }
 }

@@ -11,6 +11,7 @@ use Modules\SupportDashboard\Repository\SupportInstallationRepository;
 use Modules\SupportDashboard\Repository\SupportReportRateLimitRepository;
 use Modules\SupportDashboard\Service\StatisticsIntakeResult;
 use Modules\SupportDashboard\Service\StatisticsIntakeService;
+use Modules\SupportDashboard\Service\SupportIntakeGuard;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 
@@ -93,6 +94,50 @@ class StatisticsIntakeServiceTest extends TestCase
     }
 
     // --- registration and authentication ---
+
+    /**
+     * Issue #1113: this route is the other door to a new installation row,
+     * and a row registered here is a KNOWN installation on the ticket
+     * route, which the quota never sees again. So a new id is held to the
+     * same global quota here: past it, nothing is registered, and an
+     * installation already known still reports.
+     */
+    public function testPastTheRegistrationQuotaANewIdIsNotRegisteredHereEither(): void
+    {
+        $guarded = new StatisticsIntakeService(
+            $this->installations,
+            $this->rateLimits,
+            new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)),
+            new JournalService(new JournalRepository($this->pdo)),
+            guard: SupportDashboardTestHelper::intakeGuard($this->pdo)
+        );
+        $this->assertTrue(
+            $guarded->receive($this->payload(), 'Bearer ' . self::SECRET, '198.51.100.1', true)->accepted
+        );
+
+        $now = (new \DateTimeImmutable())->format('Y-m-d H:i:s');
+        $stmt = $this->pdo->prepare(
+            "INSERT INTO support_installations (installation_id, secret_hash, first_seen_at, last_received_at)
+             VALUES (?, 'x', ?, ?)"
+        );
+        for ($i = 1; $i < SupportIntakeGuard::NEW_INSTALLATIONS_PER_HOUR; $i++) {
+            $stmt->execute(['seed-installation-' . $i, $now, $now]);
+        }
+
+        $refused = $guarded->receive(
+            $this->payload(['installation_id' => 'nouvelle-par-statistiques']),
+            'Bearer ' . self::SECRET,
+            '198.51.100.2',
+            true
+        );
+
+        $this->assertSame(StatisticsIntakeResult::REJECT_RATE_LIMITED, $refused->rejectionReason);
+        $this->assertSame(429, $refused->statusCode);
+        $this->assertNull($this->installations->findByInstallationId('nouvelle-par-statistiques'));
+        $this->assertTrue(
+            $guarded->receive($this->payload(), 'Bearer ' . self::SECRET, '198.51.100.3', true)->accepted
+        );
+    }
 
     public function testAnUnknownInstallationIsAcceptedAsAFirstRegistration(): void
     {

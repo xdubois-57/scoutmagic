@@ -11,7 +11,10 @@ use Modules\InboundMail\Api\InboundMailInterface;
 use Modules\SupportDashboard\Mail\SupportMessageConsumer;
 use Modules\SupportDashboard\Repository\SupportInstallationRepository;
 use Modules\SupportDashboard\Repository\SupportMailProbeRepository;
+use Modules\SupportDashboard\Repository\SupportReportRateLimitRepository;
 use Modules\SupportDashboard\Service\MailProbeService;
+use Modules\SupportDashboard\Service\StatisticsIntakeService;
+use Modules\SupportDashboard\Service\SupportIntakeGuard;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 
@@ -29,6 +32,8 @@ class MailProbeServiceTest extends TestCase
     private \PDO $pdo;
     private SupportInstallationRepository $installations;
     private SupportMailProbeRepository $probes;
+    private const CLIENT_IP = '203.0.113.9';
+
     private string $secret = 'a-secret-nobody-else-holds';
 
     protected function setUp(): void
@@ -78,7 +83,7 @@ class MailProbeServiceTest extends TestCase
         bool $secure
     ): void {
         $answer = $this->service(['support@scoutmagic.be'])
-            ->issueFor($installationId, $header, $secure, $this->now());
+            ->issueFor($installationId, $header, $secure, $this->now(), self::CLIENT_IP);
 
         $this->assertSame(['status' => MailProbeService::STATUS_REJECTED], $answer);
         $this->assertSame(0, $this->probeCount());
@@ -87,7 +92,7 @@ class MailProbeServiceTest extends TestCase
     public function testAnAuthenticatedCallerGetsAKeyAndOneRowPerMailbox(): void
     {
         $answer = $this->service(['support@scoutmagic.be', 'contact@scoutmagic.be'])
-            ->issueFor('unite-de-test', 'Bearer ' . $this->secret, true, $this->now());
+            ->issueFor('unite-de-test', 'Bearer ' . $this->secret, true, $this->now(), self::CLIENT_IP);
 
         $this->assertSame(MailProbeService::STATUS_ISSUED, $answer['status']);
         $this->assertMatchesRegularExpression('/^SMP-[A-Z0-9]{10}$/', (string) $answer['correlation_key']);
@@ -113,13 +118,14 @@ class MailProbeServiceTest extends TestCase
     public function testASecondRunMinutesLaterIsIssuedToo(): void
     {
         $service = $this->service(['support@scoutmagic.be']);
-        $service->issueFor('unite-de-test', 'Bearer ' . $this->secret, true, $this->now());
+        $service->issueFor('unite-de-test', 'Bearer ' . $this->secret, true, $this->now(), self::CLIENT_IP);
 
         $answer = $service->issueFor(
             'unite-de-test',
             'Bearer ' . $this->secret,
             true,
-            $this->now()->modify('+2 minutes')
+            $this->now()->modify('+2 minutes'),
+            self::CLIENT_IP
         );
 
         $this->assertSame(MailProbeService::STATUS_ISSUED, $answer['status']);
@@ -137,7 +143,7 @@ class MailProbeServiceTest extends TestCase
     {
         $service = $this->service(['support@scoutmagic.be']);
 
-        $answer = $service->issueFor('unite-de-test', 'Bearer mauvais-secret', true, $this->now());
+        $answer = $service->issueFor('unite-de-test', 'Bearer mauvais-secret', true, $this->now(), self::CLIENT_IP);
 
         $this->assertSame(['status' => MailProbeService::STATUS_REJECTED], $answer);
         $this->assertSame(0, $this->probeCount());
@@ -150,7 +156,8 @@ class MailProbeServiceTest extends TestCase
      */
     public function testAReceiverWithNoMailboxAnswersPlainlyAndWritesNothing(): void
     {
-        $answer = $this->service([])->issueFor('unite-de-test', 'Bearer ' . $this->secret, true, $this->now());
+        $answer = $this->service([])
+            ->issueFor('unite-de-test', 'Bearer ' . $this->secret, true, $this->now(), self::CLIENT_IP);
 
         $this->assertSame(MailProbeService::STATUS_UNAVAILABLE, $answer['status']);
         $this->assertSame([], $answer['addresses']);
@@ -163,13 +170,20 @@ class MailProbeServiceTest extends TestCase
             $this->probes,
             $this->installations,
             new JournalService(new JournalRepository($this->pdo)),
-            null
+            null,
+            SupportDashboardTestHelper::intakeGuard($this->pdo)
         );
 
         $this->assertSame([], $service->probeAddresses());
         $this->assertSame(
             MailProbeService::STATUS_UNAVAILABLE,
-            $service->issueFor('unite-de-test', 'Bearer ' . $this->secret, true, $this->now())['status']
+            $service->issueFor(
+                'unite-de-test',
+                'Bearer ' . $this->secret,
+                true,
+                $this->now(),
+                self::CLIENT_IP
+            )['status']
         );
     }
 
@@ -189,7 +203,7 @@ class MailProbeServiceTest extends TestCase
     public function testAnArrivingMessageIsAttachedToTheProbeItAnswers(): void
     {
         $service = $this->service(['support@scoutmagic.be']);
-        $issued = $service->issueFor('unite-de-test', 'Bearer ' . $this->secret, true, $this->now());
+        $issued = $service->issueFor('unite-de-test', 'Bearer ' . $this->secret, true, $this->now(), self::CLIENT_IP);
         $key = (string) $issued['correlation_key'];
 
         $claimed = $service->claim(
@@ -219,7 +233,7 @@ class MailProbeServiceTest extends TestCase
         // B's headers while B stayed « jamais reçue » — the opposite of
         // the diagnosis.
         $service = $this->service(['a@scoutmagic.be', 'b@scoutmagic.be']);
-        $issued = $service->issueFor('unite-de-test', 'Bearer ' . $this->secret, true, $this->now());
+        $issued = $service->issueFor('unite-de-test', 'Bearer ' . $this->secret, true, $this->now(), self::CLIENT_IP);
         $key = (string) $issued['correlation_key'];
 
         $claimed = $service->claim(
@@ -250,7 +264,7 @@ class MailProbeServiceTest extends TestCase
     public function testTheHeaderBlockIsKeptBesideTheReadingItProduced(): void
     {
         $service = $this->service(['support@scoutmagic.be']);
-        $issued = $service->issueFor('unite-de-test', 'Bearer ' . $this->secret, true, $this->now());
+        $issued = $service->issueFor('unite-de-test', 'Bearer ' . $this->secret, true, $this->now(), self::CLIENT_IP);
         $headers = "Received: from mx.example.be by mail.scoutmagic.be\r\n"
             . "Authentication-Results: mail.scoutmagic.be; spf=pass\r\n";
 
@@ -271,7 +285,7 @@ class MailProbeServiceTest extends TestCase
     public function testTheHeaderBlockNeverSitsInTheTableInCleartext(): void
     {
         $service = $this->service(['support@scoutmagic.be']);
-        $issued = $service->issueFor('unite-de-test', 'Bearer ' . $this->secret, true, $this->now());
+        $issued = $service->issueFor('unite-de-test', 'Bearer ' . $this->secret, true, $this->now(), self::CLIENT_IP);
 
         $service->claim(
             '[Unité test] Sonde de diagnostic ' . (string) $issued['correlation_key'],
@@ -292,7 +306,7 @@ class MailProbeServiceTest extends TestCase
     public function testAProbeReceivedWithNoHeadersAtAllKeepsNone(): void
     {
         $service = $this->service(['support@scoutmagic.be']);
-        $issued = $service->issueFor('unite-de-test', 'Bearer ' . $this->secret, true, $this->now());
+        $issued = $service->issueFor('unite-de-test', 'Bearer ' . $this->secret, true, $this->now(), self::CLIENT_IP);
 
         $service->claim(
             '[Unité test] Sonde de diagnostic ' . (string) $issued['correlation_key'],
@@ -313,7 +327,7 @@ class MailProbeServiceTest extends TestCase
     public function testAProbeNobodyAnsweredStaysUnreceived(): void
     {
         $service = $this->service(['support@scoutmagic.be']);
-        $service->issueFor('unite-de-test', 'Bearer ' . $this->secret, true, $this->now());
+        $service->issueFor('unite-de-test', 'Bearer ' . $this->secret, true, $this->now(), self::CLIENT_IP);
 
         $results = $service->resultsFor($this->installationRowId());
 
@@ -330,7 +344,7 @@ class MailProbeServiceTest extends TestCase
     public function testAnExpiredKeyIsNoLongerClaimable(): void
     {
         $service = $this->service(['support@scoutmagic.be']);
-        $issued = $service->issueFor('unite-de-test', 'Bearer ' . $this->secret, true, $this->now());
+        $issued = $service->issueFor('unite-de-test', 'Bearer ' . $this->secret, true, $this->now(), self::CLIENT_IP);
         $key = (string) $issued['correlation_key'];
 
         $tooLate = $this->now()->modify('+' . (MailProbeService::VALIDITY_HOURS + 1) . ' hours');
@@ -346,7 +360,7 @@ class MailProbeServiceTest extends TestCase
     public function testAKeyThisReceiverNeverIssuedIsNotClaimed(): void
     {
         $service = $this->service(['support@scoutmagic.be']);
-        $service->issueFor('unite-de-test', 'Bearer ' . $this->secret, true, $this->now());
+        $service->issueFor('unite-de-test', 'Bearer ' . $this->secret, true, $this->now(), self::CLIENT_IP);
 
         $this->assertFalse($service->claim('[Unité] SMP-ZZZZZZZZZZ', null, $this->now(), $this->now()));
     }
@@ -367,7 +381,7 @@ class MailProbeServiceTest extends TestCase
     public function testTheJournalEntryCountsTheMailboxesAndNamesNoneOfThem(): void
     {
         $this->service(['support@scoutmagic.be', 'contact@scoutmagic.be'])
-            ->issueFor('unite-de-test', 'Bearer ' . $this->secret, true, $this->now());
+            ->issueFor('unite-de-test', 'Bearer ' . $this->secret, true, $this->now(), self::CLIENT_IP);
 
         $row = $this->pdo->query(
             "SELECT description, context FROM event_log WHERE event_type = 'support_mail_probe_issued'"
@@ -385,7 +399,7 @@ class MailProbeServiceTest extends TestCase
     public function testTheAddressNeverSitsInTheTableInCleartext(): void
     {
         $this->service(['support@scoutmagic.be'])
-            ->issueFor('unite-de-test', 'Bearer ' . $this->secret, true, $this->now());
+            ->issueFor('unite-de-test', 'Bearer ' . $this->secret, true, $this->now(), self::CLIENT_IP);
 
         $stored = (string) $this->pdo->query('SELECT mailbox_address_encrypted FROM support_mail_probes')->fetchColumn();
 
@@ -412,13 +426,133 @@ class MailProbeServiceTest extends TestCase
     /**
      * @param list<string> $addresses
      */
+    // ── Established installations only (issue #1113) ────────────────────
+
+    /**
+     * The ticket route registers an unknown id on its first call, so a
+     * correct secret proves only that the caller chose it a moment ago.
+     * Such an installation hears none of the addresses — with the same
+     * refusal as a wrong secret, so it cannot tell the two apart.
+     */
+    public function testAnInstallationAFirstTicketRegisteredGetsNoAddresses(): void
+    {
+        $this->installations->register(
+            'inscrite-par-ticket',
+            password_hash($this->secret, PASSWORD_DEFAULT),
+            '',
+            [],
+            false,
+            false
+        );
+
+        $answer = $this->service(['support@scoutmagic.be'])
+            ->issueFor('inscrite-par-ticket', 'Bearer ' . $this->secret, true, $this->now(), self::CLIENT_IP);
+
+        $this->assertSame(['status' => MailProbeService::STATUS_REJECTED], $answer);
+        $this->assertSame(0, $this->probeCount());
+    }
+
+    /** Validated by a superadmin, the same installation is answered. */
+    public function testOnceEstablishedTheSameInstallationIsAnswered(): void
+    {
+        $rowId = $this->installations->register(
+            'inscrite-par-ticket',
+            password_hash($this->secret, PASSWORD_DEFAULT),
+            '',
+            [],
+            false,
+            false
+        );
+        $this->assertTrue($this->installations->markEstablished($rowId));
+
+        $answer = $this->service(['support@scoutmagic.be'])
+            ->issueFor('inscrite-par-ticket', 'Bearer ' . $this->secret, true, $this->now(), self::CLIENT_IP);
+
+        $this->assertSame(MailProbeService::STATUS_ISSUED, $answer['status']);
+    }
+
+    /**
+     * A usage report on the statistics route establishes it too — but a
+     * report carried inside a ticket, the very call that created the row,
+     * does not.
+     */
+    public function testAReportOnTheStatisticsRouteEstablishesItAndOneInsideATicketDoesNot(): void
+    {
+        $rowId = $this->installations->register(
+            'inscrite-par-ticket',
+            password_hash($this->secret, PASSWORD_DEFAULT),
+            '',
+            [],
+            false,
+            false
+        );
+
+        // What the ticket intake does with a report it carries.
+        $this->installations->recordReport($rowId, '{}', []);
+        $this->assertFalse((bool) ($this->installations->findById($rowId)['established'] ?? true));
+
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $statistics = new StatisticsIntakeService(
+            $this->installations,
+            new SupportReportRateLimitRepository($this->pdo),
+            $encryption,
+            new JournalService(new JournalRepository($this->pdo))
+        );
+        $result = $statistics->receive(
+            (string) json_encode(['installation_id' => 'inscrite-par-ticket', 'statistics_schema_version' => 1]),
+            'Bearer ' . $this->secret,
+            self::CLIENT_IP,
+            true
+        );
+
+        $this->assertTrue($result->accepted);
+        $this->assertTrue((bool) ($this->installations->findById($rowId)['established'] ?? false));
+    }
+
+    /**
+     * Counted with the ticket and archive routes, before any
+     * password_verify(): an address that spent its window hears nothing.
+     */
+    public function testPastTheAddressLimitEvenAnEstablishedInstallationIsRefused(): void
+    {
+        $guard = SupportDashboardTestHelper::intakeGuard($this->pdo);
+        for ($i = 0; $i < SupportIntakeGuard::REQUESTS_PER_ADDRESS; $i++) {
+            $guard->admitRequest(self::CLIENT_IP);
+        }
+
+        $answer = $this->service(['support@scoutmagic.be'])
+            ->issueFor('unite-de-test', 'Bearer ' . $this->secret, true, $this->now(), self::CLIENT_IP);
+
+        $this->assertSame(['status' => MailProbeService::STATUS_REJECTED], $answer);
+    }
+
+    /**
+     * Built without the limits — as the inbound-mail consumer builds it,
+     * to claim probes — the service issues nothing at all rather than
+     * answer without them.
+     */
+    public function testWithoutTheLimitsNothingIsIssued(): void
+    {
+        $service = new MailProbeService(
+            $this->probes,
+            $this->installations,
+            new JournalService(new JournalRepository($this->pdo)),
+            new FixedMailboxes(['support@scoutmagic.be'])
+        );
+
+        $answer = $service->issueFor('unite-de-test', 'Bearer ' . $this->secret, true, $this->now(), self::CLIENT_IP);
+
+        $this->assertSame(['status' => MailProbeService::STATUS_REJECTED], $answer);
+    }
+
     private function service(array $addresses): MailProbeService
     {
         return new MailProbeService(
             $this->probes,
             $this->installations,
             new JournalService(new JournalRepository($this->pdo)),
-            new FixedMailboxes($addresses)
+            new FixedMailboxes($addresses),
+            SupportDashboardTestHelper::intakeGuard($this->pdo)
         );
     }
 }

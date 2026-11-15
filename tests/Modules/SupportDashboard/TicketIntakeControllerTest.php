@@ -49,7 +49,8 @@ class TicketIntakeControllerTest extends TestCase
             new TicketIntakeService(
                 new SupportInstallationRepository($this->pdo),
                 new SupportTicketRepository($this->pdo, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))),
-                new JournalService(new JournalRepository($this->pdo))
+                new JournalService(new JournalRepository($this->pdo)),
+                SupportDashboardTestHelper::intakeGuard($this->pdo)
             )
         );
     }

@@ -278,6 +278,60 @@ class SectionDocumentControllerTest extends TestCase
         $this->assertSame($b, $docs[0]->id);
     }
 
+    /**
+     * A photo posted where documents go: refused with the sentence that
+     * points to the Galerie, and nothing is filed.
+     */
+    public function testAddRefusesAnImageWithTheGalleryPointerAndFilesNothing(): void
+    {
+        $token = $this->csrfToken();
+        $request = $this->uploadRequest($this->sectionId, $token);
+        $image = imagecreatetruecolor(4, 4);
+        imagepng($image, $_FILES['file']['tmp_name']);
+        $_FILES['file']['name'] = 'photo.png';
+        $_FILES['file']['size'] = filesize($_FILES['file']['tmp_name']);
+
+        $response = $this->controller->add($request, []);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame(
+            [
+                'type' => 'error',
+                'message' => 'Les images et vidéos ne sont pas acceptées ici — utilisez le module Galerie pour les '
+                    . 'partager.',
+            ],
+            \Core\Http\FlashMessage::get()
+        );
+        $this->assertCount(0, $this->documentRepository->findBySectionAndYear($this->sectionId, $this->scoutYearId));
+    }
+
+    /** A title emptied on blur: refused, and the stored title is kept. */
+    public function testUpdateRefusesAnEmptyTitleAndKeepsTheStoredOne(): void
+    {
+        $token = $this->csrfToken();
+        $id = $this->documentRepository->create(
+            $this->sectionId,
+            $this->scoutYearId,
+            $this->makeFile(),
+            'Doc',
+            null,
+            100,
+            null
+        );
+
+        $response = $this->controller->update(
+            $this->jsonRequest(['title' => '   ', '_csrf_token' => $token]),
+            ['id' => (string) $id]
+        );
+
+        $this->assertSame(400, $response->getStatusCode());
+        $this->assertSame(
+            ['success' => false, 'error' => 'Le titre est obligatoire.'],
+            json_decode($response->getBody(), true)
+        );
+        $this->assertSame('Doc', $this->documentRepository->findById($id)?->title);
+    }
+
     // --- Cloisonnement: role_min chief is the floor, the staffed section
     // is the boundary (SECURITY.md §3, ARCHITECTURE.md §8.33) ---
 

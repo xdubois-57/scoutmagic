@@ -52,7 +52,8 @@ class FakeMessageConsumer implements MessageConsumerInterface
          *
          * @var (\Closure(string): ?string)|null
          */
-        private ?\Closure $onDescribeReference = null
+        private ?\Closure $onDescribeReference = null,
+        private bool $throwsOnUnlinked = false
     ) {
     }
 
@@ -92,6 +93,10 @@ class FakeMessageConsumer implements MessageConsumerInterface
     public function onUnlinked(InboundMessage $message, MessageLink $link): void
     {
         $this->unlinked[] = [$message, $link];
+
+        if ($this->throwsOnUnlinked) {
+            throw new \RuntimeException('bug');
+        }
     }
 
     public function canRead(string $businessReference, array $linkedMemberIds, string $role): bool

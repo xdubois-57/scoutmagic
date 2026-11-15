@@ -100,7 +100,16 @@ class StatisticsIntakeService
          * accepts reports exactly as before — a receiver that cannot
          * record a vocabulary gap must still record the report.
          */
-        private ?DeskMappingGapRecorder $deskMappingGaps = null
+        private ?DeskMappingGapRecorder $deskMappingGaps = null,
+        /**
+         * The quota on new installations every address shares (issue
+         * #1113). The ticket route applies it to the ids it registers,
+         * and this route is the other door to a row: an id registered
+         * here is a known installation there, which the quota never sees
+         * again. Null registers as before — for the tests that never
+         * mint more than one row; the receiver always wires it.
+         */
+        private ?SupportIntakeGuard $guard = null
     ) {
     }
 
@@ -150,12 +159,19 @@ class StatisticsIntakeService
         $unknownFields = self::unknownFieldsOf($payload);
 
         if ($existing === null) {
-            $rowId = $this->installations->register(
+            $register = fn (): int => $this->installations->register(
                 $installationId,
                 password_hash($secret, PASSWORD_DEFAULT),
                 $rawBody,
                 $denormalized
             );
+            // Under the same quota as a first ticket (issue #1113): without
+            // it, a caller past the quota would register its ids here and
+            // file tickets under them as installations already known.
+            $rowId = $this->guard !== null ? $this->guard->registerWithinQuota($register) : $register();
+            if ($rowId === null) {
+                return $this->reject(StatisticsIntakeResult::REJECT_RATE_LIMITED, 429, $clientIp);
+            }
 
             $this->recordMonthlyContribution($installationId);
             $this->journalAcceptance($installationId, true, $unknownFields);
@@ -170,6 +186,11 @@ class StatisticsIntakeService
         }
 
         $this->installations->recordReport((int) $existing['id'], $rawBody, $denormalized);
+        // A report on THIS route is what establishes an installation a
+        // first ticket registered (issue #1113): the mail probes open to it
+        // from here on. A report carried inside a ticket goes through
+        // recordReport() too, and on purpose does not.
+        $this->installations->markEstablished((int) $existing['id']);
         $this->recordMonthlyContribution($installationId);
         $this->journalAcceptance($installationId, false, $unknownFields);
         $this->refreshRegistration((int) $existing['id']);

@@ -125,6 +125,22 @@ final class AdvisoryLockOnMysqlTest extends TestCase
         $this->assertTrue($this->acquire($second, self::NAME));
     }
 
+    /**
+     * Issue #1113: on the production engine a lock query that FAILS is not
+     * a lock held. The fallback that answers `true` exists for SQLite, which
+     * has no GET_LOCK() at all; here the function exists, so an error — a
+     * connection the server dropped, the commonest — must make the caller
+     * stand down rather than run its critical section unserialised.
+     */
+    public function testALockQueryThatFailsIsNotALockHeld(): void
+    {
+        $doomed = $this->connect();
+        $id = (int) $doomed->query('SELECT CONNECTION_ID()')->fetchColumn();
+        $this->connect()->exec('KILL ' . $id);
+
+        $this->assertFalse(@AdvisoryLock::acquire($doomed, self::NAME));
+    }
+
     private function acquire(\PDO $pdo, string $name): bool
     {
         $this->names[] = $name;

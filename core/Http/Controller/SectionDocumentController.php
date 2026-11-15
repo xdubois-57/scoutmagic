@@ -241,6 +241,9 @@ class SectionDocumentController extends AbstractController
         try {
             $this->service->delete($id, AuthSession::getUserAccountId());
         } catch (SectionDocumentException $e) {
+            // @catch-unreachable delete()'s one SectionDocumentException is « Document introuvable. », and
+            // guardDocuments() read this very row two lines up, in this request: only a delete between the two
+            // reads lands here.
             return $this->json(['success' => false, 'error' => $e->getMessage()], 400);
         }
 
