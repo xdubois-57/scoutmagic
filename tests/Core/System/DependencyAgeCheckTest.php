@@ -344,6 +344,83 @@ class DependencyAgeCheckTest extends TestCase
         $this->assertTrue(dependencyAgeIsSuccessfulStatus([]));
     }
 
+    /** The command: arguments, the files it writes, the exit code — without a process. */
+    public function testTheCommandRunsTheRootItIsGivenAndWritesTheNotesWhereAsked(): void
+    {
+        $markdownFile = $this->root . '/age.md';
+        $reportFile = $this->root . '/age.report';
+        $bodies = self::registries();
+
+        $result = dependencyAgeCommand(
+            ['check-dependency-age.php', '--markdown', $markdownFile, $this->root],
+            static fn (string $url): ?string => $bodies[$url] ?? null,
+            self::now(),
+            $reportFile,
+            '/a/root/that/is/not/the/one/given'
+        );
+
+        $this->assertSame(0, $result['exit']);
+        $this->assertSame('', $result['stderr']);
+        $this->assertStringContainsString('Not blocking (issue #841)', $result['stdout']);
+        $this->assertFileExists($markdownFile);
+        $this->assertFileExists($reportFile);
+
+        @unlink($markdownFile);
+        @unlink($reportFile);
+    }
+
+    /** A warning on what it finds, never on the network — but its own failure is a failure. */
+    public function testTheCommandFailsOnlyOnItsOwnFailure(): void
+    {
+        $missingPath = dependencyAgeCommand(
+            ['check-dependency-age.php', '--markdown'],
+            static fn (string $url): ?string => null,
+            self::now(),
+            false,
+            $this->root
+        );
+        $this->assertSame(1, $missingPath['exit']);
+        $this->assertStringContainsString('--markdown requires a path', $missingPath['stderr']);
+
+        $nothingAnswers = dependencyAgeCommand(
+            ['check-dependency-age.php'],
+            static fn (string $url): ?string => null,
+            self::now(),
+            false,
+            $this->root
+        );
+        $this->assertSame(0, $nothingAnswers['exit'], 'every registry down is « non vérifié », not a refused release');
+        $this->assertStringContainsString('5 not dated', $nothingAnswers['stdout']);
+
+        unlink($this->root . '/composer.lock');
+        $noLock = dependencyAgeCommand(
+            ['check-dependency-age.php'],
+            static fn (string $url): ?string => null,
+            self::now(),
+            false,
+            $this->root
+        );
+        $this->assertSame(1, $noLock['exit']);
+        $this->assertStringContainsString('check-dependency-age: missing', $noLock['stderr']);
+    }
+
+    /**
+     * The real fetch, over `file://` the way scripts/check-deprecated-api.php's
+     * tests exercise theirs: a body is returned, an absent or empty one is null.
+     */
+    public function testTheFetchReturnsABodyOrNull(): void
+    {
+        $file = $this->root . '/answer.json';
+        file_put_contents($file, '{"time":{}}');
+
+        $this->assertSame('{"time":{}}', dependencyAgeFetch('file://' . $file));
+        $this->assertNull(dependencyAgeFetch('file://' . $this->root . '/nothing-here.json'));
+
+        file_put_contents($file, '');
+        $this->assertNull(dependencyAgeFetch('file://' . $file));
+        @unlink($file);
+    }
+
     /** What the gate dates is exactly what the inventory publishes: the same lock readers and vendored map. */
     public function testItDatesTheRealRepositorysInventory(): void
     {

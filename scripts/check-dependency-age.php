@@ -417,12 +417,57 @@ function dependencyAgeRun(
     return dependencyAgeConsole($dated, $now);
 }
 
+/**
+ * The command itself, minus the process: reads the arguments, runs the
+ * check, and returns what the console should show and the exit code,
+ * without writing to a stream or exiting. dependencyAgeMain() below is
+ * only the real network, clock, environment and streams around it — so
+ * every decision here can be asserted without spawning PHP.
+ *
+ * @param list<string> $argv
+ * @param callable(string): ?string $fetch
+ * @return array{exit: int, stdout: string, stderr: string}
+ */
+function dependencyAgeCommand(
+    array $argv,
+    callable $fetch,
+    DateTimeImmutable $now,
+    string|false $reportFile,
+    string $defaultRoot
+): array {
+    $markdownFile = null;
+    $root = $defaultRoot;
+    $arguments = array_slice($argv, 1);
+    while ($arguments !== []) {
+        $argument = array_shift($arguments);
+        if ($argument === '--markdown') {
+            $markdownFile = array_shift($arguments);
+            if ($markdownFile === null || $markdownFile === '') {
+                return ['exit' => 1, 'stdout' => '', 'stderr' => "check-dependency-age: --markdown requires a path.\n"];
+            }
+            continue;
+        }
+        $root = $argument;
+    }
+
+    try {
+        return [
+            'exit' => 0,
+            'stdout' => dependencyAgeRun($root, $fetch, $now, $markdownFile, $reportFile),
+            'stderr' => '',
+        ];
+    } catch (RuntimeException $e) {
+        return ['exit' => 1, 'stdout' => '', 'stderr' => 'check-dependency-age: ' . $e->getMessage() . "\n"];
+    }
+}
+
 if (!defined('DEPENDENCY_AGE_CHECK_TEST')) {
     dependencyAgeMain($argv);
 }
 
 /**
- * The wiring: arguments, the real network, the real clock, the exit.
+ * The wiring: the real network, the real clock, the environment, the
+ * streams, the exit. Every decision is dependencyAgeCommand()'s.
  *
  * @param list<string> $argv
  */
@@ -433,34 +478,15 @@ function dependencyAgeMain(array $argv): void
         exit(1);
     }
 
-    $markdownFile = null;
-    $root = dirname(__DIR__);
-    $arguments = array_slice($argv, 1);
-    while ($arguments !== []) {
-        $argument = array_shift($arguments);
-        if ($argument === '--markdown') {
-            $markdownFile = array_shift($arguments);
-            if ($markdownFile === null || $markdownFile === '') {
-                fwrite(STDERR, "check-dependency-age: --markdown requires a path.\n");
-                exit(1);
-            }
-            continue;
-        }
-        $root = $argument;
-    }
+    $result = dependencyAgeCommand(
+        $argv,
+        static fn (string $url): ?string => dependencyAgeFetch($url),
+        new DateTimeImmutable(),
+        getenv('GATE_REPORT_FILE'),
+        dirname(__DIR__)
+    );
 
-    try {
-        echo dependencyAgeRun(
-            $root,
-            static fn (string $url): ?string => dependencyAgeFetch($url),
-            new DateTimeImmutable(),
-            $markdownFile,
-            getenv('GATE_REPORT_FILE')
-        );
-    } catch (RuntimeException $e) {
-        fwrite(STDERR, 'check-dependency-age: ' . $e->getMessage() . "\n");
-        exit(1);
-    }
-
-    exit(0);
+    fwrite(STDOUT, $result['stdout']);
+    fwrite(STDERR, $result['stderr']);
+    exit($result['exit']);
 }
