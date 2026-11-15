@@ -606,7 +606,10 @@ PHP;
         // string for it regardless of stdin) — a real HTTP SAPI is
         // required, hence php's own built-in web server rather than a
         // plain subprocess.
-        $decoded = json_decode($this->postStepViaHttpServer($this->tempDir, $stateFile, 1), true);
+        // The outbound check is not this test's subject and sits BEFORE the
+        // refusal it asserts: it answers « yes » here, so the result does not
+        // depend on whether the machine running the suite can reach GitHub.
+        $decoded = json_decode($this->postStepViaHttpServer($this->tempDir, $stateFile, 1, true), true);
 
         $this->assertIsArray($decoded, 'response body must be valid JSON');
         $this->assertTrue($decoded['done'] ?? false);
@@ -617,12 +620,37 @@ PHP;
     }
 
     /**
+     * The other direction of the injected probe: a connection that does NOT
+     * work is still refused, through the same real request handler, and the
+     * refusal comes before anything on the disk is looked at.
+     */
+    public function testStepOneRefusesWhenTheOutboundHttpsProbeFails(): void
+    {
+        $stateFile = $this->tempDir . '/.bootstrap-state.php';
+        \bootstrapWriteAccess($this->tempDir, ['https_verified_at' => time()]);
+
+        $decoded = json_decode($this->postStepViaHttpServer($this->tempDir, $stateFile, 1, false), true);
+
+        $this->assertIsArray($decoded, 'response body must be valid JSON');
+        $this->assertTrue($decoded['done'] ?? false);
+        $this->assertStringContainsString('connexion HTTPS sortante', (string) ($decoded['error'] ?? ''));
+        $this->assertStringNotContainsString('déjà une installation', (string) ($decoded['error'] ?? ''));
+    }
+
+    /**
      * Starts php -S serving a tiny router that calls
      * bootstrapHandleStepRequest() for real, POSTs {"step": $step} to
      * it, and returns the raw response body.
+     *
+     * $outboundHttps fixes the answer of step 1's « can this host reach
+     * GitHub over HTTPS » probe; null leaves the real probe in place.
      */
-    private function postStepViaHttpServer(string $docRoot, string $stateFile, int $step): string
-    {
+    private function postStepViaHttpServer(
+        string $docRoot,
+        string $stateFile,
+        int $step,
+        ?bool $outboundHttps = null
+    ): string {
         // The router answers its own readiness path with a token drawn for
         // this call, so the wait accepts THIS server and not whatever else
         // may have taken the port between asking for it and binding it.
@@ -630,11 +658,12 @@ PHP;
         $router = $this->tempDir . '-router.php';
         file_put_contents($router, sprintf(
             "<?php\nif ((\$_SERVER['REQUEST_URI'] ?? '') === '/ready') {\n    echo %s;\n    return true;\n}\n"
-                . "define('BOOTSTRAP_TEST', true);\nrequire %s;\nbootstrapHandleStepRequest(%s, %s);\n",
+                . "define('BOOTSTRAP_TEST', true);\nrequire %s;\nbootstrapHandleStepRequest(%s, %s, %s);\n",
             var_export($readyToken, true),
             var_export(dirname(__DIR__, 2) . '/bootstrap/bootstrap.php', true),
             var_export($docRoot, true),
-            var_export($stateFile, true)
+            var_export($stateFile, true),
+            $outboundHttps === null ? 'null' : 'static fn(): bool => ' . var_export($outboundHttps, true)
         ));
 
         [$process, $port] = $this->startHttpServer($router, $readyToken);

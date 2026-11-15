@@ -25,13 +25,24 @@
     <dl class="row mb-4">
         <dt class="col-5 col-sm-3">Liste de diffusion</dt>
         <dd class="col-7 col-sm-9">{{ list_label }}</dd>
-        {% if email.listType not in ['mail_merge', 'external'] %}
+        {% if email.listType not in ['mail_merge', 'external', 'imported'] %}
             <dt class="col-5 col-sm-3">Année(s) scoute(s)</dt>
             <dd class="col-7 col-sm-9">{{ scout_year_labels|join(', ')|default('—') }}</dd>
         {% endif %}
     </dl>
 
-    {% if email.status in ['sending', 'sent'] %}
+    {% if email.importedAt %}
+        {# Imported from a former site (D11): no list is re-read against
+           today's members, and the addresses that site knew are on the
+           « Suivi » tab, with what it knew of each. #}
+        {% include '@mass_mail/partials/_imported_notice.html.twig' with { imported_at: email.importedAt } only %}
+        <p>
+            Ce courriel a été importé de l'ancien site : ses destinataires ne sont pas recalculés.
+            Les adresses que l'ancien site connaissait sont dans l'onglet « Suivi » ({{ frozen_counts.total }}
+            message{{ frozen_counts.total > 1 ? 's' : '' }}{% if frozen_target_count > 0 %},
+            {{ frozen_target_count }} animé{{ frozen_target_count > 1 ? 's' : '' }} concerné{{ frozen_target_count > 1 ? 's' : '' }}{% endif %}).
+        </p>
+    {% elseif email.status in ['sending', 'sent'] %}
         {#
           Once the send has started the list is frozen: what matters is no
           longer who it WOULD reach but who it did, message by message —

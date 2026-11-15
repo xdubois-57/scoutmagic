@@ -257,13 +257,13 @@ class NewsController extends AbstractController
 
     /**
      * POST /news/images/upload — AJAX, the inline rich-text toolbar's
-     * image button (module usability review). Article visibility isn't
-     * known yet at this point (mid-edit, possibly still unsaved), so the
-     * uploaded image is stored role_min "public" like any other embedded
-     * body image — a chief/admin-only article's body images would still
-     * technically be reachable via direct /files/{id} link, same
-     * trade-off already accepted by the shared editable() image pipeline
-     * elsewhere in the app.
+     * image button (module usability review). The article's visibility is
+     * not known yet at this point (mid-edit, possibly still unsaved), so
+     * the image is stored at the provisional floor of whoever may write an
+     * article — `chief`, this route's own floor, so the author still sees
+     * it in the editor — and put on the floor of the article's text when
+     * the article is saved (Service\BodyImageAccess, issue #1110). Until
+     * then it is no anonymous visitor's to read.
      *
      * @param array<string, string> $params
      */
@@ -285,7 +285,7 @@ class NewsController extends AbstractController
                 'news/images',
                 self::IMAGE_ALLOWED_MIMES,
                 self::IMAGE_MAX_SIZE_BYTES,
-                'public',
+                \Modules\News\Service\BodyImageAccess::UNSAVED_ROLE_MIN,
                 'news',
                 AuthSession::getUserAccountId()
             );
@@ -307,7 +307,7 @@ class NewsController extends AbstractController
 
         return $this->json([
             'success' => true,
-            'url' => '/files/' . $fileId . ($this->hasMediumRendition($fileId) ? '/md' : ''),
+            'url' => \Core\File\FilePublicIds::urlFor($fileId, $this->hasMediumRendition($fileId) ? 'md' : null),
         ]);
     }
 
@@ -427,6 +427,14 @@ class NewsController extends AbstractController
             return $this->forbidden(self::NOT_THE_AUTHOR_MESSAGE, $request);
         }
 
+        // An imported article has no editor (D11): its page says why, and
+        // every route that would change it refuses on its own below.
+        if ($article->isImported()) {
+            FlashMessage::set('warning', ArticleService::IMPORTED_READ_ONLY_MESSAGE);
+
+            return $this->redirect('/news/' . $article->id);
+        }
+
         $context = $this->editorContext($article);
         $context['preview'] = (string) $request->getQuery('tab', '') === 'preview';
 
@@ -453,6 +461,14 @@ class NewsController extends AbstractController
         $accountId = (int) AuthSession::getUserAccountId();
         if (!$this->articleService->canEdit($article, $role, $accountId)) {
             return $this->forbidden(self::NOT_THE_AUTHOR_MESSAGE, $request);
+        }
+
+        // Refused before anything is read from the request, let alone
+        // written (D11): an upload of a new cover would otherwise land in
+        // `files` before the service refuses the save. Every intent goes
+        // through here — saving, publishing, scheduling, back to draft.
+        if ($article->isImported()) {
+            return $this->forbidden(ArticleService::IMPORTED_READ_ONLY_MESSAGE, $request);
         }
 
         $visibility = (string) $request->getBody('visibility', Article::VISIBILITY_PUBLIC);
@@ -534,6 +550,11 @@ class NewsController extends AbstractController
         $accountId = (int) AuthSession::getUserAccountId();
         if (!$this->articleService->canEdit($article, $role, $accountId)) {
             return $this->json(['success' => false, 'error' => 'Accès refusé.'], 403);
+        }
+
+        // Refused here first, and by the service again (D11).
+        if ($article->isImported()) {
+            return $this->json(['success' => false, 'error' => ArticleService::IMPORTED_READ_ONLY_MESSAGE], 409);
         }
 
         try {
@@ -676,13 +697,17 @@ class NewsController extends AbstractController
             'scheduled_for' => $article->publishedAt !== null
                 ? PublicationWording::longDateTime($article->publishedAt)
                 : '',
-            'can_edit' => $this->articleService->canEdit(
+            // No editor for an imported article (D11), so no way into one.
+            'can_edit' => !$article->isImported() && $this->articleService->canEdit(
                 $article,
                 $role,
                 (int) AuthSession::getUserAccountId()
             ),
             'breadcrumb_current' => $article->title,
-            'author_name' => $author->firstName ?? $author?->email,
+            // An imported article's author is whoever ran the import, not
+            // whoever wrote it on the old site: the page names nobody.
+            'author_name' => $article->isImported() ? null : ($author->firstName ?? $author?->email),
+            ...$this->importedContext($article, $fields),
             'form' => $form,
             'fields' => $this->fieldsForTemplate($fields, $memberOptions),
             'has_real_input' => $hasRealInput,
@@ -744,6 +769,44 @@ class NewsController extends AbstractController
         ])->setStatusCode(404);
     }
 
+    /**
+     * The read-only half of an imported article's page (D11, maquette
+     * « Marques Importé » — Actualités): the date it was imported, who may
+     * read it, and the labels of its form's questions, shown closed with
+     * the mention that no response was brought over.
+     *
+     * @param FormField[] $fields
+     * @return array{is_imported: bool, imported_on: string, audience_line: string, imported_questions: list<string>}
+     */
+    private function importedContext(Article $article, array $fields): array
+    {
+        if (!$article->isImported()) {
+            return ['is_imported' => false, 'imported_on' => '', 'audience_line' => '', 'imported_questions' => []];
+        }
+
+        $questions = [];
+        foreach ($fields as $field) {
+            if (!$field->isNonInput() && $field->label !== null && $field->label !== '') {
+                $questions[] = $field->label;
+            }
+        }
+
+        return [
+            'is_imported' => true,
+            'imported_on' => (string) $article->importedAt,
+            'audience_line' => self::visibleTo(PublicationWording::audience($article->visibility)),
+            'imported_questions' => $questions,
+        ];
+    }
+
+    /** « Visible des membres connectés », « Visible de tout le monde ». */
+    private static function visibleTo(string $audience): string
+    {
+        return str_starts_with($audience, 'les ')
+            ? 'Visible des ' . substr($audience, 4)
+            : 'Visible de ' . $audience;
+    }
+
     private function renderSocialPreview(Article $article): Response
     {
         return $this->render('@news/preview.html.twig', [
@@ -770,6 +833,9 @@ class NewsController extends AbstractController
      */
     private function socialMetaContext(Article $article): array
     {
+        $coverUrl = $article->imageFileId !== null
+            ? \Core\File\FilePublicIds::urlFor($article->imageFileId)
+            : '';
         $baseUrl = rtrim((string) ($this->settingService->get('base_url') ?: ''), '/');
 
         return [
@@ -781,7 +847,9 @@ class NewsController extends AbstractController
             'og_url' => $article->shortUrlCode !== null
                 ? $baseUrl . '/s/' . $article->shortUrlCode
                 : $baseUrl . '/news/' . $article->id,
-            'og_image_url' => $article->imageFileId !== null ? $baseUrl . '/files/' . $article->imageFileId : null,
+            // No opaque address yet (issue #1109): no image, rather than
+            // the site's own root offered as one.
+            'og_image_url' => $coverUrl !== '' ? $baseUrl . $coverUrl : null,
         ];
     }
 
@@ -826,9 +894,17 @@ class NewsController extends AbstractController
                 // stripped-body excerpt, so the list never shows leftover
                 // multi-paragraph formatting.
                 'excerpt' => $article->summary,
-                'form_badge' => $form === null ? null : ($form->isOpen() ? 'open' : 'closed'),
-                'can_edit' => $currentAccountId !== null,
-                'author_name' => $author->firstName ?? $author?->email,
+                // An imported article's form is closed for good, and it
+                // usually holds nothing but the article's text: the badge
+                // says « Formulaire fermé » only when there were questions.
+                'form_badge' => $form === null || ($article->isImported() && !$this->hasRealInputField(
+                    $this->formService->getFields($form->id)
+                )) ? null : ($form->isOpen() ? 'open' : 'closed'),
+                'can_edit' => $currentAccountId !== null && !$article->isImported(),
+                'is_imported' => $article->isImported(),
+                // An imported article names no author: its account is the
+                // one who ran the import, not who wrote it.
+                'author_name' => $article->isImported() ? null : ($author->firstName ?? $author?->email),
             ];
         }, $articles);
     }
@@ -1155,6 +1231,40 @@ class NewsController extends AbstractController
         // optional, so this now always applies (not just when a "has_form"
         // checkbox was ticked).
         $context['fields_override'] = $this->extractFields($request);
+
+        // The form's own settings, as submitted (issue #1140). The template
+        // reads them off the SAVED form — which is, for a new article, no
+        // form at all — so without this every refusal sent the author back
+        // to the stored values or the defaults: tickets switched off, dates
+        // reset, the Finances choice gone. The saved form is left alone for
+        // everything that is about what exists (its id, whether responses
+        // came in, the ICS already sent); only what the author is editing
+        // is replaced.
+        $settings = $this->extractFormSettings($request, $context['visibility_value']);
+        $saved = $context['form'] instanceof NewsForm ? $context['form'] : null;
+        $context['form_settings'] = new NewsForm(
+            $saved->id ?? 0,
+            $saved->newsArticleId ?? ($article->id ?? 0),
+            $settings['access'],
+            $settings['response_limit'],
+            $settings['opens_at'],
+            $settings['closes_at'],
+            $settings['is_force_closed'],
+            $settings['response_role_min'],
+            $settings['digest_email'],
+            $settings['issues_ticket'],
+            $settings['event_date'],
+            $settings['event_location'],
+            $saved->lastDigestSentAt ?? null,
+            $settings['finance_account_id'],
+            $saved->createdAt ?? '',
+            $settings['finance_category_id']
+        );
+        // Those two dates are not read off the form but off these
+        // defaults, which stand in for an unset value: a date the author
+        // cleared has to come back cleared, not as today.
+        $context['default_opens_at'] = $settings['opens_at'] ?? '';
+        $context['default_closes_at'] = $settings['closes_at'] ?? '';
 
         return $context;
     }

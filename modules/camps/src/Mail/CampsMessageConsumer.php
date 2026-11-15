@@ -165,7 +165,7 @@ class CampsMessageConsumer implements
             $labels[$camp->id] = $this->labelFor($camp);
         }
 
-        $this->notifier->proposed($camps, $labels);
+        $this->notifier->proposed($camps, $labels, !$message->senderUnverified());
     }
 
     // ── Api\ReferenceDirectory: the stays as a chief names them ────────
@@ -358,7 +358,11 @@ class CampsMessageConsumer implements
     private function learnFrom(InboundMessage $message, MessageLink $link): void
     {
         $campId = self::campIdFromReference($link->businessReference);
-        $email = trim(mb_strtolower($message->fromEmail));
+        // Never a contact from a sender nobody vouched for (issue #1121):
+        // a contact files every later message from that address
+        // unattended, so a forged `From:` would be taught to the stay by
+        // the very decision it fooled.
+        $email = $message->senderUnverified() ? '' : trim(mb_strtolower($message->fromEmail));
         if ($campId !== null && $email !== '' && filter_var($email, FILTER_VALIDATE_EMAIL) !== false) {
             $contacts = new \Modules\Camps\Repository\ContactRepository($this->pdo, $this->encryption);
             $known = false;

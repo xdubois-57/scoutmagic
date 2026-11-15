@@ -10,6 +10,7 @@ namespace Modules\Gallery\Service;
 
 use Core\Security\Role;
 use Modules\Gallery\Api\DelegatedAlbumAccessChecker;
+use Modules\Gallery\Api\DelegatedMediaAccessChecker;
 
 /**
  * The registry Controller\GalleryController::serveMedia() consults for a
@@ -42,6 +43,38 @@ class DelegatedAlbumAccessRegistry
             if ($checker->supports($ownerType)) {
                 return $checker->isAllowed($ownerId, $currentRole, $linkedMemberIds);
             }
+        }
+
+        return false;
+    }
+
+    /**
+     * isAllowed() for one media of the album: the album-wide rule first,
+     * then the media's own when the owner's checker has one (Api\
+     * DelegatedMediaAccessChecker — a group hides the images of a post
+     * moderation hid, issue #1119). What serves or hands out ONE media asks
+     * this, never isAllowed() alone.
+     *
+     * @param array<int, int> $linkedMemberIds
+     */
+    public function isMediaAllowed(
+        string $ownerType,
+        int $ownerId,
+        int $mediaId,
+        Role $currentRole,
+        array $linkedMemberIds,
+        ?int $userAccountId
+    ): bool {
+        foreach ($this->checkers as $checker) {
+            if (!$checker->supports($ownerType)) {
+                continue;
+            }
+            if (!$checker->isAllowed($ownerId, $currentRole, $linkedMemberIds)) {
+                return false;
+            }
+
+            return !$checker instanceof DelegatedMediaAccessChecker
+                || $checker->isMediaAllowed($ownerId, $mediaId, $currentRole, $linkedMemberIds, $userAccountId);
         }
 
         return false;

@@ -7,6 +7,95 @@
 declare(strict_types=1);
 
 /**
+ * ---------------------------------------------------------------------
+ * The suite's temporary directory is its own, and goes with it (#1015)
+ * ---------------------------------------------------------------------
+ * Hundreds of tests create files and directories under sys_get_temp_dir()
+ * with a uniqid() or random_bytes() in the name, and many never remove
+ * them — no tearDown(), a tearDown() that misses a level, a config file
+ * written once and forgotten. On a machine whose /tmp outlives a run (a
+ * developer's, a Claude Code container, a self-hosted runner) every run
+ * left hundreds more: one container counted over 100 000.
+ *
+ * So the whole run gets ONE directory of its own under the system's
+ * temporary directory, `scoutmagic-phpunit-<pid>-<random>`, TMPDIR points
+ * at it — sys_get_temp_dir(), tempnam(), and any process a test starts
+ * all land there — and it is removed, recursively, when the run ends. A
+ * run killed outright leaves that one directory, named for what it is.
+ *
+ * **This has to be the first thing that runs.** PHP remembers the answer
+ * of sys_get_temp_dir() from its first call; TMPDIR set after that changes
+ * nothing, silently. Hence before the autoloader, and hence the check
+ * below: a redirect that did not take is a bootstrap that refuses to run,
+ * not a suite back to filling /tmp without a sound.
+ * Tests\Bootstrap\TestTemporaryDirectoryTest asserts it from inside the run.
+ */
+(static function (): void {
+    $systemTemp = getenv('TMPDIR');
+    if (!is_string($systemTemp) || $systemTemp === '' || !is_dir($systemTemp)) {
+        $configured = ini_get('sys_temp_dir');
+        $systemTemp = is_string($configured) && $configured !== '' ? $configured : '/tmp';
+    }
+
+    $runDirectory = rtrim($systemTemp, '/') . '/scoutmagic-phpunit-' . getmypid() . '-' . bin2hex(random_bytes(4));
+    if (!mkdir($runDirectory, 0700) && !is_dir($runDirectory)) {
+        throw new RuntimeException('The test run could not create its temporary directory: ' . $runDirectory);
+    }
+    $runDirectory = (string) realpath($runDirectory);
+
+    putenv('TMPDIR=' . $runDirectory);
+    $_ENV['TMPDIR'] = $runDirectory;
+    if (sys_get_temp_dir() !== $runDirectory) {
+        // Refused, and nothing left behind by the refusal itself.
+        @rmdir($runDirectory);
+        throw new RuntimeException(
+            'tests/bootstrap.php could not redirect the temporary directory: sys_get_temp_dir() still answers '
+                . sys_get_temp_dir() . '. Either PHP is configured with sys_temp_dir (php.ini or -d), which '
+                . 'takes precedence over TMPDIR — remove it for the test run — or something called '
+                . 'sys_get_temp_dir() before this bootstrap, whose first answer PHP keeps (#1015).'
+        );
+    }
+    define('SCOUTMAGIC_TEST_TEMP_DIR', $runDirectory);
+
+    $owner = getmypid();
+    register_shutdown_function(static function () use ($runDirectory, $owner): void {
+        // A process this one forked inherits the handler, never the directory.
+        if (getmypid() !== $owner || !is_dir($runDirectory)) {
+            return;
+        }
+        // Writable again first, parents before children: a test that made
+        // a directory read-only would otherwise keep what it holds.
+        $directories = new RecursiveIteratorIterator(
+            new RecursiveDirectoryIterator($runDirectory, FilesystemIterator::SKIP_DOTS),
+            RecursiveIteratorIterator::SELF_FIRST,
+            RecursiveIteratorIterator::CATCH_GET_CHILD
+        );
+        foreach ($directories as $entry) {
+            /** @var SplFileInfo $entry */
+            if ($entry->isDir() && !$entry->isLink()) {
+                @chmod($entry->getPathname(), 0700);
+            }
+        }
+
+        $entries = new RecursiveIteratorIterator(
+            new RecursiveDirectoryIterator($runDirectory, FilesystemIterator::SKIP_DOTS),
+            RecursiveIteratorIterator::CHILD_FIRST,
+            RecursiveIteratorIterator::CATCH_GET_CHILD
+        );
+        foreach ($entries as $entry) {
+            /** @var SplFileInfo $entry */
+            $path = $entry->getPathname();
+            if ($entry->isDir() && !$entry->isLink()) {
+                @rmdir($path);
+                continue;
+            }
+            @unlink($path);
+        }
+        @rmdir($runDirectory);
+    });
+})();
+
+/**
  * PHPUnit's bootstrap: Composer's autoloader, plus one thing that has to
  * happen before a single test renders a template.
  *

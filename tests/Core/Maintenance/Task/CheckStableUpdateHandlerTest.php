@@ -48,6 +48,10 @@ class CheckStableUpdateHandlerTest extends TestCase
             $this->settings->register($key, '', 'text', 'L', 'D');
         }
         $this->settings->register('update_dependencies_changed', '0', 'boolean', 'L', 'D');
+        // The releases below live in github.com/owner/repo: the download URL
+        // is only trusted inside the repository the settings name.
+        $this->settings->set('update_github_owner', 'owner');
+        $this->settings->set('update_github_repo', 'repo');
 
         $this->schedulerRepository = new SchedulerRepository($this->pdo);
 

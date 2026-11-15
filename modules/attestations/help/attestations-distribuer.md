@@ -18,9 +18,9 @@ Publier et prévenir sont deux gestes, et c'est voulu.
 « Publier » dépose chaque attestation conservée sur la page de son membre.
 À partir de là, le lot est verrouillé : vous ne pouvez plus rien y changer.
 Pour répondre à une famille, vous pouvez ouvrir son attestation depuis sa
-fiche — une par une, et chaque ouverture est consignée au journal. Aucune
-famille ne voit celle d'une autre, et un animateur de section n'en voit
-aucune.
+fiche, ou depuis le lot lui-même avec le bouton **PDF** de sa ligne — une
+par une, et chaque ouverture est consignée au journal. Aucune famille ne
+voit celle d'une autre, et un animateur de section n'en voit aucune.
 
 Les lignes non cochées sont supprimées à ce moment-là, y compris celles qui
 n'ont pas de membre. Le lot conserve leur nombre, pas leur contenu.
@@ -34,6 +34,11 @@ avertissement, elle la réclamera des mois plus tard, par e-mail.
 Chaque famille reçoit son document en pièce jointe. C'est ce qui atteint
 aussi celles qui ont quitté l'unité et n'ont plus accès au site. Les
 messages partent par petits groupes ; rechargez la page pour suivre.
+
+L'objet et le message nomment l'animé concerné, après le nom du lot
+(Attestation fiscale 2025 — Emma Dupont) : une famille de trois enfants
+reçoit trois messages qu'elle distingue sans ouvrir les pièces jointes.
+Un renvoi depuis la fiche du membre est rédigé de la même façon.
 
 Une notification accompagne l'envoi — une seule par compte, jamais une par
 enfant.

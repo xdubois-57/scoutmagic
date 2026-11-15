@@ -256,6 +256,34 @@ final class RentalInventoryValidationServiceTest extends TestCase
         $this->assertSame(1, $this->embeddedJpegCount((string) $this->filedPdf));
     }
 
+    /**
+     * A photo whose stored bytes are no longer a photo — overwritten on
+     * the disk — has no copy, like a file gone: the normaliser's refusal
+     * leaves it out, and never refuses the validation over it.
+     */
+    public function testAPhotoWhoseBytesNoLongerDecodeIsLeftOut(): void
+    {
+        $booking = $this->createBooking();
+        $this->stay->addInventoryItem($this->assetId, 'Clés');
+        $this->stay->snapshotInventory($booking, $this->assetId);
+        $broken = $this->storedPhoto(1);
+        $kept = $this->storedPhoto(2);
+        $this->stay->reportIncident($booking, 'Rayure', null, [$broken, $kept], 1);
+        $record = $this->fileRepository->findById($broken);
+        $this->assertNotNull($record);
+        file_put_contents($this->storagePath . '/' . $record->relativePath, 'Plus une photo depuis longtemps.');
+        $renderer = new InventoryPhotoRenderer($this->fileRepository, $this->storagePath);
+        $this->assertSame([$kept], array_keys($renderer->render([$broken, $kept])), 'the broken photo has no copy');
+        $this->arrivalValidated($booking);
+
+        $this->signWith($this->validationService(), $booking, ReadingPhase::DEPARTURE, $this->at('2027-07-04 11:30'));
+
+        $this->assertArrayHasKey('departure', $this->stay->inventoryValidations($booking->id));
+        $text = (new Parser())->parseContent((string) $this->filedPdf)->getText();
+        $this->assertStringContainsString('Rayure (photo 1)', $text);
+        $this->assertSame(1, $this->embeddedJpegCount((string) $this->filedPdf));
+    }
+
     // ── Signed on the spot (#989, lot E) ────────────────────────────────
 
     /**
@@ -946,6 +974,106 @@ final class RentalInventoryValidationServiceTest extends TestCase
 
         $this->assertSame([], $this->stay->inventoryValidations($booking->id));
         $this->assertSame($documents, (int) $this->pdo->query('SELECT COUNT(*) FROM rental_documents')->fetchColumn());
+    }
+
+    /**
+     * The journal refusing the act of an inventory signed on paper changes
+     * nothing of the committed validation: the failure goes to the
+     * server's log, with ids only, and the renter still receives the PDF.
+     */
+    public function testAPaperSigningWhoseJournalLineIsRefusedStillStands(): void
+    {
+        $account = $this->sessionAccount();
+        $booking = $this->bookingWithAnInventory();
+        $this->pdo->exec(
+            "CREATE TRIGGER refuse_paper_act BEFORE INSERT ON event_log
+             WHEN NEW.event_type = 'rental_inventory_signed_on_paper'
+             BEGIN SELECT RAISE(ABORT, 'refused'); END"
+        );
+        $mail = $this->createStub(RentalBookingMailService::class);
+        $mail->method('sendDocument')->willReturn('<message@test>');
+
+        [$result, $written] = $this->withServerLog(fn(): array => $this->realService($mail)->validate(
+            $booking,
+            $this->asset(),
+            ReadingPhase::ARRIVAL,
+            1,
+            InventorySigning::onPaper(new PaperSheet($this->storedPhoto(33), $account)),
+            null,
+            $this->at('2027-07-01 15:30')
+        ));
+
+        $validation = $this->stay->inventoryValidations($booking->id)['arrival'];
+        $this->assertSame(RenterSigning::PAPER, $validation['renter_signing']);
+        $this->assertSame($result['sha256'], $validation['document_sha256']);
+        $this->assertTrue($result['sent'], 'the renter still receives the PDF');
+        $this->assertSame([], $this->journalContexts('rental_inventory_signed_on_paper'));
+        $this->assertStringContainsString(
+            'the journal line of an inventory signed on paper failed (PDOException): booking #' . $booking->id
+                . ', document #' . $result['document']->id,
+            $written
+        );
+        $this->assertStringNotContainsString('Jeanne', $written);
+    }
+
+    /**
+     * A notification that fails while its journal line is refused too:
+     * the second failure goes to the server's log, never up to the
+     * validation, which stands.
+     */
+    public function testAFailedNotificationWhoseJournalLineIsRefusedStillValidates(): void
+    {
+        $account = $this->sessionAccount();
+        $booking = $this->bookingWithAnInventory();
+        $notifications = $this->createStub(NotificationService::class);
+        $notifications->method('dispatch')->willThrowException(new \RuntimeException('push'));
+        $this->pdo->exec(
+            "CREATE TRIGGER refuse_notification_failure BEFORE INSERT ON event_log
+             WHEN NEW.event_type = 'rental_signer_notification_failed'
+             BEGIN SELECT RAISE(ABORT, 'refused'); END"
+        );
+
+        [$result, $written] = $this->withServerLog(fn(): array => $this->realService(null, $notifications)->validate(
+            $booking,
+            $this->asset(),
+            ReadingPhase::ARRIVAL,
+            1,
+            InventorySigning::without(RenterSigning::REFUSED),
+            $this->managerSignature($account),
+            $this->at('2027-07-01 15:30')
+        ));
+
+        $this->assertArrayHasKey('arrival', $this->stay->inventoryValidations($booking->id));
+        $this->assertSame([], $this->journalContexts('rental_signer_notification_failed'));
+        $this->assertStringContainsString(
+            'a signer notification failed (RuntimeException) and so did its journal line (PDOException):'
+                . ' booking #' . $booking->id . ', document #' . $result['document']->id,
+            $written
+        );
+    }
+
+    /**
+     * Runs $work with PHP's error log sent to a file of its own, and
+     * returns what $work returned with what was written there.
+     *
+     * @template T
+     * @param \Closure(): T $work
+     * @return array{0: T, 1: string}
+     */
+    private function withServerLog(\Closure $work): array
+    {
+        $log = (string) tempnam(sys_get_temp_dir(), 'inventorylog');
+        $previous = ini_set('error_log', $log);
+
+        try {
+            $result = $work();
+            $written = (string) file_get_contents($log);
+        } finally {
+            ini_set('error_log', (string) $previous);
+            @unlink($log);
+        }
+
+        return [$result, $written];
     }
 
     /**

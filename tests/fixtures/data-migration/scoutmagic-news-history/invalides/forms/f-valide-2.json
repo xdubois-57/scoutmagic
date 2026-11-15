@@ -1,0 +1,10 @@
+{
+    "id": "f-valide-2",
+    "article_id": "a-valide",
+    "fields": [
+        {
+            "type": "short_text",
+            "label": "Un second formulaire"
+        }
+    ]
+}

@@ -790,9 +790,9 @@ class MemberSearchControllerTest extends TestCase
     /**
      * @return array{0: int, 1: int} member_year id, member_document id
      */
-    private function seedMemberWithDocument(string $title = 'Attestation fiscale 2025'): array
+    private function seedMemberWithDocument(string $title = 'Attestation fiscale 2025', string $firstName = 'jean'): array
     {
-        $memberYearId = $this->seedMember();
+        $memberYearId = $this->seedMember(null, $firstName);
         $memberId = (int) $this->pdo
             ->query('SELECT member_id FROM member_years WHERE id = ' . $memberYearId)
             ->fetchColumn();
@@ -843,8 +843,31 @@ class MemberSearchControllerTest extends TestCase
 
         $mail = $this->mailTransport->delivered[0];
         $this->assertSame('jean@ex.be', $mail->getToAddresses()[0][0]);
-        $this->assertStringEndsWith('Attestation fiscale 2025', $mail->Subject);
+        $this->assertStringEndsWith('Attestation fiscale 2025 — Jean Dupont', $mail->Subject);
         $this->assertCount(1, $mail->getAttachments());
+    }
+
+    /**
+     * Issue #1096: the resend names the member of the sheet — whose the
+     * document was just checked to be — in the subject and both bodies,
+     * written as the screens write it and escaped in the HTML.
+     */
+    public function testAResendNamesTheMemberTheDocumentBelongsTo(): void
+    {
+        [$memberYearId, $documentId] = $this->seedMemberWithDocument('Attestation fiscale 2025', "zoé-lou <d'arc>");
+
+        $this->resend($memberYearId, $documentId);
+
+        $this->assertCount(1, $this->mailTransport->delivered);
+        $mail = $this->mailTransport->delivered[0];
+        $name = \Core\Service\TextNormalizerService::normalizeName("zoé-lou <d'arc> DUPONT");
+        $this->assertStringEndsWith('Attestation fiscale 2025 — ' . $name, $mail->Subject);
+        $this->assertStringContainsString(
+            'concernant <strong>' . htmlspecialchars($name, ENT_QUOTES, 'UTF-8') . '</strong>',
+            $mail->Body
+        );
+        $this->assertStringNotContainsString("<d'Arc>", $mail->Body, 'the name is escaped in the HTML');
+        $this->assertStringContainsString('concernant ' . $name . '.', $mail->AltBody);
     }
 
     /**

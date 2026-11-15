@@ -43,12 +43,23 @@
                         {% if article.imageFileId %}
                             <img src="{{ file_url(article.imageFileId, 'thumb') }}" alt="" class="rounded flex-shrink-0"
                                  style="width:100px;height:100px;object-fit:cover;" loading="lazy" decoding="async">
+                        {% elseif row.is_imported %}
+                            {# D4: an article of the old site may have had no
+                               picture, and none is invented — a neutral tile
+                               says so, the list keeping its rhythm. #}
+                            <div class="rounded flex-shrink-0 border bg-body-tertiary text-body-secondary small d-flex align-items-center justify-content-center text-center"
+                                 style="width:100px;height:100px;" aria-hidden="true">Pas d'image</div>
                         {% endif %}
                         <div class="flex-grow-1" style="min-width:0;">
                             <h2 class="h5 mb-1">
-                                <a href="{{ manage ? '/news/' ~ article.id ~ '/gerer' : '/news/' ~ article.id }}" class="text-decoration-none stretched-link">{{ article.title }}</a>
+                                {# An imported article has no management page (D11):
+                                   even a manager lands on the article itself. #}
+                                <a href="{{ manage and not row.is_imported ? '/news/' ~ article.id ~ '/gerer' : '/news/' ~ article.id }}" class="text-decoration-none stretched-link">{{ article.title }}</a>
                             </h2>
                             <div class="d-flex flex-wrap align-items-center gap-2 small text-body-secondary mb-2">
+                                {% if row.is_imported %}
+                                    {% include '@news/partials/_imported_badge.html.twig' only %}
+                                {% endif %}
                                 {#
                                   The publication state, first and solid,
                                   so it stands out from the light badges
@@ -88,7 +99,11 @@
                                     {% if row.author_name %}<span>· {{ row.author_name }}</span>{% endif %}
                                 {% endif %}
                             </div>
-                            <p class="mb-0" style="display:-webkit-box;-webkit-line-clamp:2;line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">{{ row.excerpt }}</p>
+                            {# No summary is invented for an imported article
+                               that had none (D4): the line is left out. #}
+                            {% if row.excerpt %}
+                                <p class="mb-0" style="display:-webkit-box;-webkit-line-clamp:2;line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">{{ row.excerpt }}</p>
+                            {% endif %}
                         </div>
                     </div>
                 </div>

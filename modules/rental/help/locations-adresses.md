@@ -24,8 +24,12 @@ départage ses réservations.
 
 ## Ajouter et retirer
 
-« Ajouter une adresse » en ajoute une. L'adresse du locataire lui-même ou
-une adresse déjà listée est refusée. La croix au bout de sa ligne
+« Ajouter une adresse » en ajoute une. Si vous n'êtes pas du staff
+d'unité, vous la choisissez parmi les adresses déjà présentes dans le
+courrier de la réservation ; une autre adresse, demandez-la au staff
+d'unité. L'adresse du locataire lui-même, une adresse déjà listée ou une
+adresse de l'unité est refusée. Une adresse tapée à la main ne rattache
+que les messages datés entre la demande et 60 jours après le départ. La croix au bout de sa ligne
 (« Retirer ») en retire une après confirmation : les messages déjà rattachés restent sur la réservation,
 seuls les suivants ne le seront plus automatiquement. Chaque ajout et
 chaque retrait figure dans l'historique de la réservation.

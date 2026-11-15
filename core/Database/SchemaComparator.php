@@ -38,6 +38,12 @@ class SchemaComparator
      */
     public const DEFAULT_FOLLOWING_COLUMNS = [
         'age_branches.explanation_url',
+        // 0, « no limit », was the shipped default of an optional field,
+        // not a decision: an asset still holding it had a calendar one
+        // anonymous request could take whole (issue #1114). A manager who
+        // wants no limit types 0 again after the move.
+        'rental_assets.max_nights',
+        'rental_assets.max_horizon_days',
     ];
 
     /** @var array<string> */

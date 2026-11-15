@@ -7,114 +7,114 @@
   "enabled_by_default": false,
   "routes": [
     {
-      "path": "/admin/migration-donnees",
+      "path": "/config/migration-donnees",
       "method": "GET",
       "controller": "Modules\\DataMigration\\Controller\\DataMigrationController",
       "action": "index",
-      "menu": "espace_admin",
-      "role_min": "admin",
+      "menu": "configuration",
+      "role_min": "superadmin",
       "label": "Migration de données",
       "menu_icon": "bi-box-arrow-in-down",
-      "menu_group": "services",
-      "menu_order": 190,
+      "menu_group": "donnees_sauvegardes",
+      "menu_order": 170,
       "breadcrumb": {
         "label": "Migration de données",
         "parents": [
-          "Espace chefs d'U"
+          "Configuration"
         ]
       }
     },
     {
-      "path": "/admin/migration-donnees/{importer}",
+      "path": "/config/migration-donnees/{importer}",
       "method": "GET",
       "controller": "Modules\\DataMigration\\Controller\\DataMigrationController",
       "action": "show",
-      "menu": "espace_admin",
-      "role_min": "admin",
+      "menu": "configuration",
+      "role_min": "superadmin",
       "label": "",
       "breadcrumb": {
         "label": "Import",
         "parents": [
-          "Espace chefs d'U"
+          "Configuration"
         ],
         "ancestors": [
           {
             "label": "Migration de données",
-            "path": "/admin/migration-donnees"
+            "path": "/config/migration-donnees"
           }
         ]
       }
     },
     {
-      "path": "/admin/migration-donnees/{importer}/depot",
+      "path": "/config/migration-donnees/{importer}/depot",
       "method": "POST",
       "controller": "Modules\\DataMigration\\Controller\\DataMigrationController",
       "action": "uploadChunk",
-      "menu": "espace_admin",
-      "role_min": "admin",
+      "menu": "configuration",
+      "role_min": "superadmin",
       "label": ""
     },
     {
-      "path": "/admin/migration-donnees/{importer}/source",
+      "path": "/config/migration-donnees/{importer}/source",
       "method": "POST",
       "controller": "Modules\\DataMigration\\Controller\\DataMigrationController",
       "action": "submitSource",
-      "menu": "espace_admin",
-      "role_min": "admin",
+      "menu": "configuration",
+      "role_min": "superadmin",
       "label": ""
     },
     {
-      "path": "/admin/migration-donnees/{importer}/avancer",
+      "path": "/config/migration-donnees/{importer}/avancer",
       "method": "POST",
       "controller": "Modules\\DataMigration\\Controller\\DataMigrationController",
       "action": "advance",
-      "menu": "espace_admin",
-      "role_min": "admin",
+      "menu": "configuration",
+      "role_min": "superadmin",
       "label": ""
     },
     {
-      "path": "/admin/migration-donnees/{importer}/confirmer",
+      "path": "/config/migration-donnees/{importer}/confirmer",
       "method": "POST",
       "controller": "Modules\\DataMigration\\Controller\\DataMigrationController",
       "action": "confirm",
-      "menu": "espace_admin",
-      "role_min": "admin",
+      "menu": "configuration",
+      "role_min": "superadmin",
       "label": ""
     },
     {
-      "path": "/admin/migration-donnees/{importer}/pause",
+      "path": "/config/migration-donnees/{importer}/pause",
       "method": "POST",
       "controller": "Modules\\DataMigration\\Controller\\DataMigrationController",
       "action": "pause",
-      "menu": "espace_admin",
-      "role_min": "admin",
+      "menu": "configuration",
+      "role_min": "superadmin",
       "label": ""
     },
     {
-      "path": "/admin/migration-donnees/{importer}/reprendre",
+      "path": "/config/migration-donnees/{importer}/reprendre",
       "method": "POST",
       "controller": "Modules\\DataMigration\\Controller\\DataMigrationController",
       "action": "resume",
-      "menu": "espace_admin",
-      "role_min": "admin",
+      "menu": "configuration",
+      "role_min": "superadmin",
       "label": ""
     },
     {
-      "path": "/admin/migration-donnees/{importer}/abandonner",
+      "path": "/config/migration-donnees/{importer}/abandonner",
       "method": "POST",
       "controller": "Modules\\DataMigration\\Controller\\DataMigrationController",
       "action": "abandon",
-      "menu": "espace_admin",
-      "role_min": "admin",
+      "menu": "configuration",
+      "role_min": "superadmin",
       "label": ""
     },
     {
-      "path": "/admin/migration-donnees/{importer}/relancer",
+      "path": "/config/migration-donnees/{importer}/relancer",
       "method": "POST",
       "controller": "Modules\\DataMigration\\Controller\\DataMigrationController",
       "action": "restart",
-      "menu": "espace_admin",
-      "role_min": "admin",
+      "menu": "configuration",
+      "role_min": "superadmin",
       "label": ""
     }
   ],

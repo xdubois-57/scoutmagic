@@ -161,6 +161,14 @@ final class PortableArchive
             if (!is_array($manifest) || ($manifest['format'] ?? null) !== PortableManifest::FORMAT) {
                 throw new BackupException('Le manifeste de cette sauvegarde portable est illisible.');
             }
+            // Format 2 is ours, but from before every file was named in the
+            // manifest (issue #1103): its storage entries cannot be told
+            // from ones a stranger added, so it is refused rather than
+            // restored on trust — the maintainer's choice, over restoring
+            // the database and keys alone.
+            if (($manifest['format_version'] ?? null) === PortableManifest::FORMAT_VERSION_WITHOUT_FILE_DIGESTS) {
+                throw new BackupException(PortableManifest::REFUSED_WITHOUT_FILE_DIGESTS);
+            }
             if (($manifest['format_version'] ?? null) !== PortableManifest::FORMAT_VERSION) {
                 throw new BackupException(
                     'Cette sauvegarde portable a été écrite dans un format que cette version ne sait pas lire. '
@@ -624,6 +632,19 @@ final class PortableArchive
                 continue;
             }
 
+            // **The name is judged as the filesystem will read it** (issue
+            // #1103). The refusals below compare text prefixes, and
+            // `storage/./temp/x` or `storage//keys/x` share none with the
+            // trees they name — while `extractTo()` collapses both and
+            // writes exactly there. So a name must already be canonical:
+            // no `.`, `..` or empty segment (one trailing slash is a
+            // directory entry, which is how a zip spells one), and no
+            // control character. The writer produces nothing else, so an
+            // archive that does is not ours, and is refused whole.
+            if (!self::isCanonicalEntryName($name)) {
+                throw new BackupException('Archive de sauvegarde invalide (chemin non autorisé).');
+            }
+
             // **And inside `storage/`, the trees the WRITER never puts
             // there.** Being under `storage/` is not the same as being
             // data. `storage/temp/twig_cache/` holds compiled templates
@@ -683,6 +704,38 @@ final class PortableArchive
                 throw new BackupException('Archive de sauvegarde invalide (lien symbolique).');
             }
 
+            // **Only what the encrypted manifest names** (issue #1103, part
+            // 2). Since format 3 every file of this tree is listed there
+            // with its digest, and verifyDeclaredMembers() checks each one
+            // before a byte is written. An entry the manifest does not name
+            // is one somebody added without the passphrase — anybody able
+            // to write to the remote destination can append one in clear,
+            // CRC and all — so the archive is refused whole, before
+            // extraction, rather than that entry quietly left out.
+            $declared = $this->manifest['members'] ?? [];
+            if (!is_array($declared) || !array_key_exists($name, $declared)) {
+                throw new BackupException(
+                    'Cette sauvegarde portable contient un fichier qu\'elle n\'annonce pas : elle a été modifiée '
+                    . 'après sa création. Rien n\'a été modifié. Restaurez une copie intacte.',
+                    0,
+                    new \RuntimeException('Undeclared portable entry: ' . $name)
+                );
+            }
+
+            // **Nothing a web server or PHP would execute is written**
+            // (issue #1103). Under `storage/` the unit's data has opaque
+            // names — EncryptedFileStorageService's random hex plus `.enc`
+            // — so a PHP file or an `.htaccess` there is never data. It is
+            // left out rather than refusing the archive: a deny-all
+            // `.htaccess` the site itself placed in a storage directory is
+            // archived like any file, and an archive this site produced
+            // must stay restorable. Whatever already protects the
+            // directory on disk stays untouched, since extraction only
+            // ever adds.
+            if (self::isExecutableEntryName($name)) {
+                continue;
+            }
+
             $uncompressed += (int) $stat['size'];
             if ($uncompressed > self::MAX_RESTORE_UNCOMPRESSED_BYTES) {
                 throw new BackupException('Archive de sauvegarde trop volumineuse une fois décompressée.');
@@ -692,6 +745,65 @@ final class PortableArchive
         }
 
         return $entries;
+    }
+
+    /**
+     * Whether the archive carries anything under `storage/` at all —
+     * before any entry is vetted or left out.
+     *
+     * The question {@see restorableEntries()} cannot answer on its own: an
+     * empty list means either an archive with no site files, which is not
+     * one of ours, or one whose every storage file was a file a web server
+     * would run and was left out — a site whose `storage/` held nothing but
+     * the deny-all `.htaccess` it wrote itself. The first is refused; the
+     * second restores its database and keys and extracts nothing.
+     */
+    public function hasStorageMembers(): bool
+    {
+        for ($i = 0; $i < $this->zip->numFiles; $i++) {
+            $name = $this->zip->getNameIndex($i);
+            if ($name !== false && str_starts_with(str_replace('\\', '/', $name), self::RESTORED_TREE)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Whether $name is spelled the one way the filesystem will read it:
+     * slash-separated, with no empty, `.` or `..` segment and no control
+     * character. A single trailing slash is allowed — that is a directory
+     * entry, as every zip writer spells one.
+     */
+    private static function isCanonicalEntryName(string $name): bool
+    {
+        if (preg_match('/[\x00-\x1F\x7F]/', $name) === 1) {
+            return false;
+        }
+
+        $segments = explode('/', str_ends_with($name, '/') ? substr($name, 0, -1) : $name);
+        foreach ($segments as $segment) {
+            if ($segment === '' || $segment === '.' || $segment === '..') {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Whether Apache or PHP would act on a file of this name: a per-
+     * directory configuration file, or a PHP-family extension anywhere in
+     * the name — `photo.php.jpg` included, which an `AddHandler` runs.
+     * Case-insensitive, for the reason the forbidden-tree check is.
+     */
+    private static function isExecutableEntryName(string $name): bool
+    {
+        $basename = strtolower(basename(rtrim($name, '/')));
+
+        return in_array($basename, ['.htaccess', '.htpasswd', '.user.ini'], true)
+            || preg_match('/\.(php\d*|phtml|pht|phps|phpt|phar)(\.|$)/', $basename) === 1;
     }
 
     /** The open handle, for the caller that extracts. */

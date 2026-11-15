@@ -149,3 +149,30 @@ CREATE TABLE IF NOT EXISTS gallery_media (
     CONSTRAINT fk_gallery_media_album FOREIGN KEY (album_id) REFERENCES gallery_albums(id) ON DELETE CASCADE,
     CONSTRAINT fk_gallery_media_file FOREIGN KEY (file_id) REFERENCES files(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- gallery_zip_downloads: one row per whole-album ZIP an account has
+-- started, kept only long enough to count them — Service\
+-- ZipDownloadLimiter refuses the eleventh within an hour (issue #1112,
+-- audit SEC-013). A ZIP bundles a whole album in one request, so it is
+-- the route that turns « can see an album » into « can carry the whole
+-- gallery away in an afternoon »; one media at a time is not counted.
+--
+-- Same shape as discussion_group_rate_limits (modules/groups/schema.sql):
+-- short-lived rows in a small dedicated table, both ends of the window
+-- comparison computed on the application clock in PHP, purged daily by
+-- Task\PurgeZipDownloadsHandler. Keyed on the ACCOUNT, not on a member:
+-- the limit is about who is downloading, and an account with no linked
+-- member downloads too. The account id is stored in the clear — nothing
+-- else is, no album, no address — and the row goes with the account
+-- (ON DELETE CASCADE). user_accounts is core's table, so this foreign key
+-- crosses no module boundary (Tests\Architecture\ModuleSchemaBoundariesTest).
+CREATE TABLE IF NOT EXISTS gallery_zip_downloads (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    user_account_id INT UNSIGNED NOT NULL,
+    -- Written from PHP (Core\Config\AppClock), never left to the column:
+    -- the window's lower bound is computed on that same clock.
+    created_at DATETIME NOT NULL,
+    INDEX idx_gallery_zip_downloads_account (user_account_id, created_at),
+    INDEX idx_gallery_zip_downloads_created (created_at),
+    CONSTRAINT fk_gallery_zip_dl_account FOREIGN KEY (user_account_id) REFERENCES user_accounts(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

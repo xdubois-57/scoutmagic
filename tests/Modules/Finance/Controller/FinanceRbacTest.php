@@ -148,8 +148,7 @@ class FinanceRbacTest extends TestCase
         // which is what every test above scopeToTreasurerOf() asserts.
         $this->treasurerScopeService = new \Modules\Finance\Service\TreasurerScopeService(
             Connection::withPdo($this->pdo),
-            new \Core\Badge\BadgeRepository($this->pdo),
-            new MemberBadgeRepository($this->pdo)
+            new \Core\Badge\BadgeRepository($this->pdo)
         );
         $this->accountVisibility = new \Modules\Finance\Service\AccountVisibility(
             \Modules\Finance\Service\TreasurerScope::systemCaller()
@@ -319,7 +318,8 @@ class FinanceRbacTest extends TestCase
             ),
             'ConfigController' => new ConfigController($this->twig, $this->financeService, $this->schedulerService),
             'ConfigAccountController' => new ConfigAccountController(
-                $this->twig, $this->financeService, $this->sectionService, $this->attachmentRepository, $this->fileRepository, $this->journalService
+                $this->twig, $this->financeService, $this->sectionService, $this->attachmentRepository, $this->fileRepository, $this->journalService,
+                new \Modules\Finance\Repository\CampaignRepository($this->pdo)
             ),
             'ConfigCategoryController' => new ConfigCategoryController(
                 $this->twig, $this->financeService, $this->categoryRuleRepository, $this->journalService,

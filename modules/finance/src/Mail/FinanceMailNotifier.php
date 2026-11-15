@@ -28,6 +28,10 @@ class FinanceMailNotifier
 {
     public const TYPE_PROPOSITION = 'finance.mail_proposition';
 
+    /** Added to a notification about a message whose sender nobody vouched for (issue #1121). */
+    public const UNVERIFIED_SENDER = 'Son expéditeur n\'a pas été vérifié par le serveur de réception : '
+        . 'ne vous fiez pas à l\'adresse affichée.';
+
     public function __construct(
         private NotificationService $notifications,
         private \PDO $pdo,
@@ -40,8 +44,11 @@ class FinanceMailNotifier
 
     /**
      * @param string[] $accountLabels how a treasurer names each account proposed
+     * @param bool $senderVerified false when the receiving server did not
+     *                             vouch for the sender (issue #1121): the
+     *                             notification says so
      */
-    public function proposed(array $accountLabels): void
+    public function proposed(array $accountLabels, bool $senderVerified): void
     {
         $recipients = $this->treasurers();
         if ($recipients === [] || $accountLabels === []) {
@@ -53,11 +60,12 @@ class FinanceMailNotifier
             $recipients,
             [
                 'title' => 'Un reçu reçu par e-mail attend votre confirmation',
-                'body' => count($accountLabels) === 1
+                'body' => (count($accountLabels) === 1
                     ? 'Une pièce jointe pourrait être un reçu du compte « ' . $accountLabels[0]
                         . ' ». Confirmez ou écartez la proposition dans « Courrier à trier ».'
                     : 'Une pièce jointe pourrait être un reçu de l\'un de ces comptes : « '
-                        . implode(' », « ', $accountLabels) . ' ». Tranchez dans « Courrier à trier ».',
+                        . implode(' », « ', $accountLabels) . ' ». Tranchez dans « Courrier à trier ».')
+                    . ($senderVerified ? '' : ' ' . self::UNVERIFIED_SENDER),
                 'url' => '/finance/receipts',
             ]
         );

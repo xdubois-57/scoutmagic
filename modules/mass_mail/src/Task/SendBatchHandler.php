@@ -106,6 +106,22 @@ class SendBatchHandler implements TaskHandlerInterface
                 continue;
             }
 
+            // An email imported from a former site is never sent from here
+            // (D11): its import writes no 'pending' message and « Renvoyer »
+            // is refused, so a pending one can only be a fault. Failing it
+            // explicitly keeps it from leaving AND from blocking the queue.
+            if ($email->isImported()) {
+                $deliveryRepository->recordSendFailure($delivery->id, 'Courriel importé, jamais envoyé');
+                $massMailService->journalDeliveryNotSendable(
+                    $email->id,
+                    $delivery->id,
+                    $memberIds,
+                    'Courriel importé, jamais envoyé'
+                );
+                $errorCount++;
+                continue;
+            }
+
             // Mail-merge: this message's subject/body are rendered from its
             // own file row's values, right before sending. A row already
             // purged by retention can't be rendered — explicit failure,

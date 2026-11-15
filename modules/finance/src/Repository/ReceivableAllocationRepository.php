@@ -23,10 +23,11 @@ class ReceivableAllocationRepository
     /**
      * @return ReceivableAllocation[]
      */
-    public function findByReceivableId(int $receivableId): array
+    public function findByReceivableId(int $receivableId, bool $current = false): array
     {
         $stmt = $this->pdo->prepare(
             'SELECT * FROM finance_receivable_allocations WHERE receivable_id = ? ORDER BY id ASC'
+            . $this->currentRead($current)
         );
         $stmt->execute([$receivableId]);
 
@@ -66,10 +67,11 @@ class ReceivableAllocationRepository
     /**
      * @return ReceivableAllocation[]
      */
-    public function findByTransactionId(int $transactionId): array
+    public function findByTransactionId(int $transactionId, bool $current = false): array
     {
         $stmt = $this->pdo->prepare(
             'SELECT * FROM finance_receivable_allocations WHERE transaction_id = ? ORDER BY id ASC'
+            . $this->currentRead($current)
         );
         $stmt->execute([$transactionId]);
 
@@ -102,10 +104,11 @@ class ReceivableAllocationRepository
         return $byTransaction;
     }
 
-    public function findPair(int $transactionId, int $receivableId): ?ReceivableAllocation
+    public function findPair(int $transactionId, int $receivableId, bool $current = false): ?ReceivableAllocation
     {
         $stmt = $this->pdo->prepare(
             'SELECT * FROM finance_receivable_allocations WHERE transaction_id = ? AND receivable_id = ?'
+            . $this->currentRead($current)
         );
         $stmt->execute([$transactionId, $receivableId]);
         $row = $stmt->fetch(\PDO::FETCH_ASSOC);
@@ -184,5 +187,19 @@ class ReceivableAllocationRepository
             createdBy: $row['created_by'] !== null ? (int) $row['created_by'] : null,
             createdAt: (string) $row['created_at']
         );
+    }
+
+    /**
+     * `$current` asks for what is committed now rather than what the
+     * transaction's snapshot holds (issue #1118): a shared locking read,
+     * which a REPEATABLE READ transaction opened elsewhere needs once it
+     * has waited on a movement's lock. SQLite has no such clause and
+     * serialises writers anyway.
+     */
+    private function currentRead(bool $current): string
+    {
+        return $current && $this->pdo->getAttribute(\PDO::ATTR_DRIVER_NAME) !== 'sqlite'
+            ? ' LOCK IN SHARE MODE'
+            : '';
     }
 }

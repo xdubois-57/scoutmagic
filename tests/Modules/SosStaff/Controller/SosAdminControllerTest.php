@@ -634,6 +634,50 @@ class SosAdminControllerTest extends TestCase
         $this->assertNotEmpty($scheduled);
     }
 
+    /**
+     * Review of #1194: a Staff d'U member whose Desk GSM is no phone number
+     * stays in the grid, and saving the month keeps their duties — the save
+     * rewrites the whole month from the roster, so dropping them from it
+     * would delete what was recorded for them without a word.
+     */
+    public function testSavingTheMonthKeepsTheDutiesOfAMemberWithAnUnusableGsm(): void
+    {
+        $this->now = new \DateTimeImmutable('2026-06-15 08:00:00');
+        $akela = $this->createStaffduMember('Akela', '+32470000001');
+        $baloo = $this->createStaffduMember('Baloo', '0470 12 34', 'Paul', 'Martin');
+
+        $response = $this->controller->saveOnCall(
+            $this->jsonRequest([
+                'year' => 2026,
+                'month' => 7,
+                'cells' => [
+                    ['member_id' => $akela, 'date' => '2026-07-05', 'state' => OnCallAssignment::STATE_ONCALL],
+                    ['member_id' => $baloo, 'date' => '2026-07-06', 'state' => OnCallAssignment::STATE_ONCALL],
+                ],
+                '_csrf_token' => $this->csrfToken(),
+            ]),
+            []
+        );
+
+        $this->assertTrue(json_decode($response->getBody(), true)['success']);
+        $kept = $this->onCallRepository->findForDate('2026-07-06');
+        $this->assertCount(1, $kept);
+        $this->assertSame($baloo, $kept[0]->memberId);
+    }
+
+    public function testThePlanningNamesAMemberWhoseGsmIsNoNumber(): void
+    {
+        $this->createStaffduMember('Akela', '+32470000001');
+        $this->createStaffduMember('Baloo', '0470 12 34', 'Paul', 'Martin');
+
+        $body = $this->planning();
+
+        $this->assertMatchesRegularExpression(
+            '/id="sos-planning-unusable-mobiles"[^>]*>.*Baloo \(Paul Martin\)/s',
+            $body
+        );
+    }
+
     public function testResavingTheGridDoesNotAccumulateStaleEntriesInThePlannedList(): void
     {
         // Re-saving cancels the previous month's pending transitions
@@ -1220,18 +1264,60 @@ class SosAdminControllerTest extends TestCase
         $this->assertStringContainsString('Fennec (Jean Dupont)', $this->dashboard());
     }
 
-    public function testDefaultNumberPreviewExplainsWhenTheSavedMemberIsNoLongerOffered(): void
+    /**
+     * Issue #1125: a stored choice that no longer holds is set aside — the
+     * page shows the fallback the line now uses, says why, and lets
+     * « Enregistrer » confirm it (the saved value is still the old choice).
+     */
+    public function testAStoredChoiceNoLongerOfferedShowsTheFallbackAndSaysWhy(): void
     {
         $former = $this->createStaffduMember('Fennec', '+32470000001');
-        $this->createStaffduMember('Fennec', '+32470000002', 'Pierre', 'Martin');
+        $fallback = $this->createStaffduMember('Fennec', '+32470000002', 'Pierre', 'Martin');
         $this->settingsService->setDefaultNumberFromMember($former);
         $stmt = $this->pdo->prepare('UPDATE member_years SET mobile_encrypted = NULL WHERE member_id = ?');
         $stmt->execute([$former]);
 
         $body = $this->settingsPage();
         preg_match('/id="default-number-preview"[^>]*>(.*?)<\/output>/s', $body, $preview);
-        $this->assertSame('Le choix enregistré n’est plus proposé. Sélectionnez un membre.', $preview[1] ?? '');
-        $this->assertStringContainsString('Fennec (Pierre Martin) (+32470000002)', $body);
+        $this->assertSame('Fennec (Pierre Martin) (+32470000002)', $preview[1] ?? '');
+        $this->assertStringContainsString('id="default-number-stale-warning"', $body);
+        $this->assertMatchesRegularExpression('/data-saved-value="' . $former . '"/', $body);
+        $this->assertSame($fallback, $this->settingsService->resolveDefaultNumberMemberId($this->scoutYearId));
+    }
+
+    /**
+     * Issue #1125: a Staff d'U member whose Desk GSM is no phone number is
+     * named on the settings page, and offered nowhere.
+     */
+    public function testTheSettingsPageNamesAGsmThatIsNoNumber(): void
+    {
+        $this->createStaffduMember('Akela', '+32470000001');
+        $this->createStaffduMember('Baloo', '0470 12 34', 'Paul', 'Martin');
+
+        $body = $this->settingsPage();
+
+        $this->assertMatchesRegularExpression('/id="sos-unusable-mobiles"[^>]*>.*Baloo \(Paul Martin\)/s', $body);
+        $this->assertStringNotContainsString('0470 12 34', $body);
+    }
+
+    /**
+     * Review of #1194: every Staff d'U GSM is unusable and a default had
+     * been chosen. The page says the numbers are invalid, not missing, and
+     * still says the stored choice no longer holds — the urgent attention
+     * point sends the chef d'unité here.
+     */
+    public function testWhenEveryGsmIsUnusableTheSettingsPageSaysSoAndKeepsTheStaleWarning(): void
+    {
+        $baloo = $this->createStaffduMember('Baloo', '+32470000002', 'Paul', 'Martin');
+        $this->settingsService->setDefaultNumberFromMember($baloo);
+        $this->pdo->prepare('UPDATE member_years SET mobile_encrypted = ? WHERE member_id = ?')
+            ->execute([(new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)))->encrypt('0470 12 34', 'member_years.mobile'), $baloo]);
+
+        $body = $this->settingsPage();
+
+        $this->assertMatchesRegularExpression('/id="default-number-none"[^>]*>.*GSM valide dans Desk/s', $body);
+        $this->assertStringNotContainsString("n'a de numéro de mobile enregistré", $body);
+        $this->assertStringContainsString('id="default-number-stale-warning"', $body);
     }
 
     public function testThePlanningNamesThePersonWhoActuallyReceivesTheCallsOnADay(): void
@@ -1824,6 +1910,51 @@ class SosAdminControllerTest extends TestCase
 
         $this->assertTrue($answer['success']);
         $this->assertSame('La redirection est déjà conforme.', $answer['message']);
+        $this->assertSame([], $this->applyCalls);
+    }
+
+    /**
+     * Issue #1125 (review of #1194): the operator spells the number its own
+     * way and Desk another — the same number is no misalignment, neither on
+     * the dashboard nor for « Resynchroniser ».
+     */
+    public function testTheSameNumberInAnotherSpellingIsAlreadyConform(): void
+    {
+        $this->createStaffduMember('Akela', '0470 00 00 01');
+        $this->forwarding = new \Modules\SosStaff\Api\ForwardingState(true, '0032470000001');
+
+        $body = $this->dashboard();
+        $answer = $this->resynchronize();
+
+        $this->assertStringNotContainsString('data-redirect-action="resync"', $body);
+        $this->assertTrue($answer['success']);
+        $this->assertSame('La redirection est déjà conforme.', $answer['message']);
+        $this->assertSame([], $this->applyCalls);
+    }
+
+    /**
+     * Review of #1194: the member on duty has a Desk GSM that is no phone
+     * number. The dashboard offers no correction, and the endpoint refuses
+     * one without calling apply() — which would alert every chef d'unité
+     * once per click.
+     */
+    public function testAnUnusableGsmOnDutyOffersNoCorrectionAndAlertsNobody(): void
+    {
+        $this->createStaffduMember('Akela', '+32470000001');
+        $baloo = $this->createStaffduMember('Baloo', '0470 12 34', 'Paul', 'Martin');
+        $this->putOnDuty($baloo);
+        $this->forwarding = new \Modules\SosStaff\Api\ForwardingState(true, '+32470000001');
+
+        $body = $this->dashboard();
+        $answer = $this->resynchronize();
+
+        $this->assertStringNotContainsString('data-redirect-action=', $body);
+        // Not silent either (review of #1194): the block names who and why.
+        $this->assertMatchesRegularExpression('/id="sos-redirect-unusable"[^>]*>.*Baloo \(Paul Martin\)/s', $body);
+        $this->assertStringNotContainsString('0470 12 34', $body);
+        $this->assertSame(409, $answer['_status']);
+        $this->assertFalse($answer['success']);
+        $this->assertStringContainsString("n'est pas un numéro de téléphone valide", $answer['error']);
         $this->assertSame([], $this->applyCalls);
     }
 

@@ -191,6 +191,34 @@ class TemporaryMemberControllerTest extends TestCase
         $this->assertTrue(ConfigurationMode::isActive());
     }
 
+    /**
+     * Issue #1124: the override is set in the authorization year, which a
+     * year preview hides together with its banner and its removal button —
+     * so a successful addition ends the preview, and the admin sees what
+     * was added and how to take it away.
+     */
+    public function testAnAdditionMadeInAPreviewEndsThePreview(): void
+    {
+        $memberYearId = $this->seedMember();
+        \Core\ScoutYear\ScoutYearSession::setPreview($this->otherYearId);
+
+        $this->controller->add($this->post("/admin/members/{$memberYearId}/temporary-access"), ['id' => (string) $memberYearId]);
+
+        $this->assertSame($memberYearId, TemporaryMemberSession::get());
+        $this->assertNull(\Core\ScoutYear\ScoutYearSession::getPreviewId());
+    }
+
+    public function testARefusedAdditionKeepsThePreview(): void
+    {
+        $memberYearId = $this->seedMember($this->otherYearId);
+        \Core\ScoutYear\ScoutYearSession::setPreview($this->otherYearId);
+
+        $this->controller->add($this->post("/admin/members/{$memberYearId}/temporary-access"), ['id' => (string) $memberYearId]);
+
+        $this->assertNull(TemporaryMemberSession::get());
+        $this->assertSame($this->otherYearId, \Core\ScoutYear\ScoutYearSession::getPreviewId());
+    }
+
     public function testAddIsJournaledWithoutPersonalData(): void
     {
         $memberYearId = $this->seedMember();

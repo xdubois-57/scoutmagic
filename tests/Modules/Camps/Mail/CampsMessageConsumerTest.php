@@ -1269,6 +1269,21 @@ class CampsMessageConsumerTest extends TestCase
         $this->assertSame('Fermier', $contacts[0]->roleLabel, 'the contact the chief typed is left alone');
     }
 
+    /**
+     * Issue #1121: a sender the receiving server did not vouch for never
+     * becomes a contact, even filed by hand — the next message from that
+     * address would otherwise be filed unattended.
+     */
+    public function testAManualAssociationOfAnUnverifiedSenderTeachesNothing(): void
+    {
+        $this->consumer()->onLinked(
+            $this->messageFrom('epouse@example.org', 'Marie Lambert', LinkOrigin::MANUAL, senderVerified: false),
+            new MessageLink(CampsMessageConsumer::CONSUMER_ID, 'camp-' . $this->campId, LinkOrigin::MANUAL)
+        );
+
+        $this->assertSame([], $this->contacts->findByCamp($this->campId));
+    }
+
     public function testAnAutomaticAssociationTeachesNothing(): void
     {
         $this->consumer()->onLinked(
@@ -1279,8 +1294,12 @@ class CampsMessageConsumerTest extends TestCase
         $this->assertSame([], $this->contacts->findByCamp($this->campId));
     }
 
-    private function messageFrom(string $from, ?string $name, LinkOrigin $origin): \Modules\InboundMail\Api\InboundMessage
-    {
+    private function messageFrom(
+        string $from,
+        ?string $name,
+        LinkOrigin $origin,
+        bool $senderVerified = true
+    ): \Modules\InboundMail\Api\InboundMessage {
         return new \Modules\InboundMail\Api\InboundMessage(
             1,
             self::SHARED_MAILBOX,
@@ -1296,7 +1315,8 @@ class CampsMessageConsumerTest extends TestCase
             'Corps',
             '',
             [],
-            []
+            [],
+            senderVerified: $senderVerified
         );
     }
 

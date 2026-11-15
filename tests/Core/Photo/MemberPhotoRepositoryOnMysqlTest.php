@@ -81,6 +81,31 @@ final class MemberPhotoRepositoryOnMysqlTest extends TestCase
         $this->repository->insertIfAbsent($this->memberId + 1000, $this->yearId, $this->file('a.jpg'), null);
     }
 
+    /**
+     * The backfill of issue #1108 is an UPDATE of `files` whose value and
+     * filter are subqueries on `member_photos` — the shape AGENTS.md
+     * § Database asks to see on the production engine (a subquery reading
+     * the table being updated would be refused there, error 1093; this one
+     * must not be).
+     */
+    public function testTheOwnershipBackfillRunsOnTheProductionEngine(): void
+    {
+        $owned = $this->file('a.jpg');
+        $this->pdo->prepare('INSERT INTO member_photos (member_id, scout_year_id, file_id) VALUES (?, ?, ?)')
+            ->execute([$this->memberId, $this->yearId, $owned]);
+        $unrelated = $this->file('b.jpg');
+
+        $this->assertSame(1, $this->repository->backfillFileOwnership());
+
+        $owner = $this->pdo->query("SELECT owner_type, owner_id FROM files WHERE id = {$owned}")->fetch(\PDO::FETCH_ASSOC);
+        $this->assertSame('member_photo', $owner['owner_type']);
+        $this->assertSame($this->memberId, (int) $owner['owner_id']);
+        $this->assertNull(
+            $this->pdo->query("SELECT owner_type FROM files WHERE id = {$unrelated}")->fetchColumn() ?: null
+        );
+        $this->assertSame(0, $this->repository->backfillFileOwnership());
+    }
+
     private function file(string $name): int
     {
         $this->pdo->prepare(

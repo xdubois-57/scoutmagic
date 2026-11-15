@@ -46,10 +46,16 @@ class NewMessageNotifier
     ) {
     }
 
-    public function messageFiled(RentalBooking $booking): void
+    /**
+     * @param bool $senderVerified false when the receiving server did not
+     *                             vouch for `From:` (issue #1121): the
+     *                             notification then says the message
+     *                             PRESENTS itself as the renter's
+     */
+    public function messageFiled(RentalBooking $booking, bool $senderVerified): void
     {
         try {
-            $this->announce($booking);
+            $this->announce($booking, $senderVerified);
         } catch (\Throwable $e) {
             $this->journal?->log(
                 'rental',
@@ -62,7 +68,7 @@ class NewMessageNotifier
         }
     }
 
-    private function announce(RentalBooking $booking): void
+    private function announce(RentalBooking $booking, bool $senderVerified): void
     {
         $asset = $this->assetRepository->findById($booking->assetId);
         if ($asset === null) {
@@ -75,8 +81,12 @@ class NewMessageNotifier
         }
 
         $this->notifications->dispatch(self::TYPE, $recipients, [
-            'title' => 'Nouveau message du locataire — ' . $asset->name,
-            'body' => 'Un e-mail a été rattaché à la réservation ' . $booking->reference . '.',
+            'title' => ($senderVerified
+                ? 'Nouveau message du locataire — '
+                : 'Message non vérifié se présentant comme le locataire — ') . $asset->name,
+            'body' => 'Un e-mail a été rattaché à la réservation ' . $booking->reference . '.'
+                . ($senderVerified ? '' : ' Le serveur de réception n\'a pas confirmé son expéditeur : '
+                    . 'vérifiez-le avant de vous y fier.'),
             'url' => '/mes-locations/' . rawurlencode($asset->slug) . '/reservations/' . $booking->id . '/courrier',
         ]);
     }

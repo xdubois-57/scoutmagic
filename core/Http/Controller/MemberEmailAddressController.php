@@ -24,10 +24,13 @@ use Twig\Environment;
  * Member page "Adresses email" management — add/delete/resend/reactivate,
  * plus the public confirmation-link target. Deliberately self-only, no
  * chief/admin bypass (module addendum: "a member manages ONLY their own
- * secondary emails") — every mutating action re-verifies the requesting
- * account is linked to the member's CURRENT year (same
- * canAccess(..., 'identified') idiom Core\Http\Controller\MemberController
- * already uses for its own $isSelf), never the route's role_min alone.
+ * secondary emails") — every mutating action re-verifies that the requesting
+ * account is one of the member's CURRENT addresses (the Desk address of the
+ * member's latest record, or a confirmed secondary address — never the
+ * address printed on the record id in the URL, issue #1101), through the
+ * same canAccess(..., 'identified') idiom Core\Http\Controller\
+ * MemberController uses for its own $isSelf, never the route's role_min
+ * alone.
  */
 class MemberEmailAddressController extends AbstractController
 {

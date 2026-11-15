@@ -25,6 +25,7 @@ use Modules\Finance\Service\StructuredCommunicationService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Finance\FinanceTestHelper;
+use Tests\Support\PdfImages;
 use Tests\TestTwig;
 use Twig\Environment;
 use Core\Member\Repository\MemberProfileRepository;
@@ -333,7 +334,7 @@ class PaymentLabelServiceTest extends TestCase
         // distinct image, and every receivable carries its own structured
         // communication, so no two QR codes of a sheet are ever the same
         // bytes.
-        $this->assertSame(2, preg_match_all('#/Subtype\s*/Image#', $pdf), 'one QR per unsettled receivable');
+        $this->assertSame(2, PdfImages::count($pdf), 'one QR per unsettled receivable');
     }
 
     // ── helpers ─────────────────────────────────────────────────────────

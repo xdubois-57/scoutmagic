@@ -39,7 +39,7 @@ class PortableArchiveHintsTest extends TestCase
     {
         $document = $this->document();
 
-        $this->assertSame(2, PortableManifest::FORMAT_VERSION);
+        $this->assertSame(3, PortableManifest::FORMAT_VERSION);
         $this->assertSame(PortableManifest::FORMAT_VERSION, $document['format_version']);
         $this->assertSame('2.4.1', $document['scoutmagic_version']);
         $this->assertSame('https://unite.example', $document['site_url']);
@@ -154,6 +154,21 @@ class PortableArchiveHintsTest extends TestCase
 
         $this->assertSame(PortableArchiveHints::MAX_TEXT_LENGTH, mb_strlen($hints->siteUrl));
         $this->assertStringStartsWith('https://a.example/xxx', $hints->siteUrl);
+    }
+
+    /**
+     * A format-2 archive is ours, but names none of its storage files
+     * (issue #1103): refused with its own sentence, which does not tell the
+     * operator to update a site that is already up to date.
+     */
+    public function testAnArchiveOfTheFormatWithoutFileDigestsIsRefusedSayingWhy(): void
+    {
+        $document = $this->document();
+        $document['format_version'] = PortableManifest::FORMAT_VERSION_WITHOUT_FILE_DIGESTS;
+
+        $this->expectException(BackupException::class);
+        $this->expectExceptionMessage(PortableManifest::REFUSED_WITHOUT_FILE_DIGESTS);
+        PortableKeys::parseHints((string) json_encode($document));
     }
 
     /** A format-1 archive is refused by name, never guessed at. */

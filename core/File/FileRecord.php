@@ -21,7 +21,9 @@ class FileRecord
         public readonly bool $encrypted,
         public readonly ?int $ownerMemberId = null,
         public readonly ?string $ownerType = null,
-        public readonly ?int $ownerId = null
+        public readonly ?int $ownerId = null,
+        /** The opaque identifier it is served under (Core\File\FilePublicIds). */
+        public readonly ?string $publicId = null
     ) {
     }
 }

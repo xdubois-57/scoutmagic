@@ -14,7 +14,10 @@ use Core\Http\Response;
 use Core\Journal\JournalService;
 use Core\Member\Export\MemberExportRowBuilder;
 use Core\Member\Export\MemberExportService;
+use Core\Member\MemberRosterRow;
+use Core\Member\MemberService;
 use Core\Member\Movement\MemberMovementStatus;
+use Core\Member\SectionContactAccess;
 use Core\Member\SectionRosterPdfService;
 use Core\Member\SectionRosterService;
 use Core\Member\SectionService;
@@ -47,6 +50,11 @@ class SectionRosterController extends AbstractController
         private MemberExportService $exportService,
         private ScoutYearResolver $scoutYearResolver,
         private JournalService $journalService,
+        /**
+         * Whose contacts this viewer may see (issue #1116): their linked
+         * members, in the year shown — Core\Member\SectionContactAccess.
+         */
+        private MemberService $memberService,
         /**
          * Trailing and nullable so every existing construction of this
          * controller keeps working — the same posture as the module
@@ -85,15 +93,23 @@ class SectionRosterController extends AbstractController
 
         $sectionIds = array_map(fn(array $s) => (int) $s['id'], $sectionsToRender);
         $roster = $this->rosterService->buildRoster($sectionIds, $effectiveYear->id);
+        $contactAccess = $this->contactAccess($role, $effectiveYear->id);
 
         $sectionBlocks = [];
         foreach ($sectionsToRender as $section) {
             $sectionId = (int) $section['id'];
+            // Withheld here, before the template: a row that reaches Twig
+            // with its contacts is a row the page can print (issue #1116).
+            $contactsShown = $contactAccess->seesContactsOf((string) $section['desk_code']);
+            $rows = static fn(array $bucket): array => $contactsShown
+                ? $bucket
+                : array_map(static fn(MemberRosterRow $row): MemberRosterRow => $row->withoutContacts(), $bucket);
             $sectionBlocks[] = [
                 'section' => $section,
-                'animateurs' => $roster[$sectionId]['animateurs'] ?? [],
-                'intendants' => $roster[$sectionId]['intendants'] ?? [],
-                'animes' => $roster[$sectionId]['animes'] ?? [],
+                'contacts_shown' => $contactsShown,
+                'animateurs' => $rows($roster[$sectionId]['animateurs'] ?? []),
+                'intendants' => $rows($roster[$sectionId]['intendants'] ?? []),
+                'animes' => $rows($roster[$sectionId]['animes'] ?? []),
             ];
         }
 
@@ -149,15 +165,26 @@ class SectionRosterController extends AbstractController
         [, , $sectionsToRender] = $this->resolveSelection($request, $allSections);
         $sectionIds = array_map(fn(array $s) => (int) $s['id'], $sectionsToRender);
 
-        $rows = $this->exportRowBuilder->buildForSections($sectionIds, $effectiveYear->id);
+        $contactAccess = $this->contactAccess($role, $effectiveYear->id);
+        $rows = $this->exportRowBuilder->buildForSections($sectionIds, $effectiveYear->id, $contactAccess);
         $xlsx = $this->exportService->buildSpreadsheet($rows, $role, 'Membres ' . $effectiveYear->label);
 
+        // `security`: a copy of personal data leaving the site's protections
+        // (SECURITY.md §5) — counters only, never a name (issue #1116).
         $this->journalService->log(
             'core',
             'section_roster_exported',
-            'info',
+            'security',
             'Export des membres par section',
-            ['scout_year_id' => $effectiveYear->id, 'section_count' => count($sectionIds), 'row_count' => count($rows)],
+            [
+                'scout_year_id' => $effectiveYear->id,
+                'section_count' => count($sectionIds),
+                'row_count' => count($rows),
+                'sections_without_contacts' => count(array_filter(
+                    $sectionsToRender,
+                    static fn(array $section): bool => !$contactAccess->seesContactsOf((string) $section['desk_code'])
+                )),
+            ],
             AuthSession::getUserAccountId()
         );
 
@@ -244,6 +271,22 @@ class SectionRosterController extends AbstractController
                 'attachment; filename="' . $this->pdfService->fileName($effectiveYear->label, $sectionName) . '"'
             )
             ->setHeader('Content-Length', (string) strlen($pdf));
+    }
+
+    /**
+     * The viewer's contact rule for the year shown — the one « Staffs »
+     * applies (Core\Member\SectionContactAccess, issue #1116).
+     */
+    private function contactAccess(Role $role, int $scoutYearId): SectionContactAccess
+    {
+        if ($role->hasAccess(Role::CHIEF)) {
+            return SectionContactAccess::forViewer($role, []);
+        }
+
+        return SectionContactAccess::forViewer(
+            $role,
+            $this->memberService->getLinkedMembers(AuthSession::getEmail() ?? '', $scoutYearId)
+        );
     }
 
     /**

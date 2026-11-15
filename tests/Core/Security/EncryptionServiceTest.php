@@ -41,23 +41,173 @@ class EncryptionServiceTest extends TestCase
         );
     }
 
-    public function testPassingTheBase64StringDirectlyProducesADifferentWeakerKey(): void
+    public function testPassingTheBase64StringDirectlyIsRefused(): void
     {
-        // Demonstrates the M1 bug: passing the 44-char base64 string straight
-        // to OpenSSL (as the old boot code did) truncates to 32 chars = 24
-        // real bytes, a DIFFERENT key than the correctly-decoded one — so a
-        // ciphertext from the decoded service does not decrypt under the
-        // buggy one.
-        $rawKey = random_bytes(32);
-        $rawBlind = random_bytes(32);
-        $encoded = base64_encode($rawKey);
+        // The M1 bug: the 44-character base64 string handed straight to
+        // OpenSSL was silently cut to 32 characters = 24 real bytes, a weaker
+        // key than the decoded one. It used to be demonstrable as a decrypt
+        // failure; it is now refused where the wrong key would be taken.
+        $encoded = base64_encode(random_bytes(32));
 
-        $correct = EncryptionService::fromEncodedKeys($encoded, base64_encode($rawBlind));
-        $buggy = new EncryptionService($encoded, base64_encode($rawBlind));
+        $this->expectException(\InvalidArgumentException::class);
+        new EncryptionService($encoded, random_bytes(32));
+    }
 
-        $cipher = $correct->encrypt('secret');
-        $this->expectException(DecryptionException::class);
-        $buggy->decrypt($cipher);
+    /**
+     * Anything but exactly 32 raw bytes. OpenSSL zero-pads a short key and
+     * truncates a long one without a word, so each of these used to encrypt
+     * « successfully » under a key nobody chose — the empty one under 32 NUL
+     * bytes, known to everyone.
+     *
+     * @return array<string, array{string}>
+     */
+    public static function keysThatAreNotThirtyTwoBytes(): array
+    {
+        return [
+            'empty' => [''],
+            'one byte' => ['a'],
+            '24 bytes (a truncated 32-character base64 string)' => [str_repeat('a', 24)],
+            '31 bytes' => [str_repeat('a', 31)],
+            '33 bytes' => [str_repeat('a', 33)],
+            '44 bytes (a base64 string left undecoded)' => [str_repeat('a', 44)],
+            '64 bytes' => [str_repeat('a', 64)],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('keysThatAreNotThirtyTwoBytes')]
+    public function testTheConstructorRefusesAnEncryptionKeyThatIsNotThirtyTwoBytes(string $key): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('encryption key');
+        new EncryptionService($key, random_bytes(32));
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('keysThatAreNotThirtyTwoBytes')]
+    public function testTheConstructorRefusesABlindIndexKeyThatIsNotThirtyTwoBytes(string $key): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('blind index key');
+        new EncryptionService(random_bytes(32), $key);
+    }
+
+    public function testTheConstructorAcceptsExactlyThirtyTwoBytes(): void
+    {
+        $service = new EncryptionService(str_repeat("\0", 32), str_repeat("\xff", 32));
+
+        $this->assertSame('x', $service->decrypt($service->encrypt('x', 'ctx'), 'ctx'));
+    }
+
+    public function testTheRefusalNeverEchoesTheKey(): void
+    {
+        $key = 'super-secret-key-material-that-is-too-short';
+
+        try {
+            new EncryptionService($key, random_bytes(32));
+            $this->fail('a key of the wrong length must be refused');
+        } catch (\InvalidArgumentException $e) {
+            $this->assertStringNotContainsString($key, $e->getMessage());
+            $this->assertStringNotContainsString(bin2hex($key), $e->getMessage());
+            $this->assertStringNotContainsString(base64_encode($key), $e->getMessage());
+        }
+    }
+
+    /**
+     * PHP records the arguments of every frame on an exception's trace, and
+     * Core\Http\ErrorHandler writes that trace to error_log() — which the
+     * support package then bundles. The message is clean (above); the
+     * constructor frame is not, unless its parameters are marked
+     * #[\SensitiveParameter]. Both keys are on that frame: the bad one and
+     * the valid one next to it.
+     */
+    public function testTheTraceOfARefusalNeverCarriesAKey(): void
+    {
+        // PHP's defaults: arguments recorded, strings cut at 15 characters
+        // (this environment may configure either away, which would make the
+        // assertions below vacuous — the control checks it did not).
+        $previous = ini_set('zend.exception_ignore_args', '0');
+        $previousLength = ini_set('zend.exception_string_param_max_len', '15');
+        try {
+            $bad = 'bad-key-material-xyz';
+            $goodKey = 'GOOD-KEY-MATERIAL-12345678901234';
+
+            // Control: an ordinary function DOES leak its argument into the
+            // trace here, so the assertions below can fail.
+            $control = static function (string $secret): void {
+                throw new \RuntimeException('control');
+            };
+            try {
+                $control($bad);
+            } catch (\RuntimeException $e) {
+                $this->assertStringContainsString(
+                    substr($bad, 0, 10),
+                    $e->getTraceAsString(),
+                    'precondition: this PHP configuration records frame arguments'
+                );
+            }
+
+            foreach ([
+                'constructor, encryption key' => static fn () => new EncryptionService($bad, $goodKey),
+                'constructor, blind index key' => static fn () => new EncryptionService($goodKey, $bad),
+                'fromEncodedKeys, encryption key' => static fn () => EncryptionService::fromEncodedKeys(
+                    base64_encode($bad),
+                    base64_encode($goodKey)
+                ),
+                'fromEncodedKeys, blind index key' => static fn () => EncryptionService::fromEncodedKeys(
+                    base64_encode($goodKey),
+                    base64_encode($bad)
+                ),
+            ] as $label => $attempt) {
+                try {
+                    $attempt();
+                    $this->fail("{$label}: a key of the wrong length must be refused");
+                } catch (\InvalidArgumentException $e) {
+                    $trace = $e->getTraceAsString();
+                    foreach ([$bad, $goodKey, base64_encode($bad), base64_encode($goodKey)] as $secret) {
+                        $this->assertStringNotContainsString(
+                            substr($secret, 0, 10),
+                            $trace,
+                            "{$label}: no part of a key may appear in the trace"
+                        );
+                    }
+                }
+            }
+        } finally {
+            ini_set('zend.exception_ignore_args', $previous === false ? '1' : $previous);
+            ini_set('zend.exception_string_param_max_len', $previousLength === false ? '15' : $previousLength);
+        }
+    }
+
+    /**
+     * What `secrets.enc` hands over when a key is absent, empty, not base64
+     * or base64 of the wrong length. None of these may be turned into an
+     * empty key and used.
+     *
+     * @return array<string, array{string}>
+     */
+    public static function encodedKeysThatAreNotThirtyTwoBytes(): array
+    {
+        return [
+            'absent or empty' => [''],
+            'not base64' => ['!!!not base64 at all!!!'],
+            'base64 with a stray character' => [substr(base64_encode(random_bytes(32)), 0, 43) . '*'],
+            'base64 of 24 bytes' => [base64_encode(random_bytes(24))],
+            'base64 of 33 bytes' => [base64_encode(random_bytes(33))],
+            'base64 of 16 zero bytes' => [base64_encode(str_repeat("\0", 16))],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('encodedKeysThatAreNotThirtyTwoBytes')]
+    public function testFromEncodedKeysRefusesABadEncryptionKey(string $encoded): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        EncryptionService::fromEncodedKeys($encoded, base64_encode(random_bytes(32)));
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('encodedKeysThatAreNotThirtyTwoBytes')]
+    public function testFromEncodedKeysRefusesABadBlindIndexKey(string $encoded): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        EncryptionService::fromEncodedKeys(base64_encode(random_bytes(32)), $encoded);
     }
 
     public function testEncryptDecryptRoundTripsShortString(): void

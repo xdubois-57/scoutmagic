@@ -279,9 +279,17 @@ class RentalMessageConsumerTest extends TestCase
         string $body = 'Bonjour,',
         array $extraHeaders = [],
         string $date = 'Mon, 12 Jul 2027 09:30:00 +0200',
-        string $messageId = 'msg-1@example.be'
+        string $messageId = 'msg-1@example.be',
+        bool $authenticated = true
     ): void {
-        $headers = array_merge([
+        // What the receiving server writes on top of a message whose
+        // sender it could vouch for (issue #1121). Every scenario but the
+        // ones about forgery is about a genuine renter.
+        $verdict = $authenticated
+            ? ['Authentication-Results' => 'mx.unite.be; dmarc=pass header.from='
+                . substr($from, strrpos($from, '@') + 1)]
+            : [];
+        $headers = array_merge($verdict, [
             'From' => 'Jeanne Martin <' . $from . '>',
             'To' => 'locations@unite.be',
             'Subject' => $subject,
@@ -298,6 +306,39 @@ class RentalMessageConsumerTest extends TestCase
         $mailbox = $this->mailboxRepository->findById($this->mailboxId);
         $this->assertNotNull($mailbox);
         $this->syncService->syncMailbox($mailbox, new \DateTimeImmutable('2027-07-12 10:00:00'));
+    }
+
+    // ── The sender nobody vouched for (issue #1121) ─────────────────────
+
+    public function testTheVerdictOfTheReceivingServerIsStoredWithTheMessage(): void
+    {
+        $this->createBooking();
+        $this->deliver(10, 'Re: Votre réservation [LOC-K7Q2M4]', messageId: 'a@example.be');
+        $this->deliver(11, 'Re: Votre réservation [LOC-K7Q2M4]', messageId: 'b@example.be', authenticated: false);
+
+        $this->sync();
+
+        $verdicts = $this->pdo->query('SELECT sender_verified FROM inbound_messages ORDER BY imap_uid')
+            ->fetchAll(\PDO::FETCH_COLUMN);
+        $this->assertSame([1, 0], array_map('intval', $verdicts));
+    }
+
+    /**
+     * The audited forgery: anybody may write the renter's address in
+     * `From:`. The message may still be filed — the manager sees it marked
+     * — but a decision about it never teaches the booking that address.
+     */
+    public function testAManualAssociationOfAnUnverifiedMessageTeachesNothing(): void
+    {
+        $booking = $this->createBooking();
+        $this->deliver(10, 'Nouvelle adresse pour la caution', from: 'tresorier@groupe.example', authenticated: false);
+        $this->sync();
+        [$messageId] = $this->storedMessageIds();
+
+        $this->inboundMail->attach(RentalMessageConsumer::CONSUMER_ID, $booking->reference, $messageId, 7);
+
+        $this->assertSame([], $this->bookingRepository->otherRenterEmails($booking->id));
+        $this->assertTrue($this->communicationService->timeline($booking)[0]->senderUnverified());
     }
 
     // ── Level 1: the reference (§7.6) ───────────────────────────────────
@@ -559,6 +600,71 @@ class RentalMessageConsumerTest extends TestCase
         $this->assertSame(LinkOrigin::THREAD, $messages[0]->linkOrigin);
     }
 
+    // ── A typed « autre adresse » counts in the window only (#1106) ─────
+
+    /** A booking in March 2027: its window closed in early May, before the July mail. */
+    private function aMarchBooking(): RentalBooking
+    {
+        return $this->createBooking(
+            arrival: '2027-03-01',
+            departure: '2027-03-04',
+            receivedAt: new \DateTimeImmutable('2027-01-01 10:00:00')
+        );
+    }
+
+    public function testATypedAddressAttachesAMessageInsideTheBookingsWindow(): void
+    {
+        $booking = $this->createBooking();
+        $this->bookingRepository->addRenterEmail($booking->id, 'tresorier@groupe.example');
+        $this->deliver(10, 'Question sur la caution', from: 'tresorier@groupe.example');
+
+        $this->sync();
+
+        $messages = $this->communicationService->timeline($booking);
+        $this->assertCount(1, $messages);
+        $this->assertSame(LinkOrigin::SENDER, $messages[0]->linkOrigin);
+    }
+
+    /**
+     * The renter's own address reaches their only booking whatever the
+     * date. A typed one does not: nobody vouched for it, and a
+     * correspondent of the unit typed onto a booking must not bring
+     * along everything they ever exchanged with it.
+     */
+    public function testATypedAddressDoesNotBringAMessageFromOutsideTheWindow(): void
+    {
+        $booking = $this->aMarchBooking();
+        $this->bookingRepository->addRenterEmail($booking->id, 'federation@example.org');
+        $this->deliver(10, 'Assurance des camps', from: 'federation@example.org');
+
+        $this->sync();
+
+        $this->assertSame([], $this->communicationService->timeline($booking));
+    }
+
+    public function testATypedAddressDoesNotSendTheUnitsOwnMailOutsideTheWindowEither(): void
+    {
+        $booking = $this->aMarchBooking();
+        $this->bookingRepository->addRenterEmail($booking->id, 'federation@example.org');
+        $this->deliverSent(20, 'Assurance des camps', to: 'federation@example.org');
+
+        $this->sync();
+
+        $this->assertSame([], $this->communicationService->timeline($booking));
+    }
+
+    /** An address a filing taught was vouched for by that filing: the old rule holds. */
+    public function testALearnedAddressStillReachesTheOnlyBookingWhateverTheDate(): void
+    {
+        $booking = $this->aMarchBooking();
+        $this->bookingRepository->addRenterEmail($booking->id, 'tresorier@groupe.example', 9);
+        $this->deliver(10, 'Une question tardive', from: 'tresorier@groupe.example');
+
+        $this->sync();
+
+        $this->assertCount(1, $this->communicationService->timeline($booking));
+    }
+
     public function testAManualAssociationTeachesTheBookingTheSendersAddress(): void
     {
         // The group's treasurer writes from their own address. The first
@@ -597,6 +703,64 @@ class RentalMessageConsumerTest extends TestCase
         $this->inboundMail->attach(RentalMessageConsumer::CONSUMER_ID, $booking->reference, $stored[0], 7);
 
         $this->assertCount(2, $this->communicationService->timeline($booking));
+    }
+
+    /**
+     * The re-run after a decision fails — the mailbox it would read no
+     * longer decrypts, a key rotated without re-encrypting — and the
+     * manager's click still does all of its own work: the address is
+     * learned and the attachment of the message they filed becomes a
+     * document of the booking. Only the other messages wait.
+     */
+    public function testAReanalysisThatFailsDoesNotUndoTheFilingItFollows(): void
+    {
+        $booking = $this->createBooking();
+        $this->client->addRawMessage('INBOX', 10, implode("\r\n", [
+            'Authentication-Results: mx.unite.be; dmarc=pass header.from=groupe.example',
+            'From: Le trésorier <tresorier@groupe.example>',
+            'To: locations@unite.be',
+            'Subject: Le contrat signé',
+            'Message-ID: <one@groupe.example>',
+            'Date: Mon, 12 Jul 2027 09:30:00 +0200',
+            'Content-Type: multipart/mixed; boundary="frontier"',
+            '',
+            '--frontier',
+            'Content-Type: text/plain',
+            '',
+            'Voici le contrat signé.',
+            '--frontier',
+            'Content-Type: application/pdf',
+            'Content-Disposition: attachment; filename="contrat.pdf"',
+            'Content-Transfer-Encoding: base64',
+            '',
+            base64_encode(self::PDF_BYTES),
+            '--frontier--',
+        ]));
+        $this->deliver(11, 'Question sur les clés', from: 'tresorier@groupe.example', messageId: 'two@groupe.example');
+        $this->sync();
+        $this->assertSame(0, $this->countRentalAssociations());
+        $this->pdo->prepare('UPDATE inbound_mailboxes SET username_encrypted = ? WHERE id = ?')
+            ->execute(['illisible', $this->mailboxId]);
+
+        $this->assertTrue($this->inboundMail->attach(
+            RentalMessageConsumer::CONSUMER_ID,
+            $booking->reference,
+            $this->storedMessageIds()[0],
+            7
+        ));
+
+        $this->assertSame(
+            [$booking->id],
+            array_map(
+                static fn(RentalBooking $b): int => $b->id,
+                $this->bookingRepository->findByRenterEmail('tresorier@groupe.example')
+            ),
+            'the address is learned'
+        );
+        $documents = $this->documentRepository->findForBooking($booking->id);
+        $this->assertCount(1, $documents, 'the attachment of the filed message is still filed');
+        $this->assertSame(DocumentType::UNSORTED, $documents[0]->type);
+        $this->assertCount(1, $this->communicationService->timeline($booking), 'the re-run did not happen');
     }
 
     /**
@@ -1068,7 +1232,8 @@ class RentalMessageConsumerTest extends TestCase
         $booking = $this->createBooking();
         $message = new \Modules\InboundMail\Api\InboundMessage(
             41, $this->mailboxId, '', '', LinkOrigin::AI, 'Les clés', 'tresorier@groupe.example', null,
-            'a@b', null, new \DateTimeImmutable('2027-07-02 09:30:00'), '', ''
+            'a@b', null, new \DateTimeImmutable('2027-07-02 09:30:00'), '', '',
+            senderVerified: true
         );
 
         $this->plainConsumer()->onLinked(
@@ -1079,6 +1244,23 @@ class RentalMessageConsumerTest extends TestCase
         $others = $this->bookingRepository->otherRenterEmails($booking->id);
         $this->assertCount(1, $others);
         $this->assertSame(41, $others[0]->learnedFromMessageId);
+    }
+
+    /** Issue #1121: the model picking a booking for a forged sender teaches it nothing. */
+    public function testAnAiDecisionAboutAnUnverifiedSenderTeachesNothing(): void
+    {
+        $booking = $this->createBooking();
+        $message = new \Modules\InboundMail\Api\InboundMessage(
+            41, $this->mailboxId, '', '', LinkOrigin::AI, 'Les clés', 'tresorier@groupe.example', null,
+            'a@b', null, new \DateTimeImmutable('2027-07-02 09:30:00'), '', ''
+        );
+
+        $this->plainConsumer()->onLinked(
+            $message,
+            new MessageLink(RentalMessageConsumer::CONSUMER_ID, $booking->reference, LinkOrigin::AI)
+        );
+
+        $this->assertSame([], $this->bookingRepository->otherRenterEmails($booking->id));
     }
 
     public function testASentMessageTeachesItsRecipientOnlyWhenThereIsOne(): void
@@ -1144,6 +1326,38 @@ class RentalMessageConsumerTest extends TestCase
 
         // And once the second goes too, nothing teaches it any more.
         $this->assertTrue($this->communicationService->detach($booking, $second));
+        $this->assertSame([], $this->bookingRepository->otherRenterEmails($booking->id));
+    }
+
+    /**
+     * Issue #1121: a message nobody vouched for teaches nothing, so it
+     * cannot keep alive an address its verified twin taught once that one
+     * is detached — a forged `From:` would otherwise inherit the address.
+     */
+    public function testAnUnverifiedMessageDoesNotInheritAnAddressWhenItsTeacherIsDetached(): void
+    {
+        $booking = $this->createBooking();
+        $this->deliver(
+            10,
+            'Question sur la caution',
+            from: 'tresorier@groupe.example',
+            messageId: 'one@groupe.example'
+        );
+        $this->deliver(
+            11,
+            'Nouveau compte pour la caution',
+            from: 'tresorier@groupe.example',
+            messageId: 'two@groupe.example',
+            authenticated: false
+        );
+        $this->sync();
+        [$first, $second] = $this->storedMessageIds();
+        $this->inboundMail->attach(RentalMessageConsumer::CONSUMER_ID, $booking->reference, $first, 7);
+        $this->pdo->prepare("UPDATE inbound_message_links SET link_origin = 'manual' WHERE message_id = ?")
+            ->execute([$second]);
+
+        $this->assertTrue($this->communicationService->detach($booking, $first));
+
         $this->assertSame([], $this->bookingRepository->otherRenterEmails($booking->id));
     }
 
@@ -1617,7 +1831,6 @@ class RentalMessageConsumerTest extends TestCase
     {
         return [
             'PDF' => ['application/pdf'],
-            'Word' => ['application/msword'],
             'Word (docx)' => ['application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
             'a photo' => ['image/jpeg'],
         ];

@@ -13,12 +13,13 @@ use Core\Attention\AttentionPointProvider;
 use Core\Config\AppClock;
 use Core\Service\DateInput;
 use Core\Storage\Location\Config\GoogleDriveLocationConfig;
+use Core\Storage\Location\Config\LocalLocationConfig;
 use Core\Storage\Location\Protection\StorageProtectionRepository;
 
 /**
  * The storage locations, one by one (issue #718 § C point 10): a location
- * whose last check failed, and a Google Drive grant that ends or whose end
- * nobody knows.
+ * whose last check failed, a Google Drive grant that ends or whose end
+ * nobody knows, and a local folder the web server serves directly (#1129).
  *
  * The one place these rules live, so they are not scattered over the
  * pages that happen to show a location. Read from what is stored — each
@@ -43,7 +44,9 @@ final class StorageAttentionProvider implements AttentionPointProvider
         /** Tests only: the moment to count days from. */
         private ?\DateTimeImmutable $now = null,
         /** Null where safety copies are not wired: no point about them. */
-        private ?StorageProtectionRepository $protections = null
+        private ?StorageProtectionRepository $protections = null,
+        /** Null where the installation's layout is not known: no point about it. */
+        private ?WebServedArea $webServedArea = null
     ) {
     }
 
@@ -64,6 +67,14 @@ final class StorageAttentionProvider implements AttentionPointProvider
         }
 
         foreach ($locations as $location) {
+            // Read from the stored path, not from a check: a check runs
+            // when someone opens the storage pages, and until then a folder
+            // the web server serves would say nothing. One point is enough —
+            // the check's own « en erreur » carries the same message.
+            if ($this->servesDirectly($location)) {
+                $points[] = $this->servedDirectly($location);
+                continue;
+            }
             // Declared but never connected: a setup to finish, not a fault.
             // Its check fails by construction (« aucun compte raccordé »),
             // and an urgent « en erreur » would describe the setup rather
@@ -181,6 +192,29 @@ final class StorageAttentionProvider implements AttentionPointProvider
             actionLabel: 'Refaire le raccordement',
             actionUrl: self::LOCATIONS_URL,
             severity: AttentionPoint::SEVERITY_ATTENTION
+        );
+    }
+
+    private function servesDirectly(StorageLocation $location): bool
+    {
+        $config = $location->config;
+
+        return $this->webServedArea !== null
+            && $config instanceof LocalLocationConfig
+            && $config->isAbsolute()
+            && $this->webServedArea->serves($config->path);
+    }
+
+    private function servedDirectly(StorageLocation $location): AttentionPoint
+    {
+        return new AttentionPoint(
+            title: "Le dossier de l'emplacement « " . $location->label . ' » est servi directement par le serveur web',
+            why: 'Tout fichier qui s\'y trouve peut être téléchargé par son adresse, sans aucun contrôle d\'accès. '
+                . 'Le site n\'y lit et n\'y écrit plus rien, et ne supprime rien. Déplacez son contenu dans un '
+                . 'dossier hors de la racine web, puis indiquez ce nouveau chemin sur la fiche de l\'emplacement.',
+            actionLabel: 'Modifier l\'emplacement',
+            actionUrl: self::LOCATIONS_URL . '/' . $location->id . '/modification',
+            severity: AttentionPoint::SEVERITY_URGENT
         );
     }
 

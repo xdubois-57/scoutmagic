@@ -2654,6 +2654,32 @@ $sectionDocumentRepository = new \Core\Member\SectionDocumentRepository($pdo);
 // before $roleResolver so login-by-email resolution can also match a
 // currently-valid secondary address (see RoleResolver's own docblock).
 $memberEmailRepository = new \Core\Member\MemberEmailRepository($pdo, $encryptionService);
+$staleDeskEmailCleanup = new \Core\Member\StaleDeskEmailCleanup($memberEmailRepository, $authorizationYearService);
+// One-time cleanup (issue #1100): the status rows a mailing wrote for a
+// member's Desk address used to survive a change of that address, and they
+// made the former address a login of its own. No lookup reads them any
+// more; this deletes the ones every installation already holds, which
+// otherwise would wait for its next Desk import. Same shape as
+// member_section_periods_backfilled.
+if ($settingService->get('stale_desk_email_rows_deleted') !== '1') {
+    $settingService->register(
+        'stale_desk_email_rows_deleted',
+        '0',
+        'boolean',
+        'Anciennes adresses Desk nettoyées',
+        'Indique si les lignes d\'état laissées par d\'anciennes adresses Desk ont été supprimées.',
+        null,
+        null,
+        null,
+        false,
+        999
+    );
+
+    $staleDeskEmailCleanup->run(new \DateTimeImmutable());
+
+    $settingRepo->updateValue(null, 'stale_desk_email_rows_deleted', '1');
+    $settingService->clearCache();
+}
 
 // "Which logins can read a notification addressed to this member?" — the
 // Desk address plus every confirmed secondary one, resolved in one place
@@ -2812,6 +2838,33 @@ $memberExportService = new \Core\Member\Export\MemberExportService();
 // Create file services
 $storagePath = dirname(__DIR__) . '/storage';
 $fileRepository = new FileRepository($pdo);
+// Every address /files/… is built from the file's opaque public id
+// (Core\File\FilePublicIds, issue #1109); file_url() resolves it here.
+\Core\File\FilePublicIds::useRepository($fileRepository);
+// Files that predate the column get theirs from a task, a slice per cron
+// pass (Core\File\Task\BackfillFilePublicIdsHandler) — never inline on a
+// request. Seeded once here; the handler sets the flag when none is left,
+// which keeps this to a settings-cache read on every later request.
+if ($settingService->get(\Core\File\Task\BackfillFilePublicIdsHandler::DONE_FLAG) !== '1') {
+    $settingService->register(
+        \Core\File\Task\BackfillFilePublicIdsHandler::DONE_FLAG,
+        '0',
+        'boolean',
+        'Identifiants opaques des fichiers attribués',
+        'Indicateur interne : chaque fichier existant a reçu son identifiant opaque.',
+        null,
+        null,
+        null,
+        false,
+        999
+    );
+    $schedulerService->seed(
+        'core',
+        \Core\File\Task\BackfillFilePublicIdsHandler::TASK_KEY,
+        \Core\File\Task\BackfillFilePublicIdsHandler::REFERENCE,
+        new DateTimeImmutable()
+    );
+}
 // The shared "attached document" invariant (Core\File\AttachedFileRemover):
 // row first, bytes second, bytes only when the module owns them and nobody
 // else points at them. Camps and Locations both use this one instance.
@@ -2969,7 +3022,8 @@ $importService = new DeskImportService(
     $scoutYearService,
     $deskImportYearPolicy,
     $duplicateMemberDetector,
-    $deskImportListeners
+    $deskImportListeners,
+    $staleDeskEmailCleanup
 );
 $importReportPresenter = new \Core\Import\ImportReportPresenter(
     new \Core\Import\ImportReportRepository($pdo, $encryptionService)
@@ -3075,6 +3129,31 @@ $accountPhotoService = new AccountPhotoService(
     $fileRepository,
     $storagePath
 );
+
+// One-time stamp (issue #1108): every person photo linked before its file
+// carried an owner. Until this runs, those originals stay readable at their
+// role_min alone, exactly as before — the checker only judges files that
+// carry its owner type. Same shape as member_section_periods_backfilled.
+if ($settingService->get('person_photo_owners_backfilled') !== '1') {
+    $settingService->register(
+        'person_photo_owners_backfilled',
+        '0',
+        'boolean',
+        'Propriétaires des photos de personnes renseignés',
+        'Indique si les photos de membres et de comptes existantes ont reçu leur propriétaire.',
+        null,
+        null,
+        null,
+        false,
+        999
+    );
+
+    (new MemberPhotoRepository($pdo))->backfillFileOwnership();
+    (new AccountPhotoRepository($pdo))->backfillFileOwnership();
+
+    $settingRepo->updateValue(null, 'person_photo_owners_backfilled', '1');
+    $settingService->clearCache();
+}
 
 // Same "one per year, fall back to the most recent earlier one" component
 // as above, keyed by section instead of member — the Staffs page's group
@@ -3186,6 +3265,21 @@ if (AuthSession::isAuthenticated()) {
     }
 }
 
+// The members this session is linked to FOR ACCESS DECISIONS (issue #1124):
+// in the authorization year, never the previewed one. A preview is chosen
+// by the very person it would authorise and accepts any year that ever
+// existed — whoever was a child's Desk address in 2022-2023 would be its
+// "parent" again, private documents included, by previewing that year.
+// $linkedMembers above stays the displayed year's: the header name and the
+// Espace membres menu follow what the page shows. Without a preview the two
+// years are one and nothing is read twice.
+$authorizationScoutYear = $scoutYearResolver->getAuthorizationYear();
+$authorizationLinkedMembers = $authorizationScoutYear->id === $effectiveScoutYear->id
+    ? $linkedMembers
+    : (AuthSession::isAuthenticated()
+        ? $memberService->getLinkedMembers(AuthSession::getEmail(), $authorizationScoutYear->id)
+        : []);
+
 // Built here (not earlier, alongside $fileRepository) because the
 // owner-scoping check (Core\File\FileAccessGuard) needs $linkedMembers,
 // which isn't resolved until this point — see the class docblock for why
@@ -3205,7 +3299,15 @@ $sectionDocumentOwnershipChecker = new \Core\Member\SectionDocumentOwnershipChec
 // it is immutable by design, so its registry has to be complete first,
 // and module blocks only run after loadEnabledModules(). See where
 // FileController is wired, at the end of this file.
-$fileOwnershipCheckers = [$sectionDocumentOwnershipChecker, new \Core\Import\DeskImportFileOwnershipChecker()];
+// A person's photo (issue #1108): its reduced renditions at role_min, its
+// original to the person, their linked parents (the account holder, for an
+// account photo) and chief+. Core's own, so no module can leave it unwired.
+$fileOwnershipCheckers = [
+    $sectionDocumentOwnershipChecker,
+    new \Core\Import\DeskImportFileOwnershipChecker(),
+    \Core\Photo\PersonPhotoOwnershipChecker::forMemberPhotos(),
+    \Core\Photo\PersonPhotoOwnershipChecker::forAccountPhotos(AuthSession::getUserAccountId()),
+];
 
 // The registry Core\Attention\AttentionService consults for the
 // attention-points page — same shape and same reason as
@@ -3229,11 +3331,17 @@ $attentionProviders = [
     ),
     // Each storage location: last check failed, or a Google Drive grant
     // that ends or whose end nobody knows (issue #718 § C point 10) —
-    // and a safety copy left on the site's own server (point 11).
+    // and a safety copy left on the site's own server (point 11), and a
+    // local folder the web server serves directly (#1129).
     new \Core\Storage\Location\StorageAttentionProvider(
         $storageLocationRepository,
         null,
-        $storageProtectionRepository
+        $storageProtectionRepository,
+        \Core\Storage\Location\WebServedArea::of(
+            dirname(__DIR__),
+            __DIR__,
+            is_string($_SERVER['DOCUMENT_ROOT'] ?? null) ? $_SERVER['DOCUMENT_ROOT'] : null
+        )
     ),
     // Every operational alert currently triggered (Core\Alert, §8.99).
     // Reads rows, computes nothing: the same check that notified wrote
@@ -3272,7 +3380,10 @@ $galleryDelegatedAlbumDescribers = [];
 // $linkedMembers is re-resolved further down for the Espace membres menu,
 // and the guard's owner-scoping must not depend on which of the two
 // resolutions happens to be the current one by the time it is built.
-$linkedMemberIds = array_map(fn($m) => $m->memberId, $linkedMembers);
+// Taken from the authorization year's members (issue #1124): every consumer
+// of this list decides an access — FileAccessGuard, finance's treasurer
+// scope, the social and fees screens.
+$linkedMemberIds = array_map(fn($m) => $m->memberId, $authorizationLinkedMembers);
 
 $twig->addGlobal('current_user_display_name', $displayName);
 // Which account the nav's avatar stands for — the login's own photo is
@@ -3352,6 +3463,27 @@ $twig->addGlobal('offline_functional_consent', $cookieConsentService->isAllowed(
 $twig->addGlobal(
     'offline_account_scope',
     AuthSession::isAuthenticated() ? (string) AuthSession::getUserAccountId() : 'guest'
+);
+// Whom this device's push notifications may be shown for (issue #1123):
+// the opaque tag every payload carries (NotificationService), handed to
+// public/sw.js beside the offline configuration. '' for a visitor, so the
+// first page after a logout tells the worker that nobody is signed in.
+$pushRecipientAccountId = AuthSession::isAuthenticated() ? AuthSession::getUserAccountId() : null;
+$twig->addGlobal(
+    'push_recipient_tag',
+    $pushRecipientAccountId !== null ? $pushSubscriptionRepo->recipientTag($pushRecipientAccountId) : ''
+);
+// Until when that tag may be believed, in milliseconds since the epoch: the
+// session cookie's own end, and nothing tells the worker when it comes — no
+// page, no logout. The cookie is sent with its 30-day lifetime only when the
+// session id is (re)issued — at login — and PHP does not renew it on later
+// visits, so its end is counted from when the cookie was last issued, not
+// from this page. 0 for a visitor.
+$twig->addGlobal(
+    'push_recipient_expires_at',
+    $pushRecipientAccountId !== null
+        ? \Core\Security\SessionManager::cookieExpiresAt(AuthSession::cookieIssuedAt(), time()) * 1000
+        : 0
 );
 
 // Build menu
@@ -4250,6 +4382,14 @@ $router->addRoute(
 );
 $router->addRoute('POST', '/account/passkey/register', AccountController::class, 'passkeyRegister', 'identified');
 $router->addRoute('POST', '/account/passkey/delete', AccountController::class, 'passkeyDelete', 'identified');
+// « Déconnecter partout » (issue #1115): sessions, passkeys and devices.
+$router->addRoute(
+    'POST',
+    '/account/sign-out-everywhere',
+    AccountController::class,
+    'signOutEverywhere',
+    'identified'
+);
 $router->addRoute('POST', '/account/photo/delete', AccountController::class, 'deletePhoto', 'identified');
 // « Synchroniser mes contacts » (Core\Contact\Device, ARCHITECTURE.md
 // §8.117). `role_min: admin` and not `identified` like the rest of Mon
@@ -5092,15 +5232,18 @@ $router->addRoute('POST', '/cookies/accept-all', CookieController::class, 'accep
 $router->addRoute('POST', '/cookies/reject-all', CookieController::class, 'rejectAll', 'public');
 
 // File serving
-$router->addRoute('GET', '/files/{id}', FileController::class, 'serve', 'public');
-$router->addRoute('GET', '/files/{id}/thumbnail', FileController::class, 'thumbnail', 'public');
+// {file}, not {id}: the segment is the file's opaque public id (issue
+// #1109), and Router::placeholderPattern() holds an id-named placeholder
+// to digits.
+$router->addRoute('GET', '/files/{file}', FileController::class, 'serve', 'public');
+$router->addRoute('GET', '/files/{file}/thumbnail', FileController::class, 'thumbnail', 'public');
 // Registered after the literal /thumbnail route above so that path stays
 // reachable — Router::resolve() matches in registration order and a
 // {variant} wildcard would otherwise happily swallow it too. Serves a
 // pre-generated derivative (Core\Photo\ImageVariantService) through the
 // same FileAccessGuard/journal path as serve() — see
 // Core\Http\Controller\FileController::variant()'s own docblock.
-$router->addRoute('GET', '/files/{id}/{variant}', FileController::class, 'variant', 'public');
+$router->addRoute('GET', '/files/{file}/{variant}', FileController::class, 'variant', 'public');
 // Offline mode pre-download manifest — every page/image URL it lists is
 // guarded exactly like any other request once actually fetched; this
 // endpoint itself only lists candidates. role_min: public — see
@@ -6756,6 +6899,7 @@ $authController = new AuthController(
 $authController->setPasswordAuth($passwordAuthMethod);
 $authController->setWebAuthnService($webAuthnService);
 $authController->setHumanCheck($humanCheckService);
+$authController->setNotificationService($notificationService);
 $frontController->registerController(AuthController::class, $authController);
 // Tells an account's holder, by e-mail and in-app, whenever a way into
 // their account is added, changed or removed — a password, a passkey, a
@@ -6769,6 +6913,15 @@ $accountSecurityAlertService = new \Core\Security\AccountSecurityAlertService(
     $journalService,
     $notificationService
 );
+// Takes back an account's passkeys and device credentials (issue #1115):
+// on a password reset, except those the holder chose to keep, and all of
+// them on « Déconnecter partout ».
+$accountAccessRevoker = new \Core\Security\AccountAccessRevoker(
+    $webAuthnCredentialRepo,
+    new \Core\Contact\Device\DeviceCredentialRepository($pdo),
+    $journalService
+);
+$passwordResetService->setAccessRevoker($accountAccessRevoker);
 $frontController->registerController(
     AccountController::class,
     new AccountController(
@@ -6779,7 +6932,8 @@ $frontController->registerController(
         $accountPhotoService,
         $seenHelpTopicRepository,
         $personalSignatureService,
-        $accountSecurityAlertService
+        $accountSecurityAlertService,
+        $accountAccessRevoker
     )
 );
 $frontController->registerController(
@@ -7116,6 +7270,7 @@ $frontController->registerController(
         $memberExportService,
         $scoutYearResolver,
         $journalService,
+        $memberService,
         new \Core\Member\SectionRosterPdfService(
             new \Core\Member\Pdf\SectionRosterHtmlBuilder(),
             // The rendered document is kept here until its inputs change —
@@ -7524,6 +7679,22 @@ if ($isEnabled('calendar')) {
     // section's », which is the whole of what an attendance sheet hangs
     // off.
     $calendarSectionEventLookupForOthers = $calendarService;
+    // Api\CalendarImportWriterInterface — the data migration module's ICS
+    // import writes through this, and through nothing else: an event
+    // created without « Nouvelle activité » and with the importing
+    // account's rights re-checked at every write.
+    $calendarImportWriterForOthers = new \Modules\Calendar\Service\CalendarImportWriter(
+        $calendarEventService,
+        $calendarService,
+        new \Modules\Calendar\Service\AccountCalendarRights(
+            $userAccountRepo,
+            $roleResolver,
+            $authorizationYearService,
+            $sectionStaffAuthorizationService,
+            $scoutYearResolver,
+            $staffYearEligibility
+        )
+    );
 
     $frontController->registerController(
         \Modules\Calendar\Controller\CalendarPublicController::class,
@@ -8559,6 +8730,15 @@ $financeSepaQrCodeForOthers = null;
 $financeStatementStatusForOthers = null;
 $financeAccountForOthers = null;
 
+// One-time stamp of the campaign workbooks stored before they had an owner
+// (issue #1111) — OUTSIDE the finance block on purpose: see
+// Modules\Finance\Service\CampaignWorkbookOwnership for why a disabled
+// module must not leave them unowned.
+(new \Modules\Finance\Service\CampaignWorkbookOwnership(
+    new \Modules\Finance\Repository\CampaignRepository($pdo),
+    $settingService
+))->ensure();
+
 if ($isEnabled('finance')) {
     \Core\Debug\RequestTimeline::mark('module_finance');
     $financeFiscalYearRepo = new \Modules\Finance\Repository\FiscalYearRepository($pdo, $scoutYearService);
@@ -8589,18 +8769,18 @@ if ($isEnabled('finance')) {
     // "Which sections is this session the treasurer of" (ARCHITECTURE.md
     // §8.69). The rule is pure and takes members.id values so the receipts
     // file guard can reuse it; the per-request answer is wrapped once here
-    // — $linkedMemberIds and the effective scout year are the composition
-    // root's to know, and a Service must not go looking for them. Lazy, so
+    // — $linkedMemberIds and the authorization scout year (never the
+    // previewed one, issue #1124) are the composition root's to know, and
+    // a Service must not go looking for them. Lazy, so
     // a page load that never touches finance pays nothing for it.
     $financeTreasurerScopeService = new \Modules\Finance\Service\TreasurerScopeService(
         $connection,
-        $badgeRepository,
-        $memberBadgeRepository
+        $badgeRepository
     );
     $financeTreasurerScope = \Modules\Finance\Service\TreasurerScope::forSession(
         $financeTreasurerScopeService,
         $linkedMemberIds,
-        $effectiveScoutYear->id
+        $authorizationScoutYear->id
     );
     $financeAccountVisibility = new \Modules\Finance\Service\AccountVisibility($financeTreasurerScope);
     $financeService = new \Modules\Finance\Service\FinanceService(
@@ -8737,7 +8917,7 @@ if ($isEnabled('finance')) {
         $financeAccountRepo,
         $financeTreasurerScopeService,
         $financeReceiptService,
-        $effectiveScoutYear->id
+        $authorizationScoutYear->id
     );
 
     // An invoice arriving by email, offered as a receipt on the account it
@@ -8758,7 +8938,7 @@ if ($isEnabled('finance')) {
                     $financeTreasurerScopeService,
                     $pdo,
                     $encryptionService,
-                    $effectiveScoutYear->id,
+                    $authorizationScoutYear->id,
                     $expenseReceiptProvider,
                     // The confirming user, resolved into the (role,
                     // members) pair finance's authorisation needs. Only
@@ -8813,7 +8993,7 @@ if ($isEnabled('finance')) {
                     new \Modules\Finance\Mail\SenderStaffAccountResolver(
                         $sectionStaffAuthorizationService,
                         $financeAccountRepo,
-                        $effectiveScoutYear->id
+                        $authorizationScoutYear->id
                     ),
                     new \Modules\Finance\Mail\ForwardedSenderExtractor(),
                     // The treasurers learn of a receipt waiting for them
@@ -8824,7 +9004,7 @@ if ($isEnabled('finance')) {
                         $badgeRepository,
                         $memberBadgeRepository,
                         $userAccountRepo,
-                        $effectiveScoutYear->id
+                        $authorizationScoutYear->id
                     ),
                     // The other silence on this path, and the one the
                     // reader above does not cover: the bytes WERE read,
@@ -8867,6 +9047,13 @@ if ($isEnabled('finance')) {
         }
     }
 
+    // « Des comptes de section n'ont pas de trésorier » (issue #1107):
+    // without a treasurer, only the chefs d'unité reach them.
+    $attentionProviders[] = new \Modules\Finance\Service\TreasurerCoverageAttentionProvider(
+        $financeAccountRepo,
+        $financeTreasurerScopeService
+    );
+
     // A receipt's FILE follows its account's rule too (ARCHITECTURE.md
     // §8.70): role_min alone is a hierarchical floor and cannot say "the
     // Louveteaux section", so without this the screen would be narrowed
@@ -8874,7 +9061,7 @@ if ($isEnabled('finance')) {
     $fileOwnershipCheckers[] = new \Modules\Finance\File\FinanceAccountOwnershipChecker(
         $financeAccountRepo,
         $financeTreasurerScopeService,
-        $effectiveScoutYear->id
+        $authorizationScoutYear->id
     );
 
     // Every receipt stored before that checker existed carries no owner
@@ -8941,7 +9128,8 @@ if ($isEnabled('finance')) {
             $sectionService,
             $financeAttachmentRepo,
             $fileRepository,
-            $journalService
+            $journalService,
+            new \Modules\Finance\Repository\CampaignRepository($pdo)
         )
     );
     $frontController->registerController(
@@ -9286,6 +9474,7 @@ if ($isEnabled('mass_mail')) {
     $massMailDeliveryRepo = new \Modules\MassMail\Repository\DeliveryRepository($pdo, $encryptionService);
     $massMailTargetRepo = new \Modules\MassMail\Repository\TargetRepository($pdo);
     $massMailAttachmentRepo = new \Modules\MassMail\Repository\EmailAttachmentRepository($pdo);
+    $massMailImportedEmailRepo = new \Modules\MassMail\Repository\ImportedEmailRepository($pdo, $encryptionService);
     $massMailFunctionRepo = new \Core\Import\FunctionRepository($pdo);
     $massMailAudienceRepo = new \Modules\MassMail\Repository\AudienceRepository($pdo, $encryptionService);
     $massMailSuppressedRepo = new \Modules\MassMail\Repository\SuppressedAddressRepository($pdo);
@@ -9375,7 +9564,26 @@ if ($isEnabled('mass_mail')) {
         // written to through a custom list either.
         new \Core\Mail\Feedback\Bounce\BounceService(
             new \Core\Mail\Feedback\Bounce\BounceStateRepository($pdo, $encryptionService)
-        )
+        ),
+        // The original sender of an email imported from a former site,
+        // shown as is (data_migration, D6). Display only: the read-only
+        // lock is the email's own imported_at.
+        $massMailImportedEmailRepo
+    );
+
+    // The import interface of the « Historique des courriels » migration
+    // (data_migration, lot C): writes an email of a former site with no
+    // send, no pending message, no notification. Consumed by the
+    // data_migration block below, null when this module is disabled.
+    $massMailHistoryImportForOthers = new \Modules\MassMail\Service\EmailHistoryImportService(
+        $massMailImportedEmailRepo,
+        $massMailDeliveryRepo,
+        $massMailTargetRepo,
+        $massMailAttachmentRepo,
+        $massMailResolutionRepo,
+        $uploadHandler,
+        new \Core\Security\HtmlSanitizer(),
+        $journalService
     );
 
     $massMailDraftForOthers = new \Modules\MassMail\Service\MergeDraftService(
@@ -9495,6 +9703,9 @@ if (isset($financeCampaignControllerFactory)) {
 // the one and registers into the other.
 $newsArticleActions = null;
 $newsShareSourceForOthers = null;
+// The write contract of the data migration's « Actualités et formulaires »
+// import (chantier « Migration de données », lot D): null while news is off.
+$newsImportWriterForOthers = null;
 if ($isEnabled('news')) {
     \Core\Debug\RequestTimeline::mark('module_news');
     $newsArticleActions = new \Modules\News\Service\ArticleActionRegistry();
@@ -9520,11 +9731,22 @@ if ($isEnabled('news')) {
         $newsArticleRepo,
         $newsArticleService
     );
+    // An image inserted in an article's text is served when an article
+    // naming it is online and visible to the reader, or to whoever
+    // manages the news — decided at each request (issue #1110).
+    $fileOwnershipCheckers[] = new \Modules\News\File\NewsTextImageOwnershipChecker(
+        new \Core\File\FileRepository($pdo),
+        \Modules\News\Service\BodyImageAccess::forPdo($pdo),
+        $newsArticleService
+    );
     $newsFormService = new \Modules\News\Service\FormService(
         $newsFormRepo,
         $newsFieldRepo,
         $newsArticleService,
-        $newsResponseRepo
+        $newsResponseRepo,
+        // The images of an article's text follow the floor of that text,
+        // at every save of it (issue #1110).
+        \Modules\News\Service\BodyImageAccess::forPdo($pdo)
     );
     $newsTicketService = new \Modules\News\Service\TicketService($newsResponseRepo);
     // The reminder before the event carries the QR as an image URL: a
@@ -9627,6 +9849,20 @@ if ($isEnabled('news')) {
         $newsArticleService,
         $settingService
     );
+    // History from the unit's previous site, without a side effect: no
+    // notice, no digest, no ticket (Api\NewsImportWriterInterface). The
+    // shared upload handler, so the disk quota applies (DiskBudget).
+    $newsImportWriterForOthers = new \Modules\News\Service\NewsImportWriter(
+        $newsArticleRepo,
+        $newsFormRepo,
+        $newsFieldRepo,
+        $shortUrlService,
+        $fileRepository,
+        $uploadHandler,
+        $storagePath,
+        $journalService,
+        $imageVariantService
+    );
 
     // One-shot backfill of thumb/md derivatives for article images uploaded
     // before the news module generated variants at upload — the templates
@@ -9678,6 +9914,29 @@ if ($isEnabled('news')) {
             'news',
             \Modules\News\Task\RealignCoverImageAccessHandler::TASK_KEY,
             \Modules\News\Task\RealignCoverImageAccessHandler::REFERENCE,
+            new DateTimeImmutable()
+        );
+    }
+    // One-shot realignment of the images inserted in articles' text
+    // (issue #1110): every one was stored `public` before, whatever the
+    // article's visibility. BodyImageAccess applies the floor at every
+    // save now; this does it once for what was saved before.
+    if ($settingService->get(\Modules\News\Task\RealignBodyImageAccessHandler::DONE_FLAG, 'news') !== '1') {
+        $settingService->register(
+            \Modules\News\Task\RealignBodyImageAccessHandler::DONE_FLAG,
+            '0',
+            'boolean',
+            'Accès aux images insérées réalignés',
+            'Indicateur interne : la reprise des accès aux images insérées dans les actualités a été effectuée.',
+            'news',
+            null,
+            null,
+            false
+        );
+        $schedulerService->seed(
+            'news',
+            \Modules\News\Task\RealignBodyImageAccessHandler::TASK_KEY,
+            \Modules\News\Task\RealignBodyImageAccessHandler::REFERENCE,
             new DateTimeImmutable()
         );
     }
@@ -9774,6 +10033,10 @@ $galleryShareSourceForOthers = null;
 $galleryPhotoPickerForOthers = null;
 if ($isEnabled('gallery')) {
     \Core\Debug\RequestTimeline::mark('module_gallery');
+    // The daily sweep of gallery_zip_downloads (Task\PurgeZipDownloadsHandler
+    // re-arms itself after every run); only the first occurrence needs this
+    // nudge, same as retro's and registration's purges below.
+    $schedulerService->seed('gallery', 'purge_zip_downloads', 'daily', new DateTimeImmutable());
     $galleryAlbumActions = new \Modules\Gallery\Service\AlbumActionRegistry();
     $galleryAlbumRepo = new \Modules\Gallery\Repository\AlbumRepository($pdo);
     $galleryMediaRepo = new \Modules\Gallery\Repository\MediaRepository($pdo);
@@ -9880,6 +10143,13 @@ if ($isEnabled('gallery')) {
             $scoutYearResolver,
             $galleryAlbumActions
         )
+    );
+    // The data migration's « Galeries photo » import (Api\ExternalAlbumWriter):
+    // external albums created without the « Nouvel album » notification.
+    $galleryExternalAlbumWriterForOthers = new \Modules\Gallery\Service\ExternalAlbumImportService(
+        $galleryAlbumRepo,
+        new \Modules\Gallery\Service\OgImageStore($uploadHandler),
+        $settingService
     );
     $galleryShareSourceForOthers = new \Modules\Gallery\Service\AlbumShareSourceService(
         $galleryAlbumService,
@@ -10152,7 +10422,12 @@ if ($isEnabled('groups')) {
     $groupsFileOwnershipChecker = new \Modules\Groups\File\GroupFileOwnershipChecker(
         $groupsGroupRepo,
         $groupsAccessService,
-        $scoutYearResolver
+        $scoutYearResolver,
+        new \Modules\Groups\File\HiddenGroupFiles(
+            $groupsPostLinkRepo,
+            $groupsPostMediaRepo,
+            $galleryDelegatedAlbumManager
+        )
     );
     $fileOwnershipCheckers[] = $groupsFileOwnershipChecker;
 
@@ -10164,7 +10439,10 @@ if ($isEnabled('groups')) {
     // file and only consumed at the very end, once every module block
     // that might append to it — this one included — has run.
     $galleryDelegatedAlbumAccessCheckers[] = new \Modules\Groups\Gallery\GroupDelegatedAlbumAccessChecker(
-        $groupsFileOwnershipChecker
+        $groupsFileOwnershipChecker,
+        $groupsGroupRepo,
+        $groupsAccessService,
+        $groupsPostMediaRepo
     );
 
     // And the name gallery's storage-administration page shows for that
@@ -11606,6 +11884,9 @@ if ($isEnabled('registration')) {
         $journalService,
         $registrationBaseUrl,
         $registrationSiteName,
+        new \Modules\Registration\Service\ConfirmationSendLimiter(
+            new \Modules\Registration\Repository\ConfirmationSendRepository($pdo)
+        ),
     );
     $registrationTrackingService = new \Modules\Registration\Service\TrackingService(
         $registrationRequestRepo,
@@ -12192,7 +12473,8 @@ if ($isEnabled('registration')) {
             // written to through a custom list either.
             new \Core\Mail\Feedback\Bounce\BounceService(
                 new \Core\Mail\Feedback\Bounce\BounceStateRepository($pdo, $encryptionService)
-            )
+            ),
+            new \Modules\MassMail\Repository\ImportedEmailRepository($pdo, $encryptionService)
         );
         $frontController->registerController(
             \Modules\MassMail\Controller\MassMailController::class,
@@ -12244,6 +12526,9 @@ if ($isEnabled('registration')) {
     // manual registerHandler() call in either entry point (auto-resolved
     // via ModuleManager::getTaskHandler()), only this one-time nudge.
     $schedulerService->seed('registration', 'purge_registration_requests', 'daily', new DateTimeImmutable());
+    // And for the daily sweep of registration_confirmation_sends (Task\
+    // PurgeConfirmationSendsHandler, issue #1126).
+    $schedulerService->seed('registration', 'purge_confirmation_sends', 'daily', new DateTimeImmutable());
     // Same again for the Passage auto-assignment (Task\
     // AutoAssignPassageHandler) — it used to run inside PassageController::
     // index(), i.e. a write on every GET of the page.
@@ -12389,7 +12674,17 @@ if ($isEnabled('rental')) {
         // The expiry sweep cancels a booking's modification in progress
         // along with it, exactly as a manager ending it does.
         $rentalModificationRepository,
-        $rentalBookingAudit
+        $rentalBookingAudit,
+        null,
+        null,
+        // Which address a manager may add to « Autres adresses du
+        // locataire » (issue #1106): the unit's own never, and for a
+        // manager outside Staff d'U only one already on the booking's mail.
+        new \Modules\Rental\Mail\OtherRenterEmailRule(
+            $rentalBookingRepository,
+            $inboundMailForOthers,
+            $settingService
+        )
     );
     $rentalBlockRepository = new \Modules\Rental\Repository\RentalBlockRepository($pdo);
     $rentalOccupancyProviders = [$rentalBookingService, $rentalBlockRepository, $rentalModificationRepository];
@@ -12664,7 +12959,9 @@ if ($isEnabled('rental')) {
         new \Modules\Rental\Repository\RentalComplianceRepository($pdo),
         $settingService,
         // ...and a damage still assessed a month after the departure (#980).
-        $rentalStayRepository
+        $rentalStayRepository,
+        // ...and an automatic hold over a long stay nobody answered (#1114).
+        $rentalBookingRepository
     );
 
     // Its documents follow the same rule as a booking's: readable only by
@@ -13207,10 +13504,35 @@ if ($isEnabled('data_migration')) {
     );
     // One line per import (vague 2 of the chantier), kept alphabetical by key:
     // $dataMigrationImporters->add(new \Modules\DataMigration\Importer\…Importer(…));
-    $dataMigrationImporters->add(new \Modules\DataMigration\Importer\CampPlacesImporter($campsPlaceImportWriterForOthers ?? null));
+    $dataMigrationSections = new \Modules\DataMigration\Service\SectionByDeskCode($sectionService);
+    $dataMigrationImporters->add(new \Modules\DataMigration\Importer\NewsHistoryImporter(
+        $newsImportWriterForOthers ?? null,
+        new \Modules\DataMigration\Repository\ItemMappingRepository($pdo)
+    ));
+    $dataMigrationImporters->add(new \Modules\DataMigration\Importer\IcsCalendarImporter(
+        $calendarImportWriterForOthers ?? null,
+        $urlMetadataFetcher
+    ));
+    $dataMigrationImporters->add(new \Modules\DataMigration\Importer\CampPlacesImporter(
+        $campsPlaceImportWriterForOthers ?? null
+    ));
+    $dataMigrationImporters->add(new \Modules\DataMigration\Importer\EmailHistoryImporter(
+        $massMailHistoryImportForOthers ?? null,
+        $memberRepo,
+        new \Core\Security\HtmlSanitizer()
+    ));
     $dataMigrationImporters->add(new \Modules\DataMigration\Importer\MemberPhotosImporter(
         $memberRepo,
-        new \Core\Photo\ImportedMemberPhotoWriter($photoIngestionService, new MemberPhotoRepository($pdo))
+        new \Core\Photo\ImportedMemberPhotoWriter(
+            $photoIngestionService,
+            new MemberPhotoRepository($pdo),
+            $attachedFileRemover
+        )
+    ));
+    $dataMigrationImporters->add(new \Modules\DataMigration\Importer\GalleryLinksImporter(
+        $galleryExternalAlbumWriterForOthers ?? null,
+        $dataMigrationSections,
+        $linkPreviewService
     ));
     $dataMigrationImporters->add(new \Modules\DataMigration\Importer\RegistrationRequestsImporter(
         $registrationRequestImportForOthers ?? null,
@@ -13431,7 +13753,8 @@ $fileAccessGuard = new FileAccessGuard(
     $fileRepository,
     Role::fromString($currentRole),
     $linkedMemberIds,
-    $fileOwnershipCheckers
+    $fileOwnershipCheckers,
+    AuthSession::getUserAccountId()
 );
 $fileController = new FileController(
     $twig,
@@ -13497,6 +13820,10 @@ if (isset(
             $storageBackendFactory,
             $storageLocationService,
             $galleryLocationService,
+            new \Modules\Gallery\Service\ZipDownloadLimiter(
+                new \Modules\Gallery\Repository\ZipDownloadRepository($pdo)
+            ),
+            $journalService,
             $galleryDelegatedAlbumAccessRegistry,
             $linkedMemberIds
         )

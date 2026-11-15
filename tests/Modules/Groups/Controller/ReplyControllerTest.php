@@ -652,4 +652,78 @@ class ReplyControllerTest extends GroupsControllerTestCase
 
         $this->assertSame(404, $response->getStatusCode());
     }
+
+    /**
+     * Issue #1119: the replies of a post moderation hid are as hidden as
+     * the post — the pagination endpoint was the way to read them back.
+     */
+    public function testThePaginationEndpointIs404OnAHiddenPostForAMember(): void
+    {
+        $this->hiddenPostWithReplies();
+
+        $response = $this->controller([$this->memberId])->page($this->pageRequest(), $this->params($this->postId));
+
+        $this->assertSame(404, $response->getStatusCode());
+        $this->assertStringNotContainsString('réponse cachée', $response->getBody());
+    }
+
+    public function testAModeratorStillPagesThroughAHiddenPostsReplies(): void
+    {
+        $this->hiddenPostWithReplies();
+
+        $response = $this->controller([$this->moderatorMemberId], self::OTHER_ACCOUNT)
+            ->page($this->pageRequest(), $this->params($this->postId));
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertStringContainsString('réponse cachée', $response->getBody());
+    }
+
+    /**
+     * Answering a hidden post would add to a conversation moderation took
+     * down — and notify whoever the answer names about it.
+     */
+    public function testReplyingToAHiddenPostIs404AndWritesNothing(): void
+    {
+        $this->postRepo->setHiddenAt($this->postId, Timestamps::now());
+        $this->withCsrf(['body' => 'Je réponds quand même']);
+
+        $response = $this->controller([$this->memberId])->create($this->ajaxRequest(), $this->params($this->postId));
+
+        $this->assertSame(404, $response->getStatusCode());
+        $this->assertSame(0, $this->replyRepo->countForPost($this->postId));
+    }
+
+    /** Every reply action goes through the same gate as reading it. */
+    public function testEditingAReplyUnderAHiddenPostIs404EvenForItsAuthor(): void
+    {
+        $replyId = GroupsTestHelper::createReplyAt(
+            $this->pdo, $this->postId, 'avant', Timestamps::at('-1 minutes'), self::AUTHOR_ACCOUNT, $this->memberId
+        );
+        $this->postRepo->setHiddenAt($this->postId, Timestamps::now());
+        $this->withCsrf(['body' => 'après']);
+
+        $response = $this->controller([$this->memberId])->edit($this->ajaxRequest(), $this->params(null, $replyId));
+
+        $this->assertSame(404, $response->getStatusCode());
+        $this->assertSame('avant', $this->replyRepo->findById($replyId)?->body);
+    }
+
+    private function hiddenPostWithReplies(): void
+    {
+        for ($i = 1; $i <= 3; $i++) {
+            GroupsTestHelper::createReplyAt(
+                $this->pdo, $this->postId, 'réponse cachée ' . $i, '2026-01-01 10:0' . $i . ':00',
+                self::AUTHOR_ACCOUNT, $this->memberId
+            );
+        }
+        $this->postRepo->setHiddenAt($this->postId, Timestamps::now());
+    }
+
+    /** The page before the newest reply, as the thread's "previous" button asks for it. */
+    private function pageRequest(): Request
+    {
+        $newest = (int) $this->pdo->query('SELECT MAX(id) FROM discussion_group_replies')->fetchColumn();
+
+        return new Request('GET', '/groups/1/posts/1/replies', ['before' => (string) $newest], [], [], []);
+    }
 }

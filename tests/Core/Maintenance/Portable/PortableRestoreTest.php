@@ -162,6 +162,36 @@ final class PortableRestoreTest extends TestCase
     }
 
     /**
+     * **No compiled template survives a restore** (issue #1103). A file in
+     * `storage/temp/twig_cache/` is PHP the next page runs; whatever the
+     * extraction guards let through, the restore ends by emptying it.
+     */
+    public function testTheCompiledTemplatesOfTheTargetAreEmptied(): void
+    {
+        $this->makeFile($this->targetBase, 'storage/temp/twig_cache/1.0.0/ab/abcdef.php', '<?php // compiled');
+
+        $this->restoreOntoTarget();
+
+        $this->assertDirectoryDoesNotExist($this->targetBase . '/storage/temp/twig_cache');
+        $this->assertFileExists($this->targetBase . '/storage/uploads/tresorerie.pdf');
+    }
+
+    /**
+     * An archive this site produced stays restorable when it carries the
+     * deny-all `.htaccess` the site writes into a storage directory — and
+     * that file is the one thing not put back (issue #1103).
+     */
+    public function testAnHtaccessTheSiteWroteDoesNotStopTheRestoreAndIsNotWritten(): void
+    {
+        $this->makeFile($this->originBase, 'storage/restore/incoming/.htaccess', "Require all denied\n");
+
+        $this->restoreOntoTarget();
+
+        $this->assertFileExists($this->targetBase . '/storage/uploads/tresorerie.pdf');
+        $this->assertFileDoesNotExist($this->targetBase . '/storage/restore/incoming/.htaccess');
+    }
+
+    /**
      * The archive's own bookkeeping never lands on the restored site.
      *
      * A `secrets/` directory in the site root would hold the SEALED bytes

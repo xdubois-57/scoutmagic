@@ -749,6 +749,39 @@ class RentalDocumentServiceTest extends TestCase
         $this->assertSame([$filesBefore, $rowsBefore], $this->storedPdfs());
     }
 
+    /**
+     * Its `files` row refused, a PDF just written leaves no bytes behind:
+     * nothing would ever point at them, and a contract carries the
+     * renter's details. The refusal itself reaches the caller.
+     */
+    public function testAGeneratedDocumentWhoseFileRowIsRefusedLeavesNoBytesBehind(): void
+    {
+        $booking = $this->createBooking();
+        $this->service->saveBookingText(
+            $booking,
+            DocumentType::CONTRACT,
+            '<p>Contrat entre l unite et le locataire.</p>'
+        );
+        [$filesBefore, $rowsBefore] = $this->storedPdfs();
+        $documentsBefore = (int) $this->pdo->query('SELECT COUNT(*) FROM rental_documents')->fetchColumn();
+        $this->pdo->exec(
+            "CREATE TRIGGER refuse_file BEFORE INSERT ON files BEGIN SELECT RAISE(ABORT, 'file refused'); END"
+        );
+
+        try {
+            $this->service->generate($booking, $this->asset(), DocumentType::CONTRACT, $this->settings());
+            $this->fail('the refused file row was not reported');
+        } catch (\PDOException $e) {
+            $this->assertStringContainsString('file refused', $e->getMessage());
+        }
+
+        $this->assertSame([$filesBefore, $rowsBefore], $this->storedPdfs());
+        $this->assertSame(
+            $documentsBefore,
+            (int) $this->pdo->query('SELECT COUNT(*) FROM rental_documents')->fetchColumn()
+        );
+    }
+
     /** The same under the booking's lock, where the rollback takes the rows and never the bytes. */
     public function testASupplementaryInvoiceWhoseRowIsRefusedLeavesNoFileBehind(): void
     {
@@ -2370,6 +2403,29 @@ class RentalDocumentServiceTest extends TestCase
             $booking,
             [$this->settlement(7, 1, self::stayWithBrokenWindow(), bookingId: $booking->id)]
         )?->differenceCents());
+    }
+
+    /**
+     * An invoice from before the columns whose frozen total does not read
+     * as an amount bills nothing anyone can compare: no baseline, and so
+     * no supplement offered — never the invoice page failing over it.
+     */
+    public function testAnInvoiceFromBeforeTheColumnsWhosePrintedTotalIsNoAmountOffersNoSupplement(): void
+    {
+        $booking = $this->createBooking();
+        $invoice = $this->sentInvoice($booking);
+        $snapshot = $this->documentRepository->findSnapshot($invoice->id) ?? [];
+        $snapshot['prix_total'] = '360,00 EUR';
+        $this->pdo->prepare('UPDATE rental_documents SET billed_kept_cents = NULL, generated_snapshot = ? WHERE id = ?')
+            ->execute([json_encode($snapshot), $invoice->id]);
+        $legacy = $this->documentRepository->findById($invoice->id);
+        $this->assertNotNull($legacy);
+
+        $this->assertNull($this->service->billedCents($legacy));
+        $this->assertNull($this->service->supplementOffer(
+            $booking,
+            [$this->settlement(7, 1, self::stayWithBrokenWindow(), bookingId: $booking->id)]
+        ));
     }
 
     public function testTheSupplementIsNeitherGeneratedAsADocumentNorWritten(): void

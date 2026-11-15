@@ -94,9 +94,20 @@ CREATE TABLE user_accounts (
     -- which is the value of every row predating this column, so adding it
     -- offers the invitation to everybody rather than to nobody.
     push_invitation_dismissed_at DATETIME,
+    -- The account's WebAuthn user handle (`user.id` of every passkey it
+    -- registers, issue #1131): 32 random bytes minted by
+    -- Core\Security\WebAuthnService the first time the account asks to
+    -- register a passkey, then reused for each later one. Opaque on
+    -- purpose — it used to be the sequential id, zero-padded, which every
+    -- authenticator and passkey export then carried. NULL until then,
+    -- which is every row predating this column; passkeys registered under
+    -- the old handle keep working, since a login finds its key by
+    -- credential id and never reads the handle.
+    webauthn_user_handle BINARY(32),
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     last_login_at DATETIME,
-    UNIQUE INDEX idx_email_blind (email_blind_index)
+    UNIQUE INDEX idx_email_blind (email_blind_index),
+    UNIQUE INDEX idx_webauthn_user_handle (webauthn_user_handle)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE magic_links (
@@ -260,7 +271,19 @@ CREATE TABLE files (
     owner_id INT UNSIGNED NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     created_by INT UNSIGNED,
+    -- The opaque identifier the file is served under, /files/{public_id}
+    -- (Core\File\FilePublicIds, issue #1109): 128 random bits, never
+    -- derived from id, so an address can no longer be guessed by counting.
+    -- Nullable only for rows that predate it, until the backfill in
+    -- public/index.php reaches them. The column takes the table's collation,
+    -- which folds case — the schema comparator carries no per-column
+    -- collation — so the lookup compares exactly in PHP
+    -- (FileRepository::findByPublicId()), and the unique index is
+    -- case-insensitive: a collision would need two 128-bit draws equal but
+    -- for case, which is not worth guarding against.
+    public_id CHAR(22) NULL,
     UNIQUE INDEX idx_path (relative_path),
+    UNIQUE INDEX idx_file_public_id (public_id),
     INDEX idx_file_owner (owner_type, owner_id),
     CONSTRAINT fk_file_created_by FOREIGN KEY (created_by) REFERENCES user_accounts(id) ON DELETE SET NULL,
     CONSTRAINT fk_file_owner_member FOREIGN KEY (owner_member_id) REFERENCES members(id) ON DELETE CASCADE
@@ -1007,9 +1030,13 @@ CREATE TABLE member_documents (
 -- - 'desk': a status override for the CURRENT Desk-imported address.
 --   The Desk address lives in member_years and is never editable/deletable
 --   by the member. This row is created lazily when resolving mail addresses
---   or recording an explicit status override, never synced at Desk import.
+--   or recording an explicit status override, never at Desk import. It is
+--   NOT an address of its own: no login or access lookup reads it (issue
+--   #1100), and each Desk import deletes the row of an address the member
+--   no longer has (Core\Member\StaleDeskEmailCleanup).
 -- status: 'pending' (manual only, awaiting confirmation), 'valid' (usable
--- for login and personal messages), 'inactive' (explicitly disabled).
+-- for login and personal messages — a 'manual' row; a 'desk' one only
+-- leaves its member_years address usable), 'inactive' (explicitly disabled).
 -- Group-mail consent is independent: mass_mail_suppressed_addresses is the
 -- optional module's source of truth for every address. An unsubscribe never
 -- changes this status or revokes login. Restoring group-mail consent leaves

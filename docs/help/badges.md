@@ -49,15 +49,22 @@ Un badge est le plus souvent une simple indication, mais « Trésorier »
 en fait davantage quand le module Finances est actif : il donne accès
 aux comptes des sections que la personne anime, et à ceux-là seulement.
 
-La règle ne démarre que le jour où votre unité attribue ce badge à
-quelqu'un pour l'année en cours. Tant que personne ne le porte, chaque
-intendant continue de voir tous les comptes, exactement comme avant.
-Désactiver le badge revient au même fonctionnement, sans effacer
-aucune attribution passée.
+Pas de badge, pas d'accès : un compte rattaché à une section n'est
+ouvert qu'au trésorier de cette section. Tant que personne de la
+section ne porte le badge pour l'année en cours, seuls les chefs
+d'unité ouvrent ce compte — les autres animateurs et les intendants ne
+le voient pas. Désactiver le badge a le même effet pour toutes les
+sections, sans effacer aucune attribution passée.
 
 Les chefs d'unité, eux, voient tous les comptes quoi qu'il arrive, et
 un compte de l'unité — qui n'est rattaché à aucune section — reste
-ouvert à qui son propre niveau de visibilité autorise.
+ouvert à qui son propre niveau de visibilité autorise. La page Points
+d'attention leur signale chaque compte de section resté sans
+trésorier pour l'année.
+
+Le badge ne s'attribue qu'à une personne qui anime une section : un
+intendant qui n'anime aucune section ne peut pas être trésorier, et ne
+voit donc que les comptes de l'unité.
 
 ## Chaque année
 
@@ -65,5 +72,5 @@ Les attributions valent pour l'année scoute en cours : après le
 passage à la nouvelle année, les animateurs réattribuent les badges
 depuis la page Staffs — c'est une étape du parcours guidé de la page
 Année scoute. Cela vaut aussi pour « Trésorier » : tant qu'il n'est
-attribué à personne pour la nouvelle année, l'accès aux comptes de
-section redevient celui d'avant, il ne se bloque pas.
+pas réattribué pour la nouvelle année, les comptes de section ne sont
+ouverts qu'aux chefs d'unité. Réattribuez-le dès le passage d'année.

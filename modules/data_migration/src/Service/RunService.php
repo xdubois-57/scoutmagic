@@ -90,13 +90,21 @@ class RunService
         string $fileName,
         ?int $userAccountId
     ): array {
-        $format = $importer->archiveFormat() ?? throw new UploadException('Cet import ne se fait pas par dépôt de fichier.');
+        $format = $importer->archiveFormat()
+            ?? throw new UploadException('Cet import ne se fait pas par dépôt de fichier.');
 
         if ($offset === 0) {
             $this->assertNothingMoving($importer);
         }
 
-        $assembled = $this->chunks->appendChunk($uploadId, $sessionId, $offset, $chunkPath, $isLast, $format->maxArchiveBytes);
+        $assembled = $this->chunks->appendChunk(
+            $uploadId,
+            $sessionId,
+            $offset,
+            $chunkPath,
+            $isLast,
+            $format->maxArchiveBytes
+        );
         if ($assembled === null) {
             return ['received' => $this->chunks->receivedBytes($uploadId, $sessionId), 'run' => null];
         }
@@ -332,7 +340,8 @@ class RunService
             return null;
         }
 
-        return \Core\Service\DateInput::fromStorage($run->updatedAt)?->add(new \DateInterval('PT' . self::FILE_RETENTION_SECONDS . 'S'));
+        return \Core\Service\DateInput::fromStorage($run->updatedAt)
+            ?->add(new \DateInterval('PT' . self::FILE_RETENTION_SECONDS . 'S'));
     }
 
     private function readManifest(Importer $importer, Run $run): Run

@@ -517,6 +517,22 @@ class GroupsTestHelper
      * how every ordering, pagination and edit-window test builds the
      * exact state it needs without waiting for the clock.
      */
+    /**
+     * What File\GroupFileOwnershipChecker asks about one file (issue
+     * #1119), over the fixture's own tables — the gallery's answer comes
+     * from $albums, a double when the test does not exercise it.
+     */
+    public static function hiddenGroupFiles(
+        \PDO $pdo,
+        \Modules\Gallery\Api\DelegatedAlbumManager $albums
+    ): \Modules\Groups\File\HiddenGroupFiles {
+        return new \Modules\Groups\File\HiddenGroupFiles(
+            new \Modules\Groups\Repository\PostLinkRepository($pdo),
+            new \Modules\Groups\Repository\PostMediaRepository($pdo),
+            $albums
+        );
+    }
+
     public static function createPostAt(
         \PDO $pdo,
         int $groupId,

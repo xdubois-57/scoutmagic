@@ -84,6 +84,7 @@ class BatchControllerTest extends TestCase
     {
         AuthSession::logout();
         $_SESSION = [];
+        \Core\File\FilePublicIds::useRepository(null);
         AttestationsTestHelper::removeDirectory($this->storageRoot);
     }
 
@@ -303,6 +304,10 @@ class BatchControllerTest extends TestCase
         $this->assertStringContainsString('Les lignes non cochées seront supprimées', $body);
         // Static template text, so Twig escapes nothing here.
         $this->assertStringContainsString("C'est votre seule occasion de vérifier", $body);
+        // Issue #1095: the kept certificates stay downloadable from the
+        // published batch, so the warning must not claim the opposite.
+        $this->assertStringContainsString('les attestations conservées restent consultables', $body);
+        $this->assertStringNotContainsString('ne peut plus être rouverte', $body);
     }
 
     public function testAnUnknownBatchIs404(): void
@@ -400,6 +405,58 @@ class BatchControllerTest extends TestCase
         ));
 
         $this->assertCount(4, $this->lines->findByBatch($this->batchId));
+    }
+
+    // --- the cut itself, one PDF per row (issue #1095) ----------------------
+
+    /**
+     * Every row of a draft links to the certificate cut for IT — matched,
+     * ambiguous or unmatched alike: the name as read can be right and the
+     * pages the neighbour's, and only the cut shows a shifted split.
+     */
+    public function testEveryRowOfADraftLinksToItsOwnCut(): void
+    {
+        $this->wireFileAddresses();
+
+        $addresses = [];
+        foreach (['margaux', 'xavier', 'ambiguous', 'unmatched'] as $key) {
+            $address = \Core\File\FilePublicIds::urlFor($this->fileIdOf($key));
+            $this->assertMatchesRegularExpression('#^/files/[A-Za-z0-9_-]{22}$#', $address, $key);
+            $this->assertStringContainsString('href="' . $address . '"', $this->rowOf($key), $key);
+            $addresses[] = $address;
+        }
+        $this->assertCount(4, array_unique($addresses), 'two rows point at the same file');
+
+        $this->assertStringContainsString(
+            'aria-label="Télécharger le PDF découpé de l&#039;attestation lue « DELACROIX Camille », p. 7–8"',
+            $this->rowOf('unmatched')
+        );
+    }
+
+    /**
+     * A published batch keeps the link for what it kept, and has nothing to
+     * offer for what it discarded: those rows and their files were deleted
+     * at publication, and nothing is kept back just to be downloadable.
+     */
+    public function testAPublishedBatchLinksTheKeptCertificateOnly(): void
+    {
+        $this->wireFileAddresses();
+        $discarded = [];
+        foreach (['xavier', 'ambiguous', 'unmatched'] as $key) {
+            $discarded[] = $this->fileIdOf($key);
+        }
+        $kept = \Core\File\FilePublicIds::urlFor($this->fileIdOf('margaux'));
+
+        $this->publishMargaux();
+        $this->wireFileAddresses();
+        $body = $this->body();
+
+        $this->assertStringContainsString('href="' . $kept . '"', $this->rowOf('margaux', $body));
+        $this->assertSame(1, substr_count($body, 'Télécharger le PDF découpé de'));
+        foreach ($discarded as $fileId) {
+            $this->assertSame('', \Core\File\FilePublicIds::urlFor($fileId), 'a discarded file survived');
+        }
+        $this->assertStringNotContainsString('href=""', $body);
     }
 
     // --- publication, and the send that follows it -----------------------
@@ -609,6 +666,33 @@ class BatchControllerTest extends TestCase
     }
 
     /** Keeps only Margaux, which is what every published-state test needs. */
+    private function wireFileAddresses(): void
+    {
+        \Core\File\FilePublicIds::useRepository(new FileRepository($this->pdo));
+    }
+
+    private function fileIdOf(string $key): int
+    {
+        foreach ($this->lines->findByBatch($this->batchId) as $line) {
+            if ($line->id === $this->lineIds[$key]) {
+                return $line->fileId;
+            }
+        }
+
+        $this->fail("No line « {$key} » in the batch.");
+    }
+
+    /** The markup of one row, from its opening tag to the next row's. */
+    private function rowOf(string $key, ?string $body = null): string
+    {
+        $body ??= $this->body();
+        $start = strpos($body, 'data-line-id="' . $this->lineIds[$key] . '"');
+        $this->assertNotFalse($start, "row « {$key} » is not on screen");
+        $end = strpos($body, 'data-line-id="', $start + 1);
+
+        return $end === false ? substr($body, $start) : substr($body, $start, $end - $start);
+    }
+
     private function publishMargaux(): void
     {
         $this->frontController()->handle(new Request(

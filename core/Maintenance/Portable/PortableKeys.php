@@ -340,6 +340,9 @@ final class PortableKeys
         }
 
         $version = $document['format_version'] ?? null;
+        if ($version === PortableManifest::FORMAT_VERSION_WITHOUT_FILE_DIGESTS) {
+            throw new BackupException(PortableManifest::REFUSED_WITHOUT_FILE_DIGESTS);
+        }
         if ($version !== PortableManifest::FORMAT_VERSION) {
             throw new BackupException(
                 'Cette sauvegarde portable a été écrite dans un format que cette version ne sait pas lire. '

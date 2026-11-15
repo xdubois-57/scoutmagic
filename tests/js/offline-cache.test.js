@@ -128,7 +128,36 @@ describe('offline-cache.js: sendConfig() on page load', () => {
             account_scope: 'acct1',
             version: '1.2.3',
             standalone: false,
+            push_recipient_tag: '',
+            push_recipient_expires_at: 0,
         }));
+    });
+
+    // Issue #1123: the worker shows a push's text only when the payload's
+    // recipient tag matches the one stored from this message.
+    it('hands the worker the push recipient tag of the account signed in', async () => {
+        buildConfig({ ...BASE_CONFIG, pushRecipientTag: 'a1b2c3' });
+        await boot();
+        await vi.waitFor(() => expect(activeSpy.postMessage).toHaveBeenCalledWith(
+            expect.objectContaining({ type: 'offline-config', push_recipient_tag: 'a1b2c3' })
+        ));
+    });
+
+    it('sends until when the push recipient tag holds', async () => {
+        buildConfig({ ...BASE_CONFIG, pushRecipientTag: 'a1b2c3', pushRecipientExpiresAt: 1893456000000 });
+        await boot();
+
+        await vi.waitFor(() => expect(activeSpy.postMessage).toHaveBeenCalledWith(
+            expect.objectContaining({ push_recipient_tag: 'a1b2c3', push_recipient_expires_at: 1893456000000 })
+        ));
+    });
+
+    it('sends an empty push recipient tag for anything but a string', async () => {
+        buildConfig({ ...BASE_CONFIG, pushRecipientTag: 42 });
+        await boot();
+        await vi.waitFor(() => expect(activeSpy.postMessage).toHaveBeenCalledWith(
+            expect.objectContaining({ type: 'offline-config', push_recipient_tag: '' })
+        ));
     });
 
     it('sends consent: false verbatim when the page config says consent has not been granted', async () => {
@@ -180,6 +209,37 @@ describe('offline-cache.js: logout purges every content cache', () => {
         form.dispatchEvent(new Event('submit'));
 
         await vi.waitFor(() => expect(activeSpy.postMessage).toHaveBeenCalledWith({ type: 'purge-content-caches' }));
+    });
+
+    // Issue #1123: from the logout on, nobody is signed in on this device
+    // as far as the worker's push guard is concerned.
+    it('tells the worker to forget the push recipient when a logout form is submitted', async () => {
+        buildConfig({ ...BASE_CONFIG, pushRecipientTag: 'a1b2c3' });
+        const form = el('<form action="/logout"></form>');
+        document.body.appendChild(form);
+        await boot();
+        activeSpy.postMessage.mockClear();
+
+        form.dispatchEvent(new Event('submit'));
+
+        await vi.waitFor(() => expect(activeSpy.postMessage).toHaveBeenCalledWith({ type: 'forget-push-recipient' }));
+    });
+
+    // A logout refused before it left (offline-nav.js prevents a form
+    // submitted offline) logged nobody out: nothing may be forgotten, or the
+    // next push for this still-signed-in member unsubscribes the device.
+    it('tells the worker nothing when the logout submit was prevented', async () => {
+        buildConfig({ ...BASE_CONFIG, pushRecipientTag: 'a1b2c3' });
+        const form = el('<form action="/logout"></form>');
+        document.body.appendChild(form);
+        await boot();
+        activeSpy.postMessage.mockClear();
+        document.addEventListener('submit', (e) => e.preventDefault(), { capture: true, once: true });
+
+        form.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+        await new Promise((resolve) => setTimeout(resolve, 20));
+
+        expect(activeSpy.postMessage).not.toHaveBeenCalled();
     });
 
     // There can be a desktop AND a mobile nav logout form on the same

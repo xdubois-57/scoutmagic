@@ -171,6 +171,19 @@ class AuthSession
     }
 
     /**
+     * When the browser last received this session's cookie, as a Unix
+     * timestamp — the start of its 30-day lifetime, since PHP sends the
+     * cookie only when the id is (re)issued. The id rotates exactly where
+     * 'authenticated_at' is stamped: login() and markAuthenticatedNow().
+     * Not 'issued_at': refreshIssuedAt() moves that without a new cookie.
+     * A session predating 'authenticated_at' falls back to 'issued_at'.
+     */
+    public static function cookieIssuedAt(): ?int
+    {
+        return self::authenticatedAt() ?? self::getIssuedAt();
+    }
+
+    /**
      * Record that this already-signed-in session has just proved its
      * identity again: a magic link for the same account collected while
      * signed in, or the current password checked by « Mon compte ».

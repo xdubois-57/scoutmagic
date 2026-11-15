@@ -38,6 +38,20 @@ arrive concerne l'unité et pas un individu.
 Vous pouvez configurer **plusieurs boîtes** ; une boîte peut alimenter
 plusieurs modules, et un module peut lire plusieurs boîtes.
 
+**Prérequis : un fournisseur qui vérifie l'expéditeur.** L'adresse
+d'expéditeur d'un e-mail est déclarative : n'importe qui peut écrire celle
+d'un locataire. À l'arrivée de chaque message, le site lit le verdict que
+le serveur de réception de la boîte a écrit en tête du message (l'en-tête
+`Authentication-Results` : DMARC, ou à défaut SPF ou DKIM alignés sur le
+domaine de l'expéditeur), et **seulement le premier**, celui ajouté par
+votre fournisseur — ceux plus bas peuvent avoir été écrits par
+l'expéditeur. Un message que rien ne vérifie est marqué « Expéditeur non
+vérifié » partout où il s'affiche, ses notifications le disent, et aucune
+adresse n'est jamais apprise de lui. Gmail, Outlook/Microsoft 365 et OVH
+écrivent cet en-tête ; un fournisseur qui n'en écrit aucun laisse en tête
+celui que l'expéditeur aurait forgé, et la vérification ne protège alors
+plus de rien. Choisissez un fournisseur qui l'écrit.
+
 ## 3. Gmail et Outlook : un mot de passe d'application
 
 **Il n'existe pas de connecteur Gmail natif, et c'est délibéré.** Le mode

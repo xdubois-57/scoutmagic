@@ -276,8 +276,7 @@ final class UnattendedReceiptFilingTest extends TestCase
             $this->accounts,
             new TreasurerScopeService(
                 Connection::withPdo($this->pdo),
-                new BadgeRepository($this->pdo),
-                new MemberBadgeRepository($this->pdo)
+                new BadgeRepository($this->pdo)
             ),
             $this->pdo,
             $this->encryption,
@@ -286,8 +285,7 @@ final class UnattendedReceiptFilingTest extends TestCase
                 $this->accounts,
                 new TreasurerScopeService(
                     Connection::withPdo($this->pdo),
-                    new BadgeRepository($this->pdo),
-                    new MemberBadgeRepository($this->pdo)
+                    new BadgeRepository($this->pdo)
                 ),
                 $receiptService,
                 1

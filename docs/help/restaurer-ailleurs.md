@@ -70,6 +70,11 @@ Il dit lequel de ces cas vous êtes :
 - **l'archive vient d'une version plus récente**, ou son en-tête ne
   correspond pas à son contenu — elle a été modifiée, ou ce n'est pas la
   bonne installation.
+- **un fichier de l'archive n'est pas celui qu'elle annonce** — ajouté
+  ou remplacé après sa création ;
+- **l'archive a été faite avant que chacun de ses fichiers soit
+  authentifié** — refaites-en une depuis le site d'origine, s'il est
+  encore en service.
 
 Dans tous ces cas, rien n'a été modifié.
 

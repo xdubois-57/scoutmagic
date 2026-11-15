@@ -22,7 +22,15 @@ final class ImportContext
         public readonly string $format,
         public readonly ?int $userAccountId,
         public readonly ImportSource $source,
-        private \Closure $scoutYearResolver
+        private \Closure $scoutYearResolver,
+        /**
+         * True while the run executes, false during the analysis. An import
+         * whose {@see Importer::inspect()} can only decide by reading
+         * something slow — a remote page — does so at the execution only,
+         * and keeps the analysis fast. Last and defaulted so that adding it
+         * moved no existing argument.
+         */
+        public readonly bool $executing = false
     ) {
     }
 

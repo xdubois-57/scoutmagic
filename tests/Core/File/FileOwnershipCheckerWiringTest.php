@@ -66,17 +66,35 @@ class FileOwnershipCheckerWiringTest extends TestCase
 
     public function testTheGuardIsBuiltFromTheSharedCheckerArrayAndNotALiteral(): void
     {
+        // And the login, last: a checker's rule for one file can depend on
+        // who exactly is asking — a group moderator's flag belongs to one
+        // login (Core\File\FileLevelAccessPolicyInterface, issue #1119).
+        // Left out, that moderator would be refused the files of the hidden
+        // content they have to judge, with every other test still green.
         $this->assertMatchesRegularExpression(
-            '/new FileAccessGuard\(\s*\$fileRepository,\s*Role::fromString\(\$currentRole\),\s*\$linkedMemberIds,\s*\$fileOwnershipCheckers\s*\)/',
+            '/new FileAccessGuard\(\s*\$fileRepository,\s*Role::fromString\(\$currentRole\),\s*\$linkedMemberIds,'
+                . '\s*\$fileOwnershipCheckers,\s*AuthSession::getUserAccountId\(\)\s*\)/',
             $this->indexPhp,
-            'the guard must receive the shared $fileOwnershipCheckers array, so module-appended checkers reach it'
+            'the guard must receive the shared $fileOwnershipCheckers array, so module-appended checkers reach it, '
+                . 'and the login, so a per-file rule can recognise a moderator'
         );
 
         // Core's own checkers seed that array where their dependencies
-        // exist — the section documents one, and the Desk import's kept
-        // CSV (Core\Import\DeskImportFileOwnershipChecker).
-        $seed = '$fileOwnershipCheckers = [$sectionDocumentOwnershipChecker, new \\Core\\Import\\DeskImportFileOwnershipChecker()];';
-        $this->assertStringContainsString($seed, $this->indexPhp);
+        // exist — the section documents one, the Desk import's kept CSV
+        // (Core\Import\DeskImportFileOwnershipChecker), and a person's
+        // photo, one instance per owner type (issue #1108). The photo
+        // checkers are core's, so no module can leave them unwired: a file
+        // carrying their owner type with no checker would be refused to
+        // everyone, thumbnail included.
+        $seed = '$fileOwnershipCheckers = [';
+        $this->assertMatchesRegularExpression(
+            '/\$fileOwnershipCheckers = \[\s*\$sectionDocumentOwnershipChecker,'
+            . '\s*new \\\\Core\\\\Import\\\\DeskImportFileOwnershipChecker\(\),'
+            . '\s*\\\\Core\\\\Photo\\\\PersonPhotoOwnershipChecker::forMemberPhotos\(\),'
+            . '\s*\\\\Core\\\\Photo\\\\PersonPhotoOwnershipChecker::forAccountPhotos\(AuthSession::getUserAccountId\(\)\),'
+            . '\s*\];/',
+            $this->indexPhp
+        );
         $this->assertLessThan(
             $this->offsetOf('new FileAccessGuard('),
             $this->offsetOf($seed),
@@ -127,7 +145,11 @@ class FileOwnershipCheckerWiringTest extends TestCase
         // register nothing and change nothing, which is why they are
         // allowed to be public here. Anything that could ADD a checker
         // after construction would break the ordering contract above, and
-        // that is what this list exists to refuse.
-        $this->assertSame(['__construct', 'check', 'isIndexable', 'isStaffBypass'], $publicMethods);
+        // that is what this list exists to refuse. fileIdForPublicId()
+        // (issue #1109) only reads a row's id and decides nothing.
+        $this->assertSame(
+            ['__construct', 'check', 'fileIdForPublicId', 'isIndexable', 'isStaffBypass'],
+            $publicMethods
+        );
     }
 }

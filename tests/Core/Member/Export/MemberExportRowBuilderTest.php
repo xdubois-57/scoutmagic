@@ -10,9 +10,11 @@ use Core\Member\Export\MemberExportRowBuilder;
 use Core\Member\Movement\MemberMovementClassifierService;
 use Core\Member\Movement\MemberMovementRepository;
 use Core\Member\MemberEmailRepository;
+use Core\Member\SectionContactAccess;
 use Core\Member\SectionRosterRepository;
 use Core\Member\SectionService;
 use Core\Security\EncryptionService;
+use Core\Security\Role;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
@@ -58,7 +60,7 @@ class MemberExportRowBuilderTest extends TestCase
         $this->createMember($sectionId, 'Bob', 'intendant');
         $this->createMember($sectionId, 'Chloé', 'identified');
 
-        $rows = $this->builder->buildForSections([$sectionId], $this->scoutYearId);
+        $rows = $this->builder->buildForSections([$sectionId], $this->scoutYearId, $this->everySection());
 
         $names = array_map(fn($r) => $r->firstName, $rows);
         $this->assertCount(3, $rows);
@@ -75,7 +77,7 @@ class MemberExportRowBuilderTest extends TestCase
         $this->createMember($sectionA, 'Alice', 'identified');
         $this->createMember($sectionB, 'Bob', 'identified');
 
-        $rows = $this->builder->buildForSections([$sectionA], $this->scoutYearId);
+        $rows = $this->builder->buildForSections([$sectionA], $this->scoutYearId, $this->everySection());
 
         $names = array_map(fn($r) => $r->firstName, $rows);
         $this->assertSame(['Alice'], $names);
@@ -89,7 +91,7 @@ class MemberExportRowBuilderTest extends TestCase
         $this->createMember($sectionA, 'Alice', 'identified');
         $this->createMember($sectionB, 'Bob', 'identified');
 
-        $rows = $this->builder->buildForSections([$sectionA, $sectionB], $this->scoutYearId);
+        $rows = $this->builder->buildForSections([$sectionA, $sectionB], $this->scoutYearId, $this->everySection());
 
         $this->assertCount(2, $rows);
     }
@@ -104,7 +106,7 @@ class MemberExportRowBuilderTest extends TestCase
         $stmt = $this->pdo->prepare("INSERT INTO member_emails (member_id, email_encrypted, email_blind_index, source, status) VALUES (?, ?, ?, 'manual', 'valid')");
         $stmt->execute([$memberId, $this->encryption->encrypt('secondary@example.com', 'member_emails.email'), $this->encryption->blindIndex('secondary@example.com', 'email')]);
 
-        $rows = $this->builder->buildForSections([$sectionId], $this->scoutYearId);
+        $rows = $this->builder->buildForSections([$sectionId], $this->scoutYearId, $this->everySection());
         $row = $rows[0];
 
         $this->assertCount(2, $row->emails);
@@ -123,7 +125,7 @@ class MemberExportRowBuilderTest extends TestCase
         $memberYearId = $this->insertMemberYear($memberId, 'Alice', null, null, '0470123456');
         $this->attachFunction($memberYearId, $sectionId, 'identified');
 
-        $rows = $this->builder->buildForSections([$sectionId], $this->scoutYearId);
+        $rows = $this->builder->buildForSections([$sectionId], $this->scoutYearId, $this->everySection());
 
         $this->assertSame(['GSM : ' . \Core\Service\TextNormalizerService::normalizePhone('0470123456')], $rows[0]->phones);
     }
@@ -136,7 +138,7 @@ class MemberExportRowBuilderTest extends TestCase
         $memberYearId = $this->insertMemberYear($memberId, 'Alice', null, null, null);
         $this->attachFunction($memberYearId, $sectionId, 'identified');
 
-        $rows = $this->builder->buildForSections([$sectionId], $this->scoutYearId);
+        $rows = $this->builder->buildForSections([$sectionId], $this->scoutYearId, $this->everySection());
 
         $this->assertSame([], $rows[0]->phones);
     }
@@ -162,7 +164,7 @@ class MemberExportRowBuilderTest extends TestCase
             $this->encryption->encrypt('Belgique', 'member_addresses.country'),
         ]);
 
-        $rows = $this->builder->buildForSections([$sectionId], $this->scoutYearId);
+        $rows = $this->builder->buildForSections([$sectionId], $this->scoutYearId, $this->everySection());
         $row = $rows[0];
 
         $this->assertSame('Rue de la Station', $row->street);
@@ -197,7 +199,7 @@ class MemberExportRowBuilderTest extends TestCase
         $this->pdo->prepare('UPDATE member_years SET is_active = 0 WHERE id = ?')->execute([$memberYearId]);
 
         // The section roster (and its export) drops inactive members…
-        $this->assertSame([], $this->builder->buildForSections([$sectionId], $this->scoutYearId));
+        $this->assertSame([], $this->builder->buildForSections([$sectionId], $this->scoutYearId, $this->everySection()));
 
         // …the search page lists them ("non inscrit"), so its export keeps them.
         $rows = $this->builder->buildForMemberYears([$memberYearId], $this->scoutYearId);
@@ -219,6 +221,50 @@ class MemberExportRowBuilderTest extends TestCase
         // Excluded from the movement classifier's input — status honestly
         // "unknown", never guessed from a zero section id.
         $this->assertSame(\Core\Member\Movement\MemberMovementStatus::UNKNOWN->label(), $rows[0]->movementStatusLabel);
+    }
+
+    /**
+     * Issue #1116: a section the viewer may not see the contacts of comes
+     * back without them — address, e-mails, telephones, birth date — while
+     * the person, their section and functions stay.
+     */
+    public function testARowOfASectionTheViewerIsNotLinkedToComesWithoutContacts(): void
+    {
+        $branchId = $this->createBranch('LOU', 'Louveteaux', 20);
+        $sectionA = $this->createSection('LOU01', $branchId, 'Section A');
+        $sectionB = $this->createSection('LOU02', $branchId, 'Section B');
+        foreach ([[$sectionA, 'Alice', 'alice@example.com'], [$sectionB, 'Bob', 'bob@example.com']] as [$section, $name, $email]) {
+            $memberId = $this->insertMemberBase();
+            $memberYearId = $this->insertMemberYear($memberId, $name, $email, '024651234', '0470123456');
+            $this->attachFunction($memberYearId, $section, 'identified');
+        }
+        $access = SectionContactAccess::forViewer(
+            Role::INTENDANT,
+            [\Tests\Core\Member\SectionContactAccessTest::linkedMemberIn('LOU01')]
+        );
+
+        $rows = [];
+        foreach ($this->builder->buildForSections([$sectionA, $sectionB], $this->scoutYearId, $access) as $row) {
+            $rows[$row->firstName] = $row;
+        }
+
+        $this->assertSame(['alice@example.com'], $rows['Alice']->emails);
+        $this->assertCount(2, $rows['Alice']->phones);
+
+        $bob = $rows['Bob'];
+        $this->assertSame([], $bob->emails);
+        $this->assertSame([], $bob->phones);
+        $this->assertNull($bob->birthDate);
+        $this->assertNull($bob->street);
+        $this->assertNull($bob->postalCode);
+        $this->assertNull($bob->city);
+        $this->assertSame('LOU02', $bob->sectionCode);
+        $this->assertSame('Section B', $bob->sectionName);
+    }
+
+    private function everySection(): SectionContactAccess
+    {
+        return SectionContactAccess::forViewer(Role::CHIEF, []);
     }
 
     private function createMember(int $sectionId, string $firstName, string $functionRole): int

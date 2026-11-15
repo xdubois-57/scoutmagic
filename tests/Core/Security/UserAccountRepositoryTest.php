@@ -34,6 +34,7 @@ class UserAccountRepositoryTest extends TestCase
                 sessions_valid_from DATETIME,
                 is_super_admin BOOLEAN NOT NULL DEFAULT 0,
                 is_active BOOLEAN NOT NULL DEFAULT 1,
+                webauthn_user_handle BLOB UNIQUE,
                 created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 last_login_at DATETIME
             )
@@ -274,6 +275,32 @@ class UserAccountRepositoryTest extends TestCase
         $this->assertTrue($reloaded->isSuperAdmin, 'deactivation withdraws access, not the flag');
     }
 
+    /**
+     * « Déconnecter partout » (issue #1115): the stamp, and nothing else —
+     * the account stays active, the password stays, and only that account
+     * is touched.
+     */
+    public function testRevokeSessionsStampsOnlyThatAccountAndChangesNothingElse(): void
+    {
+        $account = $this->repo->create('holder@test.com');
+        $other = $this->repo->create('other@test.com');
+        $this->repo->updatePasswordHash($account->id, password_hash('x', PASSWORD_DEFAULT));
+        $this->pdo->prepare('UPDATE user_accounts SET sessions_valid_from = NULL, password_changed_at = ? WHERE id = ?')
+            ->execute(['2020-01-01 00:00:00', $account->id]);
+
+        $this->repo->revokeSessions($account->id);
+
+        $reloaded = $this->repo->findById($account->id);
+        $this->assertNotNull($reloaded?->sessionsValidFrom);
+        $this->assertEqualsWithDelta(time(), $reloaded->sessionsValidFrom->getTimestamp(), 5);
+        $this->assertTrue($reloaded->isActive);
+        $this->assertTrue($this->repo->hasPassword($account->id));
+        $changedAt = $this->pdo->prepare('SELECT password_changed_at FROM user_accounts WHERE id = ?');
+        $changedAt->execute([$account->id]);
+        $this->assertSame('2020-01-01 00:00:00', (string) $changedAt->fetchColumn());
+        $this->assertNull($this->repo->findById($other->id)?->sessionsValidFrom);
+    }
+
     public function testDeactivateNeverRemovesTheRow(): void
     {
         $account = $this->repo->create('admin@test.com', true);
@@ -308,5 +335,23 @@ class UserAccountRepositoryTest extends TestCase
 
         $this->assertTrue($account->isActive);
         $this->assertTrue($this->repo->findByEmail('someone@test.com')?->isActive);
+    }
+
+    public function testAWebAuthnUserHandleIsClaimedOnceAndNeverReplaced(): void
+    {
+        $account = $this->repo->create('passkey@test.com');
+        $this->assertNull($this->repo->findWebAuthnUserHandle($account->id));
+
+        $first = random_bytes(32);
+        $this->assertSame($first, $this->repo->claimWebAuthnUserHandle($account->id, $first));
+        // A second claim — a racing request — gets the stored one back.
+        $this->assertSame($first, $this->repo->claimWebAuthnUserHandle($account->id, random_bytes(32)));
+        $this->assertSame($first, $this->repo->findWebAuthnUserHandle($account->id));
+    }
+
+    public function testNoWebAuthnUserHandleForAnAccountThatDoesNotExist(): void
+    {
+        $this->assertNull($this->repo->claimWebAuthnUserHandle(999, random_bytes(32)));
+        $this->assertNull($this->repo->findWebAuthnUserHandle(999));
     }
 }

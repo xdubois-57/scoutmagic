@@ -154,6 +154,14 @@ class MemberNameRepository
      * Keyed on `members.id` for the same reason the whole module is: the
      * coverage question is about a person, not about an annual row.
      *
+     * **The section is that season's** (issue #1097): the one on the member's
+     * main function row for THIS year — the same rule the member search and
+     * the exports apply (`sections.name`, else its Desk code) — so a member
+     * who has since moved up a branch shows where they were when the
+     * certificate was earned. Function and section come from the same row,
+     * and the first main row wins if Desk ever sent two. A member with no
+     * main function that year keeps their place in the list, with neither.
+     *
      * @return array<int, MemberSummary> keyed by members.id, by name
      */
     public function findRoster(int $scoutYearId): array
@@ -163,18 +171,25 @@ class MemberNameRepository
                     my.first_name_encrypted,
                     my.last_name_encrypted,
                     sy.label AS scout_year_label,
-                    f.label  AS function_label
+                    f.label  AS function_label,
+                    s.name   AS section_name,
+                    s.desk_code AS section_code
              FROM member_years my
              JOIN scout_years sy ON sy.id = my.scout_year_id
              LEFT JOIN member_functions mf ON mf.member_year_id = my.id AND mf.is_main_function = 1
              LEFT JOIN functions f ON f.id = mf.function_id
+             LEFT JOIN sections s ON s.id = mf.section_id
              WHERE my.scout_year_id = ?
-             ORDER BY my.member_id ASC'
+             ORDER BY my.member_id ASC, mf.id ASC'
         );
         $stmt->execute([$scoutYearId]);
 
         $roster = [];
         foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            if (isset($roster[(int) $row['member_id']])) {
+                continue;
+            }
+
             $firstName = $this->decrypt($row['first_name_encrypted'], 'member_years.first_name');
             $lastName = $this->decrypt($row['last_name_encrypted'], 'member_years.last_name');
 
@@ -182,7 +197,8 @@ class MemberNameRepository
                 memberId: (int) $row['member_id'],
                 fullName: trim(($firstName ?? '') . ' ' . ($lastName ?? '')),
                 functionLabel: $row['function_label'] !== null ? (string) $row['function_label'] : null,
-                scoutYearLabel: (string) $row['scout_year_label']
+                scoutYearLabel: (string) $row['scout_year_label'],
+                sectionLabel: self::sectionLabel($row['section_name'], $row['section_code'])
             );
         }
 
@@ -256,6 +272,17 @@ class MemberNameRepository
         }
 
         return $emails;
+    }
+
+    private static function sectionLabel(mixed $name, mixed $code): ?string
+    {
+        foreach ([$name, $code] as $candidate) {
+            if (is_string($candidate) && trim($candidate) !== '') {
+                return $candidate;
+            }
+        }
+
+        return null;
     }
 
     private function decrypt(mixed $value, string $context): ?string

@@ -76,8 +76,7 @@ class ToolsControllerTest extends TestCase
         $this->receivableRepository = new ExpectedReceivableRepository($this->pdo, $encryption);
         $this->treasurerRule = new TreasurerScopeService(
             Connection::withPdo($this->pdo),
-            new BadgeRepository($this->pdo),
-            new MemberBadgeRepository($this->pdo)
+            new BadgeRepository($this->pdo)
         );
 
         $this->pdo->exec("INSERT INTO scout_years (id, label, start_date, end_date, is_current) VALUES (1, '2025-2026', '2025-09-01', '2026-08-31', 1)");

@@ -26,7 +26,9 @@ améliorer, autres suggestions — écrivez votre mot dans le champ du
 bas et touchez « Ajouter ». Restez dans la limite de longueur
 affichée ; si votre texte déborde et que le site le propose,
 « Raccourcir avec l'IA » suggère une version plus courte, que vous
-restez libre d'utiliser ou non.
+restez libre d'utiliser ou non. Sur un tableau ouvert à tous, l'IA a
+une limite par jour : une fois atteinte, le site vous propose de
+réessayer le lendemain.
 
 Un mot déposé ne se modifie pas et ne se retire pas : l'anonymat
 empêche de savoir qu'il est le vôtre. Relisez avant d'ajouter.

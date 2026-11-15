@@ -301,6 +301,11 @@ class BadgeService
         return $reasons;
     }
 
+    public function findById(int $id): ?Badge
+    {
+        return $this->badgeRepository->findById($id);
+    }
+
     /** @return Badge[] */
     public function getBadgesForMemberYear(int $memberYearId): array
     {

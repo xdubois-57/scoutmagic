@@ -342,7 +342,9 @@ class RentalMessageConsumer implements
      * in the window when there are several, else everything in it, else,
      * with nothing in the window, every booking of those addresses — a
      * cancelled one included, since the correspondence about why a stay
-     * fell through belongs on that stay.
+     * fell through belongs on that stay. A booking reached only through an
+     * address a manager typed counts in its window alone, for the model
+     * too (issue #1106).
      *
      * @param string[] $emails
      * @return array{0: ?RentalBooking, 1: list<RentalBooking>}
@@ -350,16 +352,30 @@ class RentalMessageConsumer implements
     private function addressMatch(array $emails, \DateTimeImmutable $sentAt): array
     {
         $all = [];
+        // A booking reached ONLY through an address a manager typed in
+        // (issue #1106) counts inside its window and nowhere else: nobody
+        // vouched for that address, and a correspondent of the unit typed
+        // onto a booking must not bring along everything they ever wrote.
+        $typedOnly = [];
         foreach ($emails as $email) {
             if (trim($email) === '') {
                 continue;
             }
 
+            $reachedByTyping = $this->bookingRepository->bookingIdsReachedOnlyByTypedEmail($email);
             foreach ($this->bookingRepository->findByRenterEmail($email) as $booking) {
+                if (!isset($reachedByTyping[$booking->id])) {
+                    $typedOnly[$booking->id] = false;
+                } elseif (!isset($typedOnly[$booking->id])) {
+                    $typedOnly[$booking->id] = true;
+                }
                 $all[$booking->id] = $booking;
             }
         }
-        $all = array_values($all);
+        $all = array_values(array_filter(
+            $all,
+            fn(RentalBooking $booking): bool => !$typedOnly[$booking->id] || $this->covers($booking, $sentAt)
+        ));
         if ($all === []) {
             return [null, []];
         }
@@ -658,7 +674,7 @@ class RentalMessageConsumer implements
 
         // What the unit sent is no news to its managers.
         if (!$message->isSent()) {
-            $this->announce($booking, $link);
+            $this->announce($booking, $link, $message);
         }
 
         $attachments = array_values(array_filter(
@@ -719,14 +735,14 @@ class RentalMessageConsumer implements
      * failures (`NewMessageNotifier::messageFiled()`), and the attachments
      * below must still become documents of the booking.
      */
-    private function announce(RentalBooking $booking, MessageLink $link): void
+    private function announce(RentalBooking $booking, MessageLink $link, InboundMessage $message): void
     {
         if ($this->newMessageNotifier === null || $link->attachmentId !== 0) {
             return;
         }
 
         try {
-            $this->newMessageNotifier->messageFiled($booking);
+            $this->newMessageNotifier->messageFiled($booking, !$message->senderUnverified());
         } catch (\Throwable) {
             // Only reached when the journal itself failed: the message is
             // filed whether or not anybody is told.
@@ -753,7 +769,11 @@ class RentalMessageConsumer implements
      */
     private function learnFrom(InboundMessage $message, RentalBooking $booking): void
     {
-        $address = self::taughtAddress($message);
+        // Never from a sender nobody vouched for (issue #1121): `From:` is
+        // declarative, and an address learned here files every later
+        // message from it unattended — a forged one would be taught to the
+        // booking by the very decision it fooled.
+        $address = $message->senderUnverified() ? '' : self::taughtAddress($message);
         if ($address !== '' && !$this->bookingRepository->isAddressOfBooking($booking, $address)) {
             $this->bookingRepository->addRenterEmail($booking->id, $address, $message->id);
         }
@@ -804,7 +824,10 @@ class RentalMessageConsumer implements
 
         $teachers = [];
         foreach ($this->inboundMail->findForReference(self::CONSUMER_ID, $booking->reference) as $filed) {
+            // A message nobody vouched for teaches nothing (issue #1121), so
+            // it cannot keep an address alive either once its teacher goes.
             if ($filed->id !== $message->id
+                && !$filed->senderUnverified()
                 && in_array($filed->linkOrigin, [LinkOrigin::MANUAL, LinkOrigin::AI], true)
             ) {
                 $teachers[self::taughtAddress($filed)] ??= $filed->id;
@@ -826,7 +849,8 @@ class RentalMessageConsumer implements
 
     /**
      * What becomes a document of the booking, received or sent (#720,
-     * step 8): PDF, Word, and the images `inbound_mail` kept at all — its
+     * step 8): PDF, Word (`.docx`; `inbound_mail` refuses the binary `.doc`,
+     * issue #1121), and the images `inbound_mail` kept at all — its
      * `AttachmentPolicy` has already dropped signature logos and anything
      * under the minimum size. A spreadsheet or an OpenDocument file stays
      * on the message, downloadable there, without a document.
@@ -835,7 +859,6 @@ class RentalMessageConsumer implements
      */
     public const DOCUMENT_MIME_TYPES = [
         'application/pdf',
-        'application/msword',
         'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
         'image/jpeg',
         'image/png',

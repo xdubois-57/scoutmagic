@@ -47,9 +47,11 @@ class Post
     /**
      * Auto-hidden by reports and not yet reviewed. Only a moderator ever
      * sees such a post at all — the exclusion is applied in
-     * Repository\PostRepository's own queries, so this is for rendering
-     * the "masqué — en attente de modération" badge, never for deciding
-     * visibility.
+     * Repository\PostRepository's own queries for every listing. A path
+     * that names ONE post by its id decides through Service\
+     * GroupAccessService::canReachPost(), never by reading this flag
+     * itself (issue #1119); here it renders the "masqué — en attente de
+     * modération" badge.
      */
     public function isHidden(): bool
     {

@@ -104,21 +104,39 @@ describe('sw.js: refreshOfflineCopies() — the pass (#883)', () => {
         await seed();
         const asked = serve({
             '/api/offline/manifest': manifest(['/', '/contact'], ['/aide']),
-            '/': html('<img src="/files/5/md" alt=""><a href="/files/7">original</a>'),
-            '/contact': html('<img srcset="/files/6/thumb 1x" alt="">'),
-            '/files/5/md': new Response('webp-5'),
-            '/files/6/thumb': new Response('webp-6'),
+            '/': html('<img src="/files/AAAAAAAAAAAAAAAAAAAAA5/md" alt=""><a href="/files/7">original</a>'),
+            '/contact': html('<img srcset="/files/AAAAAAAAAAAAAAAAAAAAA6/thumb 1x" alt="">'),
+            '/files/AAAAAAAAAAAAAAAAAAAAA5/md': new Response('webp-5'),
+            '/files/AAAAAAAAAAAAAAAAAAAAA6/thumb': new Response('webp-6'),
             '/aide': html('Aide'),
         });
 
         expect(await sw.refreshOfflineCopies()).toBe(true);
 
-        expect(stored()).toEqual(['/', '/aide', '/contact', '/files/5/md', '/files/6/thumb']);
+        expect(stored()).toEqual(['/', '/aide', '/contact', '/files/AAAAAAAAAAAAAAAAAAAAA5/md', '/files/AAAAAAAAAAAAAAAAAAAAA6/thumb']);
         expect(asked).not.toContain('/files/7');
         // Pages, then images, then help: the help is asked after every image.
-        expect(asked.indexOf('/aide')).toBeGreaterThan(asked.indexOf('/files/5/md'));
-        expect(asked.indexOf('/aide')).toBeGreaterThan(asked.indexOf('/files/6/thumb'));
-        expect(Math.max(asked.indexOf('/'), asked.indexOf('/contact'))).toBeLessThan(asked.indexOf('/files/5/md'));
+        expect(asked.indexOf('/aide')).toBeGreaterThan(asked.indexOf('/files/AAAAAAAAAAAAAAAAAAAAA5/md'));
+        expect(asked.indexOf('/aide')).toBeGreaterThan(asked.indexOf('/files/AAAAAAAAAAAAAAAAAAAAA6/thumb'));
+        expect(Math.max(asked.indexOf('/'), asked.indexOf('/contact'))).toBeLessThan(asked.indexOf('/files/AAAAAAAAAAAAAAAAAAAAA5/md'));
+    });
+
+    // Issue #1109: a file is addressed by its opaque id; its renditions are
+    // kept offline exactly like the numeric ones, and its original still
+    // never is.
+    it('keeps the renditions of a file addressed by its opaque id, never its original', async () => {
+        const opaque = 'aB3_x-9QzLm0PqRsTuVwXy';
+        await seed();
+        const asked = serve({
+            '/api/offline/manifest': manifest(['/'], []),
+            '/': html('<img src="/files/' + opaque + '/md" alt=""><a href="/files/' + opaque + '">original</a>'),
+            ['/files/' + opaque + '/md']: new Response('webp-opaque'),
+        });
+
+        expect(await sw.refreshOfflineCopies()).toBe(true);
+
+        expect(stored()).toEqual(['/', '/files/' + opaque + '/md']);
+        expect(asked).not.toContain('/files/' + opaque);
     });
 
     it('re-asks a stored page with its ETag, and a « 304 » only moves its date', async () => {
@@ -191,30 +209,30 @@ describe('sw.js: refreshOfflineCopies() — the pass (#883)', () => {
         await seed();
         const content = await caches.open('content-a-1');
         await content.put('/news/7', html('Sortie de la première page'));
-        await content.put('/files/9/thumb', new Response('plus montrée'));
+        await content.put('/files/AAAAAAAAAAAAAAAAAAAAA9/thumb', new Response('plus montrée'));
         serve({
             '/api/offline/manifest': manifest(['/news']),
-            '/news': html('<img src="/files/8/thumb">'),
-            '/files/8/thumb': new Response('webp-8'),
+            '/news': html('<img src="/files/AAAAAAAAAAAAAAAAAAAAA8/thumb">'),
+            '/files/AAAAAAAAAAAAAAAAAAAAA8/thumb': new Response('webp-8'),
         });
 
         await sw.refreshOfflineCopies();
 
-        expect(stored()).toEqual(['/files/8/thumb', '/news']);
+        expect(stored()).toEqual(['/files/AAAAAAAAAAAAAAAAAAAAA8/thumb', '/news']);
     });
 
     it('finishes despite an image refused for good — a file deleted while an article still shows it', async () => {
         await seed();
         serve({
             '/api/offline/manifest': manifest(['/news/3']),
-            '/news/3': html('<img src="/files/5/md"><img src="/files/6/md">'),
-            '/files/5/md': new Response('interdit', { status: 403 }),
-            '/files/6/md': new Response('webp-6'),
+            '/news/3': html('<img src="/files/AAAAAAAAAAAAAAAAAAAAA5/md"><img src="/files/AAAAAAAAAAAAAAAAAAAAA6/md">'),
+            '/files/AAAAAAAAAAAAAAAAAAAAA5/md': new Response('interdit', { status: 403 }),
+            '/files/AAAAAAAAAAAAAAAAAAAAA6/md': new Response('webp-6'),
         });
 
         expect(await sw.refreshOfflineCopies()).toBe(true);
 
-        expect(stored()).toEqual(['/files/6/md', '/news/3']);
+        expect(stored()).toEqual(['/files/AAAAAAAAAAAAAAAAAAAAA6/md', '/news/3']);
         expect((await readPass()).completedAt).toBeTypeOf('number');
     });
 
@@ -225,8 +243,8 @@ describe('sw.js: refreshOfflineCopies() — the pass (#883)', () => {
         await seed();
         serve({
             '/api/offline/manifest': manifest(['/news/3']),
-            '/news/3': html('<img src="/files/5/md">'),
-            '/files/5/md': new Response('plus tard', { status }),
+            '/news/3': html('<img src="/files/AAAAAAAAAAAAAAAAAAAAA5/md">'),
+            '/files/AAAAAAAAAAAAAAAAAAAAA5/md': new Response('plus tard', { status }),
         });
 
         expect(await sw.refreshOfflineCopies()).toBe(false);
@@ -437,11 +455,11 @@ describe('sw.js: refreshOfflineCopies() — the pass (#883)', () => {
 
 describe('sw.js: imageVariantsIn()', () => {
     it('finds the variants a page shows, and nothing else', () => {
-        const page = '<img src="/files/5/md"><img srcset="/files/6/thumb 1x, /files/6/md 2x">'
-            + '<div style="background-image:url(/files/8/md)"></div>'
-            + '<a href="/files/7">PDF</a><img src="/files/9/mdx"><span>/files/10/thumb/extra</span>';
+        const page = '<img src="/files/AAAAAAAAAAAAAAAAAAAAA5/md"><img srcset="/files/AAAAAAAAAAAAAAAAAAAAA6/thumb 1x, /files/AAAAAAAAAAAAAAAAAAAAA6/md 2x">'
+            + '<div style="background-image:url(/files/AAAAAAAAAAAAAAAAAAAAA8/md)"></div>'
+            + '<a href="/files/7">PDF</a><img src="/files/AAAAAAAAAAAAAAAAAAAAA9/mdx"><span>/files/AAAAAAAAAAAAAAAAAAAA10/thumb/extra</span>';
 
-        expect(sw.imageVariantsIn(page)).toEqual(['/files/5/md', '/files/6/thumb', '/files/6/md', '/files/8/md']);
+        expect(sw.imageVariantsIn(page)).toEqual(['/files/AAAAAAAAAAAAAAAAAAAAA5/md', '/files/AAAAAAAAAAAAAAAAAAAAA6/thumb', '/files/AAAAAAAAAAAAAAAAAAAAA6/md', '/files/AAAAAAAAAAAAAAAAAAAAA8/md']);
     });
 });
 
@@ -521,14 +539,14 @@ describe('sw.js: adoptPreviousVersion() — an update no longer starts from noth
     // carried over, and nor is an image no kept page shows.
     it('carries over only what the account\'s list holds, and the images its pages show', async () => {
         const previous = await caches.open('content-a-1');
-        await previous.put('/contact', html('<img src="/files/5/md" alt="">'));
-        await previous.put('/files/5/md', new Response('webp-5'));
+        await previous.put('/contact', html('<img src="/files/AAAAAAAAAAAAAAAAAAAAA5/md" alt="">'));
+        await previous.put('/files/AAAAAAAAAAAAAAAAAAAAA5/md', new Response('webp-5'));
         await previous.put('/members/99', html('Une autre fiche'));
-        await previous.put('/files/9/thumb', new Response('plus montrée'));
+        await previous.put('/files/AAAAAAAAAAAAAAAAAAAAA9/thumb', new Response('plus montrée'));
 
         await sw.adoptPreviousVersion('a', '2');
 
-        expect(stored('content-a-2')).toEqual(['/contact', '/files/5/md']);
+        expect(stored('content-a-2')).toEqual(['/contact', '/files/AAAAAAAAAAAAAAAAAAAAA5/md']);
         expect(caches.stores.has('content-a-1')).toBe(false);
     });
 
@@ -597,21 +615,21 @@ describe('sw.js: variantResponse() — an image stored while browsing, only for 
     }
 
     function imageRequest(referrerPath) {
-        return new Request(ORIGIN + '/files/5/md', { referrer: ORIGIN + referrerPath });
+        return new Request(ORIGIN + '/files/AAAAAAAAAAAAAAAAAAAAA5/md', { referrer: ORIGIN + referrerPath });
     }
 
     it('stores the image of a page on the list', async () => {
         await seedList(['/groups']);
-        serve({ '/files/5/md': new Response('webp') });
+        serve({ '/files/AAAAAAAAAAAAAAAAAAAAA5/md': new Response('webp') });
 
         await sw.variantResponse(imageRequest('/groups'), undefined);
 
-        await vi.waitFor(() => expect(stored()).toEqual(['/files/5/md']));
+        await vi.waitFor(() => expect(stored()).toEqual(['/files/AAAAAAAAAAAAAAAAAAAAA5/md']));
     });
 
     it('stores nothing for a page off the list', async () => {
         await seedList(['/groups']);
-        serve({ '/files/5/md': new Response('webp') });
+        serve({ '/files/AAAAAAAAAAAAAAAAAAAAA5/md': new Response('webp') });
 
         const response = await sw.variantResponse(imageRequest('/members/13'), undefined);
         await new Promise((resolve) => setTimeout(resolve, 0));
@@ -622,11 +640,11 @@ describe('sw.js: variantResponse() — an image stored while browsing, only for 
 
     it('stores nothing outside the installed app, and never a refusal', async () => {
         await seedList(['/groups'], { ...CONFIG, standalone: false });
-        serve({ '/files/5/md': new Response('webp') });
+        serve({ '/files/AAAAAAAAAAAAAAAAAAAAA5/md': new Response('webp') });
         await sw.variantResponse(imageRequest('/groups'), undefined);
 
         await seedList(['/groups']);
-        serve({ '/files/5/md': new Response('interdit', { status: 403 }) });
+        serve({ '/files/AAAAAAAAAAAAAAAAAAAAA5/md': new Response('interdit', { status: 403 }) });
         await sw.variantResponse(imageRequest('/groups'), undefined);
         await new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -634,7 +652,7 @@ describe('sw.js: variantResponse() — an image stored while browsing, only for 
     });
 
     it('answers from the cache when the network is down', async () => {
-        await (await caches.open('content-a-1')).put('/files/5/md', new Response('gardée'));
+        await (await caches.open('content-a-1')).put('/files/AAAAAAAAAAAAAAAAAAAAA5/md', new Response('gardée'));
         global.fetch = vi.fn(() => Promise.reject(new TypeError('Failed to fetch')));
 
         const response = await sw.variantResponse(imageRequest('/groups'), undefined);

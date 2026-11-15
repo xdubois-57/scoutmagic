@@ -448,8 +448,19 @@ class RentalRequestController extends AbstractController
                     'privacy_text' => $this->privacyText(),
                 ],
                 $now,
-                $this->automaticHoldDays(),
-                $validate
+                // The configured period, or none when this request may not
+                // take its dates on its own: a stay too long, or a requester
+                // already holding the most they may (issue #1114).
+                $this->bookingService->automaticHoldDaysFor(
+                    $arrival,
+                    $departure,
+                    (string) $request->getBody('email', ''),
+                    AuthSession::getUserAccountId(),
+                    $this->automaticHoldDays(),
+                    $now
+                ),
+                $validate,
+                AuthSession::getUserAccountId()
             );
         } catch (RentalException $e) {
             return $this->renderForm($asset, $request, [$e->getMessage()]);
@@ -764,7 +775,12 @@ class RentalRequestController extends AbstractController
     private function sendSubmissionEmails(RentalBooking $booking, RentalAsset $asset, string $trackingToken): void
     {
         try {
-            $this->mailService->sendAcknowledgement($booking, $asset, $trackingToken);
+            $this->mailService->sendAcknowledgement(
+                $booking,
+                $asset,
+                $trackingToken,
+                AuthSession::isAuthenticated()
+            );
         } catch (\Throwable) {
             FlashMessage::set(
                 'warning',

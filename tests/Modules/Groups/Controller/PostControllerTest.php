@@ -160,6 +160,7 @@ class PostControllerTest extends TestCase
 
         $resolver = $this->createStub(ScoutYearResolver::class);
         $resolver->method('getEffectiveYear')->willReturn(new EffectiveScoutYear($this->currentYearId, '2025-2026', null));
+        $resolver->method('getAuthorizationYear')->willReturn(new EffectiveScoutYear($this->currentYearId, '2025-2026', null));
 
         $activityService = new GroupActivityService($this->groupRepo, $this->postRepo);
         $postService = new PostService($this->postRepo, $activityService, GroupsTestHelper::rateLimitService($this->pdo));
@@ -1147,6 +1148,72 @@ class PostControllerTest extends TestCase
         $response = $this->controller([$outsider], self::OTHER_ACCOUNT)->vote($this->request(), $this->params($postId));
 
         $this->assertSame(404, $response->getStatusCode());
+    }
+
+    /**
+     * Issue #1119: the vote route rendered the poll of a post moderation
+     * hid — question, options and tallies — to any member, and recorded
+     * the vote. It is a 404 now, before anything is written.
+     */
+    public function testVotingOnAHiddenPostIs404ForAMemberAndRecordsNothing(): void
+    {
+        $postId = $this->seedPostWithPoll();
+        $options = $this->pollOptionsOf($postId);
+        $this->postRepo->setHiddenAt($postId, Timestamps::now());
+        $this->withCsrf(['option_id' => (string) $options[0]['id']]);
+
+        $response = $this->controller([$this->memberId])->vote($this->ajaxRequest(), $this->params($postId));
+
+        $this->assertSame(404, $response->getStatusCode());
+        $this->assertStringNotContainsString('Qui vient', $response->getBody());
+        $this->assertSame([], $this->allBallotsOf($postId));
+    }
+
+    /** A moderator, who has to be able to judge the post, still reaches it. */
+    public function testAModeratorStillVotesOnAHiddenPost(): void
+    {
+        $postId = $this->seedPostWithPoll();
+        $options = $this->pollOptionsOf($postId);
+        $this->postRepo->setHiddenAt($postId, Timestamps::now());
+        $this->withCsrf(['option_id' => (string) $options[0]['id']]);
+
+        $response = $this->controller([$this->moderatorMemberId], self::OTHER_ACCOUNT)
+            ->vote($this->ajaxRequest(), $this->params($postId));
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertCount(1, $this->allBallotsOf($postId));
+    }
+
+    /**
+     * Every other post action goes through the same gate: the author of a
+     * hidden post does not see it in the feed any more, and cannot edit it
+     * back into circulation either.
+     */
+    public function testEditingAHiddenPostIs404EvenForItsAuthor(): void
+    {
+        $postId = $this->seedPost();
+        $this->postRepo->setHiddenAt($postId, Timestamps::now());
+        $this->withCsrf(['body' => 'Version corrigée']);
+
+        $response = $this->controller([$this->memberId])->edit($this->request(), $this->params($postId));
+
+        $this->assertSame(404, $response->getStatusCode());
+        $this->assertSame('Bonjour', $this->postRepo->findById($postId)?->body);
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    private function allBallotsOf(int $postId): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT b.* FROM discussion_group_poll_ballots b
+             INNER JOIN discussion_group_polls p ON p.id = b.poll_id
+             WHERE p.post_id = ?'
+        );
+        $stmt->execute([$postId]);
+
+        return $stmt->fetchAll(\PDO::FETCH_ASSOC);
     }
 
     /**

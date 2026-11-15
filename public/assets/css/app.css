@@ -1352,3 +1352,30 @@ html:not(.photo-tile-ready) .photo-tile-add,
 .badge-solid-success {
     background-color: #198754;    /* 4.5:1 */
 }
+
+/* ---------------------------------------------------------------------
+   « Importé » — history brought over from the unit's previous site by the
+   data migration module (chantier « Migration de données », D11): the
+   badge and the « Élément historique en lecture seule » banner of
+   modules/news (and of any module whose imported items are locked the
+   same way). The maquette's own violet, so it reads as neither a state
+   (the solid badges above) nor a warning: 5.8:1 for the text against its
+   fill in the light theme, 7:1 in the dark one.
+   --------------------------------------------------------------------- */
+.badge-imported {
+    background-color: #ece9fb;
+    color: #5a4bb0;
+}
+.alert-imported {
+    --bs-alert-color: var(--bs-body-color);
+    --bs-alert-bg: #ece9fb;
+    --bs-alert-border-color: #d6d0f5;
+}
+[data-bs-theme="dark"] .badge-imported {
+    background-color: #2a2548;
+    color: #b7acf5;
+}
+[data-bs-theme="dark"] .alert-imported {
+    --bs-alert-bg: #2a2548;
+    --bs-alert-border-color: #423a75;
+}

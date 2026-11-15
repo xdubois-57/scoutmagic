@@ -13,6 +13,7 @@ use Core\Journal\JournalService;
 use Core\Security\Role;
 use Modules\Finance\Api\ExpectedReceivableInterface;
 use Modules\Finance\Api\FinanceException;
+use Modules\Finance\File\FinanceAccountOwnershipChecker;
 use Modules\Finance\Repository\AccountRepository;
 use Modules\Finance\Repository\Campaign;
 use Modules\Finance\Repository\CampaignRepository;
@@ -99,7 +100,7 @@ class CampaignService
         }
 
         $account = $this->accountRepository->findById($accountId);
-        if (!$this->accountVisibility->isVisibleTo($account, $viewerRole)) {
+        if ($account === null || !$this->accountVisibility->isVisibleTo($account, $viewerRole)) {
             throw new FinanceException("Ce compte n'existe pas ou ne vous est pas accessible.");
         }
 
@@ -112,14 +113,23 @@ class CampaignService
             throw new FinanceException("Le fichier chargé n'a pas pu être relu.");
         }
 
+        // The workbook is the unit's list of the people concerned, often
+        // with their parents' addresses and telephones: it is served under
+        // the account's own rule, like a receipt (issue #1111) — the
+        // account's floor, and File\FinanceAccountOwnershipChecker for
+        // visibility and the treasurer rule. A flat `intendant` used to
+        // hand it to every intendant, account visible or not.
         $fileId = $this->fileStorage->store(
             $contents,
             self::XLSX_MIME,
             $originalFilename,
             self::STORAGE_SUBDIRECTORY,
-            'intendant',
+            $account->roleMinView,
             'finance',
-            $actorUserAccountId
+            $actorUserAccountId,
+            null,
+            FinanceAccountOwnershipChecker::OWNER_TYPE,
+            $account->id
         );
 
         $this->pdo->beginTransaction();

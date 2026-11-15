@@ -1,0 +1,10 @@
+{
+    "id": "f-orphelin",
+    "article_id": "a-sans-titre",
+    "fields": [
+        {
+            "type": "short_text",
+            "label": "Nom du groupe"
+        }
+    ]
+}

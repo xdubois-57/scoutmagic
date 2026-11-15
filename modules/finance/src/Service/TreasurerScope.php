@@ -77,8 +77,10 @@ class TreasurerScope
     }
 
     /**
-     * @return int[]|null section ids, or null when the rule is disabled —
-     *                    see TreasurerScopeService::getTreasurerSectionIds()
+     * @return int[]|null section ids (see TreasurerScopeService::
+     *                    getTreasurerSectionIds()), or null for the
+     *                    systemCaller() only: a person is never outside
+     *                    the rule (issue #1107)
      */
     public function sectionIds(): ?array
     {

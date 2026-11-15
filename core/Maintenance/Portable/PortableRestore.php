@@ -12,6 +12,7 @@ namespace Core\Maintenance\Portable;
 use Core\Maintenance\BackupException;
 use Core\Maintenance\BackupService;
 use Core\Security\SecretManager;
+use Core\View\CompiledTemplateCache;
 use Core\Statistics\InstallationIdentityService;
 
 /**
@@ -378,11 +379,22 @@ final class PortableRestore
     {
         $entries ??= $this->plannedEntries($archive);
 
-        if (!$archive->handle()->extractTo($this->basePath, $entries)) {
-            throw new BackupException(
-                'L\'extraction de la sauvegarde portable a échoué. Vérifiez l\'espace disque et les droits '
-                . 'sur le dossier du site.'
-            );
+        // Whatever the guards above let through, no compiled template
+        // survives a restore (issue #1103) — a failed one included:
+        // extractTo() writes entry by entry and does not undo what it wrote
+        // before failing, hence the finally.
+        try {
+            // Every storage file was left out (PortableArchive::
+            // restorableEntries()): nothing to write, and extractTo() must
+            // not be handed an empty list.
+            if ($entries !== [] && !$archive->handle()->extractTo($this->basePath, $entries)) {
+                throw new BackupException(
+                    'L\'extraction de la sauvegarde portable a échoué. Vérifiez l\'espace disque et les droits '
+                    . 'sur le dossier du site.'
+                );
+            }
+        } finally {
+            CompiledTemplateCache::clear($this->basePath);
         }
     }
 
@@ -400,7 +412,11 @@ final class PortableRestore
     private function plannedEntries(PortableArchive $archive): array
     {
         $entries = $archive->restorableEntries();
-        if ($entries === []) {
+        // Empty because the archive has no site files at all: not one of
+        // ours. Empty because each of them was a file a web server would
+        // run, left out on purpose (issue #1103): the database and the keys
+        // still restore, and nothing is extracted.
+        if ($entries === [] && !$archive->hasStorageMembers()) {
             throw new BackupException('Cette sauvegarde portable ne contient aucun fichier à restaurer.');
         }
 

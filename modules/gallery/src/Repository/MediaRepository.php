@@ -14,6 +14,19 @@ class MediaRepository
     {
     }
 
+    /**
+     * The media of $albumId whose original is the `files` row $fileId —
+     * Api\DelegatedAlbumManager::findMediaIdForOriginal().
+     */
+    public function findIdByAlbumAndFileId(int $albumId, int $fileId): ?int
+    {
+        $stmt = $this->pdo->prepare('SELECT id FROM gallery_media WHERE album_id = ? AND file_id = ? LIMIT 1');
+        $stmt->execute([$albumId, $fileId]);
+        $id = $stmt->fetchColumn();
+
+        return $id === false ? null : (int) $id;
+    }
+
     public function findById(int $id): ?Media
     {
         $stmt = $this->pdo->prepare('SELECT * FROM gallery_media WHERE id = ?');

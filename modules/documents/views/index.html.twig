@@ -59,7 +59,7 @@
                             </p>
                         </div>
                         {% include 'partials/file_link.html.twig' with {
-                            href: '/files/' ~ document.fileId,
+                            href: file_url(document.fileId),
                             label: '',
                             icon: 'download',
                             classes: 'btn btn-outline-primary flex-shrink-0',

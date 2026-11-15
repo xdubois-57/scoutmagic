@@ -19,6 +19,8 @@ use Core\Mail\Template\EmailTemplateRenderer;
  * hashed with password_hash() before storage, single-use via a "used"
  * flag), but a longer validity window since a reset requires more of the
  * user (find the email, think of a new password) than a login link.
+ *
+ * @phpstan-import-type LiveAccesses from AccountAccessRevoker
  */
 class PasswordResetService
 {
@@ -28,6 +30,7 @@ class PasswordResetService
     private UserAccountRepository $userRepo;
     private PasswordResetRepository $resetRepo;
     private ?JournalService $journalService = null;
+    private ?AccountAccessRevoker $accessRevoker = null;
 
     public function __construct(
         private Connection $connection,
@@ -45,6 +48,16 @@ class PasswordResetService
     public function setJournalService(JournalService $journalService): void
     {
         $this->journalService = $journalService;
+    }
+
+    /**
+     * Late, like the journal: the device credentials it reaches are wired
+     * long after this service in public/index.php. Production always sets
+     * it; with none, a reset ends the sessions and nothing else.
+     */
+    public function setAccessRevoker(AccountAccessRevoker $accessRevoker): void
+    {
+        $this->accessRevoker = $accessRevoker;
     }
 
     /**
@@ -105,13 +118,52 @@ class PasswordResetService
     }
 
     /**
+     * The passkeys and device credentials the reset page offers to take
+     * back (issue #1115), or null when the token is not usable — the same
+     * answer checkToken() gives, so a dead link never lists anything.
+     *
+     * Holding a valid reset link is proof of the account's mailbox, which
+     * is what this page already trusts with a new password; the names
+     * listed are the ones the holder typed, nothing more.
+     *
+     * Empty lists when no revoker is wired: the page then lists nothing,
+     * and the reset ends the sessions only, as it did before.
+     *
+     * @return LiveAccesses|null
+     */
+    public function liveAccessesForToken(int $id, string $rawToken): ?array
+    {
+        $user = $this->userForToken($id, $rawToken);
+        if ($user === null) {
+            return null;
+        }
+
+        return $this->accessRevoker?->liveAccesses($user->id) ?? ['passkeys' => [], 'devices' => []];
+    }
+
+    /**
      * Re-validates the token, then atomically consumes it and sets the new
      * password. Returns false (nothing changed) when the token is invalid/
      * expired/already used, the account no longer exists, or the password
      * fails Core\Security\PasswordPolicy.
+     *
+     * A reset is also how a holder takes their account back, so it
+     * revokes every passkey and every device credential the account holds,
+     * except the ones named in the two keep lists (issue #1115; see
+     * Core\Security\AccountAccessRevoker for why the kept ones are named
+     * rather than the revoked ones). Sessions end regardless, through
+     * updatePasswordHash().
+     *
+     * @param list<int> $keepPasskeyIds
+     * @param list<int> $keepDeviceIds
      */
-    public function resetPassword(int $id, string $rawToken, string $newPassword): bool
-    {
+    public function resetPassword(
+        int $id,
+        string $rawToken,
+        string $newPassword,
+        array $keepPasskeyIds = [],
+        array $keepDeviceIds = []
+    ): bool {
         $token = $this->loadValidToken($id, $rawToken);
         if ($token === null || !PasswordPolicy::isValid($newPassword)) {
             return false;
@@ -134,7 +186,22 @@ class PasswordResetService
             $user->id
         );
 
+        $this->accessRevoker?->revoke(
+            $user->id,
+            $keepPasskeyIds,
+            $keepDeviceIds,
+            AccountAccessRevoker::REASON_PASSWORD_RESET,
+            $user->id
+        );
+
         return true;
+    }
+
+    private function userForToken(int $id, string $rawToken): ?UserAccount
+    {
+        $token = $this->loadValidToken($id, $rawToken);
+
+        return $token === null ? null : $this->userRepo->findByBlindIndex($token->emailBlindIndex);
     }
 
     public function cleanupExpiredTokens(): int

@@ -1,0 +1,11 @@
+{
+    "id": "f-valide-1",
+    "article_id": "a-valide",
+    "fields": [
+        {
+            "type": "email",
+            "label": "Adresse de contact",
+            "required": true
+        }
+    ]
+}

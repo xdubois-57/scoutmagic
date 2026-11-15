@@ -312,6 +312,91 @@ class ReceivableAllocationServiceTest extends TestCase
         $this->service->allocate($transactionId, $second, 4500, Role::INTENDANT, 7);
     }
 
+    /**
+     * « Répartir » is all or nothing (issue #1118): the second line asks
+     * more than its receivable still expects, so the first one — valid,
+     * and written first — is rolled back with it, and the message names
+     * the line that failed by its communication.
+     */
+    public function testASplitWithOneRefusedLineWritesNoneOfIt(): void
+    {
+        $lucie = $this->receivables->create('finance', 1, $this->accountId, 4500, '+++123/4567/89012+++', 'Lucie');
+        $antoine = $this->receivables->create('finance', 2, $this->accountId, 3000, '+++123/4567/89025+++', 'Antoine');
+        $transactionId = $this->credit('VANDENBRANDE M +++123/4567/89012+++', 90.00);
+
+        try {
+            $this->service->split($transactionId, [$lucie => 4500, $antoine => 4500], Role::INTENDANT, 7);
+            $this->fail('a split with a refused line was accepted');
+        } catch (FinanceException $e) {
+            $this->assertStringStartsWith(
+                "Rien n'a été réparti. Ligne « +++123/4567/89025+++ » :",
+                $e->getMessage()
+            );
+            $this->assertStringContainsString("n'attend plus que 30,00", $e->getMessage());
+            // The label often carries a member's name: never in an exception.
+            $this->assertStringNotContainsString('Antoine', $e->getMessage());
+        }
+
+        $this->assertSame([], $this->allocations->findByTransactionId($transactionId));
+        $this->assertFalse($this->pdo->inTransaction(), 'the refused split left its transaction open');
+    }
+
+    /**
+     * A surplus moves only between two receivables of the same account
+     * (issue #1118): the transfer reaches the allocation without
+     * requirePair(), so the invariant is held under the locks too.
+     */
+    public function testASurplusIsNeverMovedToAReceivableOnAnotherAccount(): void
+    {
+        $from = $this->receivable(3825, '+++123/4567/89012+++');
+        $elsewhere = $this->receivable(4500, '+++123/4567/89025+++', $this->otherAccountId);
+        $credit = $this->credit('Virement arrondi +++123/4567/89012+++', 45.00);
+        $this->service->reconcileAccount($this->accountId);
+        $this->assertSame(675, $this->settlement($from)->amountOverpaidCents);
+
+        try {
+            $this->service->transferOverpayment($from, $elsewhere, 675, Role::INTENDANT, 7);
+            $this->fail('a surplus was moved onto another account');
+        } catch (FinanceException $e) {
+            $this->assertStringContainsString('même compte', $e->getMessage());
+        }
+
+        $this->assertNull($this->allocations->findPair($credit, $elsewhere));
+        $this->assertSame(675, $this->settlement($from)->amountOverpaidCents);
+    }
+
+    /**
+     * Moving a surplus is all or nothing too (issue #1118). The surplus
+     * here is 20 €: 15 € from an insurer's credit attached whole, beyond
+     * what is due — money lying on no movement the transfer can draw on —
+     * and 5 € left on a transfer naming the receivable. The 5 € are moved
+     * first, then the rest cannot be placed and the gesture is refused:
+     * the 5 € go back with it.
+     */
+    public function testATransferRefusedHalfWayLeavesNothingMoved(): void
+    {
+        $from = $this->receivable(4500, '+++123/4567/89012+++');
+        $to = $this->receivable(5000, '+++123/4567/89025+++');
+        $insurer = $this->credit('ETHIAS SA Sinistre', 60.00);
+        $receivable = $this->receivables->findById($from);
+        $this->assertNotNull($receivable);
+        $this->service->paymentFromCandidate($receivable, $insurer, 6000, '2026-01-01', 7);
+        $rest = $this->credit('Virement +++123/4567/89012+++', 5.00);
+        $this->service->reconcileAccount($this->accountId);
+        $this->assertSame(2000, $this->settlement($from)->amountOverpaidCents);
+
+        try {
+            $this->service->transferOverpayment($from, $to, 2000, Role::INTENDANT, 7);
+            $this->fail('a surplus that could not be placed in full was accepted');
+        } catch (FinanceException $e) {
+            $this->assertStringContainsString("n'a pas pu être imputé en entier", $e->getMessage());
+        }
+
+        $this->assertNull($this->allocations->findPair($rest, $to), 'the 5 € moved first stayed moved');
+        $this->assertSame(0, $this->settlement($to)->amountAllocatedCents);
+        $this->assertFalse($this->pdo->inTransaction());
+    }
+
     public function testAllocatingMoreThanIsStillDueIsRefused(): void
     {
         $id = $this->receivable(4500, '+++123/4567/89012+++');

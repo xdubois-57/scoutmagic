@@ -68,7 +68,9 @@
                 {% for row in mail_propositions %}
                     <div class="border rounded p-3 mb-2">
                         <div class="d-flex flex-wrap justify-content-between gap-2">
-                            <strong class="min-w-0 text-truncate">{{ row.message.displayFrom }}</strong>
+                            <span class="min-w-0"><strong class="text-truncate">{{ row.message.displayFrom }}</strong>
+                                {% include '@inbound_mail/partials/sender_badge.html.twig'
+                                    with { message: row.message } only %}</span>
                             <span class="small text-body-secondary">{{ row.message.sentAt|datetime_fr }}</span>
                         </div>
                         <div class="fw-semibold my-1">{{ row.message.subject ?: 'Sans objet' }}</div>

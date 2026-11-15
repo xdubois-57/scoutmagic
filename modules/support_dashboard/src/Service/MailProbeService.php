@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\SupportDashboard\Service;
 
 use Core\Journal\JournalService;
+use Core\Mail\MailAuthenticationResults;
 use Core\Service\DateInput;
 use Modules\InboundMail\Api\InboundMailInterface;
 use Modules\SupportDashboard\Mail\SupportMessageConsumer;

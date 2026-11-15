@@ -22,12 +22,11 @@ use Tests\DatabaseTestHelper;
  * Two things this suite exists to pin down, because getting either wrong
  * is invisible until it hurts somebody:
  *
- *  1. **null and [] are different answers.** null switches the rule off
- *     and hands every section account back to every intendant; [] denies
- *     them all. A conflation in either direction is a security bug in one
- *     direction and a lock-out in the other, so every case below asserts
- *     which of the two it is, using assertNull/assertSame rather than
- *     anything that would treat them alike.
+ *  1. **No badge, no access** (issue #1107). There is no « rule off »
+ *     any more: a missing, deactivated or unassigned badge is an empty
+ *     answer, never one that hands every section account back to every
+ *     intendant — which is what taking the badge off every treasurer used
+ *     to do.
  *  2. **Both halves are required** — the badge AND animating the section.
  *     Either alone grants nothing.
  */
@@ -46,8 +45,7 @@ class TreasurerScopeServiceTest extends TestCase
         $this->pdo = DatabaseTestHelper::createTestDatabase();
         $this->service = new TreasurerScopeService(
             Connection::withPdo($this->pdo),
-            new BadgeRepository($this->pdo),
-            new MemberBadgeRepository($this->pdo)
+            new BadgeRepository($this->pdo)
         );
 
         $this->pdo->exec("INSERT INTO scout_years (id, label, start_date, end_date, is_current) VALUES (1, '2025-2026', '2025-09-01', '2026-08-31', 1)");
@@ -65,44 +63,60 @@ class TreasurerScopeServiceTest extends TestCase
         $this->badgeId = $this->createBadge(BadgeService::BADGE_TREASURER, isActive: true);
     }
 
-    // --- The three ways the rule is OFF ---
+    // --- No badge, no access: the rule is never switched off (issue #1107) ---
 
-    public function testTheRuleIsOffWhenTheBadgeDoesNotExistAtAll(): void
+    public function testNoTreasurerWhenTheBadgeDoesNotExistAtAll(): void
     {
         $this->pdo->exec('DELETE FROM badges');
         $memberId = $this->createStaffMember(section: $this->louveteauxId);
 
-        $this->assertNull($this->service->getTreasurerSectionIds([$memberId], $this->scoutYearId));
+        $this->assertSame([], $this->service->getTreasurerSectionIds([$memberId], $this->scoutYearId));
+        $this->assertSame([], $this->service->sectionIdsWithTreasurer($this->scoutYearId));
     }
 
-    public function testTheRuleIsOffWhenTheBadgeIsDeactivated(): void
+    public function testADeactivatedBadgeMakesNobodyATreasurer(): void
     {
         $memberId = $this->createStaffMember(section: $this->louveteauxId, withBadge: true);
         $this->pdo->exec('UPDATE badges SET is_active = 0');
 
-        // Deactivating the badge is the only thing the badges screen lets a
-        // unit do to a default badge — it is how "we do not work this way"
-        // is said, and it must not leave the assignments half-applied.
-        $this->assertNull($this->service->getTreasurerSectionIds([$memberId], $this->scoutYearId));
+        // Deactivating the badge used to switch the rule off for the whole
+        // unit; it now leaves the section accounts to the chefs d'unité.
+        $this->assertSame([], $this->service->getTreasurerSectionIds([$memberId], $this->scoutYearId));
+        $this->assertSame([], $this->service->sectionIdsWithTreasurer($this->scoutYearId));
     }
 
-    public function testTheRuleIsOffWhenNobodyHoldsTheBadgeThisYear(): void
+    public function testNobodyHoldingTheBadgeThisYearMakesNobodyATreasurer(): void
     {
         $memberId = $this->createStaffMember(section: $this->louveteauxId);
 
-        // The state every installation is in the day it updates. Turning
-        // the rule on here would lock a whole unit out of its own accounts.
-        $this->assertNull($this->service->getTreasurerSectionIds([$memberId], $this->scoutYearId));
+        // The audited abuse: take the badge off every treasurer and the
+        // rule used to switch itself off, opening every section's account.
+        $this->assertSame([], $this->service->getTreasurerSectionIds([$memberId], $this->scoutYearId));
     }
 
-    public function testABadgeHeldOnlyInAnotherYearDoesNotSwitchThisYearOn(): void
+    public function testABadgeHeldOnlyInAnotherYearMakesNobodyATreasurerThisYear(): void
     {
         $this->pdo->exec("INSERT INTO scout_years (id, label, start_date, end_date, is_current) VALUES (2, '2024-2025', '2024-09-01', '2025-08-31', 0)");
         $memberId = $this->createStaffMember(section: $this->louveteauxId, withBadge: true, scoutYearId: 2);
 
-        // member_badges is keyed per year: a unit that used the badge last
-        // year and has not got round to it this year is OFF, not locked out.
-        $this->assertNull($this->service->getTreasurerSectionIds([$memberId], $this->scoutYearId));
+        // member_badges is keyed per year: last year's treasurer is not
+        // this year's until the badge is handed out again.
+        $this->assertSame([], $this->service->getTreasurerSectionIds([$memberId], $this->scoutYearId));
+        $this->assertSame([], $this->service->sectionIdsWithTreasurer($this->scoutYearId));
+        $this->assertSame([$this->louveteauxId], $this->service->sectionIdsWithTreasurer(2));
+    }
+
+    // --- Which sections have a treasurer, for the attention point ---
+
+    public function testSectionsWithATreasurerAreThoseABadgeHolderAnimates(): void
+    {
+        $this->createStaffMember(section: $this->louveteauxId, withBadge: true);
+        $this->createStaffMember(section: $this->eclaireursId);
+        $this->createStaffMember(section: $this->eclaireursId, withBadge: true, functionId: 2);
+
+        // The animateur without the badge and the animé with it cover
+        // nothing: only the Louveteaux have a treasurer.
+        $this->assertSame([$this->louveteauxId], $this->service->sectionIdsWithTreasurer($this->scoutYearId));
     }
 
     // --- The rule is ON: [] is a real, denying answer ---
@@ -112,8 +126,7 @@ class TreasurerScopeServiceTest extends TestCase
         $this->createStaffMember(section: $this->eclaireursId, withBadge: true);
         $plainAnimateur = $this->createStaffMember(section: $this->louveteauxId);
 
-        // Not null: somebody else's badge switched the rule on, and this
-        // account is simply not a treasurer.
+        // Somebody else's badge does not make this account a treasurer.
         $this->assertSame([], $this->service->getTreasurerSectionIds([$plainAnimateur], $this->scoutYearId));
     }
 
@@ -129,7 +142,7 @@ class TreasurerScopeServiceTest extends TestCase
         $this->createStaffMember(section: $this->louveteauxId, withBadge: true);
 
         // Never "everything": an account the Desk import does not reach
-        // must fail closed once the rule is on.
+        // fails closed.
         $this->assertSame([], $this->service->getTreasurerSectionIds([], $this->scoutYearId));
     }
 
@@ -160,7 +173,6 @@ class TreasurerScopeServiceTest extends TestCase
 
         $sections = $this->service->getTreasurerSectionIds([$mine], $this->scoutYearId);
 
-        $this->assertNotNull($sections);
         $this->assertSame([$this->louveteauxId], $sections);
     }
 
@@ -171,7 +183,6 @@ class TreasurerScopeServiceTest extends TestCase
 
         $sections = $this->service->getTreasurerSectionIds([$memberId], $this->scoutYearId);
 
-        $this->assertNotNull($sections);
         sort($sections);
         $this->assertSame([$this->louveteauxId, $this->eclaireursId], $sections);
     }
@@ -186,7 +197,6 @@ class TreasurerScopeServiceTest extends TestCase
 
         $sections = $this->service->getTreasurerSectionIds([$first, $second], $this->scoutYearId);
 
-        $this->assertNotNull($sections);
         sort($sections);
         $this->assertSame([$this->louveteauxId, $this->eclaireursId], $sections);
     }

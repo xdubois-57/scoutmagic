@@ -41,9 +41,20 @@ interface MassMailQueryInterface
      * error, or the member had no address it could be sent to. The entry is
      * listed all the same, and a view must say « Non envoyée ».
      *
+     * `imported` is true for an email imported from a former site (chantier
+     * « Migration de données », D11): a view shows the « Importé » badge.
+     * Such an entry is never `not_sent` — the former site often did not
+     * know what became of a message, and an unknown is not a failure — and
+     * its `sent_at` is the historical sending.
+     *
+     * `failed` is true for an imported entry the former site recorded as a
+     * failure: every message of the member in error, none sent and none of
+     * unknown fate. A view says « Non envoyée », as the former site did. It
+     * is always false for an email sent from this site.
+     *
      * @return array<int, array{
      *     id: int, subject: string, sent_at: string, section_name: string,
-     *     merge_purged: bool, not_sent: bool
+     *     merge_purged: bool, not_sent: bool, imported: bool, failed: bool
      * }>
      */
     public function getRecentEmailsForMember(int $memberId, int $limit): array;
@@ -57,7 +68,9 @@ interface MassMailQueryInterface
      *
      * As above, the copy THIS member received, variables substituted, with
      * `merge_purged` for the one case where it cannot be and `not_sent` for
-     * an entry nothing of which left.
+     * an entry nothing of which left, and `imported` for an email imported
+     * from a former site, which a view shows read-only with its banner —
+     * and `failed` when that former site recorded its failure.
      *
      * `other_targets` lists the OTHER members the same classic-list
      * communication was meant for (always empty for a publipostage, whose
@@ -68,7 +81,7 @@ interface MassMailQueryInterface
      *
      * @return array{
      *     subject: string, body_html: string, sent_at: string, section_name: string,
-     *     merge_purged: bool, not_sent: bool,
+     *     merge_purged: bool, not_sent: bool, imported: bool, failed: bool,
      *     other_targets: list<array{target_id: int, member_id: int, scout_year_id: int|null}>
      * }|null
      */

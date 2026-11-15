@@ -1,0 +1,11 @@
+{
+    "id": "i-07-contenu-vide-une-fois-nettoye",
+    "sent_at": "2021-03-01T10:00:00+01:00",
+    "subject": "Un sujet",
+    "sender": {
+        "address": "baladins@exemple.test"
+    },
+    "body": {
+        "html": "content/b381041f11bdc5ee044a5b1e9c87dd3ee0a7275b6fb67cbd072603da40cd3f9d.html"
+    }
+}

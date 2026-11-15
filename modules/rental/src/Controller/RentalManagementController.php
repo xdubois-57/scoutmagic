@@ -1477,7 +1477,10 @@ class RentalManagementController extends AbstractController
             $this->otherRenterEmailService()->addOtherRenterEmail(
                 $booking,
                 (string) $request->getBody('email', ''),
-                $this->actorMemberId()
+                $this->actorMemberId(),
+                // Issue #1106: only Staff d'U types an address; any other
+                // manager picks one from the booking's own mail.
+                $this->authorizationService->isUnitStaff(AuthSession::getEmail(), $this->scoutYearId())
             );
 
             FlashMessage::set('success', 'Adresse ajoutée.');
@@ -1640,6 +1643,13 @@ class RentalManagementController extends AbstractController
             // addresses either way, and adding one before the box is
             // opened is how its first message is filed straight away.
             'other_renter_emails' => $this->bookingRepository->otherRenterEmails($booking->id),
+            // Issue #1106: Staff d'U types an address; any other manager
+            // chooses among the ones on this booking's mail.
+            'other_email_free_entry' => $this->authorizationService->isUnitStaff(
+                AuthSession::getEmail(),
+                $this->scoutYearId()
+            ),
+            'other_email_choices' => $this->bookingService?->otherRenterEmailChoices($booking) ?? [],
         ];
     }
 

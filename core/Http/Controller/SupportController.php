@@ -374,7 +374,7 @@ class SupportController extends AbstractController
 
         return $this->json([
             'status' => $status,
-            'download_url' => $fileId !== null ? '/files/' . $fileId : null,
+            'download_url' => $fileId !== null ? \Core\File\FilePublicIds::urlFor($fileId) : null,
         ]);
     }
 

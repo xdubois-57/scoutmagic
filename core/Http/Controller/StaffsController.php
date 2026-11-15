@@ -16,6 +16,7 @@ use Core\Http\Response;
 use Core\Config\SettingService;
 use Core\Journal\JournalService;
 use Core\Member\MemberService;
+use Core\Member\SectionContactAccess;
 use Core\Member\SectionDocumentService;
 use Core\Member\SectionService;
 use Core\Member\SectionStaffAuthorizationService;
@@ -104,9 +105,18 @@ class StaffsController extends AbstractController
         // Collapsing the two into one boolean, as this page did until now,
         // is precisely what let them.
         $isChief = $currentRole->hasAccess(Role::CHIEF);
+        // Which sections this account may EDIT is decided in the
+        // authorization year, never the previewed one (issue #1124): the
+        // page offers its buttons from the same answer mayEditSection()
+        // and SectionDocumentController accept. The listing below still
+        // follows the year on screen.
         $staffedSectionIds = array_map(
             static fn(array $section): int => (int) $section['id'],
-            $this->sectionStaffAuthorizationService->getStaffedSections($email, $currentRole->value, $scoutYearId)
+            $this->sectionStaffAuthorizationService->getStaffedSections(
+                $email,
+                $currentRole->value,
+                $this->scoutYearResolver->getAuthorizationYear()->id
+            )
         );
 
         // Get current section details and staff
@@ -121,17 +131,21 @@ class StaffsController extends AbstractController
                 $canEditSection = $isChief && in_array((int) $currentSection['id'], $staffedSectionIds, true);
                 $staff = $this->sectionService->getSectionStaff($selectedSectionId, $scoutYearId);
 
-                // For intendants viewing a section they are not linked to: strip contact info
-                if (!$isChief) {
-                    $linkedSectionCodes = $this->getLinkedSectionCodes($linkedMembers);
-                    if (!in_array($currentSection['desk_code'], $linkedSectionCodes, true)) {
-                        $staff = $this->stripContactInfo($staff);
-                    }
+                // Below chief, a section none of this account's linked
+                // members belongs to is shown without contact details —
+                // the rule « Animés de la section » shares (issue #1116).
+                if (!SectionContactAccess::forViewer($currentRole, $linkedMembers)
+                    ->seesContactsOf((string) $currentSection['desk_code'])
+                ) {
+                    $staff = $this->stripContactInfo($staff);
                 }
             }
         }
 
-        $availableBadges = $isChief ? $this->badgeService->getActive() : [];
+        // Badges are given and taken only on the sections this account
+        // animates (issue #1107): elsewhere the page shows them read-only.
+        // UI only — toggleBadge() asks again, server-side.
+        $availableBadges = $canEditSection ? $this->badgeService->getActive() : [];
         // "Référent {section}" badges are only meaningful for Staff d'U
         // members — this page's staff list is always exactly the current
         // section's members, so simply hiding them from the picker on any
@@ -172,6 +186,10 @@ class StaffsController extends AbstractController
                 : '',
             'staff' => $staff,
             'is_chief' => $isChief,
+            // A totem is written in the authorization year only
+            // (saveSectionTotem(), #1124), so a previewed year's staff
+            // shows its totems without an input that could only be refused.
+            'totems_editable' => $isChief && $scoutYearId === $this->scoutYearResolver->getAuthorizationYear()->id,
             'can_edit_section' => $canEditSection,
             // An animateur the Desk import left without a single section
             // can edit no documents anywhere, and nothing on screen would
@@ -256,7 +274,8 @@ class StaffsController extends AbstractController
         if (!$role->hasAccess(Role::CHIEF) || $this->sectionService->getSection($sectionId) === null) {
             return false;
         }
-        $scoutYearId = $this->scoutYearResolver->getEffectiveYear(ScoutYearSession::getPreviewId(), $role)->id;
+        // A write guard: the authorization year, never the preview (#1124).
+        $scoutYearId = $this->scoutYearResolver->getAuthorizationYear()->id;
         $staffed = $this->sectionStaffAuthorizationService->getStaffedSections(
             AuthSession::getEmail() ?? '',
             $role->value,
@@ -273,9 +292,59 @@ class StaffsController extends AbstractController
     }
 
     /**
+     * Whether this account may give or take a badge from this member year
+     * (issue #1107): only a member on the staff of a section the caller
+     * animates. Before, any chief could take the Trésorier badge off every
+     * treasurer of the unit — or give it to themselves.
+     *
+     * `admin`/`superadmin` animate every section, as everywhere on this
+     * page. The caller's sections are their OWN staffing, asked in the
+     * authorization year: never the preview year, which the caller picks.
+     *
+     * A « Référent » badge only exists on Staff d'U members, so the section
+     * that matters for it is Staff d'U itself, not some other section the
+     * same person also animates.
+     *
+     * The Trésorier badge opens the account of EVERY section its holder
+     * animates (Modules\Finance\Service\TreasurerScopeService), so sharing
+     * one section is not enough: the caller must animate all of them, or a
+     * chief of A could open section B's account to a colleague who animates
+     * both. Any other badge only needs one section in common.
+     */
+    private function mayToggleBadgeOn(int $memberYearId, Badge $badge): bool
+    {
+        $role = Role::fromString(AuthSession::getRole());
+        if ($role->hasAccess(Role::ADMIN)) {
+            return true;
+        }
+        if (!$role->hasAccess(Role::CHIEF)) {
+            return false;
+        }
+
+        $callerSectionIds = $this->sectionStaffAuthorizationService->ownStaffedSectionIds(
+            AuthSession::getEmail() ?? '',
+            $this->scoutYearResolver->getAuthorizationYear()->id
+        );
+
+        if ($badge->referentSectionId !== null) {
+            $unitStaff = $this->sectionService->findByDeskCode(UnitStaffSectionService::DESK_CODE);
+
+            return $unitStaff !== null && in_array((int) $unitStaff['id'], $callerSectionIds, true);
+        }
+
+        $targetSectionIds = $this->sectionService->getAnimatedSectionIds($memberYearId);
+        if ($badge->name === BadgeService::BADGE_TREASURER) {
+            return $targetSectionIds !== [] && array_diff($targetSectionIds, $callerSectionIds) === [];
+        }
+
+        return array_intersect($targetSectionIds, $callerSectionIds) !== [];
+    }
+
+    /**
      * POST /chefs/staffs/badge-toggle — assign/unassign a badge to a staff
      * member for the current scout year (AJAX, JSON). Chief-only, same gate
-     * as updateSection().
+     * as updateSection() — and, since issue #1107, only on a member of a
+     * section the caller animates (mayToggleBadgeOn()).
      *
      * @param array<string, string> $params
      */
@@ -299,16 +368,30 @@ class StaffsController extends AbstractController
             return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
         }
 
+        $badge = $this->badgeService->findById($badgeId);
+        if ($badge === null) {
+            return $this->json(['success' => false, 'error' => 'Badge indisponible.'], 400);
+        }
+        if (!$this->mayToggleBadgeOn($memberYearId, $badge)) {
+            return $this->json([
+                'success' => false,
+                'error' => "Vous ne pouvez attribuer ou retirer un badge qu'aux membres des sections que vous animez.",
+            ], 403);
+        }
+
         try {
             $assigned = $this->badgeService->toggleAssignment($memberYearId, $badgeId, AuthSession::getUserAccountId());
         } catch (BadgeException $e) {
             return $this->json(['success' => false, 'error' => $e->getMessage()], 400);
         }
 
+        // The Trésorier badge opens a section's finance account (issue
+        // #1107): who gave it or took it away belongs in the security
+        // journal. Identifiers only.
         $this->journalService->log(
             'core',
             $assigned ? 'badge_assigned' : 'badge_unassigned',
-            'info',
+            $badge->name === BadgeService::BADGE_TREASURER ? 'security' : 'info',
             $assigned ? 'Badge attribué à un membre' : 'Badge retiré à un membre',
             ['member_year_id' => $memberYearId, 'badge_id' => $badgeId],
             AuthSession::getUserAccountId()
@@ -351,8 +434,9 @@ class StaffsController extends AbstractController
         }
 
         $section = $this->sectionService->getSection($sectionId);
-        $scoutYearId = $this->scoutYearResolver
-            ->getEffectiveYear(ScoutYearSession::getPreviewId(), Role::fromString(AuthSession::getRole()))->id;
+        // Written in the authorization year, never the previewed one (#1124):
+        // a preview would write a totem onto a past year's staff row.
+        $scoutYearId = $this->scoutYearResolver->getAuthorizationYear()->id;
         $isStaff = $section !== null
             && $this->sectionService->isStaffOfSection($memberYearId, $sectionId, $scoutYearId);
         if (!$isStaff) {
@@ -393,31 +477,12 @@ class StaffsController extends AbstractController
         }
 
         // Intendant: filter to linked sections only
-        $linkedSectionCodes = $this->getLinkedSectionCodes($linkedMembers);
+        $linkedSectionCodes = SectionContactAccess::linkedSectionCodes($linkedMembers);
         return array_values(array_filter(
             $allSections,
             fn(array $s) =>
                 in_array($s['desk_code'], $linkedSectionCodes, true)
         ));
-    }
-
-    /**
-     * Get all section desk_codes from linked members' functions.
-     *
-     * @param \Core\Member\MemberProfile[] $linkedMembers
-     * @return string[]
-     */
-    private function getLinkedSectionCodes(array $linkedMembers): array
-    {
-        $codes = [];
-        foreach ($linkedMembers as $member) {
-            foreach ($member->functions as $fn) {
-                if ($fn->sectionCode !== null) {
-                    $codes[] = $fn->sectionCode;
-                }
-            }
-        }
-        return array_unique($codes);
     }
 
     /**

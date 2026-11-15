@@ -406,7 +406,19 @@ final class AssistantServiceTest extends TestCase
 
     public function testUnusablePathsNeverReachTheProvider(): void
     {
-        foreach (['/unknown-secret', '/r/' . str_repeat('x', 2049), "/r/secret\n", "/r/secret\0", "/r/secret\x7f", "/r/secret\u{0085}", "/r/secret\xff", '/r/secret?key=private', '/r/secret#private', 'https://example.org/r/secret'] as $index => $path) {
+        $paths = [
+            '/unknown-secret',
+            '/r/' . str_repeat('x', 2049),
+            "/r/secret\n",
+            "/r/secret\0",
+            "/r/secret\x7f",
+            "/r/secret\u{0085}",
+            "/r/secret\xff",
+            '/r/secret?key=private',
+            '/r/secret#private',
+            'https://example.org/r/secret',
+        ];
+        foreach ($paths as $index => $path) {
             $connector = $this->connectorAnswering(['calendrier']);
             $this->service($connector)->ask('Comment faire ' . $index . ' ?', Role::CHIEF, 1, [], $path);
             $prompt = (string) $connector->promptFor(LlmTier::CHEAP);

@@ -33,9 +33,12 @@
 // Counting labels: dompdf embeds one image XObject per DISTINCT image,
 // and every receivable of a campaign carries its own structured
 // communication, so no two QR codes of a sheet are ever the same bytes —
-// one `/Subtype /Image` per label. Those dictionaries are written
-// uncompressed, unlike the content streams, which is what makes them
-// readable from the raw response.
+// one image per label. Those dictionaries are written uncompressed, unlike
+// the content streams, which is what makes them readable from the raw
+// response. **Image objects are not labels**: on a GD that writes alpha,
+// each QR also brings a soft mask, itself an image object, and the raw
+// count of `/Subtype /Image` doubles (issue #1146) — see
+// tests/e2e/support/pdf-images.js, which leaves the masks out.
 //
 // tests/e2e/fixtures/campagne-etiquettes.xlsx (sheet "Cotisations"):
 //   Identifiant Desk | Nom          | Montant
@@ -55,6 +58,7 @@ import { answerCookieBanner } from '../support/cookie-banner.js';
 import { settledPanelAround } from '../support/collapse.js';
 import { autoConfirm } from '../support/confirm-dialog.js';
 import { loginAsAdmin } from '../support/admin-login.js';
+import { paintedImageCount } from '../support/pdf-images.js';
 import { scaled } from '../support/timeouts.js';
 
 const FIXTURES = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../fixtures');
@@ -63,12 +67,13 @@ const ACCOUNT_NAME = `Compte étiquettes E2E ${Date.now()}`;
 const ACCOUNT_IBAN = 'BE71 0961 2345 6769';
 
 /**
- * How many labels a generated sheet carries — one embedded image each.
+ * How many labels a generated sheet carries — one painted image each, not
+ * one image OBJECT each: a QR's transparency mask is an object too.
  *
  * @param {Buffer} pdf
  */
 function labelCount(pdf) {
-    return (pdf.toString('latin1').match(/\/Subtype\s*\/Image/g) || []).length;
+    return paintedImageCount(pdf);
 }
 
 /**

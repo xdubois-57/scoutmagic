@@ -225,8 +225,8 @@
     "/departs/{member_year_id}": {
       "member_year_id": "1"
     },
-    "/files/{id}": {
-      "id": "1",
+    "/files/{file}": {
+      "file": "1",
       "variant": "thumbnail"
     },
     "/document/{token}": {
@@ -384,7 +384,7 @@
     "/admin/leadership/{page}": {
       "page": "training"
     },
-    "/admin/migration-donnees/{importer}": {
+    "/config/migration-donnees/{importer}": {
       "importer": "essai"
     }
   }

@@ -29,7 +29,11 @@ final class MemberSummary
         public readonly int $memberId,
         public readonly string $fullName,
         public readonly ?string $functionLabel,
-        public readonly string $scoutYearLabel
+        public readonly string $scoutYearLabel,
+        // The section of the season the summary was read for (issue #1097):
+        // the one on the main function's row that year, never inferred from
+        // the function's label. Null when that row names none.
+        public readonly ?string $sectionLabel = null
     ) {
     }
 

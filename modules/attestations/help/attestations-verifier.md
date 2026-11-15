@@ -22,6 +22,18 @@ le document porte. Il couvre toutes les années scoutes : une attestation
 fiscale concerne souvent quelqu'un qui a quitté l'unité entre-temps, et
 c'est cette famille-là qui en a le plus besoin.
 
+## Contrôler le découpage
+
+Chaque ligne porte un bouton **PDF** : il télécharge l'attestation telle
+qu'elle a été découpée pour cette ligne, avec ses pages à elle — ni le
+fichier déposé, ni celle d'une autre ligne. C'est la façon de vérifier un
+découpage décalé avant de publier : le nom lu peut être juste et les pages
+appartenir au voisin.
+
+Le bouton est là sur toutes les lignes, appariées ou non, et il ne change
+rien au lot : ni la sélection, ni le rattachement. Chaque ouverture d'une
+attestation rattachée à un membre est consignée au journal.
+
 ## Les lignes à traiter
 
 **Homonymie** : plusieurs membres portent ce nom. Le site ne choisit

@@ -176,6 +176,28 @@ class DelegatedAlbumServiceTest extends TestCase
         $this->assertSame('photo.jpg', $media[0]->originalFilename);
     }
 
+    /**
+     * Issue #1119: an owner applies its per-media rule to `/files/{id}`
+     * too, so it has to learn which media a file is the original of — in
+     * ITS album only, and without an exception for an access question.
+     */
+    public function testFindMediaIdForOriginalAnswersWithinTheAlbumOnly(): void
+    {
+        $album = $this->service->ensureAlbum('some_owner_type', 42, 'Titre', '2026-01-01', $this->authorId);
+        $otherAlbum = $this->service->ensureAlbum('some_owner_type', 43, 'Autre', '2026-01-01', $this->authorId);
+        $this->pdo->exec(
+            "INSERT INTO files (relative_path, original_name, mime_type, size_bytes, role_min)
+             VALUES ('a', 'a', 'image/jpeg', 1, 'identified')"
+        );
+        $fileId = (int) $this->pdo->lastInsertId();
+        $mediaId = $this->mediaRepository->create($album->id, 'photo', $fileId, 0, null);
+
+        $this->assertSame($mediaId, $this->service->findMediaIdForOriginal($album->id, $fileId));
+        $this->assertNull($this->service->findMediaIdForOriginal($otherAlbum->id, $fileId));
+        $this->assertNull($this->service->findMediaIdForOriginal($album->id, $fileId + 1000));
+        $this->assertNull($this->service->findMediaIdForOriginal(999999, $fileId));
+    }
+
     public function testDeleteMediaThrowsWhenTheMediaBelongsToAnotherAlbum(): void
     {
         $album = $this->service->ensureAlbum('some_owner_type', 42, 'Titre', '2026-01-01', $this->authorId);

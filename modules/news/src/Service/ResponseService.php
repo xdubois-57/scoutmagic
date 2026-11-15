@@ -311,6 +311,11 @@ class ResponseService
         array $answers,
         ?int $memberYearId
     ): FormResponse {
+        // Before the form's own state: an imported form is closed too, and
+        // this says why, whatever its row says (D11).
+        if ($article->isImported()) {
+            throw new NewsException(ArticleService::IMPORTED_FORM_MESSAGE);
+        }
         if (!$form->isOpen()) {
             throw new NewsException('Ce formulaire est fermé et n\'accepte plus de réponses.');
         }

@@ -59,11 +59,12 @@ describe('data-migration.js helpers', () => {
 
     it('accepts only the module own endpoints as request targets', async () => {
         const dm = await boot(null);
-        expect(dm.isMigrationUrl('/admin/migration-donnees/photos/avancer')).toBe(true);
-        expect(dm.isMigrationUrl('/admin/migration-donnees/photos/depot')).toBe(true);
-        expect(dm.isMigrationUrl('//evil.example/admin/migration-donnees/photos/avancer')).toBe(false);
+        expect(dm.isMigrationUrl('/config/migration-donnees/photos/avancer')).toBe(true);
+        expect(dm.isMigrationUrl('/config/migration-donnees/photos/depot')).toBe(true);
+        expect(dm.isMigrationUrl('//evil.example/config/migration-donnees/photos/avancer')).toBe(false);
         expect(dm.isMigrationUrl('javascript:alert(1)')).toBe(false);
-        expect(dm.isMigrationUrl('/admin/migration-donnees/../config/avancer')).toBe(false);
+        expect(dm.isMigrationUrl('/admin/migration-donnees/photos/avancer')).toBe(false);
+        expect(dm.isMigrationUrl('/config/migration-donnees/../maintenance/avancer')).toBe(false);
         expect(dm.isMigrationUrl(42)).toBe(false);
     });
 });
@@ -72,7 +73,7 @@ describe('data-migration.js on a page', () => {
     it('drives the slices on the analysis step', async () => {
         await boot({
             importer: 'photos', step: 'analyse', state: 'uploaded', max_bytes: 100,
-            urls: { upload: '/admin/migration-donnees/photos/depot', advance: '/admin/migration-donnees/photos/avancer' },
+            urls: { upload: '/config/migration-donnees/photos/depot', advance: '/config/migration-donnees/photos/avancer' },
         });
         expect(window.ScoutMagicApi.poll).toHaveBeenCalledTimes(1);
     });
@@ -80,7 +81,7 @@ describe('data-migration.js on a page', () => {
     it('does nothing when the island names a foreign endpoint', async () => {
         await boot({
             importer: 'photos', step: 'analyse', state: 'uploaded', max_bytes: 100,
-            urls: { upload: 'https://evil.example/x', advance: '/admin/migration-donnees/photos/avancer' },
+            urls: { upload: 'https://evil.example/x', advance: '/config/migration-donnees/photos/avancer' },
         });
         expect(window.ScoutMagicApi.poll).not.toHaveBeenCalled();
     });
@@ -89,7 +90,7 @@ describe('data-migration.js on a page', () => {
         document.body.innerHTML = '';
         await boot({
             importer: 'photos', step: 'run', state: 'running', max_bytes: 100,
-            urls: { upload: '/admin/migration-donnees/photos/depot', advance: '/admin/migration-donnees/photos/avancer' },
+            urls: { upload: '/config/migration-donnees/photos/depot', advance: '/config/migration-donnees/photos/avancer' },
         });
         const counter = document.createElement('div');
         counter.id = 'data-migration-count-imported';
@@ -98,7 +99,7 @@ describe('data-migration.js on a page', () => {
 
         const tick = window.ScoutMagicApi.poll.mock.calls[0][0];
         await expect(tick()).resolves.toBe(true);
-        expect(window.ScoutMagicApi.postJson).toHaveBeenCalledWith('/admin/migration-donnees/photos/avancer', {});
+        expect(window.ScoutMagicApi.postJson).toHaveBeenCalledWith('/config/migration-donnees/photos/avancer', {});
         expect(counter.textContent).toBe('7');
     });
 });

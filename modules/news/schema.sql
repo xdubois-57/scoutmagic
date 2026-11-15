@@ -85,6 +85,18 @@ CREATE TABLE IF NOT EXISTS news_articles (
     -- schema.sql's calendar_events for the same note); updated_at is set
     -- explicitly by Repository\ArticleRepository::update() instead.
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    -- The « Importé » lock (chantier « Migration de données », D11): set
+    -- once, when the data migration module wrote this article from an
+    -- archive of the unit's previous site (Api\NewsImportWriterInterface),
+    -- and never cleared. An article carrying it is history, read-only for
+    -- everybody: Service\ArticleService, Service\FormService and
+    -- Service\ResponseService refuse every change to it, to its form and to
+    -- its responses, whoever asks and by whichever route. The lock lives
+    -- HERE, in this module's own table, so it holds with data_migration
+    -- disabled or uninstalled. import_source says where the article came
+    -- from (`<format>:<installation id of the old site>`), never a person.
+    imported_at DATETIME NULL,
+    import_source VARCHAR(255) NULL,
     INDEX idx_news_visibility (visibility),
     INDEX idx_news_status_published (status, published_at),
     CONSTRAINT fk_news_article_created_by FOREIGN KEY (created_by) REFERENCES user_accounts(id),

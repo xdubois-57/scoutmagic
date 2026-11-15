@@ -78,7 +78,14 @@ class DocumentsPublicController extends AbstractController
             $this->directLinkGrants->grant($document->id);
         }
 
-        $response = $this->redirect('/files/' . $document->fileId)
+        // A file not yet given its opaque id (Core\File\FilePublicIds,
+        // issue #1109) has no address to send anybody to.
+        $fileUrl = \Core\File\FilePublicIds::urlFor($document->fileId);
+        if ($fileUrl === '') {
+            return $this->notFound();
+        }
+
+        $response = $this->redirect($fileUrl)
             ->setHeader('Cache-Control', 'no-store');
 
         // Kept out of search engines server-side, not merely left out of

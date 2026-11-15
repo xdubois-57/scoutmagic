@@ -373,7 +373,10 @@ class MemberSearchController extends AbstractController
                 $document->title,
                 $document->fileId,
                 $address,
-                (string) $this->settingService->get('site_name', null, 'Votre unité')
+                (string) $this->settingService->get('site_name', null, 'Votre unité'),
+                // The member of THIS sheet, whom the document was just
+                // checked to belong to (issue #1096).
+                $profile->firstName . ' ' . $profile->lastName
             );
         } catch (SuppressedRecipientException $e) {
             // Caught before the general case because the general message is
