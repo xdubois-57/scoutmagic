@@ -218,6 +218,48 @@ class BatchResetServiceTest extends TestCase
      * it does have cut certificates — and without this there would be no way
      * to get rid of them at all.
      */
+    /**
+     * The batch row itself is refused last: the documents come back on the
+     * members' pages, the lines and certificates stay, and the bytes are
+     * untouched because they only go after the commit.
+     */
+    public function testARefusedResetLeavesTheBatchAndItsDocumentsAsTheyWere(): void
+    {
+        $this->publishEverything();
+        $fileIds = array_map(
+            fn(int $lineId): int => (int) $this->lines->findById($lineId)?->fileId,
+            array_values($this->lineIds)
+        );
+        $this->pdo->exec(
+            "CREATE TRIGGER refuse_batch_delete BEFORE DELETE ON attestation_batches
+             BEGIN SELECT RAISE(ABORT, 'reprise refusée'); END"
+        );
+
+        try {
+            $this->service->reset($this->batchId, null);
+            $this->fail('the refused delete must reach the caller');
+        } catch (\PDOException $e) {
+            $this->assertStringContainsString('reprise refusée', $e->getMessage());
+        }
+
+        $this->assertFalse($this->pdo->inTransaction());
+        $this->assertNotNull($this->batches->findById($this->batchId));
+        $this->assertCount(2, $this->lines->findByBatch($this->batchId));
+        foreach ($this->memberIds as $memberId) {
+            $this->assertCount(1, $this->documents->findByMemberAndYear($memberId, $this->scoutYearId));
+        }
+        foreach ($fileIds as $fileId) {
+            $record = $this->files->findById($fileId);
+            $this->assertNotNull($record);
+            $this->assertFileExists($this->storageRoot . '/' . $record->relativePath);
+        }
+        $this->assertSame(
+            0,
+            (int) $this->pdo->query("SELECT COUNT(*) FROM event_log WHERE event_type = 'attestation_batch_reset'")
+                ->fetchColumn()
+        );
+    }
+
     public function testADraftBatchIsTakenBackToo(): void
     {
         $fileIds = $this->lines->findFileIds($this->batchId);

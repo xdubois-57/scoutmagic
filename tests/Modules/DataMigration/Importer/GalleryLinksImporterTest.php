@@ -123,6 +123,28 @@ final class GalleryLinksImporterTest extends TestCase
         $this->assertNull($created->ogImageBytes);
     }
 
+    /**
+     * A preview fetcher that throws, against its own contract, costs the
+     * album its page and not its import — and is asked once, not again at
+     * the write.
+     */
+    public function testAPreviewFetcherThatThrowsLeavesTheFilesDataAlone(): void
+    {
+        $this->pages->failure = new \RuntimeException('cURL error 28: Operation timed out');
+        $item = $this->album();
+        $context = $this->context(true);
+
+        $this->assertSame(ItemVerdict::IMPORT, $this->importer->inspect($item, $context)->outcome);
+        $this->importer->write($item, $context);
+
+        $this->assertSame([self::URL], $this->pages->fetched);
+        $created = $this->albums->created[0];
+        $this->assertSame('Camp 2019', $created->title);
+        $this->assertNull($created->ogTitle);
+        $this->assertNull($created->ogDescription);
+        $this->assertNull($created->ogImageBytes);
+    }
+
     public function testAnAlbumWithNoTitleAnywhereIsIgnored(): void
     {
         $this->pages->pages = [self::URL => new LinkPreview(null, 'Une description seule', null)];

@@ -253,6 +253,38 @@ class AttestationPdfReaderTest extends TestCase
     }
 
     /**
+     * A page whose text layer cannot be read — its content array names an
+     * object the file does not hold — is a page with no fields: it still
+     * counts, so the cut stays in step, and the certificate whose name it
+     * carried comes out for a human to resolve.
+     */
+    public function testADamagedPageCountsAsAPageWithNoText(): void
+    {
+        $path = AttestationsTestHelper::writeTemporaryPdf([
+            ['ATTESTATION FISCALE', 'Les Scouts ASBL'],
+            ['ANNEXE', 'VANDENBRANDE Margaux'],
+            ['ATTESTATION FISCALE', 'Les Scouts ASBL'],
+            null,
+        ]);
+
+        try {
+            $analysis = $this->reader->analyze($path, $this->directory());
+        } finally {
+            @unlink($path);
+        }
+
+        $this->assertSame(4, $analysis->pageCount);
+        $this->assertSame(2, $analysis->pagesPerDocument);
+        $this->assertSame(
+            ['1–2', '3–4'],
+            array_map(static fn($a): string => $a->pageRangeLabel(), $analysis->attestations)
+        );
+        $this->assertSame(1, $analysis->attestations[0]->matchedMemberId());
+        $this->assertNull($analysis->attestations[1]->matchedMemberId());
+        $this->assertSame(1, $analysis->pendingCount());
+    }
+
+    /**
      * A labelled field resolves on what follows the label, because that is
      * how templates print an identity block. The line the screen shows is
      * the name, not the label — the reader stored what it matched.
