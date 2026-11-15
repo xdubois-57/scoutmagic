@@ -83,13 +83,19 @@ final class ManifestReader
         if (!is_array($source)) {
             throw new ManifestException('Le champ source du manifeste est absent ou n\'est pas un objet.');
         }
-        $installationId = self::requiredString($source, 'installation_id', self::MAX_ID_BYTES, 'source.installation_id');
+        $installationId = self::requiredString(
+            $source,
+            'installation_id',
+            self::MAX_ID_BYTES,
+            'source.installation_id'
+        );
         $exportId = self::requiredString($data, 'export_id', self::MAX_ID_BYTES);
 
         $exportedAt = self::requiredString($data, 'exported_at', 40);
         if (!self::isIsoDateTime($exportedAt)) {
             throw new ManifestException(
-                'Le champ exported_at doit être une date et une heure ISO 8601 avec fuseau, comme « 2026-11-08T14:30:00+01:00 ».'
+                'Le champ exported_at doit être une date et une heure ISO 8601 avec fuseau, '
+                . 'comme « 2026-11-08T14:30:00+01:00 ».'
             );
         }
 
@@ -116,13 +122,16 @@ final class ManifestReader
     {
         $expected = $manifest->files[$path] ?? null;
         if ($expected === null) {
-            throw new ManifestException(sprintf('L\'élément « %s » n\'est pas inventorié.', BoundedZipReader::shown($path)));
+            throw new ManifestException(
+                sprintf('L\'élément « %s » n\'est pas inventorié.', BoundedZipReader::shown($path))
+            );
         }
 
         $digest = $archive->digest($path);
         if (!hash_equals($expected['sha256'], $digest['sha256'])) {
             throw new ManifestException(sprintf(
-                'L\'empreinte SHA-256 de « %s » ne correspond pas au manifeste : le fichier est incomplet ou a été modifié.',
+                'L\'empreinte SHA-256 de « %s » ne correspond pas au manifeste : '
+                . 'le fichier est incomplet ou a été modifié.',
                 BoundedZipReader::shown($path)
             ));
         }
@@ -146,7 +155,9 @@ final class ManifestReader
     {
         $lines = $data['files'] ?? null;
         if (!is_array($lines) || !array_is_list($lines)) {
-            throw new ManifestException('Le champ files du manifeste, l\'inventaire des fichiers, est absent ou n\'est pas une liste.');
+            throw new ManifestException(
+                'Le champ files du manifeste, l\'inventaire des fichiers, est absent ou n\'est pas une liste.'
+            );
         }
 
         $files = [];
@@ -158,18 +169,24 @@ final class ManifestReader
             $sha = $line['sha256'] ?? null;
             if (!is_string($path) || $path === '' || !is_string($sha) || preg_match('/^[0-9a-f]{64}$/', $sha) !== 1) {
                 throw new ManifestException(
-                    'Chaque entrée de l\'inventaire files porte un path et un sha256 de 64 caractères hexadécimaux en minuscules.'
+                    'Chaque entrée de l\'inventaire files porte un path et un sha256 de 64 caractères '
+                    . 'hexadécimaux en minuscules.'
                 );
             }
             $size = $line['size'] ?? null;
             if ($size !== null && (!is_int($size) || $size < 0)) {
-                throw new ManifestException(sprintf('La taille inventoriée de « %s » n\'est pas un entier positif.', BoundedZipReader::shown($path)));
+                throw new ManifestException(sprintf(
+                    'La taille inventoriée de « %s » n\'est pas un entier positif.',
+                    BoundedZipReader::shown($path)
+                ));
             }
             if ($path === Manifest::FILE) {
                 throw new ManifestException('Le manifeste ne s\'inventorie pas lui-même.');
             }
             if (isset($files[$path])) {
-                throw new ManifestException(sprintf('L\'inventaire cite deux fois « %s ».', BoundedZipReader::shown($path)));
+                throw new ManifestException(
+                    sprintf('L\'inventaire cite deux fois « %s ».', BoundedZipReader::shown($path))
+                );
             }
             if (!$archive->has($path)) {
                 throw new ManifestException(sprintf(

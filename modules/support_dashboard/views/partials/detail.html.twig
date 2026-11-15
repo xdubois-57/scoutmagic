@@ -108,6 +108,26 @@
 </p>
 <pre class="border rounded p-3 bg-body-tertiary small mb-3 support-raw-json"><code>{{ installation.raw_json }}</code></pre>
 
+{# Mail probes (issue #1113): their answer is this receiver's own mailbox
+   addresses, so an installation a first ticket registered gets none until a
+   usage report arrives on the statistics route or a superadmin validates
+   it here. #}
+<h3 class="h6">Sondes e-mail</h3>
+{% if installation.established %}
+<p class="small mb-3">Autorisées : cette installation peut demander les adresses des boîtes témoins.</p>
+{% else %}
+<p class="small mb-2">
+    En attente de validation. Cette installation a été enregistrée par son premier ticket et n'a jamais envoyé de
+    rapport de statistiques : les adresses des boîtes témoins ne lui sont pas communiquées. Validez-la si vous
+    connaissez l'unité qui l'utilise.
+</p>
+<form method="post" action="/support-dashboard/installations/{{ installation.id }}/valider" class="mb-3"
+      data-confirm="Valider cette installation ? Elle pourra demander les adresses des boîtes témoins de ce site pour ses sondes e-mail.">
+    {{ csrf_field()|raw }}
+    <button type="submit" class="btn btn-sm btn-outline-primary">Valider cette installation</button>
+</form>
+{% endif %}
+
 {# Manual deletion, ahead of what retention would do on its own. The
    confirmation is mandatory (base.html.twig's delegated data-confirm
    handler); the CSRF token is what actually protects the endpoint. #}

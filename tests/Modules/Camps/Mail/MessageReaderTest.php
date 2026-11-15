@@ -251,6 +251,47 @@ class MessageReaderTest extends TestCase
         $this->assertSame(50000, $this->reader->readPriceCents('Solde 2450 €, à payer 500 €.'));
     }
 
+    // ── An amount no stay can cost ──────────────────────────────────────
+
+    /**
+     * Nineteen digits are past PHP_INT_MAX, and the product by a hundred
+     * overflows sooner still: the reading became a float and the ?int
+     * return type threw, so one absurd figure in an e-mail stopped the
+     * message from being analysed at all. Anyone can send that e-mail.
+     *
+     * @return array<string, array{string}>
+     */
+    public static function absurdAmounts(): array
+    {
+        return [
+            'thousand separators, dots' => ['Total : 1.000.000.000.000.000.000 €'],
+            'thousand separators, spaces' => ['Total : 1 000 000 000 000 000 000 €'],
+            'no separators' => ['100000000000000000 €'],
+            'no separators, past PHP_INT_MAX' => ['99999999999999999999999999999 euros'],
+            'decimals' => ['Prix : 100000000000000000,99 EUR'],
+            'separators and decimals' => ['Forfait : 1.000.000.000.000.000,50 €'],
+            'just past what a stay can be stored at' => ['Total : 42 949 673 €'],
+            'one cent past it' => ['Total : 42949672,96 €'],
+            'next to a real price' => ['Total : 2450 €, frais annexes 100000000000000000 €'],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('absurdAmounts')]
+    public function testAnAmountNoStayCanCostIsNotRead(string $text): void
+    {
+        $this->assertNull($this->reader->readPriceCents($text));
+    }
+
+    public function testTheHighestStorablePriceIsStillRead(): void
+    {
+        $this->assertSame(
+            MessageReader::MAX_PRICE_CENTS,
+            $this->reader->readPriceCents('Total : 42 949 672,95 €')
+        );
+        // Leading zeros are not digits of the amount.
+        $this->assertSame(245000, $this->reader->readPriceCents('Total : 0000000000000000000002450 €'));
+    }
+
     // ── How many people the stay is for ─────────────────────────────────
 
     /**
@@ -271,6 +312,10 @@ class MessageReaderTest extends TestCase
             'two different counts' => ['40 participants, puis 60 personnes', null],
             'a count nobody camps with' => ['9000 personnes', null],
             'one person is a typo' => ['1 personne', null],
+            // Four digits are never cut out of a longer number.
+            'a longer number before the label' => ['11500 personnes', null],
+            'a longer number after the label' => ['Participants : 123456', null],
+            'a number past PHP_INT_MAX' => ['99999999999999999999999 participants', null],
             'nothing at all' => ['Merci de votre message.', null],
         ];
     }

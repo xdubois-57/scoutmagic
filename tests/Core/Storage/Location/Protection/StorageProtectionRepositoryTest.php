@@ -242,4 +242,31 @@ final class StorageProtectionRepositoryTest extends TestCase
         $this->assertNotNull($this->protections->findById($kept));
         $this->assertCount(1, $this->protections->findAll());
     }
+
+    /**
+     * A correction the database refuses closes its transaction and leaves
+     * the relation as it was, destination and working state included.
+     */
+    public function testARefusedCorrectionRollsBackAndKeepsTheRelation(): void
+    {
+        $id = $this->protections->save(3, 5, 30, 24, true);
+        $this->protections->recordPassFailed($id, 'Le seau a refusé la connexion.');
+        $this->pdo->exec(
+            "CREATE TRIGGER refuse_correction BEFORE UPDATE ON storage_protections
+             BEGIN SELECT RAISE(ABORT, 'refused'); END"
+        );
+
+        try {
+            $this->protections->save(3, 9, 30, 24, true);
+            $this->fail('the refused correction was reported as saved');
+        } catch (\PDOException $e) {
+            $this->assertStringContainsString('refused', $e->getMessage());
+        }
+
+        $this->assertFalse($this->pdo->inTransaction(), 'the transaction was left open');
+        $kept = $this->protections->findById($id);
+        $this->assertNotNull($kept);
+        $this->assertSame(5, $kept->destinationLocationId);
+        $this->assertSame('Le seau a refusé la connexion.', $kept->lastError);
+    }
 }

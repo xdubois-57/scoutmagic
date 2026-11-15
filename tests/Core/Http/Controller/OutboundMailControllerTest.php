@@ -2696,6 +2696,33 @@ class OutboundMailControllerTest extends TestCase
     }
 
     /**
+     * The SPF chain cannot be written down — its settings row was never
+     * registered, as after a migration that did not run: the check still
+     * comes back to the page, and the SPF/DKIM/DMARC reading the operator
+     * pressed the button for, and the relays read with it, are kept.
+     */
+    public function testAnSpfCoverageThatCannotBeStoredSpoilsNothingElseTheCheckTook(): void
+    {
+        $this->settings->setInternal(\Core\Mail\Feedback\Dmarc\KnownSenders::SETTING_KEY, '');
+        $forget = $this->pdo->prepare('DELETE FROM settings WHERE setting_key = ?');
+        $forget->execute([\Core\Mail\Feedback\Dmarc\SpfCoverage::SETTING_KEY]);
+        $this->settings->clearCache();
+        $this->settings->set('mail_from_address', 'info@unite.test');
+        $this->settings->set('dkim_selector', 's2026');
+
+        $response = $this->controller->checkDns($this->formRequest([]), []);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame(OutboundMailController::AUTHENTICATION_URL, $response->getHeaders()['Location'] ?? null);
+        $this->assertNotNull(\Core\Mail\DnsCheckMemory::read($this->settings), 'the DNS reading was lost with it');
+        $this->assertFalse(
+            \Core\Mail\Feedback\Dmarc\KnownSenders::remembered($this->settings)->isEmpty(),
+            'the relay reading was lost with it'
+        );
+        $this->assertTrue(\Core\Mail\Feedback\Dmarc\SpfCoverage::remembered($this->settings)->isEmpty());
+    }
+
+    /**
      * **And the SPF reading goes through THIS screen's verifier**, which is
      * what makes the test above deterministic rather than merely fast.
      *
@@ -3816,6 +3843,7 @@ class OutboundMailControllerTest extends TestCase
         $statements = [
             'mail_provider_health' => 'DROP TABLE mail_provider_health',
             'mail_deferred_messages' => 'DROP TABLE mail_deferred_messages',
+            'event_log' => 'DROP TABLE event_log',
         ];
         $sql = $statements[$table] ?? self::fail("dropTable() has no statement for '{$table}'.");
 
@@ -4023,6 +4051,25 @@ class OutboundMailControllerTest extends TestCase
         // « cannot tell ».
         $this->assertStringContainsString("État de mise à l'écart indisponible", $broken);
         $this->assertUnreadableWasJournalled('circuit');
+    }
+
+    /**
+     * And when the journal is as unreadable as the state it would report —
+     * both tables gone with the same failed migration — the page still
+     * renders and still says « indisponible »: the trace is lost, never
+     * the page.
+     */
+    public function testAnUnreadableStateIsStillShownWhenTheJournalCannotTakeItsTrace(): void
+    {
+        $id = $this->providers->create('Relais muet', 200, 50, 10);
+        $this->chains->append(MailLane::Transactional, $id, true);
+        $this->dropTable('mail_provider_health');
+        $this->dropTable('event_log');
+
+        $broken = $this->providersBodyOf();
+
+        $this->assertStringContainsString('Relais muet', $broken);
+        $this->assertStringContainsString("État de mise à l'écart indisponible", $broken);
     }
 
     public function testAnUnreadableQueueIsShownAsUnknownRatherThanAsZeroWaiting(): void
