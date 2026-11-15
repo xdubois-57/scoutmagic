@@ -680,8 +680,8 @@ check_dependency_freshness_gate() {
 # A WARNING, NEVER A REFUSAL, as the issue asks: a stale dependency is a
 # question for the maintainer, not a defect in this commit, and a registry
 # that does not answer leaves a package « non vérifié » rather than a
-# release refused. Only the script's own failure — a lock file it cannot
-# read — exits non-zero. The dated table goes to ${GATE_TMP_DIR}, from
+# release refused. Only the script's own failure — a lock file or
+# package.json it cannot read — exits non-zero. The dated table goes to ${GATE_TMP_DIR}, from
 # where the notes pick it up beside the dependency inventory.
 # ---------------------------------------------------------------
 check_dependency_age_gate() {

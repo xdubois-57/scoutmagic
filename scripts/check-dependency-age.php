@@ -43,7 +43,8 @@ declare(strict_types=1);
  * release over an unreachable registry. Refusing would buy nothing a reader
  * of the notes does not already get: the table names every package, its
  * date, and the ones nobody could date. Exit code 1 is kept for this
- * script's own failure — a lock file missing or unreadable — since a table
+ * script's own failure — a lock file or package.json missing or
+ * unreadable — since a table
  * that silently dates half the dependencies would read as a complete one.
  *
  * Written for scripts/release.sh, which runs it as a gate, reads the line it
@@ -68,7 +69,7 @@ const DEPENDENCY_AGE_TIMEOUT = 20;
  * Every dependency to date, with where to ask about it.
  *
  * @return list<array{surface: string, name: string, version: string, source: string, key: string}>
- * @throws RuntimeException when a lock file is missing or unreadable
+ * @throws RuntimeException when a lock file or package.json is missing or unreadable
  */
 function dependencyAgeCollect(string $root): array
 {
@@ -248,8 +249,15 @@ function dependencyAgeMarkdown(array $dated, DateTimeImmutable $now): string
         . "abandonnée, et une faille qu'on y trouverait demain n'aurait personne pour la corriger. Généré par "
         . "`scripts/check-dependency-age.php`.\n\n";
 
-    if ($findings['stale'] === []) {
-        $out .= "**Aucune dépendance sans publication depuis plus d'un an.**\n\n";
+    $datedCount = count($dated) - count($findings['unverified']);
+    if ($datedCount === 0) {
+        // Nothing dated is nothing verified: « aucune dépendance ancienne »
+        // over a run where every registry failed would be a claim about
+        // packages nobody looked at.
+        $out .= "**Aucune dépendance n'a pu être datée** — rien n'est vérifié ici, à refaire à la main.\n\n";
+    } elseif ($findings['stale'] === []) {
+        $out .= '**Parmi les ' . $datedCount . " dépendances datées, aucune n'est restée plus d'un an sans "
+            . "publication.**\n\n";
     } else {
         $out .= '**Sans publication depuis plus d\'un an (' . count($findings['stale']) . ') :** `'
             . implode('`, `', $findings['stale']) . "`\n\n";
@@ -287,10 +295,18 @@ function dependencyAgeMarkdown(array $dated, DateTimeImmutable $now): string
  */
 function dependencyAgeReport(int $count, array $findings): string
 {
-    $line = $findings['stale'] === []
-        ? 'vérifié — aucune des ' . $count . " dépendances n'est restée plus d'un an sans publication"
-        : 'avertissement — ' . count($findings['stale']) . ' dépendance(s) sur ' . $count
-            . " sans publication depuis plus d'un an : `" . implode('`, `', $findings['stale']) . '`';
+    // The claim is about the packages actually dated, never the whole list:
+    // a run where every registry failed must not read as « vérifié ».
+    $datedCount = $count - count($findings['unverified']);
+    if ($datedCount === 0) {
+        $line = 'non vérifié — aucune des ' . $count . ' dépendances n\'a pu être datée';
+    } elseif ($findings['stale'] === []) {
+        $line = 'vérifié — aucune des ' . $datedCount . " dépendances datées n'est restée plus d'un an sans "
+            . 'publication';
+    } else {
+        $line = 'avertissement — ' . count($findings['stale']) . ' dépendance(s) sur ' . $datedCount
+            . " datées sans publication depuis plus d'un an : `" . implode('`, `', $findings['stale']) . '`';
+    }
 
     if ($findings['unverified'] !== []) {
         $line .= ' ; ' . count($findings['unverified']) . ' non datée(s), à vérifier à la main : `'

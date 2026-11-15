@@ -229,7 +229,10 @@ class DependencyAgeCheckTest extends TestCase
 
         $markdown = dependencyAgeMarkdown($this->dated($bodies), self::now());
 
-        $this->assertStringContainsString("**Aucune dépendance sans publication depuis plus d'un an.**", $markdown);
+        $this->assertStringContainsString(
+            "**Parmi les 4 dépendances datées, aucune n'est restée plus d'un an sans publication.**",
+            $markdown
+        );
         $this->assertStringContainsString('**Non datées (1) :** `acme/abandoned`', $markdown);
         $this->assertStringContainsString('| `acme/abandoned` | 1.0.3 | **non vérifiée** | — |', $markdown);
     }
@@ -237,16 +240,37 @@ class DependencyAgeCheckTest extends TestCase
     public function testTheReportLineWarnsAndNamesTheStaleAndTheUndated(): void
     {
         $this->assertSame(
-            "vérifié — aucune des 5 dépendances n'est restée plus d'un an sans publication "
+            "vérifié — aucune des 5 dépendances datées n'est restée plus d'un an sans publication "
                 . '(détail dans « Dernières publications des dépendances »).',
             dependencyAgeReport(5, ['stale' => [], 'unverified' => []])
         );
         $this->assertSame(
-            "avertissement — 1 dépendance(s) sur 5 sans publication depuis plus d'un an : `acme/abandoned` ; "
+            "avertissement — 1 dépendance(s) sur 4 datées sans publication depuis plus d'un an : `acme/abandoned` ; "
                 . '1 non datée(s), à vérifier à la main : `Chart.js` '
                 . '(détail dans « Dernières publications des dépendances »).',
             dependencyAgeReport(5, ['stale' => ['acme/abandoned'], 'unverified' => ['Chart.js']])
         );
+    }
+
+    /**
+     * Every registry down: nothing was dated, so nothing may be called
+     * verified — not in the report line, not in the notes. The claim is
+     * about the packages actually looked at, never the whole list.
+     */
+    public function testNothingDatedIsNeverCalledVerified(): void
+    {
+        $dated = $this->dated([]);
+        $findings = dependencyAgeFindings($dated, self::now());
+
+        $report = dependencyAgeReport(count($dated), $findings);
+        $this->assertStringStartsWith(
+            "non vérifié — aucune des 5 dépendances n'a pu être datée ; 5 non datée(s)",
+            $report
+        );
+
+        $markdown = dependencyAgeMarkdown($dated, self::now());
+        $this->assertStringContainsString("**Aucune dépendance n'a pu être datée**", $markdown);
+        $this->assertStringNotContainsString('aucune n\'est restée', $markdown);
     }
 
     /** The whole run: the notes file, the report line, and a console warning per finding. */

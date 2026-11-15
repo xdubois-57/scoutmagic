@@ -1282,8 +1282,8 @@ dependency is a question for the maintainer — replace it, fork it, or
 accept it knowingly — not a defect in the commit being released. For the
 same reason it is not fail closed: a registry that does not answer leaves
 that package « non vérifiée » in the table and in the report line rather
-than stopping a release. Only the script's own failure, a lock file it
-cannot read, exits non-zero, since a table that silently dated half the
+than stopping a release. Only the script's own failure, a lock file or
+`package.json` it cannot read, exits non-zero, since a table that silently dated half the
 dependencies would read as a complete one. `--skip-dependency-age-gate`
 leaves the notes without the table.
 
