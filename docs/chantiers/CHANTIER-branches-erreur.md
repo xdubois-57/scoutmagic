@@ -140,7 +140,7 @@ l'ordre des lots (ceux à zéro, 11 domaines, ne figurent pas) :
 | `modules/rental` | ~~42~~ **0** (lots 3a-3b) | ~~6~~ 0 | 1 | 102 |
 | `core/Http` | ~~36~~ **1** (lot 4, voir le journal) | ~~4~~ 0 | 1 | 133 |
 | `core/Mail` | ~~35~~ **0** (lots 1-2) | ~~16~~ 0 | 2 | 77 |
-| `core/Storage` | 31 | 9 | 0 | 67 |
+| `core/Storage` | ~~31~~ **0** (lot 5) | ~~9~~ 0 | 1 | 67 |
 | `modules/finance` | 23 | 0 | 0 | 54 |
 | `core/Maintenance` | 21 | 3 | 0 | 55 |
 | `modules/inbound_mail` | 21 | 4 | 0 | 40 |
@@ -328,3 +328,32 @@ retiré : un refus atteint le message d'erreur qui existait déjà.
 **Le marqueur** : la suppression d'un document de section, dont la seule
 exception métier relit une ligne lue deux lignes plus haut dans la même
 requête.
+
+### Lot 5 — `core/Storage` — 2026-11-15
+
+**31 → 0** jamais exécutés, dont les 9 vides ; un marqueur. Remesuré sur
+`tests/Core/Storage` et `tests/Core/Maintenance` avant et après (PCOV,
+MariaDB).
+
+**30 branches atteintes** par un état réel : panne de Google Drive (statut
+503 ou 500 sur une requête précise, PHP sans cURL), de S3 (`NoSuchKey`) ou
+de WebDAV (404, 401), disque qui refuse l'écriture d'un fichier témoin,
+horloge qui épuise le budget d'un contrôle, ligne `../public` parmi les
+emplacements, table absente, trigger qui refuse une écriture, secret
+illisible, dossier de destination occupé par un fichier. `FakeDrive` gagne
+un crochet `$intercept` qui répond un statut ou lève une exception pour une
+requête choisie.
+
+**Le marqueur** : la marche tolérante de `DirectorySize`. La racine est
+ouverte par le constructeur, `CATCH_GET_CHILD` avale chaque enfant
+illisible, et lire les entrées d'un dossier déjà ouvert ne lève rien — même
+la racine supprimée en cours de marche (vérifié).
+
+**Trouvé en chemin, ouvert à part.**
+- **#1223** : une copie de protection peut être enregistrée comme protégée
+  sans aucun contrôle, quand la destination ne répond ni sa somme ni sa
+  taille pendant une panne.
+- **#1224** : un refus de Google Drive n'affiche jamais le « rien n'a été
+  changé » prévu pour lui.
+- **#1230** (trouvé au lot de la maintenance) : un sous-dossier dont le
+  chemin dépasse PATH_MAX est omis sans le dire.

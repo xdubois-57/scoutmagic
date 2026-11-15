@@ -412,6 +412,22 @@ final class WebDavBackendTest extends TestCase
         $this->assertCount(1, array_filter($this->share->calls, static fn (array $c): bool => $c['method'] === 'PROPFIND'));
     }
 
+    /**
+     * A share whose folder is not there yet holds nothing — it is the
+     * folder a fresh location is about to create — while a share that
+     * refuses the question has not said it is empty: the refusal travels,
+     * and the caller decides what an unreadable target means.
+     */
+    public function testAShareWhoseFolderIsMissingHoldsNothingButARefusalIsNotAnAnswer(): void
+    {
+        $this->share->refuseWith = 404;
+        $this->assertFalse($this->backend()->holdsAnything());
+
+        $this->share->refuseWith = 401;
+        $this->expectException(WebDavAccessException::class);
+        $this->backend()->holdsAnything();
+    }
+
     public function testListingReachesTheFilesInsideTheAlbumFolders(): void
     {
         $backend = $this->backend();

@@ -207,7 +207,9 @@ final class DirectorySize
                 }
             }
         } catch (\UnexpectedValueException) {
-            // The root itself became unreadable mid-walk. Nothing to add.
+            // @catch-unreachable the root was opened by the constructor above, CATCH_GET_CHILD swallows
+            // every child that cannot be opened, and readdir() on an open handle throws nothing — even
+            // with the root deleted mid-walk.
             return;
         }
     }
