@@ -640,9 +640,7 @@ class SupportTicketSenderTest extends TestCase
      */
     public function testALastReferenceThatCannotBeWrittenDoesNotUndoTheTicket(): void
     {
-        $this->pdo->exec(
-            "DELETE FROM settings WHERE setting_key = '" . SupportTicketSender::LAST_REFERENCE_SETTING . "'"
-        );
+        $this->pdo->prepare('DELETE FROM settings WHERE setting_key = ?')->execute([SupportTicketSender::LAST_REFERENCE_SETTING]);
         $this->settings->clearCache();
         $sender = $this->sender($this->transport(200, ['status' => 'accepted', 'ticket_reference' => 'SUP-7KQ4F2']));
 
@@ -664,9 +662,12 @@ class SupportTicketSenderTest extends TestCase
      */
     public function testAListTheDatabaseRefusesToWriteDoesNotUndoTheTicket(): void
     {
+        // A trigger takes no bound value: the key is written out, and held
+        // to the constant so the two cannot drift apart.
+        $this->assertSame('support_recent_tickets', SupportTicketSender::RECENT_SETTING);
         $this->pdo->exec(
             "CREATE TRIGGER refuse_recent_tickets BEFORE UPDATE ON settings
-             WHEN NEW.setting_key = '" . SupportTicketSender::RECENT_SETTING . "'
+             WHEN NEW.setting_key = 'support_recent_tickets'
              BEGIN SELECT RAISE(ABORT, 'écriture refusée'); END"
         );
         $reads = 0;
@@ -689,9 +690,9 @@ class SupportTicketSenderTest extends TestCase
         $this->assertSame(SupportTicketSender::RECENT_WRITE_ATTEMPTS, $reads, 'One read per attempt, all of them.');
         $this->assertSame('SUP-7KQ4F2', $result->reference);
         $this->assertSame('SUP-7KQ4F2', $sender->lastSent()['reference'] ?? null);
-        $this->assertSame('', (string) $this->pdo->query(
-            "SELECT setting_value FROM settings WHERE setting_key = '" . SupportTicketSender::RECENT_SETTING . "'"
-        )->fetchColumn());
+        $recent = $this->pdo->prepare('SELECT setting_value FROM settings WHERE setting_key = ?');
+        $recent->execute([SupportTicketSender::RECENT_SETTING]);
+        $this->assertSame('', (string) $recent->fetchColumn());
         $this->assertSame(1, $this->sentCount());
     }
 

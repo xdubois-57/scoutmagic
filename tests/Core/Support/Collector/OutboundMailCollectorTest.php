@@ -304,14 +304,14 @@ class OutboundMailCollectorTest extends TestCase
     public static function unreadableSectionProvider(): array
     {
         return [
-            'the bounce state' => ['mail_bounce_states', '── Adresses suspendues sur rebond'],
-            'the DMARC reports' => ['mail_dmarc_reports', '── Rapports DMARC, 30 derniers jours'],
-            'the seed copies' => ['mail_seed_copies', '── Boîtes témoins, 30 derniers jours'],
+            'the bounce state' => ['DROP TABLE mail_bounce_states', '── Adresses suspendues sur rebond'],
+            'the DMARC reports' => ['DROP TABLE mail_dmarc_reports', '── Rapports DMARC, 30 derniers jours'],
+            'the seed copies' => ['DROP TABLE mail_seed_copies', '── Boîtes témoins, 30 derniers jours'],
         ];
     }
 
     #[\PHPUnit\Framework\Attributes\DataProvider('unreadableSectionProvider')]
-    public function testAnUnreadableFeedbackTableCostsOnlyItsOwnSection(string $table, string $heading): void
+    public function testAnUnreadableFeedbackTableCostsOnlyItsOwnSection(string $dropTable, string $heading): void
     {
         $this->addRelay('Brevo', 'smtp-relay.brevo.com');
         $headings = array_column(self::unreadableSectionProvider(), 1);
@@ -319,7 +319,7 @@ class OutboundMailCollectorTest extends TestCase
             $this->assertStringContainsString($each, $this->collect(), 'Every section is there to begin with.');
         }
 
-        $this->pdo->exec('DROP TABLE ' . $table);
+        $this->pdo->exec($dropTable);
         $report = $this->collect();
 
         $this->assertStringNotContainsString($heading, $report);

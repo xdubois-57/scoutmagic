@@ -272,9 +272,7 @@ class SupportArchiveSenderTest extends TestCase
      */
     public function testAMarkThatCannotBeWrittenDoesNotUndoTheTransmission(): void
     {
-        $this->pdo->exec(
-            "DELETE FROM settings WHERE setting_key = '" . SupportArchiveSender::ARCHIVE_REFERENCE_SETTING . "'"
-        );
+        $this->pdo->prepare('DELETE FROM settings WHERE setting_key = ?')->execute([SupportArchiveSender::ARCHIVE_REFERENCE_SETTING]);
         $this->settings->clearCache();
         $sender = $this->sender($this->transport(200, ['status' => 'accepted']));
 

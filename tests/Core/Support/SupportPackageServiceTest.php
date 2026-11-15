@@ -581,7 +581,7 @@ class SupportPackageServiceTest extends TestCase
      */
     public function testAMissingBookkeepingSettingDoesNotCostThePackage(): void
     {
-        $this->pdo->exec("DELETE FROM settings WHERE setting_key = '" . SupportPackageState::FILE_ID . "'");
+        $this->pdo->prepare('DELETE FROM settings WHERE setting_key = ?')->execute([SupportPackageState::FILE_ID]);
         $this->settings->clearCache();
 
         $fileId = $this->service([$this->statisticsCollector()])->generate(null);

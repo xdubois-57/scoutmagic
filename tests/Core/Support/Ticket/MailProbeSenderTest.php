@@ -439,9 +439,7 @@ class MailProbeSenderTest extends TestCase
      */
     public function testAStampThatCannotBeWrittenDoesNotStopTheProbe(): void
     {
-        $this->pdo->exec(
-            "DELETE FROM settings WHERE setting_key = '" . MailProbeSender::LAST_SENT_AT_SETTING . "'"
-        );
+        $this->pdo->prepare('DELETE FROM settings WHERE setting_key = ?')->execute([MailProbeSender::LAST_SENT_AT_SETTING]);
         $this->settings->clearCache();
         $sender = $this->sender($this->issuing(['support@scoutmagic.be']));
 
