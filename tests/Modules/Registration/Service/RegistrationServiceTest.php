@@ -9,6 +9,7 @@ use Core\Config\SettingRepository;
 use Core\Config\SettingService;
 use Core\Import\MemberYearRepository;
 use Core\Journal\JournalService;
+use Core\Mail\MailException;
 use Core\Mail\MailService;
 use Core\ScoutYear\ScoutYearResolver;
 use Core\Security\EncryptionService;
@@ -283,6 +284,57 @@ class RegistrationServiceTest extends TestCase
         $this->assertStringContainsString('/inscriptions/suivi/', $toParent[0]['bodyHtml']);
         $this->assertStringNotContainsString('/inscriptions/suivi/', $toUnit[0]['bodyHtml']);
         $this->assertStringContainsString('/config/inscriptions/demandes/', $toUnit[0]['bodyHtml']);
+    }
+
+    /**
+     * A transport that refuses both e-mails does not undo the inscription:
+     * the request is filed, and each refusal is journaled under its own
+     * entry, so the staff can tell a family that got no receipt from a
+     * unit that got no alert.
+     */
+    public function testRefusedReceiptAndAlertAreJournaledAndTheRequestIsStillFiled(): void
+    {
+        $this->settingService->set('registration_unit_alert_email', 'unite@example.com', 'registration');
+        $logged = [];
+        $this->journalService->method('log')->willReturnCallback(function (...$args) use (&$logged): void {
+            $logged[(string) $args[1]] = [$args[2], $args[3], $args[4]];
+        });
+        $recipients = [];
+        $this->mailService->expects($this->exactly(2))->method('send')->willReturnCallback(
+            function (...$args) use (&$recipients): void {
+                $recipients[] = $args[0];
+                throw new MailException('Transport refusé pour ' . $args[0]);
+            }
+        );
+        $target = $this->service->resolveTargetYear(null);
+
+        $requestId = $this->service->submit(
+            (int) $target['id'],
+            (string) $target['label'],
+            $this->sampleFields(),
+            null,
+            [],
+            'Baladins — 1ère année'
+        );
+
+        $this->assertNotNull($this->requestRepository->findById($requestId));
+        $this->assertSame(['marie.dupont@example.com', 'unite@example.com'], $recipients);
+        $this->assertSame(
+            [
+                'info',
+                "Échec de l'envoi de l'accusé de réception",
+                ['error' => 'Transport refusé pour marie.dupont@example.com'],
+            ],
+            $logged['registration_receipt_email_failed'] ?? null
+        );
+        $this->assertSame(
+            [
+                'info',
+                "Échec de l'envoi de l'alerte à l'unité",
+                ['error' => 'Transport refusé pour unite@example.com'],
+            ],
+            $logged['registration_unit_alert_email_failed'] ?? null
+        );
     }
 
     /**

@@ -8,6 +8,7 @@ use Tests\Core\Mail\Template\EmailTemplateRendererFactory;
 
 use Core\Config\AppClock;
 use Core\Journal\JournalService;
+use Core\Mail\MailException;
 use Core\Mail\MailService;
 use Core\Security\CapabilityToken;
 use Core\Security\EncryptionService;
@@ -105,6 +106,25 @@ class SecondaryEmailServiceTest extends TestCase
 
         $this->assertTrue($row->isPending());
         $this->assertSame('secondary@example.com', $row->email);
+    }
+
+    /**
+     * A transport that refuses the confirmation does not undo the address:
+     * the row is kept, pending, so the parent can have it sent again — and
+     * the refusal is not turned into an error the tracking page would show.
+     */
+    public function testARefusedConfirmationKeepsThePendingAddress(): void
+    {
+        $this->mailService->expects($this->once())->method('send')
+            ->with($this->identicalTo('secondary@example.com'))
+            ->willThrowException(new MailException('SMTP refused'));
+
+        $row = $this->service->addEmail($this->requestId, 'secondary@example.com');
+
+        $this->assertTrue($row->isPending());
+        $listed = $this->service->listForRequest($this->requestId);
+        $this->assertSame([$row->id], array_map(fn ($email) => $email->id, $listed));
+        $this->assertTrue($listed[0]->isPending());
     }
 
     public function testAddingTheSameEmailTwiceReturnsSameRowWithoutDuplicateSend(): void

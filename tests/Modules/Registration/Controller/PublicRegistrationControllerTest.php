@@ -23,11 +23,13 @@ use Core\Security\HumanCheck\HumanCheckRateLimitRepository;
 use Core\Security\HumanCheck\HumanCheckService;
 use Modules\Registration\Controller\PublicRegistrationController;
 use Modules\Registration\Repository\AgeBracketRepository;
+use Modules\Registration\Repository\ReenrollmentRepository;
 use Modules\Registration\Repository\RegistrationRequestRepository;
 use Modules\Registration\Repository\RegistrationYearCodeRepository;
 use Modules\Registration\Service\RegistrationSubmissionReceipt;
 use Modules\Registration\Repository\RegistrationSecondaryEmailRepository;
 use Modules\Registration\Repository\SlotCapacityRepository;
+use Modules\Registration\Service\ReenrollmentService;
 use Modules\Registration\Service\RegistrationService;
 use Modules\Registration\Service\SlotService;
 use PHPUnit\Framework\TestCase;
@@ -50,6 +52,8 @@ class PublicRegistrationControllerTest extends TestCase
 {
     private \PDO $pdo;
     private PublicRegistrationController $controller;
+    /** The same controller, composed with the « avec qui » question stored. */
+    private PublicRegistrationController $withFriendWishes;
     private SettingService $settingService;
     private int $baladinsId;
     private int $louveteauxId;
@@ -150,6 +154,19 @@ class PublicRegistrationControllerTest extends TestCase
         $this->controller = new PublicRegistrationController(
             $twig, $registrationService, $slotService, $sectionService, $ageBracketRepository,
             $scoutYearResolver, $memberService, $this->settingService, $humanCheck
+        );
+        $this->withFriendWishes = new PublicRegistrationController(
+            $twig, $registrationService, $slotService, $sectionService, $ageBracketRepository,
+            $scoutYearResolver, $memberService, $this->settingService, $humanCheck,
+            new ReenrollmentService(
+                new ReenrollmentRepository($this->pdo, $this->encryption),
+                $this->settingService,
+                $memberService,
+                RegistrationTestHelper::departureLink($this->pdo, $this->encryption, $this->settingService),
+                RegistrationTestHelper::projectedPopulation($this->pdo, $this->encryption),
+                $sectionService
+            ),
+            new ReenrollmentRepository($this->pdo, $this->encryption)
         );
 
         if (session_status() === PHP_SESSION_NONE) {
@@ -359,6 +376,65 @@ class PublicRegistrationControllerTest extends TestCase
 
         $this->assertSubmissionAccepted($response);
         $this->assertSame(1, (int) $this->pdo->query('SELECT COUNT(*) FROM registration_requests')->fetchColumn());
+    }
+
+    /**
+     * The « avec qui » names of a public submission are filed with the
+     * request — the control for the test below, which needs this path to
+     * reach the write it then makes fail.
+     */
+    public function testFriendWishesAreFiledWithTheRequest(): void
+    {
+        $hcFields = $this->humanCheckFields();
+        sleep(2);
+
+        $response = $this->withFriendWishes->submit(new Request('POST', '/inscriptions', [], array_merge(
+            $this->baseFields(['friend_names' => ['Zoé Martin', '  ']]),
+            $hcFields
+        ), [], []), []);
+
+        $this->assertSubmissionAccepted($response);
+        $this->assertSame(
+            1,
+            (int) $this->pdo->query('SELECT COUNT(*) FROM registration_request_friend_wishes')->fetchColumn()
+        );
+    }
+
+    /**
+     * A wish that cannot be filed never sinks the inscription it came
+     * with: the request is recorded and the family is sent to the
+     * confirmation, exactly as without the question — and no half-written
+     * wish is left behind.
+     */
+    public function testAWishThatCannotBeFiledLeavesTheInscriptionStanding(): void
+    {
+        $this->pdo->exec(
+            "CREATE TRIGGER refuse_request_wishes BEFORE INSERT ON registration_request_friend_wishes
+             BEGIN SELECT RAISE(ABORT, 'wishes refused'); END"
+        );
+        $hcFields = $this->humanCheckFields();
+        sleep(2);
+
+        $response = $this->withFriendWishes->submit(new Request('POST', '/inscriptions', [], array_merge(
+            $this->baseFields(['friend_names' => ['Zoé Martin']]),
+            $hcFields
+        ), [], []), []);
+
+        $this->assertSubmissionAccepted($response);
+        $this->assertSame(
+            ['Léa'],
+            array_map(
+                fn (array $row): string => $this->encryption->decrypt(
+                    (string) $row['child_first_name_encrypted'],
+                    'registration_requests.child_first_name'
+                ),
+                $this->pdo->query('SELECT * FROM registration_requests')->fetchAll(\PDO::FETCH_ASSOC)
+            )
+        );
+        $this->assertSame(
+            0,
+            (int) $this->pdo->query('SELECT COUNT(*) FROM registration_request_friend_wishes')->fetchColumn()
+        );
     }
 
     /**

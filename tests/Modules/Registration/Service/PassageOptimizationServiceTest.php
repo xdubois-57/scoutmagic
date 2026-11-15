@@ -13,6 +13,7 @@ use Modules\Registration\Repository\PassageNoteRepository;
 use Modules\Registration\Repository\ReenrollmentRepository;
 use Modules\Registration\Repository\RegistrationRequestRepository;
 use Modules\Registration\Repository\SectionTransferRepository;
+use Modules\Registration\Service\PassageOptimizationOutcome;
 use Modules\Registration\Service\PassageOptimizationService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
@@ -430,6 +431,58 @@ class PassageOptimizationServiceTest extends TestCase
         }
     }
 
+    /**
+     * The second half of a plan refused by the database: the first half is
+     * undone with it, so the page never shows some children moved and some
+     * not. The error reaches the caller, which says the plan was not saved.
+     */
+    public function testAPlanRefusedHalfWayWritesNoneOfIt(): void
+    {
+        $alix = $this->createMember('Alix');
+        $requestId = $this->createAcceptedRequest('Zoé', $this->sectionA);
+        $this->refuseIntendedSectionWrites();
+
+        try {
+            $this->service->apply(
+                new PassageOptimizationOutcome([$alix => $this->sectionB], [$requestId => $this->sectionB], 0, 2),
+                $this->targetYearId
+            );
+            $this->fail('the refused write did not reach the caller');
+        } catch (\PDOException $e) {
+            $this->assertStringContainsString('intended section refused', $e->getMessage());
+        }
+
+        $this->assertFalse($this->pdo->inTransaction(), 'the transaction was left open');
+        $this->assertNull($this->transferRepository->findDestinationSectionId($alix, $this->targetYearId));
+        $this->assertSame($this->sectionA, $this->requestRepository->findById($requestId)?->intendedSectionId);
+    }
+
+    /**
+     * A reset whose second statement is refused keeps every destination
+     * the first had deleted, and puts nothing back on its own.
+     */
+    public function testAResetRefusedHalfWayKeepsEveryDestination(): void
+    {
+        $alix = $this->createMember('Alix');
+        $this->transferRepository->setDestination($alix, $this->targetYearId, $this->sectionA);
+        $requestId = $this->createAcceptedRequest('Zoé', $this->sectionB);
+        $this->refuseIntendedSectionWrites();
+
+        try {
+            $this->service->reset($this->branchChanges([$alix]), $this->targetYearId);
+            $this->fail('the refused write did not reach the caller');
+        } catch (\PDOException $e) {
+            $this->assertStringContainsString('intended section refused', $e->getMessage());
+        }
+
+        $this->assertFalse($this->pdo->inTransaction(), 'the transaction was left open');
+        $this->assertSame(
+            $this->sectionA,
+            $this->transferRepository->findDestinationSectionId($alix, $this->targetYearId)
+        );
+        $this->assertSame($this->sectionB, $this->requestRepository->findById($requestId)?->intendedSectionId);
+    }
+
     public function testResetEmptiesEverythingThenPutsBackTheSectionsThatWereNeverAChoice(): void
     {
         $alix = $this->createMember('Alix');
@@ -672,6 +725,15 @@ class PassageOptimizationServiceTest extends TestCase
         }
 
         return $memberId;
+    }
+
+    /** The database refuses every change of a request's intended section from now on. */
+    private function refuseIntendedSectionWrites(): void
+    {
+        $this->pdo->exec(
+            "CREATE TRIGGER refuse_intended_section BEFORE UPDATE OF intended_section_id ON registration_requests
+             BEGIN SELECT RAISE(ABORT, 'intended section refused'); END"
+        );
     }
 
     private function createAcceptedRequest(string $firstName, int $intendedSectionId): int
