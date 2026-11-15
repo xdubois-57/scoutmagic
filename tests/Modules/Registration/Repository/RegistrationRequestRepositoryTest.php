@@ -380,6 +380,24 @@ class RegistrationRequestRepositoryTest extends TestCase
     }
 
     /**
+     * A token stored under a key the site no longer holds — rotated without
+     * re-encrypting — cannot be handed out again: no link, rather than an
+     * error for the e-mail that asked. The hash still answers the family's
+     * own link, which never needed the ciphertext.
+     */
+    public function testNoLinkIsReadBackFromATokenEncryptedUnderAnotherKey(): void
+    {
+        $created = $this->repository->create($this->scoutYearId, $this->sampleFields(), null, []);
+        $rotated = (new EncryptionService(str_repeat('c', 32), str_repeat('d', 32)))
+            ->encrypt($created['tracking_token'], 'registration_requests.tracking_token');
+        $this->pdo->prepare('UPDATE registration_requests SET tracking_token_encrypted = ? WHERE id = ?')
+            ->execute([$rotated, $created['id']]);
+
+        $this->assertNull($this->repository->trackingLinkOf($created['id']));
+        $this->assertTrue($this->repository->verifyTrackingToken($created['id'], $created['tracking_token']));
+    }
+
+    /**
      * Issue #932: valid if and only if the token is right, the request
      * exists, and now is STRICTLY before the expiry — at the exact instant
      * of expiry the link is already dead.
