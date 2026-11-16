@@ -1246,6 +1246,52 @@ class RentalMessageConsumerTest extends TestCase
         $this->assertSame(41, $others[0]->learnedFromMessageId);
     }
 
+    /**
+     * Learning the sender's address is the first thing `onLinked()` does, and
+     * a write that fails there (not a duplicate: a dropped connection, a full
+     * disk) used to abort the rest of the filing — the manager's notice, the
+     * attachments — with nothing but a silently swallowed exception. The
+     * filing goes on, and the failure is journaled (#1221).
+     */
+    public function testAnAddressThatCannotBeLearnedDoesNotCostTheMessageTheRestOfItsFiling(): void
+    {
+        $booking = $this->createBooking();
+        $failing = new class ($this->pdo, $this->encryption) extends RentalBookingRepository {
+            public function addRenterEmail(int $bookingId, string $email, ?int $learnedFromMessageId = null): bool
+            {
+                throw new \PDOException('server has gone away');
+            }
+        };
+        $notifier = $this->createMock(\Modules\Rental\Mail\NewMessageNotifier::class);
+        $notifier->expects($this->once())->method('messageFiled');
+        $message = new \Modules\InboundMail\Api\InboundMessage(
+            41, $this->mailboxId, '', '', LinkOrigin::AI, 'Les clés', 'tresorier@groupe.example', null,
+            'a@b', null, new \DateTimeImmutable('2027-07-02 09:30:00'), '', '',
+            senderVerified: true
+        );
+
+        (new RentalMessageConsumer(
+            $failing,
+            $this->inboundMail,
+            $this->documentService,
+            assetRepository: $this->assetRepository,
+            newMessageNotifier: $notifier,
+            journalService: new \Core\Journal\JournalService(new \Core\Journal\JournalRepository($this->pdo))
+        ))->onLinked(
+            $message,
+            new MessageLink(RentalMessageConsumer::CONSUMER_ID, $booking->reference, LinkOrigin::AI)
+        );
+
+        $entry = $this->pdo->query(
+            "SELECT level, description, context FROM event_log WHERE event_type = 'rental_renter_address_not_learned'"
+        )->fetch(\PDO::FETCH_ASSOC);
+        $this->assertIsArray($entry);
+        $this->assertSame('warning', $entry['level']);
+        $this->assertStringContainsString('PDOException', $entry['description']);
+        $this->assertStringNotContainsString('tresorier@groupe.example', $entry['description'] . $entry['context']);
+        $this->assertSame(['booking_id' => $booking->id, 'message_id' => 41], json_decode($entry['context'], true));
+    }
+
     /** Issue #1121: the model picking a booking for a forged sender teaches it nothing. */
     public function testAnAiDecisionAboutAnUnverifiedSenderTeachesNothing(): void
     {

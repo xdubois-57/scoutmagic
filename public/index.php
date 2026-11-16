@@ -13037,7 +13037,8 @@ if ($isEnabled('rental')) {
                         $rentalManagerRecipients,
                         $rentalAssetRepository,
                         $journalService
-                    )
+                    ),
+                    journalService: $journalService
                 )
         );
     }
