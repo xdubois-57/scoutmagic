@@ -373,6 +373,31 @@ class RetroBoardControllerTest extends TestCase
         $this->assertTrue($decoded['liked']);
     }
 
+    /** Past forty votes in ten minutes the visitor is asked to wait, and the vote is not counted. */
+    public function testToggleLikePastTheRateLimitIsRefusedAndCountsNothing(): void
+    {
+        [$id, $token] = $this->createBoard();
+        $commentId = $this->commentRepository->create($id, 'good', 'Text');
+        $path = '/r/' . $token . '/comments/' . $commentId . '/vote';
+        $vote = fn(): \Core\Http\Response => $this->controller->toggleLike(
+            $this->jsonRequest($path, ['_csrf_token' => $this->csrfToken()]),
+            ['token' => $token, 'comment_id' => (string) $commentId]
+        );
+        for ($i = 0; $i < 40; $i++) {
+            $this->assertSame(200, $vote()->getStatusCode());
+        }
+
+        $response = $vote();
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertSame(
+            ['success' => false, 'error' => 'Trop d\'actions récentes — merci de patienter quelques instants.'],
+            json_decode($response->getBody(), true)
+        );
+        // Forty toggles leave it unliked; the refused one did not like it again.
+        $this->assertSame(0, $this->commentRepository->findById($commentId)?->votes);
+    }
+
     public function testToggleLikeHidesVoteCountWhenResultsNotRevealed(): void
     {
         [$id, $token] = $this->createBoard(['votesVisible' => false]);

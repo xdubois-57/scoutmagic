@@ -86,6 +86,79 @@ class RestoreBackupHandlerTest extends TestCase
         );
     }
 
+    protected function tearDown(): void
+    {
+        $this->removeTree($this->storagePath);
+    }
+
+    private function removeTree(string $path): void
+    {
+        if (!is_dir($path) || is_link($path)) {
+            return;
+        }
+        foreach (scandir($path) ?: [] as $entry) {
+            if ($entry !== '.' && $entry !== '..') {
+                $child = $path . '/' . $entry;
+                is_dir($child) && !is_link($child) ? $this->removeTree($child) : @unlink($child);
+            }
+        }
+        @rmdir($path);
+    }
+
+    /**
+     * A send under way is stopped before the safety copy (#847, part 3),
+     * and its half-sent copy at the destination is discarded on a best
+     * effort. A destination that refuses the discard — here a local folder
+     * whose partial is a link out of it, which the backend will not follow —
+     * does not stop the interruption: the local archive still goes, the
+     * queue row loses its payload, and the journal says the partial stayed.
+     */
+    public function testADestinationThatRefusesTheDiscardDoesNotStopTheInterruption(): void
+    {
+        $destination = $this->storagePath . '/hors-site';
+        $elsewhere = $this->storagePath . '/ailleurs/copie-a-ne-pas-toucher.zip';
+        mkdir($destination, 0755, true);
+        mkdir(dirname($elsewhere), 0755, true);
+        file_put_contents($elsewhere, 'hors de la destination');
+        symlink($elsewhere, $destination . '/copie.zip.scoutmagic-part');
+        $locationId = (new \Core\Storage\Location\StorageLocationRepository($this->pdo, $this->context->encryption))
+            ->create(
+                \Core\Storage\Location\StorageLocationType::Local,
+                'Dossier hors site',
+                new \Core\Storage\Location\Config\LocalLocationConfig($destination),
+                null
+            );
+
+        $archive = $this->storagePath . '/maintenance/hors_site_en_cours.zip';
+        mkdir(dirname($archive), 0755, true);
+        file_put_contents($archive, 'archive portable');
+        $this->pdo->prepare(
+            "INSERT INTO scheduled_actions (module_id, task_key, reference, payload, run_at, status)
+             VALUES ('core', 'send_remote_backup', 'auto', ?, CURRENT_TIMESTAMP, 'pending')"
+        )->execute([
+            json_encode(['archive_path' => $archive, 'remote_name' => 'copie.zip', 'location_id' => $locationId]),
+        ]);
+
+        $this->handler->handle(['source' => 'server', 'backup_id' => 1], $this->context);
+
+        $this->assertFileDoesNotExist($archive);
+        $this->assertSame('hors de la destination', file_get_contents($elsewhere));
+        $this->assertNull(
+            $this->pdo->query("SELECT payload FROM scheduled_actions WHERE task_key = 'send_remote_backup'")
+                ->fetchColumn()
+        );
+        $rows = $this->pdo->query(
+            "SELECT level, description, context FROM event_log WHERE event_type = 'remote_backup_interrupted'"
+        )->fetchAll(\PDO::FETCH_ASSOC);
+        $this->assertCount(1, $rows);
+        $this->assertSame('info', $rows[0]['level']);
+        $this->assertSame('Envoi hors site interrompu par une restauration', $rows[0]['description']);
+        $this->assertSame(
+            ['local_copy_removed' => true, 'partial_discarded' => false],
+            json_decode((string) $rows[0]['context'], true)
+        );
+    }
+
     public function testHandleNotifiesRequesterWhenTheSafetyBackupFails(): void
     {
         $this->handler->handle(['source' => 'server', 'backup_id' => 1, 'requested_by_user_account_id' => $this->userId], $this->context);

@@ -741,6 +741,61 @@ class MemberEmailServiceTest extends TestCase
         $this->assertContains('notify@example.com', $recipients);
     }
 
+    /**
+     * The Staff d'U notice is best-effort: a transport that refuses it must
+     * neither undo the unsubscribe nor keep the address from receiving its
+     * own confirmation, which is attempted right after.
+     */
+    public function testARefusedStaffduNoticeStillSendsTheConfirmation(): void
+    {
+        $this->createStaffDuSectionWithEmail('staffdu@example.com');
+        $row = $this->repository->create($this->memberId, 'refused-staff@example.com', 'manual', 'valid', null, null);
+        $recipients = [];
+        $this->mailService->expects($this->exactly(2))->method('send')->willReturnCallback(
+            function (...$arguments) use (&$recipients): void {
+                $recipients[] = (string) $arguments[0];
+                if ($arguments[0] === 'staffdu@example.com') {
+                    throw new \Core\Mail\MailException('SMTP Error: data not accepted.');
+                }
+            }
+        );
+
+        $this->service->unsubscribe('refused-staff@example.com');
+
+        $this->assertSame(['staffdu@example.com', 'refused-staff@example.com'], $recipients);
+        $this->assertSame(1, $this->countUnsubscribedJournalRows($row));
+        $this->assertTrue($this->repository->findById($row)->isValid());
+    }
+
+    /**
+     * The confirmation to the address is the last send: its failure is
+     * swallowed so the unsubscribe the link asked for still stands.
+     */
+    public function testARefusedConfirmationDoesNotUndoTheUnsubscribe(): void
+    {
+        $row = $this->repository->create($this->memberId, 'refused-own@example.com', 'manual', 'valid', null, null);
+        $this->mailService->expects($this->once())->method('send')
+            ->with($this->identicalTo('refused-own@example.com'))
+            ->willThrowException(new \Core\Mail\MailException('SMTP connect() failed.'));
+
+        $this->service->unsubscribe('refused-own@example.com');
+
+        $this->assertSame(1, $this->countUnsubscribedJournalRows($row));
+        $this->assertTrue($this->repository->findById($row)->isValid());
+    }
+
+    private function countUnsubscribedJournalRows(int $memberEmailId): int
+    {
+        $rows = $this->pdo->query("SELECT context FROM event_log WHERE event_type = 'member_email_unsubscribed'")
+            ->fetchAll(\PDO::FETCH_COLUMN);
+
+        return count(array_filter(
+            $rows,
+            static fn(string $context): bool => (json_decode($context, true)['member_email_id'] ?? null)
+                === $memberEmailId
+        ));
+    }
+
     public function testAFreeDeskAddressNotYetMaterializedStillNotifiesItsMembersAndStaff(): void
     {
         $this->createStaffDuSectionWithEmail('staffdu@example.com');

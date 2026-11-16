@@ -8,6 +8,8 @@ declare(strict_types=1);
 
 namespace Modules\Camps\Mail;
 
+use Core\Service\IntegerInput;
+
 /**
  * What can be read out of an inbound message's text: dates, a price.
  *
@@ -205,13 +207,49 @@ class MessageReader
                 continue;
             }
 
-            $candidates[] = (int) $whole * 100 + (int) str_pad($match[2][0] ?? '', 2, '0');
+            $cents = self::cents($whole, $match[2][0] ?? '');
+            if ($cents === null) {
+                // A figure no stay can cost is not dropped in favour of
+                // its neighbours: it survived elimination, so it is a
+                // figure a human has to look at, and the answer is null.
+                return null;
+            }
+            $candidates[] = $cents;
         }
 
         // Still exactly one, and still null otherwise. Eliminating is not
         // choosing: two figures that both survive are two figures a human
         // has to look at, exactly as before.
         return count(array_unique($candidates)) === 1 ? $candidates[0] : null;
+    }
+
+    /**
+     * The highest price read out of a message, in cents: what the
+     * `price_cents INT UNSIGNED` column holds, and so the most CampService
+     * can ever store. Anything above it is not a price a sender meant.
+     */
+    public const MAX_PRICE_CENTS = IntegerInput::UNSIGNED_INT_MAX;
+
+    /**
+     * Whole euros as digits and up to two decimal digits, as cents — or
+     * null when the amount is above MAX_PRICE_CENTS.
+     *
+     * The length is checked BEFORE any cast. Nineteen digits are already
+     * past PHP_INT_MAX, and multiplying by a hundred overflows sooner: the
+     * result silently became a float, and the ?int return type threw on
+     * it — so a single absurd figure in an e-mail stopped the message from
+     * being analysed at all.
+     */
+    private static function cents(string $whole, string $decimals): ?int
+    {
+        $whole = ltrim($whole, '0');
+        if (strlen($whole) > strlen((string) intdiv(self::MAX_PRICE_CENTS, 100))) {
+            return null;
+        }
+
+        $cents = (int) $whole * 100 + (int) str_pad($decimals, 2, '0');
+
+        return $cents <= self::MAX_PRICE_CENTS ? $cents : null;
     }
 
     /**
@@ -290,6 +328,11 @@ class MessageReader
      * Bounded at both ends. A unit of one is a typo and a unit of six
      * thousand is a phone number that happened to sit after the word
      * « personnes ».
+     *
+     * Four digits at most, and never four digits cut out of a longer run:
+     * without the digit boundaries « 11500 personnes » read as 1500 and
+     * « participants : 123456 » as 1234 — a figure nobody wrote. The cap is
+     * also what keeps the cast below far from any integer overflow.
      */
     public const MIN_PARTICIPANTS = 2;
     public const MAX_PARTICIPANTS = 2000;
@@ -300,8 +343,8 @@ class MessageReader
 
         preg_match_all(
             '/(?:nombre\s+(?:pr[ée]vu|de\s+participants|de\s+personnes)|participants?|personnes)'
-            . '\s*(?:pr[ée]vus?|attendus?)?\s*[:=]?\s*(\d{1,4})'
-            . '|(\d{1,4})\s*(?:participants?|personnes)\b/u',
+            . '\s*(?:pr[ée]vus?|attendus?)?\s*[:=]?\s*(\d{1,4})(?!\d)'
+            . '|(?<!\d)(\d{1,4})\s*(?:participants?|personnes)\b/u',
             $text,
             $matches,
             PREG_SET_ORDER

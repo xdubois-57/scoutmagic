@@ -203,4 +203,61 @@ final class DocumentCompressionTest extends TestCase
         $this->assertNotNull($file);
         $this->assertSame("%PDF-1.4\n%%EOF\n", file_get_contents($this->storage . '/' . $file->relativePath));
     }
+
+    /**
+     * The cron could run the task, but the queue refuses the row: the upload
+     * compresses the file itself rather than leaving it uncompressed.
+     */
+    public function testAQueueThatRefusesTheTaskFallsBackToCompressingInTheUpload(): void
+    {
+        $this->cronMeasured(true, 'ghostscript');
+        $this->pdo->exec(
+            'CREATE TRIGGER refuse_task BEFORE INSERT ON scheduled_actions '
+            . "BEGIN SELECT RAISE(ABORT, 'queue refused'); END"
+        );
+
+        $document = $this->service($this->shrinkingCompressor())->create(
+            'Règlement',
+            null,
+            'public',
+            DocumentsTestHelper::upload('r.pdf', self::bigPdf()),
+            null
+        );
+
+        $this->assertSame([], $this->queued());
+        $file = (new \Core\File\FileRepository($this->pdo))->findById($document->fileId);
+        $this->assertNotNull($file);
+        $this->assertSame("%PDF-1.4\n%%EOF\n", file_get_contents($this->storage . '/' . $file->relativePath));
+        $this->assertSame(strlen("%PDF-1.4\n%%EOF\n"), $file->sizeBytes);
+    }
+
+    /**
+     * A compression that fails after rewriting the file — here the size
+     * cannot be recorded — never costs the upload: the document is shared.
+     * The size column then keeps the uploaded size while the disk holds the
+     * compressed copy; pinned as it is.
+     */
+    public function testACompressionThatFailsNeverCostsTheUpload(): void
+    {
+        $this->pdo->exec(
+            'CREATE TRIGGER refuse_size BEFORE UPDATE OF size_bytes ON files '
+            . "BEGIN SELECT RAISE(ABORT, 'size refused'); END"
+        );
+        $original = self::bigPdf();
+
+        $document = $this->service($this->shrinkingCompressor())->create(
+            'Règlement',
+            null,
+            'public',
+            DocumentsTestHelper::upload('r.pdf', $original),
+            null
+        );
+
+        $this->assertSame('Règlement', $document->title);
+        $file = (new \Core\File\FileRepository($this->pdo))->findById($document->fileId);
+        $this->assertNotNull($file);
+        $this->assertSame('public', DocumentsTestHelper::fileRoleMin($this->pdo, $document->fileId));
+        $this->assertSame("%PDF-1.4\n%%EOF\n", file_get_contents($this->storage . '/' . $file->relativePath));
+        $this->assertSame(strlen($original), $file->sizeBytes);
+    }
 }

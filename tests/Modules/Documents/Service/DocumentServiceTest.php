@@ -43,6 +43,27 @@ final class DocumentServiceTest extends TestCase
         $this->assertSame('application/pdf', $document->mimeType);
     }
 
+    public function testADocumentRowRefusedLeavesNoStoredFileBehind(): void
+    {
+        $this->pdo->exec(
+            'CREATE TRIGGER refuse_document BEFORE INSERT ON documents '
+            . "BEGIN SELECT RAISE(ABORT, 'document refused'); END"
+        );
+
+        try {
+            $this->service->create('Règlement', null, 'public', DocumentsTestHelper::upload(), null);
+            $this->fail('The refused insert must reach the caller.');
+        } catch (\PDOException $e) {
+            $this->assertStringContainsString('document refused', $e->getMessage());
+        }
+
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM files')->fetchColumn());
+        $stored = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($this->storage, \FilesystemIterator::SKIP_DOTS)
+        );
+        $this->assertSame([], array_keys(iterator_to_array($stored)), 'the uploaded file was not removed');
+    }
+
     public function testDirectLinkFileIsReadableByAnyoneHoldingTheAddress(): void
     {
         $document = $this->service->create('PV AG', null, 'direct_link', DocumentsTestHelper::upload(), null);

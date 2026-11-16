@@ -45,6 +45,8 @@ class FakeMailboxClient implements IncomingMailboxClientInterface
 
     private ?\Throwable $connectFailure = null;
 
+    private int $lastSkippedUid = 0;
+
     public function __construct(private MimeMessageParser $parser = new MimeMessageParser())
     {
     }
@@ -143,6 +145,7 @@ class FakeMailboxClient implements IncomingMailboxClientInterface
     public function fetchSince(string $folder, int $sinceUid, int $limit): array
     {
         $this->calls[] = 'fetchSince:' . $folder . ':' . $sinceUid;
+        $this->lastSkippedUid = 0;
 
         $entries = $this->foldersByPath[$folder] ?? [];
         usort($entries, static fn(array $a, array $b) => $a['uid'] <=> $b['uid']);
@@ -163,10 +166,16 @@ class FakeMailboxClient implements IncomingMailboxClientInterface
             try {
                 $fetched[] = $this->parser->parse($entry['raw'], $entry['uid'], $folder);
             } catch (\Throwable) {
+                $this->lastSkippedUid = max($this->lastSkippedUid, $entry['uid']);
                 continue;
             }
         }
 
         return $fetched;
+    }
+
+    public function lastSkippedUid(): int
+    {
+        return $this->lastSkippedUid;
     }
 }

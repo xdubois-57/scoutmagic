@@ -193,6 +193,39 @@ class BatchPublicationServiceTest extends TestCase
         $this->assertSame($this->lineIds['margaux'], $remaining[0]->id);
     }
 
+    /**
+     * The second member's document is refused: the first one goes with it,
+     * the batch stays a draft that can be published again, and nothing is
+     * journalled as published.
+     */
+    public function testARefusedDocumentPublishesNobody(): void
+    {
+        $this->pdo->exec(
+            "CREATE TRIGGER refuse_second_document BEFORE INSERT ON member_documents
+             WHEN (SELECT COUNT(*) FROM member_documents) >= 1
+             BEGIN SELECT RAISE(ABORT, 'document refusé'); END"
+        );
+
+        try {
+            $this->service->publish($this->batchId, [$this->lineIds['margaux'], $this->lineIds['sacha']], 9);
+            $this->fail('the refused document must reach the caller');
+        } catch (\PDOException $e) {
+            $this->assertStringContainsString('document refusé', $e->getMessage());
+        }
+
+        $this->assertFalse($this->pdo->inTransaction());
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM member_documents')->fetchColumn());
+        $this->assertSame(BatchStatus::Draft, $this->batches->findById($this->batchId)?->status);
+        foreach ($this->lines->findByBatch($this->batchId) as $line) {
+            $this->assertNull($line->memberDocumentId, 'no line points at a document that was rolled back');
+        }
+        $this->assertSame(
+            0,
+            (int) $this->pdo->query("SELECT COUNT(*) FROM event_log WHERE event_type = 'attestation_batch_published'")
+                ->fetchColumn()
+        );
+    }
+
     public function testAPublishedBatchCannotBePublishedAgain(): void
     {
         $this->service->publish($this->batchId, [$this->lineIds['margaux']], null);

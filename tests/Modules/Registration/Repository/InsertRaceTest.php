@@ -12,13 +12,14 @@ use Core\Security\EncryptionService;
 use Modules\Registration\Repository\PassageNoteRepository;
 use Modules\Registration\Repository\ReenrollmentRepository;
 use Modules\Registration\Repository\SectionTransferRepository;
+use Modules\Registration\Repository\SlotCapacityRepository;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Registration\RegistrationTestHelper;
 
 /**
- * The three SELECT-then-INSERT writes of the module, when they lose the
+ * The SELECT-then-INSERT writes of the module, when they lose the
  * race to a concurrent request (issue #592).
  *
  * Two saves on the same child both find no row, both insert, and the
@@ -101,6 +102,28 @@ final class InsertRaceTest extends TestCase
         $this->assertSame('leaving', $answer->decision);
         $this->assertSame(1, $this->rowCount('registration_reenrollments'));
         $this->assertSame(0, $this->rowCount('registration_friend_wishes'), 'the first answer\'s wishes went with it');
+    }
+
+    /**
+     * The default capacity seeded on page load, by two chiefs opening the
+     * page at once. Unlike the saves above, the loser has nothing of its
+     * own to keep: the slot was missing, it now exists, and the row the
+     * winner wrote stands — reported as « not created here », never as an
+     * error page.
+     */
+    public function testASeededCapacityLeavesTheWinnersRowWhenTwoPagesOpenAtOnce(): void
+    {
+        $branchId = RegistrationTestHelper::insertAgeBranch($this->pdo, 'BALA', 'Baladins', 10);
+        $capacities = new SlotCapacityRepository($this->pdo);
+        $this->assertTrue($capacities->insertIfMissing($branchId, 1, 12));
+
+        $this->pdo->loseTheNextRaceOn('registration_slot_capacities');
+        $created = $capacities->insertIfMissing($branchId, 1, 15);
+
+        $this->assertTrue($this->pdo->raceWasLost(), 'the existence check was not the one this test blinds');
+        $this->assertFalse($created);
+        $this->assertSame(12, $capacities->capacityFor($branchId, 1));
+        $this->assertSame(1, $this->rowCount('registration_slot_capacities'));
     }
 
     /**

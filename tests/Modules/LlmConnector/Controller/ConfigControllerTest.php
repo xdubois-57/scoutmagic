@@ -254,6 +254,33 @@ class ConfigControllerTest extends TestCase
     }
 
     /**
+     * A key that no longer decrypts (sealed under a rotated key) leaves the
+     * page standing: the provider is listed, and the image evidence that was
+     * proven for that key can no longer be read as such, so no image tier is
+     * claimed.
+     */
+    public function testAnUndecryptableKeyStillRendersThePageWithoutClaimingImages(): void
+    {
+        $id = $this->providerRepository->create('Scaleway', 'scaleway', 'https://api.scaleway.ai', 'test-key', true);
+        $model = 'mistral-small-3.2-24b-instruct-2506';
+        $this->modelRepository->upsert($id, $model, 'Images');
+        $this->modelRepository->autoAssignTiers($id, ['cheap' => $model, 'capable' => $model, 'ocr' => $model]);
+        $cache = new ModelProbeCache([], ScalewayProvider::capabilityScope('https://api.scaleway.ai', 'test-key'));
+        $cache->record($model, ModelProbeStatus::VISION_VERIFIED);
+        $this->modelRepository->storeModelProbeCache($id, $cache->toArray());
+        $rotated = new \Core\Security\EncryptionService(str_repeat('c', 32), str_repeat('b', 32));
+        $stmt = $this->pdo->prepare('UPDATE llm_providers SET api_key = ? WHERE id = ?');
+        $stmt->execute([$rotated->encrypt('test-key', 'llm_providers.api_key'), $id]);
+
+        $response = $this->controller->index(new Request('GET', '/config/llm', [], [], [], []), []);
+
+        self::assertSame(200, $response->getStatusCode());
+        self::assertStringContainsString('La lecture des images est indisponible', $response->getBody());
+        preg_match('/<div[^>]*data-ocr>.*?<strong>(.*?)<\/strong>/s', $response->getBody(), $matches);
+        self::assertSame('—', $matches[1] ?? '(missing tier)');
+    }
+
+    /**
      * Nothing enforced one-row-per-driver, and the page keys providers by
      * driver — a second row used to overwrite the first in the view while
      * findFirstActive() (id ASC) still picked the first. The page must show

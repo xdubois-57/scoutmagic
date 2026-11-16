@@ -222,6 +222,106 @@ class SosConfigControllerTest extends TestCase
         $this->assertSame('0033100000001', $selectDecoded['sos_number']);
     }
 
+    /**
+     * Step 2a before step 1: there is no Application Key to ask OVH with,
+     * so the admin is sent back a step, nothing is stored and no Consumer
+     * Key is journaled as generated.
+     */
+    public function testGeneratingAConsumerKeyBeforeTheApplicationKeyIsRefused(): void
+    {
+        $token = $this->csrfToken();
+
+        $response = $this->controller->generateConsumerKey($this->jsonRequest(['_csrf_token' => $token]), []);
+
+        $this->assertSame(400, $response->getStatusCode());
+        $this->assertSame(
+            ['success' => false, 'error' => 'Configuration OVH incomplète (étape précédente manquante).'],
+            json_decode($response->getBody(), true)
+        );
+        $this->assertNull($this->credentialRepository->findByProvider('ovh'));
+        $this->assertSame(0, $this->journalCount('ovh_consumer_key_generated'));
+    }
+
+    /**
+     * Step 2b while the key is still waiting for its approval on OVH's
+     * site: OVH refuses the authenticated call, and the admin is told to
+     * approve it first. The key stays unvalidated.
+     */
+    public function testValidatingAConsumerKeyOvhHasNotApprovedYetSaysSo(): void
+    {
+        $token = $this->csrfToken();
+        $this->controller->saveOvhCredentials(
+            $this->jsonRequest(['application_key' => 'ak', 'application_secret' => 'as', '_csrf_token' => $token]),
+            []
+        );
+        $this->controller->generateConsumerKey($this->jsonRequest(['_csrf_token' => $token]), []);
+        $unapproved = $this->fakeTransport();
+        $controller = $this->controllerWithTransport(
+            static function (string $method, string $url, array $headers, ?string $body) use ($unapproved): array {
+                if (str_ends_with($url, '/telephony')) {
+                    return ['status' => 403, 'body' => '{"message":"This credential is not valid"}'];
+                }
+
+                return $unapproved($method, $url, $headers, $body);
+            }
+        );
+
+        $response = $controller->validateConsumerKey($this->jsonRequest(['_csrf_token' => $token]), []);
+
+        $this->assertSame(400, $response->getStatusCode());
+        $this->assertSame(
+            [
+                'success' => false,
+                'error' => 'La Consumer Key n\'est pas (encore) validée — approuvez-la sur le site d\'OVH, puis '
+                    . 'relancez la vérification.',
+            ],
+            json_decode($response->getBody(), true)
+        );
+        $this->assertFalse($this->credentialRepository->findByProvider('ovh')?->config['consumer_key_validated']);
+        $this->assertSame(0, $this->journalCount('ovh_consumer_key_validated'));
+    }
+
+    /**
+     * Step 3a with a key generated but never validated: the lines are not
+     * fetched at all, and the admin is told which step is missing.
+     */
+    public function testListingLinesBeforeTheConsumerKeyIsValidatedIsRefused(): void
+    {
+        $token = $this->csrfToken();
+        $this->controller->saveOvhCredentials(
+            $this->jsonRequest(['application_key' => 'ak', 'application_secret' => 'as', '_csrf_token' => $token]),
+            []
+        );
+        $this->controller->generateConsumerKey($this->jsonRequest(['_csrf_token' => $token]), []);
+
+        $response = $this->controller->listLines($this->jsonRequest(['_csrf_token' => $token]), []);
+
+        $this->assertSame(400, $response->getStatusCode());
+        $this->assertSame(
+            ['success' => false, 'error' => 'La Consumer Key doit être validée avant de récupérer les lignes.'],
+            json_decode($response->getBody(), true)
+        );
+    }
+
+    private function controllerWithTransport(\Closure $transport): SosConfigController
+    {
+        return new SosConfigController(
+            $this->twig,
+            new ProviderConfigService($this->credentialRepository, $transport),
+            $this->settingsService,
+            $this->sectionService,
+            new JournalService(new JournalRepository($this->pdo))
+        );
+    }
+
+    private function journalCount(string $eventType): int
+    {
+        $stmt = $this->pdo->prepare('SELECT COUNT(*) FROM event_log WHERE event_type = ?');
+        $stmt->execute([$eventType]);
+
+        return (int) $stmt->fetchColumn();
+    }
+
     public function testUpdateExcludedSectionsPersists(): void
     {
         $stmt = $this->pdo->prepare('INSERT INTO age_branches (desk_code, label, sort_order) VALUES (?, ?, ?)');

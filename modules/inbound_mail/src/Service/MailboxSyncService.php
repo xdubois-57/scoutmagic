@@ -267,6 +267,10 @@ class MailboxSyncService
             // class docblock.
             $cursor = $cursor->advancedTo($message->uid);
         }
+        // And past what the client read but could not hand back: it is
+        // not in the loop above, and a cursor left below it would fetch it
+        // again on every pass.
+        $cursor = $cursor->advancedTo($client->lastSkippedUid());
 
         $this->mailboxRepository->saveCursor($cursor);
 

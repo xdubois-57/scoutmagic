@@ -113,6 +113,69 @@ final class IcsEventReaderTest extends TestCase
         ], array_map(static fn (array $e): array => [$e['state'], $e['reason'] ?? null], $events));
     }
 
+    /**
+     * A line that is no property at all makes the event unparseable even
+     * in vobject's forgiving mode: that event is reported, the next one is
+     * still read.
+     */
+    public function testAnEventWithALineThatIsNoPropertyIsReportedAndTheNextOneRead(): void
+    {
+        $events = $this->convertText(
+            "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Test//FR\r\n"
+            . "BEGIN:VEVENT\r\nUID:casse-1\r\nSUMMARY:Réunion\r\nDTSTART:20250315T130000Z\r\n"
+            . "UNE LIGNE SANS DEUX-POINTS\r\nEND:VEVENT\r\n"
+            . "BEGIN:VEVENT\r\nUID:bon-1\r\nSUMMARY:Sortie\r\nDTSTART:20250322T130000Z\r\nEND:VEVENT\r\n"
+            . "END:VCALENDAR\r\n"
+        );
+
+        $this->assertSame(
+            [['unreadable', 'syntaxe ICS invalide'], ['event', null]],
+            array_map(static fn (array $e): array => [$e['state'], $e['reason'] ?? null], $events)
+        );
+        $this->assertSame('Sortie', $events[1]['title']);
+    }
+
+    /**
+     * Exchange names a zone by a number (X-MICROSOFT-CDO-TZID) that vobject
+     * maps to an old zone name; a PHP reading the system time zone data
+     * without its legacy links refuses that name with an exception. The
+     * event is then a zone the import cannot place, said as such, and PHP's
+     * default zone is left as it was.
+     */
+    public function testAnExchangeZoneThisRuntimeCannotNameIsAnUnknownZone(): void
+    {
+        $refused = null;
+        foreach ([23, 60, 61] as $cdoId) {
+            try {
+                new \DateTimeZone(\Sabre\VObject\TimezoneGuesser\GuessFromMsTzId::$microsoftExchangeMap[$cdoId]);
+            } catch (\Exception) {
+                $refused = $cdoId;
+                break;
+            }
+        }
+        if ($refused === null) {
+            $this->markTestSkipped('This runtime knows every legacy zone name vobject maps Exchange numbers to.');
+        }
+        $default = date_default_timezone_get();
+
+        $events = $this->convertText(
+            "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Test//FR\r\n"
+            . "BEGIN:VTIMEZONE\r\nTZID:Zone Exchange\r\nX-MICROSOFT-CDO-TZID:{$refused}\r\n"
+            . "BEGIN:STANDARD\r\nDTSTART:16010101T000000\r\nTZOFFSETFROM:+0530\r\nTZOFFSETTO:+0530\r\n"
+            . "END:STANDARD\r\nEND:VTIMEZONE\r\n"
+            . "BEGIN:VEVENT\r\nUID:exchange-1\r\nSUMMARY:Jamboree\r\n"
+            . "DTSTART;TZID=Zone Exchange:20250310T090000\r\nEND:VEVENT\r\n"
+            . "END:VCALENDAR\r\n"
+        );
+
+        $this->assertCount(1, $events);
+        $this->assertSame(
+            ['unreadable', 'fuseau horaire inconnu', 'exchange-1'],
+            [$events[0]['state'], $events[0]['reason'] ?? null, $events[0]['uid']]
+        );
+        $this->assertSame($default, date_default_timezone_get());
+    }
+
     public function testAFileThatIsNotACalendarIsRefusedAsAWhole(): void
     {
         $this->expectException(IcsUnreadableException::class);

@@ -140,32 +140,32 @@ l'ordre des lots (ceux à zéro, 11 domaines, ne figurent pas) :
 | `modules/rental` | ~~42~~ **0** (lots 3a-3b) | ~~6~~ 0 | 1 | 102 |
 | `core/Http` | ~~36~~ **1** (lot 4, voir le journal) | ~~4~~ 0 | 1 | 133 |
 | `core/Mail` | ~~35~~ **0** (lots 1-2) | ~~16~~ 0 | 2 | 77 |
-| `core/Storage` | 31 | 9 | 0 | 67 |
-| `modules/finance` | 23 | 0 | 0 | 54 |
-| `core/Maintenance` | 21 | 3 | 0 | 55 |
-| `modules/inbound_mail` | 21 | 4 | 0 | 40 |
-| `core/Support` | 20 | 4 | 0 | 27 |
-| `modules/registration` | 17 | 4 | 0 | 47 |
-| `modules/camps` | 15 | 1 | 0 | 34 |
-| `core/Member` | 11 | 2 | 0 | 19 |
-| `modules/attestations` | 11 | 1 | 0 | 20 |
-| `modules/data_migration` | 11 | 0 | 0 | 28 |
-| `modules/groups` | 10 | 2 | 0 | 24 |
-| `modules/news` | 9 | 0 | 0 | 25 |
-| `modules/sos_staff` | 9 | 0 | 0 | 23 |
-| `modules/support_dashboard` | 9 | 2 | 0 | 13 |
-| `modules/gallery` | 8 | 0 | 0 | 35 |
-| `modules/social` | 8 | 0 | 0 | 23 |
+| `core/Storage` | ~~31~~ **0** (lot 5) | ~~9~~ 0 | 1 | 67 |
+| `modules/finance` | ~~23~~ **0** (lot 6) | 0 | 3 | 54 |
+| `core/Maintenance` | ~~21~~ **0** (lot 7) | ~~3~~ 0 | 1 | 55 |
+| `modules/inbound_mail` | ~~21~~ **0** (lot 8) | ~~4~~ 0 | 1 | 42 |
+| `core/Support` | ~~20~~ **0** (lot 9) | ~~4~~ 0 | 1 | 29 |
+| `modules/registration` | ~~17~~ **0** (lot 10) | ~~4~~ 0 | 1 | 47 |
+| `modules/camps` | ~~15~~ **0** (lot 11) | ~~1~~ 0 | 1 | 34 |
+| `core/Member` | ~~11~~ **0** (lot 12) | ~~2~~ 0 | 3 | 19 |
+| `modules/attestations` | ~~11~~ **0** (lot 13) | ~~1~~ 0 | 0 | 20 |
+| `modules/data_migration` | ~~11~~ **0** (lot 14) | 0 | 0 | 28 |
+| `modules/groups` | ~~10~~ **0** (lot 15) | ~~2~~ 0 | 1 | 24 |
+| `modules/news` | ~~9~~ **0** (lot 16) | 0 | 0 | 25 |
+| `modules/sos_staff` | ~~9~~ **0** (lot 17) | 0 | 1 | 23 |
+| `modules/support_dashboard` | ~~9~~ **0** (lot 18) | ~~2~~ 0 | 0 | 13 |
+| `modules/gallery` | ~~8~~ **0** (lot 19) | 0 | 0 | 35 |
+| `modules/social` | ~~8~~ **0** (lot 20) | 0 | 0 | 23 |
 | `core/Photo` | 6 | 0 | 0 | 8 |
 | `core/Security` | 6 | 3 | 0 | 14 |
-| `modules/documents` | 6 | 1 | 0 | 8 |
-| `modules/calendar` | 5 | 0 | 0 | 16 |
-| `modules/llm_connector` | 5 | 2 | 0 | 14 |
-| `modules/mass_mail` | 5 | 0 | 0 | 47 |
-| `modules/official_documents` | 5 | 0 | 0 | 9 |
+| `modules/documents` | ~~6~~ **0** (lot 21) | ~~1~~ 0 | 0 | 8 |
+| `modules/calendar` | ~~5~~ **0** (lot 22) | 0 | 0 | 16 |
+| `modules/llm_connector` | ~~5~~ **0** (lot 23) | ~~2~~ 0 | 0 | 14 |
+| `modules/mass_mail` | ~~5~~ **0** (lot 24) | 0 | 1 | 47 |
+| `modules/official_documents` | ~~5~~ **0** (lot 25) | 0 | 2 | 9 |
 | `core/File` | 4 | 0 | 0 | 9 |
 | `core/Import` | 4 | 1 | 0 | 5 |
-| `modules/covoiturage` | 4 | 0 | 0 | 9 |
+| `modules/covoiturage` | ~~4~~ **0** (lot 26) | 0 | 0 | 9 |
 | `core/Alert` | 3 | 1 | 0 | 9 |
 | `core/Database` | 3 | 2 | 0 | 14 |
 | `core/Statistics` | 3 | 1 | 0 | 7 |
@@ -175,14 +175,14 @@ l'ordre des lots (ceux à zéro, 11 domaines, ne figurent pas) :
 | `core/Notification` | 2 | 1 | 0 | 8 |
 | `core/Page` | 2 | 0 | 0 | 4 |
 | `core/System` | 2 | 0 | 0 | 3 |
-| `modules/fees` | 2 | 0 | 0 | 8 |
-| `modules/retro` | 2 | 0 | 0 | 20 |
-| `modules/test_tools` | 2 | 1 | 0 | 6 |
+| `modules/fees` | ~~2~~ **0** (lot 27) | 0 | 0 | 8 |
+| `modules/retro` | ~~2~~ **0** (lot 28) | 0 | 0 | 20 |
+| `modules/test_tools` | ~~2~~ **0** (lot 29) | ~~1~~ 0 | 0 | 6 |
 | `core/Scheduler` | 1 | 1 | 0 | 2 |
 | `core/Service` | 1 | 0 | 0 | 1 |
 | `core/Signature` | 1 | 0 | 0 | 3 |
 | `core/View` | 1 | 0 | 0 | 3 |
-| `modules/leadership` | 1 | 0 | 0 | 2 |
+| `modules/leadership` | ~~1~~ **0** (lot 30) | 0 | 0 | 2 |
 
 ## 5. Journal
 
@@ -328,3 +328,318 @@ retiré : un refus atteint le message d'erreur qui existait déjà.
 **Le marqueur** : la suppression d'un document de section, dont la seule
 exception métier relit une ligne lue deux lignes plus haut dans la même
 requête.
+
+### Lot 5 — `core/Storage` — 2026-11-15
+
+**31 → 0** jamais exécutés, dont les 9 vides ; un marqueur. Remesuré sur
+`tests/Core/Storage` et `tests/Core/Maintenance` avant et après (PCOV,
+MariaDB).
+
+**30 branches atteintes** par un état réel : panne de Google Drive (statut
+503 ou 500 sur une requête précise, PHP sans cURL), de S3 (`NoSuchKey`) ou
+de WebDAV (404, 401), disque qui refuse l'écriture d'un fichier témoin,
+horloge qui épuise le budget d'un contrôle, ligne `../public` parmi les
+emplacements, table absente, trigger qui refuse une écriture, secret
+illisible, dossier de destination occupé par un fichier. `FakeDrive` gagne
+un crochet `$intercept` qui répond un statut ou lève une exception pour une
+requête choisie.
+
+**Le marqueur** : la marche tolérante de `DirectorySize`. La racine est
+ouverte par le constructeur, `CATCH_GET_CHILD` avale chaque enfant
+illisible, et lire les entrées d'un dossier déjà ouvert ne lève rien — même
+la racine supprimée en cours de marche (vérifié).
+
+**Trouvé en chemin, ouvert à part.**
+- **#1223** : une copie de protection peut être enregistrée comme protégée
+  sans aucun contrôle, quand la destination ne répond ni sa somme ni sa
+  taille pendant une panne.
+- **#1224** : un refus de Google Drive n'affiche jamais le « rien n'a été
+  changé » prévu pour lui.
+- **#1230** (trouvé au lot de la maintenance) : un sous-dossier dont le
+  chemin dépasse PATH_MAX est omis sans le dire.
+
+### Lot 6 — `modules/finance` — 2026-11-15
+
+**23 → 0** jamais exécutés ; trois marqueurs. Remesuré sur
+`tests/Modules/Finance` avant et après (PCOV, MariaDB).
+
+**20 branches atteintes** par un état réel : fichier refusé (un vrai fichier
+texte déposé comme reçu), catégorie encore utilisée, créance dépassée,
+débit déclaré « sans créance », trigger qui refuse une écriture (rattachement
+d'un reçu, campagne, import de relevé, purge), fichier disparu du disque, JPEG
+annonçant plus de pixels que le plafond, répertoire des membres illisible,
+clé étrangère réelle sur MariaDB.
+
+**Les marqueurs** : trois relectures, dans la même requête, d'une ligne lue
+juste au-dessus — supprimer un reçu, changer son compte, ouvrir le
+rapprochement d'un compte visible. Seule une purge ou une modification
+concurrente entre les deux lectures y mène.
+
+**Trouvé en chemin, ouvert à part.**
+- **#1225 — perte de données** : sur MySQL/MariaDB, la purge des reçus
+  orphelins efface le fichier chiffré puis échoue sur la clé étrangère ; le
+  reçu reste listé et ne se télécharge plus. La suite SQLite, sans clés
+  étrangères, ne pouvait pas le voir.
+- **#1226** : remplacer un reçu de la pile à trier répond « Reçu introuvable. ».
+- **#1227** : un reçu reconnu dont le classement échoue est abandonné sans
+  trace.
+
+### Lot 7 — `core/Maintenance` — 2026-11-15
+
+**21 → 0** jamais exécutés ; un marqueur. Remesuré sur `tests/Core/Maintenance`
+(PCOV, MariaDB) : il en reste un, `Remote/RemoteCopies.php:63`, que
+`RemoteCopiesControllerTest` (sous `tests/Core/Http`) exécute déjà — zéro sur
+la suite entière.
+
+**20 branches atteintes** par un état réel : secrets illisibles, table
+absente, trigger qui refuse une écriture, `SIGNAL` sur MariaDB, archive ou
+sauvegarde de sécurité abîmée, quota dépassé, lien symbolique refusé. Chaque
+test vérifie l'effet et échoue quand le `catch` relance.
+
+**Le marqueur** : la lecture de `ATTR_SERVER_VERSION` dans `HostHealth`.
+`pdo_mysql` la sert depuis la poignée de main mise en cache, même après que le
+serveur a coupé la connexion (mesuré sur MariaDB 10.11), et `pdo_sqlite` comme
+`pdo_pgsql` la répondent localement. Seul un pilote que l'application n'utilise
+jamais la refuse.
+
+En chemin, `FullResetHandlerTest` et `RestoreBackupHandlerTest` ne laissent
+plus de dossiers temporaires derrière eux.
+
+### Lot 9 — `core/Support` — 2026-11-15
+
+**20 → 0** jamais exécutés ; un marqueur. Remesuré sur `tests/Core/Support`
+(PCOV), après fusion de `main` : #1251 y a ajouté deux `catch` (29 blocs au
+lieu de 27), atteints eux aussi.
+
+**21 branches atteintes** par un état réel : ligne de réglage absente, table
+absente ou amputée d'une colonne, secrets illisibles, archive disparue du
+disque, trigger qui refuse une écriture, serveur de base injoignable, journal
+impossible à écrire ; le transport n'est doublé que là où sa panne est le
+sujet. Chaque test vérifie l'effet et échoue quand le `catch` relance ou
+change ce qu'il fait.
+
+**Le marqueur** : la lecture de version d'une commande dans
+`CommandsCollector`. `run()` et l'échappement autour ne lèvent que sur un octet
+nul, un argument au-delà d'`ARG_MAX` ou un délai sous une seconde ; le délai
+est celui par défaut, l'option une constante, et le chemin un exécutable trouvé
+par `command -v` ou dans une liste fixe.
+
+**Un test retiré à la fusion** : celui qui exigeait qu'un paquet précédent dont
+la fiche ne se relit pas soit oublié quand même. C'est exactement ce que #1251
+a corrigé (les octets restaient sur le disque sans rien pour les retrouver) ;
+son propre test couvre le même `catch` avec le comportement voulu.
+
+### Lot 10 — `modules/registration` — 2026-11-15
+
+**17 → 0** jamais exécutés ; un marqueur. Remesuré sur `tests/Modules/Registration`
+(PCOV), après fusion de `main`.
+
+**16 branches atteintes** par un état réel : ligne de réglage absente, trigger
+qui refuse une écriture, adresse qui ne se déchiffre plus, jeton chiffré sous
+une autre clé, course perdue, transport qui refuse l'envoi. Chaque test vérifie
+l'effet et échoue quand le `catch` relance ou change ce qu'il fait.
+
+**Le marqueur** : la boucle du retrait ou du refus groupé. Rien n'y lève
+l'exception attrapée. `findNonFinalForYear()` ne rend que des demandes en
+attente ou acceptées, qui peuvent toutes deux passer à « refusée » et à
+« retirée ». La raison est vérifiée avant la boucle. Un refus ne prend jamais le
+verrou de place, et la planification d'un e-mail répond `null` plutôt que de
+lever.
+
+**Trouvé en chemin, ouvert à part.**
+- **#1235** : une demande encodée pendant un retrait ou un refus groupé est
+  écrasée, pas sautée. La transition juge le statut lu avant la boucle, et
+  l'`UPDATE` ne pose aucune condition sur le statut courant.
+  `testABulkWithdrawalOverwritesARequestEncodedMeanwhile` fige ce comportement
+  et dit ce qui changera quand il sera corrigé.
+- **#1236** : un souhait d'ami perdu ou une confirmation d'adresse non envoyée
+  ne laissent aucune trace.
+
+`MigrationServiceTest::testFailedMigrationDoesNotPartiallyApply` échouait avant
+d'ouvrir la transaction qu'il disait tester ; il la traverse désormais.
+
+### Lot 8 — `modules/inbound_mail` — 2026-11-15
+
+**21 → 0** jamais exécutés ; un marqueur. Remesuré sur
+`tests/Modules/InboundMail` (PCOV, MariaDB), après fusion de `main` : #1249 y
+a ajouté deux `catch` (42 blocs au lieu de 40), tous deux atteints par ses
+propres tests.
+
+**20 branches atteintes** par un état réel :
+- consommateur qui échoue ;
+- trigger qui refuse une purge, sur SQLite et sur MariaDB ;
+- quota disque déclaré dépassé ;
+- contenu chiffré illisible ;
+- course réelle à deux sessions sur MariaDB ;
+- refus d'un serveur IMAP scripté que la vraie bibliothèque webklex lit (seul
+  le socket est remplacé).
+
+Chaque test vérifie l'effet et échoue quand le `catch` relance ou change ce
+qu'il fait.
+
+**Le marqueur** : le garde de conversion de `ImapMailboxClient::fetchSince()`,
+autour de `toFetchedMessage()`. Avant #1249, un dossier factice faisait arriver
+un message illisible jusqu'à lui. Depuis, le client construit lui-même
+`TolerantMessageQuery`, qui ne consulte plus ce dossier. Aucune entrée réelle
+n'y mène :
+- la bibliothèque analyse chaque message dans `make()`, où l'échec est déjà
+  rattrapé ;
+- `toFetchedMessage()` ne lit que ce qui est déjà analysé ;
+- essayés sur le serveur scripté, un Message-ID, un In-Reply-To ou un
+  References malformé, des en-têtes doublés, un jeu de caractères inconnu et
+  un base64 cassé reviennent tous comme des messages.
+
+Le garde reste, pour une version de la bibliothèque qui lirait paresseusement.
+Le test et ses doublures sont retirés.
+
+### Lot 11 — `modules/camps` — 2026-11-15
+
+**15 → 0** jamais exécutés ; un marqueur. Remesuré sur `tests/Modules/Camps`
+(PCOV), après fusion de `main`.
+
+**14 branches atteintes** par un état réel :
+- adresse ou lien mal formé ;
+- fichier d'un type refusé ;
+- avis demandé avant le retour du camp ;
+- photo que la vraie galerie refuse ;
+- fusion ou archivage refusés ;
+- modèle de langue qui échoue ;
+- aperçu d'image qui n'est pas une image ;
+- trigger qui refuse une écriture.
+
+Chaque test vérifie l'effet et échoue quand le `catch` relance ou change ce
+qu'il fait.
+
+**Le marqueur** : la création d'un séjour depuis un e-mail
+(`StayFromMailService`). Toutes les valeurs passées à `create()` et au service
+des lieux sont des valeurs qu'ils acceptent :
+- des dates déjà vérifiées par `range()` ;
+- un prix et un nombre de participants que le lecteur met en forme selon les
+  règles de `CampService` — depuis #1246, un montant au-delà de
+  `MAX_PRICE_CENTS`, égal à la limite de la colonne, n'est pas lu du tout ;
+- un type de séjour choisi parmi les types connus ;
+- un statut fixe et aucune section ;
+- un lieu nommé seulement depuis une réponse non vide du modèle.
+
+### Lot 12 — `core/Member` — 2026-11-15
+
+**11 → 0** jamais exécutés ; trois marqueurs. Remesuré sur `tests/Core/Member`
+(PCOV), après fusion de `main`. Les deux `catch` de
+`EmailAddressReactivationService` sont exécutés par
+`tests/Modules/MassMail` (`AddressReactivationServiceTest` et son pendant
+MariaDB), ce qui met le domaine à zéro sur la suite entière.
+
+**Branches atteintes** par un état réel : transport qui refuse, note vide ou
+d'un autre membre, course réelle à deux sessions sur MariaDB, nom chiffré
+sous une autre clé, trigger qui refuse une écriture, fichier disparu.
+
+**Les marqueurs** : trois relectures, dans la même requête, d'une fiche lue
+juste au-dessus (`findById()`, `findMostRecentForMember()` ou
+`findByMemberAndYear()`, toutes jointes à `members`). `getMemberProfile()` ne
+lève que si la fiche a disparu entre les deux lectures, ce que seule une
+suppression concurrente produit.
+
+### Lot 13 — `modules/attestations` — 2026-11-15
+
+**11 → 0** jamais exécutés ; aucun marqueur. Remesuré sur
+`tests/Modules/Attestations` (PCOV), après fusion de `main`.
+
+**11 branches atteintes** par un état réel : PDF illisible, page abîmée,
+membre non proposé, trigger qui refuse une publication, une reprise ou un
+dépôt.
+
+### Lot 14 — `modules/data_migration` — 2026-11-15
+
+**11 → 0** jamais exécutés ; aucun marqueur. Remesuré sur
+`tests/Modules/DataMigration` (PCOV), après fusion de `main`.
+
+**11 branches atteintes** par un état réel : fragment hors séquence,
+identifiant de dépôt hors du dossier, ICS mal formé, fuseau inconnu, aperçu
+en panne, archive disparue ou plus grosse que son budget.
+
+Pour les trois lots, chaque test vérifie l'effet et échoue quand le `catch`
+relance ou change ce qu'il fait.
+
+### Lot 15 — `modules/groups` — 2026-11-15
+
+**10 → 0** jamais exécutés ; un marqueur. Remesuré sur `tests/Modules/Groups`
+(PCOV), après fusion de `main`.
+
+**9 branches atteintes** par un état réel : marque de lecture refusée, média
+déjà supprimé, modération qui refuse, limite de cadence, trigger, adresse
+chiffrée sous une autre clé, double appui sur un sondage.
+
+**Le marqueur** : le second `catch` d'une transaction dont le premier prend
+déjà `PDOException`. Tous les appels du `try` sont ceux de PDO, sur la
+connexion en `ERRMODE_EXCEPTION` qu'ouvre `Core\Database\Connection`, la
+seule avec laquelle ce dépôt est construit : leurs échecs sont tous des
+`PDOException`.
+
+### Lot 16 — `modules/news` — 2026-11-15
+
+**9 → 0** jamais exécutés ; aucun marqueur. Remesuré sur `tests/Modules/News`
+(PCOV), après fusion de `main`.
+
+**9 branches atteintes** par un état réel : pas de fournisseur IA, image qui
+n'en est pas une, brouillon refusé par l'envoi groupé, places insuffisantes,
+champ étranger, collision de référence, trigger.
+
+### Lot 17 — `modules/sos_staff` — 2026-11-15
+
+**9 → 0** jamais exécutés ; un marqueur. Remesuré sur `tests/Modules/SosStaff`
+(PCOV), après fusion de `main`.
+
+**8 branches atteintes** par un état réel : heure invalide, étapes OVH
+manquantes ou non approuvées, doublon de garde, alerte qui échoue sur chacun
+de ses canaux.
+
+**Le marqueur** : la lecture des lignes d'un fournisseur simulé
+(`ProviderConfigService`). Le seul simulateur qu'une racine de composition
+fournit est `SimulatedPhoneProvider` de `test_tools`, dont `listLines()` rend
+une ligne constante sans rien toucher qui puisse échouer.
+
+### Lot 18 — `modules/support_dashboard` — 2026-11-15
+
+**9 → 0** jamais exécutés ; aucun marqueur. Remesuré sur
+`tests/Modules/SupportDashboard` (PCOV), après fusion de `main`.
+
+**9 branches atteintes** par un état réel : tables absentes, trigger, archive
+qui n'est pas un zip, classeur illisible.
+
+Pour les quatre lots, chaque test vérifie l'effet et échoue quand le `catch`
+relance ou change ce qu'il fait.
+
+### Lots 19 à 30 — les douze derniers modules — 2026-11-15
+
+Un lot par domaine, remesurés ensemble sur leurs douze dossiers de tests (PCOV),
+après fusion de `main`. **53 → 0** jamais exécutés en tout ; deux marqueurs
+ajoutés.
+
+| Lot | Domaine | Jamais exécutés | Marqueurs |
+|---|---|---|---|
+| 19 | `modules/gallery` | 8 → 0 | 0 |
+| 20 | `modules/social` | 8 → 0 | 0 |
+| 21 | `modules/documents` | 6 → 0 | 0 |
+| 22 | `modules/calendar` | 5 → 0 | 0 |
+| 23 | `modules/llm_connector` | 5 → 0 | 0 |
+| 24 | `modules/mass_mail` | 5 → 0 | 1 |
+| 25 | `modules/official_documents` | 5 → 0 | 2 |
+| 26 | `modules/covoiturage` | 4 → 0 | 0 |
+| 27 | `modules/fees` | 2 → 0 | 0 |
+| 28 | `modules/retro` | 2 → 0 | 0 |
+| 29 | `modules/test_tools` | 2 → 0 | 0 |
+| 30 | `modules/leadership` | 1 → 0 | 0 |
+
+**Branches atteintes** par un état réel : secret chiffré sous une autre clé,
+trigger qui refuse une écriture, table absente, saisie refusée, partage WebDAV
+qui a perdu un fichier ou ignore `Range`, Meta qui refuse, modèle de langue en
+panne, fichier disparu du disque. Chaque test vérifie l'effet et échoue quand
+le `catch` relance ou change ce qu'il fait.
+
+**Les marqueurs** (`modules/official_documents`, deux) : deux relectures, dans
+la même requête, d'une ligne `member_years` que `canAccess()` vient de lire pour
+répondre « identifié ». `getMemberProfile()` relit la même ligne juste après ;
+seule une suppression entre les deux lectures mène au `catch`.
+
+Le marqueur de `modules/mass_mail` (`MassMailController`) vient de `main` et
+n'est pas de ce lot.

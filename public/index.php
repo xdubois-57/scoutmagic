@@ -6762,7 +6762,8 @@ $helpAssistantService = new \Core\Help\Assistant\AssistantService(
     new \Core\Help\Assistant\AssistantCacheRepository($pdo),
     $journalService,
     \Core\Maintenance\VersionFile::read(dirname(__DIR__)),
-    $llmConnectorForOthers
+    $llmConnectorForOthers,
+    $router
 );
 
 // The assistant's two surfaces (the panel's third state and
@@ -10622,6 +10623,27 @@ if ($isEnabled('support_dashboard')) {
     $supportRateLimitRepo = new \Modules\SupportDashboard\Repository\SupportReportRateLimitRepository($pdo);
     $supportMonthlyAggregateRepo = new \Modules\SupportDashboard\Repository\SupportMonthlyAggregateRepository($pdo);
 
+    // The ticket queue (roadmap IT-28). One repository instance for the
+    // list, the detail and the analysis: they read the same table and a
+    // second one would be a second place for the retention constants to
+    // drift.
+    $supportTicketRepo = new \Modules\SupportDashboard\Repository\SupportTicketRepository($pdo, $encryptionService);
+
+    // The limits the three machine routes of the receiver share (issue
+    // #1113): per source address before anything that costs, a cap on the
+    // journal entries a refusal writes, a quota on new registrations and
+    // one on the archives kept. The attention page says when a quota
+    // refused something — in silence it would read like a quiet day.
+    $supportIntakeGuard = new \Modules\SupportDashboard\Service\SupportIntakeGuard(
+        $pdo,
+        $supportRateLimitRepo,
+        $supportInstallationRepo,
+        $supportTicketRepo,
+        $encryptionService
+    );
+    $attentionProviders[] = new \Modules\SupportDashboard\Service\SupportIntakeAttentionProvider($supportIntakeGuard);
+
+
     // The diagnostic mail probes (roadmap IT-27). Built once here: the
     // intake route issues keys with it and the inbound-mail consumer
     // claims arriving messages with the same instance.
@@ -10629,7 +10651,8 @@ if ($isEnabled('support_dashboard')) {
         new \Modules\SupportDashboard\Repository\SupportMailProbeRepository($pdo, $encryptionService),
         $supportInstallationRepo,
         $journalService,
-        $inboundMailForOthers
+        $inboundMailForOthers,
+        $supportIntakeGuard
     );
 
     $frontController->registerController(
@@ -10648,12 +10671,6 @@ if ($isEnabled('support_dashboard')) {
             $supportMailProbeService
         )
     );
-
-    // The ticket queue (roadmap IT-28). One repository instance for the
-    // list, the detail and the analysis: they read the same table and a
-    // second one would be a second place for the retention constants to
-    // drift.
-    $supportTicketRepo = new \Modules\SupportDashboard\Repository\SupportTicketRepository($pdo, $encryptionService);
 
     // One instance for the page that issues the token and the route that
     // checks it: both read the same setting, and there is one hash.
@@ -10762,7 +10779,10 @@ if ($isEnabled('support_dashboard')) {
                     $supportDeskMappingGapRepo,
                     $journalService,
                     $notificationService
-                )
+                ),
+                // The other door to a new installation row, so under the
+                // same quota as a first ticket (issue #1113).
+                $supportIntakeGuard
             )
         )
     );
@@ -10790,6 +10810,7 @@ if ($isEnabled('support_dashboard')) {
                 $supportInstallationRepo,
                 $supportTicketRepo,
                 $journalService,
+                $supportIntakeGuard,
                 // Every superadmin of this receiver is told a ticket
                 // landed — the queue is not a mailbox anybody watches.
                 $notificationService,
@@ -10809,7 +10830,8 @@ if ($isEnabled('support_dashboard')) {
                 $supportInstallationRepo,
                 $supportTicketRepo,
                 $encryptedFileStorageService,
-                $journalService
+                $journalService,
+                $supportIntakeGuard
             ),
             // The mail probes (roadmap IT-27). `$inboundMailForOthers` is
             // null when `inbound_mail` is disabled, and the route then

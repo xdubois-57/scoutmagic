@@ -60,4 +60,17 @@ interface IncomingMailboxClientInterface
      * @return FetchedMessage[]
      */
     public function fetchSince(string $folder, int $sinceUid, int $limit): array;
+
+    /**
+     * The highest UID the last `fetchSince()` read and could not hand
+     * back — a message it skipped as unreadable — or 0 when it skipped
+     * none.
+     *
+     * The caller moves its cursor past it too. A skipped message is not
+     * in what `fetchSince()` returns, so a cursor moved only past those
+     * would stop below it, and a run of them at the top of a folder would
+     * be fetched again on every pass; a whole batch of them would stop the
+     * box for good.
+     */
+    public function lastSkippedUid(): int;
 }

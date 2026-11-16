@@ -19,6 +19,7 @@ use Core\Security\UserAccountRepository;
 use Modules\SupportDashboard\Repository\SupportInstallationRepository;
 use Modules\SupportDashboard\Repository\SupportTicketRepository;
 use Modules\SupportDashboard\Service\StatisticsIntakeService;
+use Modules\SupportDashboard\Service\SupportIntakeGuard;
 use Modules\SupportDashboard\Service\TicketIntakeResult;
 use Modules\SupportDashboard\Service\TicketIntakeService;
 use Modules\SupportDashboard\TicketCategory;
@@ -80,6 +81,7 @@ class TicketIntakeServiceTest extends TestCase
             $installations,
             $this->tickets,
             new JournalService(new JournalRepository($this->pdo)),
+            SupportDashboardTestHelper::intakeGuard($this->pdo, $this->encryption),
             $notificationService
         );
 
@@ -418,7 +420,8 @@ class TicketIntakeServiceTest extends TestCase
         $service = new TicketIntakeService(
             new SupportInstallationRepository($this->pdo),
             $this->tickets,
-            new JournalService(new JournalRepository($this->pdo))
+            new JournalService(new JournalRepository($this->pdo)),
+            SupportDashboardTestHelper::intakeGuard($this->pdo, $this->encryption)
         );
 
         $result = $service->receive($this->body(), 'Bearer ' . self::SECRET, '203.0.113.1', true);
@@ -427,7 +430,228 @@ class TicketIntakeServiceTest extends TestCase
         $this->assertSame(1, $this->countTickets());
     }
 
+    /**
+     * A notification that cannot be stored costs the ticket nothing, but
+     * leaves a trace: a warning naming the ticket's reference, beside the
+     * entry that says the ticket was received.
+     */
+    public function testANotificationThatCannotBeStoredIsJournaledAndTheTicketStillLands(): void
+    {
+        $this->seedUserAccount();
+        $this->pdo->exec('DROP TABLE notifications');
+
+        $result = $this->receive();
+
+        $this->assertTrue($result->accepted);
+        $this->assertSame(1, $this->countTickets());
+        $reference = (string) $this->pdo->query('SELECT reference FROM support_tickets')->fetchColumn();
+        $failures = array_values(array_filter(
+            $this->journalRows(),
+            static fn(array $row): bool => $row['type'] === 'support_ticket_notification_failed'
+        ));
+        $this->assertCount(1, $failures);
+        $this->assertSame('warning', $failures[0]['level']);
+        $context = json_decode((string) $failures[0]['context'], true);
+        $this->assertSame($reference, $context['ticket_reference']);
+        $this->assertStringContainsString('notifications', (string) $context['reason']);
+    }
+
     // ── Fixtures ────────────────────────────────────────────────────────
+
+    // ── Limits an anonymous script cannot reset (issue #1113) ────────────
+
+    /**
+     * The ticket's first acceptance criterion: past the per-address limit,
+     * a ticket under a NEW id is refused before its id is even looked up —
+     * so before any password_hash() and any row. A script inventing an id
+     * per call used to start every time with a fresh per-installation
+     * quota; the address is the one thing it cannot change for free.
+     */
+    public function testPastTheAddressLimitANewIdIsNeitherLookedUpNorHashedNorRegistered(): void
+    {
+        $spy = new RecordingInstallationRepository($this->pdo);
+        $service = $this->serviceOver($spy);
+        $this->spendAddress('203.0.113.1');
+
+        $result = $service->receive(
+            $this->body(['installation_id' => 'script-0000000001']),
+            'Bearer ' . self::SECRET,
+            '203.0.113.1',
+            true
+        );
+
+        $this->assertSame(TicketIntakeResult::REJECT_RATE_LIMITED, $result->rejectionReason);
+        $this->assertSame(200, $result->statusCode);
+        $this->assertSame([], $spy->calls, 'nothing may be looked up, hashed or registered once the address is spent');
+        $this->assertSame(1, $this->countInstallations());
+        $this->assertSame(0, $this->countTickets());
+    }
+
+    /** The limit is the address's, not the receiver's: another one is served. */
+    public function testAnotherAddressIsStillServed(): void
+    {
+        $this->spendAddress('203.0.113.1');
+
+        $result = $this->service->receive($this->body(), 'Bearer ' . self::SECRET, '198.51.100.7', true);
+
+        $this->assertTrue($result->accepted);
+    }
+
+    /**
+     * Below the limit every call counts, a known installation's included:
+     * the limit has to be reached by calling, not by being told.
+     */
+    public function testEveryCallCountsAgainstTheAddress(): void
+    {
+        for ($i = 0; $i < SupportIntakeGuard::REQUESTS_PER_ADDRESS; $i++) {
+            $this->service->receive($this->body(['category' => 'nope']), 'Bearer ' . self::SECRET, '203.0.113.1', true);
+        }
+
+        $result = $this->receive();
+
+        $this->assertSame(TicketIntakeResult::REJECT_RATE_LIMITED, $result->rejectionReason);
+    }
+
+    /**
+     * The global quota, every address together: a flood spread over many
+     * addresses still mints no more than the hour's quota of rows. Past it
+     * the new id is refused before its secret is hashed, and the attention
+     * page is told.
+     */
+    public function testPastTheHourlyQuotaNoNewInstallationIsRegistered(): void
+    {
+        $this->seedInstallationsFirstSeen(SupportIntakeGuard::NEW_INSTALLATIONS_PER_HOUR - 1, '-10 minutes');
+        $spy = new RecordingInstallationRepository($this->pdo);
+        $service = $this->serviceOver($spy);
+
+        $result = $service->receive(
+            $this->body(['installation_id' => 'nouvelle-0000000001']),
+            'Bearer ' . self::SECRET,
+            '198.51.100.20',
+            true
+        );
+
+        $this->assertSame(TicketIntakeResult::REJECT_RATE_LIMITED, $result->rejectionReason);
+        $this->assertNotContains('register', $spy->calls, 'no row once the quota is reached');
+        $this->assertNull($spy->findByInstallationId('nouvelle-0000000001'));
+        $this->assertSame(1, $this->guard()->quotaRefusalsSince(SupportIntakeGuard::QUOTA_NEW_INSTALLATIONS, 60));
+    }
+
+    /** The day's quota bounds a slow flood the hour's would let through. */
+    public function testPastTheDailyQuotaNoNewInstallationIsRegistered(): void
+    {
+        $this->seedInstallationsFirstSeen(SupportIntakeGuard::NEW_INSTALLATIONS_PER_DAY - 1, '-5 hours');
+
+        $result = $this->service->receive(
+            $this->body(['installation_id' => 'nouvelle-0000000002']),
+            'Bearer ' . self::SECRET,
+            '198.51.100.21',
+            true
+        );
+
+        $this->assertSame(TicketIntakeResult::REJECT_RATE_LIMITED, $result->rejectionReason);
+        $this->assertNull((new SupportInstallationRepository($this->pdo))->findByInstallationId('nouvelle-0000000002'));
+    }
+
+    /** Below both quotas a new id is registered as before. */
+    public function testBelowTheQuotasANewInstallationIsStillRegistered(): void
+    {
+        $this->seedInstallationsFirstSeen(SupportIntakeGuard::NEW_INSTALLATIONS_PER_HOUR - 2, '-10 minutes');
+        $this->seedInstallationsFirstSeen(5, '-2 days');
+
+        $result = $this->service->receive(
+            $this->body(['installation_id' => 'nouvelle-0000000003']),
+            'Bearer ' . self::SECRET,
+            '198.51.100.22',
+            true
+        );
+
+        $this->assertTrue($result->accepted);
+        $this->assertSame(0, $this->guard()->quotaRefusalsSince(SupportIntakeGuard::QUOTA_NEW_INSTALLATIONS, 60));
+    }
+
+    /** « Les installations déjà connues continuent de fonctionner. » */
+    public function testAKnownInstallationIsServedWhateverTheRegistrationQuota(): void
+    {
+        $this->seedInstallationsFirstSeen(SupportIntakeGuard::NEW_INSTALLATIONS_PER_DAY, '-10 minutes');
+
+        $this->assertTrue($this->receive()->accepted);
+    }
+
+    /**
+     * A row a first ticket registered is not established: holding the
+     * secret it chose a moment ago proves nothing, so the mail probes stay
+     * closed to it (MailProbeServiceTest covers the refusal itself).
+     */
+    public function testAFirstTicketRegistersAnInstallationThatIsNotEstablished(): void
+    {
+        $this->receive(['installation_id' => 'nouvelle-0000000004']);
+
+        $row = (new SupportInstallationRepository($this->pdo))->findByInstallationId('nouvelle-0000000004');
+        $this->assertNotNull($row);
+        $this->assertFalse((bool) $row['established']);
+    }
+
+    /**
+     * Refusals are journaled up to the cap per address — the triage
+     * route's rule — and refused past it all the same. An entry per
+     * refused request is what a flood would bury a real incident under.
+     */
+    public function testTheRefusalsOfOneAddressAreJournaledUpToTheCap(): void
+    {
+        for ($i = 0; $i < SupportIntakeGuard::REFUSAL_JOURNAL_LIMIT + 5; $i++) {
+            $result = $this->receive(secret: 'pas-le-bon-secret');
+            $this->assertSame(403, $result->statusCode);
+        }
+
+        $this->assertCount(SupportIntakeGuard::REFUSAL_JOURNAL_LIMIT, $this->journalRows());
+
+        // Another address still has its own entries.
+        $this->service->receive($this->body(), 'Bearer pas-le-bon-secret', '198.51.100.30', true);
+        $this->assertCount(SupportIntakeGuard::REFUSAL_JOURNAL_LIMIT + 1, $this->journalRows());
+    }
+
+    private function guard(): SupportIntakeGuard
+    {
+        return SupportDashboardTestHelper::intakeGuard($this->pdo, $this->encryption);
+    }
+
+    private function serviceOver(SupportInstallationRepository $installations): TicketIntakeService
+    {
+        return new TicketIntakeService(
+            $installations,
+            $this->tickets,
+            new JournalService(new JournalRepository($this->pdo)),
+            $this->guard()
+        );
+    }
+
+    /** Spend the address's window, the way the requests themselves would. */
+    private function spendAddress(string $clientIp): void
+    {
+        $guard = $this->guard();
+        for ($i = 0; $i < SupportIntakeGuard::REQUESTS_PER_ADDRESS; $i++) {
+            $this->assertTrue($guard->admitRequest($clientIp));
+        }
+    }
+
+    private function seedInstallationsFirstSeen(int $count, string $ago): void
+    {
+        $at = (new \DateTimeImmutable($ago))->format('Y-m-d H:i:s');
+        $stmt = $this->pdo->prepare(
+            "INSERT INTO support_installations (installation_id, secret_hash, first_seen_at, last_received_at)
+             VALUES (?, 'x', ?, ?)"
+        );
+        static $sequence = 0;
+        for ($i = 0; $i < $count; $i++) {
+            $stmt->execute(['seed-' . str_pad((string) ++$sequence, 12, '0', STR_PAD_LEFT), $at, $at]);
+        }
+    }
+
+    private function countInstallations(): int
+    {
+        return (int) $this->pdo->query('SELECT COUNT(*) FROM support_installations')->fetchColumn();
+    }
 
     private function seedUserAccount(): int
     {
@@ -508,6 +732,44 @@ class TicketIntakeServiceTest extends TestCase
         return array_map(
             static fn(array $row): array => [(string) $row['type'], (string) $row['level']],
             $this->journalRows()
+        );
+    }
+}
+
+/**
+ * Records which of its methods the intake reached, so a test can say that
+ * nothing was looked up, hashed or registered — register() is the only
+ * place a new id's secret is handed to password_hash().
+ */
+final class RecordingInstallationRepository extends SupportInstallationRepository
+{
+    /** @var list<string> */
+    public array $calls = [];
+
+    public function findByInstallationId(string $installationId): ?array
+    {
+        $this->calls[] = 'findByInstallationId';
+
+        return parent::findByInstallationId($installationId);
+    }
+
+    public function register(
+        string $installationId,
+        string $secretHash,
+        string $rawPayload,
+        array $denormalized,
+        bool $telemetryEnabled = true,
+        bool $established = true
+    ): int {
+        $this->calls[] = 'register';
+
+        return parent::register(
+            $installationId,
+            $secretHash,
+            $rawPayload,
+            $denormalized,
+            $telemetryEnabled,
+            $established
         );
     }
 }

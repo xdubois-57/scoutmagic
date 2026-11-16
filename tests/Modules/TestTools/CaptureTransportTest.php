@@ -632,6 +632,40 @@ class CaptureTransportTest extends TestCase
     }
 
     /**
+     * The database gone altogether after the message left: neither the
+     * filing nor the journal entry about it can be written, and still the
+     * send does not fail — the link is in the visitor's inbox.
+     */
+    public function testADeliveryNeitherFiledNorJournalledStillDoesNotFailTheSend(): void
+    {
+        $passThrough = new class implements MailTransportInterface {
+            /** @var list<string> */
+            public array $recipients = [];
+
+            public function deliver(PHPMailer $mail, MailPurpose $purpose): void
+            {
+                foreach ($mail->getToAddresses() as $address) {
+                    $this->recipients[] = (string) $address[0];
+                }
+                $mail->preSend();
+            }
+        };
+        $this->pdo->exec('DROP TABLE captured_email_attachments');
+        $this->pdo->exec('DROP TABLE captured_emails');
+        $this->pdo->exec('DROP TABLE event_log');
+
+        $this->service(transport: $this->exemptingTransport($passThrough))->send(
+            to: 'destinataire@example.be',
+            subject: 'Votre lien de connexion',
+            bodyHtml: '<p>Connectez-vous</p>',
+            bodyText: 'Connectez-vous',
+            purpose: MailPurpose::MagicLink
+        );
+
+        $this->assertSame(['destinataire@example.be'], $passThrough->recipients);
+    }
+
+    /**
      * The registration e-mails go out with the unit's address in copy
      * (issue #911): the sandbox has to show it, or the only way to check
      * that the copy leaves is to open every raw message.

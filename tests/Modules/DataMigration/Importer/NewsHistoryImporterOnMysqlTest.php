@@ -29,6 +29,7 @@ use Modules\DataMigration\Service\ImportEngine;
 use Modules\DataMigration\Service\MissingScoutYears;
 use Modules\DataMigration\Service\RunService;
 use Modules\DataMigration\Service\UploadStorage;
+use Modules\News\Api\NewsImportWriterInterface;
 use Modules\News\Repository\Article;
 use Modules\News\Repository\ArticleRepository;
 use Modules\News\Repository\FormFieldRepository;
@@ -261,6 +262,49 @@ final class NewsHistoryImporterOnMysqlTest extends TestCase
                 . 'ou trop grande (plus de 50 mégapixels). Son actualité est importée sans elle.',
             $notes
         );
+        $run = $this->drive($this->service->confirm($run, []) ?? $this->fail('Not confirmed.'));
+
+        $this->assertSame(Run::DONE, $run->state);
+        $this->assertSame(0, $run->report['errors']);
+        $souper = $this->pdo->query("SELECT * FROM news_articles WHERE title = 'Souper aux spaghettis 2023'")
+            ->fetch(\PDO::FETCH_ASSOC);
+        $this->assertIsArray($souper, 'The article itself is imported.');
+        $this->assertNull($souper['image_file_id']);
+    }
+
+    /**
+     * The inventory may leave an image's size out. One heavier than 5 MB is
+     * then found heavy only while it is read: the reader's refusal leaves
+     * the image out, and its article is still imported, with no error.
+     */
+    public function testAnImageFoundHeavyOnlyWhileReadLeavesItsArticleWithoutIt(): void
+    {
+        $tree = sys_get_temp_dir() . '/dm_news_tree_' . bin2hex(random_bytes(6));
+        $this->copyTree(self::FIXTURES . '/exemple', $tree);
+        $png = "\x89PNG\r\n\x1a\n" . pack('N', 13) . 'IHDR' . pack('NN', 10, 10) . "\x08\x02\x00\x00\x00"
+            . pack('N', 0) . str_repeat("\x00", NewsImportWriterInterface::MAX_IMAGE_BYTES);
+        $sha = hash('sha256', $png);
+        file_put_contents($tree . '/media/' . $sha . '.png', $png);
+        $article = json_decode((string) file_get_contents($tree . '/articles/a-1187.json'), true);
+        $article['image'] = 'media/' . $sha . '.png';
+        file_put_contents(
+            $tree . '/articles/a-1187.json',
+            json_encode($article, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
+        );
+        $manifest = json_decode((string) file_get_contents($tree . '/manifest.json'), true);
+        foreach ($manifest['files'] as &$file) {
+            $file['sha256'] = hash_file('sha256', $tree . '/' . $file['path']);
+            $file['size'] = filesize($tree . '/' . $file['path']);
+        }
+        unset($file);
+        // Listed with its digest and without a size.
+        $manifest['files'][] = ['path' => 'media/' . $sha . '.png', 'sha256' => $sha];
+        file_put_contents(
+            $tree . '/manifest.json',
+            json_encode($manifest, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
+        );
+
+        $run = $this->analysed($this->zipOf($tree));
         $run = $this->drive($this->service->confirm($run, []) ?? $this->fail('Not confirmed.'));
 
         $this->assertSame(Run::DONE, $run->state);

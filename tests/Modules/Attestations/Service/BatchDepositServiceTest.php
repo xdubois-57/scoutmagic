@@ -318,6 +318,33 @@ class BatchDepositServiceTest extends TestCase
         $this->assertSame([], glob($this->storageRoot . '/attestations/documents/*') ?: []);
     }
 
+    /**
+     * The cleanup after a failed write is itself refused for one
+     * certificate: that refusal must not replace the failure the caller is
+     * owed, and the other certificates are still taken away.
+     */
+    public function testACertificateThatCannotBeDiscardedDoesNotMaskTheFailureOrStopTheCleanup(): void
+    {
+        $this->pdo->exec('DROP TABLE attestation_batch_lines');
+        $this->pdo->exec(
+            "CREATE TRIGGER keep_first_file BEFORE DELETE ON files
+             WHEN OLD.id = (SELECT MIN(id) FROM files)
+             BEGIN SELECT RAISE(ABORT, 'suppression refusée'); END"
+        );
+
+        try {
+            $this->deposit();
+            $this->fail('The deposit must fail once its lines cannot be written.');
+        } catch (\PDOException $e) {
+            $this->assertStringContainsString('attestation_batch_lines', $e->getMessage());
+            $this->assertStringNotContainsString('suppression refusée', $e->getMessage());
+        }
+
+        $this->assertSame([], $this->batches->findRecent());
+        $this->assertSame(1, (int) $this->pdo->query('SELECT COUNT(*) FROM files')->fetchColumn());
+        $this->assertSame([], glob($this->storageRoot . '/attestations/documents/*') ?: []);
+    }
+
     /** Counters, never names: the journal must not become a copy of the roster. */
     public function testTheJournalEntryCarriesCountsAndNoName(): void
     {

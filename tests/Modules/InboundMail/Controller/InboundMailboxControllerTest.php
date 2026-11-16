@@ -505,6 +505,70 @@ class InboundMailboxControllerTest extends TestCase
         $this->assertSame([], json_decode($response->getBody(), true)['targets']);
     }
 
+    // ── A module whose directory fails ───────────────────────────────────
+
+    /**
+     * The module cannot search its own objects. The field must not take
+     * the page down with it: the search answers, successfully, that it has
+     * nothing to offer.
+     */
+    public function testATargetSearchWhoseModuleFailsAnswersWithNoTargets(): void
+    {
+        $controller = $this->controllerWith(new FakeDirectoryConsumer('camps', ['camp-1' => 'Ferme'], broken: true));
+
+        $response = $controller->searchTargets(
+            new Request('GET', '/courrier/cibles', ['module' => 'camps', 'q' => 'ferme'], [], [], []),
+            []
+        );
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame(['success' => true, 'targets' => []], json_decode($response->getBody(), true));
+    }
+
+    /**
+     * Filing under a target whose module cannot confirm it exists is
+     * refused, and refused the way an unknown target is: the module's own
+     * search IS the check, and an unanswered check is not a yes.
+     */
+    public function testFilingUnderATargetWhoseModuleCannotConfirmItIsRefused(): void
+    {
+        $camps = new FakeDirectoryConsumer('camps', ['camp-1' => 'Ferme'], broken: true);
+        $controller = $this->controllerWith($camps);
+        $id = $this->store('m@x');
+
+        $response = $this->post('attach', $id, [
+            'consumer_id' => 'camps',
+            'business_reference' => 'camp-1',
+        ], $controller);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('/courrier/' . $id, $response->getHeaders()['Location'] ?? null);
+        $this->assertSame(
+            ['type' => 'error', 'message' => 'Choisissez une cible parmi celles proposées.'],
+            \Core\Http\FlashMessage::get()
+        );
+        $this->assertSame([], $this->messages->findLinksForMessage($id));
+        $this->assertSame([], $camps->linked, 'the module is told nothing');
+    }
+
+    /**
+     * The message page lists an association whose module cannot say where
+     * its object lives. The page still renders, names the reference, and
+     * offers no link rather than a broken one.
+     */
+    public function testAnAssociationWhoseModuleCannotLinkItIsShownWithoutALink(): void
+    {
+        $controller = $this->controllerWith(new FakeDirectoryConsumer('camps', ['camp-1' => 'Ferme'], broken: true));
+        $id = $this->store('m@x');
+        $this->messages->addLink($id, 'camps', 'camp-1', LinkOrigin::REFERENCE);
+
+        $response = $controller->show(new Request('GET', '/courrier/' . $id, [], [], [], []), ['id' => (string) $id]);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertStringContainsString('camp-1', $response->getBody());
+        $this->assertStringNotContainsString('/objets/camp-1', $response->getBody());
+    }
+
     // ── « Avec proposition à confirmer » ────────────────────────────────
 
     public function testTheProposedFilterShowsOnlyWhatAwaitsADecision(): void

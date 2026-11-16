@@ -68,4 +68,16 @@ class CalendarUnitFeedTokenRepositoryTest extends TestCase
         $this->assertTrue($this->repository->tokenExists($token));
         $this->assertSame($token, $this->repository->findToken());
     }
+
+    public function testATokenWhoseStoredCopyNoLongerDecryptsDoesNotExist(): void
+    {
+        // Same blind index, ciphertext sealed under another key: the exact
+        // match cannot be verified, so the unit feed refuses the token.
+        $this->repository->setToken('tok-1');
+        $other = new \Core\Security\EncryptionService(str_repeat('c', 32), str_repeat('b', 32));
+        $stmt = $this->pdo->prepare('UPDATE calendar_unit_feed_token SET token_encrypted = ?');
+        $stmt->execute([$other->encrypt('tok-1', 'calendar_unit_feed_token.token')]);
+
+        $this->assertFalse($this->repository->tokenExists('tok-1'));
+    }
 }

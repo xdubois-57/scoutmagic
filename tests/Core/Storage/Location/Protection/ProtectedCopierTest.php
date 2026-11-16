@@ -408,6 +408,116 @@ final class ProtectedCopierTest extends TestCase
         $this->assertSame('short', $this->destination->get('12/med_88.jpg'));
     }
 
+    /**
+     * A destination that refuses the slices is a failed copy, named in
+     * the journal's terms, never an exception out of the pass: here a file
+     * stands where the album's folder must go.
+     */
+    public function testADestinationThatRefusesTheSlicesFailsTheCopyRatherThanThrowing(): void
+    {
+        $this->source->put('12/med_88.jpg', 'fake-jpeg-bytes', 'image/jpeg');
+        file_put_contents($this->root . '/destination/12', 'not a folder');
+
+        $outcome = $this->copier->copy(
+            $this->source,
+            $this->destination,
+            '12/med_88.jpg',
+            strlen('fake-jpeg-bytes'),
+            'image/jpeg',
+            $this->always()
+        );
+
+        $this->assertSame(CopyOutcome::FAILED, $outcome->status);
+        $this->assertSame('Storage directory could not be created for: 12/med_88.jpg', $outcome->reason);
+        $this->assertSame('not a folder', file_get_contents($this->root . '/destination/12'));
+        $this->assertSame('fake-jpeg-bytes', $this->source->get('12/med_88.jpg'), 'the source was touched');
+    }
+
+    /**
+     * The inventory is older than the source: a file deleted since it was
+     * listed fails its copy, and nothing is written under its key.
+     */
+    public function testASourceFileGoneSinceTheListingFailsAWholeCopyAndWritesNothing(): void
+    {
+        $appendless = $this->appendlessDestination();
+
+        $outcome = $this->copier->copy(
+            $this->source,
+            $appendless,
+            '12/med_88.jpg',
+            15,
+            'image/jpeg',
+            $this->always()
+        );
+
+        $this->assertSame(CopyOutcome::FAILED, $outcome->status);
+        $this->assertSame('Stored file not found: 12/med_88.jpg', $outcome->reason);
+        $this->assertFalse($appendless->exists('12/med_88.jpg'));
+    }
+
+    /**
+     * A destination that cannot be asked for its checksum right after
+     * accepting the file has announced nothing comparable: the copy rests
+     * on its size, as it does for a destination that never announces one.
+     */
+    public function testADestinationThatCannotAnnounceItsChecksumIsVerifiedOnSize(): void
+    {
+        $this->source->put('12/med_88.jpg', 'fake-jpeg-bytes', 'image/jpeg');
+        $silent = new class ($this->root . '/silent') extends LocalStorageBackend {
+            public function announcedChecksum(string $key): ?string
+            {
+                throw new \RuntimeException('Google Drive a refusé la requête.');
+            }
+        };
+
+        $outcome = $this->copier->copy(
+            $this->source,
+            $silent,
+            '12/med_88.jpg',
+            strlen('fake-jpeg-bytes'),
+            'image/jpeg',
+            $this->always()
+        );
+
+        $this->assertTrue($outcome->isCompleted());
+        $this->assertSame(md5('fake-jpeg-bytes'), $outcome->md5);
+        $this->assertSame('fake-jpeg-bytes', $silent->get('12/med_88.jpg'), 'the verified copy was removed');
+    }
+
+    /**
+     * A disagreement is the failure to report even when the wrong copy
+     * cannot then be removed: the next pass copies the file again, and the
+     * removal's own refusal must not replace the reason.
+     */
+    public function testADisagreementWhoseCopyCannotBeRemovedStillFailsWithItsOwnReason(): void
+    {
+        $this->source->put('12/med_88.jpg', 'fake-jpeg-bytes', 'image/jpeg');
+        $stuck = new class ($this->root . '/stuck') extends LocalStorageBackend {
+            public function announcedChecksum(string $key): ?string
+            {
+                return str_repeat('b', 32);
+            }
+
+            public function delete(string $key): void
+            {
+                throw new \RuntimeException("Stored file could not be removed: {$key}");
+            }
+        };
+
+        $outcome = $this->copier->copy(
+            $this->source,
+            $stuck,
+            '12/med_88.jpg',
+            strlen('fake-jpeg-bytes'),
+            'image/jpeg',
+            $this->always()
+        );
+
+        $this->assertSame(CopyOutcome::FAILED, $outcome->status);
+        $this->assertSame('L\'empreinte de la copie ne correspond pas à la source.', $outcome->reason);
+        $this->assertTrue($stuck->exists('12/med_88.jpg'));
+    }
+
     // ————— Stand-ins —————
 
     /**

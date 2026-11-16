@@ -41,6 +41,9 @@ use Twig\Environment;
 #[\PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations]
 final class HealthSheetControllerTest extends TestCase
 {
+    /** What a parent reads when the site has lost its official form. */
+    private const FORM_MISSING = 'Le formulaire officiel est introuvable sur ce site. Prévenez votre chef d\'unité.';
+
     private Environment&\PHPUnit\Framework\MockObject\Stub $twig;
     private MemberService&\PHPUnit\Framework\MockObject\MockObject $memberService;
     private HealthSheetRepository&\PHPUnit\Framework\MockObject\MockObject $repository;
@@ -460,6 +463,80 @@ final class HealthSheetControllerTest extends TestCase
             $context['overflowing'],
             'the page must name the box to shorten in the words the parent has in front of them'
         );
+    }
+
+    /**
+     * A site whose official form went missing: the screen still opens, and
+     * says why no document can be drawn, in the sentence written for a
+     * parent.
+     */
+    public function testTheScreenSaysSoWhenTheOfficialFormIsMissing(): void
+    {
+        $this->signIn();
+        $this->memberService->method('canAccess')->willReturn(true);
+        $this->memberService->method('getMemberProfile')->willReturn(self::profile());
+        $this->repository->method('findForMember')->willReturn(HealthSheet::empty());
+        [$controller, $context] = $this->controllerWithoutTheForm();
+
+        $response = $controller->show(new Request('GET', '/members/7/fiche-sante', [], [], [], []), ['id' => '7']);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame(self::FORM_MISSING, $context->given['document_error'] ?? null);
+        $this->assertSame([], $context->given['overflowing'] ?? null);
+    }
+
+    /**
+     * And the download comes back to that screen with the same sentence:
+     * no document, and no retention clock restarted for a print that never
+     * happened.
+     */
+    public function testADownloadWithoutTheOfficialFormComesBackToTheScreen(): void
+    {
+        $token = $this->signIn();
+        $this->memberService->method('canAccess')->willReturn(true);
+        $this->memberService->method('getMemberProfile')->willReturn(self::profile());
+        $this->repository->method('findForMember')->willReturn(HealthSheet::empty());
+        $this->repository->expects($this->never())->method('touch');
+        [$controller, $context] = $this->controllerWithoutTheForm();
+
+        $response = $controller->download(
+            new Request('POST', '/members/7/fiche-sante/pdf', [], ['_csrf_token' => $token], [], []),
+            ['id' => '7']
+        );
+
+        $this->assertNotSame('application/pdf', $response->getHeaders()['Content-Type'] ?? null);
+        $this->assertStringNotContainsString('%PDF-', $response->getBody());
+        $this->assertSame(self::FORM_MISSING, $context->given['document_error'] ?? null);
+    }
+
+    /**
+     * The real renderer over a template directory that holds nothing, and
+     * a view that records what the screen was handed.
+     *
+     * @return array{HealthSheetController, \stdClass}
+     */
+    private function controllerWithoutTheForm(): array
+    {
+        $context = new \stdClass();
+        $context->given = null;
+        $twig = $this->createStub(Environment::class);
+        $twig->method('render')->willReturnCallback(
+            static function (string $template, array $given) use ($context): string {
+                $context->given = $given;
+
+                return '<html></html>';
+            }
+        );
+
+        return [
+            new HealthSheetController(
+                $twig,
+                new OwnMemberOnly($this->memberService),
+                new HealthSheetService($this->repository),
+                new HealthSheetPdfService(new TemplateLibrary('/nowhere/at/all'))
+            ),
+            $context,
+        ];
     }
 
     /**

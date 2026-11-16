@@ -185,6 +185,65 @@ final class DataMigrationControllerTest extends TestCase
     }
 
     /**
+     * A fragment that does not start where the stored file ends — a resume
+     * from the wrong place — is refused with the store's own sentence, and
+     * the answer says how much was really received so the page resumes
+     * from there.
+     */
+    public function testAFragmentOutOfSequenceIsRefusedWithWhatWasReallyReceived(): void
+    {
+        AuthSession::login(1, 'superadmin@test.be', 'superadmin');
+        $chunk = sys_get_temp_dir() . '/dm_ctrl_chunk_' . bin2hex(random_bytes(6));
+        file_put_contents($chunk, str_repeat('z', 64));
+        $_FILES['file'] = [
+            'name' => 'chunk',
+            'type' => 'application/octet-stream',
+            'tmp_name' => $chunk,
+            'error' => UPLOAD_ERR_OK,
+            'size' => 64,
+        ];
+
+        try {
+            $response = $this->handle('POST', '/config/migration-donnees/essai/depot', [
+                '_csrf_token' => CsrfGuard::generateToken(),
+                'upload_id' => bin2hex(random_bytes(16)),
+                'chunk_offset' => '128',
+                'last' => '0',
+                'file_name' => 'export.zip',
+            ]);
+        } finally {
+            $_FILES = [];
+            @unlink($chunk);
+        }
+
+        $this->assertSame(409, $response->getStatusCode());
+        $this->assertSame(
+            ['success' => false, 'error' => 'Fragment hors séquence (reçu : 0 octets).', 'received' => 0],
+            json_decode((string) $response->getBody(), true)
+        );
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM data_migration_runs')->fetchColumn());
+    }
+
+    /**
+     * The page asks how much of an upload already arrived before resuming
+     * it. An id the store would never have issued is not an error to show:
+     * nothing arrived under it.
+     */
+    public function testAProbeUnderAMalformedUploadIdHasReceivedNothing(): void
+    {
+        AuthSession::login(1, 'superadmin@test.be', 'superadmin');
+
+        $response = $this->handle('POST', '/config/migration-donnees/essai/depot', [
+            '_csrf_token' => CsrfGuard::generateToken(),
+            'upload_id' => '../../etc',
+            'probe' => '1',
+        ]);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame(['success' => true, 'received' => 0], json_decode((string) $response->getBody(), true));
+    }
+
+    /**
      * The six steps of the shared page, driven the way the browser does:
      * a deposit, slices, the confirmation with a year ticked, slices, the
      * report.

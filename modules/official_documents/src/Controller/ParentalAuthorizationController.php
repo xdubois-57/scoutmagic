@@ -209,6 +209,9 @@ class ParentalAuthorizationController extends AbstractController
         try {
             return $this->memberService->getMemberProfile($memberYearId);
         } catch (MemberNotFoundException) {
+            // @catch-unreachable canAccess() as 'identified', just above, answers true only after reading
+            // this member_years row; getMemberProfile() reads the same row next, in this request, so
+            // only a delete landing between the two reads ends here.
             return null;
         }
     }

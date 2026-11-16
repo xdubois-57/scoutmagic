@@ -618,6 +618,27 @@ class SystemCollectorsTest extends TestCase
         $this->assertNotSame([], $result['notes']);
     }
 
+    /**
+     * The scheduler's table cannot be read — an installation collected
+     * mid-migration. The latency section says it could not be measured
+     * and why, and the rest of the file is still there.
+     */
+    public function testAnUnreadableSchedulerTableLeavesTheLatencyUnmeasuredAndNotEmpty(): void
+    {
+        $this->registerCronSettings();
+        $this->pdo->exec('DROP TABLE scheduled_actions');
+
+        $report = $this->runCollector(new CronCadenceCollector())['entries']['cron-cadence.txt'];
+
+        $this->assertStringContainsString('VRAI CRON : jamais détecté.', $report);
+        $this->assertMatchesRegularExpression(
+            "/## Latence d'ordonnancement[^\n]*\n(?:#[^\n]*\n)*\n"
+                . "non mesurable : [^\n]*no such table: scheduled_actions/u",
+            $report
+        );
+        $this->assertStringNotContainsString('Aucune tâche exécutée dans la fenêtre.', $report);
+    }
+
     // --- webserver/ ---
 
     public function testEveryHtaccessInTheInstallIsCopied(): void

@@ -301,6 +301,55 @@ class RetentionAndQuotaTest extends TestCase
         $this->assertSame(2, $alerts);
     }
 
+    /**
+     * The superadmin cannot be told — the mail transport refuses. The
+     * synchronisation that hit the ceiling must not fail for it, the
+     * journal still records that the ceiling was reached (the durable half
+     * of telling somebody), and the « already told today » stamp is NOT
+     * written: a notice that never left is retried on the next event
+     * rather than silenced for a day.
+     */
+    public function testAnAlertThatCannotBeSentIsRetriedRatherThanCountedAsSent(): void
+    {
+        $this->storeMessage('old@example.be', '-1 day');
+        $attempts = 0;
+        $settings = $this->settingsWith([
+            ['inbound_mail', StorageQuotaService::SETTING_QUOTA_MB, '1'],
+            ['inbound_mail', StorageQuotaService::SETTING_LAST_ALERT, ''],
+        ]);
+        $quota = new StorageQuotaService(
+            $this->messages,
+            $settings,
+            new SettingRepository($this->pdo),
+            new \Core\Journal\JournalService(new \Core\Journal\JournalRepository($this->pdo)),
+            function () use (&$attempts): void {
+                $attempts++;
+                throw new \RuntimeException('SMTP refused');
+            }
+        );
+
+        $purged = $quota->handleOverQuota(function (int $id): void {
+            $this->messages->deleteMessage($id);
+        }, $this->now);
+
+        $this->assertSame(1, $purged);
+        $this->assertSame(1, $attempts);
+        $entry = $this->pdo->query(
+            "SELECT level, description FROM event_log WHERE event_type = 'inbound_quota_exceeded'"
+        )->fetch(\PDO::FETCH_ASSOC);
+        $this->assertSame(
+            ['level' => 'warning', 'description' => 'Quota de stockage du courrier entrant atteint'],
+            $entry
+        );
+        $stamp = $this->pdo->prepare('SELECT setting_value FROM settings WHERE module_id = ? AND setting_key = ?');
+        $stamp->execute(['inbound_mail', StorageQuotaService::SETTING_LAST_ALERT]);
+        $this->assertSame('', $stamp->fetchColumn(), 'a notice that never left is not recorded as sent');
+
+        $quota->handleOverQuota(static function (int $id): void {
+        }, $this->now->modify('+1 hour'));
+        $this->assertSame(2, $attempts, 'so the next event the same day tries again');
+    }
+
     // ── Helpers ─────────────────────────────────────────────────────────
 
     private function runPurge(?\DateTimeImmutable $at = null): int

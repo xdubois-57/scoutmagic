@@ -63,6 +63,9 @@ final class OwnMemberOnly
         try {
             return $this->memberService->getMemberProfile($memberYearId);
         } catch (MemberNotFoundException) {
+            // @catch-unreachable allows() asks canAccess() as 'identified', which answers true only after
+            // reading this member_years row; getMemberProfile() reads the same row next, in this request,
+            // so only a delete landing between the two reads ends here.
             return null;
         }
     }

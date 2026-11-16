@@ -65,6 +65,33 @@ final class MemberSectionTotemRepositoryTest extends TestCase
         $this->assertSame([], $this->repo->forMemberYears([$this->memberYearId]));
     }
 
+    /**
+     * A replacement is a delete then an insert: an insert the database
+     * refuses rolls the delete back too, so the previous totem survives
+     * and the refusal still reaches the caller.
+     */
+    public function testARefusedReplacementKeepsThePreviousTotem(): void
+    {
+        $this->repo->set($this->memberYearId, $this->louveteaux, 'Akela');
+        $this->pdo->exec(
+            "CREATE TRIGGER refuse_totem BEFORE INSERT ON member_section_totems
+             BEGIN SELECT RAISE(ABORT, 'totem refused'); END"
+        );
+
+        try {
+            $this->repo->set($this->memberYearId, $this->louveteaux, 'Baloo');
+            $this->fail('the refused insert must reach the caller');
+        } catch (\PDOException $e) {
+            $this->assertStringContainsString('totem refused', $e->getMessage());
+        }
+
+        $this->assertFalse($this->pdo->inTransaction());
+        $this->assertSame(
+            [$this->memberYearId => [$this->louveteaux => 'Akela']],
+            $this->repo->forMemberYears([$this->memberYearId])
+        );
+    }
+
     public function testOneTotemPerSection(): void
     {
         $this->repo->set($this->memberYearId, $this->louveteaux, 'Akela');

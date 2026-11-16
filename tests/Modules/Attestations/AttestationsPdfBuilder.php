@@ -30,9 +30,12 @@ namespace Tests\Modules\Attestations;
 final class AttestationsPdfBuilder
 {
     /**
-     * @param list<list<string>> $pages one list of lines per page, in
-     *                                  reading order — the reader's
-     *                                  "text fields of a page"
+     * @param list<list<string>|null> $pages one list of lines per page, in
+     *                                       reading order — the reader's
+     *                                       "text fields of a page"; null
+     *                                       is a damaged page, whose
+     *                                       content array names an object
+     *                                       the file does not hold
      */
     public static function build(array $pages): string
     {
@@ -52,12 +55,16 @@ final class AttestationsPdfBuilder
         $objects[2] = '<< /Type /Pages /Kids [' . $kids . '] /Count ' . count($pages) . ' >>';
 
         foreach ($pages as $i => $lines) {
+            // One past the last object written: never in the file.
+            $contents = $lines === null
+                ? '[' . $contentIds[$i] . ' 0 R ' . ($fontId + 1) . ' 0 R]'
+                : $contentIds[$i] . ' 0 R';
             $objects[$pageObjectIds[$i]] = '<< /Type /Page /Parent 2 0 R /Resources << /Font << /F1 '
-                . $fontId . ' 0 R >> >> /MediaBox [0 0 595 842] /Contents ' . $contentIds[$i] . ' 0 R >>';
+                . $fontId . ' 0 R >> >> /MediaBox [0 0 595 842] /Contents ' . $contents . ' >>';
 
             $stream = '';
             $y = 800;
-            foreach ($lines as $line) {
+            foreach ($lines ?? [] as $line) {
                 $stream .= 'BT /F1 11 Tf 60 ' . $y . ' Td (' . self::pdfString($line) . ") Tj ET\n";
                 $y -= 20;
             }

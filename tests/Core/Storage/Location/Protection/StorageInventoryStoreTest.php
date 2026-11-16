@@ -9,11 +9,15 @@ declare(strict_types=1);
 
 namespace Tests\Core\Storage\Location\Protection;
 
+use Core\Storage\Location\Backend\GoogleDriveBackend;
 use Core\Storage\Location\Backend\LocalStorageBackend;
+use Core\Storage\Location\Config\GoogleDriveLocationConfig;
+use Core\Storage\Location\Config\GoogleDriveSecret;
 use Core\Storage\Location\Protection\InventoryEntry;
 use Core\Storage\Location\Protection\StorageInventory;
 use Core\Storage\Location\Protection\StorageInventoryStore;
 use PHPUnit\Framework\TestCase;
+use Tests\Core\Storage\Location\Backend\Drive\FakeDrive;
 
 /**
  * The inventory lives in the destination, and this is what that buys.
@@ -167,6 +171,47 @@ final class StorageInventoryStoreTest extends TestCase
         $loaded = $this->load();
 
         $this->assertTrue($loaded->has('1/kept.jpg'), 'a truncated newest must not erase what is known');
+    }
+
+    /**
+     * A destination that lists the newest document and then refuses to
+     * hand it over — a remote one answering 503 for that one file — falls
+     * back to the one before it, exactly as for a truncated document.
+     */
+    public function testANewestDocumentTheDestinationWillNotServeFallsBackToThePreviousOne(): void
+    {
+        $drive = new FakeDrive();
+        $destination = new GoogleDriveBackend(
+            $drive->client(),
+            new GoogleDriveLocationConfig('client-1', (string) $drive->folderId, '2026-09-01T00:00:00+00:00'),
+            new GoogleDriveSecret('secret-1', 'refresh-1', 'unite@example.org')
+        );
+        $documents = ['2026-09-13T02:00:00+00:00' => '1/older.jpg', '2026-09-14T02:00:00+00:00' => '1/newer.jpg'];
+        foreach ($documents as $at => $key) {
+            $inventory = StorageInventory::empty(3, 'Galerie', 5);
+            $inventory->put($key, new InventoryEntry(sizeBytes: 1, copiedAt: $at));
+            $when = new \DateTimeImmutable($at);
+            $destination->put(
+                StorageInventoryStore::RESERVED_PREFIX
+                    . 'protection-source-3.' . $when->format('Ymd-His-v') . '.json.gz',
+                (string) gzencode($inventory->toJson($when), 6),
+                'application/gzip'
+            );
+        }
+        $newest = '';
+        foreach ($drive->files as $id => $file) {
+            if ($file['name'] === 'protection-source-3.20260914-020000-000.json.gz') {
+                $newest = (string) $id;
+            }
+        }
+        $this->assertNotSame('', $newest);
+        $drive->intercept = static fn (string $method, string $url): ?int
+            => $method === 'GET' && str_contains($url, '/files/' . $newest . '?alt=media') ? 503 : null;
+
+        $loaded = $this->store->load($destination, 3, 'Galerie', 5);
+
+        $this->assertTrue($loaded->has('1/older.jpg'), 'an unreadable newest must not erase what is known');
+        $this->assertFalse($loaded->has('1/newer.jpg'));
     }
 
     // ————— Rewritten only if something changed —————

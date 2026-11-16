@@ -12,6 +12,7 @@ use Core\Config\SettingService;
 use Core\Database\Connection;
 use Core\File\EncryptedFileStorageService;
 use Core\File\FileRepository;
+use Core\Journal\JournalService;
 use Core\Service\DateInput;
 
 /**
@@ -37,6 +38,36 @@ class SupportPackageService
 
     private const ARCHIVE_NAME = 'scoutmagic-support.zip';
 
+    /**
+     * The name EncryptedFileStorageService::store() gives a file: 32 hex
+     * characters, an extension, `.enc`. Anything else in the directory is
+     * not an archive this service wrote, and the sweep leaves it alone.
+     */
+    private const STORED_FILE_PATTERN = '/^[0-9a-f]{32}\.[a-z0-9]+\.enc$/';
+
+    /**
+     * How old a working directory or file under `storage/temp/` must be
+     * before the sweep treats it as left behind by a generation that died.
+     *
+     * Generation removes both in a `finally`, so only a process killed
+     * outright (a fatal error, `memory_limit`, a host timeout) leaves one,
+     * and what it leaves is the archive in clear. A day is chosen to be out
+     * of reach of any live generation: every collector is bounded (log
+     * files, `storage/` entries), the whole run is a single scheduler task
+     * normally over in seconds or minutes, and age is read from the newest
+     * mtime of the directory and everything in it.
+     */
+    public const ABANDONED_WORKING_FILE_SECONDS = 86400;
+
+    /** generate()'s working directory: `support-` and 16 hex characters. */
+    private const WORKING_DIRECTORY_PATTERN = '/^support-[0-9a-f]{16}$/';
+
+    /**
+     * Collector\DatabaseStructureCollector's structure dump, written
+     * beside the working directory rather than inside it.
+     */
+    private const WORKING_FILE_PATTERN = '/^support-structure-[0-9a-f]{16}\.sql$/';
+
     /** @var array<int, SupportCollectorInterface> */
     private array $collectors;
 
@@ -59,7 +90,8 @@ class SupportPackageService
         private string $projectRoot,
         private string $storagePath,
         array $collectors = [],
-        array $secretsToRedact = []
+        array $secretsToRedact = [],
+        private ?JournalService $journal = null
     ) {
         $this->collectors = $collectors;
         $this->secretsToRedact = array_values(array_filter(
@@ -143,18 +175,26 @@ class SupportPackageService
     /**
      * Remove the currently-stored package, file and FileRecord alike. Safe
      * to call when there is none.
+     *
+     * The FileRecord is the only place the archive's randomised path is
+     * written down, so it is dropped only once the bytes are known to be
+     * gone: dropping it first, on a failed read, is what used to leave an
+     * encrypted copy of server logs on disk with nothing pointing at it.
+     * A failure here is journaled and does not stop a new package from
+     * being produced. Whatever it leaves behind is older than the next
+     * package and goes with sweepExpiredFiles(), which reads the directory
+     * rather than the database that has just failed.
      */
     public function deleteCurrentPackage(): void
     {
         $fileId = (int) ($this->settingService->get(SupportPackageState::FILE_ID) ?? '0');
-        if ($fileId > 0) {
-            try {
-                $this->encryptedStorage->delete($fileId);
-            } catch (\Throwable) {
-                // A record without its file (or the reverse) must not stop a
-                // new package from being produced.
-                $this->fileRepository->delete($fileId);
-            }
+        if ($fileId > 0 && !$this->removeStoredPackage($fileId)) {
+            $this->journalBestEffort(
+                'support_package_delete_failed',
+                'warning',
+                'Le paquet de support précédent n\'a pas pu être supprimé ; la purge quotidienne s\'en chargera',
+                ['file_id' => $fileId]
+            );
         }
 
         $this->writeSetting(SupportPackageState::FILE_ID, '');
@@ -188,6 +228,122 @@ class SupportPackageService
         $this->deleteCurrentPackage();
 
         return true;
+    }
+
+    /**
+     * Delete every stored archive under STORAGE_SUBDIRECTORY older than
+     * RETENTION_DAYS, referenced or not, with any FileRecord still naming
+     * it. Returns how many files were removed.
+     *
+     * purgeExpired() works from the settings and the FileRecord, so it is
+     * blind to bytes nothing references any more: a deletion that failed
+     * half-way, or a generation whose bookkeeping did not land. This works
+     * from the directory alone and so still holds while the database is
+     * failing. A stored file is written once, at generation, so its mtime
+     * is its generation time and this is the same seven days, not a second
+     * retention period. An mtime that cannot be read counts as expired.
+     */
+    public function sweepExpiredFiles(): int
+    {
+        $directory = $this->storagePath . '/' . self::STORAGE_SUBDIRECTORY;
+        $entries = is_dir($directory) ? (@scandir($directory) ?: []) : [];
+        $cutoff = time() - self::RETENTION_DAYS * 86400;
+        $removed = 0;
+        $failed = 0;
+
+        foreach ($entries as $entry) {
+            $path = $directory . '/' . $entry;
+            if (preg_match(self::STORED_FILE_PATTERN, $entry) !== 1 || is_link($path) || !is_file($path)) {
+                continue;
+            }
+
+            $modified = @filemtime($path);
+            if ($modified !== false && $modified >= $cutoff) {
+                continue;
+            }
+
+            if (!self::unlinkIfPresent($path)) {
+                $failed++;
+                continue;
+            }
+
+            $removed++;
+            $this->forgetRecordsOf(self::STORAGE_SUBDIRECTORY . '/' . $entry);
+        }
+
+        if ($removed > 0) {
+            $this->journalBestEffort(
+                'support_package_files_swept',
+                'info',
+                sprintf('%d fichier(s) de paquet de support expiré(s) supprimé(s) du disque', $removed),
+                ['count' => $removed]
+            );
+        }
+        if ($failed > 0) {
+            $this->journalBestEffort(
+                'support_package_sweep_failed',
+                'warning',
+                sprintf('%d fichier(s) de paquet de support expiré(s) impossible(s) à supprimer du disque', $failed),
+                ['count' => $failed]
+            );
+        }
+
+        return $removed;
+    }
+
+    /**
+     * Delete what a generation killed mid-run left under `storage/temp/`:
+     * its working directory, which holds the archive unencrypted, and the
+     * structure dump a collector writes beside it. Only entries whose
+     * newest mtime is older than ABANDONED_WORKING_FILE_SECONDS are
+     * touched, never a symbolic link, and never a directory holding
+     * anything but regular files. Returns how many entries were removed.
+     */
+    public function sweepAbandonedWorkingFiles(): int
+    {
+        $directory = $this->storagePath . '/temp';
+        $entries = is_dir($directory) ? (@scandir($directory) ?: []) : [];
+        $cutoff = time() - self::ABANDONED_WORKING_FILE_SECONDS;
+        $removed = 0;
+        $failed = 0;
+
+        foreach ($entries as $entry) {
+            $path = $directory . '/' . $entry;
+            $isWorkingDirectory = preg_match(self::WORKING_DIRECTORY_PATTERN, $entry) === 1;
+            $isWorkingFile = preg_match(self::WORKING_FILE_PATTERN, $entry) === 1;
+            if ((!$isWorkingDirectory && !$isWorkingFile) || is_link($path)) {
+                continue;
+            }
+
+            $outcome = $isWorkingDirectory && is_dir($path)
+                ? self::removeAbandonedDirectory($path, $cutoff)
+                : ($isWorkingFile && is_file($path) ? self::removeAbandonedFile($path, $cutoff) : null);
+
+            if ($outcome === true) {
+                $removed++;
+            } elseif ($outcome === false) {
+                $failed++;
+            }
+        }
+
+        if ($removed > 0) {
+            $this->journalBestEffort(
+                'support_package_working_files_swept',
+                'info',
+                sprintf('%d fichier(s) de travail abandonné(s) de paquet de support supprimé(s)', $removed),
+                ['count' => $removed]
+            );
+        }
+        if ($failed > 0) {
+            $this->journalBestEffort(
+                'support_package_working_files_sweep_failed',
+                'warning',
+                sprintf('%d fichier(s) de travail de paquet de support impossible(s) à supprimer', $failed),
+                ['count' => $failed]
+            );
+        }
+
+        return $removed;
     }
 
     public function currentPackageFileId(): ?int
@@ -389,6 +545,138 @@ class SupportPackageService
         demande de cocher que vous acceptez de la transmettre. C'est le seul
         chemin par lequel cette archive peut quitter votre serveur.
         TXT;
+    }
+
+    /**
+     * Delete one stored package's bytes, then its FileRecord. Returns false,
+     * leaving the record in place, when either step could not be confirmed.
+     */
+    private function removeStoredPackage(int $fileId): bool
+    {
+        try {
+            $record = $this->fileRepository->findById($fileId);
+            if ($record === null) {
+                return true;
+            }
+
+            if (!self::unlinkIfPresent($this->storagePath . '/' . $record->relativePath)) {
+                return false;
+            }
+
+            $this->fileRepository->delete($fileId);
+
+            return true;
+        } catch (\Throwable) {
+            return false;
+        }
+    }
+
+    /**
+     * Drop the FileRecord(s) of a file the sweep has just deleted, and the
+     * current-package settings if they named one of them. Best effort: a
+     * record without bytes holds no part of the archive.
+     */
+    private function forgetRecordsOf(string $relativePath): void
+    {
+        try {
+            $current = $this->currentPackageFileId();
+            foreach ($this->fileRepository->findIdsByPathPrefix($relativePath) as $fileId) {
+                $this->fileRepository->delete($fileId);
+                if ($fileId === $current) {
+                    $this->writeSetting(SupportPackageState::FILE_ID, '');
+                    $this->writeSetting(SupportPackageState::GENERATED_AT, '');
+                }
+            }
+        } catch (\Throwable) {
+            // The bytes are gone, which is what retention is about.
+        }
+    }
+
+    /**
+     * True once removed, null when still too recent to touch, false when it
+     * should have gone and could not (or holds something unexpected).
+     */
+    private static function removeAbandonedFile(string $path, int $cutoff): ?bool
+    {
+        $modified = @filemtime($path);
+        if ($modified === false) {
+            return false;
+        }
+        if ($modified >= $cutoff) {
+            return null;
+        }
+
+        return self::unlinkIfPresent($path);
+    }
+
+    /**
+     * Same contract as removeAbandonedFile(), for generate()'s working
+     * directory. Its age is the newest mtime of the directory and of
+     * every entry in it, so a generation still writing keeps it fresh.
+     */
+    private static function removeAbandonedDirectory(string $path, int $cutoff): ?bool
+    {
+        $newest = @filemtime($path);
+        $files = [];
+        foreach (@scandir($path) ?: [] as $entry) {
+            if ($entry === '.' || $entry === '..') {
+                continue;
+            }
+            $child = $path . '/' . $entry;
+            if (is_link($child) || !is_file($child)) {
+                return false;
+            }
+            $modified = @filemtime($child);
+            if ($modified === false || $newest === false) {
+                return false;
+            }
+            $newest = max($newest, $modified);
+            $files[] = $child;
+        }
+
+        if ($newest === false) {
+            return false;
+        }
+        if ($newest >= $cutoff) {
+            return null;
+        }
+
+        foreach ($files as $file) {
+            if (!self::unlinkIfPresent($file)) {
+                return false;
+            }
+        }
+        @rmdir($path);
+        clearstatcache(true, $path);
+
+        return !file_exists($path);
+    }
+
+    private static function unlinkIfPresent(string $path): bool
+    {
+        if (is_file($path)) {
+            @unlink($path);
+            clearstatcache(true, $path);
+        }
+
+        return !is_file($path);
+    }
+
+    /**
+     * Journal an event without ever letting the journal fail the caller:
+     * the failure being reported is often the database the journal writes
+     * to. Only the event type falls back to the PHP error log, never any
+     * part of the archive.
+     *
+     * @param array<string, mixed> $context
+     */
+    private function journalBestEffort(string $type, string $level, string $description, array $context): void
+    {
+        try {
+            $this->journal?->log('core', $type, $level, $description, $context);
+        } catch (\Throwable) {
+            error_log('ScoutMagic support package: ' . $type);
+        }
     }
 
     private function writeSetting(string $key, string $value): void

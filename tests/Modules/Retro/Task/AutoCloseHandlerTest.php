@@ -183,4 +183,68 @@ class AutoCloseHandlerTest extends TestCase
         $this->assertNotNull($failure, 'a failed close notification must leave a journal trace');
         $this->assertStringContainsString('SMTP down', (string) $failure['context']);
     }
+
+    /**
+     * The provider refuses the summary: the board is closed all the same,
+     * without a summary, and the journal says the synthesis failed — in the
+     * module's own sentence, never the provider's body.
+     */
+    public function testAProviderThatRefusesTheSummaryStillClosesTheBoard(): void
+    {
+        $boardId = $this->createOpenBoard(false);
+        (new CommentRepository($this->pdo))->create($boardId, 'good', 'Super ambiance !');
+        $modules = $this->createStub(\Core\Module\ModuleManager::class);
+        $modules->method('getEnabledModuleIds')->willReturn(['llm_connector']);
+        $capabilities = new \Core\Scheduler\TaskCapabilities($modules);
+        $capabilities->register(
+            \Modules\LlmConnector\Api\LlmConnectorInterface::class,
+            'llm_connector',
+            static fn() => new class implements \Modules\LlmConnector\Api\LlmConnectorInterface {
+                public function isAvailable(): bool
+                {
+                    return true;
+                }
+
+                public function isTierAvailable(\Modules\LlmConnector\Api\LlmTier $tier): bool
+                {
+                    return true;
+                }
+
+                public function complete(
+                    \Modules\LlmConnector\Api\LlmRequest $request
+                ): \Modules\LlmConnector\Api\LlmResponse {
+                    throw \Modules\LlmConnector\Api\LlmException::apiError('{"error":"overloaded"}', 529);
+                }
+            }
+        );
+        $context = new TaskContext(
+            $this->context->connection,
+            $this->context->encryption,
+            $this->context->mailService,
+            $this->context->journal,
+            $this->context->settings,
+            $this->context->userAccounts,
+            sys_get_temp_dir(),
+            null,
+            $capabilities
+        );
+
+        (new AutoCloseHandler())->handle(['board_id' => $boardId], $context);
+
+        $board = $this->boardRepository->findById($boardId);
+        $this->assertSame('closed', $board->status);
+        $this->assertNull($board->aiSummary);
+        $failure = $this->pdo->query(
+            "SELECT description, context FROM event_log WHERE event_type = 'board_summary_failed'"
+        )->fetch();
+        $this->assertIsArray($failure);
+        $this->assertSame('Échec de la synthèse IA', $failure['description']);
+        $this->assertSame(
+            [
+                'board_id' => $boardId,
+                'error' => 'La synthèse n\'a pas pu être générée par l\'IA — réessayez dans quelques instants.',
+            ],
+            json_decode((string) $failure['context'], true)
+        );
+    }
 }
