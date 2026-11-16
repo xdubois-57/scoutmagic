@@ -545,6 +545,29 @@ class ObjectStorageBackendTest extends TestCase
         $this->assertSame(str_repeat('b', 32), $backend->announcedChecksum('1/here.jpg'), 'the null was not HEAD\'s');
     }
 
+    /**
+     * « Nothing comparable » and « cannot be asked » are different answers
+     * (#1223): a 503, a refused connection or a revoked key means the
+     * bucket could not be asked, and a verification that reads that as
+     * « skip the comparison » records a copy as protected on no check at
+     * all. Only a missing object announces nothing; the rest is thrown.
+     */
+    public function testABucketThatCannotBeAskedIsNotTakenForOneThatAnnouncesNothing(): void
+    {
+        foreach (['ServiceUnavailable', 'SlowDown', 'AccessDenied', ''] as $code) {
+            $mock = new MockHandler();
+            $mock->appendException(new S3Exception('The bucket did not answer', new Command('HeadObject'), ['code' => $code]));
+            $backend = $this->backendWithMockClient($mock);
+
+            try {
+                $backend->announcedChecksum('1/photo.jpg');
+                $this->fail("an error « {$code} » from the bucket must reach the caller");
+            } catch (\Throwable $e) {
+                $this->assertInstanceOf(S3Exception::class, $e, "error code « {$code} »");
+            }
+        }
+    }
+
     public function testAnEncryptedObjectAnnouncesNoChecksumEvenThoughItsEtagLooksLikeOne(): void
     {
         // With SSE-C or SSE-KMS the ETag is not a digest of the content at
