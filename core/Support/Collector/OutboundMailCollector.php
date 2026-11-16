@@ -397,7 +397,12 @@ class OutboundMailCollector implements SupportCollectorInterface
 
             try {
                 $probe = $this->returns->findByAddress($address);
-            } catch (\Throwable) {
+            } catch (\Throwable $e) {
+                // Said, not skipped: a heading with nothing under it reads as
+                // « rien à signaler », the opposite of « illisible ». The
+                // class only — a database message names tables and hosts,
+                // and this file goes to a third party.
+                $lines[] = sprintf('%-22s : %s', $label, self::unreadable($e));
                 continue;
             }
 
@@ -788,15 +793,25 @@ class OutboundMailCollector implements SupportCollectorInterface
         // heading above this table says thirty.
         $from = (new \DateTimeImmutable('-' . (self::COUNTER_DAYS - 1) . ' days'))->format('Y-m-d');
 
-        $statement = $context->pdo()->prepare(
-            'SELECT count_date, provider_id, lane, sent_count
-             FROM mail_send_counters WHERE count_date >= ?
-             ORDER BY count_date DESC, provider_id, lane'
-        );
-        $statement->execute([$from]);
+        // As optional as the sections before it, and the last of them: a
+        // counters table that cannot be read used to take the whole file
+        // with it, when the archive is asked for precisely because
+        // something is broken. The heading stays and says it could not read
+        // them, rather than printing « aucun envoi enregistré ».
+        try {
+            $statement = $context->pdo()->prepare(
+                'SELECT count_date, provider_id, lane, sent_count
+                 FROM mail_send_counters WHERE count_date >= ?
+                 ORDER BY count_date DESC, provider_id, lane'
+            );
+            $statement->execute([$from]);
+            $fetched = $statement->fetchAll(\PDO::FETCH_ASSOC);
+        } catch (\Throwable $e) {
+            return [self::unreadable($e)];
+        }
 
         $rows = [];
-        foreach ($statement->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+        foreach ($fetched as $row) {
             $providerId = (int) $row['provider_id'];
             $rows[] = sprintf(
                 '%-11s %-35s %-16s %d',
@@ -808,5 +823,16 @@ class OutboundMailCollector implements SupportCollectorInterface
         }
 
         return $rows === [] ? ['(aucun envoi enregistré sur la période)'] : $rows;
+    }
+
+    /**
+     * What an archive says in place of a section it could not read.
+     *
+     * The exception's class, never its message: a database message names
+     * the table, sometimes the host, and this file goes to a third party.
+     */
+    private static function unreadable(\Throwable $e): string
+    {
+        return 'non lisible : ' . $e::class;
     }
 }
