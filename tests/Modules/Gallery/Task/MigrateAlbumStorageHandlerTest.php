@@ -120,6 +120,17 @@ class MigrateAlbumStorageHandlerTest extends TestCase
         $this->albumRepository->startMigration($this->albumId, $this->targetId);
     }
 
+    /** @return array{level: string, description: string, context: string} */
+    private function failureEntry(): array
+    {
+        $entry = $this->pdo
+            ->query("SELECT level, description, context FROM event_log WHERE event_type = 'album_storage_migration_failed'")
+            ->fetch(\PDO::FETCH_ASSOC);
+        $this->assertIsArray($entry, 'the failed migration must leave its cause in the journal');
+
+        return $entry;
+    }
+
     private function buildContext(?StorageBackendFactory $storageBackendFactory = null): TaskContext
     {
         return new TaskContext(
@@ -195,8 +206,20 @@ class MigrateAlbumStorageHandlerTest extends TestCase
 
         $album = $this->albumRepository->findById($this->albumId);
         $this->assertSame(Album::MIGRATION_FAILED, $album->migrationStatus);
-        $this->assertNotNull($album->migrationError);
+        // The badge says what failed in French, with neither the path nor the
+        // library's message (#1280); the journal keeps the cause.
+        $this->assertSame(
+            "Un fichier de l'album n'a pas pu être écrit sur l'emplacement cible.",
+            $album->migrationError
+        );
+        $this->assertStringNotContainsString('Simulated destination write failure', (string) $album->migrationError);
         $this->assertSame($this->sourceId, $album->locationId, 'location_id must stay pinned to the source');
+        $entry = $this->failureEntry();
+        $context = json_decode((string) $entry['context'], true);
+        $this->assertSame('target', $context['side']);
+        $this->assertSame($mediaId, $context['media_id']);
+        $this->assertSame(\RuntimeException::class, $context['error']);
+        $this->assertStringNotContainsString('Simulated destination write failure', (string) $entry['description']);
 
         $sourceBackend = new LocalStorageBackend($this->storagePath . '/source');
         $this->assertSame("thumb-bytes-{$mediaId}", $sourceBackend->get("{$this->albumId}/thumb_{$mediaId}.jpg"));
@@ -227,10 +250,10 @@ class MigrateAlbumStorageHandlerTest extends TestCase
 
     /**
      * A rendition the source has lost stops the migration where it stands:
-     * the album fails with the path that could not be read, keeps pointing
-     * at its source, and the rest of the source is untouched. The reason
-     * carries the storage's own message after the French sentence; pinned
-     * as it is.
+     * the album fails, keeps pointing at its source, and the rest of the
+     * source is untouched. What the badge shows is a French sentence and
+     * nothing else (#1280): never the storage library's own message, which is
+     * in English and names an internal path. The cause goes to the journal.
      */
     public function testAFileMissingAtTheSourceFailsTheMigrationAndKeepsTheSource(): void
     {
@@ -244,10 +267,11 @@ class MigrateAlbumStorageHandlerTest extends TestCase
         $album = $this->albumRepository->findById($this->albumId);
         $this->assertSame(Album::MIGRATION_FAILED, $album->migrationStatus);
         $this->assertSame(
-            "Lecture impossible du fichier « {$mediumPath} » (média #{$mediaId}) sur l'emplacement source : "
-                . "Stored file not found: {$mediumPath}",
+            "Un fichier de l'album n'a pas pu être lu sur l'emplacement source.",
             $album->migrationError
         );
+        $this->assertStringNotContainsString($mediumPath, (string) $album->migrationError);
+        $this->assertStringNotContainsString('Stored file not found', (string) $album->migrationError);
         $this->assertSame($this->sourceId, $album->locationId);
 
         $sourceBackend = new LocalStorageBackend($this->storagePath . '/source');
@@ -257,6 +281,20 @@ class MigrateAlbumStorageHandlerTest extends TestCase
         $this->assertFalse(
             (bool) $this->pdo->query("SELECT 1 FROM event_log WHERE event_type = 'album_storage_migrated'")->fetch()
         );
+
+        $entry = $this->failureEntry();
+        $this->assertSame('warning', $entry['level']);
+        $this->assertSame(
+            [
+                'album_id' => $this->albumId,
+                'media_id' => $mediaId,
+                'path' => $mediumPath,
+                'side' => 'source',
+                'error' => \RuntimeException::class,
+            ],
+            json_decode((string) $entry['context'], true)
+        );
+        $this->assertStringNotContainsString('Stored file not found', (string) $entry['description']);
     }
 
     public function testIsANoOpWhenMigrationStatusIsNone(): void
