@@ -289,18 +289,46 @@ class FeeAccuracyControllerTest extends TestCase
         return (string) $this->dispatch('GET', '/admin/fees/tarifs', 'index')->getBody();
     }
 
-    public function testThereIsNoMoreCopyForDeskAnywhere(): void
+    /**
+     * @return array<string, array{string, string}> the tab, and what ONLY a household card of that tab says
+     */
+    public static function tabProvider(): array
     {
-        foreach (['corriger', 'prevoir', 'ignores'] as $view) {
-            $this->createMember('Jean', $this->normalFeeId);
-            AuthSession::login(1, 'admin@test.be', 'admin');
-            $body = (string) $this->dispatch('GET', '/admin/fees/tarifs?vue=' . $view, 'index')->getBody();
+        return [
+            'à corriger' => ['corriger', 'Ignorer ce foyer'],
+            'à prévoir' => ['prevoir', 'Ignorer ce foyer'],
+            'ignorés' => ['ignores', 'Remettre dans la vérification'],
+        ];
+    }
 
-            $this->assertStringNotContainsString('Copier pour Desk', $body, $view);
-            $this->assertStringNotContainsString('data-fees-copy', $body, $view);
-            $this->assertStringNotContainsString('fees-clipboard-data', $body, $view);
-            $this->assertStringNotContainsString('fees-copy.js', $body, $view);
+    /** @dataProvider tabProvider */
+    #[\PHPUnit\Framework\Attributes\DataProvider('tabProvider')]
+    public function testThereIsNoMoreCopyForDeskAnywhere(string $view, string $cardMarker): void
+    {
+        // A household that lands in each tab: wrong now, about to change
+        // (a departure), and set aside — so every view draws a real card.
+        $this->createMember('Jean', $this->normalFeeId);
+        $this->createMember('Marie', $this->normalFeeId);
+        $this->createLeavingMember('Camille', $this->normalFeeId);
+        if ($view === 'ignores') {
+            $household = $this->households->householdsForYear($this->scoutYearId)[$this->blindIndex()];
+            $this->ignored->ignore(
+                $this->scoutYearId,
+                $this->blindIndex(),
+                \Modules\Fees\Service\FeeAccuracyService::compositionHash($household),
+                'Colocation',
+                null
+            );
         }
+        AuthSession::login(1, 'admin@test.be', 'admin');
+
+        $body = (string) $this->dispatch('GET', '/admin/fees/tarifs?vue=' . $view, 'index')->getBody();
+
+        $this->assertStringContainsString($cardMarker, $body, 'a household card must be on screen for this to prove anything');
+        $this->assertStringNotContainsString('Copier pour Desk', $body);
+        $this->assertStringNotContainsString('data-fees-copy', $body);
+        $this->assertStringNotContainsString('fees-clipboard-data', $body);
+        $this->assertStringNotContainsString('fees-copy.js', $body);
     }
 
     public function testTheOtherActionsOfTheCardAreKept(): void
