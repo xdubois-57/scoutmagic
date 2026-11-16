@@ -1900,16 +1900,15 @@ class RegistrationConfigControllerTest extends TestCase
     }
 
     /**
-     * PINS A DEFECT, it does not endorse it. A request encoded by somebody
-     * else while a bulk withdrawal is running — played here by a trigger
-     * that encodes the second request when the first is withdrawn — is
-     * overwritten: the loop checks each transition against the status it
-     * read before the first write, and the UPDATE has no condition on the
-     * current one. So the encoded request ends up withdrawn and counted.
-     * When this is fixed, the second request stays encoded and the count
-     * is one.
+     * Plays the other person: when the first request leaves its status, a
+     * trigger encodes the second one and links it to a member — the
+     * statement that decides each transition runs on its own row, so this is
+     * exactly what a concurrent « encoder » does between the bulk action's
+     * read of the set and its write on the second request.
+     *
+     * @return array{int, int, int} first request, second request, the member the second is linked to
      */
-    public function testABulkWithdrawalOverwritesARequestEncodedMeanwhile(): void
+    private function twoRequestsTheSecondOfWhichIsEncodedMeanwhile(): array
     {
         $first = $this->createRequest($this->targetYearId, 'Alix');
         $second = $this->createRequest($this->targetYearId, 'Basile');
@@ -1927,18 +1926,65 @@ class RegistrationConfigControllerTest extends TestCase
              END"
         );
 
+        return [$first, $second, $member];
+    }
+
+    private function bulkActionCountInTheJournal(): ?int
+    {
+        $context = json_decode((string) $this->pdo->query(
+            "SELECT context FROM event_log WHERE event_type = 'registration_bulk_action'"
+        )->fetchColumn(), true);
+
+        return $context['count'] ?? null;
+    }
+
+    /**
+     * A request encoded by somebody else while a bulk withdrawal is running
+     * stays encoded, keeps its member, and is not counted (#1235). It used
+     * to be overwritten: each transition was judged on the status read
+     * before the first write, and the UPDATE had no condition on the
+     * current one.
+     */
+    public function testABulkWithdrawalLeavesARequestEncodedMeanwhileAlone(): void
+    {
+        [$first, $second, $member] = $this->twoRequestsTheSecondOfWhichIsEncodedMeanwhile();
+
         $this->controller->bulkWithdraw(new Request('POST', '/config/inscriptions/bulk/withdraw', [], [
             '_csrf_token' => CsrfGuard::generateToken(), 'scout_year_id' => (string) $this->targetYearId,
         ], [], []), []);
 
         $this->assertSame('withdrawn', $this->requestRepository->findById($first)->status);
-        $overwritten = $this->requestRepository->findById($second);
-        $this->assertSame($member, $overwritten->linkedMemberId, 'the encoding meanwhile did happen');
-        $this->assertSame('withdrawn', $overwritten->status);
-        $context = json_decode((string) $this->pdo->query(
-            "SELECT context FROM event_log WHERE event_type = 'registration_bulk_action'"
-        )->fetchColumn(), true);
-        $this->assertSame(2, $context['count'] ?? null);
+        $kept = $this->requestRepository->findById($second);
+        $this->assertSame('encoded', $kept->status, 'the encoding meanwhile must win');
+        $this->assertSame($member, $kept->linkedMemberId, 'the member stays linked');
+        $this->assertSame(1, $this->bulkActionCountInTheJournal(), 'only the request that was withdrawn is counted');
+    }
+
+    /**
+     * The same for a bulk refusal, which also plans an e-mail: none may go
+     * to a family whose child had just been encoded — accepted.
+     */
+    public function testABulkRefusalLeavesARequestEncodedMeanwhileAloneAndPlansNoEmailForIt(): void
+    {
+        [$first, $second, $member] = $this->twoRequestsTheSecondOfWhichIsEncodedMeanwhile();
+        RegistrationTestHelper::enableAutomaticDecisionEmails($this->settingService, 24);
+
+        $this->controller->bulkRefuse(new Request('POST', '/config/inscriptions/bulk/refuse', [], [
+            '_csrf_token' => CsrfGuard::generateToken(),
+            'scout_year_id' => (string) $this->targetYearId,
+            'refusal_reason' => 'other',
+        ], [], []), []);
+
+        $this->assertSame('refused', $this->requestRepository->findById($first)->status);
+        $kept = $this->requestRepository->findById($second);
+        $this->assertSame('encoded', $kept->status);
+        $this->assertSame($member, $kept->linkedMemberId);
+        $this->assertNull($kept->refusalReason, 'no refusal reason may be written on a request that was not refused');
+        $this->assertSame(1, $this->bulkActionCountInTheJournal());
+        $emailedRequests = array_map('intval', $this->pdo->query(
+            'SELECT registration_request_id FROM registration_decision_emails'
+        )->fetchAll(\PDO::FETCH_COLUMN));
+        $this->assertSame([$first], $emailedRequests, 'a refusal e-mail only for the request that was refused');
     }
 
     public function testBulkActionsRefusedForPastYear(): void

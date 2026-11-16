@@ -84,6 +84,68 @@ class RegistrationRequestRepositoryOnMysqlTest extends TestCase
         $this->assertNull($this->repository->findById($id)?->refusalReason);
     }
 
+    /**
+     * The premise of the conditional write (#1235): a statement whose WHERE
+     * names a status the row no longer has touches NOTHING, and the engine
+     * says so — `rowCount()` is what the repository decides on. MySQL counts
+     * rows CHANGED where SQLite counts rows FOUND; the two agree here only
+     * because the old and the new status always differ.
+     */
+    public function testAnUpdateConditionedOnTheStatusCountsOneRowWhenItMatchesAndNoneWhenItDoesNot(): void
+    {
+        $id = $this->create($this->yearId, 'Alix');
+
+        $stale = $this->pdo->prepare('UPDATE registration_requests SET status = ? WHERE id = ? AND status = ?');
+        $stale->execute(['withdrawn', $id, 'accepted']);
+        $this->assertSame(0, $stale->rowCount(), 'a status the row does not have matches nothing');
+
+        $current = $this->pdo->prepare('UPDATE registration_requests SET status = ? WHERE id = ? AND status = ?');
+        $current->execute(['withdrawn', $id, 'pending']);
+        $this->assertSame(1, $current->rowCount(), 'the status the row has matches it, and it changed');
+    }
+
+    public function testAStatusChangedFromAnotherStatusLeavesARequestThatMovedOnUntouched(): void
+    {
+        $id = $this->create($this->yearId, 'Alix');
+        $member = RegistrationTestHelper::insertMember($this->pdo, 'DESK-ALIX');
+        $this->repository->linkToMemberAndEncode($id, $member, new \DateTimeImmutable('2026-10-01 10:00:00'));
+        $before = $this->repository->findById($id);
+
+        // Judged on the status the caller READ — pending — while the row is encoded.
+        $result = $this->repository->updateStatusFrom(
+            $id,
+            'pending',
+            'refused',
+            new \DateTimeImmutable('2026-10-02 10:00:00'),
+            RegistrationRequest::REFUSAL_NO_ROOM
+        );
+
+        $this->assertNull($result, 'the request is no longer in the status the caller judged it by');
+        $after = $this->repository->findById($id);
+        $this->assertSame('encoded', $after?->status);
+        $this->assertSame($member, $after?->linkedMemberId);
+        $this->assertNull($after?->refusalReason);
+        $this->assertEquals($before?->finalAt, $after?->finalAt);
+    }
+
+    public function testAStatusChangedFromTheStatusTheRequestReallyHasIsWritten(): void
+    {
+        $id = $this->create($this->yearId, 'Alix');
+
+        $result = $this->repository->updateStatusFrom(
+            $id,
+            'pending',
+            'refused',
+            new \DateTimeImmutable('2026-10-02 10:00:00'),
+            RegistrationRequest::REFUSAL_NO_ROOM
+        );
+
+        $this->assertSame(0, $result, 'no e-mail was waiting to be superseded');
+        $after = $this->repository->findById($id);
+        $this->assertSame('refused', $after?->status);
+        $this->assertSame(RegistrationRequest::REFUSAL_NO_ROOM, $after?->refusalReason);
+    }
+
     public function testTheQueueReadsBothQueriesOnTheRealSchema(): void
     {
         $refused = $this->create($this->previousYearId, 'Lucas');
