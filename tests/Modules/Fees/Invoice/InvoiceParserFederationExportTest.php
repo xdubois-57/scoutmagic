@@ -148,7 +148,23 @@ class InvoiceParserFederationExportTest extends TestCase
         ]));
 
         $this->assertFalse($result->isAccepted());
-        $this->assertContains(InvoiceProblem::FRACTIONAL_QUANTITY, self::kinds($result));
+        // Only that: the row was read, its quantity rejected — it is not a
+        // layout the site failed to understand.
+        $this->assertSame([InvoiceProblem::FRACTIONAL_QUANTITY], self::kinds($result));
+        $this->assertSame(0, $result->stats->toArray()['unrecognised_financial_rows']);
+        $this->assertSame(0, $result->stats->ignoredRows);
+    }
+
+    /** Beside rows that were read, the one rejected row is the only reason given — not a total that cannot close. */
+    public function testAFractionalQuantityAmongGoodRowsIsTheOnlyReasonGiven(): void
+    {
+        $text = str_replace(
+            "SV025P1COTISATION NORMALECOT_NORM\t42,00",
+            "SV025P1COTISATION NORMALECOT_NORM\t42,50",
+            FederationExportFixture::text()
+        );
+
+        $this->assertSame([InvoiceProblem::FRACTIONAL_QUANTITY], self::kinds($this->parser->parse($text)));
     }
 
     /**

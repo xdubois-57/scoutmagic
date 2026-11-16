@@ -136,12 +136,18 @@ class InvoiceParser
                 continue;
             }
 
+            $problemsBefore = count($readingProblems);
             $tariff = $this->readTariffLine($line, $cells, $stats, $readingProblems);
             if ($tariff === null) {
-                if (self::looksFinancial($line)) {
-                    $stats->unrecognisedFinancialRows[] = $index + 1;
+                // A row read and then rejected for its content (a fractional
+                // quantity) already said why; it is neither « not understood »
+                // nor ignored.
+                if (count($readingProblems) === $problemsBefore) {
+                    if (self::looksFinancial($line)) {
+                        $stats->unrecognisedFinancialRows[] = $index + 1;
+                    }
+                    $ignored++;
                 }
-                $ignored++;
                 continue;
             }
 
@@ -179,7 +185,13 @@ class InvoiceParser
             );
         }
 
-        $problems = array_merge($readingProblems, $this->checkIntegrity($merged, $totalCents));
+        // A reading already refused for what it could not take in is
+        // refused for that alone: checking the arithmetic of the part that
+        // was read would add a « no line » or a total that cannot close —
+        // true of the partial reading, false of the document.
+        $problems = $readingProblems !== []
+            ? self::distinct($readingProblems)
+            : $this->checkIntegrity($merged, $totalCents);
         if ($problems !== []) {
             return InvoiceReadResult::refused($problems, $ignored, $stats);
         }
@@ -194,6 +206,28 @@ class InvoiceParser
             $templateNumber,
             $ignored
         ), $stats);
+    }
+
+    /**
+     * A row repeated at the top of a page is rejected twice for the same
+     * reason; it is said once, as the row is read once.
+     *
+     * @param InvoiceProblem[] $problems
+     * @return InvoiceProblem[]
+     */
+    private static function distinct(array $problems): array
+    {
+        $seen = [];
+        $distinct = [];
+        foreach ($problems as $problem) {
+            $key = $problem->kind . "\0" . $problem->message;
+            if (!isset($seen[$key])) {
+                $seen[$key] = true;
+                $distinct[] = $problem;
+            }
+        }
+
+        return $distinct;
     }
 
     /** « Page 3 sur 10 », when the document says it; null otherwise. */
