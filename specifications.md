@@ -1330,7 +1330,7 @@ Not a mail client. A gateway that connects one or more of the unit's own mailbox
 
 ### 23.1 What it never does
 
-It never marks a message read, never moves one, never deletes one, never creates a folder. The client contract has no vocabulary for any of it: bodies are fetched with `PEEK` and folders opened read-only, so a treasurer who works through an unread inbox does not find it emptied by a background task.
+It never marks a message read, never moves one, never deletes one, never creates a folder. The client contract has no vocabulary for any of it: bodies are fetched with `BODY.PEEK[TEXT]` and folders opened with `EXAMINE` — no flag is set and then removed, either (#1231) — so a treasurer who works through an unread inbox does not find it emptied by a background task.
 
 ### 23.2 What it keeps, and what it throws away
 
@@ -1345,6 +1345,8 @@ PDF, images and office documents only — no archives, nothing executable — wi
 ### 23.4 Configuration
 
 `Configuration > Courrier entrant`, **superadmin only**. Several mailboxes at once; a mailbox may feed several modules and a module may read several mailboxes. A manager may *use* a configured mailbox in their workflow but only ever learns its name and whether it is working — never the host, the port or the account. Passwords are encrypted, never redisplayed even partially, and never appear in an error message.
+
+**« Tester la connexion » is not a relève** (#1325): it logs in and lists the folders, answers on the screen, and writes nothing on the box — neither the « dernière relève » date nor its state, so a successful test never hides the failure of the relève before it. **« Rafraîchir maintenant » says what the boxes did**: a success with the messages read and kept, a partial relève when some boxes failed, a failure when all did. **A relève error names the step it stopped at** — connection, folder list, opening a watched folder, reading the messages, or processing what was read — and « le serveur n'a pas répondu » is said only of a connection that never happened. The server's own words are never shown; the server's error log gets the step and the technical names.
 
 **Gmail connects over IMAP with an app password**, deliberately: a native connector would oblige every unit to pay for an annual security assessment, without which their sync would break every seven days.
 

@@ -14,6 +14,7 @@ use Modules\InboundMail\Mailbox\Mailbox;
 use Modules\InboundMail\Mailbox\MailboxCredentials;
 use Modules\InboundMail\Mailbox\ProviderType;
 use Modules\InboundMail\Mailbox\SyncState;
+use Modules\InboundMail\Service\MailboxErrorFormatter;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -57,11 +58,58 @@ class ImapClientAgainstAServerTest extends TestCase
         $this->assertSame('Demande de location', $fetched[0]->subject);
     }
 
+    /**
+     * What the server sees of a read (#1231): the folder opened with
+     * EXAMINE, the body fetched with BODY.PEEK, and not one STORE. The
+     * library alone SELECTed, fetched RFC822.TEXT — which sets \\Seen on a
+     * real server — and then sent STORE -FLAGS \\Seen to put it back.
+     */
+    public function testAReadOpensReadOnlyPeeksAtTheBodyAndStoresNothing(): void
+    {
+        $fetched = $this->connected()->fetchSince('INBOX', 0, 10);
+
+        $this->assertCount(1, $fetched);
+        $this->assertSame('Bonjour, est-ce libre ?', $fetched[0]->bodyText, 'the body came through BODY.PEEK');
+        $this->assertSame([], $this->server->stored, 'no flag was set or removed');
+        $this->assertContains('EXAMINE INBOX', $this->server->commands);
+        $this->assertContains('FETCH UID BODY.PEEK[TEXT]', $this->server->commands);
+        foreach ($this->server->commands as $command) {
+            $this->assertStringStartsNotWith('SELECT', $command);
+            $this->assertNotSame('FETCH RFC822.TEXT', $command, 'RFC822.TEXT marks the message read');
+            $this->assertNotSame('FETCH FLAGS', $command);
+        }
+    }
+
+    /**
+     * The sending time keeps its instant (#1248): `09:30 +0200` is 07:30
+     * UTC, and the site, keeping wall clocks in its own zone, stores the
+     * hour that instant is there — not 09:30 whatever the zone.
+     */
+    public function testTheSendingTimeIsMovedIntoTheSitesZoneBeforeItLosesItsOffset(): void
+    {
+        $previous = date_default_timezone_get();
+        date_default_timezone_set('UTC');
+
+        try {
+            $fetched = $this->connected()->fetchSince('INBOX', 0, 10);
+            $this->assertSame('2027-07-12 07:30:00', $fetched[0]->sentAt->format('Y-m-d H:i:s'));
+
+            date_default_timezone_set('America/New_York');
+            $fetched = $this->connected()->fetchSince('INBOX', 0, 10);
+            $this->assertSame('2027-07-12 03:30:00', $fetched[0]->sentAt->format('Y-m-d H:i:s'));
+        } finally {
+            date_default_timezone_set($previous);
+        }
+    }
+
     public function testAFolderListingTheServerRefusesIsAConnectionProblem(): void
     {
         $this->server->refuse = ['list'];
 
-        $this->assertConnectionProblem(fn() => $this->connected()->listFolders());
+        $this->assertConnectionProblem(
+            fn() => $this->connected()->listFolders(),
+            MailboxConnectionException::STEP_LIST
+        );
     }
 
     /**
@@ -74,21 +122,55 @@ class ImapClientAgainstAServerTest extends TestCase
     {
         $this->server->refuse = ['list'];
 
-        $this->assertConnectionProblem(fn() => $this->connected()->folderState('INBOX'));
+        $this->assertConnectionProblem(
+            fn() => $this->connected()->folderState('INBOX'),
+            MailboxConnectionException::STEP_OPEN_FOLDER
+        );
     }
 
     public function testAFolderStatusTheServerRefusesIsAConnectionProblem(): void
     {
         $this->server->refuse = ['examine'];
 
-        $this->assertConnectionProblem(fn() => $this->connected()->folderState('INBOX'));
+        $this->assertConnectionProblem(
+            fn() => $this->connected()->folderState('INBOX'),
+            MailboxConnectionException::STEP_OPEN_FOLDER
+        );
+    }
+
+    /**
+     * The case #1325 was opened for: the login and the LIST went through,
+     * then the server refused to open the folder. That server answered,
+     * and the sentence must not send the superadmin to check the host.
+     */
+    public function testAFolderRefusedAfterASuccessfulLoginIsNotCalledAServerThatDidNotAnswer(): void
+    {
+        $this->server->refuse = ['examine'];
+        $client = $this->connected();
+        $this->assertSame(['INBOX'], array_map(static fn($folder): string => $folder->path, $client->listFolders()));
+
+        try {
+            $client->folderState('INBOX');
+            $this->fail('The EXAMINE refusal was expected.');
+        } catch (MailboxConnectionException $e) {
+            $sentence = (new MailboxErrorFormatter())->format($e);
+        }
+
+        $this->assertStringNotContainsString('n\'a pas répondu', $sentence);
+        $this->assertStringContainsString('après une connexion réussie', $sentence);
+        $this->assertStringContainsString('l\'ouverture d\'un dossier surveillé', $sentence);
+        $this->assertStringContainsString('ResponseException', $sentence);
+        $this->assertStringNotContainsString('chef@unite.be', $sentence);
     }
 
     public function testASearchTheServerRefusesIsAConnectionProblem(): void
     {
         $this->server->refuse = ['search'];
 
-        $this->assertConnectionProblem(fn() => $this->connected()->fetchSince('INBOX', 0, 10));
+        $this->assertConnectionProblem(
+            fn() => $this->connected()->fetchSince('INBOX', 0, 10),
+            MailboxConnectionException::STEP_FETCH
+        );
     }
 
     public function testADeletionTheServerRefusesAnswersFalseAndRemovesNothing(): void
@@ -111,12 +193,13 @@ class ImapClientAgainstAServerTest extends TestCase
     /**
      * @param \Closure(): mixed $operation
      */
-    private function assertConnectionProblem(\Closure $operation): void
+    private function assertConnectionProblem(\Closure $operation, string $step): void
     {
         try {
             $operation();
             $this->fail('A connection problem was expected.');
         } catch (MailboxConnectionException $e) {
+            $this->assertSame($step, $e->step, 'the command that failed, for the formatter (#1325)');
             $this->assertSame('ResponseException', $e->getMessage(), 'the class, and nothing the server said');
             $this->assertStringNotContainsString('chef@unite.be', $e->getMessage());
             $this->assertInstanceOf(\Webklex\PHPIMAP\Exceptions\ResponseException::class, $e->getPrevious());

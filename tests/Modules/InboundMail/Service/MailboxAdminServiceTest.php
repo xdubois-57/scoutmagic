@@ -215,10 +215,16 @@ class MailboxAdminServiceTest extends TestCase
 
     // ── Connection test ─────────────────────────────────────────────────
 
-    public function testASuccessfulTestRecordsSuccessOnTheBox(): void
+    /**
+     * A test is not a relève (#1325): it logs in and lists the folders, and
+     * dating « dernière relève » from it hid the failure of the real one.
+     */
+    public function testASuccessfulTestLeavesTheRelevesStateAndItsErrorAlone(): void
     {
         $id = $this->createMailbox();
         $this->client->addRawMessage('INBOX', 1, "From: a@b\r\n\r\nx");
+        $failedAt = new \DateTimeImmutable('2027-07-12 09:00:00');
+        $this->repository->recordFailure($id, 'La lecture des messages a échoué.', $failedAt);
 
         $result = $this->service->testConnection($id, new \DateTimeImmutable('2027-07-12 10:00:00'));
 
@@ -227,7 +233,9 @@ class MailboxAdminServiceTest extends TestCase
 
         $mailbox = $this->repository->findById($id);
         $this->assertNotNull($mailbox);
-        $this->assertSame(SyncState::OK, $mailbox->syncState);
+        $this->assertSame(SyncState::ERROR, $mailbox->syncState, 'the failed relève still stands');
+        $this->assertSame('La lecture des messages a échoué.', $mailbox->lastError);
+        $this->assertNull($mailbox->lastSyncedAt, 'no relève happened, so none is dated');
     }
 
     public function testATestNamesTheSentFolderTheServerMarks(): void
@@ -265,20 +273,20 @@ class MailboxAdminServiceTest extends TestCase
         $this->assertNull($this->repository->findById($id)?->sentFolder);
     }
 
-    public function testAFailedTestLeavesTheSameTraceAFailedSyncWould(): void
+    /** A failed test answers on the screen and does not mark a working relève as broken. */
+    public function testAFailedTestAnswersOnTheScreenAndLeavesTheBoxAlone(): void
     {
-        // An operator should not have to work out which of the two produced
-        // the error they are reading.
         $id = $this->createMailbox();
         $this->client->failNextConnect(new \RuntimeException('SSL certificate verify failed'));
 
         $result = $this->service->testConnection($id, new \DateTimeImmutable('2027-07-12 10:00:00'));
 
         $this->assertFalse($result['ok']);
+        $this->assertStringContainsString('certificat', $result['message']);
         $mailbox = $this->repository->findById($id);
         $this->assertNotNull($mailbox);
-        $this->assertSame(SyncState::ERROR, $mailbox->syncState);
-        $this->assertSame($result['message'], $mailbox->lastError);
+        $this->assertSame(SyncState::NEVER, $mailbox->syncState);
+        $this->assertNull($mailbox->lastError);
     }
 
     public function testAFailedTestNeverEchoesTheCredential(): void
@@ -390,30 +398,38 @@ class MailboxAdminServiceTest extends TestCase
         $this->assertTrue($result['ok']);
     }
 
-    public function testFromParamsRecordsSuccessOnAnExistingBox(): void
+    public function testFromParamsRecordsNoSuccessOnAnExistingBox(): void
     {
         $id = $this->createMailbox();
         $this->client->addRawMessage('INBOX', 1, "From: a@b\r\n\r\nx");
 
         $now = new \DateTimeImmutable('2027-08-01 12:00:00');
-        $this->service->testConnectionFromParams('imap.test', 993, 'ssl', 'locations@unite.be', '', $id, $now);
+        $result = $this->service->testConnectionFromParams(
+            'imap.test', 993, 'ssl', 'locations@unite.be', '', $id, $now
+        );
 
+        $this->assertTrue($result['ok']);
         $mailbox = $this->repository->findById($id);
         $this->assertNotNull($mailbox);
-        $this->assertSame(SyncState::OK, $mailbox->syncState);
+        $this->assertSame(SyncState::NEVER, $mailbox->syncState);
+        $this->assertNull($mailbox->lastSyncedAt);
     }
 
-    public function testFromParamsRecordsFailureOnAnExistingBox(): void
+    public function testFromParamsRecordsNoFailureOnAnExistingBox(): void
     {
         $id = $this->createMailbox();
         $this->client->failNextConnect(new \RuntimeException('timeout'));
 
         $now = new \DateTimeImmutable('2027-08-01 12:00:00');
-        $this->service->testConnectionFromParams('imap.test', 993, 'ssl', 'locations@unite.be', '', $id, $now);
+        $result = $this->service->testConnectionFromParams(
+            'imap.test', 993, 'ssl', 'locations@unite.be', '', $id, $now
+        );
 
+        $this->assertFalse($result['ok']);
         $mailbox = $this->repository->findById($id);
         $this->assertNotNull($mailbox);
-        $this->assertSame(SyncState::ERROR, $mailbox->syncState);
+        $this->assertSame(SyncState::NEVER, $mailbox->syncState);
+        $this->assertNull($mailbox->lastError);
     }
 
     public function testFromParamsDoesNotRecordAnythingForANewBox(): void

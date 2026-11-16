@@ -56,13 +56,20 @@ class ManualRefreshService
     }
 
     /**
-     * @return array{ok: bool, message: string}
+     * What the button says is what the boxes did (#1325). The request
+     * succeeding is not the relève succeeding: a box that failed records
+     * its reason on its row, and the flash used to announce « 0 message(s)
+     * lu(s) » in green above that very row. `level` is the flash type —
+     * success, warning for a partial relève, error when nothing worked.
+     *
+     * @return array{ok: bool, level: string, message: string}
      */
     public function refresh(\DateTimeImmutable $now): array
     {
         if ($this->isLocked($now)) {
             return [
                 'ok' => false,
+                'level' => 'warning',
                 'message' => 'Un rafraîchissement est déjà en cours. Patientez quelques instants.',
             ];
         }
@@ -79,12 +86,54 @@ class ManualRefreshService
             $this->unlock();
         }
 
+        return self::summarise($report);
+    }
+
+    /**
+     * @return array{ok: bool, level: string, message: string}
+     */
+    public static function summarise(SyncReport $report): array
+    {
+        $attempted = $report->attemptedCount();
+        $failed = $report->failureCount();
+        $counts = sprintf('%d message(s) lu(s), %d conservé(s).', $report->totalSeen(), $report->totalStored());
+
+        if ($attempted === 0) {
+            return [
+                'ok' => false,
+                'level' => 'warning',
+                'message' => 'Aucune boîte n\'a été relevée : aucune n\'est active avec ses identifiants.',
+            ];
+        }
+
+        if ($failed === 0) {
+            return [
+                'ok' => true,
+                'level' => 'success',
+                'message' => sprintf('Relève réussie pour %d boîte(s) : %s', $attempted, $counts),
+            ];
+        }
+
+        if ($failed === $attempted) {
+            return [
+                'ok' => false,
+                'level' => 'error',
+                'message' => sprintf(
+                    'La relève a échoué pour %s. La raison est indiquée sur chaque boîte ci-dessous.',
+                    $attempted === 1 ? 'la boîte' : sprintf('les %d boîtes', $attempted)
+                ),
+            ];
+        }
+
         return [
-            'ok' => true,
+            'ok' => false,
+            'level' => 'warning',
             'message' => sprintf(
-                '%d message(s) lu(s), %d conservé(s).',
-                $report->totalSeen(),
-                $report->totalStored()
+                'Relève partielle : %d boîte(s) sur %d en échec, la raison est indiquée sur chacune. '
+                    . 'Pour les autres : %s',
+                $failed,
+                $attempted,
+                $counts
             ),
         ];
     }

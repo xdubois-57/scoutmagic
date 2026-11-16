@@ -21,7 +21,8 @@ class SyncOutcome
         public readonly bool $connected,
         public readonly int $messagesSeen,
         public readonly int $messagesStored,
-        public readonly ?string $reason = null
+        public readonly ?string $reason = null,
+        public readonly bool $skipped = false
     ) {
     }
 
@@ -41,12 +42,17 @@ class SyncOutcome
      */
     public static function skipped(string $reason): self
     {
-        return new self(false, 0, 0, $reason);
+        return new self(false, 0, 0, $reason, true);
     }
 
+    /**
+     * A relève that was attempted and failed. A skipped box is not one: it
+     * was never asked, and counting it as a failure made « Rafraîchir
+     * maintenant » report a box with no credentials yet as broken.
+     */
     public function isFailure(): bool
     {
-        return !$this->connected && $this->reason !== null;
+        return !$this->connected && $this->reason !== null && !$this->skipped;
     }
 
     /**
