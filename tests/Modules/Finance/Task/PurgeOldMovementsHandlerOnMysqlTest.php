@@ -34,14 +34,9 @@ use Tests\UsesProductionEngine;
  * The purge of an orphaned receipt, on the engine production runs.
  *
  * The SQLite suite runs without foreign keys; MariaDB enforces
- * `fk_fatt_file`, which has no ON DELETE clause. So the order the handler
- * takes — the file (blob, then `files` row) before the receipt row that
- * points at it — is refused at the `files` row, and lands in the catch
- * that journals the failure.
- *
- * Pins current behaviour: the blob is already unlinked when the refusal
- * comes, so the receipt row and its `files` row survive pointing at a
- * file that is gone from the disk.
+ * `fk_fatt_file`, which has no ON DELETE clause: a `files` row cannot go
+ * while a receipt still points at it. So the receipt row has to be deleted
+ * first, and the blob only once both rows are gone.
  */
 #[Group('database')]
 final class PurgeOldMovementsHandlerOnMysqlTest extends TestCase
@@ -75,7 +70,7 @@ final class PurgeOldMovementsHandlerOnMysqlTest extends TestCase
         rmdir($this->storagePath);
     }
 
-    public function testAnOrphanedReceiptTheForeignKeyProtectsIsJournaledAsAFailedPurge(): void
+    public function testAnOrphanedReceiptIsPurgedRowsFirstThenTheBlobOnTheEngineThatEnforcesTheForeignKey(): void
     {
         $this->assertContains(
             $this->pdo->query(
@@ -85,7 +80,66 @@ final class PurgeOldMovementsHandlerOnMysqlTest extends TestCase
             ['RESTRICT', 'NO ACTION'],
             'the premise: this engine refuses to delete a file a receipt points at'
         );
+        [$transactionId, $attachmentId, $fileId, $diskPath] = $this->anOrphanedReceipt();
 
+        (new PurgeOldMovementsHandler())->handle([], $this->taskContext());
+
+        $this->assertSame(0, $this->rowCount('finance_transactions', $transactionId), 'the movements are purged');
+        $this->assertSame(0, $this->rowCount('finance_attachments', $attachmentId), 'the receipt row is gone');
+        $this->assertSame(0, $this->rowCount('files', $fileId), 'its files row is gone');
+        $this->assertFileDoesNotExist($diskPath, 'and so is the blob');
+        $this->assertSame(
+            0,
+            (int) $this->pdo->query("SELECT COUNT(*) FROM event_log WHERE event_type = 'receipt_purge_failed'")
+                ->fetchColumn()
+        );
+        $this->assertStringContainsString(
+            '1 reçu(s) orphelin(s) supprimé(s)',
+            (string) $this->pdo->query("SELECT description FROM event_log WHERE event_type = 'movements_purged'")
+                ->fetchColumn()
+        );
+    }
+
+    public function testAReceiptWhoseFileRowCannotBeDeletedKeepsItsBlobAndItsRowsAndIsJournaledAsAWarning(): void
+    {
+        [, $attachmentId, $fileId, $diskPath] = $this->anOrphanedReceipt();
+        // Another table pointing at the same file: the `files` row is refused.
+        $this->pdo->exec('CREATE TABLE purge_test_file_holder (
+            file_id INT UNSIGNED NOT NULL,
+            CONSTRAINT fk_purge_test_holder FOREIGN KEY (file_id) REFERENCES files(id)
+        ) ENGINE=InnoDB');
+        try {
+            $this->pdo->exec("INSERT INTO purge_test_file_holder (file_id) VALUES ({$fileId})");
+
+            (new PurgeOldMovementsHandler())->handle([], $this->taskContext());
+        } finally {
+            $this->pdo->exec('DROP TABLE purge_test_file_holder');
+        }
+
+        $this->assertSame(1, $this->rowCount('finance_attachments', $attachmentId), 'the receipt row is rolled back');
+        $this->assertSame(1, $this->rowCount('files', $fileId));
+        $this->assertFileExists($diskPath, 'the blob is untouched: nothing was removed that a rollback could not undo');
+        $failure = $this->pdo->query(
+            "SELECT level, description, context FROM event_log WHERE event_type = 'receipt_purge_failed'"
+        )->fetchAll(\PDO::FETCH_ASSOC);
+        $this->assertCount(1, $failure);
+        $this->assertSame('warning', $failure[0]['level']);
+        $this->assertSame(
+            ['attachment_id' => $attachmentId, 'error' => \PDOException::class],
+            json_decode($failure[0]['context'], true)
+        );
+        $this->assertStringContainsString(
+            '0 reçu(s) orphelin(s) supprimé(s)',
+            (string) $this->pdo->query("SELECT description FROM event_log WHERE event_type = 'movements_purged'")
+                ->fetchColumn()
+        );
+    }
+
+    /**
+     * @return array{int, int, int, string} the movement, its receipt, the receipt's file and the blob's path
+     */
+    private function anOrphanedReceipt(): array
+    {
         $this->pdo->exec(
             "INSERT INTO scout_years (label, start_date, end_date) VALUES ('2014-2015', '2014-09-01', '2015-08-31')"
         );
@@ -99,33 +153,20 @@ final class PurgeOldMovementsHandlerOnMysqlTest extends TestCase
         $fileId = (new EncryptedFileStorageService($files, $this->encryption, $this->storagePath))
             ->store('receipt content', 'application/pdf', 'r.pdf', 'finance/receipts', 'intendant');
         $diskPath = $this->storagePath . '/' . $files->findById($fileId)?->relativePath;
-        $attachments = new AttachmentRepository($this->pdo, $this->encryption);
-        $attachmentId = $attachments->create($accountId, $fileId, 'application/pdf', 'r.pdf', null, null, null, 1);
+        $attachmentId = (new AttachmentRepository($this->pdo, $this->encryption))
+            ->create($accountId, $fileId, 'application/pdf', 'r.pdf', null, null, null, 1);
         (new TransactionAttachmentRepository($this->pdo))->associate($transactionId, $attachmentId);
         $this->assertFileExists($diskPath);
 
-        (new PurgeOldMovementsHandler())->handle([], $this->taskContext());
+        return [$transactionId, $attachmentId, $fileId, $diskPath];
+    }
 
-        $movements = $this->pdo->prepare('SELECT COUNT(*) FROM finance_transactions WHERE id = ?');
-        $movements->execute([$transactionId]);
-        $this->assertSame(0, (int) $movements->fetchColumn(), 'the movements are purged all the same');
-        $failure = $this->pdo->query(
-            "SELECT description, context FROM event_log WHERE event_type = 'receipt_purge_failed'"
-        )->fetchAll(\PDO::FETCH_ASSOC);
-        $this->assertCount(1, $failure);
-        $this->assertStringStartsWith('Suppression du reçu orphelin échouée : ', $failure[0]['description']);
-        $this->assertStringContainsString('fk_fatt_file', $failure[0]['description']);
-        $this->assertSame(['attachment_id' => $attachmentId], json_decode($failure[0]['context'], true));
-        $this->assertStringContainsString(
-            '0 reçu(s) orphelin(s) supprimé(s)',
-            (string) $this->pdo->query("SELECT description FROM event_log WHERE event_type = 'movements_purged'")
-                ->fetchColumn()
-        );
+    private function rowCount(string $table, int $id): int
+    {
+        $statement = $this->pdo->prepare("SELECT COUNT(*) FROM {$table} WHERE id = ?");
+        $statement->execute([$id]);
 
-        // The defect, pinned: both rows survive, the bytes do not.
-        $this->assertNotNull($attachments->findById($attachmentId));
-        $this->assertNotNull($files->findById($fileId));
-        $this->assertFileDoesNotExist($diskPath);
+        return (int) $statement->fetchColumn();
     }
 
     private function taskContext(): TaskContext

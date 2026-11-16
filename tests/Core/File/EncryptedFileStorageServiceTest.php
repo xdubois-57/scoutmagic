@@ -112,6 +112,29 @@ class EncryptedFileStorageServiceTest extends TestCase
         $this->assertNull($this->fileRepository->findById($fileId));
     }
 
+    public function testDeleteBlobRemovesTheBytesAndLeavesTheRecordForTheCallerToDelete(): void
+    {
+        $fileId = $this->service->store('content', 'application/pdf', 'a.pdf', 'finance/receipts', 'intendant');
+        $file = $this->fileRepository->findById($fileId);
+        $diskPath = $this->storagePath . '/' . $file->relativePath;
+
+        $this->service->deleteBlob($file);
+
+        $this->assertFileDoesNotExist($diskPath);
+        $this->assertNotNull($this->fileRepository->findById($fileId));
+    }
+
+    public function testDeleteBlobOfABlobAlreadyGoneIsANoOp(): void
+    {
+        $fileId = $this->service->store('content', 'application/pdf', 'a.pdf', 'finance/receipts', 'intendant');
+        $file = $this->fileRepository->findById($fileId);
+        $this->service->deleteBlob($file);
+
+        $this->service->deleteBlob($file);
+
+        $this->addToAssertionCount(1);
+    }
+
     public function testDeleteOfUnknownFileIdIsANoOp(): void
     {
         $this->service->delete(9999);
