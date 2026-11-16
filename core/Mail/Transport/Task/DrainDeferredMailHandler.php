@@ -302,12 +302,19 @@ class DrainDeferredMailHandler implements TaskHandlerInterface
 
         try {
             foreach ($carried as $attachment) {
-                // Created exclusively (`x`) and made private BEFORE the
-                // content goes in: `tempnam()` gave that for free, and a
-                // decrypted receipt must never be readable by another
-                // account on the host, even for the instant a write takes.
+                // Created exclusively (`x`) AND created private: `fopen()` asks
+                // the kernel for 0666 minus the umask — 0644 under the usual
+                // 022 — and a chmod afterwards cannot take back a descriptor
+                // another local account opened in between. `tempnam()` gave
+                // 0600 atomically; the umask is narrowed around the one call
+                // that creates the file to get the same, and restored at once.
                 $path = $directory . '/scoutmagic-deferred-' . bin2hex(random_bytes(16));
-                $handle = @fopen($path, 'xb');
+                $previousUmask = umask(0077);
+                try {
+                    $handle = @fopen($path, 'xb');
+                } finally {
+                    umask($previousUmask);
+                }
                 if ($handle === false) {
                     throw new \RuntimeException('Impossible de créer un fichier temporaire pour une pièce jointe.');
                 }
@@ -315,6 +322,7 @@ class DrainDeferredMailHandler implements TaskHandlerInterface
                 $temporary[] = $path;
 
                 try {
+                    // Belt and braces, for a stream that ignores the umask.
                     @chmod($path, 0600);
                     // A short write is a full disk too: `fwrite()` reports
                     // how much it managed, not that it failed.

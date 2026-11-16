@@ -374,6 +374,35 @@ class DrainDeferredMailHandlerTest extends TestCase
         $this->assertSame(1, $waiting[0]->attempts);
     }
 
+    /**
+     * The file is created private, not narrowed afterwards: a chmod cannot
+     * revoke a descriptor opened between the create and the chmod. With the
+     * umask a hosting account usually has (022) a plain create is 0644, so
+     * the mode seen at send time alone does not prove it — the creation does,
+     * and the umask the process had must be handed back.
+     */
+    public function testTheTemporaryFileIsCreatedPrivateAndTheCallersUmaskIsRestored(): void
+    {
+        $this->queue(
+            MailLane::Bulk,
+            nextAttemptAt: $this->minutesAgo(5),
+            attachments: [['name' => 'un.pdf', 'content' => 'premier']]
+        );
+        $directory = sys_get_temp_dir() . '/drain-deferred-umask-' . uniqid();
+        mkdir($directory);
+        $before = umask(0022);
+        try {
+            (new DrainDeferredMailHandler($directory))->handle([], $this->context());
+            $after = umask($before);
+        } finally {
+            umask($before);
+            rmdir($directory);
+        }
+
+        $this->assertSame(0022, $after, 'the process umask is what it was');
+        $this->assertSame([0600], $this->temporaryModesSeen);
+    }
+
     public function testTheAttachmentIsWrittenWithTheContentItCarriesIntoTheDirectoryItWasGiven(): void
     {
         $this->queue(
