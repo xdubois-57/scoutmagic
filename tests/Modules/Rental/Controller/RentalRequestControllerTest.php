@@ -1297,6 +1297,35 @@ class RentalRequestControllerTest extends TestCase
     }
 
     /**
+     * Nobody can be told and there is no journal to say so: the request is
+     * still stored and acknowledged, and the failure goes to the server's
+     * log (the kind of failure and the booking, never an address).
+     */
+    public function testManagersWhoCannotBeToldFallBackToTheServerLogWithoutAJournal(): void
+    {
+        $assetId = $this->createAsset();
+        $this->addAccount('gestionnaire@test.be');
+        $this->addManager($assetId, 'gestionnaire@test.be');
+        $this->pdo->exec('DROP TABLE rental_asset_managers');
+        (new \ReflectionProperty($this->controller, 'journalService'))->setValue($this->controller, null);
+        $log = tempnam(sys_get_temp_dir(), 'serverlog');
+        $previous = ini_set('error_log', $log);
+        try {
+            $response = $this->submit($this->validBody());
+        } finally {
+            ini_set('error_log', (string) $previous);
+        }
+
+        $written = (string) file_get_contents($log);
+        unlink($log);
+        $this->assertSame(302, $response->getStatusCode(), (string) $response->getBody());
+        $this->assertSame(1, $this->bookingCount());
+        $this->assertStringContainsString('managers could not be told of a new request (PDOException)', $written);
+        $this->assertStringContainsString('booking #1', $written);
+        $this->assertStringNotContainsString('gestionnaire@test.be', $written);
+    }
+
+    /**
      * The acknowledgement the transport refuses: the request is kept, the
      * renter lands on their page — the only way back in — and is told to
      * keep its link. The managers are told all the same.

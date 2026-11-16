@@ -1019,6 +1019,71 @@ class RentalSignedContractServiceTest extends TestCase
         $this->assertStringNotContainsString('gestionnaire@test.be', serialize($entries));
     }
 
+    /**
+     * The managers cannot be told and the journal cannot say so either: the
+     * copy is still received, and the failure goes to the server's log (the
+     * kind of failure and the booking, never an address).
+     */
+    public function testACopyIsReceivedWhenNeitherTheManagersNorTheJournalCanBeReached(): void
+    {
+        $scoutYearId = (int) (new \Core\Config\ScoutYearService($this->pdo))->getCurrentYear()['id'];
+        $memberId = RentalTestHelper::insertMember($this->pdo, 'D-GEST0002');
+        RentalTestHelper::insertMemberYear(
+            $this->pdo,
+            $this->encryption,
+            $memberId,
+            $scoutYearId,
+            'gestionnaire@test.be'
+        );
+        $managers = new \Modules\Rental\Repository\RentalAssetManagerRepository($this->pdo);
+        $managers->grant($this->assetId, $memberId, false);
+        $this->pdo->prepare('INSERT INTO user_accounts (email_encrypted, email_blind_index) VALUES (?, ?)')
+            ->execute([
+                $this->encryption->encrypt('gestionnaire@test.be', 'user_accounts.email'),
+                $this->encryption->blindIndex('gestionnaire@test.be', 'email'),
+            ]);
+        $resolver = new \Modules\Rental\Service\ManagerRecipientResolver(
+            $managers,
+            new \Core\Import\MemberYearRepository($this->pdo),
+            new UserAccountRepository($this->pdo, $this->encryption),
+            $this->journal
+        );
+        $failingRepository = new class ($this->pdo) extends \Core\Journal\JournalRepository {
+            public function insert(
+                string $category,
+                string $type,
+                string $level,
+                string $description,
+                ?string $contextJson,
+                ?int $userId,
+                ?string $ipAddress = null
+            ): void {
+                throw new \PDOException('server has gone away');
+            }
+        };
+        $this->journal = new \Core\Journal\JournalService($failingRepository);
+        $sent = [];
+        $service = $this->buildService($this->notifications($sent), $resolver);
+        $booking = $this->booking();
+        $this->pdo->exec('DROP TABLE rental_asset_managers');
+        $log = tempnam(sys_get_temp_dir(), 'serverlog');
+        $previous = ini_set('error_log', $log);
+        try {
+            $stored = $this->storedFile(self::photo(), 'jpg', 'image/jpeg');
+            $copy = $service->receiveCopy($booking, $this->asset(), $stored);
+        } finally {
+            ini_set('error_log', (string) $previous);
+        }
+
+        $written = (string) file_get_contents($log);
+        unlink($log);
+        $this->assertSame(DocumentType::SIGNED_COPY, $copy->type);
+        $this->assertStringContainsString('managers could not be told of a signed copy (PDOException)', $written);
+        $this->assertStringContainsString('neither could the journal (PDOException)', $written);
+        $this->assertStringContainsString("booking #{$booking->id}", $written);
+        $this->assertStringNotContainsString('gestionnaire@test.be', $written);
+    }
+
     public function testACopyOfAnotherBookingCannotBeAnsweredThroughThisOne(): void
     {
         $mine = $this->booking();

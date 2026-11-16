@@ -1292,6 +1292,47 @@ class RentalMessageConsumerTest extends TestCase
         $this->assertSame(['booking_id' => $booking->id, 'message_id' => 41], json_decode($entry['context'], true));
     }
 
+    /**
+     * With no journal to write to — or one that fails too — the failure
+     * goes to the server's log instead of nowhere, still without an address.
+     */
+    public function testAnAddressThatCannotBeLearnedFallsBackToTheServerLogWithoutAJournal(): void
+    {
+        $booking = $this->createBooking();
+        $failing = new class ($this->pdo, $this->encryption) extends RentalBookingRepository {
+            public function addRenterEmail(int $bookingId, string $email, ?int $learnedFromMessageId = null): bool
+            {
+                throw new \PDOException('server has gone away');
+            }
+        };
+        $message = new \Modules\InboundMail\Api\InboundMessage(
+            41, $this->mailboxId, '', '', LinkOrigin::AI, 'Les clés', 'tresorier@groupe.example', null,
+            'a@b', null, new \DateTimeImmutable('2027-07-02 09:30:00'), '', '',
+            senderVerified: true
+        );
+        $log = tempnam(sys_get_temp_dir(), 'serverlog');
+        $previous = ini_set('error_log', $log);
+        try {
+            (new RentalMessageConsumer(
+                $failing,
+                $this->inboundMail,
+                $this->documentService,
+                assetRepository: $this->assetRepository
+            ))->onLinked(
+                $message,
+                new MessageLink(RentalMessageConsumer::CONSUMER_ID, $booking->reference, LinkOrigin::AI)
+            );
+        } finally {
+            ini_set('error_log', (string) $previous);
+        }
+
+        $written = (string) file_get_contents($log);
+        unlink($log);
+        $this->assertStringContainsString('a renter address could not be learned (PDOException)', $written);
+        $this->assertStringContainsString("booking #{$booking->id}, message #41", $written);
+        $this->assertStringNotContainsString('tresorier@groupe.example', $written);
+    }
+
     /** Issue #1121: the model picking a booking for a forged sender teaches it nothing. */
     public function testAnAiDecisionAboutAnUnverifiedSenderTeachesNothing(): void
     {
