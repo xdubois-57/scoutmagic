@@ -174,9 +174,12 @@ class NotificationServiceTest extends TestCase
     }
 
     /**
-     * A body too long for a push message is refused by the push library
-     * for every device in turn; each refusal is skipped, `notify()` does
-     * not fail, nothing is left queued, and the notification is kept.
+     * A payload no cut can bring under the limit — here an address as long
+     * as the whole push — is the one the push library would refuse for
+     * every device in turn. It is not pushed at all (a long BODY is cut
+     * to fit instead, #1241, and then reaches the encryption: this test
+     * once used one, and its fake keys made the library throw); `notify()`
+     * does not fail, nothing is left queued, and the notification is kept.
      */
     public function testAPayloadThePushLibraryRefusesIsSkippedForEveryDevice(): void
     {
@@ -200,7 +203,7 @@ class NotificationServiceTest extends TestCase
         $service->subscribe($userId, 'https://push.example/device-1', 'auth1', 'p256dh1');
         $service->subscribe($userId, 'https://push.example/device-2', 'auth2', 'p256dh2');
 
-        $service->notify($userId, 'Titre', str_repeat('Un compte rendu très long. ', 200));
+        $service->notify($userId, 'Titre', 'Court.', '/' . str_repeat('x', 5000));
 
         $this->assertSame(0, $webPush->countPendingNotifications());
         $this->assertCount(1, $this->notificationRepository->findByUserAccountId($userId));
