@@ -235,6 +235,126 @@ class TransportServiceTest extends TestCase
     }
 
     /**
+     * @return list<array{string, string, string}> level, event type, context of what the journal holds
+     */
+    private function journaledFailures(): array
+    {
+        return array_map(
+            static fn (array $row): array => [$row['level'], $row['event_type'], (string) $row['context']],
+            $this->pdo->query(
+                "SELECT level, event_type, context FROM event_log WHERE event_type = 'mail_provider_save_failed'"
+            )->fetchAll(\PDO::FETCH_ASSOC)
+        );
+    }
+
+    /**
+     * The two failures of a save are told apart (#1209). A secrets file that
+     * cannot be written is the one the sentence about the file is true for…
+     */
+    public function testAProviderWhoseCredentialsCannotBeWrittenBlamesTheSecretsFileAndIsNotCreated(): void
+    {
+        $service = $this->serviceThatCannotWriteSecrets();
+
+        try {
+            $service->addProvider('Brevo', 'smtp-relay.brevo.com', 587, 'u', 'mot-de-passe', 300, 50, 10);
+            $this->fail('A provider whose credentials cannot be written must not be created.');
+        } catch (TransportException $e) {
+            $this->assertStringContainsString('fichier des secrets', $e->getMessage());
+            $this->assertStringContainsString('donc il n’a pas été créé', $e->getMessage());
+        }
+
+        $this->assertSame([], $this->providers->findAll(), 'the row was taken back');
+    }
+
+    /**
+     * …and a database that refuses the lane entries is not. The credentials
+     * were written, then erased by the rollback; sending a superadmin to
+     * check the file's permissions, which are fine, hid the real cause.
+     */
+    public function testAProviderThatCannotBePlacedInTheLanesDoesNotBlameTheSecretsFile(): void
+    {
+        $this->pdo->exec('DROP TABLE mail_lane_entries');
+
+        try {
+            $this->service->addProvider('Brevo', 'smtp-relay.brevo.com', 587, 'u', 'mot-de-passe', 300, 50, 10);
+            $this->fail('A provider that could not be placed in the lanes must not be reported as created.');
+        } catch (TransportException $e) {
+            $this->assertStringNotContainsString('fichier des secrets', $e->getMessage());
+            $this->assertStringContainsString('journal', $e->getMessage());
+            $this->assertStringContainsString('n’a pas été créé', $e->getMessage());
+            $this->assertStringNotContainsString($this->secretsDirectory, $e->getMessage());
+            $this->assertStringNotContainsString('mail_lane_entries', $e->getMessage(), 'never the exception\'s own words');
+            $this->assertInstanceOf(\PDOException::class, $e->getPrevious());
+        }
+
+        // The cause is where the journal gives it, at the level that gets noticed.
+        $entries = $this->journaledFailures();
+        $this->assertCount(1, $entries);
+        $this->assertSame('error', $entries[0][0]);
+        $context = json_decode($entries[0][2], true);
+        $this->assertSame('add', $context['operation']);
+        $this->assertSame(\PDOException::class, $context['cause']);
+        $this->assertStringContainsString('mail_lane_entries', (string) $context['detail']);
+    }
+
+    public function testAnEditWhoseCredentialsCannotBeWrittenBlamesTheSecretsFile(): void
+    {
+        $relay = $this->providers->create('Ancien nom', null, 50, 10, 'mail_provider_7');
+
+        try {
+            $this->serviceThatCannotWriteSecrets()
+                ->updateProvider($relay, 'Nouveau nom', 'smtp.exemple.test', 587, 'u', 'p', 900, 99, 33);
+            $this->fail('An edit whose credentials cannot be stored must be refused.');
+        } catch (TransportException $e) {
+            $this->assertStringContainsString('fichier des secrets', $e->getMessage());
+        }
+    }
+
+    /**
+     * The credentials were stored; it is the row's update the database
+     * refused, and the file is not to blame.
+     */
+    public function testAnEditThatTheDatabaseRefusesDoesNotBlameTheSecretsFile(): void
+    {
+        $relay = $this->providers->create('Ancien nom', null, 50, 10, 'mail_provider_7');
+        $this->pdo->exec(
+            "CREATE TRIGGER refuse_provider_update BEFORE UPDATE ON mail_providers
+             BEGIN SELECT RAISE(ABORT, 'refused by the test'); END"
+        );
+
+        try {
+            $this->service->updateProvider($relay, 'Nouveau nom', 'smtp.exemple.test', 587, 'u', 'p', 900, 99, 33);
+            $this->fail('An edit the database refuses must be refused.');
+        } catch (TransportException $e) {
+            $this->assertStringNotContainsString('fichier des secrets', $e->getMessage());
+            $this->assertStringContainsString('journal', $e->getMessage());
+            $this->assertStringContainsString('n’a pas pu être enregistré', $e->getMessage());
+            $this->assertStringNotContainsString('refused by the test', $e->getMessage());
+            $this->assertInstanceOf(\PDOException::class, $e->getPrevious());
+        }
+
+        $entries = $this->journaledFailures();
+        $this->assertCount(1, $entries);
+        $this->assertSame('error', $entries[0][0]);
+        $context = json_decode($entries[0][2], true);
+        $this->assertSame('update', $context['operation']);
+        $this->assertSame($relay, $context['provider_id']);
+    }
+
+    public function testAFailedSecretsWriteIsNotJournaledAsADatabaseFailure(): void
+    {
+        $service = $this->serviceThatCannotWriteSecrets();
+
+        try {
+            $service->addProvider('Brevo', 'smtp-relay.brevo.com', 587, 'u', 'p', null, 50, 10);
+        } catch (TransportException) {
+            // asserted below
+        }
+
+        $this->assertSame([], $this->journaledFailures(), 'the secrets file has its own sentence and needs no second report');
+    }
+
+    /**
      * And an edit that cannot store its credentials changes nothing.
      *
      * Here the order CAN be chosen, so it is: credentials first. Written
