@@ -270,14 +270,15 @@ class RentalAssetService
      * Whether anything records what actually happened to this asset, making
      * it archivable but not deletable.
      *
-     * Currently nothing does — bookings arrive in a later iteration — so
-     * this is honestly `false` rather than a stub pretending to check.
-     * Every iteration that adds a history-bearing table adds its check
-     * here, which is why deletion goes through this one gate.
+     * Today that is its bookings, of any status — a cancelled one records
+     * what happened too — and the bookings' own dependants (documents,
+     * payments, stay data) cascade from them. Every table that records
+     * history without hanging off a booking adds its check here, which is
+     * why deletion goes through this one gate.
      */
     public function hasHistory(int $assetId): bool
     {
-        return false;
+        return $this->assetRepository->hasBookings($assetId);
     }
 
     public function requireAsset(int $assetId): RentalAsset

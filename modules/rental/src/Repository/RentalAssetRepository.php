@@ -227,6 +227,24 @@ class RentalAssetRepository
     }
 
     /**
+     * Whether ANY booking, whatever its status, is recorded for this asset.
+     *
+     * Asked by RentalAssetService::hasHistory() before a delete: a cancelled
+     * or declined booking still records what happened, and
+     * `rental_bookings.asset_id` is `ON DELETE CASCADE`, so deleting the asset
+     * would take every booking — and the documents, payments and stay data
+     * hanging off them — with it. Read here, not injected, so a service built
+     * without a way to ask can never skip the question.
+     */
+    public function hasBookings(int $id): bool
+    {
+        $stmt = $this->pdo->prepare('SELECT 1 FROM rental_bookings WHERE asset_id = ? LIMIT 1');
+        $stmt->execute([$id]);
+
+        return $stmt->fetchColumn() !== false;
+    }
+
+    /**
      * Hard delete. Only ever reachable for an asset with no history at all
      * — Service\RentalAssetService is what enforces that, since only it
      * knows which other tables reference an asset.
