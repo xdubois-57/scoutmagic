@@ -31,6 +31,16 @@ class PdfCompressor
 
     private const TIMEOUT_SECONDS = 60;
 
+    /**
+     * What Ghostscript prints when it wrote something that is not the
+     * document: the input could not be opened, and no page was processed.
+     * Both appear together on an unreadable file; either is enough.
+     */
+    private const REWRITE_FAILURE_MARKERS = [
+        'No pages will be processed',
+        "Couldn't initialise file",
+    ];
+
     public function __construct(private string $tempDirectory)
     {
     }
@@ -110,8 +120,17 @@ class PdfCompressor
      * A phone's scanner or a word processor writes PDF 1.5+ with compressed
      * cross-references more often than not, and FPDI refuses those. Only
      * Ghostscript rewrites a file that way, so this is null without it, on
-     * a failure, or when the output is not a PDF: callers then say the
-     * file could not be read, never that it was.
+     * a failure, when the output is not a PDF, or when Ghostscript says it
+     * carried no page over: callers then say the file could not be read,
+     * never that it was.
+     *
+     * That last case is not an error to Ghostscript. Handed a file that
+     * starts with `%PDF-` but cannot be read, it prints « Couldn't
+     * initialise file » and « No pages will be processed », EXITS 0 and
+     * writes a valid PDF of one blank page — which a caller that checks the
+     * exit code and the header would pass on as the document. So what it
+     * printed is read as well (REWRITE_FAILURE_MARKERS), and a log that
+     * cannot be read is a doubt, which is a refusal.
      */
     public function rewriteForImport(string $content): ?string
     {
@@ -124,19 +143,24 @@ class PdfCompressor
         }
         $inputPath = $this->tempDirectory . '/' . bin2hex(random_bytes(16)) . '.pdf';
         $outputPath = $this->tempDirectory . '/' . bin2hex(random_bytes(16)) . '.pdf';
+        $logPath = $this->tempDirectory . '/' . bin2hex(random_bytes(16)) . '.log';
 
         try {
             if (file_put_contents($inputPath, $content) === false) {
                 return null;
             }
 
+            // What Ghostscript says goes to a file rather than a pipe: a
+            // chatty failure cannot fill a pipe nobody is reading and stall
+            // it until the timeout.
             $ran = $this->runWithTimeout(sprintf(
                 'gs -dSAFER -dBATCH -dNOPAUSE -dQUIET -sDEVICE=pdfwrite -dCompatibilityLevel=1.4 '
-                    . '-sOutputFile=%s %s',
+                    . '-sOutputFile=%s %s > %s 2>&1',
                 escapeshellarg($outputPath),
-                escapeshellarg($inputPath)
+                escapeshellarg($inputPath),
+                escapeshellarg($logPath)
             ));
-            if (!$ran || !is_file($outputPath)) {
+            if (!$ran || !is_file($outputPath) || !$this->carriedADocumentOver($logPath)) {
                 return null;
             }
 
@@ -146,7 +170,27 @@ class PdfCompressor
         } finally {
             @unlink($inputPath);
             @unlink($outputPath);
+            @unlink($logPath);
         }
+    }
+
+    /**
+     * Whether Ghostscript's own account of the run says it read the input.
+     * An unreadable log is a doubt, and a doubt is a no.
+     */
+    private function carriedADocumentOver(string $logPath): bool
+    {
+        $log = @file_get_contents($logPath);
+        if ($log === false) {
+            return false;
+        }
+        foreach (self::REWRITE_FAILURE_MARKERS as $marker) {
+            if (str_contains($log, $marker)) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**

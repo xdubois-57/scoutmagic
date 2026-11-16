@@ -156,6 +156,80 @@ class PdfCompressorTest extends TestCase
         @unlink($path);
     }
 
+    private function requireGhostscript(): void
+    {
+        exec('which gs 2>/dev/null', $out, $exit);
+        if ($exit !== 0) {
+            $this->markTestSkipped('Ghostscript not available in this environment.');
+        }
+    }
+
+    /**
+     * What a file that starts with `%PDF-` but cannot be read does to
+     * Ghostscript: it reports « Couldn't initialise file » and « No pages
+     * will be processed » on its output, EXITS 0, and writes a valid PDF of
+     * one blank page. That page was then countersigned as the renter's
+     * contract. Anything that did not actually carry a document over must
+     * come back as null — « could not be read », never a blank page.
+     *
+     * @return array<string, array{string}>
+     */
+    public static function unreadableFilesThatLookLikePdfs(): array
+    {
+        return [
+            'header and prose' => ["%PDF-1.7\nthis is not really a pdf, no xref, nothing\n"],
+            'header only' => ["%PDF-1.4\n"],
+            'header and binary noise' => ["%PDF-1.7\n" . str_repeat("\x00\xff\x13\x37", 256)],
+            'header and a cut-off object' => ["%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R"],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('unreadableFilesThatLookLikePdfs')]
+    public function testRewriteForImportAnswersNullForAnUnreadableFileThatStartsLikeAPdf(string $content): void
+    {
+        $this->requireGhostscript();
+
+        $this->assertNull(
+            (new PdfCompressor($this->tempDirectory))->rewriteForImport($content),
+            'an unreadable file must be refused, not turned into a blank page'
+        );
+    }
+
+    public function testRewriteForImportKeepsEveryPageOfARealDocument(): void
+    {
+        $this->requireGhostscript();
+
+        // The other direction: refusing the unreadable must not refuse a
+        // real multi-page document written the way a phone scanner does.
+        @mkdir($this->tempDirectory, 0755, true);
+        $source = $this->tempDirectory . '/source.pdf';
+        $modern = $this->tempDirectory . '/modern.pdf';
+        $pdf = new \FPDF();
+        foreach (['Page un', 'Page deux', 'Page trois'] as $text) {
+            $pdf->AddPage();
+            $pdf->SetFont('Helvetica', '', 12);
+            $pdf->Text(20, 20, $text);
+        }
+        file_put_contents($source, $pdf->Output('S'));
+        exec(sprintf(
+            'gs -dSAFER -dBATCH -dNOPAUSE -dQUIET -sDEVICE=pdfwrite -dCompatibilityLevel=1.7 '
+                . '-dWriteObjStms=true -dWriteXRefStm=true -sOutputFile=%s %s',
+            escapeshellarg($modern),
+            escapeshellarg($source)
+        ));
+        $bytes = (string) file_get_contents($modern);
+        @unlink($source);
+        @unlink($modern);
+
+        $rewritten = (new PdfCompressor($this->tempDirectory))->rewriteForImport($bytes);
+
+        $this->assertIsString($rewritten);
+        $path = $this->tempDirectory . '/rewritten.pdf';
+        file_put_contents($path, $rewritten);
+        $this->assertSame(3, (new \setasign\Fpdi\Fpdi())->setSourceFile($path));
+        @unlink($path);
+    }
+
     public function testRewriteForImportAnswersNullForSomethingThatIsNotAPdf(): void
     {
         exec('which gs 2>/dev/null', $out, $exit);
