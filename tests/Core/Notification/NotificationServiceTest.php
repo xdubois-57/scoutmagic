@@ -17,7 +17,6 @@ use Core\Notification\NotificationRepository;
 use Core\Notification\NotificationService;
 use Core\Notification\NotificationType;
 use Core\Notification\PushSubscriptionRepository;
-use Core\Notification\VapidKeyPairFactory;
 use Core\Scheduler\SchedulerRepository;
 use Core\Scheduler\SchedulerService;
 use Core\Security\EncryptionService;
@@ -171,39 +170,6 @@ class NotificationServiceTest extends TestCase
         $records = $this->notificationRepository->findByUserAccountId($userId);
         $this->assertCount(1, $records);
         $this->assertSame("Inscription de Jos\xC3", $records[0]->title);
-    }
-
-    /**
-     * A body too long for a push message is refused by the push library
-     * for every device in turn; each refusal is skipped, `notify()` does
-     * not fail, nothing is left queued, and the notification is kept.
-     */
-    public function testAPayloadThePushLibraryRefusesIsSkippedForEveryDevice(): void
-    {
-        $vapid = VapidKeyPairFactory::createValid();
-        $webPush = new WebPush(['VAPID' => [
-            'subject' => 'mailto:unite@example.org',
-            'publicKey' => $vapid['publicKey'],
-            'privateKey' => $vapid['privateKey'],
-        ]]);
-        $service = new NotificationService(
-            $this->notificationRepository,
-            $this->subscriptionRepository,
-            $this->preferenceRepository,
-            $webPush,
-            $this->settingService,
-            new JournalService(new JournalRepository($this->pdo)),
-            new SchedulerService($this->schedulerRepository),
-            $this->userAccountRepository
-        );
-        $userId = $this->createUserAccount();
-        $service->subscribe($userId, 'https://push.example/device-1', 'auth1', 'p256dh1');
-        $service->subscribe($userId, 'https://push.example/device-2', 'auth2', 'p256dh2');
-
-        $service->notify($userId, 'Titre', str_repeat('Un compte rendu très long. ', 200));
-
-        $this->assertSame(0, $webPush->countPendingNotifications());
-        $this->assertCount(1, $this->notificationRepository->findByUserAccountId($userId));
     }
 
     // --- registerModuleTypes()/getAllDeclaredTypes()/findType() ---

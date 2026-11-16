@@ -138,9 +138,9 @@ et la PR finale : 29 552 tests, PCOV, MariaDB.
 | | Nombre |
 |---|---|
 | Blocs `catch` dans `core/` et `modules/` | 1105 |
-| Exécutés | 1080 |
+| Exécutés | 1079 |
 | **Jamais exécutés** | **0** |
-| Marqués `@catch-unreachable` | 25 |
+| Marqués `@catch-unreachable` | 26 |
 | Inconnus | 0 |
 
 Ils se répartissent sur 254 fichiers. Les domaines où il en reste, dans
@@ -715,4 +715,11 @@ vrai `exit`.
   chaîne ne ferme plus le corps.
 
 **La fin est atteinte** : sur la suite entière, 0 bloc jamais exécuté et 0
-inconnu ; les 25 marqueurs portent chacun leur raison.
+inconnu ; les 26 marqueurs portent chacun leur raison.
+
+**Après #1289** : depuis #1289, le corps d'une notification push est tronqué
+avant d'arriver à la bibliothèque, qui ne peut donc plus refuser une charge
+trop longue. Le `catch` de `queuePushForAccount()` (`core/Notification`)
+devient inatteignable : il reçoit un marqueur, et le test du lot 41 qui
+l'atteignait par une charge trop longue est retiré, sa prémisse n'existant
+plus. `core/Notification` a été remesuré après la fusion : 0 jamais exécuté.
