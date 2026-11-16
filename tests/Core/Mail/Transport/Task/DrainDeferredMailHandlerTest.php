@@ -62,6 +62,12 @@ class DrainDeferredMailHandlerTest extends TestCase
     /** @var array<int, string> */
     private array $temporaryPathsSeen = [];
 
+    /** @var array<int, string> */
+    private array $temporaryContentsSeen = [];
+
+    /** @var array<int, int> the permission bits each attachment had when send() read it */
+    private array $temporaryModesSeen = [];
+
     protected function setUp(): void
     {
         $this->pdo = DatabaseTestHelper::createTestDatabase();
@@ -312,14 +318,9 @@ class DrainDeferredMailHandlerTest extends TestCase
     }
 
     /**
-     * The same, when the send throws: the `finally` is the point.
-     *
-     * The neighbouring branch — a temporary file that cannot be WRITTEN,
-     * which now stops the replay instead of silently sending a message
-     * without its attachment — has no test here, and deliberately no fake
-     * one: `sys_get_temp_dir()` is resolved once per process, so a test
-     * cannot point it at an unwritable place after any other test has
-     * touched it. What is pinned is the half that is honest to pin.
+     * The same, when the send throws: the `finally` is the point. The
+     * neighbouring branch — a temporary file that cannot be written — is
+     * the test after this one.
      */
     public function testAnAttachmentIsRemovedEvenWhenTheSendFails(): void
     {
@@ -335,6 +336,92 @@ class DrainDeferredMailHandlerTest extends TestCase
         $this->assertCount(1, $this->temporaryPathsSeen);
         foreach ($this->temporaryPathsSeen as $path) {
             $this->assertFileDoesNotExist($path);
+        }
+    }
+
+    /**
+     * **A full or refusing temporary directory stops the replay, and what
+     * was already written goes with it.** `trySend()`'s `finally` cleans
+     * up what `materialise()` RETURNED, and here it throws instead: a
+     * first attachment left behind would be a decrypted receipt on disk
+     * that nothing will ever remove. The directory is a stream wrapper
+     * that takes the first file and refuses the second, because a suite
+     * running as root cannot make a real directory refuse.
+     */
+    public function testATemporaryFileThatCannotBeWrittenRemovesTheOnesAlreadyWrittenAndSettlesTheMessage(): void
+    {
+        $this->queue(
+            MailLane::Bulk,
+            nextAttemptAt: $this->minutesAgo(5),
+            attachments: [
+                ['name' => 'un.pdf', 'content' => 'premier'],
+                ['name' => 'deux.pdf', 'content' => 'second'],
+            ]
+        );
+        RefusingSecondFileWrapper::reset();
+        stream_wrapper_register('deferredtest', RefusingSecondFileWrapper::class);
+        try {
+            (new DrainDeferredMailHandler('deferredtest://dir'))->handle([], $this->context());
+        } finally {
+            stream_wrapper_unregister('deferredtest');
+        }
+
+        $this->assertSame(2, RefusingSecondFileWrapper::$opens, 'the second file was attempted and refused');
+        $this->assertSame([], RefusingSecondFileWrapper::$files, 'the first one was removed, not left behind');
+        $this->assertSame([], $this->sent, 'a message is never sent without the attachment it carries');
+        $waiting = $this->repository->due(10, '2099-01-01 00:00:00');
+        $this->assertCount(1, $waiting, 'it is settled like any failure: rescheduled, not lost');
+        $this->assertSame(1, $waiting[0]->attempts);
+    }
+
+    /**
+     * The file is created private, not narrowed afterwards: a chmod cannot
+     * revoke a descriptor opened between the create and the chmod. With the
+     * umask a hosting account usually has (022) a plain create is 0644, so
+     * the mode seen at send time alone does not prove it — the creation does,
+     * and the umask the process had must be handed back.
+     */
+    public function testTheTemporaryFileIsCreatedPrivateAndTheCallersUmaskIsRestored(): void
+    {
+        $this->queue(
+            MailLane::Bulk,
+            nextAttemptAt: $this->minutesAgo(5),
+            attachments: [['name' => 'un.pdf', 'content' => 'premier']]
+        );
+        $directory = sys_get_temp_dir() . '/drain-deferred-umask-' . uniqid();
+        mkdir($directory);
+        $before = umask(0022);
+        try {
+            (new DrainDeferredMailHandler($directory))->handle([], $this->context());
+            $after = umask($before);
+        } finally {
+            umask($before);
+            rmdir($directory);
+        }
+
+        $this->assertSame(0022, $after, 'the process umask is what it was');
+        $this->assertSame([0600], $this->temporaryModesSeen);
+    }
+
+    public function testTheAttachmentIsWrittenWithTheContentItCarriesIntoTheDirectoryItWasGiven(): void
+    {
+        $this->queue(
+            MailLane::Bulk,
+            nextAttemptAt: $this->minutesAgo(5),
+            attachments: [['name' => 'un.pdf', 'content' => 'premier']]
+        );
+        $directory = sys_get_temp_dir() . '/drain-deferred-test-' . uniqid();
+        mkdir($directory);
+        try {
+            (new DrainDeferredMailHandler($directory))->handle([], $this->context());
+
+            $this->assertCount(1, $this->temporaryPathsSeen);
+            $this->assertStringStartsWith($directory . '/', $this->temporaryPathsSeen[0]);
+            $this->assertSame(['premier'], $this->temporaryContentsSeen);
+            $this->assertSame([0600], $this->temporaryModesSeen, 'a decrypted receipt is private to the site');
+            $this->assertSame([], glob($directory . '/*'), 'and removed once sent');
+        } finally {
+            rmdir($directory);
         }
     }
 
@@ -438,6 +525,8 @@ class DrainDeferredMailHandlerTest extends TestCase
             ): bool {
                 foreach ($attachments as $attachment) {
                     $this->temporaryPathsSeen[] = $attachment['path'];
+                    $this->temporaryModesSeen[] = fileperms($attachment['path']) & 0777;
+                    $this->temporaryContentsSeen[] = (string) file_get_contents($attachment['path']);
                     $this->assertFileExists($attachment['path']);
                 }
 
@@ -509,5 +598,61 @@ class DrainDeferredMailHandlerTest extends TestCase
     private function minutesAgo(int $minutes): string
     {
         return date('Y-m-d H:i:s', time() - $minutes * 60);
+    }
+}
+
+/**
+ * A directory that takes the first file and refuses the second, standing in
+ * for a disk that fills up part-way through a message's attachments.
+ */
+final class RefusingSecondFileWrapper
+{
+    /** @var array<string, string> */
+    public static array $files = [];
+    public static int $opens = 0;
+
+    /** @var resource|null */
+    public $context;
+    private string $path = '';
+
+    public static function reset(): void
+    {
+        self::$files = [];
+        self::$opens = 0;
+    }
+
+    public function stream_open(string $path, string $mode, int $options, ?string &$openedPath): bool
+    {
+        if (++self::$opens >= 2) {
+            return false;
+        }
+
+        $this->path = $path;
+        self::$files[$path] = '';
+
+        return true;
+    }
+
+    public function stream_write(string $data): int
+    {
+        self::$files[$this->path] .= $data;
+
+        return strlen($data);
+    }
+
+    public function stream_close(): void
+    {
+    }
+
+    public function stream_metadata(string $path, int $option, mixed $value): bool
+    {
+        return true;
+    }
+
+    public function unlink(string $path): bool
+    {
+        unset(self::$files[$path]);
+
+        return true;
     }
 }
