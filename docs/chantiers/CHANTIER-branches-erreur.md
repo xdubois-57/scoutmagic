@@ -132,13 +132,13 @@ Mesuré le 2026-11-14 sur `main` `fc8b1df1` — 28 996 tests, PCOV, MariaDB.
 | dont corps vide | 72 |
 | Marqués `@catch-unreachable` | 0 (lot 0 en ajoute un) |
 
-**Mesure finale**, le 2026-11-16 sur `main` `c64aec98` plus les lots 31 à 47
-et la PR finale : 29 552 tests, PCOV, MariaDB.
+**Mesure finale**, le 2026-11-16 sur `main` `03c2bb38` (après #1288) plus la
+PR finale : 29 590 tests, PCOV, MariaDB.
 
 | | Nombre |
 |---|---|
-| Blocs `catch` dans `core/` et `modules/` | 1105 |
-| Exécutés | 1079 |
+| Blocs `catch` dans `core/` et `modules/` | 1108 |
+| Exécutés | 1082 |
 | **Jamais exécutés** | **0** |
 | Marqués `@catch-unreachable` | 26 |
 | Inconnus | 0 |
@@ -722,4 +722,13 @@ avant d'arriver à la bibliothèque, qui ne peut donc plus refuser une charge
 trop longue. Le `catch` de `queuePushForAccount()` (`core/Notification`)
 devient inatteignable : il reçoit un marqueur, et le test du lot 41 qui
 l'atteignait par une charge trop longue est retiré, sa prémisse n'existant
-plus. `core/Notification` a été remesuré après la fusion : 0 jamais exécuté.
+plus.
+
+**Après #1284** : son nouveau `catch (StorageLocationException)` de
+`attachDriveFolder()` (`core/Storage`) ne laisse passer que ce que le `catch`
+de `DriveAccessException` placé avant lui n'a pas pris, et rien d'autre ne lève
+cette exception dans ce `try`. Il reçoit un marqueur. La suite entière,
+remesurée après ces deux rattrapages : 0 jamais exécuté, 0 inconnu.
+
+Les marqueurs sont 26 et non 25 + 2 : celui du lot 10 dans
+`RegistrationConfigController` est parti avec le code qu'il couvrait (#1286).

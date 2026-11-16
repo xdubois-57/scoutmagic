@@ -389,6 +389,11 @@ class StorageLocationService
             // was changed (#1224).
             throw self::unchangedRefusal($e, 'Google Drive n\'a pas pu montrer ce dossier');
         } catch (StorageLocationException $e) {
+            // @catch-unreachable nothing in this try throws a StorageLocationException
+            // other than DriveAccessException, caught above: probe() builds a Drive backend,
+            // which cannot refuse (GoogleDriveSecret::fromStorage() never throws), and the
+            // backend and its client throw only DriveAccessException or plain runtime errors.
+            // Kept so a refusal written for the administrator is never rewrapped below.
             throw $e;
         } catch (\Throwable $e) {
             throw new StorageLocationException(
