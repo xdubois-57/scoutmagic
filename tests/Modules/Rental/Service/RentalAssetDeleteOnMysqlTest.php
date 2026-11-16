@@ -14,6 +14,7 @@ use Core\Security\EncryptionService;
 use Modules\Rental\Repository\AssetLock;
 use Modules\Rental\Repository\RentalAssetRepository;
 use Modules\Rental\Service\RentalAssetService;
+use Modules\Rental\Service\RentalException;
 use Modules\Rental\Service\RentalSlugGenerator;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
@@ -108,6 +109,53 @@ final class RentalAssetDeleteOnMysqlTest extends TestCase
 
         $this->assertNull((new RentalAssetRepository($this->pdo, self::encryption()))->findById($this->assetId));
         $this->assertFalse($other->inTransaction(), 'the lock transaction must be closed');
+    }
+
+    /**
+     * `AssetLock` is re-entrant: called inside a transaction already open, it
+     * joins it. Under REPEATABLE READ an ordinary `SELECT` then reads the
+     * snapshot taken by the caller's **first read**, so a booking committed
+     * after it — validated under the very lock this deletion has just taken —
+     * would not be seen, and `ON DELETE CASCADE` would take it with the asset
+     * (#1321). The history check is a current read, whatever the caller did
+     * before.
+     *
+     * No caller does this today; the test is what keeps the next one safe.
+     */
+    public function testABookingCommittedAfterTheCallersSnapshotStillRefusesTheDeletion(): void
+    {
+        $callerPdo = $this->pdo;
+        $writer = $this->secondConnection();
+
+        $callerPdo->beginTransaction();
+        // The caller's first consistent read: it fixes the snapshot.
+        $callerPdo->query('SELECT COUNT(*) FROM rental_bookings')->fetchColumn();
+
+        $writer->prepare(
+            'INSERT INTO rental_bookings
+                (asset_id, reference, arrival_date, departure_date,
+                 renter_name_encrypted, renter_email_encrypted, renter_email_blind_index, tracking_token_encrypted)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+        )->execute([$this->assetId, 'DEL-' . bin2hex(random_bytes(6)), '2026-10-01', '2026-10-03', 'x', 'x', str_repeat('a', 64), 'x']);
+
+        try {
+            self::service($callerPdo)->delete($this->assetId, null);
+            $this->fail('An asset holding a booking must not be deleted.');
+        } catch (RentalException) {
+            $this->addToAssertionCount(1);
+        } finally {
+            $callerPdo->rollBack();
+        }
+
+        $this->assertNotNull(
+            (new RentalAssetRepository($this->pdo, self::encryption()))->findById($this->assetId),
+            'the asset must still be there'
+        );
+        $this->assertSame(
+            1,
+            (int) $writer->query('SELECT COUNT(*) FROM rental_bookings WHERE asset_id = ' . $this->assetId)->fetchColumn(),
+            'the booking must not have been taken by the cascade'
+        );
     }
 
     private static function service(\PDO $pdo): RentalAssetService
