@@ -230,17 +230,16 @@ code 23000 qu'une collision de clé — et que le code lirait donc comme « déj
 là ». Un module doublé seulement quand sa panne est le sujet (le courrier
 entrant qui ne répond pas).
 
-**Les deux marqueurs.**
+**Les marqueurs.**
 - `MailTransportChain::hasSpentItsQuota()`, la réserve : elle ne relit que les
   deux tables que `candidates()` vient de lire dans le même envoi, sans E/S
   entre les deux. Seule une connexion perdue dans cet intervalle y mène.
 - `DrainDeferredMailHandler`, l'écriture des pièces jointes dans le répertoire
-  temporaire : seul un disque plein ou qui refuse l'atteint. **C'est un
-  compromis, pas une impossibilité** : la branche est réelle en production,
-  mais la classe ne prend aucun répertoire qu'un test pourrait rediriger, et
-  une suite qui tourne en root ne peut pas faire refuser `/tmp`. La couvrir
-  demanderait d'injecter le répertoire temporaire dans le gestionnaire — un
-  changement d'API hors du périmètre d'un lot de tests, suivi par #1217.
+  temporaire, a été marqué le temps d'un lot : la branche est réelle en
+  production (disque plein), mais la classe n'avait aucun répertoire qu'un test
+  pût rediriger. Le gestionnaire prend désormais ce répertoire en paramètre
+  (#1217) ; un test lui passe un répertoire qui accepte une pièce jointe et
+  refuse la suivante, et le marqueur a été retiré.
 
 **Trouvé en chemin.**
 - Un test de `PinnedProviderTransport` croyait la table des compteurs absente

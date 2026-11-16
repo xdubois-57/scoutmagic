@@ -67,6 +67,19 @@ class DrainDeferredMailHandler implements TaskHandlerInterface
     private const BATCH = 25;
 
     /**
+     * @param string|null $temporaryDirectory Where the carried attachments
+     *        are written back to disk for the replay; the system temporary
+     *        directory when null, which is what the scheduler gets (it
+     *        builds a handler with `new`, no arguments). A parameter so a
+     *        test can hand it a directory that fills up or refuses: the
+     *        branch where a write fails is reachable in production and
+     *        was untestable while the directory was not (#1217).
+     */
+    public function __construct(private readonly ?string $temporaryDirectory = null)
+    {
+    }
+
+    /**
      * @param array<string, mixed> $payload
      */
     public function handle(array $payload, TaskContext $context): void
@@ -261,7 +274,7 @@ class DrainDeferredMailHandler implements TaskHandlerInterface
      * Put the carried attachments back on disk, because `send()` takes
      * paths.
      *
-     * Written to the system temporary directory and removed in the
+     * Written to the temporary directory and removed in the
      * `finally` above, whatever the send did: these are decrypted copies
      * of personal data, and leaving them lying about would undo the point
      * of encrypting the queue at all (D18).
@@ -285,28 +298,38 @@ class DrainDeferredMailHandler implements TaskHandlerInterface
         $files = [];
         $temporary = [];
 
+        $directory = $this->temporaryDirectory ?? sys_get_temp_dir();
+
         try {
             foreach ($carried as $attachment) {
-                $path = tempnam(sys_get_temp_dir(), 'scoutmagic-deferred-');
-                if ($path === false) {
+                // Created exclusively (`x`) and made private BEFORE the
+                // content goes in: `tempnam()` gave that for free, and a
+                // decrypted receipt must never be readable by another
+                // account on the host, even for the instant a write takes.
+                $path = $directory . '/scoutmagic-deferred-' . bin2hex(random_bytes(16));
+                $handle = @fopen($path, 'xb');
+                if ($handle === false) {
                     throw new \RuntimeException('Impossible de créer un fichier temporaire pour une pièce jointe.');
                 }
 
                 $temporary[] = $path;
 
-                if (file_put_contents($path, $attachment['content']) === false) {
+                try {
+                    @chmod($path, 0600);
+                    // A short write is a full disk too: `fwrite()` reports
+                    // how much it managed, not that it failed.
+                    $written = @fwrite($handle, $attachment['content']);
+                } finally {
+                    fclose($handle);
+                }
+
+                if ($written !== strlen($attachment['content'])) {
                     throw new \RuntimeException('Impossible d’écrire une pièce jointe sur le disque.');
                 }
 
-                @chmod($path, 0600);
                 $files[] = ['path' => $path, 'name' => $attachment['name']];
             }
         } catch (\Throwable $e) {
-            // @catch-unreachable only tempnam() or file_put_contents() failing in the system temporary
-            // directory lands here (a full or refusing disk): DeferredMailRepository::hydrate() has
-            // already turned every attachment into a string, this class takes no directory a test
-            // could point elsewhere, and a suite running as root cannot make that directory refuse (#1217).
-            //
             // The ones already written go now: `trySend()`'s `finally`
             // cleans up what this method RETURNED, and it is about to
             // receive an exception instead.
