@@ -40,9 +40,12 @@ use Modules\Finance\Service\BalanceService;
  * 3. Deletes every balance checkpoint at or before the fiscal year's end
  *    date (now redundant) and inserts the consolidated one.
  * 4. Any attachment left with zero remaining movement associations
- *    (active or archived) is physically deleted — file on disk and row
- *    — the only place in the module where a receipt is ever truly
- *    removed rather than archived.
+ *    (active or archived) is physically deleted — rows and file on disk —
+ *    the only place in the module where a receipt is ever truly removed
+ *    rather than archived. The receipt row and its `files` row go in one
+ *    transaction (`fk_fatt_file` forbids deleting the file first), and the
+ *    blob only after it commits: a failure leaves the receipt whole, still
+ *    downloadable, and is journaled as a warning.
  */
 class PurgeOldMovementsHandler implements TaskHandlerInterface
 {
@@ -63,8 +66,9 @@ class PurgeOldMovementsHandler implements TaskHandlerInterface
         $attachmentRepository = new AttachmentRepository($pdo, $context->encryption);
         $checkpointRepository = new BalanceCheckpointRepository($pdo);
         $balanceService = new BalanceService($checkpointRepository, $transactionRepository);
+        $fileRepository = new FileRepository($pdo);
         $fileStorage = new EncryptedFileStorageService(
-            new FileRepository($pdo),
+            $fileRepository,
             $context->encryption,
             $context->storagePath
         );
@@ -84,6 +88,7 @@ class PurgeOldMovementsHandler implements TaskHandlerInterface
                     $attachmentRepository,
                     $checkpointRepository,
                     $balanceService,
+                    $fileRepository,
                     $fileStorage,
                     $context
                 );
@@ -102,6 +107,7 @@ class PurgeOldMovementsHandler implements TaskHandlerInterface
         AttachmentRepository $attachmentRepository,
         BalanceCheckpointRepository $checkpointRepository,
         BalanceService $balanceService,
+        FileRepository $fileRepository,
         EncryptedFileStorageService $fileStorage,
         TaskContext $context
     ): void {
@@ -153,8 +159,6 @@ class PurgeOldMovementsHandler implements TaskHandlerInterface
         // own consolidated balance from a fresh read.
         $balanceService->forgetAccount($account->id);
 
-        // File deletion happens after the DB commit — never remove a
-        // real file for a database change that could still be rolled back.
         $deletedAttachments = 0;
         foreach (array_keys($affectedAttachmentIds) as $attachmentId) {
             if ($transactionAttachmentRepository->findTransactionIdsForAttachment($attachmentId) !== []) {
@@ -166,19 +170,36 @@ class PurgeOldMovementsHandler implements TaskHandlerInterface
                 continue;
             }
 
+            $file = $fileRepository->findById($attachment->fileId);
+
+            // Rows first, in one transaction: the receipt row points at the
+            // file, so the file row cannot go before it, and neither is
+            // worth losing the blob for. The blob is unlinked after the
+            // commit — never remove a real file for a database change that
+            // could still be rolled back.
+            $pdo->beginTransaction();
             try {
-                $fileStorage->delete($attachment->fileId);
                 $attachmentRepository->delete($attachmentId);
-                $deletedAttachments++;
+                $fileRepository->delete($attachment->fileId);
+                $pdo->commit();
             } catch (\Throwable $e) {
+                if ($pdo->inTransaction()) {
+                    $pdo->rollBack();
+                }
                 $context->journal->log(
                     'finance',
                     'receipt_purge_failed',
-                    'info',
-                    "Suppression du reçu orphelin échouée : {$e->getMessage()}",
-                    ['attachment_id' => $attachmentId],
+                    'warning',
+                    'Suppression du reçu orphelin échouée : le reçu et son fichier sont conservés.',
+                    ['attachment_id' => $attachmentId, 'error' => $e::class],
                     null
                 );
+                continue;
+            }
+
+            $deletedAttachments++;
+            if ($file !== null) {
+                $fileStorage->deleteBlob($file);
             }
         }
 

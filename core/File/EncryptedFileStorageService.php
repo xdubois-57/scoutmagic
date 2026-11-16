@@ -160,6 +160,12 @@ class EncryptedFileStorageService
      * deletion — callers that need "never truly delete" semantics
      * (Modules\Finance\Service\ReceiptService) simply never call this for
      * an active attachment.
+     *
+     * The blob goes first, so this is only for a file nothing else points
+     * at: a row that refuses to go (a foreign key) leaves a record whose
+     * bytes are already gone. A caller that must delete other rows first,
+     * inside a transaction, takes the record, deletes the rows, and calls
+     * deleteBlob() once they are committed.
      */
     public function delete(int $fileId): void
     {
@@ -168,11 +174,19 @@ class EncryptedFileStorageService
             return;
         }
 
+        $this->deleteBlob($file);
+        $this->fileRepository->delete($fileId);
+    }
+
+    /**
+     * Unlinks the encrypted file on disk and leaves its FileRecord alone.
+     * Not an error when the blob is already gone.
+     */
+    public function deleteBlob(FileRecord $file): void
+    {
         $path = $this->storagePath . '/' . $file->relativePath;
         if (is_file($path)) {
             @unlink($path);
         }
-
-        $this->fileRepository->delete($fileId);
     }
 }
