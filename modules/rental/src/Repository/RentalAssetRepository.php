@@ -235,10 +235,23 @@ class RentalAssetRepository
      * would take every booking — and the documents, payments and stay data
      * hanging off them — with it. Read here, not injected, so a service built
      * without a way to ask can never skip the question.
+     *
+     * A **current read** on MySQL and MariaDB (`FOR UPDATE`), never the
+     * snapshot of a transaction already open: `AssetLock` is re-entrant, so a
+     * caller that read something before calling the deletion would otherwise
+     * answer from before a booking was validated under the lock, and the
+     * cascade would take it (#1321). Outside a transaction it locks nothing
+     * for longer than the statement. SQLite has neither `FOR UPDATE` nor a
+     * snapshot a writer can slip behind.
      */
     public function hasBookings(int $id): bool
     {
-        $stmt = $this->pdo->prepare('SELECT 1 FROM rental_bookings WHERE asset_id = ? LIMIT 1');
+        $sql = 'SELECT 1 FROM rental_bookings WHERE asset_id = ? LIMIT 1';
+        if ($this->pdo->getAttribute(\PDO::ATTR_DRIVER_NAME) !== 'sqlite') {
+            $sql .= ' FOR UPDATE';
+        }
+
+        $stmt = $this->pdo->prepare($sql);
         $stmt->execute([$id]);
 
         return $stmt->fetchColumn() !== false;
