@@ -19,6 +19,7 @@ use Core\ScoutYear\AuthorizationYearService;
 use Core\Security\RoleResolver;
 use Core\Security\UserAccount;
 use Core\Security\UserAccountRepository;
+use Minishlink\WebPush\Encryption;
 use Minishlink\WebPush\Subscription;
 use Minishlink\WebPush\WebPush;
 
@@ -1018,20 +1019,8 @@ class NotificationService
         $account = $this->findAccountSafely($record->userAccountId);
         $discretion = $account->notificationDiscretion ?? false;
 
-        try {
-            $payload = json_encode([
-                'title' => $discretion ? self::DISCRETION_TITLE : $record->title,
-                'body' => $discretion ? '' : $record->body,
-                'url' => $record->url,
-                'unread_count' => $this->notificationRepository->countUnread($record->userAccountId),
-                'notification_id' => $record->id,
-                // Whom this is for, as an opaque tag the service worker
-                // compares with the account signed in on the device: a
-                // device that changed hands shows a neutral notice
-                // instead of this one (issue #1123, SECURITY.md §19).
-                'recipient' => $this->pushSubscriptionRepository->recipientTag($record->userAccountId),
-            ], JSON_THROW_ON_ERROR);
-        } catch (\JsonException) {
+        $payload = $this->pushPayload($record, $discretion);
+        if ($payload === null) {
             return;
         }
 
@@ -1053,6 +1042,101 @@ class NotificationService
                 // the batch (matches Iteration 1's per-device isolation).
             }
         }
+    }
+
+    /**
+     * The JSON a device receives, or null when no payload can be built.
+     *
+     * A push carries at most Encryption::MAX_PAYLOAD_LENGTH octets, and the
+     * library refuses a longer one for EVERY device alike — an exception that
+     * used to be swallowed with the « malformed subscription » catch, so a
+     * long body reached no phone and left no trace (#1241). What is pushed is
+     * therefore cut to fit: the body first, then the title, each to the
+     * longest prefix (with « … ») that still fits. The notification in the
+     * application is not touched and keeps all of its text.
+     *
+     * Counted in octets of the JSON, not in characters: JSON writes every
+     * non-ASCII character as an escape of six octets.
+     */
+    private function pushPayload(NotificationRecord $record, bool $discretion): ?string
+    {
+        $fields = [
+            'title' => $discretion ? self::DISCRETION_TITLE : $record->title,
+            'body' => $discretion ? '' : $record->body,
+            'url' => $record->url,
+            'unread_count' => $this->notificationRepository->countUnread($record->userAccountId),
+            'notification_id' => $record->id,
+            // Whom this is for, as an opaque tag the service worker
+            // compares with the account signed in on the device: a
+            // device that changed hands shows a neutral notice
+            // instead of this one (issue #1123, SECURITY.md §19).
+            'recipient' => $this->pushSubscriptionRepository->recipientTag($record->userAccountId),
+        ];
+
+        try {
+            foreach (['body', 'title', null] as $shrink) {
+                $payload = json_encode($fields, JSON_THROW_ON_ERROR);
+                if (strlen($payload) <= Encryption::MAX_PAYLOAD_LENGTH) {
+                    return $payload;
+                }
+                if ($shrink !== null) {
+                    $fields = self::withTextThatFits($fields, $shrink);
+                }
+            }
+        } catch (\JsonException) {
+            $this->journalPushPayloadUnsendable($record, 'unencodable');
+
+            return null;
+        }
+
+        // What no cut of the text can save (an address as long as the whole
+        // payload, say): said, once, and not pushed — the library would
+        // refuse it for every device anyway.
+        $this->journalPushPayloadUnsendable($record, 'too_large');
+
+        return null;
+    }
+
+    /**
+     * $fields with $key cut to the longest prefix, ending in « … », whose
+     * JSON still fits in a push — or emptied when not even one character
+     * does.
+     *
+     * @param array<string, mixed> $fields
+     * @return array<string, mixed>
+     */
+    private static function withTextThatFits(array $fields, string $key): array
+    {
+        $text = (string) $fields[$key];
+        $low = 0;
+        $high = mb_strlen($text);
+        while ($low < $high) {
+            $middle = intdiv($low + $high + 1, 2);
+            $fields[$key] = mb_substr($text, 0, $middle) . '…';
+            if (strlen(json_encode($fields, JSON_THROW_ON_ERROR)) <= Encryption::MAX_PAYLOAD_LENGTH) {
+                $low = $middle;
+            } else {
+                $high = $middle - 1;
+            }
+        }
+        $fields[$key] = $low > 0 ? mb_substr($text, 0, $low) . '…' : '';
+
+        return $fields;
+    }
+
+    /**
+     * A push that could not be built. The notification, never its text: a
+     * body can hold anything the sender wrote.
+     */
+    private function journalPushPayloadUnsendable(NotificationRecord $record, string $reason): void
+    {
+        $this->journalService->log(
+            'core',
+            'push_payload_unsendable',
+            'warning',
+            'Notification push non envoyée : sa charge utile ne peut pas partir',
+            ['notification_id' => $record->id, 'reason' => $reason]
+        );
     }
 
     /**

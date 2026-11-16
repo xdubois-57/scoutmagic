@@ -104,7 +104,8 @@ final class ImmediateDeliveryTest extends TestCase
         bool $withMailerFactory = true,
         ?NotificationMailerFactory $mailerFactory = null,
         ?PushSubscriptionRepository $subscriptions = null,
-        bool $withWebPush = true
+        bool $withWebPush = true,
+        ?WebPush $webPush = null
     ): NotificationService {
         $mailService = $this->recordingTransport($transportFails);
         $journal = new JournalService($this->journalRepository);
@@ -113,7 +114,7 @@ final class ImmediateDeliveryTest extends TestCase
             $this->notifications,
             $subscriptions ?? new PushSubscriptionRepository($this->pdo, $this->encryption),
             $this->preferences,
-            $withWebPush ? $this->createStub(WebPush::class) : null,
+            $withWebPush ? ($webPush ?? $this->createStub(WebPush::class)) : null,
             $this->settings,
             $journal,
             new SchedulerService($this->scheduler),
@@ -451,6 +452,149 @@ final class ImmediateDeliveryTest extends TestCase
             [$this->notifications->findByUserAccountId($admin)[0]->id],
             $payload['notification_ids']
         );
+    }
+
+    /**
+     * A WebPush that records what it is asked to queue, and refuses what the
+     * real library refuses: a payload over Encryption::MAX_PAYLOAD_LENGTH
+     * octets is an ErrorException from queueNotification(), for every device
+     * alike. Nothing leaves the machine — flush() answers nothing.
+     *
+     * @param \ArrayObject<int, string> $queued every payload accepted
+     */
+    private function recordingWebPush(\ArrayObject $queued): WebPush
+    {
+        $webPush = $this->createStub(WebPush::class);
+        $webPush->method('queueNotification')->willReturnCallback(
+            static function ($subscription, ?string $payload = null) use ($queued): bool {
+                if ($payload !== null && strlen($payload) > \Minishlink\WebPush\Encryption::MAX_PAYLOAD_LENGTH) {
+                    throw new \ErrorException(
+                        'Size of payload must not be greater than '
+                        . \Minishlink\WebPush\Encryption::MAX_PAYLOAD_LENGTH . ' octets.'
+                    );
+                }
+                $queued[] = (string) $payload;
+
+                return true;
+            }
+        );
+
+        return $webPush;
+    }
+
+    private function giveADevice(int $userAccountId): void
+    {
+        (new PushSubscriptionRepository($this->pdo, $this->encryption))->create(
+            $userAccountId,
+            'https://push.example.test/send/' . uniqid(),
+            'auth-key',
+            'p256dh-key',
+            'Téléphone'
+        );
+    }
+
+    /**
+     * @param string $body the body the notification is dispatched with
+     * @return array{array<int, string>, int} every payload queued, and the account
+     */
+    private function dispatchWithBody(string $body, string $title = 'Alerte', string $url = '/config/maintenance'): array
+    {
+        $queued = new \ArrayObject();
+        $admin = $this->createUserAccount();
+        $this->giveADevice($admin);
+        $service = $this->service(webPush: $this->recordingWebPush($queued));
+
+        // The push half of delivery, on a notification that exists: the
+        // channel rules that decide WHETHER a type pushes are not what is
+        // under test, what is pushed is.
+        $notificationId = $this->notifications->create(
+            $admin,
+            null,
+            OperationalAlertService::TYPE_DEFAULT,
+            $title,
+            $body,
+            $url
+        );
+        $service->sendPushForNotifications([$notificationId], static fn (): bool => true);
+
+        return [$queued->getArrayCopy(), $admin];
+    }
+
+    /**
+     * A body past what a push can carry made the library refuse the payload
+     * for EVERY device, and the refusal was swallowed with the « malformed
+     * subscription » catch: the notification existed in the application and
+     * reached no phone, with no trace (#1241). The pushed body is now cut to
+     * what fits, the notification in the application keeps all of it.
+     */
+    public function testALongBodyIsCutSoThePushStillGoesOutAndTheNotificationKeepsAllOfIt(): void
+    {
+        // Multibyte on purpose: JSON writes each « é » as six octets, so a
+        // cut counted in characters would still be too long.
+        $body = str_repeat('é', 3000);
+
+        [$queued, $admin] = $this->dispatchWithBody($body);
+
+        $this->assertCount(1, $queued, 'one device, one push: a long body must not cost the push');
+        $this->assertLessThanOrEqual(\Minishlink\WebPush\Encryption::MAX_PAYLOAD_LENGTH, strlen($queued[0]));
+        $payload = json_decode($queued[0], true, 512, JSON_THROW_ON_ERROR);
+        $this->assertSame('Alerte', $payload['title']);
+        $this->assertSame('/config/maintenance', $payload['url']);
+        $this->assertStringEndsWith('…', $payload['body']);
+        $this->assertTrue(str_starts_with($body, rtrim(mb_substr($payload['body'], 0, -1))));
+        $this->assertGreaterThan(100, mb_strlen($payload['body']), 'cut to what fits, not to nothing');
+        $this->assertSame(
+            $body,
+            $this->notifications->findByUserAccountId($admin)[0]->body,
+            'the notification in the application is whole'
+        );
+    }
+
+    public function testABodyThatFitsIsPushedAsItIs(): void
+    {
+        [$queued] = $this->dispatchWithBody('Il reste 4 % de disque.');
+
+        $this->assertCount(1, $queued);
+        $this->assertSame('Il reste 4 % de disque.', json_decode($queued[0], true)['body']);
+    }
+
+    /**
+     * Right at the edge: not one octet more than the library accepts, and
+     * not one character fewer than could have been kept.
+     */
+    public function testTheCutKeepsAsMuchAsFits(): void
+    {
+        [$queued] = $this->dispatchWithBody(str_repeat('a', 6000));
+
+        $this->assertCount(1, $queued);
+        $this->assertLessThanOrEqual(\Minishlink\WebPush\Encryption::MAX_PAYLOAD_LENGTH, strlen($queued[0]));
+        $this->assertGreaterThan(
+            \Minishlink\WebPush\Encryption::MAX_PAYLOAD_LENGTH - 400,
+            strlen($queued[0]),
+            'a plain-ASCII body should be cut within a few hundred octets of the limit'
+        );
+    }
+
+    /**
+     * What no cut of the body can save — here an address as long as the
+     * whole payload — is not silent either: one warning, and no push (the
+     * library would refuse it anyway).
+     */
+    public function testAPayloadNothingCanShrinkIsJournaledAndNotPushed(): void
+    {
+        [$queued, $admin] = $this->dispatchWithBody('Court.', 'Alerte', '/' . str_repeat('x', 5000));
+
+        $this->assertSame([], $queued);
+        $entries = $this->pdo->query(
+            "SELECT category, level, context FROM event_log WHERE event_type = 'push_payload_unsendable'"
+        )->fetchAll(\PDO::FETCH_ASSOC);
+        $this->assertCount(1, $entries);
+        $this->assertSame('core', $entries[0]['category']);
+        $this->assertSame('warning', $entries[0]['level']);
+        $context = json_decode((string) $entries[0]['context'], true);
+        $this->assertSame('too_large', $context['reason']);
+        $this->assertSame($this->notifications->findByUserAccountId($admin)[0]->id, $context['notification_id']);
+        $this->assertStringNotContainsString('xxxx', (string) $entries[0]['context'], 'never the content');
     }
 
     /**
