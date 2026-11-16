@@ -72,7 +72,7 @@ class FeeAccuracyService
 
         $memberRows = $this->details->findMembers($memberYearIds);
         $addressLabels = $this->details->findAddressLabels(array_keys($households));
-        $feeCategoryLabels = $this->feeCategoryLabels();
+        $feeCategories = $this->feeCategoriesById();
 
         $toCorrect = [];
         $upcoming = [];
@@ -95,7 +95,7 @@ class FeeAccuracyService
                 $blindIndex,
                 $memberRows,
                 $addressLabels,
-                $feeCategoryLabels,
+                $feeCategories,
                 $ignoredEntry
             );
 
@@ -151,14 +151,14 @@ class FeeAccuracyService
      *     }
      * > $memberRows
      * @param array<string, string> $addressLabels
-     * @param array<int, string> $feeCategoryLabels
+     * @param array<int, array{desk_code: string, label: string}> $feeCategories
      */
     private function review(
         Household $household,
         string $blindIndex,
         array $memberRows,
         array $addressLabels,
-        array $feeCategoryLabels,
+        array $feeCategories,
         ?IgnoredHousehold $ignored
     ): HouseholdReview {
         $expected = $household->deskCategory();
@@ -172,6 +172,9 @@ class FeeAccuracyService
             }
 
             $encodedCategory = $this->tariffs->categoryForFeeCategoryId($row['fee_category_id']);
+            $encodedFeeCategory = $row['fee_category_id'] === null
+                ? null
+                : ($feeCategories[$row['fee_category_id']] ?? null);
             $members[] = new HouseholdReviewMember(
                 $householdMember->memberId,
                 $householdMember->memberYearId,
@@ -179,7 +182,8 @@ class FeeAccuracyService
                 $row['last_name'],
                 $row['totem'],
                 $row['fee_category_id'],
-                $row['fee_category_id'] === null ? null : ($feeCategoryLabels[$row['fee_category_id']] ?? null),
+                $encodedFeeCategory['label'] ?? null,
+                $encodedFeeCategory['desk_code'] ?? null,
                 $encodedCategory,
                 $encodedCategory !== null,
                 $householdMember->leaving,
@@ -223,6 +227,7 @@ class FeeAccuracyService
             $household->projectedSize(),
             $expected,
             $projected,
+            $this->tariffs->deskCodesFor($expected),
             $mismatched !== [],
             $household->categoriesDiffer(),
             $difference,
@@ -233,14 +238,20 @@ class FeeAccuracyService
         );
     }
 
-    /** @return array<int, string> */
-    private function feeCategoryLabels(): array
+    /**
+     * One read for both what the card names a category (its label) and what
+     * it shows for it (its Desk code), so a page of households costs one
+     * query however many members it draws.
+     *
+     * @return array<int, array{desk_code: string, label: string}>
+     */
+    private function feeCategoriesById(): array
     {
-        $labels = [];
+        $byId = [];
         foreach ($this->feeCategories->findAll() as $feeCategory) {
-            $labels[$feeCategory['id']] = $feeCategory['label'];
+            $byId[$feeCategory['id']] = ['desk_code' => $feeCategory['desk_code'], 'label' => $feeCategory['label']];
         }
 
-        return $labels;
+        return $byId;
     }
 }

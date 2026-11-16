@@ -79,6 +79,48 @@ class HouseholdTariffServiceTest extends TestCase
         $this->assertSame(HouseholdFeeCategory::NORMAL, $this->service->categoryForFeeCategoryId($this->normalId));
     }
 
+    /**
+     * What the « Attendu » column shows (#1326): the real Desk code of the
+     * category the CALCULATION uses for each household tariff — the same
+     * mapping, not a second one beside it.
+     */
+    public function testTheExpectedDeskCodeIsTheOneTheHeuristicMapsTo(): void
+    {
+        $this->assertSame(['N_N_COTISATION NORMALE'], $this->service->deskCodesFor(HouseholdFeeCategory::NORMAL));
+        $this->assertSame(['N_C_COTISATION COUPLE'], $this->service->deskCodesFor(HouseholdFeeCategory::COUPLE));
+        $this->assertSame(['N_F_COTISATION FAMILLE'], $this->service->deskCodesFor(HouseholdFeeCategory::FAMILY));
+    }
+
+    public function testAnOverrideReplacesTheGuessedCodeInTheExpectedColumn(): void
+    {
+        $this->service->save(HouseholdFeeCategory::COUPLE, $this->unrecognisedFeeId, null);
+
+        $this->assertSame(['Cotisation invités'], $this->service->deskCodesFor(HouseholdFeeCategory::COUPLE));
+        // The guessed one is released, not kept beside it.
+        $this->assertSame(['N_N_COTISATION NORMALE'], $this->service->deskCodesFor(HouseholdFeeCategory::NORMAL));
+    }
+
+    /** A code is never invented: a tariff nobody maps has no code at all. */
+    public function testATariffWithNoDeskCategoryHasNoExpectedCode(): void
+    {
+        $pdo = DatabaseTestHelper::createTestDatabase();
+        FeesTestHelper::createTables($pdo);
+        $repository = new FeeCategoryRepository($pdo);
+        $repository->create('N_N_COTISATION NORMALE', 'Cotisation normale');
+        $service = new HouseholdTariffService(new HouseholdTariffRepository($pdo), $repository);
+
+        $this->assertSame([], $service->deskCodesFor(HouseholdFeeCategory::COUPLE));
+    }
+
+    public function testSavingTheScaleRefreshesTheExpectedCodes(): void
+    {
+        $this->assertSame(['N_C_COTISATION COUPLE'], $this->service->deskCodesFor(HouseholdFeeCategory::COUPLE));
+
+        $this->service->save(HouseholdFeeCategory::COUPLE, $this->unrecognisedFeeId, null);
+
+        $this->assertSame(['Cotisation invités'], $this->service->deskCodesFor(HouseholdFeeCategory::COUPLE));
+    }
+
     public function testTheDifferenceIsSignedAndNullAsSoonAsEitherAmountIsMissing(): void
     {
         $this->service->save(HouseholdFeeCategory::NORMAL, null, 4000);

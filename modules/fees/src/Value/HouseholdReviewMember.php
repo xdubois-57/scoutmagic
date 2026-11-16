@@ -20,6 +20,9 @@ use Core\Member\HouseholdFeeCategory;
  * this heuristic was written, or a wording this unit spells its own way.
  * $comparable says which — a member outside the three tariffs is not
  * compared, and above all is never reported as wrong.
+ *
+ * $encodedDeskCode is the `fee_categories.desk_code` of what Desk holds —
+ * the word the treasurer will look for in Desk, shown as it is (#1326).
  */
 final class HouseholdReviewMember
 {
@@ -31,6 +34,7 @@ final class HouseholdReviewMember
         public readonly ?string $totem,
         public readonly ?int $encodedFeeCategoryId,
         public readonly ?string $encodedFeeCategoryLabel,
+        public readonly ?string $encodedDeskCode,
         public readonly ?HouseholdFeeCategory $encodedCategory,
         public readonly bool $comparable,
         public readonly bool $leaving,

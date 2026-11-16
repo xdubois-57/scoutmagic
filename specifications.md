@@ -1743,14 +1743,15 @@ une action.
 
 Une ligne de décompte explicite — « 3 membres dans Desk — tarif attendu
 Famille » — qui porte l'explication, puis la comparaison membre par membre :
-l'encodé barré, l'attendu à côté.
+le code Desk encodé et le code Desk attendu côte à côte, avec l'état écrit
+(« Conforme », « À corriger », « Non comparé »). Rien n'est barré, et le nom
+de chaque membre ouvre sa fiche.
 
 Un membre sur un tarif qui n'est pas un tarif de foyer (animateur, réduit,
 iAM) est **compté** dans le foyer — la fédération compte des personnes — mais
 n'est jamais comparé ni signalé comme une erreur.
 
-**« Copier pour Desk »** met le foyer dans le presse-papiers, volontairement
-bête. **« Ignorer ce foyer »** le met de côté avec un motif libre : c'est la
+**« Ignorer ce foyer »** le met de côté avec un motif libre : c'est la
 réponse à la garde alternée et aux colocations, sans construire de fusion ni
 de séparation de foyers. Le foyer réapparaît si sa composition change. Un
 export tableur reprend les mêmes lignes.
