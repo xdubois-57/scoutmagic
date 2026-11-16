@@ -11,6 +11,7 @@ namespace Modules\Fees\Service;
 use Core\Journal\JournalService;
 use Core\Member\SectionService;
 use Modules\Fees\Invoice\InvoiceProblem;
+use Modules\Fees\Invoice\InvoiceReadResult;
 use Modules\Fees\Invoice\InvoiceReader;
 use Modules\Fees\Invoice\ParsedInvoice;
 use Modules\Fees\Repository\InvoiceMemberMatchRepository;
@@ -50,18 +51,53 @@ class InvoiceImportService
     ) {
     }
 
+    /**
+     * A refused reading, said so that the support can reconstruct it
+     * without the PDF (#1327): where it stopped, the stable codes of what
+     * failed, and the reading's statistics — counts and yes/no, line
+     * numbers at most. Never a word of the document: no name, no date of
+     * birth, no reference that identifies a person, no line of text, no
+     * exception message. The problems' own sentences, which name a tariff
+     * line and its section, stay on the screen.
+     */
+    private function journalRefusal(InvoiceReadResult $reading, int $scoutYearId, ?int $importedBy): void
+    {
+        $kinds = array_values(array_unique(array_map(
+            static fn(InvoiceProblem $problem): string => $problem->kind,
+            $reading->problems
+        )));
+        $stages = array_values(array_unique(array_map(
+            static fn(InvoiceProblem $problem): string => $problem->stage(),
+            $reading->problems
+        )));
+        $unreadable = array_filter(
+            $reading->problems,
+            static fn(InvoiceProblem $problem): bool => $problem->isFormatProblem()
+        ) !== [];
+
+        $this->journal->log(
+            'fees',
+            'fees_invoice_refused',
+            'info',
+            $unreadable
+                ? 'Facture refusée : son format n\'a pas pu être interprété.'
+                : 'Facture refusée : la lecture ne retombe pas sur son total.',
+            [
+                'scout_year_id' => $scoutYearId,
+                'stage' => $stages[0] ?? 'recognition',
+                'codes' => $kinds,
+                'problems' => count($reading->problems),
+                'reading' => $reading->stats->toArray(),
+            ],
+            $importedBy
+        );
+    }
+
     public function import(string $pdfContent, int $scoutYearId, ?int $importedBy): InvoiceImportOutcome
     {
         $reading = $this->reader->read($pdfContent);
         if (!$reading->isAccepted()) {
-            $this->journal->log(
-                'fees',
-                'fees_invoice_refused',
-                'info',
-                "Facture refusée : la lecture ne retombe pas sur son total.",
-                ['scout_year_id' => $scoutYearId, 'problems' => count($reading->problems)],
-                $importedBy
-            );
+            $this->journalRefusal($reading, $scoutYearId, $importedBy);
 
             return InvoiceImportOutcome::refused($reading->problems, $reading->ignoredRowCount);
         }

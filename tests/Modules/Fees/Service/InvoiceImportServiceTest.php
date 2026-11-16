@@ -12,6 +12,7 @@ use Core\Journal\JournalService;
 use Core\Member\SectionService;
 use Core\Security\EncryptionService;
 use Modules\Fees\Invoice\InvoiceParser;
+use Modules\Fees\Invoice\InvoiceProblem;
 use Modules\Fees\Invoice\InvoiceReader;
 use Modules\Fees\Repository\InvoiceMemberMatchRepository;
 use Modules\Fees\Repository\InvoiceRepository;
@@ -20,6 +21,7 @@ use Modules\Fees\Service\InvoiceImportService;
 use Modules\Fees\Value\InvoiceImportOutcome;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
+use Tests\Modules\Fees\Invoice\FederationExportFixture;
 use Tests\Modules\Fees\FeesTestHelper;
 use Core\Member\Repository\MemberProfileRepository;
 use Core\Member\Repository\SectionRepository;
@@ -48,7 +50,7 @@ class InvoiceImportServiceTest extends TestCase
     private string $pdf;
 
     /** Every section the golden invoice names. */
-    private const DOCUMENT_SECTIONS = ['SV025B1', 'SV025L1', 'STAFFDU', 'SV025E1'];
+    private const DOCUMENT_SECTIONS = ['SV025B1', 'SV025L1', 'STAFFDU', 'SV025E1', 'SV025P1'];
 
     protected function setUp(): void
     {
@@ -245,6 +247,128 @@ class InvoiceImportServiceTest extends TestCase
 
         $types = $this->pdo->query('SELECT event_type FROM event_log ORDER BY id')->fetchAll(\PDO::FETCH_COLUMN);
         $this->assertSame(['fees_invoice_stale_roster', 'fees_invoice_refused'], $types);
+    }
+
+    /**
+     * The layout of the federation's own export (#1327), refused before as
+     * « Aucune ligne de tarif n'a été reconnue », through the whole import.
+     */
+    public function testAnInvoiceInTheFederationsExportLayoutIsImported(): void
+    {
+        $outcome = $this->serviceReading(FederationExportFixture::text())->import('%PDF', $this->scoutYearId, 7);
+
+        $this->assertSame(InvoiceImportOutcome::IMPORTED, $outcome->status, implode("\n", array_map(
+            static fn(InvoiceProblem $p): string => $p->message,
+            $outcome->problems
+        )));
+        $this->assertNotNull($outcome->invoiceId);
+        $stored = $this->invoices->findById($outcome->invoiceId);
+        $this->assertNotNull($stored);
+        $this->assertSame(FederationExportFixture::TOTAL_CENTS, $stored->totalCents);
+        $this->assertCount(count(FederationExportFixture::rows()), $this->invoices->findLines($outcome->invoiceId));
+    }
+
+    /**
+     * A refusal is journaled so the support can rebuild the case without
+     * the PDF: the stage, stable codes and the reading's counts — never a
+     * name, a date of birth, the document number or a line of its text.
+     */
+    public function testARefusedReadingIsJournaledWithItsStageCodesAndCountsOnly(): void
+    {
+        $text = str_replace(
+            "SV025P1COTISATION NORMALECOT_NORM",
+            "SV025P1COTISATION NORMALE",
+            FederationExportFixture::text()
+        );
+
+        $outcome = $this->serviceReading($text)->import('%PDF', $this->scoutYearId, 7);
+
+        $this->assertSame(InvoiceImportOutcome::REFUSED, $outcome->status);
+        $this->assertTrue($outcome->isUnreadable());
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM fees_invoices')->fetchColumn());
+
+        $row = $this->pdo->query("SELECT description, context FROM event_log WHERE event_type = 'fees_invoice_refused'")
+            ->fetch(\PDO::FETCH_ASSOC);
+        $this->assertIsArray($row);
+        $context = json_decode((string) $row['context'], true);
+        $this->assertIsArray($context);
+        $this->assertSame('recognition', $context['stage']);
+        $this->assertContains(InvoiceProblem::UNRECOGNISED_LINE, $context['codes']);
+        $this->assertSame(10, $context['reading']['pages']);
+        $this->assertGreaterThan(0, $context['reading']['unrecognised_financial_rows']);
+        $this->assertTrue($context['reading']['tabs_seen']);
+        $this->assertStringContainsString('format', (string) $row['description']);
+
+        $dump = (string) json_encode($row);
+        $this->assertStringNotContainsString('Nom', $dump, 'no name');
+        $this->assertStringNotContainsString('/2014', $dump, 'no date of birth');
+        $this->assertStringNotContainsString('FACT-00042', $dump);
+        $this->assertStringNotContainsString('COTISATION', $dump, 'no line of text');
+        $this->assertStringNotContainsString('BE71', $dump);
+    }
+
+    public function testAnArithmeticRefusalIsJournaledAsSuchAndNotAsAFormat(): void
+    {
+        $this->service->import($this->tamperedByOneCent(), $this->scoutYearId, null);
+
+        $context = json_decode((string) $this->pdo->query(
+            "SELECT context FROM event_log WHERE event_type = 'fees_invoice_refused'"
+        )->fetchColumn(), true);
+        $this->assertIsArray($context);
+        $this->assertSame('arithmetic', $context['stage']);
+        $this->assertSame([InvoiceProblem::TOTAL_MISMATCH], $context['codes']);
+        $this->assertTrue($context['reading']['total_found']);
+    }
+
+    /** Whatever the PDF library throws, the import answers, and journals no message. */
+    public function testAnExtractorThatThrowsIsAReadingRefusalNotAnErrorPage(): void
+    {
+        $throwing = new class () extends PdfTextExtractor {
+            public function extractText(string $pdfContent): ?string
+            {
+                throw new \RuntimeException('Nomaa Nomab 04/05/2014');
+            }
+        };
+        $outcome = $this->serviceWith($throwing)->import('%PDF', $this->scoutYearId, null);
+
+        $this->assertSame(InvoiceImportOutcome::REFUSED, $outcome->status);
+        $this->assertSame(InvoiceProblem::EXTRACTION_FAILED, $outcome->problems[0]->kind);
+        $context = (string) $this->pdo->query("SELECT context FROM event_log")->fetchColumn();
+        $this->assertStringContainsString('extraction', $context);
+        $this->assertStringNotContainsString('Nomaa', $context);
+    }
+
+    private function serviceReading(string $text): InvoiceImportService
+    {
+        return $this->serviceWith(new class ($text) extends PdfTextExtractor {
+            public function __construct(private string $text)
+            {
+            }
+
+            public function extractText(string $pdfContent): ?string
+            {
+                return $this->text;
+            }
+        });
+    }
+
+    private function serviceWith(PdfTextExtractor $extractor): InvoiceImportService
+    {
+        return new InvoiceImportService(
+            new InvoiceReader($extractor, new InvoiceParser()),
+            $this->invoices,
+            new InvoiceMemberMatchRepository($this->pdo, $this->encryption),
+            $this->snapshots,
+            new SectionService(
+                new SectionRepository(Connection::withPdo($this->pdo)),
+                new MemberProfileRepository(
+                    Connection::withPdo($this->pdo),
+                    $this->encryption,
+                    new MemberBadgeRepository($this->pdo)
+                )
+            ),
+            new JournalService(new JournalRepository($this->pdo))
+        );
     }
 
     /**

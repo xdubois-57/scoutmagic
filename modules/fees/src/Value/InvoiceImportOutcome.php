@@ -86,6 +86,22 @@ final class InvoiceImportOutcome
         return new self(self::ALREADY_IMPORTED, $invoiceId, [], [], 0, $documentNumber);
     }
 
+    /**
+     * A refusal because the document could not be READ, rather than one
+     * whose arithmetic does not close (#1327): the screen says which, since
+     * the first is a format to report and the second a document to query.
+     */
+    public function isUnreadable(): bool
+    {
+        foreach ($this->problems as $problem) {
+            if ($problem->isFormatProblem()) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     public function isStored(): bool
     {
         return $this->status === self::IMPORTED;

@@ -36,8 +36,11 @@ consultable.
 **Total incohérent.** La lecture ne retombe pas sur le total du document,
 et l'écran nomme la ligne où elle décroche. Rien n'est enregistré : une
 facture à moitié lue produirait une vérification à moitié fausse, ce qui
-est pire que pas de vérification du tout. Si le document est bon et que
-le site s'y perd, le modèle de facture a probablement changé — signalez-le.
+est pire que pas de vérification du tout.
+
+**Format non interprétable.** La mise en page du document n'est pas
+reconnue ; rien n'est enregistré. Signalez-le sans envoyer le PDF :
+le journal suffit, sans aucun nom.
 
 **Roster périmé.** Le document se lit parfaitement, mais il facture une
 section que ce site ne connaît pas. Ce n'est pas une correspondance que

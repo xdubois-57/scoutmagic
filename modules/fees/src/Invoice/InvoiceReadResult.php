@@ -22,19 +22,20 @@ final class InvoiceReadResult
     private function __construct(
         public readonly ?ParsedInvoice $invoice,
         public readonly array $problems,
-        public readonly int $ignoredRowCount
+        public readonly int $ignoredRowCount,
+        public readonly InvoiceReadStats $stats = new InvoiceReadStats()
     ) {
     }
 
-    public static function accepted(ParsedInvoice $invoice): self
+    public static function accepted(ParsedInvoice $invoice, ?InvoiceReadStats $stats = null): self
     {
-        return new self($invoice, [], $invoice->ignoredRowCount);
+        return new self($invoice, [], $invoice->ignoredRowCount, $stats ?? new InvoiceReadStats());
     }
 
     /** @param InvoiceProblem[] $problems */
-    public static function refused(array $problems, int $ignoredRowCount = 0): self
+    public static function refused(array $problems, int $ignoredRowCount = 0, ?InvoiceReadStats $stats = null): self
     {
-        return new self(null, $problems, $ignoredRowCount);
+        return new self(null, $problems, $ignoredRowCount, $stats ?? new InvoiceReadStats());
     }
 
     public function isAccepted(): bool

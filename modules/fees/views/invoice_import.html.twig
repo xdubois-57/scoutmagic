@@ -8,6 +8,8 @@
 
     Dépôt          — nothing has been read yet.
     Total incohérent — the DOCUMENT is at fault; the failing row is named.
+    Format non interprétable — the document could not be read in full
+                     (#1327): a layout to report, never stored half-read.
     Roster périmé  — the document is fine and the SITE is behind Desk.
                      One button: importer Desk. There is deliberately no
                      screen offering to map an unknown section code by
@@ -46,13 +48,27 @@
             <div class="alert alert-danger" role="alert">
                 <h2 class="h6 alert-heading">
                     <i class="bi bi-exclamation-octagon" aria-hidden="true"></i>
-                    Total incohérent — rien n'a été enregistré
+                    {% if outcome.unreadable %}
+                        Format non interprétable — rien n'a été enregistré
+                    {% else %}
+                        Total incohérent — rien n'a été enregistré
+                    {% endif %}
                 </h2>
-                <p>
-                    La lecture du document ne retombe pas sur son propre total. Ce n'est pas un refus de forme :
-                    tant que l'arithmétique ne ferme pas, aucune vérification faite sur ce document ne voudrait
-                    dire quoi que ce soit. Voici où la lecture décroche.
-                </p>
+                {% if outcome.unreadable %}
+                    <p>
+                        Le site n'a pas su lire ce document en entier. Ce n'est pas une erreur de la facture :
+                        c'est sa mise en page que le site ne reconnaît pas encore. Rien n'est enregistré sur une
+                        lecture partielle. La raison est notée au journal, sans le contenu du document ;
+                        signalez-la au support plutôt que d'envoyer le PDF, qui contient des données
+                        personnelles.
+                    </p>
+                {% else %}
+                    <p>
+                        La lecture du document ne retombe pas sur son propre total. Ce n'est pas un refus de forme :
+                        tant que l'arithmétique ne ferme pas, aucune vérification faite sur ce document ne voudrait
+                        dire quoi que ce soit. Voici où la lecture décroche.
+                    </p>
+                {% endif %}
                 <ul class="mb-0">
                     {% for problem in outcome.problems %}
                         <li>
