@@ -132,13 +132,96 @@ final class CatchCoverageTest extends TestCase
         $this->assertSame('unknown', \catchCoverageJudge($empty, [2 => ['T1']]));
 
         // try { a(); } catch (T) { b();
-        //     c(); } — judged on line 3 alone.
+        //     c(); } — judged on line 3 alone, and only a pass there is proof:
+        // the lines left may sit in a branch the catch did not take (below).
         $body = ['line' => 2, 'bodyLines' => [2, 3], 'empty' => false, 'marker' => null, 'sharedLine' => true];
-        $this->assertSame('never', \catchCoverageJudge($body, [2 => ['T1'], 3 => []]));
+        $this->assertSame('unknown', \catchCoverageJudge($body, [2 => ['T1'], 3 => []]));
         $this->assertSame('executed', \catchCoverageJudge($body, [2 => ['T1'], 3 => ['T1']]));
 
         $oneLine = ['line' => 2, 'bodyLines' => [2], 'empty' => false, 'marker' => null, 'sharedLine' => true];
         $this->assertSame('unknown', \catchCoverageJudge($oneLine, [2 => ['T1']]));
+    }
+
+    /**
+     * With the catch's own line set aside, the first line left may be the
+     * inside of an `if` the catch did not take: its silence says nothing
+     * about whether the catch ran. Only a pass on a remaining line proves.
+     */
+    public function testAConditionalChildOfASharedCatchLineIsNeverProofThatTheCatchDidNotRun(): void
+    {
+        $source = <<<'PHP'
+            <?php
+            try { a(); } catch (E) { if ($x) {
+                b();
+            } }
+            PHP;
+        $catch = \catchCoverageScan($source)[0];
+
+        $this->assertTrue($catch['sharedLine']);
+        $this->assertSame('unknown', \catchCoverageJudge($catch, [2 => ['T1'], 3 => []]));
+        $this->assertSame('executed', \catchCoverageJudge($catch, [2 => ['T1'], 3 => ['T1']]));
+    }
+
+    /**
+     * `recover(); } after();` — the line of the closing brace holds code
+     * that runs whether or not the catch did, so it proves nothing, exactly
+     * like the catch line shared with the try.
+     */
+    public function testABodyClosingOnALineFollowedByCodeDoesNotProveItself(): void
+    {
+        $source = <<<'PHP'
+            <?php
+            try {
+                a();
+            } catch (E) {
+                recover(); } after();
+            PHP;
+        $catch = \catchCoverageScan($source)[0];
+
+        $this->assertSame(5, $catch['closingLine']);
+        $this->assertSame('unknown', \catchCoverageJudge($catch, [4 => ['T1'], 5 => ['T1']]));
+
+        // A later line of the body still proves, when it ran.
+        $own = ['line' => 4, 'bodyLines' => [5, 6], 'empty' => false, 'marker' => null, 'closingLine' => 5];
+        $this->assertSame('executed', \catchCoverageJudge($own, [5 => ['T1'], 6 => ['T1']]));
+        $this->assertSame('unknown', \catchCoverageJudge($own, [5 => ['T1'], 6 => []]));
+    }
+
+    public function testABodyClosingOnItsOwnLineOrBeforeOnlyACommentLeavesTheLineAlone(): void
+    {
+        $catches = \catchCoverageScan(<<<'PHP'
+            <?php
+            try {
+                a();
+            } catch (E) {
+                recover();
+            }
+            try {
+                b();
+            } catch (F) {
+                recover(); } // nothing runs after the brace
+            PHP);
+
+        $this->assertSame([null, null], array_column($catches, 'closingLine'));
+    }
+
+    /**
+     * The text of a token is not its identity: the tail of an interpolated
+     * string can be exactly `}`, which is no brace and closes nothing.
+     */
+    public function testAStringFragmentThatIsLiterallyABraceDoesNotCloseTheBody(): void
+    {
+        $catches = \catchCoverageScan(<<<'PHP'
+            <?php
+            try {
+                a();
+            } catch (\Exception $e) {
+                $m = "$e}";
+                after();
+            }
+            PHP);
+
+        $this->assertSame([5, 6], $catches[0]['bodyLines']);
     }
 
     public function testTheWordInAStringOrACommentIsNotACatch(): void
