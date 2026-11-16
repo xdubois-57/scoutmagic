@@ -233,6 +233,65 @@ class ReturnPathVerifierTest extends TestCase
         $this->assertNull($this->probes->findByAddress('info@unite.be'));
     }
 
+    /**
+     * **A failure is not a missing configuration (#1210).** The module that
+     * cannot say which boxes are open has FAILED; « collecting, but no box
+     * open to this check » is a configuration act somebody can take. Both
+     * read as zero boxes, and the screen chose the second sentence — which
+     * invited the operator to open a box for a problem that was an outage.
+     */
+    public function testAModuleThatCannotNameItsBoxesIsAFailureAndNotAnInvitationToOpenOne(): void
+    {
+        $gateway = $this->createStub(InboundMailInterface::class);
+        $gateway->method('isCollecting')->willReturn(true);
+        $gateway->method('probeAddressesFor')->willThrowException(new \PDOException('SQLSTATE[HY000]: gone away'));
+        $verifier = $this->verifierWith($gateway);
+
+        $this->assertTrue($verifier->isScopeUnreadable());
+        $this->assertFalse(
+            $verifier->isCollectingWithoutScope(),
+            'a list that could not be read is not a list with nothing in it'
+        );
+        $this->assertFalse($verifier->isPossible(), 'and still nothing is sent blind');
+    }
+
+    /** The failure is said once, where an administrator reads it — never with the module's own words. */
+    public function testAnUnreadableScopeIsJournaledWithoutTheModulesMessage(): void
+    {
+        $gateway = $this->createStub(InboundMailInterface::class);
+        $gateway->method('isCollecting')->willReturn(true);
+        $gateway->method('probeAddressesFor')->willThrowException(new \PDOException('SQLSTATE[HY000]: boite@unite.be'));
+
+        $this->verifierWith($gateway)->isScopeUnreadable();
+
+        $entries = $this->pdo->query(
+            "SELECT category, level, context FROM event_log WHERE event_type = 'return_path_scope_unreadable'"
+        )->fetchAll(\PDO::FETCH_ASSOC);
+        $this->assertCount(1, $entries);
+        $this->assertSame('core', $entries[0]['category']);
+        $this->assertSame('warning', $entries[0]['level']);
+        $this->assertSame(['cause' => \PDOException::class], json_decode((string) $entries[0]['context'], true));
+        $this->assertStringNotContainsString('boite@unite.be', serialize($entries));
+    }
+
+    /**
+     * What stays what it was: no module, a module that is not collecting
+     * (nobody asked it anything) and a module that answers « no box » are
+     * none of them a failure.
+     */
+    public function testOnlyAModuleThatFailsWhileCollectingIsAnUnreadableScope(): void
+    {
+        $this->assertFalse($this->verifierWith(null)->isScopeUnreadable());
+        $this->assertFalse($this->verifierWith($this->collectingGateway())->isScopeUnreadable());
+        $this->assertFalse($this->verifierWith($this->collectingGatewayWithNoScope())->isScopeUnreadable());
+        $this->assertTrue($this->verifierWith($this->collectingGatewayWithNoScope())->isCollectingWithoutScope());
+
+        $idle = $this->createStub(InboundMailInterface::class);
+        $idle->method('isCollecting')->willReturn(false);
+        $idle->method('probeAddressesFor')->willThrowException(new \RuntimeException('not asked'));
+        $this->assertFalse($this->verifierWith($idle)->isScopeUnreadable());
+    }
+
     // ── a send that never leaves ──────────────────────────────────────
 
     /**
