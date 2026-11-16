@@ -172,6 +172,9 @@ class FeeAccuracyService
             }
 
             $encodedCategory = $this->tariffs->categoryForFeeCategoryId($row['fee_category_id']);
+            $encodedFeeCategory = $row['fee_category_id'] === null
+                ? null
+                : ($feeCategories[$row['fee_category_id']] ?? null);
             $members[] = new HouseholdReviewMember(
                 $householdMember->memberId,
                 $householdMember->memberYearId,
@@ -179,8 +182,8 @@ class FeeAccuracyService
                 $row['last_name'],
                 $row['totem'],
                 $row['fee_category_id'],
-                $row['fee_category_id'] === null ? null : ($feeCategories[$row['fee_category_id']]['label'] ?? null),
-                $row['fee_category_id'] === null ? null : ($feeCategories[$row['fee_category_id']]['desk_code'] ?? null),
+                $encodedFeeCategory['label'] ?? null,
+                $encodedFeeCategory['desk_code'] ?? null,
                 $encodedCategory,
                 $encodedCategory !== null,
                 $householdMember->leaving,

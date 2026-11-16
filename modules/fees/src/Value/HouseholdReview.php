@@ -31,7 +31,7 @@ final class HouseholdReview
 {
     /**
      * @param HouseholdReviewMember[] $members
-     * @param list<string> $expectedDeskCodes the Desk codes the expected tariff really stands for; empty when none is mapped
+     * @param list<string> $expectedDeskCodes the Desk codes the expected tariff stands for; empty when unmapped
      * @param int[] $leavingMemberYearIds
      */
     public function __construct(
