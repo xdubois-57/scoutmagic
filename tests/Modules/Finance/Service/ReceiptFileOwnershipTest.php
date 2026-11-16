@@ -103,6 +103,41 @@ class ReceiptFileOwnershipTest extends TestCase
         $this->assertSame($accountId, $file->ownerId);
     }
 
+    /**
+     * A receipt of the sorting pile can be replaced (#1226). Its new file
+     * is stamped exactly as `uploadUnattributed()` stamps one — the pile's
+     * floor and its owner — so the replacement is as reachable, and as
+     * guarded, as the receipt it replaces.
+     */
+    public function testReplacingAReceiptOfTheSortingPileStampsThePileOnTheNewFile(): void
+    {
+        $original = $this->service->uploadUnattributed('%PDF-1.4', 'application/pdf', 'recu.pdf', null);
+
+        $replacement = $this->service->replace($original->id, '%PDF-1.5', 'application/pdf', 'recu-v2.pdf', null);
+
+        $this->assertNull($replacement->accountId, 'the replacement stays in the pile');
+        $this->assertSame($original->id, $replacement->parentAttachmentId);
+        $this->assertSame('archived', $this->attachmentRepository->findById($original->id)?->status);
+
+        $newFile = $this->fileRepository->findById($replacement->fileId);
+        $oldFile = $this->fileRepository->findById($original->fileId);
+        $this->assertNotNull($newFile);
+        $this->assertNotNull($oldFile);
+        $this->assertSame(FinanceAccountOwnershipChecker::OWNER_TYPE, $newFile->ownerType);
+        $this->assertSame(FinanceAccountOwnershipChecker::UNASSIGNED_OWNER_ID, $newFile->ownerId);
+        $this->assertSame($oldFile->roleMin, $newFile->roleMin, 'the same floor as the receipt it replaces');
+        $this->assertNull($newFile->ownerMemberId);
+    }
+
+    /** What still answers « Reçu introuvable. » is a receipt that does not exist. */
+    public function testReplacingAReceiptThatDoesNotExistStillSaysSo(): void
+    {
+        $this->expectException(\Modules\Finance\Api\FinanceException::class);
+        $this->expectExceptionMessage('Reçu introuvable.');
+
+        $this->service->replace(9999, '%PDF-1.5', 'application/pdf', 'recu-v2.pdf', null);
+    }
+
     public function testTheBackfillGivesAnOldReceiptItsAccount(): void
     {
         $accountId = $this->createAccount();
