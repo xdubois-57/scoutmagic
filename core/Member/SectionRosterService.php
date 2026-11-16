@@ -68,6 +68,7 @@ final class SectionRosterService
                 'member_id' => $e->memberId,
                 'section_id' => $e->sectionId,
                 'age_branch_id' => $e->ageBranchId,
+                'bucket' => $e->bucket,
             ],
             $entries
         );

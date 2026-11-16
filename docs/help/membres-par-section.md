@@ -39,6 +39,16 @@ mouvement par rapport à l'année précédente, par exemple une arrivée dans
 l'unité ou un changement de section. Le bouton « Légende » explique
 chaque étiquette.
 
+Pour un animé, **Changement de branche** veut dire une section d'une
+autre branche d'âge ; **Changement de section**, une autre section de la
+même branche.
+
+Pour un animateur, la branche de la section qu'il encadre ne compte pas :
+il porte **Changement de section** dès qu'il change de section, même
+d'une autre branche. **Changement de branche** n'apparaît que s'il était
+animé l'an dernier. Le statut est celui de la fonction principale dans
+Desk ; écran, Excel et PDF affichent les mêmes étiquettes.
+
 ## Exporter en Excel
 
 Le bouton « Exporter en Excel » télécharge la liste affichée — la

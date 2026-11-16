@@ -144,6 +144,7 @@ final class MemberExportRowBuilder
                 'member_id' => $e->memberId,
                 'section_id' => $e->sectionId,
                 'age_branch_id' => $e->ageBranchId,
+                'bucket' => $e->bucket,
             ],
             array_values(array_filter($entries, fn(SectionRosterEntry $e) => $e->sectionId > 0))
         );
