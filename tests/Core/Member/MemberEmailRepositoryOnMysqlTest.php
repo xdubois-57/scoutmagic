@@ -130,12 +130,12 @@ final class MemberEmailRepositoryOnMysqlTest extends TestCase
     }
 
     /**
-     * Pinned, not endorsed: the catch reads every PDOException as the race
-     * above. A write the database refuses for another reason finds no row
-     * on the re-read, and ends in an \Error (the assertion, or the return
-     * type where assertions are off) instead of the database's own error.
+     * A write the database refuses for a reason other than the duplicate
+     * is not the race: the re-read finds nothing, and what comes back is
+     * the database's own error — not an \Error from the assertion (or from
+     * the return type, where assertions are off) that hides it (#1237).
      */
-    public function testARefusedDeskOverrideWriteIsTakenForTheRaceAndEndsInAnError(): void
+    public function testARefusedDeskOverrideWriteSurfacesTheDatabaseErrorNotAnError(): void
     {
         $member = $this->member('D1');
         $this->pdo->exec(
@@ -146,8 +146,8 @@ final class MemberEmailRepositoryOnMysqlTest extends TestCase
         try {
             $this->repository->findOrCreateDeskOverride($member, 'refused@test.com');
             $this->fail('a refused write cannot produce a row');
-        } catch (\Error $e) {
-            $this->assertNotInstanceOf(\PDOException::class, $e->getPrevious());
+        } catch (\PDOException $e) {
+            $this->assertSame('45000', (string) $e->getCode(), 'the refusal itself, with its own code');
         } finally {
             $this->pdo->exec('DROP TRIGGER refuse_member_emails');
         }

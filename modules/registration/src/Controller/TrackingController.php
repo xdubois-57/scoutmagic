@@ -120,8 +120,15 @@ class TrackingController extends AbstractController
         }
 
         try {
-            $this->secondaryEmailService->addEmail($registrationRequest->id, (string) $request->getBody('email', ''));
-            FlashMessage::set('success', 'Adresse ajoutée — un email de confirmation vient d\'être envoyé.');
+            $added = $this->secondaryEmailService->addEmailReporting(
+                $registrationRequest->id,
+                (string) $request->getBody('email', '')
+            );
+            // The address is added either way; what the family is told about
+            // the e-mail is what happened to it (#1236).
+            FlashMessage::set('success', $added->confirmationSent === false
+                ? 'Adresse ajoutée, mais l\'email de confirmation n\'a pas pu partir — réessayez plus tard.'
+                : 'Adresse ajoutée — un email de confirmation vient d\'être envoyé.');
         } catch (RegistrationException $e) {
             FlashMessage::set('error', $e->getMessage());
         }

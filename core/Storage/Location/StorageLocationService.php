@@ -383,6 +383,11 @@ class StorageLocationService
             $sharedRefusal = $usable
                 ? self::sharedFolderRefusal($backend, $folderId, $folder, $config->folderId)
                 : null;
+        } catch (Backend\Drive\DriveAccessException $e) {
+            // Google's refusal is a StorageLocationException, so the catch
+            // below let it through untouched and it never said that nothing
+            // was changed (#1224).
+            throw self::unchangedRefusal($e, 'Google Drive n\'a pas pu montrer ce dossier');
         } catch (StorageLocationException $e) {
             throw $e;
         } catch (\Throwable $e) {
@@ -593,6 +598,8 @@ class StorageLocationService
                 );
             }
             $folderId = $backend->createRootFolder($location->label);
+        } catch (Backend\Drive\DriveAccessException $e) {
+            throw self::unchangedRefusal($e, 'Google Drive n\'a pas pu créer le dossier');
         } catch (StorageLocationException $e) {
             throw $e;
         } catch (\Throwable $e) {
@@ -1082,5 +1089,26 @@ class StorageLocationService
                 'Un autre emplacement porte déjà ce nom — donnez-lui un nom différent pour les distinguer.'
             );
         }
+    }
+
+    /**
+     * A Google refusal with « rien n'a été changé » in front of its own
+     * sentence, as every other way these two steps can fail already says.
+     *
+     * Still a DriveAccessException, with its `needsReauthorisation` kept: a
+     * grant Google withdrew is a state the site is in, and the screen acts on
+     * it. Its previous exception — Google's own words, English and technical
+     * — stays the previous one, so the journal keeps the detail it always
+     * had; only the sentence the administrator reads changes.
+     */
+    private static function unchangedRefusal(
+        Backend\Drive\DriveAccessException $refusal,
+        string $failed
+    ): Backend\Drive\DriveAccessException {
+        $message = $failed . ' : rien n\'a été changé. ' . $refusal->getMessage();
+
+        return $refusal->needsReauthorisation
+            ? Backend\Drive\DriveAccessException::revoked($message, $refusal->getPrevious())
+            : Backend\Drive\DriveAccessException::of($message, $refusal->getPrevious());
     }
 }

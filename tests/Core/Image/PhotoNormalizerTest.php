@@ -395,6 +395,29 @@ PHP;
     }
 
     /**
+     * An HEIC decompression bomb is refused by the server's own converter,
+     * before ImageMagick decodes a pixel, and its French sentence reaches
+     * the visitor as it is — not the generic « could not be read ».
+     */
+    public function testAnHeicBombIsRefusedInTheConvertersOwnWords(): void
+    {
+        if (!PhotoNormalizer::serverReadsHeic()) {
+            $this->markTestSkipped('This server\'s ImageMagick does not read HEIC.');
+        }
+
+        try {
+            PhotoNormalizer::forThisServer()->normalize($this->heicAnnouncing(10000, 9000));
+            $this->fail('A 90-megapixel HEIC must be refused.');
+        } catch (PhotoNormalizationException $e) {
+            $this->assertSame(
+                'Image trop grande (10000×9000 pixels) : la limite est de 50 mégapixels.',
+                $e->getMessage()
+            );
+            $this->assertNull($e->getPrevious());
+        }
+    }
+
+    /**
      * The server's own normaliser reads HEIC exactly when its Imagick
      * lists the format — and when it does, Imagick's half of the work turns
      * and strips like GD's does.
@@ -507,6 +530,38 @@ PHP;
     private function heicBytes(): string
     {
         return pack('N', 24) . 'ftypheic' . pack('N', 0) . 'mif1heic' . str_repeat("\x00", 64);
+    }
+
+    /**
+     * The smallest HEIF container ImageMagick will ping: one `hvc1` item
+     * whose `ispe` property announces these dimensions, over a few bytes
+     * of data that are no picture at all.
+     */
+    private function heicAnnouncing(int $width, int $height): string
+    {
+        $box = static fn(string $type, string $payload): string => pack('N', 8 + strlen($payload)) . $type . $payload;
+        $full = static fn(string $type, int $version, string $payload): string
+            => $box($type, chr($version) . "\0\0\0" . $payload);
+
+        $hvcC = $box('hvcC', "\x01\x01" . pack('N', 0x60000000) . str_repeat("\0", 6) . chr(90) . pack('n', 0xF000)
+            . "\xFC\xFD\xF8\xF8" . pack('n', 0) . "\x0F\0");
+        $properties = $box('iprp', $box('ipco', $hvcC . $full('ispe', 0, pack('NN', $width, $height)))
+            . $full('ipma', 0, pack('N', 1) . pack('n', 1) . "\x02\x81\x02"));
+        $items = $full('iinf', 0, pack('n', 1) . $full('infe', 2, pack('nn', 1, 0) . "hvc1\0"));
+        $data = str_repeat("\0", 16);
+        $meta = static fn(int $offset): string => $full(
+            'meta',
+            0,
+            $full('hdlr', 0, pack('N', 0) . 'pict' . str_repeat("\0", 13))
+                . $full('pitm', 0, pack('n', 1))
+                . $full('iloc', 0, "\x44\x00" . pack('nnnnNN', 1, 1, 0, 1, $offset, strlen($data)))
+                . $items
+                . $properties
+        );
+        $ftyp = $box('ftyp', 'heic' . pack('N', 0) . 'mif1heic');
+        $offset = strlen($ftyp) + strlen($meta(0)) + 8;
+
+        return $ftyp . $meta($offset) . $box('mdat', $data);
     }
 
     /** @return resource */

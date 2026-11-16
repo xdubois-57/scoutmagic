@@ -282,4 +282,29 @@ class MemberContactControllerTest extends TestCase
             $this->assertStringNotContainsString('\\', $e->getMessage());
         }
     }
+
+    /**
+     * The route itself, on a member whose card really outgrows a symbol:
+     * a leader with many confirmed addresses. The refusal is the French
+     * sentence with a 422, and nothing is journaled as served.
+     */
+    public function testAMemberWhoseCardOutgrowsASymbolGetsTheRefusalAndNoJournalEntry(): void
+    {
+        $emails = new MemberEmailRepository(
+            $this->pdo,
+            new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))
+        );
+        for ($i = 1; $i <= 80; $i++) {
+            $emails->create($this->memberId, 'adresse.' . $i . '@exemple-tres-long.be', 'manual', 'valid', null, null);
+        }
+
+        $response = $this->controller->qrCode($this->request(), ['id' => (string) $this->memberYearId]);
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertSame(
+            'Cette fiche est trop longue pour un code QR. Téléchargez le fichier de contact à la place.',
+            $response->getBody()
+        );
+        $this->assertSame([], $this->journalEntries());
+    }
 }

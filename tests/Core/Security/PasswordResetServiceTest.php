@@ -5,15 +5,20 @@ declare(strict_types=1);
 namespace Tests\Core\Security;
 
 use Core\Database\Connection;
+use Core\Journal\JournalRepository;
+use Core\Journal\JournalService;
+use Core\Mail\MailException;
+use Core\Mail\MailService;
 use Core\Security\EncryptionService;
 use Core\Security\PasswordPolicy;
 use Core\Security\PasswordResetService;
 use Core\Security\UserAccountRepository;
 use PHPUnit\Framework\TestCase;
+use Tests\Core\Mail\Template\EmailTemplateRendererFactory;
 use Tests\DatabaseTestHelper;
+use Tests\TestTwig;
 use Twig\Environment;
 use Twig\Loader\ArrayLoader;
-use Tests\Core\Mail\Template\EmailTemplateRendererFactory;
 
 /**
  * Mirrors Tests\Core\Security\AuthServiceTest's structure/conventions for
@@ -95,6 +100,41 @@ class PasswordResetServiceTest extends TestCase
         $this->service->requestReset('limited@test.com');
         $this->assertSame(5, (int) $this->pdo->query('SELECT COUNT(*) FROM password_reset_tokens')->fetchColumn());
         $this->assertFalse($this->emailSent);
+    }
+
+    /**
+     * A reset e-mail that cannot leave answers exactly like an address with
+     * no account: no exception, the token row, the journal line — so the
+     * failure tells a visitor nothing about whether the account exists.
+     */
+    public function testAFailedSendAnswersExactlyLikeAnUnknownAddress(): void
+    {
+        $this->userRepo->create('known@test.com');
+        $mailService = $this->createMock(MailService::class);
+        $mailService->expects($this->once())
+            ->method('send')
+            ->with('known@test.com')
+            ->willThrowException(new MailException('SMTP connect() failed'));
+        $connection = $this->createStub(Connection::class);
+        $connection->method('getPdo')->willReturn($this->pdo);
+        $service = new PasswordResetService(
+            $connection,
+            $this->encryption,
+            $mailService,
+            EmailTemplateRendererFactory::overTestDatabase($this->pdo, TestTwig::create()),
+            'https://example.com',
+            'Test Unit'
+        );
+        $service->setJournalService(new JournalService(new JournalRepository($this->pdo)));
+
+        $service->requestReset('known@test.com');
+        $service->requestReset('unknown@test.com');
+
+        $this->assertSame(2, (int) $this->pdo->query('SELECT COUNT(*) FROM password_reset_tokens')->fetchColumn());
+        $this->assertSame(
+            ['password_reset_requested', 'password_reset_requested'],
+            $this->pdo->query('SELECT event_type FROM event_log ORDER BY id')->fetchAll(\PDO::FETCH_COLUMN)
+        );
     }
 
     public function testCheckTokenValidForFreshToken(): void

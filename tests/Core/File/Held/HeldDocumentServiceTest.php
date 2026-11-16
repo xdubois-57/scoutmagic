@@ -223,6 +223,47 @@ final class HeldDocumentServiceTest extends TestCase
         $this->assertStringNotContainsString('autorisation parentale', $journal);
     }
 
+    /**
+     * The row that would own the file is refused: the file is deleted
+     * again, from the table and from the disk — no row would ever purge it
+     * — and the refusal comes out.
+     */
+    public function testARefusedRowLeavesNoOrphanFileBehind(): void
+    {
+        $this->pdo->exec(
+            "CREATE TRIGGER refuse_held BEFORE INSERT ON held_documents
+             BEGIN SELECT RAISE(ABORT, 'held document refused'); END"
+        );
+
+        try {
+            $this->hold();
+            $this->fail('The refusal must reach the caller.');
+        } catch (\PDOException $e) {
+            $this->assertStringContainsString('held document refused', $e->getMessage());
+        }
+
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM files')->fetchColumn());
+        $this->assertSame([], glob($this->storagePath . '/' . HeldDocumentService::DIRECTORY . '/*') ?: []);
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM event_log')->fetchColumn());
+    }
+
+    /**
+     * A file gone from the disk opens nothing, like an unknown key, and
+     * no opening is journaled.
+     */
+    public function testAFileMissingFromTheDiskOpensNothingAndIsNotJournaledAsOpened(): void
+    {
+        $held = $this->hold();
+        $stored = (string) $this->pdo->query('SELECT relative_path FROM files')->fetchColumn();
+        unlink($this->storagePath . '/' . $stored);
+
+        $this->assertNull($this->service->openInApp($held->appToken, self::SESSION, $this->now->modify('+1 minute')));
+        $this->assertSame(
+            ['held_document_created'],
+            $this->pdo->query('SELECT event_type FROM event_log ORDER BY id')->fetchAll(\PDO::FETCH_COLUMN)
+        );
+    }
+
     private function hold(?\DateTimeImmutable $at = null): \Core\File\Held\HeldDocument
     {
         return $this->service->hold(self::PDF, 'application/pdf', 'autorisation.pdf', self::SESSION, null, $at ?? $this->now);

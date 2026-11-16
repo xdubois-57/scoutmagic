@@ -879,20 +879,72 @@ class RegistrationRequestRepository
         ?\DateTimeImmutable $finalAt,
         ?string $refusalReason = null
     ): int {
+        return $this->writeStatus($id, null, $status, $finalAt, $refusalReason) ?? 0;
+    }
+
+    /**
+     * The same write, made only if the request is STILL in $expectedStatus —
+     * the status the caller judged the transition by (#1235).
+     *
+     * A transition is allowed or refused on the status a caller READ, and
+     * between that read and this write somebody else may have moved the
+     * request on: encoded it, decided it, withdrawn it. An unconditional
+     * UPDATE overwrote them and the last writer won, blind. Here the
+     * statement says `AND status = ?`, so a request that moved on is left
+     * exactly as the other person left it — status, member, refusal reason —
+     * and the answer is null, nothing was superseded, and the caller decides
+     * what to say. The old and the new status always differ, so « rows
+     * changed » (MySQL) and « rows found » (SQLite) are the same number.
+     *
+     * @return int|null how many scheduled e-mails the change superseded, or
+     *         null when the request was no longer in $expectedStatus and
+     *         nothing was written
+     */
+    public function updateStatusFrom(
+        int $id,
+        string $expectedStatus,
+        string $status,
+        ?\DateTimeImmutable $finalAt,
+        ?string $refusalReason = null
+    ): ?int {
+        return $this->writeStatus($id, $expectedStatus, $status, $finalAt, $refusalReason);
+    }
+
+    /**
+     * @return int|null the e-mails superseded, or null when $expectedStatus
+     *         was given and the request was no longer in it
+     */
+    private function writeStatus(
+        int $id,
+        ?string $expectedStatus,
+        string $status,
+        ?\DateTimeImmutable $finalAt,
+        ?string $refusalReason
+    ): ?int {
         $storedReason = $status === RegistrationRequest::STATUS_REFUSED
             ? self::normalizeRefusalReason($refusalReason)
             : null;
 
-        return $this->transactional(function () use ($id, $status, $finalAt, $storedReason): int {
+        return $this->transactional(function () use ($id, $expectedStatus, $status, $finalAt, $storedReason): ?int {
             // The request row first, then its e-mails — the order the send
             // path reads them in (DecisionEmailRepository::insert() selects
             // FROM this row), so a send racing this change either sees the
             // new status and creates nothing, or ran entirely before it and
             // is superseded below.
-            $stmt = $this->pdo->prepare(
-                'UPDATE registration_requests SET status = ?, final_at = ?, refusal_reason = ? WHERE id = ?'
-            );
-            $stmt->execute([$status, $finalAt?->format('Y-m-d H:i:s'), $storedReason, $id]);
+            $sql = 'UPDATE registration_requests SET status = ?, final_at = ?, refusal_reason = ? WHERE id = ?';
+            $parameters = [$status, $finalAt?->format('Y-m-d H:i:s'), $storedReason, $id];
+            if ($expectedStatus !== null) {
+                $sql .= ' AND status = ?';
+                $parameters[] = $expectedStatus;
+            }
+            $stmt = $this->pdo->prepare($sql);
+            $stmt->execute($parameters);
+
+            // Nothing was written: the request moved on. Its e-mails belong
+            // to the decision somebody else took, and are theirs to keep.
+            if ($expectedStatus !== null && $stmt->rowCount() === 0) {
+                return null;
+            }
 
             // A changed decision makes every e-mail written for the old one
             // obsolete (issue #843, D8): none of them may leave any more,

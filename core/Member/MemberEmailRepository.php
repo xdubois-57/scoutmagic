@@ -284,12 +284,24 @@ class MemberEmailRepository
 
         try {
             $id = $this->create($memberId, $email, MemberEmail::SOURCE_DESK, MemberEmail::STATUS_VALID, null, null);
-        } catch (\PDOException) {
-            // Unique index race (findByMemberAndEmail found nothing, but a
-            // concurrent request created it in between) — re-select rather
-            // than fail.
+        } catch (\PDOException $e) {
+            // Only a unique-key violation can be the race: findByMemberAndEmail
+            // found nothing, but a concurrent request created the row in
+            // between — re-select rather than fail. Any other refusal (a
+            // trigger's SIGNAL 45000, a constraint, an outage) is a write
+            // that failed, and re-reading for it found nothing and ended in an
+            // \Error that hid the database's own (#1237).
+            if ((string) $e->getCode() !== '23000') {
+                throw $e;
+            }
+
             $existing = $this->findByMemberAndEmail($memberId, $email);
-            \assert($existing !== null);
+            if ($existing === null) {
+                // A 23000 that is not our duplicate (SQLite reports a trigger's
+                // refusal under it too): nothing to return, so say why.
+                throw $e;
+            }
+
             return $existing;
         }
 

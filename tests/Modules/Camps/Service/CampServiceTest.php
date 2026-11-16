@@ -128,6 +128,7 @@ class CampServiceTest extends TestCase
             'dot decimals' => ['2450.50', 245050],
             'with currency' => ['2450,50 €', 245050],
             'empty is not zero' => ['', null],
+            'the most the column holds' => ['42949672,95', 4294967295],
         ];
     }
 
@@ -141,6 +142,39 @@ class CampServiceTest extends TestCase
     {
         $this->expectException(CampsException::class);
         $this->service->validate(['year_only' => '2029', 'price' => '-100']);
+    }
+
+    /**
+     * `price_cents` is an `INT UNSIGNED`: one cent above it and MariaDB in
+     * strict mode refuses the write with an error nobody catches, instead
+     * of a message on the form. Far above, the arithmetic itself overflows
+     * into a float. The ceiling is the one the e-mail reader already uses.
+     *
+     * @dataProvider pricesAboveTheColumn
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('pricesAboveTheColumn')]
+    public function testAPriceAboveWhatTheColumnHoldsIsRefusedWithAFormMessage(string $typed): void
+    {
+        try {
+            $this->service->validate(['year_only' => '2029', 'price' => $typed]);
+            $this->fail('a price the column cannot hold must be refused');
+        } catch (CampsException $e) {
+            $this->assertStringContainsString('42 949 672,95 €', $e->getMessage());
+        }
+    }
+
+    /**
+     * @return array<string, array{string}>
+     */
+    public static function pricesAboveTheColumn(): array
+    {
+        return [
+            'one cent over' => ['42949672,96'],
+            'a round figure over' => ['42949673'],
+            'past PHP_INT_MAX in cents' => ['99999999999999999999'],
+            'scientific notation' => ['1e30'],
+            'infinity' => ['1e999'],
+        ];
     }
 
     // ── Foreign keys are checked here, not by MySQL ──────────────────

@@ -87,6 +87,11 @@ final class TransportService
         // were never written is in no lane, has no host, and would sit on
         // the page as a fournisseur that cannot be used, one more on every
         // retry. Taking the row back makes the retry an ordinary retry.
+        //
+        // Two writes, two stores, two causes — and two sentences (#1209). The
+        // secrets file failing is the one the sentence about the file is true
+        // for; the database refusing the lane entries is not, and blaming the
+        // file sent a superadmin to check permissions that were fine.
         try {
             $this->connections->store(
                 ProviderConnections::prefixFor($id),
@@ -95,13 +100,26 @@ final class TransportService
                 $username,
                 $password
             );
-            $this->chains->appendToEveryLane($id, false);
         } catch (\Throwable $e) {
             $this->rollBack($id);
 
             throw new TransportException(
                 'Les identifiants de ce fournisseur n’ont pas pu être enregistrés, donc il n’a pas été créé. '
                 . 'Vérifiez que le fichier des secrets est accessible en écriture, puis réessayez.',
+                0,
+                $e
+            );
+        }
+
+        try {
+            $this->chains->appendToEveryLane($id, false);
+        } catch (\Throwable $e) {
+            $this->rollBack($id);
+            $this->journalSaveFailure('add', $id, $e, $actorId);
+
+            throw new TransportException(
+                'Ce fournisseur n’a pas pu être enregistré en base de données, donc il n’a pas été créé. '
+                . 'Réessayez ; si cela se reproduit, consultez le journal.',
                 0,
                 $e
             );
@@ -168,13 +186,6 @@ final class TransportService
                 $username,
                 $password
             );
-            $this->providers->update(
-                $id,
-                $name,
-                $this->normaliseQuota($dailyQuota),
-                $this->normaliseBatchSize($batchSize),
-                $this->normaliseInterval($batchIntervalMinutes)
-            );
         } catch (\Throwable $e) {
             // `TransportException` is final and `ProviderConnections`
             // throws a plain `RuntimeException`, so without this the
@@ -190,6 +201,29 @@ final class TransportService
             );
         }
 
+        // The credentials are stored: whatever fails now is the database,
+        // and the secrets file is not to blame (#1209). The new credentials
+        // under the previous name are the harmless window the comment above
+        // accepts, which the retry finishes.
+        try {
+            $this->providers->update(
+                $id,
+                $name,
+                $this->normaliseQuota($dailyQuota),
+                $this->normaliseBatchSize($batchSize),
+                $this->normaliseInterval($batchIntervalMinutes)
+            );
+        } catch (\Throwable $e) {
+            $this->journalSaveFailure('update', $id, $e, $actorId);
+
+            throw new TransportException(
+                'Ce fournisseur n’a pas pu être enregistré en base de données. Réessayez ; si cela se '
+                . 'reproduit, consultez le journal.',
+                0,
+                $e
+            );
+        }
+
         $this->directory->refresh();
 
         $this->journal->log(
@@ -200,6 +234,41 @@ final class TransportService
             ['provider_id' => $id, 'provider' => $name, 'host' => $host, 'port' => $this->normalisePort($port)],
             $actorId
         );
+    }
+
+    /**
+     * The technical cause of a save the database refused, where an
+     * administrator can read it: the sentence the superadmin gets names no
+     * cause (and must not reuse the exception's words, which can name a path
+     * or a table), so the journal is where it is told, at `error` level
+     * (#1209). The class and a shortened message — never a credential, none
+     * of which a database error carries.
+     */
+    private function journalSaveFailure(string $operation, int $providerId, \Throwable $e, ?int $actorId): void
+    {
+        // Best effort, like rollBack() below: it runs inside a `catch` whose
+        // exception is the one worth reporting, and the journal is a table of
+        // the very database that may be the cause. A failure here must not
+        // replace it with a second exception that escapes the controller,
+        // which only expects a TransportException.
+        try {
+            $this->journal->log(
+                'core',
+                'mail_provider_save_failed',
+                'error',
+                'L’enregistrement d’un fournisseur d’envoi a échoué en base de données',
+                [
+                    'operation' => $operation,
+                    'provider_id' => $providerId,
+                    'cause' => $e::class,
+                    'detail' => mb_substr($e->getMessage(), 0, 300),
+                ],
+                $actorId
+            );
+        } catch (\Throwable) {
+            // Nothing left to tell anybody with: the exception that follows is
+            // the report.
+        }
     }
 
     /**

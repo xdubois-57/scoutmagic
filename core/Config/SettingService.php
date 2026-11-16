@@ -387,20 +387,27 @@ class SettingService
             return;
         }
 
-        $this->cache = [];
-        $this->defaults = [];
-        $this->presentation = [];
+        // Built aside and assigned together once the read has succeeded: a
+        // cache set to `[]` BEFORE `findAll()` made a failed load stick, and
+        // every later read of the process answered « default » without
+        // asking the table again.
         $all = $this->repository->findAll();
+        $cache = [];
+        $defaults = [];
+        $presentation = [];
         foreach ($all as $row) {
             $cacheKey = ($row['module_id'] ?? '_core_') . '::' . $row['setting_key'];
-            $this->cache[$cacheKey] = $row['setting_value'];
-            $this->defaults[$cacheKey] = $row['default_value'] ?? null;
-            $this->presentation[$cacheKey] = [
+            $cache[$cacheKey] = $row['setting_value'];
+            $defaults[$cacheKey] = $row['default_value'] ?? null;
+            $presentation[$cacheKey] = [
                 (string) $row['label'],
                 (string) $row['description'],
                 (int) $row['sort_order'],
             ];
         }
+        $this->cache = $cache;
+        $this->defaults = $defaults;
+        $this->presentation = $presentation;
     }
 
     /**

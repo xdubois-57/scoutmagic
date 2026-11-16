@@ -163,9 +163,24 @@ final class DirectorySize
 
                 $resolved = realpath($path);
                 if ($resolved === false) {
-                    // A link pointing nowhere. Nothing to walk, and
-                    // nothing that belongs in an archive either.
-                    return false;
+                    // A link pointing nowhere: nothing to walk, and nothing
+                    // that belongs in an archive either.
+                    if ($current->isLink()) {
+                        return false;
+                    }
+
+                    // Anything else that `realpath()` cannot resolve is NOT
+                    // « nothing there ». The case that bit: a path that
+                    // exists but is longer than PATH_MAX, which `realpath()`
+                    // answers with false like a dead link — and the filter
+                    // dropped the whole subtree, so the archive closed
+                    // successfully without it. An archive that skips what it
+                    // cannot read is worse than one that fails (see
+                    // DirectoryWalk::Archive), and this filter only runs
+                    // under that intent (#1230).
+                    throw new \UnexpectedValueException(
+                        'DirectorySize: cannot resolve ' . $path . ' (a path beyond PATH_MAX, or one removed mid-walk).'
+                    );
                 }
                 if (self::isUnder($resolved, $resolvedExcludedPrefixes)) {
                     return false;

@@ -456,14 +456,17 @@ final class ProtectedCopierTest extends TestCase
     }
 
     /**
-     * A destination that cannot be asked for its checksum right after
-     * accepting the file has announced nothing comparable: the copy rests
-     * on its size, as it does for a destination that never announces one.
+     * A destination that cannot be asked right after accepting the file —
+     * an outage between the upload and the check — has not verified
+     * anything: the copy FAILS, to be made again on the next pass, because
+     * « protégée » always means « vérifiée » (#1223, maintainer's decision).
+     * It used to count as « announced nothing comparable » and be recorded
+     * as protected on no check at all.
      */
-    public function testADestinationThatCannotAnnounceItsChecksumIsVerifiedOnSize(): void
+    public function testADestinationThatCannotBeAskedForItsChecksumFailsTheCopyToBeRetried(): void
     {
         $this->source->put('12/med_88.jpg', 'fake-jpeg-bytes', 'image/jpeg');
-        $silent = new class ($this->root . '/silent') extends LocalStorageBackend {
+        $down = new class ($this->root . '/down') extends LocalStorageBackend {
             public function announcedChecksum(string $key): ?string
             {
                 throw new \RuntimeException('Google Drive a refusé la requête.');
@@ -472,7 +475,67 @@ final class ProtectedCopierTest extends TestCase
 
         $outcome = $this->copier->copy(
             $this->source,
-            $silent,
+            $down,
+            '12/med_88.jpg',
+            strlen('fake-jpeg-bytes'),
+            'image/jpeg',
+            $this->always()
+        );
+
+        $this->assertSame(CopyOutcome::FAILED, $outcome->status);
+        $this->assertStringContainsString('vérifier la copie', (string) $outcome->reason);
+        $this->assertStringContainsString('Google Drive a refusé la requête.', (string) $outcome->reason);
+        $this->assertNull($outcome->md5, 'a failed copy carries no digest');
+    }
+
+    /**
+     * The other way a destination in trouble answers: not an exception but a
+     * null size (WebDAV, S3 and Drive all say null for any failure of the
+     * HEAD). A size that cannot be read is a size that was not checked.
+     */
+    public function testADestinationThatCannotSayHowBigTheCopyIsFailsIt(): void
+    {
+        $this->source->put('12/med_88.jpg', 'fake-jpeg-bytes', 'image/jpeg');
+        $mute = new class ($this->root . '/mute') extends LocalStorageBackend {
+            public function size(string $key): ?int
+            {
+                return null;
+            }
+        };
+
+        $outcome = $this->copier->copy(
+            $this->source,
+            $mute,
+            '12/med_88.jpg',
+            strlen('fake-jpeg-bytes'),
+            'image/jpeg',
+            $this->always()
+        );
+
+        $this->assertSame(CopyOutcome::FAILED, $outcome->status);
+        $this->assertStringContainsString('taille', (string) $outcome->reason);
+    }
+
+    /**
+     * What stays true: a destination that announces NOTHING comparable (an
+     * S3 multipart ETag, an encrypted object, a store with no checksum) is
+     * verified on its size, and that is a completed copy — the line this
+     * change draws is between « nothing to compare » and « cannot be
+     * asked », not between « has a checksum » and « has none ».
+     */
+    public function testADestinationThatAnnouncesNothingComparableIsStillVerifiedOnSize(): void
+    {
+        $this->source->put('12/med_88.jpg', 'fake-jpeg-bytes', 'image/jpeg');
+        $plain = new class ($this->root . '/plain') extends LocalStorageBackend {
+            public function announcedChecksum(string $key): ?string
+            {
+                return null;
+            }
+        };
+
+        $outcome = $this->copier->copy(
+            $this->source,
+            $plain,
             '12/med_88.jpg',
             strlen('fake-jpeg-bytes'),
             'image/jpeg',
@@ -481,7 +544,7 @@ final class ProtectedCopierTest extends TestCase
 
         $this->assertTrue($outcome->isCompleted());
         $this->assertSame(md5('fake-jpeg-bytes'), $outcome->md5);
-        $this->assertSame('fake-jpeg-bytes', $silent->get('12/med_88.jpg'), 'the verified copy was removed');
+        $this->assertSame('fake-jpeg-bytes', $plain->get('12/med_88.jpg'));
     }
 
     /**

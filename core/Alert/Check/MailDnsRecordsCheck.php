@@ -133,6 +133,8 @@ final class MailDnsRecordsCheck implements OperationalCheck
                 $records
             );
         } catch (\Throwable) {
+            // @catch-unreachable remember() cannot throw: its one fallible step, the setting write, is
+            // swallowed inside DnsCheckMemory::store(), and the rest only formats strings already read.
             // The verdict below stands on the reading, not on its storage.
         }
 

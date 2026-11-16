@@ -11,6 +11,7 @@ namespace Modules\Camps\Service;
 use Core\Audit\AuditService;
 use Core\Audit\AuditSource;
 use Core\Service\DateInput;
+use Modules\Camps\Mail\MessageReader;
 use Modules\Camps\Repository\Camp;
 use Modules\Camps\Repository\CampRepository;
 use Modules\Camps\Repository\PlaceRepository;
@@ -406,7 +407,20 @@ class CampService
             throw new CampsException('Le prix doit être un montant, par exemple 2450 ou 2450,50.');
         }
 
-        return (int) round(((float) $normalised) * 100);
+        // Compared as a float BEFORE the cast: far enough above the column
+        // the product overflows what an int can hold, and `(int)` of such a
+        // float is not a number anybody meant. The ceiling is the column's
+        // (`price_cents INT UNSIGNED`) and the one the e-mail reader already
+        // applies, so a price read from a message and a price typed here
+        // cannot disagree (#1247).
+        $cents = round(((float) $normalised) * 100);
+        if ($cents > MessageReader::MAX_PRICE_CENTS) {
+            throw new CampsException(
+                'Le prix ne peut pas dépasser ' . CampLabels::money(MessageReader::MAX_PRICE_CENTS) . '.'
+            );
+        }
+
+        return (int) $cents;
     }
 
     private function cleanCount(mixed $value): ?int
