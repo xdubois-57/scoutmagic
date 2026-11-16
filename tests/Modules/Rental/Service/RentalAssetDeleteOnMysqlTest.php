@@ -127,9 +127,14 @@ final class RentalAssetDeleteOnMysqlTest extends TestCase
         $callerPdo = $this->pdo;
         $writer = $this->secondConnection();
 
+        // The premise, stated rather than assumed: a snapshot only goes stale
+        // under REPEATABLE READ, which the connection helpers do not force.
+        $callerPdo->exec('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
         $callerPdo->beginTransaction();
         // The caller's first consistent read: it fixes the snapshot.
-        $callerPdo->query('SELECT COUNT(*) FROM rental_bookings')->fetchColumn();
+        $count = $callerPdo->prepare('SELECT COUNT(*) FROM rental_bookings WHERE asset_id = ?');
+        $count->execute([$this->assetId]);
+        $this->assertSame(0, (int) $count->fetchColumn());
 
         $writer->prepare(
             'INSERT INTO rental_bookings
@@ -137,6 +142,11 @@ final class RentalAssetDeleteOnMysqlTest extends TestCase
                  renter_name_encrypted, renter_email_encrypted, renter_email_blind_index, tracking_token_encrypted)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
         )->execute([$this->assetId, 'DEL-' . bin2hex(random_bytes(6)), '2026-10-01', '2026-10-03', 'x', 'x', str_repeat('a', 64), 'x']);
+
+        // Without this the test would pass on any isolation level: the plain
+        // read the old implementation used must still see nothing.
+        $count->execute([$this->assetId]);
+        $this->assertSame(0, (int) $count->fetchColumn(), 'the caller\'s snapshot must be stale for this test to mean anything');
 
         try {
             self::service($callerPdo)->delete($this->assetId, null);
@@ -151,11 +161,9 @@ final class RentalAssetDeleteOnMysqlTest extends TestCase
             (new RentalAssetRepository($this->pdo, self::encryption()))->findById($this->assetId),
             'the asset must still be there'
         );
-        $this->assertSame(
-            1,
-            (int) $writer->query('SELECT COUNT(*) FROM rental_bookings WHERE asset_id = ' . $this->assetId)->fetchColumn(),
-            'the booking must not have been taken by the cascade'
-        );
+        $remaining = $writer->prepare('SELECT COUNT(*) FROM rental_bookings WHERE asset_id = ?');
+        $remaining->execute([$this->assetId]);
+        $this->assertSame(1, (int) $remaining->fetchColumn(), 'the booking must not have been taken by the cascade');
     }
 
     private static function service(\PDO $pdo): RentalAssetService
