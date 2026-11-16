@@ -120,7 +120,13 @@ class RentalRequestController extends AbstractController
          * « Incidents et dégâts » (#980): the decided incidents and whether
          * one is still being assessed. Null shows no such section.
          */
-        private ?\Modules\Rental\Service\RentalStayService $stayService = null
+        private ?\Modules\Rental\Service\RentalStayService $stayService = null,
+        /**
+         * Where a manager who could not be told of a request is said
+         * (#1221). Null — a controller built without it — leaves that to
+         * the server's log.
+         */
+        private ?\Core\Journal\JournalService $journalService = null
     ) {
         parent::__construct($twig);
     }
@@ -821,9 +827,43 @@ class RentalRequestController extends AbstractController
                     . self::frenchDate($booking->departureDate) . ' (' . $booking->reference . ').',
                 'url' => '/mes-locations/' . rawurlencode($asset->slug) . '/reservations/' . $booking->id,
             ]);
-        } catch (\Throwable) {
+        } catch (\Throwable $e) {
             // The managers' page still shows the request; a failed
-            // notification must not surface to the renter as their problem.
+            // notification must not surface to the renter as their problem —
+            // but nobody was told, and that is said (#1221).
+            $this->noteManagerNotificationFailure($e, $booking);
+        }
+    }
+
+    /**
+     * The journal line of managers who could not be told of a request — and,
+     * should the journal fail too (or be absent), the server's log instead:
+     * the request is stored, and an error escaping here would turn it into an
+     * error page for the renter. The kind of failure and the booking, never a
+     * name or an address.
+     */
+    private function noteManagerNotificationFailure(\Throwable $e, RentalBooking $booking): void
+    {
+        $cause = (new \ReflectionClass($e))->getShortName();
+        try {
+            if ($this->journalService === null) {
+                throw new \LogicException('no journal');
+            }
+            $this->journalService->log(
+                'rental',
+                'rental_manager_notification_failed',
+                'warning',
+                'Les gestionnaires n\'ont pas pu être prévenus d\'une nouvelle demande (' . $cause . ').',
+                ['booking_id' => $booking->id]
+            );
+        } catch (\Throwable $journalError) {
+            error_log(sprintf(
+                'ScoutMagic: managers could not be told of a new request (%s) and neither could the journal (%s):'
+                    . ' booking #%d',
+                $cause,
+                $journalError::class,
+                $booking->id
+            ));
         }
     }
 

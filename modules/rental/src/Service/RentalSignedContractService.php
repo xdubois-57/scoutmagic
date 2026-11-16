@@ -871,9 +871,40 @@ class RentalSignedContractService
                 'url' => '/mes-locations/' . rawurlencode($asset->slug) . '/reservations/' . $booking->id
                     . ($ofReplacement ? '/documents' : ''),
             ]);
-        } catch (\Throwable) {
+        } catch (\Throwable $e) {
             // The booking's page still shows the copy; a failed
-            // notification must not surface to the renter as their problem.
+            // notification must not surface to the renter as their problem —
+            // but nobody was told, and that is said (#1221).
+            $this->noteManagerNotificationFailure($e, $booking);
+        }
+    }
+
+    /**
+     * The journal line of managers who could not be told of a copy — and,
+     * should the journal fail too, the server's log instead: this runs after
+     * the copy is stored, and an error escaping here would turn a received
+     * copy into an error page for the renter. The kind of failure and the
+     * booking, never a name or an address.
+     */
+    private function noteManagerNotificationFailure(\Throwable $e, RentalBooking $booking): void
+    {
+        $cause = (new \ReflectionClass($e))->getShortName();
+        try {
+            $this->journal->log(
+                'rental',
+                'rental_manager_notification_failed',
+                'warning',
+                'Les gestionnaires n\'ont pas pu être prévenus d\'une copie signée reçue (' . $cause . ').',
+                ['booking_id' => $booking->id]
+            );
+        } catch (\Throwable $journalError) {
+            error_log(sprintf(
+                'ScoutMagic: managers could not be told of a signed copy (%s) and neither could the journal (%s):'
+                    . ' booking #%d',
+                $cause,
+                $journalError::class,
+                $booking->id
+            ));
         }
     }
 

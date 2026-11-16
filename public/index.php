@@ -13038,7 +13038,8 @@ if ($isEnabled('rental')) {
                         $rentalManagerRecipients,
                         $rentalAssetRepository,
                         $journalService
-                    )
+                    ),
+                    journalService: $journalService
                 )
         );
     }
@@ -13246,7 +13247,9 @@ if ($isEnabled('rental')) {
             // How to pay, with the SEPA QR, on the renter's page (#927).
             paymentService: $rentalPaymentService,
             // The decided incidents, and that one is being assessed (#980).
-            stayService: $rentalStayService
+            stayService: $rentalStayService,
+            // Managers who could not be told of a request are said (#1221).
+            journalService: $journalService
         )
     );
 
