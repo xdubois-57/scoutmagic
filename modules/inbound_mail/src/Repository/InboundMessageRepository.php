@@ -195,10 +195,18 @@ class InboundMessageRepository
                 $origin->value,
                 $createdByUserAccountId,
             ]);
-        } catch (\PDOException) {
-            // The unique index caught a concurrent insert of the same
-            // association. Idempotent means idempotent: that is the state
-            // the caller asked for, so it is not an error.
+        } catch (\PDOException $e) {
+            // Only the unique index means « a concurrent insert of the same
+            // association got there first ». Idempotent means idempotent:
+            // that is the state the caller asked for, so it is not an
+            // error. Any other refusal — a dropped connection, a full disk,
+            // the database's own — wrote nothing, and « already there »
+            // would leave the association missing without a word (#1303),
+            // as `recordOutboundMessageId()` did before #1232.
+            if (!self::isDuplicateKey($e)) {
+                throw $e;
+            }
+
             return false;
         }
 
@@ -525,9 +533,14 @@ class InboundMessageRepository
                     'inbound_message_candidates.evidence_explanation'
                 ),
             ]);
-        } catch (\PDOException) {
-            // The unique index caught a concurrent insert of the same
-            // proposition. That is the state the caller asked for.
+        } catch (\PDOException $e) {
+            // Only the unique index means « the same proposition was
+            // inserted concurrently »: that is the state the caller asked
+            // for. Any other refusal wrote nothing and is not hidden (#1303).
+            if (!self::isDuplicateKey($e)) {
+                throw $e;
+            }
+
             return false;
         }
 
