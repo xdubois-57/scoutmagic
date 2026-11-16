@@ -26,6 +26,30 @@ final class InvoiceProblem
     public const TOTAL_MISSING = 'total_missing';
     public const TOTAL_MISMATCH = 'total_mismatch';
 
+    /** The PDF library itself failed on the file (#1327). */
+    public const EXTRACTION_FAILED = 'extraction_failed';
+
+    /** A row that looks financial — a tariff reference, two amounts — and was not read (#1327). */
+    public const UNRECOGNISED_LINE = 'unrecognised_line';
+
+    /** A quantity with a fractional part, `2,50`: never truncated, refused (#1327). */
+    public const FRACTIONAL_QUANTITY = 'fractional_quantity';
+
+    /**
+     * The kinds that mean « this document could not be READ », as opposed
+     * to « it was read and its arithmetic does not close ». They need
+     * different answers — a format to support, a document to query — and
+     * the import screen says which (#1327).
+     */
+    private const FORMAT_KINDS = [
+        self::NO_TEXT_LAYER,
+        self::EXTRACTION_FAILED,
+        self::NO_LINE_FOUND,
+        self::UNRECOGNISED_LINE,
+        self::FRACTIONAL_QUANTITY,
+        self::TOTAL_MISSING,
+    ];
+
     public function __construct(
         public readonly string $kind,
         /** French, already written for a reader — this reaches a screen verbatim. */
@@ -35,5 +59,20 @@ final class InvoiceProblem
         public readonly ?int $expectedCents = null,
         public readonly ?int $foundCents = null
     ) {
+    }
+
+    public function isFormatProblem(): bool
+    {
+        return in_array($this->kind, self::FORMAT_KINDS, true);
+    }
+
+    /** Where the reading stopped: `extraction`, `recognition` or `arithmetic`. */
+    public function stage(): string
+    {
+        return match ($this->kind) {
+            self::NO_TEXT_LAYER, self::EXTRACTION_FAILED => 'extraction',
+            self::LINE_ARITHMETIC, self::NAME_COUNT, self::TOTAL_MISMATCH => 'arithmetic',
+            default => 'recognition',
+        };
     }
 }

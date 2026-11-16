@@ -1804,6 +1804,21 @@ un sous-total : tout ce qui ne correspond à aucune des deux formes est
 ignoré, et le nombre de lignes ignorées est rapporté. Un bond de ce compteur
 d'une facture à l'autre signale que le gabarit a changé.
 
+**Deux mises en page sont lues** : celle où chaque cellule est un mot, et
+celle de l'export de la fédération, où les cellules d'une ligne sont collées
+(section, description et référence d'un seul tenant, puis la quantité, le
+montant et le prix unitaire), avec des quantités écrites `9,00` ou `-1,00`
+pour un acompte déduit. Une quantité doit être un nombre entier de
+personnes : `2,50` refuse le document plutôt que d'être tronqué.
+
+**Une lecture partielle n'est jamais acceptée.** Une ligne qui ressemble à
+une ligne de tarif sans pouvoir être lue refuse tout le document, même si le
+reste tombe juste. L'écran distingue alors « Format non interprétable »
+(le site ne sait pas lire cette mise en page) de « Total incohérent »
+(la facture est lue et son calcul ne ferme pas). Le refus est noté au
+journal avec l'étape, des codes et des compteurs — jamais un nom, une date,
+une ligne du document ni le PDF, qui n'est pas conservé.
+
 Les personnes se rapprochent sur **nom + prénom + date de naissance** : les
 jumeaux existent et figurent sur la même facture. Les sections se rapprochent
 sur le code Desk, jamais sur le nom affiché — un renommage depuis Correspondances Desk

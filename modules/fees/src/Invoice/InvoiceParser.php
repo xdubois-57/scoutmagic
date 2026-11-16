@@ -58,11 +58,17 @@ class InvoiceParser
     public function parse(string $text): InvoiceReadResult
     {
         $lines = preg_split('/\R/u', $text) ?: [];
+        $stats = new InvoiceReadStats();
+        $stats->extractedLines = count($lines);
+        $stats->pageCount = self::pageCount($text);
+        $stats->tabsSeen = str_contains($text, "\t");
 
         /** @var InvoiceLine[] $tariffLines */
         $tariffLines = [];
         /** @var InvoicePerson[][] $peopleByTuple */
         $peopleByTuple = [];
+        /** @var InvoiceProblem[] $readingProblems */
+        $readingProblems = [];
         $currentTuple = null;
         $ignored = 0;
 
@@ -73,11 +79,20 @@ class InvoiceParser
         $communication = null;
         $templateNumber = null;
 
-        foreach ($lines as $rawLine) {
-            $line = trim(preg_replace('/\s+/u', ' ', BelgianNumber::collapseGroupSeparators($rawLine)) ?? '');
+        foreach ($lines as $index => $rawLine) {
+            if (preg_match('/\d[' . BelgianNumber::NBSP_CLASS . '.]\d{3}\b/u', $rawLine) === 1) {
+                $stats->groupSeparatedNumbers++;
+            }
+            $collapsed = BelgianNumber::collapseGroupSeparators($rawLine);
+            // Two views of the same row: the cells as the PDF separated them
+            // (a tab between cells, other whitespace single), and the plain
+            // line every other rule reads.
+            $cells = trim(preg_replace('/[^\S\t]+/u', ' ', $collapsed) ?? '');
+            $line = trim(preg_replace('/\s+/u', ' ', $collapsed) ?? '');
             if ($line === '') {
                 continue;
             }
+            $stats->nonEmptyLines++;
 
             // The footer is tried FIRST, because "Date : 08/01/2026" carries
             // the same date marker a nominative line does and would
@@ -96,13 +111,24 @@ class InvoiceParser
                 continue;
             }
 
+            // The header row of the federation's own export: the number,
+            // then the issue date, glued to the due date (#1327).
+            $header = $this->readDocumentHeader($line);
+            if ($header !== null) {
+                $documentNumber ??= $header[0];
+                $issueDate ??= $header[1];
+                continue;
+            }
+
             // Then the date marker, before the numbers: a nominative line
             // carries digits too, and a "three trailing numbers" test would
             // read "12/04/2016" as an amount on a document whose separators
             // this parser had misjudged.
-            $person = $this->readPerson($line);
+            $person = $this->readPerson($line, $cells);
             if ($person !== null) {
+                $stats->personRows++;
                 if ($currentTuple === null) {
+                    $stats->orphanPersonRows++;
                     $ignored++;
                     continue;
                 }
@@ -110,28 +136,64 @@ class InvoiceParser
                 continue;
             }
 
-            $tariff = $this->readTariffLine($line);
+            $problemsBefore = count($readingProblems);
+            $tariff = $this->readTariffLine($line, $cells, $stats, $readingProblems);
             if ($tariff === null) {
-                $ignored++;
+                // A row read and then rejected for its content (a fractional
+                // quantity) already said why; it is neither « not understood »
+                // nor ignored.
+                if (count($readingProblems) === $problemsBefore) {
+                    if (self::looksFinancial($line)) {
+                        $stats->unrecognisedFinancialRows[] = $index + 1;
+                    }
+                    $ignored++;
+                }
                 continue;
             }
 
+            $stats->tariffRows++;
             $tuple = $tariff->tuple();
             if (!isset($tariffLines[$tuple])) {
                 $tariffLines[$tuple] = $tariff;
                 $peopleByTuple[$tuple] = [];
+            } else {
+                $stats->repeatedTariffRows++;
             }
             $currentTuple = $tuple;
         }
+
+        $stats->ignoredRows = $ignored;
+        $stats->distinctTariffLines = count($tariffLines);
+        $stats->totalFound = $totalCents !== null;
+        $stats->documentNumberFound = $documentNumber !== null;
 
         $merged = [];
         foreach ($tariffLines as $tuple => $tariff) {
             $merged[] = $tariff->withPeople($this->dedupePeople($peopleByTuple[$tuple] ?? []));
         }
 
-        $problems = $this->checkIntegrity($merged, $totalCents);
+        // A row that looks like money and was not read is a document only
+        // partly understood: nothing is accepted on a partial reading,
+        // whatever the arithmetic of the rest says (#1327).
+        if ($stats->unrecognisedFinancialRows !== []) {
+            $count = count($stats->unrecognisedFinancialRows);
+            $readingProblems[] = new InvoiceProblem(
+                InvoiceProblem::UNRECOGNISED_LINE,
+                $count . ' ligne(s) qui ressemblent à une ligne de tarif n\'ont pas pu être lues (ligne(s) '
+                    . implode(', ', array_slice($stats->unrecognisedFinancialRows, 0, 10))
+                    . ' du texte extrait) : le format de ce document n\'est pas encore reconnu.'
+            );
+        }
+
+        // A reading already refused for what it could not take in is
+        // refused for that alone: checking the arithmetic of the part that
+        // was read would add a « no line » or a total that cannot close —
+        // true of the partial reading, false of the document.
+        $problems = $readingProblems !== []
+            ? self::distinct($readingProblems)
+            : $this->checkIntegrity($merged, $totalCents);
         if ($problems !== []) {
-            return InvoiceReadResult::refused($problems, $ignored);
+            return InvoiceReadResult::refused($problems, $ignored, $stats);
         }
 
         return InvoiceReadResult::accepted(new ParsedInvoice(
@@ -143,7 +205,80 @@ class InvoiceParser
             $communication,
             $templateNumber,
             $ignored
-        ));
+        ), $stats);
+    }
+
+    /**
+     * A row repeated at the top of a page is rejected twice for the same
+     * reason; it is said once, as the row is read once.
+     *
+     * @param InvoiceProblem[] $problems
+     * @return InvoiceProblem[]
+     */
+    private static function distinct(array $problems): array
+    {
+        $seen = [];
+        $distinct = [];
+        foreach ($problems as $problem) {
+            $key = $problem->kind . "\0" . $problem->message;
+            if (!isset($seen[$key])) {
+                $seen[$key] = true;
+                $distinct[] = $problem;
+            }
+        }
+
+        return $distinct;
+    }
+
+    /** « Page 3 sur 10 », when the document says it; null otherwise. */
+    private static function pageCount(string $text): ?int
+    {
+        if (preg_match_all('/\bPage\s+\d+\s+sur\s+(\d+)\b/ui', $text, $matches) < 1) {
+            return null;
+        }
+
+        return max(array_map('intval', $matches[1]));
+    }
+
+    /**
+     * A row that carries money and was not understood: a tariff reference
+     * (`COT_…`, glued to the text before it or not), or two amounts at its
+     * end. Read off its shape only — nothing of it is kept.
+     */
+    private static function looksFinancial(string $line): bool
+    {
+        if (preg_match('/[A-Z]{3}_[A-Za-z0-9_]+/u', $line) === 1) {
+            return true;
+        }
+
+        return preg_match('/-?\d+,\d{2}\D*-?\d+,\d{2}\s*$/u', $line) === 1;
+    }
+
+    /**
+     * `NUMERO⇥jj/mm/aaaajj/mm/aaaa…`: the invoice number, then the issue
+     * date and the due date glued together, as the federation's export
+     * writes the row under « N° Document … Date facture Echéance ».
+     *
+     * The text layer gives the two dates in an order that is not the
+     * column order — the due date came first on the real document — so the
+     * issue date is the EARLIER of the two: an invoice is never due before
+     * it is issued.
+     *
+     * @return array{string, string}|null
+     */
+    private function readDocumentHeader(string $line): ?array
+    {
+        $date = '(\d{2})\/(\d{2})\/(\d{4})';
+        if (preg_match('/^([A-Z]{2,8}-\d{3,})\s+' . $date . '(?:\s*' . $date . ')?/u', $line, $match) !== 1) {
+            return null;
+        }
+
+        $dates = [sprintf('%s-%s-%s', $match[4], $match[3], $match[2])];
+        if (($match[7] ?? '') !== '') {
+            $dates[] = sprintf('%s-%s-%s', $match[7], $match[6], $match[5]);
+        }
+
+        return [$match[1], min($dates)];
     }
 
     /**
@@ -153,7 +288,7 @@ class InvoiceParser
      * surname therefore stays whole, and a compound first name does not,
      * which is the trade-off this shape forces either way.
      */
-    private function readPerson(string $line): ?InvoicePerson
+    private function readPerson(string $line, string $cells = ''): ?InvoicePerson
     {
         if (preg_match(self::DATE, $line, $match, PREG_OFFSET_CAPTURE) !== 1) {
             return null;
@@ -181,34 +316,145 @@ class InvoiceParser
 
         $firstName = (string) array_pop($words);
         $lastName = implode(' ', $words);
+
+        // Where the export separates the name cells with a tab, the cells
+        // say which words are the surname — a compound first name then
+        // stays whole too (#1327).
+        $nameCells = explode("\t", $cells);
+        if (count($nameCells) >= 3 && preg_match(self::DATE, (string) $nameCells[2]) === 1) {
+            $lastName = trim((string) $nameCells[0]);
+            $firstName = trim((string) $nameCells[1]);
+        }
         $birthDate = sprintf('%s-%s-%s', $match[3][0], $match[2][0], $match[1][0]);
 
         return new InvoicePerson($lastName, $firstName, $birthDate, $after === '' ? null : $after);
     }
 
-    /** A tariff line: a reference, a descriptor, then unit price, quantity, amount. */
-    private function readTariffLine(string $line): ?InvoiceLine
-    {
+    /**
+     * A tariff line, in either of the two layouts seen so far.
+     *
+     * - **Spaced**: `REF descriptor PU QT AMOUNT`, one cell per word.
+     * - **Glued** (the federation's own export, #1327): the cells of the
+     *   left half run together — section code, descriptor, reference —
+     *   then a tab, then `QT AMOUNTPU`, the amount and the unit price
+     *   written with no space between them. Both always carry two decimals,
+     *   which is what makes the split deterministic; unit price × quantity
+     *   = amount then checks it.
+     *
+     * A quantity may be written `9,00` or `-1,00` (a deposit deducted). It
+     * is a whole number or the line is refused — never truncated.
+     *
+     * @param InvoiceProblem[] $problems a fractional quantity is added here
+     */
+    private function readTariffLine(
+        string $line,
+        string $cells,
+        InvoiceReadStats $stats,
+        array &$problems
+    ): ?InvoiceLine {
+        // An amount, its thousands separated by an ordinary space or not —
+        // the non-breaking ones are already gone. Unambiguous on this side of
+        // the tab: every number there carries its two decimals.
+        $money = '-?(?:\d{1,3}(?: \d{3})+|\d+),\d{2}';
+        $quantity = '-?\d+(?:,\d{1,2})?';
+
+        if (str_contains($cells, "\t")) {
+            $glued = '/^(?<left>[^\t]+)\t\s*(?<qt>' . $quantity . ')\s+'
+                . '(?<amount>' . $money . ')\s*(?<pu>' . $money . ')$/u';
+            if (preg_match($glued, $cells, $match) === 1) {
+                $left = trim($match['left']);
+                if (preg_match('/^(?<rest>.*?)(?<reference>[A-Z]{3}_[A-Za-z0-9_]+)$/u', $left, $parts) !== 1) {
+                    return null;
+                }
+                $descriptor = self::separateSectionCode(trim($parts['rest']));
+                $stats->gluedTariffRows++;
+
+                return $this->buildTariffLine(
+                    $parts['reference'],
+                    $descriptor,
+                    str_replace(' ', '', $match['pu']),
+                    $match['qt'],
+                    str_replace(' ', '', $match['amount']),
+                    $stats,
+                    $problems
+                );
+            }
+        }
+
         $pattern = '/^(?<reference>\S+)\s+(?<descriptor>.*?)\s+(?<pu>' . BelgianNumber::PATTERN . ')'
-            . '\s+(?<qt>\d+)\s+(?<amount>' . BelgianNumber::PATTERN . ')$/u';
+            . '\s+(?<qt>' . $quantity . ')\s+(?<amount>' . BelgianNumber::PATTERN . ')$/u';
         if (preg_match($pattern, $line, $match) !== 1) {
             return null;
         }
+        $stats->spacedTariffRows++;
 
-        $unitPrice = BelgianNumber::toCents($match['pu']);
-        $amount = BelgianNumber::toCents($match['amount']);
-        if ($unitPrice === null || $amount === null) {
+        return $this->buildTariffLine(
+            $match['reference'],
+            trim($match['descriptor']),
+            $match['pu'],
+            $match['qt'],
+            $match['amount'],
+            $stats,
+            $problems
+        );
+    }
+
+    /**
+     * @param InvoiceProblem[] $problems
+     */
+    private function buildTariffLine(
+        string $reference,
+        string $descriptor,
+        string $rawUnitPrice,
+        string $rawQuantity,
+        string $rawAmount,
+        InvoiceReadStats $stats,
+        array &$problems
+    ): ?InvoiceLine {
+        $unitPrice = BelgianNumber::toCents($rawUnitPrice);
+        $amount = BelgianNumber::toCents($rawAmount);
+        $quantityCents = BelgianNumber::toCents($rawQuantity);
+        if ($unitPrice === null || $amount === null || $quantityCents === null) {
+            return null;
+        }
+        if (str_contains($rawQuantity, ',')) {
+            $stats->decimalQuantities++;
+        }
+        if ($quantityCents < 0) {
+            $stats->negativeQuantities++;
+        }
+
+        $sectionCode = $this->readSectionCode($descriptor);
+        if ($quantityCents % 100 !== 0) {
+            $problems[] = new InvoiceProblem(
+                InvoiceProblem::FRACTIONAL_QUANTITY,
+                'Ligne ' . $reference . ($sectionCode === null ? '' : ' / ' . $sectionCode)
+                    . ' : la quantité ' . $rawQuantity . " n'est pas un nombre entier de personnes.",
+                $reference,
+                $sectionCode
+            );
+
             return null;
         }
 
         return new InvoiceLine(
-            $match['reference'],
-            trim($match['descriptor']),
-            $this->readSectionCode(trim($match['descriptor'])),
+            $reference,
+            $descriptor,
+            $sectionCode,
             $unitPrice,
-            (int) $match['qt'],
+            intdiv($quantityCents, 100),
             $amount
         );
+    }
+
+    /**
+     * `SV025B1COTISATION NORMALE` → `SV025B1 COTISATION NORMALE`: the
+     * glued export runs the section code into the descriptor, and the code
+     * is read as a word of its own afterwards.
+     */
+    private static function separateSectionCode(string $descriptor): string
+    {
+        return (string) preg_replace('/^([A-Z]{1,6}\d{2,}(?:[A-Z]\d+)?)(?=\p{Lu})/u', '$1 ', $descriptor);
     }
 
     /**
@@ -242,6 +488,13 @@ class InvoiceParser
         // [^0-9-] and not \D: a greedy \D would swallow the minus sign and
         // turn a credit note into a debit.
         if (preg_match('/TOTAL\s+A\s+PAYER[^0-9-]*(' . BelgianNumber::PATTERN . ')/ui', $line, $match) === 1) {
+            $cents = BelgianNumber::toCents($match[1]);
+
+            return $cents === null ? null : ['total', $cents];
+        }
+        // The federation's export prints the amount BEFORE its label,
+        // with the euro sign glued to it: `1 848,50 €TOTAL A PAYER:` (#1327).
+        if (preg_match('/^(' . BelgianNumber::PATTERN . ')\s*€?\s*TOTAL\s+A\s+PAYER\b/ui', $line, $match) === 1) {
             $cents = BelgianNumber::toCents($match[1]);
 
             return $cents === null ? null : ['total', $cents];

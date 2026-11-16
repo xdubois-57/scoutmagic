@@ -25,16 +25,13 @@ use Core\File\PdfTextExtractor;
  * from an image is not something this feature would ever be allowed to do.
  *
  * **The one assumption worth stating**, because it is what a real document
- * would break first: the parser reads one ROW per extracted line. That
- * holds for a PDF whose generator writes each row as one text-showing
- * operation, which is what the fixture reproduces. A reporting tool that
- * positions every CELL separately can make the extractor emit one line per
- * cell instead — and then nothing below recognises anything, loudly (no
- * tariff line found), rather than reading half a document. The fix, if a
- * real invoice turns out to be that shape, is a line-reassembly step HERE,
- * grouping cells back into rows before the text reaches the parser; none of
- * the parser's six rules changes, which is the reason the two are separate
- * classes in the first place.
+ * would break first: the parser reads one ROW per extracted line. A real
+ * federation invoice (#1327) confirmed it — one row per line — but showed
+ * the cells of a row run together, a tab before the numbers, and the
+ * amount glued to the unit price; the parser reads that layout as well
+ * ({@see InvoiceParser}). A reporting tool that put every cell on a line
+ * of its own would still be refused loudly rather than half read, and the
+ * reading statistics journaled with the refusal would say so.
  */
 class InvoiceReader
 {
@@ -46,7 +43,18 @@ class InvoiceReader
 
     public function read(string $pdfContent): InvoiceReadResult
     {
-        $text = $this->extractor->extractText($pdfContent);
+        try {
+            $text = $this->extractor->extractText($pdfContent);
+        } catch (\Throwable) {
+            // The extractor already turns the library's own failures into
+            // null; this is the net under it. Nothing of the exception is
+            // kept: its text can quote the document (#1327).
+            return InvoiceReadResult::refused([new InvoiceProblem(
+                InvoiceProblem::EXTRACTION_FAILED,
+                "Ce PDF n'a pas pu être lu. Vérifiez qu'il s'agit bien du fichier envoyé par la fédération, "
+                . 'non modifié.'
+            )]);
+        }
         if ($text === null) {
             return InvoiceReadResult::refused([new InvoiceProblem(
                 InvoiceProblem::NO_TEXT_LAYER,
