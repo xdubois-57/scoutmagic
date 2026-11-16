@@ -497,8 +497,11 @@ class ReceiptMatchingServiceTest extends TestCase
      * cannot be rewritten): nothing is associated, and the receipt stays
      * in the pile rather than on a movement of an account it is not on.
      *
-     * Pins current behaviour: the refusal is swallowed whole — no
-     * exception, and no journal line saying a match was found and lost.
+     * The receipt is not attached — that is the right outcome — but the
+     * refusal is no longer silent (#1227): a match was found and lost, and
+     * one warning says so, naming the receipt and the account it was to be
+     * filed under. The exception's own message is not copied into the
+     * entry: a database failure can quote the values of the statement.
      */
     public function testAReceiptTheDatabaseRefusesToFileStaysInThePileUnmatched(): void
     {
@@ -519,7 +522,18 @@ class ReceiptMatchingServiceTest extends TestCase
         $this->assertNotNull($kept, 'the receipt was deleted, not left in the pile');
         $this->assertNull($kept->accountId);
         $this->assertFalse($this->pdo->inTransaction());
-        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM event_log')->fetchColumn());
+
+        $entries = $this->pdo->query(
+            "SELECT category, event_type, level, context FROM event_log ORDER BY id"
+        )->fetchAll(\PDO::FETCH_ASSOC);
+        $this->assertCount(1, $entries, 'one entry, and no « filed » or « associated » line for a match that was lost');
+        $this->assertSame('finance', $entries[0]['category']);
+        $this->assertSame('receipt_auto_filing_failed', $entries[0]['event_type']);
+        $this->assertSame('warning', $entries[0]['level']);
+        $context = json_decode((string) $entries[0]['context'], true);
+        $this->assertSame($receipt->id, $context['attachment_id']);
+        $this->assertSame($otherAccountId, $context['account_id']);
+        $this->assertStringNotContainsString('refused by the test', (string) $entries[0]['context']);
     }
 
     /**
