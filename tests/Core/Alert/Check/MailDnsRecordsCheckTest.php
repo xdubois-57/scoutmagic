@@ -28,6 +28,7 @@ use Tests\DatabaseTestHelper;
 #[\PHPUnit\Framework\Attributes\Group('database')]
 class MailDnsRecordsCheckTest extends TestCase
 {
+    private \PDO $pdo;
     private MailProviderRepository $providers;
     private LaneChainRepository $chains;
     private InMemorySettingService $settings;
@@ -39,7 +40,7 @@ class MailDnsRecordsCheckTest extends TestCase
 
     protected function setUp(): void
     {
-        $pdo = DatabaseTestHelper::createTestDatabase();
+        $pdo = $this->pdo = DatabaseTestHelper::createTestDatabase();
         $this->providers = new MailProviderRepository($pdo);
         $this->chains = new LaneChainRepository($pdo);
         $this->settings = new InMemorySettingService([
@@ -264,6 +265,25 @@ class MailDnsRecordsCheckTest extends TestCase
             relayHostsReadable: false
         );
         $reading = $check->read();
+
+        $this->assertFalse($reading->overTrigger);
+        $this->assertFalse($reading->underRearm);
+        $this->assertSame($before, $this->settings->values[DnsCheckMemory::SETTING_KEY] ?? null);
+    }
+
+    /**
+     * A relay list that cannot be read at all — its table gone, a database
+     * restored half-way — leaves SPF nothing to look for: the reading is
+     * inconclusive, never « aucun absent », and the stored one stands.
+     */
+    public function testARelayListThatCannotBeReadIsInconclusiveAndKeepsTheStoredReading(): void
+    {
+        $this->check($this->completeZone())->read();
+        $before = $this->settings->values[DnsCheckMemory::SETTING_KEY] ?? null;
+        $this->assertNotNull($before);
+        $this->pdo->exec('DROP TABLE mail_lane_entries');
+
+        $reading = $this->check([])->read();
 
         $this->assertFalse($reading->overTrigger);
         $this->assertFalse($reading->underRearm);

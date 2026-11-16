@@ -8,6 +8,7 @@ use Core\Alert\AlertSurfaces;
 use Core\Alert\Check\BackupAgeCheck;
 use Core\Alert\Check\DiskUsageCheck;
 use Core\Alert\Check\HttpsCheck;
+use Core\Alert\Check\RemoteQuotaCheck;
 use Core\Alert\OperationalAlert;
 use Core\Alert\OperationalAlertRepository;
 use Core\Alert\OperationalAttentionProvider;
@@ -18,9 +19,14 @@ use Core\Config\SettingService;
 use Core\Database\Connection;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
+use Core\Maintenance\Remote\RemoteBackupDestination;
 use Core\Scheduler\CoreTaskHandlers;
 use Core\Scheduler\SchedulerRepository;
 use Core\Scheduler\TaskContext;
+use Core\Security\EncryptionService;
+use Core\Storage\Location\Config\GoogleDriveLocationConfig;
+use Core\Storage\Location\StorageLocationRepository;
+use Core\Storage\Location\StorageLocationType;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 
@@ -99,6 +105,35 @@ class RunOperationalChecksHandlerTest extends TestCase
         )->fetchColumn();
 
         $this->assertSame(1, $count);
+    }
+
+    /**
+     * A destination that is chosen and whose secret no longer decrypts —
+     * the master key rotated, or a restore from another installation —
+     * cannot be built. The free-space check must then call its reading
+     * inconclusive: re-arming would drop a standing alert about an account
+     * nobody measured.
+     */
+    public function testAChosenDestinationThatCannotBeBuiltKeepsTheQuotaAlertStanding(): void
+    {
+        $written = new EncryptionService(str_repeat('k', 32), str_repeat('b', 32));
+        $id = (new StorageLocationRepository($this->pdo, $written))->create(
+            StorageLocationType::GoogleDrive,
+            'Google Drive',
+            new GoogleDriveLocationConfig('client-1', 'dossier-1', '2026-09-01 12:00:00'),
+            (string) json_encode(['client_secret' => 's', 'refresh_token' => 'jeton', 'account' => 'u@example.org'])
+        );
+        $context = $this->context(new EncryptionService(str_repeat('z', 32), str_repeat('y', 32)));
+        RemoteBackupDestination::register($context->settings);
+        $context->settings->setInternal(RemoteBackupDestination::LOCATION_SETTING, (string) $id);
+        $alerts = new OperationalAlertRepository($this->pdo);
+        $alerts->markTriggered(RemoteQuotaCheck::KEY, '98 %');
+
+        (new RunOperationalChecksHandler())->handle([], $context);
+
+        $alert = $alerts->findOrArmed(RemoteQuotaCheck::KEY);
+        $this->assertSame(OperationalAlert::STATE_TRIGGERED, $alert->state);
+        $this->assertSame('98 %', $alert->lastValue);
     }
 
     // ————— Le point d'attention —————
@@ -248,7 +283,7 @@ class RunOperationalChecksHandlerTest extends TestCase
         $this->assertCount(1, $provider->collect(9999));
     }
 
-    private function context(): TaskContext
+    private function context(?EncryptionService $encryption = null): TaskContext
     {
         $settings = new SettingService(new SettingRepository($this->pdo));
         foreach (['auto_update_enabled', 'auto_update_level', \Core\Storage\DiskBudget::QUOTA_SETTING] as $key) {
@@ -257,7 +292,7 @@ class RunOperationalChecksHandlerTest extends TestCase
 
         return new TaskContext(
             connection: $this->connection(),
-            encryption: $this->createStub(\Core\Security\EncryptionService::class),
+            encryption: $encryption ?? $this->createStub(EncryptionService::class),
             mailService: $this->createStub(\Core\Mail\MailService::class),
             journal: new JournalService(new JournalRepository($this->pdo)),
             settings: $settings,

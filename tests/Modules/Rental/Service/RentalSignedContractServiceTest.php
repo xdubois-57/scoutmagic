@@ -938,6 +938,50 @@ class RentalSignedContractServiceTest extends TestCase
     }
 
     /**
+     * A file that starts like a PDF but cannot be read must be refused, not
+     * turned by Ghostscript into a blank page and countersigned as the
+     * renter's contract (#1213). The copy is left exactly as it was — still
+     * waiting for a decision — and no signed contract is filed.
+     */
+    public function testAnUnreadableCopyThatStartsLikeAPdfIsRefusedAndNothingIsFiled(): void
+    {
+        exec('which gs 2>/dev/null', $out, $exit);
+        if ($exit !== 0) {
+            $this->markTestSkipped('Ghostscript not available in this environment.');
+        }
+        $booking = $this->booking();
+        $copy = $this->service->receiveCopy(
+            $booking,
+            $this->asset(),
+            $this->storedFile("%PDF-1.7\nthis is not really a pdf, no xref, nothing\n", 'pdf', 'application/pdf')
+        );
+        $account = $this->account();
+        $this->signatures->save($account, SignatureImage::fromBytes(self::signaturePng()), new \DateTimeImmutable());
+        $documentsBefore = count($this->documentRepository->findForBooking($booking->id));
+
+        try {
+            $this->service->countersign(
+                $booking,
+                $this->asset(),
+                $copy->id,
+                $this->stored($account),
+                null,
+                new \DateTimeImmutable()
+            );
+            $this->fail('an unreadable copy must not be countersigned');
+        } catch (RentalException $e) {
+            $this->assertStringContainsString("n'a pas pu être repris", $e->getMessage());
+        }
+
+        $this->assertNotNull($this->service->pendingCopy($booking->id), 'the copy still waits for a decision');
+        $this->assertCount(
+            $documentsBefore,
+            $this->documentRepository->findForBooking($booking->id),
+            'no signed contract may be filed'
+        );
+    }
+
+    /**
      * A one-page PDF 1.5 whose cross-reference table is a stream, written
      * by hand so the fixture does not depend on the tool that rewrites it.
      */

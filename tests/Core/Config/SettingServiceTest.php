@@ -34,6 +34,41 @@ class SettingServiceTest extends TestCase
         $this->assertSame('text', $result['setting_type']);
     }
 
+    /**
+     * A settings table that cannot be read for a moment must not leave the
+     * process answering « default » for everything that follows: the empty
+     * cache was memoised before the read, so the failure was remembered as
+     * « there are no settings ».
+     */
+    public function testAFailedFirstLoadIsRetriedByTheNextReadInsteadOfMemoisingAnEmptyCache(): void
+    {
+        $this->service->register('retry_key', 'default_val', 'text', 'Label', 'Desc');
+        $this->repo->updateValue(null, 'retry_key', 'stored_val');
+
+        $flaky = new class ($this->pdo) extends SettingRepository {
+            public int $failures = 1;
+
+            public function findAll(): array
+            {
+                if ($this->failures-- > 0) {
+                    throw new \PDOException('settings unavailable');
+                }
+
+                return parent::findAll();
+            }
+        };
+        $service = new SettingService($flaky);
+
+        try {
+            $service->get('retry_key');
+            $this->fail('the failed load should surface to the first caller');
+        } catch (\PDOException) {
+            // expected: the caller decides how to degrade
+        }
+
+        $this->assertSame('stored_val', $service->get('retry_key', null, 'fallback'));
+    }
+
     public function testRegisterDoesNotOverwriteExistingValue(): void
     {
         $this->service->register('existing', 'original', 'text', 'Label', 'Desc');

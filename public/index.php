@@ -12242,7 +12242,8 @@ if ($isEnabled('registration')) {
             // public form, resolved and stored the same way the
             // reenrollment form's are.
             $registrationReenrollmentService,
-            $registrationReenrollmentRepository
+            $registrationReenrollmentRepository,
+            $journalService
         )
     );
 

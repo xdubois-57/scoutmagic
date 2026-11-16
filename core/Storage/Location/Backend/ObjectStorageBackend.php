@@ -346,8 +346,19 @@ class ObjectStorageBackend implements RangeReadableBackend, ServerSideCopyBacken
                 'Bucket' => $this->bucket,
                 'Key' => $key,
             ]);
-        } catch (\Throwable) {
-            return null;
+        } catch (AwsException $e) {
+            // « Nothing comparable » is not « could not be asked » (#1223).
+            // A missing object announces nothing; a 503, a refused
+            // connection or a revoked key means the bucket could not be
+            // asked, and answering null for those made a verification skip
+            // its comparison — so a copy made just before an outage was
+            // recorded as protected on no check at all. Thrown, like the
+            // WebDAV share's, for ProtectedCopier to fail the copy on.
+            if (in_array((string) $e->getAwsErrorCode(), ['NoSuchKey', 'NotFound', '404'], true)) {
+                return null;
+            }
+
+            throw $e;
         }
 
         if (self::isServerSideEncrypted($result)) {

@@ -317,6 +317,22 @@ class StatisticsSenderTest extends TestCase
     }
 
     /**
+     * A database that cannot say whether maintenance is running — its
+     * update history unreadable — is itself a reason not to report now.
+     */
+    public function testAMaintenanceQuestionTheDatabaseCannotAnswerSkips(): void
+    {
+        $this->pdo->exec('DROP TABLE update_history');
+        $transport = new RecordingTransport();
+
+        $result = $this->sender($transport)->send();
+
+        $this->assertTrue($result->isSkipped());
+        $this->assertSame('maintenance_in_progress', $result->reason);
+        $this->assertSame([], $transport->calls);
+    }
+
+    /**
      * A row a crashed install left behind ("installing", never closed) is
      * debris, not maintenance: it used to block every report forever,
      * daily task and Support-page test button alike.
@@ -501,6 +517,30 @@ class StatisticsSenderTest extends TestCase
         $context = json_decode((string) $entries[0]['context'], true);
         $this->assertSame([204], [$context['status']]);
         $this->assertArrayHasKey('duration_ms', $context);
+    }
+
+    /**
+     * The send went out and was accepted; the database then refuses the
+     * bookkeeping. That must not turn a completed send into a failure: the
+     * result and the journal both say « sent ».
+     */
+    public function testABookkeepingWriteRefusedAfterASuccessfulSendStillReportsTheSend(): void
+    {
+        $this->identityService->getInstallationId();
+        $this->identityService->getSecret();
+        $this->pdo->exec(
+            "CREATE TRIGGER refuse_settings BEFORE UPDATE ON settings
+             BEGIN SELECT RAISE(ABORT, 'settings refused'); END"
+        );
+        $transport = new RecordingTransport(StatisticsTransportResponse::response(204, ''));
+
+        $result = $this->sender($transport)->send();
+
+        $this->assertTrue($result->isSent());
+        $this->assertCount(1, $transport->calls);
+        $this->assertSame(['statistics_sent'], array_column($this->journalEntries(), 'type'));
+        $this->settings->clearCache();
+        $this->assertSame('', $this->settings->get(StatisticsStateSettings::LAST_SUCCESS_AT));
     }
 
     public function testANonSuccessResponseIsRecordedAsAFailureAndNotRetried(): void

@@ -290,6 +290,21 @@ class AddressBookServiceTest extends TestCase
     }
 
     /**
+     * A `REPORT` holds the entries it listed; a member year deleted before
+     * its card is fetched is answered « no such card », the answer a client
+     * already handles, rather than a failed request for the whole batch.
+     */
+    public function testACardWhoseMemberYearWentAwaySinceTheListingAnswersNothing(): void
+    {
+        [, $memberYearId] = $this->member('Camille', 'Dupont', $this->chiefFunctionId);
+        [$entry] = $this->service->entries($this->yearId);
+        $this->pdo->prepare('DELETE FROM member_functions WHERE member_year_id = ?')->execute([$memberYearId]);
+        $this->pdo->prepare('DELETE FROM member_years WHERE id = ?')->execute([$memberYearId]);
+
+        $this->assertNull($this->service->cardFor($entry, $this->yearId));
+    }
+
+    /**
      * Hrefs come back from a client verbatim in a multiget, so this
      * parses a value that came from outside.
      */

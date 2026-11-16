@@ -108,6 +108,8 @@ class ImportedMemberPhotoWriter
             // make this one stricter.
             ImageDimensionGuard::assertWithinCeilingFromString($bytes);
         } catch (\Core\Image\ImageDimensionException) {
+            // @catch-unreachable the same getimagesizefromstring() reading was refused above past
+            // MAX_PIXELS (16 MP), under the guard's 50 MP; only a guard lowered below 16 MP lands here.
             return self::REASON_TOO_LARGE;
         }
 

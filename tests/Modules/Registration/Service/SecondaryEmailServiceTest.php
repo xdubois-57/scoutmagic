@@ -38,6 +38,9 @@ class SecondaryEmailServiceTest extends TestCase
     private RegistrationSecondaryEmailRepository $repository;
     private ConfirmationSendRepository $sends;
     private MailService&\PHPUnit\Framework\MockObject\MockObject $mailService;
+    private JournalService&\PHPUnit\Framework\MockObject\MockObject $journalService;
+    /** @var array<int, array<int, mixed>> every journal entry written, as the arguments of log() */
+    private array $journaled = [];
     private int $requestId;
 
     protected function setUp(): void
@@ -48,7 +51,11 @@ class SecondaryEmailServiceTest extends TestCase
 
         $this->repository = new RegistrationSecondaryEmailRepository($this->pdo, $encryption);
         $this->mailService = $this->createMock(MailService::class);
-        $journalService = $this->createStub(JournalService::class);
+        $this->journalService = $this->createMock(JournalService::class);
+        $this->journalService->method('log')->willReturnCallback(function (...$arguments): void {
+            $this->journaled[] = $arguments;
+        });
+        $journalService = $this->journalService;
 
         // The real renderer over the shipped templates, not a mock: this
         // e-mail is declared `editable: false`, and a mocked renderer
@@ -125,6 +132,63 @@ class SecondaryEmailServiceTest extends TestCase
         $listed = $this->service->listForRequest($this->requestId);
         $this->assertSame([$row->id], array_map(fn ($email) => $email->id, $listed));
         $this->assertTrue($listed[0]->isPending());
+    }
+
+    /**
+     * The refusal is no longer swallowed whole (#1236): one warning says
+     * that the confirmation of THIS address of THIS request did not leave.
+     * The address itself is never written to the journal, nor is the
+     * transport's own message, which can quote it.
+     */
+    public function testARefusedConfirmationIsJournaledWithoutTheAddress(): void
+    {
+        $this->mailService->method('send')->willThrowException(new MailException('SMTP refused secondary@example.com'));
+
+        $row = $this->service->addEmail($this->requestId, 'secondary@example.com');
+
+        $failures = array_values(array_filter(
+            $this->journaled,
+            static fn (array $entry): bool => ($entry[1] ?? null) === 'registration_secondary_email_confirmation_failed'
+        ));
+        $this->assertCount(1, $failures);
+        $this->assertSame('registration', $failures[0][0]);
+        $this->assertSame('warning', $failures[0][2]);
+        $this->assertSame(
+            ['request_id' => $this->requestId, 'secondary_email_id' => $row->id],
+            $failures[0][4]
+        );
+        $this->assertStringNotContainsString('secondary@example.com', serialize($this->journaled));
+        $this->assertStringNotContainsString('SMTP refused', serialize($this->journaled));
+    }
+
+    public function testASentConfirmationJournalsNoFailure(): void
+    {
+        $this->mailService->method('send');
+
+        $this->service->addEmail($this->requestId, 'secondary@example.com');
+
+        $types = array_map(static fn (array $entry): string => (string) ($entry[1] ?? ''), $this->journaled);
+        $this->assertNotContains('registration_secondary_email_confirmation_failed', $types);
+    }
+
+    /**
+     * The tracking page must not say « un email de confirmation vient d'être
+     * envoyé » when the transport refused it, so the service says what
+     * happened to the e-mail: sent, refused, or none was due.
+     */
+    public function testAddEmailReportingTellsWhetherTheConfirmationLeft(): void
+    {
+        $this->mailService->method('send')
+            ->willReturnOnConsecutiveCalls(null, $this->throwException(new MailException('SMTP refused')));
+
+        $sent = $this->service->addEmailReporting($this->requestId, 'first@example.com');
+        $refused = $this->service->addEmailReporting($this->requestId, 'second@example.com');
+        $again = $this->service->addEmailReporting($this->requestId, 'first@example.com');
+
+        $this->assertTrue($sent->confirmationSent);
+        $this->assertFalse($refused->confirmationSent);
+        $this->assertNull($again->confirmationSent, 'within the resend cooldown no e-mail was due, so none left');
+        $this->assertTrue($refused->email->isPending(), 'the address stays, pending, as it always did');
     }
 
     public function testAddingTheSameEmailTwiceReturnsSameRowWithoutDuplicateSend(): void

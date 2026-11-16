@@ -181,6 +181,12 @@
                 {{ watched_mailboxes > 1 ? 'sont ouvertes' : 'est ouverte' }} à cette vérification : le message
                 sera reconnu s'il arrive dans l'une d'elles.
             </p>
+        {% elseif returns_scope_unreadable %}
+            <p class="text-warning small">
+                La liste des boîtes ouvertes à cette vérification <strong>n'a pas pu être lue</strong> : le module
+                « Courrier entrant » ne répond pas. Ce n'est pas un réglage à corriger ici ; le détail est dans le
+                <a href="/admin/journal">journal technique</a>. Envoyer du courrier ne dépend pas de lui.
+            </p>
         {% elseif returns_need_scope %}
             <p class="text-warning small">
                 Des boîtes sont relevées, mais <strong>aucune n'est ouverte à « Courrier sortant »</strong> — le

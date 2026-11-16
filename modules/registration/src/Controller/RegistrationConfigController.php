@@ -743,11 +743,9 @@ class RegistrationConfigController extends AbstractController
                 }
                 $count++;
             } catch (RegistrationException) {
-                // @catch-unreachable nothing in this loop throws it: findNonFinalForYear() returns only
-                // pending and accepted rows, both allowed to reach refused and withdrawn; the reason is
-                // checked before the loop; transition() judges the status read above, not the current
-                // one; a refusal never takes the slot lock, and scheduling an e-mail answers null rather
-                // than throwing. A request finalised meanwhile is overwritten, not skipped.
+                // Moved on between the read of the set above and this write —
+                // encoded, decided or withdrawn by somebody else (#1235): their
+                // decision stands, and the request is neither touched nor counted.
             }
         }
 

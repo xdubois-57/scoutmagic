@@ -70,6 +70,24 @@ class CronRunHistoryTest extends TestCase
     }
 
     /**
+     * The history is written at the very top of every cron pass, and a
+     * refused write must never be the reason a pass does not happen: the
+     * call returns, and the history keeps what it had.
+     */
+    public function testARefusedWriteIsSwallowedAndLeavesTheHistoryAsItWas(): void
+    {
+        CronRunHistory::record($this->repository, 1000);
+        $this->pdo->exec(
+            "CREATE TRIGGER refuse_settings BEFORE UPDATE ON settings
+             BEGIN SELECT RAISE(ABORT, 'settings refused'); END"
+        );
+
+        CronRunHistory::record($this->repository, 1300);
+
+        $this->assertSame([1000], CronRunHistory::read($this->freshService()));
+    }
+
+    /**
      * A corrupted row reads as "no history" rather than throwing — the
      * same rule the schema-hash cache follows. This runs at the top of
      * every cron pass, and a support diagnostic must never be the reason

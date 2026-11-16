@@ -5,16 +5,19 @@ declare(strict_types=1);
 namespace Tests\Core\Security;
 
 use Core\Database\Connection;
+use Core\Journal\JournalService;
 use Core\Mail\DkimManager;
+use Core\Mail\MailException;
 use Core\Mail\MailPurpose;
 use Core\Mail\MailService;
 use Core\Security\AuthService;
 use Core\Security\EncryptionService;
 use Core\Security\UserAccountRepository;
 use PHPUnit\Framework\TestCase;
+use Tests\Core\Mail\Template\EmailTemplateRendererFactory;
+use Tests\TestTwig;
 use Twig\Environment;
 use Twig\Loader\ArrayLoader;
-use Tests\Core\Mail\Template\EmailTemplateRendererFactory;
 
 /**
  * @group database
@@ -367,6 +370,90 @@ class AuthServiceTest extends TestCase
         ]);
 
         return (int) $this->pdo->lastInsertId();
+    }
+
+    /**
+     * A magic link that cannot be sent is journaled, and the reason the
+     * transport gave is written with the address taken out of it: the
+     * journal is no place for the address somebody typed.
+     */
+    public function testAFailedSendIsJournaledWithTheAddressTakenOutOfTheReason(): void
+    {
+        $account = $this->userRepo->create('user@test.com');
+        $mailService = $this->createMock(MailService::class);
+        $mailService->expects($this->once())
+            ->method('send')
+            ->with('user@test.com')
+            ->willThrowException(new MailException('Destinataire refusé : user@test.com'));
+        // Since #1250 a failed send no longer ends the request: the visitor
+        // gets the same answer as for any address, so the request itself
+        // is journaled afterwards like every other one.
+        $logged = [];
+        $journal = $this->createMock(JournalService::class);
+        $journal->expects($this->exactly(2))
+            ->method('log')
+            ->willReturnCallback(function (...$args) use (&$logged): void {
+                $logged[] = $args;
+            });
+        $connection = $this->createStub(Connection::class);
+        $connection->method('getPdo')->willReturn($this->pdo);
+        $service = new AuthService(
+            $connection,
+            $this->encryption,
+            $mailService,
+            EmailTemplateRendererFactory::overTestDatabase($this->pdo, TestTwig::create()),
+            'https://example.com',
+            'Test Unit'
+        );
+        $service->setJournalService($journal);
+
+        $service->requestMagicLink('user@test.com');
+
+        $this->assertSame([
+            [
+                'core',
+                'magic_link_send_failed',
+                'info',
+                "Échec de l'envoi de l'email de lien magique",
+                ['error' => 'Destinataire refusé : [adresse]', 'via_secondary_email' => false],
+                $account->id,
+            ],
+            ['core', 'magic_link_requested', 'info', 'Demande de lien magique', [], null],
+        ], $logged, 'the failure, with the address taken out, then the request — and no « sent » entry');
+    }
+
+    /**
+     * Two confirmations of a secondary address racing: the other request
+     * created the address's account between this one's lookup and its
+     * insert, which the unique blind index refuses. This one logs in as
+     * the account the other created, and no second one is made.
+     */
+    public function testASecondaryAddressWhoseAccountWasCreatedConcurrentlyLogsIntoThatAccount(): void
+    {
+        $this->userRepo->create('primary@test.com');
+        $this->givenValidSecondaryEmail(42, 'primary@test.com', 'secondary@test.com');
+        $rawToken = bin2hex(random_bytes(32));
+        $id = $this->givenMagicLink('secondary@test.com', $rawToken);
+        // The concurrent request's row lands first, then the unique index
+        // refuses this one. RAISE(FAIL) keeps what the statement already
+        // did, so the competing row survives the refusal.
+        $this->pdo->exec(
+            "CREATE TRIGGER concurrent_account BEFORE INSERT ON user_accounts
+             WHEN NOT EXISTS (SELECT 1 FROM user_accounts WHERE email_blind_index = NEW.email_blind_index)
+             BEGIN
+                 INSERT INTO user_accounts (email_encrypted, email_blind_index)
+                 VALUES (NEW.email_encrypted, NEW.email_blind_index);
+                 SELECT RAISE(FAIL, 'UNIQUE constraint failed: user_accounts.email_blind_index');
+             END"
+        );
+
+        $verified = $this->authService->verifyMagicLink($id, $rawToken);
+
+        $concurrent = $this->userRepo->findByEmail('secondary@test.com');
+        $this->assertNotNull($concurrent);
+        $this->assertNotNull($verified);
+        $this->assertSame($concurrent->id, $verified->userAccountId);
+        $this->assertSame(2, (int) $this->pdo->query('SELECT COUNT(*) FROM user_accounts')->fetchColumn());
     }
 
     public function testRequestMagicLinkWithPendingSecondaryEmailDoesNotSend(): void

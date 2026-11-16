@@ -10,6 +10,7 @@ use Core\Database\MigrationRunner;
 use Core\Database\SchemaComparator;
 use Core\Database\SchemaIntrospector;
 use Core\Database\SqlParser;
+use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use PHPUnit\Framework\TestCase;
 use Tests\UsesProductionEngine;
@@ -641,6 +642,53 @@ class MigrationRunnerTest extends TestCase
     }
 
     /**
+     * The abandonment is written to the journal, and `event_log` may be one
+     * of the tables the stuck migration never managed to create. The banner
+     * setting must still be written, and the attempt still stop.
+     */
+    public function testAnAbandonmentIsStillRecordedWhenTheJournalHasNoTable(): void
+    {
+        $pdo = $this->connection->getPdo();
+        $this->createSettingsTable();
+        $pdo->exec('CREATE TABLE stubborn_journal_test (id INT PRIMARY KEY)');
+        $this->assertNotContains('event_log', $this->introspector->getTables());
+
+        $tmpDir = sys_get_temp_dir() . '/migration_stubborn_journal_' . uniqid();
+        mkdir($tmpDir);
+        $schema = $tmpDir . '/schema.sql';
+        file_put_contents(
+            $schema,
+            "CREATE TABLE stubborn_journal_test (\n    id INT PRIMARY KEY,\n    huge VARCHAR(65533) NOT NULL\n);"
+        );
+
+        try {
+            $runner = new MigrationRunner(
+                $this->connection,
+                $this->introspector,
+                new SchemaComparator(),
+                new SqlParser(),
+                20,
+                journal: new JournalService(new JournalRepository($pdo))
+            );
+            for ($pass = 1; $pass < MigrationRunner::CONVERGENCE_ATTEMPTS; $pass++) {
+                $runner->migrate([$schema]);
+            }
+
+            $final = $runner->migrate([$schema]);
+
+            $this->assertTrue($final->complete);
+            $this->assertFalse($final->converged);
+            $abandoned = $runner->abandonedMigration();
+            $this->assertNotNull($abandoned);
+            $this->assertNotEmpty($abandoned->failedStatements);
+        } finally {
+            $pdo->exec('DROP TABLE IF EXISTS stubborn_journal_test');
+            @unlink($schema);
+            @rmdir($tmpDir);
+        }
+    }
+
+    /**
      * The advisory lock is deliberately non-blocking (timeout 0): on the
      * shared host this targets, ten visitors waiting on a lock are ten FPM
      * workers immobilised against a ceiling of about twenty, so the site
@@ -784,6 +832,57 @@ class MigrationRunnerTest extends TestCase
             $columns = array_map(fn($c) => $c->name, $this->introspector->getColumns('noisy_journal_test'));
             $this->assertNotContains('legacy', $columns);
         } finally {
+            @unlink($tmpDir . '/schema.sql');
+            @unlink($tmpDir . '/drops.sql');
+            @rmdir($tmpDir);
+        }
+    }
+
+    /**
+     * A drops.sql line the server refuses — a table another one still
+     * references — is reported as a warning, the table stays, nothing is
+     * journaled as dropped, and the rest of the migration goes on.
+     */
+    public function testARefusedDropIsAWarningAndIsNotJournaled(): void
+    {
+        $pdo = $this->connection->getPdo();
+        $pdo->exec('CREATE TABLE refused_parent_test (id INT PRIMARY KEY) ENGINE=InnoDB');
+        $pdo->exec(
+            'CREATE TABLE refused_child_test (id INT PRIMARY KEY, parent_id INT NOT NULL,
+                CONSTRAINT fk_refused_child_parent FOREIGN KEY (parent_id) REFERENCES refused_parent_test (id))
+             ENGINE=InnoDB'
+        );
+
+        $tmpDir = sys_get_temp_dir() . '/migration_refused_drop_' . uniqid();
+        mkdir($tmpDir);
+        file_put_contents($tmpDir . '/schema.sql', "CREATE TABLE refused_other_test (\n    id INT PRIMARY KEY\n);");
+        file_put_contents($tmpDir . '/drops.sql', 'DROP TABLE refused_parent_test;');
+
+        try {
+            $journal = $this->createMock(JournalService::class);
+            $journal->expects($this->never())->method('log');
+
+            $result = (new MigrationRunner(
+                $this->connection,
+                $this->introspector,
+                new SchemaComparator(),
+                new SqlParser(),
+                journal: $journal
+            ))->migrate([$tmpDir . '/schema.sql']);
+
+            $this->assertNotContains('DROP TABLE `refused_parent_test`', $result->executedStatements);
+            $this->assertCount(1, $result->warnings);
+            $this->assertStringStartsWith(
+                'Failed to execute: DROP TABLE `refused_parent_test` — Error: ',
+                $result->warnings[0]
+            );
+            $tables = $this->introspector->getTables();
+            $this->assertContains('refused_parent_test', $tables);
+            $this->assertContains('refused_other_test', $tables);
+        } finally {
+            $pdo->exec('DROP TABLE IF EXISTS refused_child_test');
+            $pdo->exec('DROP TABLE IF EXISTS refused_parent_test');
+            $pdo->exec('DROP TABLE IF EXISTS refused_other_test');
             @unlink($tmpDir . '/schema.sql');
             @unlink($tmpDir . '/drops.sql');
             @rmdir($tmpDir);

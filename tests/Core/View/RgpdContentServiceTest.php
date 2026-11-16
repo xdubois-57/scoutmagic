@@ -134,6 +134,46 @@ class RgpdContentServiceTest extends TestCase
         $service->generateWithAi('Instructions');
     }
 
+    /**
+     * An answer the sanitizer's own expressions cannot get through — a
+     * `<head>` block running past PCRE's backtrack limit — is refused with
+     * the sanitizer's sentence, never published half-cleaned, and the start
+     * of the raw answer is logged for whoever has to diagnose it.
+     */
+    public function testAnAnswerTheSanitizerCannotCleanIsRefusedAndItsStartIsLogged(): void
+    {
+        $answer = '<head>' . str_repeat('a', 1_000_001) . '</head><p>Unité scoute est responsable du traitement.</p>';
+        $llmConnector = $this->createStub(LlmConnectorInterface::class);
+        $llmConnector->method('isAvailable')->willReturn(true);
+        $llmConnector->method('isTierAvailable')->willReturn(true);
+        $llmConnector->method('complete')->willReturn(
+            new LlmResponse(content: $answer, parsed: null, inputTokens: 10, outputTokens: 20, truncated: false)
+        );
+        $service = new RgpdContentService($this->moduleManager, $this->settingService, $llmConnector);
+        $log = (string) tempnam(sys_get_temp_dir(), 'rgpd-log');
+        $previousLog = ini_set('error_log', $log);
+
+        try {
+            $service->generateWithAi('Instructions');
+            $this->fail('An answer that cannot be cleaned must not be returned.');
+        } catch (\RuntimeException $e) {
+            $this->assertSame('Erreur regex lors du nettoyage du HTML généré (head)', $e->getMessage());
+        } finally {
+            ini_set('error_log', (string) $previousLog);
+            $logged = (string) file_get_contents($log);
+            unlink($log);
+        }
+
+        $this->assertStringContainsString(
+            'RGPD AI Generation Error: Erreur regex lors du nettoyage du HTML généré (head)',
+            $logged
+        );
+        $this->assertStringContainsString(
+            'Raw LLM Response (first 1000 chars): <head>' . str_repeat('a', 994),
+            $logged
+        );
+    }
+
     public function testDefaultContentDisclosesTheUsageStatisticsAndDiagnosticPackage(): void
     {
         $service = new RgpdContentService($this->moduleManager, $this->settingService);

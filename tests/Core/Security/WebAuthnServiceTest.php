@@ -792,6 +792,29 @@ class WebAuthnServiceTest extends TestCase
     }
 
     /**
+     * A stored public key that is no longer CBOR — a truncated column, a
+     * restore gone wrong — verifies nothing: a correctly signed assertion
+     * for that credential is refused, and its counter is not moved.
+     */
+    public function testAStoredPublicKeyThatIsNotCborVerifiesNothing(): void
+    {
+        $key = $this->storeEs256Credential("\x55");
+        $this->pdo->prepare('UPDATE webauthn_credentials SET public_key = ? WHERE credential_id = ?')
+            ->execute(["\xA5\x01\x02\x03\x26\x20\x01\x21\x58\x20", $key['credentialId']]);
+        $challenge = random_bytes(32);
+        $this->storeChallenge('webauthn_auth_challenge', $challenge);
+
+        $account = $this->service->verifyAuthentication(
+            self::signAssertion($key, $challenge, 'https://localhost', 'localhost', 7)
+        );
+
+        $this->assertNull($account);
+        $statement = $this->pdo->prepare('SELECT sign_count FROM webauthn_credentials WHERE credential_id = ?');
+        $statement->execute([$key['credentialId']]);
+        $this->assertSame(0, (int) $statement->fetchColumn());
+    }
+
+    /**
      * The user.id of a fresh set of registration options, decoded.
      */
     private function userHandleFromOptions(int $userAccountId): string

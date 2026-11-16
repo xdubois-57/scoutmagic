@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\InboundMail\Repository;
 
+use Core\Database\TransactionScope;
 use Core\Mail\RawHeaderBlock;
 use Core\Security\EncryptionService;
 use Core\Service\DateInput;
@@ -993,9 +994,14 @@ class InboundMessageRepository
 
         try {
             $stmt->execute([$consumerId, $businessReference, $this->messageIdIndex($messageId)]);
-        } catch (\PDOException) {
+        } catch (\PDOException $e) {
             // The unique index: the same id recorded twice is the state
-            // the caller asked for.
+            // the caller asked for. Nothing else is — any other refusal is a
+            // write that did not happen, and swallowing it left a reply
+            // threaded onto nothing, without a trace (#1232).
+            if (!self::isDuplicateKey($e)) {
+                throw $e;
+            }
         }
     }
 
@@ -1057,17 +1063,23 @@ class InboundMessageRepository
             return false;
         }
 
-        $stmt = $this->pdo->prepare('DELETE FROM inbound_message_links WHERE message_id = ?');
-        $stmt->execute([$messageId]);
+        // One decision, four statements: a failure part-way used to leave a
+        // message without its attachments, or attachments without their
+        // links (#1232). A caller already inside a transaction keeps it as
+        // its own (TransactionScope).
+        TransactionScope::run($this->pdo, function () use ($messageId): void {
+            $stmt = $this->pdo->prepare('DELETE FROM inbound_message_links WHERE message_id = ?');
+            $stmt->execute([$messageId]);
 
-        $stmt = $this->pdo->prepare('DELETE FROM inbound_message_candidates WHERE message_id = ?');
-        $stmt->execute([$messageId]);
+            $stmt = $this->pdo->prepare('DELETE FROM inbound_message_candidates WHERE message_id = ?');
+            $stmt->execute([$messageId]);
 
-        $stmt = $this->pdo->prepare('DELETE FROM inbound_message_attachments WHERE message_id = ?');
-        $stmt->execute([$messageId]);
+            $stmt = $this->pdo->prepare('DELETE FROM inbound_message_attachments WHERE message_id = ?');
+            $stmt->execute([$messageId]);
 
-        $stmt = $this->pdo->prepare('DELETE FROM inbound_messages WHERE id = ?');
-        $stmt->execute([$messageId]);
+            $stmt = $this->pdo->prepare('DELETE FROM inbound_messages WHERE id = ?');
+            $stmt->execute([$messageId]);
+        });
 
         return true;
     }
