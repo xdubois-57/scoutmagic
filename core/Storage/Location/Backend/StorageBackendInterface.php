@@ -168,6 +168,14 @@ interface StorageBackendInterface
      * conclude that every copy they own is corrupt. A backend that cannot
      * tell the two apart returns null here, and the caller falls back on
      * comparing sizes, which is the honest answer.
+     *
+     * **Null is « nothing comparable », never « could not be asked » (#1223).**
+     * A destination that cannot be asked — an outage, a revoked grant —
+     * throws, and the caller fails its verification rather than skipping the
+     * comparison: answering null there would let a copy made just before an
+     * outage be recorded as protected without any check.
+     *
+     * @throws \Throwable when the destination cannot be asked at all
      */
     public function announcedChecksum(string $key): ?string;
 

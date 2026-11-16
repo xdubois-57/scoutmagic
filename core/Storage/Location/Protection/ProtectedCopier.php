@@ -218,6 +218,15 @@ class ProtectedCopier
      * **The size is always checked; the digest only when the destination
      * announces something comparable.**
      *
+     * **« Nothing to compare » is not « could not be asked » (#1223).** A
+     * destination that announces no comparable checksum is verified on its
+     * size, and that is a verified copy. A destination that cannot be asked
+     * at all — an outage between the upload and the check, a size that comes
+     * back null because the HEAD failed, a checksum request that throws —
+     * has verified NOTHING, and the copy fails, to be made again on the next
+     * pass: « protégée » always means « vérifiée ». The object it left is
+     * overwritten by that next copy, which is verified in its turn.
+     *
      * **The S3 trap, which is worth naming because getting it wrong looks
      * like total corruption.** An ETag equals the object's MD5 only for an
      * upload sent in one piece. For a multipart upload it is a digest OF
@@ -235,7 +244,16 @@ class ProtectedCopier
         ?string $md5
     ): CopyOutcome {
         $storedSize = $destination->size($key);
-        if ($storedSize !== null && $storedSize !== $expectedSizeBytes) {
+        if ($storedSize === null) {
+            // A null size is « cannot be determined » — a missing object or
+            // a destination in trouble, which size() does not tell apart.
+            // Neither is a copy that was checked.
+            return CopyOutcome::failed(
+                'La taille de la copie n\'a pas pu être lue sur la destination : la copie n\'est pas vérifiée '
+                . 'et sera refaite au prochain passage.'
+            );
+        }
+        if ($storedSize !== $expectedSizeBytes) {
             $reason = sprintf(
                 'La copie fait %d octets alors que la source en annonce %d.',
                 $storedSize,
@@ -245,7 +263,14 @@ class ProtectedCopier
             return $this->disagree($destination, $key, $reason);
         }
 
-        $announced = $this->comparableChecksum($destination, $key);
+        try {
+            $announced = $this->comparableChecksum($destination, $key);
+        } catch (\Throwable $e) {
+            return CopyOutcome::failed(
+                'La destination n\'a pas pu être interrogée pour vérifier la copie, qui sera refaite au prochain '
+                . 'passage : ' . $this->shortReason($e)
+            );
+        }
         if ($md5 !== null && $announced !== null && !hash_equals($announced, $md5)) {
             return $this->disagree($destination, $key, 'L\'empreinte de la copie ne correspond pas à la source.');
         }
@@ -255,14 +280,15 @@ class ProtectedCopier
 
     /**
      * The destination's own checksum when it is an MD5, null otherwise.
+     *
+     * Null is « nothing comparable », never « could not be asked »: a
+     * destination that cannot be asked throws, and verify() fails the copy.
+     *
+     * @throws \Throwable when the destination cannot be asked at all
      */
     private function comparableChecksum(StorageBackendInterface $destination, string $key): ?string
     {
-        try {
-            $announced = $destination->announcedChecksum($key);
-        } catch (\Throwable) {
-            return null;
-        }
+        $announced = $destination->announcedChecksum($key);
 
         if ($announced === null) {
             return null;
