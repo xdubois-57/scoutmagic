@@ -175,6 +175,12 @@ interface StorageBackendInterface
      * comparison: answering null there would let a copy made just before an
      * outage be recorded as protected without any check.
      *
+     * **Null does not say the object is there (#1308).** A missing object
+     * announces nothing either, and the backends do not tell that apart from
+     * an object with no comparable checksum. A caller that needs « it exists
+     * and has this size » reads the size again when it gets null, as
+     * `ProtectedCopier::verify()` does.
+     *
      * @throws \Throwable when the destination cannot be asked at all
      */
     public function announcedChecksum(string $key): ?string;
