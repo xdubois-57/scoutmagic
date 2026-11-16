@@ -2,7 +2,7 @@
 
 > **Sources.**
 > - La maquette `docs/chantiers/maquettes/courrier-entrant-simplifie.html` fait foi pour la hiérarchie des écrans, les libellés et les états. Son écran « Qui voit quoi » dessine deux règles côte à côte : **seule la règle A est retenue**, la colonne B n'est là que pour comparer. Son écran « la page Portée actuelle » montre ce qui disparaît.
-> - Ce document fixe le découpage, l'ordre et les décisions du mainteneur.
+> - Ce document fixe le découpage, l'ordre et les décisions du mainteneur. Là où la maquette et ce texte diffèrent, **le texte prime** : en « Échec de la vérification », le mot de passe est vidé (D10) ; pour un fournisseur inconnu, le serveur, le port et le chiffrement restent vides (lot B).
 >
 > **Ticket GitHub :** #1333 (le numéro est inscrit ici à la création du ticket).
 
@@ -10,7 +10,7 @@
 
 - **Lire d'abord** `AGENTS.md`, `ARCHITECTURE.md` (en particulier §8.58, le courrier entrant), `SECURITY.md`, `CONTRIBUTING.md`, `docs/inbound-mail-setup.md` et `design.md`.
 - **Enchaîner les lots dans l'ordre des vagues, sans poser de question.** On ne s'arrête que pour un changement de design par rapport à la maquette, ou pour un manque de clarté fonctionnelle. Une décision technique ordinaire se prend et se note dans la PR.
-- **Une PR par lot**, en français, avec `Corrige #1333 (lot X)` dans la description, jamais un mot-clé de fermeture.
+- **Une PR par lot**, en français. Sa description dit « Partie de #1333 (lot X) », sauf **la dernière PR du chantier**, qui dit « Corrige #1333 » (voir le §4). Jamais un mot-clé de fermeture : `issue-fixed-comment.yml` ferme le ticket dès la fusion d'une PR qui porte « Corrige #1333 ».
   - **Fusion automatique dès que tout est vert**, par l'auto-merge, sans demander de confirmation.
   - Pas de poussée directe sur `main`.
 - **Paralléliser** ce que le §3 désigne comme parallèle : un agent et une branche (ou un worktree) par lot.
@@ -35,7 +35,7 @@
 | D8 | Réglages de connexion | Le serveur, le port et le chiffrement sont **visibles et obligatoires**, jamais repliés. Ils sont **pré-remplis** quand le fournisseur est reconnu (voir le lot B). |
 | D9 | Dossiers lus | Par défaut : **la boîte de réception**, plus **les messages envoyés quand un module en a besoin** (aujourd'hui les Locations, via `HandlesOutboundMail`). Le dossier des envoyés reste détecté par le serveur. Dans une partie repliée « Dossiers lus (facultatif) » : les autres dossiers à cocher, **sans jamais proposer** les dossiers spéciaux (indésirables, corbeille, brouillons, « Tous les messages », « Important », « Suivis »), et le dossier des envoyés « trouvé automatiquement », modifiable seulement si le serveur ne l'indique pas. |
 | D10 | Vérifier avant d'enregistrer | « Vérifier et enregistrer » ouvre la connexion. **Une adresse qui ne se connecte pas n'est pas enregistrée** : l'échec s'affiche en une phrase utile, et les champs restent remplis, sauf le mot de passe. La case « Synchroniser cette boîte » disparaît : une adresse ajoutée est relevée, et on la suspend avec « Désactiver » dans la liste. |
-| D11 | Première relève limitée | La première lecture d'un dossier, c'est-à-dire sans curseur existant ou après un changement d'UIDVALIDITY, ne prend que **les messages des 12 derniers mois, et au plus les 5 000 plus récents**. Le curseur part ensuite de là. |
+| D11 | Première relève limitée | La première lecture d'un dossier, c'est-à-dire sans curseur existant ou après un changement d'UIDVALIDITY, ne prend que **les messages des 12 derniers mois, et au plus les 5 000 plus récents par date de réception**, jamais par UID. Le curseur part ensuite de là, sans sauter aucun message retenu. |
 | D12 | Textes | Les explications longues de la page (RGPD, absence de connecteur Gmail natif) **vont dans l'aide**. La page n'en garde qu'une phrase et un lien. L'aide sur le mot de passe d'application ne s'affiche que pour le fournisseur reconnu, sous son champ. |
 
 ## 2. Ce que le code impose
@@ -99,10 +99,12 @@ Sur une boîte réservée, rien ne change : le module la lit en entier.
 
 #### Lot C — Première relève limitée (D11)
 
-- Dans `MailboxSyncService` et le client IMAP : pour un dossier sans curseur, ou dont l'UIDVALIDITY a changé, ne lire que les messages des **12 derniers mois**, et au plus les **5 000 plus récents**. Par exemple : une recherche `SINCE` sur la date, puis les 5 000 UID les plus élevés. Le curseur part du plus petit UID retenu.
+- Dans `MailboxSyncService` et le client IMAP : pour un dossier sans curseur, ou dont l'UIDVALIDITY a changé, ne lire que les messages des **12 derniers mois**, et au plus les **5 000 plus récents**.
+  - « Plus récents » se juge **sur la date de réception du serveur (`INTERNALDATE`), jamais sur l'UID** : un vieux message importé dans la boîte reçoit un UID plus élevé que des messages récents. Une recherche `SINCE` donne les messages des 12 derniers mois ; on en garde les 5 000 dont la date de réception est la plus récente.
+  - **Le curseur ne fait sauter aucun message retenu, et ne fait relire aucun message écarté.** Les messages retenus sont lus nommément, puis le curseur part du plus grand UID du dossier au moment de cette première lecture : tout ce qui arrive ensuite est relevé normalement.
 - Cette règle s'applique **aussi aux envoyés**, et à un dossier coché plus tard.
 - Le journal de la relève indique combien de messages anciens ont été laissés de côté. Rien n'est montré dans l'interface.
-- **Tests**, avec le client factice (`FakeMailboxClient`) : une boîte de 7 000 messages sur trois ans, une boîte de 200 messages récents, un changement d'UIDVALIDITY.
+- **Tests**, avec le client factice (`FakeMailboxClient`) : une boîte de 7 000 messages sur trois ans, une boîte de 200 messages récents, un changement d'UIDVALIDITY, et une boîte où de vieux messages importés ont des UID plus élevés que des messages récents (les récents sont gardés, les vieux écartés, et aucun n'est relu à la relève suivante).
 - Ce lot ne touche ni la configuration ni la visibilité, **il est indépendant du lot A**. En cas de conflit sur `MailboxSyncService`, on rebase et on garde les deux changements.
 
 ### Vague 2 — après la fusion du lot A
@@ -139,9 +141,7 @@ Sur une boîte réservée, rien ne change : le module la lit en entier.
   - le RBAC des routes ;
   - un parcours e2e : ajouter une première adresse générale, puis une adresse réservée aux Locations, sans aucune page « Portée ».
 - **Ajouter la maquette au tableau** de `docs/chantiers/maquettes/README.md`, si ce n'est pas déjà fait.
-- **À la fin de ce lot, qui est le dernier :**
-  1. commenter le ticket #1333 avec ce qui a été livré, lot par lot ;
-  2. **fermer le ticket**.
+- **Si ce lot est le dernier fusionné**, la fin du chantier suit le §4.
 
 ## 4. Ordre et parallélisme
 
@@ -149,6 +149,11 @@ Sur une boîte réservée, rien ne change : le module la lit en entier.
 Vague 1 :  A   C     (en parallèle)
 Vague 2 :  B         (après la fusion de A ; C peut être encore en cours)
 ```
+
+**La fin du chantier.** Le dernier lot n'est pas forcément B : C peut finir après lui. La dernière PR, celle qui laisse **A, B et C tous fusionnés**, porte « Corrige #1333 » ; les autres disent « Partie de #1333 (lot X) ». Pour cette dernière PR :
+
+1. **avant sa fusion**, commenter le ticket #1333 avec ce qui a été livré, lot par lot ;
+2. **fermer le ticket** : `issue-fixed-comment.yml` le fait à la fusion. Vérifier qu'il est bien fermé, et le fermer à la main s'il est resté ouvert.
 
 ## 5. Hors périmètre
 
