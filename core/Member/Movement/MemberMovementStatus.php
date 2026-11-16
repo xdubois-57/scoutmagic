@@ -23,10 +23,17 @@ enum MemberMovementStatus: string
     /** Present this year, no active-with-section history at all before this year. */
     case NEW = 'new';
 
-    /** Active in a section last year, active in a different section this year, same branch. */
+    /**
+     * Active in a section last year, active in a different section this year,
+     * same branch — or, for an animateur who already was one, a different
+     * section whatever its branch.
+     */
     case SECTION_CHANGE = 'section_change';
 
-    /** Active in a section last year, active in a different branch this year. */
+    /**
+     * Active in a section last year, active in a different branch this year —
+     * or an animé of last year who is an animateur this year.
+     */
     case BRANCH_CHANGE = 'branch_change';
 
     /** Known historically, but not active-with-a-section last year; active again this year. */
@@ -57,9 +64,11 @@ enum MemberMovementStatus: string
     {
         return match ($this) {
             self::NEW => "Ce membre n'était pas membre de l'unité l'année scoute précédente.",
-            self::SECTION_CHANGE => "Ce membre a changé de section au sein de la même branche depuis l'année scoute "
-                . "précédente.",
-            self::BRANCH_CHANGE => "Ce membre a changé de branche depuis l'année scoute précédente.",
+            self::SECTION_CHANGE => "Ce membre a changé de section depuis l'année scoute précédente : au sein de "
+                . "la même branche, ou, pour un animateur déjà animateur l'an dernier, quelle que soit la branche "
+                . "de sa nouvelle section.",
+            self::BRANCH_CHANGE => "Ce membre a changé de branche depuis l'année scoute précédente, ou est passé "
+                . "du statut d'animé à celui d'animateur.",
             self::RETURNING => "Ce membre était déjà connu de l'unité mais ne se trouvait pas, l'année scoute "
                 . "précédente, dans une situation active en section — il ou elle revient cette année.",
             self::CONTINUING => "Ce membre poursuit dans la continuité de l'année scoute précédente.",

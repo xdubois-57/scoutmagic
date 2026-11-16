@@ -11,6 +11,8 @@ use Core\Member\Movement\MemberMovementStatus;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
+use Core\Database\InstrumentedPdo;
+use Core\Database\QueryCounter;
 
 /**
  * Business-rule tests for the generic core member movement classifier —
@@ -200,6 +202,213 @@ class MemberMovementClassifierServiceTest extends TestCase
         $this->assertNotSame(MemberMovementStatus::SECTION_CHANGE, $result->status);
     }
 
+    // ------------------------------------------------------------------
+    // Animé / animateur (#1323). Once somebody is an animateur, the age
+    // branch of the section they lead no longer says what their branch is:
+    // an animateur who changes section stays an animateur. The status is
+    // `functions.role` of the winning function, the same source the roster
+    // buckets use (SectionRosterEntry::bucketForRole) — never inferred from
+    // the section's branch.
+    // ------------------------------------------------------------------
+
+    public function testAnAnimeWhoChangesBranchIsStillABranchChange(): void
+    {
+        $memberId = $this->createMember();
+        $this->createActiveSectionYear($memberId, $this->yearN1, $this->sectionA, 'identified');
+
+        $result = $this->classifyOneAs($memberId, $this->sectionEclaireurs, $this->branchEclaireurs, 'anime');
+
+        $this->assertSame(MemberMovementStatus::BRANCH_CHANGE, $result->status);
+    }
+
+    public function testAnAnimeBecomingAnAnimateurInAnotherBranchIsABranchChange(): void
+    {
+        $memberId = $this->createMember();
+        $this->createActiveSectionYear($memberId, $this->yearN1, $this->sectionEclaireurs, 'identified');
+
+        $result = $this->classifyOneAs($memberId, $this->sectionA, $this->branchLouveteaux, 'animateur');
+
+        $this->assertSame(MemberMovementStatus::BRANCH_CHANGE, $result->status);
+    }
+
+    public function testAnAnimeBecomingAnAnimateurInTheSameSectionIsABranchChangeNotContinuity(): void
+    {
+        $memberId = $this->createMember();
+        $this->createActiveSectionYear($memberId, $this->yearN1, $this->sectionA, 'identified');
+
+        $result = $this->classifyOneAs($memberId, $this->sectionA, $this->branchLouveteaux, 'animateur');
+
+        $this->assertSame(MemberMovementStatus::BRANCH_CHANGE, $result->status);
+        $this->assertSame($this->sectionA, $result->previousSectionId);
+    }
+
+    public function testAnAnimateurChangingSectionAcrossBranchesIsASectionChange(): void
+    {
+        $memberId = $this->createMember();
+        $this->createActiveSectionYear($memberId, $this->yearN1, $this->sectionA, 'chief');
+
+        $result = $this->classifyOneAs($memberId, $this->sectionEclaireurs, $this->branchEclaireurs, 'animateur');
+
+        $this->assertSame(MemberMovementStatus::SECTION_CHANGE, $result->status);
+        $this->assertSame($this->sectionA, $result->previousSectionId);
+        $this->assertSame($this->branchLouveteaux, $result->previousAgeBranchId);
+    }
+
+    public function testAnAnimateurChangingSectionWithinTheBranchIsASectionChange(): void
+    {
+        $memberId = $this->createMember();
+        $this->createActiveSectionYear($memberId, $this->yearN1, $this->sectionA, 'chief');
+
+        $result = $this->classifyOneAs($memberId, $this->sectionB, $this->branchLouveteaux, 'animateur');
+
+        $this->assertSame(MemberMovementStatus::SECTION_CHANGE, $result->status);
+    }
+
+    public function testAnAnimateurStayingInTheSameSectionIsContinuity(): void
+    {
+        $memberId = $this->createMember();
+        $this->createActiveSectionYear($memberId, $this->yearN1, $this->sectionA, 'chief');
+
+        $result = $this->classifyOneAs($memberId, $this->sectionA, $this->branchLouveteaux, 'animateur');
+
+        $this->assertSame(MemberMovementStatus::CONTINUING, $result->status);
+    }
+
+    /** « admin » is an animateur like « chief » — the bucket is what counts, not the exact role. */
+    public function testAnAdminRoleCountsAsAnAnimateurLikeAChief(): void
+    {
+        $memberId = $this->createMember();
+        $this->createActiveSectionYear($memberId, $this->yearN1, $this->sectionA, 'admin');
+
+        $result = $this->classifyOneAs($memberId, $this->sectionEclaireurs, $this->branchEclaireurs, 'animateur');
+
+        $this->assertSame(MemberMovementStatus::SECTION_CHANGE, $result->status);
+    }
+
+    public function testNewReturningAndUnknownAreStillWhatTheyWereForAnAnimateur(): void
+    {
+        $brandNew = $this->createMember();
+
+        $returning = $this->createMember();
+        $this->createActiveSectionYear($returning, $this->yearN2, $this->sectionA, 'chief');
+
+        $results = $this->classifier->classifyBatch($this->yearN, [
+            ['member_id' => $brandNew, 'section_id' => $this->sectionA, 'age_branch_id' => $this->branchLouveteaux, 'bucket' => 'animateur'],
+            ['member_id' => $returning, 'section_id' => $this->sectionA, 'age_branch_id' => $this->branchLouveteaux, 'bucket' => 'animateur'],
+        ]);
+
+        $this->assertSame(MemberMovementStatus::NEW, $results[$brandNew]->status);
+        $this->assertSame(MemberMovementStatus::RETURNING, $results[$returning]->status);
+    }
+
+    public function testAnAnimateurWithNoPreviousScoutYearAtAllIsUnknown(): void
+    {
+        $pdo = DatabaseTestHelper::createTestDatabase();
+        $pdo->exec("INSERT INTO scout_years (label, start_date, end_date) VALUES ('2024-2025', '2024-09-01', '2025-08-31')");
+        $yearId = (int) $pdo->lastInsertId();
+        $pdo->exec("INSERT INTO members (desk_id) VALUES ('D1')");
+        $memberId = (int) $pdo->lastInsertId();
+        $classifier = new MemberMovementClassifierService(
+            new MemberMovementRepository($pdo),
+            new ScoutYearService($pdo)
+        );
+
+        $results = $classifier->classifyBatch($yearId, [
+            ['member_id' => $memberId, 'section_id' => 1, 'age_branch_id' => 1, 'bucket' => 'animateur'],
+        ]);
+
+        $this->assertSame(MemberMovementStatus::UNKNOWN, $results[$memberId]->status);
+    }
+
+    /**
+     * Not asked for, so not changed: an animateur who is an animé this year
+     * (and an intendant on either side) keeps the section/branch comparison
+     * it always had.
+     */
+    public function testOnlyTheAnimateurSideChangesTheRule(): void
+    {
+        $formerAnimateur = $this->createMember();
+        $this->createActiveSectionYear($formerAnimateur, $this->yearN1, $this->sectionA, 'chief');
+        $intendant = $this->createMember();
+        $this->createActiveSectionYear($intendant, $this->yearN1, $this->sectionA, 'intendant');
+
+        $results = $this->classifier->classifyBatch($this->yearN, [
+            ['member_id' => $formerAnimateur, 'section_id' => $this->sectionEclaireurs, 'age_branch_id' => $this->branchEclaireurs, 'bucket' => 'anime'],
+            ['member_id' => $intendant, 'section_id' => $this->sectionB, 'age_branch_id' => $this->branchLouveteaux, 'bucket' => 'intendant'],
+        ]);
+
+        $this->assertSame(MemberMovementStatus::BRANCH_CHANGE, $results[$formerAnimateur]->status);
+        $this->assertSame(MemberMovementStatus::SECTION_CHANGE, $results[$intendant]->status);
+    }
+
+    /** A caller that does not say what the member is now gets the rule it always had. */
+    public function testWithoutABucketTheOldComparisonApplies(): void
+    {
+        $memberId = $this->createMember();
+        $this->createActiveSectionYear($memberId, $this->yearN1, $this->sectionA, 'chief');
+
+        $result = $this->classifyOne($memberId, $this->sectionEclaireurs, $this->branchEclaireurs);
+
+        $this->assertSame(MemberMovementStatus::BRANCH_CHANGE, $result->status);
+    }
+
+    /**
+     * The previous status is the one of the WINNING function — the main
+     * one, then the lowest id, the same tie-break as the previous section.
+     * Main function: animé in A. A secondary animateur function elsewhere
+     * does not make last year an animation year.
+     */
+    public function testLastYearsStatusIsThatOfTheMainFunction(): void
+    {
+        $memberId = $this->createMember();
+        $memberYearId = $this->createMemberYear($memberId, $this->yearN1, true);
+        $this->attachFunction($memberYearId, $this->sectionB, $this->branchLouveteaux, 'chief', false);
+        $this->attachFunction($memberYearId, $this->sectionA, $this->branchLouveteaux, 'identified', true);
+
+        $result = $this->classifyOneAs($memberId, $this->sectionA, $this->branchLouveteaux, 'animateur');
+
+        $this->assertSame(MemberMovementStatus::BRANCH_CHANGE, $result->status, 'animé last year → animateur now');
+        $this->assertSame($this->sectionA, $result->previousSectionId);
+    }
+
+    public function testTheBatchIsGroupedWhateverTheNumberOfAnimateurs(): void
+    {
+        $count = function (int $members): int {
+            $pdo = DatabaseTestHelper::createTestDatabase(new InstrumentedPdo('sqlite::memory:'));
+            $classifier = new MemberMovementClassifierService(new MemberMovementRepository($pdo), new ScoutYearService($pdo));
+            $pdo->exec("INSERT INTO age_branches (desk_code, label, sort_order) VALUES ('LOU', 'Louveteaux', 20)");
+            $branchId = (int) $pdo->lastInsertId();
+            $pdo->exec("INSERT INTO sections (desk_code, age_branch_id) VALUES ('LOU01', {$branchId})");
+            $sectionId = (int) $pdo->lastInsertId();
+            $pdo->exec("INSERT INTO scout_years (label, start_date, end_date) VALUES ('2023-2024', '2023-09-01', '2024-08-31')");
+            $previousId = (int) $pdo->lastInsertId();
+            $pdo->exec("INSERT INTO scout_years (label, start_date, end_date) VALUES ('2024-2025', '2024-09-01', '2025-08-31')");
+            $currentId = (int) $pdo->lastInsertId();
+            $pdo->exec("INSERT INTO functions (desk_code, label, role) VALUES ('chief', 'Chief', 'chief')");
+            $functionId = (int) $pdo->lastInsertId();
+
+            $roster = [];
+            for ($i = 0; $i < $members; $i++) {
+                $pdo->exec("INSERT INTO members (desk_id) VALUES ('D{$i}')");
+                $memberId = (int) $pdo->lastInsertId();
+                $pdo->exec("INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted, is_active) VALUES ({$memberId}, {$previousId}, 'x', 'y', 1)");
+                $memberYearId = (int) $pdo->lastInsertId();
+                $pdo->exec(
+                    "INSERT INTO member_functions (member_year_id, function_id, section_id, age_branch_id, is_main_function)
+                     VALUES ({$memberYearId}, {$functionId}, {$sectionId}, {$branchId}, 1)"
+                );
+                $roster[] = ['member_id' => $memberId, 'section_id' => $sectionId, 'age_branch_id' => $branchId, 'bucket' => 'animateur'];
+            }
+
+            QueryCounter::reset();
+            $classifier->classifyBatch($currentId, $roster);
+
+            return QueryCounter::count();
+        };
+
+        $this->assertSame($count(2), $count(12), 'one grouped lookup, never one per member');
+    }
+
     public function testBatchClassifiesMultipleMembersWithoutPerMemberQueries(): void
     {
         $memberNew = $this->createMember();
@@ -213,6 +422,14 @@ class MemberMovementClassifierServiceTest extends TestCase
 
         $this->assertSame(MemberMovementStatus::NEW, $results[$memberNew]->status);
         $this->assertSame(MemberMovementStatus::CONTINUING, $results[$memberContinuing]->status);
+    }
+
+    private function classifyOneAs(int $memberId, int $sectionId, int $ageBranchId, string $bucket): \Core\Member\Movement\MemberMovementResult
+    {
+        $results = $this->classifier->classifyBatch($this->yearN, [
+            ['member_id' => $memberId, 'section_id' => $sectionId, 'age_branch_id' => $ageBranchId, 'bucket' => $bucket],
+        ]);
+        return $results[$memberId];
     }
 
     private function classifyOne(int $memberId, int $sectionId, int $ageBranchId): \Core\Member\Movement\MemberMovementResult

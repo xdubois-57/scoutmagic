@@ -3259,6 +3259,8 @@ The roll-call PDF carries no contact at all and needs neither. The export
 is journaled at `security` — a copy of personal data leaving the site —
 with `sections_without_contacts` beside the counters it already had.
 
+**Movement badges: the animateur rule lives once, in `MemberMovementClassifierService` (#1323).** « Animés de la section », its Excel export and its PDF call sheet all hand it `bucket` (the member's `SectionRosterEntry` bucket this year — `functions.role` through `bucketForRole()`), and `MemberMovementRepository::findActiveSectionsForYear()` returns the same bucket for the winning function of the previous year (main function, then lowest id). For an animateur this year the status decides first: not an animateur last year → `BRANCH_CHANGE` (even in the same section); an animateur last year → `CONTINUING` or `SECTION_CHANGE` by section alone, whatever the branches. An animé, an intendant, an animateur who is no longer one, and a caller that passes no bucket keep the section-then-branch comparison unchanged. The batch is still three grouped queries; `MemberMovementConsumersAgreeTest` holds the page, the export and the PDF wiring to the same answer.
+
 ### 8.62bis The page of one member, for the Staff d'Unité (`Core\Member\AdminMemberPageService`)
 
 `GET /admin/members/{id}` (`role_min: admin`, `Core\Member\Controller\MemberSearchController::show()`) — what the site knows about one person, on its own page. It used to render below the search results as `?member={id}`; the move makes the address shareable (that parameter dragged `q=` along, so a shared link replayed an unrelated search) and follows the convention every other dense per-person screen already uses.

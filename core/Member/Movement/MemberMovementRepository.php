@@ -8,6 +8,8 @@ declare(strict_types=1);
 
 namespace Core\Member\Movement;
 
+use Core\Member\SectionRosterEntry;
+
 /**
  * Batch data access for MemberMovementClassifierService. Every method takes
  * a whole list of persistent member ids and resolves them in ONE query
@@ -30,8 +32,13 @@ final class MemberMovementRepository
      * absent from the result simply had no active member_years row with a
      * section-bearing function that year.
      *
+     * The bucket is the one the roster uses for that SAME winning function
+     * (`functions.role` through SectionRosterEntry::bucketForRole()), so
+     * « animateur last year » means exactly what it means on the screen —
+     * never inferred from the section's age branch (#1323).
+     *
      * @param int[] $memberIds
-     * @return array<int, array{section_id: int, age_branch_id: int}> keyed by member_id
+     * @return array<int, array{section_id: int, age_branch_id: int, bucket: string}> keyed by member_id
      */
     public function findActiveSectionsForYear(array $memberIds, int $scoutYearId): array
     {
@@ -42,10 +49,12 @@ final class MemberMovementRepository
 
         $placeholders = implode(',', array_fill(0, count($memberIds), '?'));
         $stmt = $this->pdo->prepare(
-            "SELECT my.member_id, mf.section_id, s.age_branch_id, mf.is_main_function, mf.id AS mf_id
+            "SELECT my.member_id, mf.section_id, s.age_branch_id, mf.is_main_function, mf.id AS mf_id,
+                    f.role AS function_role
              FROM member_functions mf
              JOIN member_years my ON mf.member_year_id = my.id
              JOIN sections s ON mf.section_id = s.id
+             LEFT JOIN functions f ON mf.function_id = f.id
              WHERE my.member_id IN ($placeholders) AND my.scout_year_id = ? AND my.is_active = 1
                AND mf.section_id IS NOT NULL
              ORDER BY my.member_id, mf.is_main_function DESC, mf.id ASC"
@@ -62,6 +71,7 @@ final class MemberMovementRepository
             $result[$memberId] = [
                 'section_id' => (int) $row['section_id'],
                 'age_branch_id' => (int) $row['age_branch_id'],
+                'bucket' => SectionRosterEntry::bucketForRole((string) ($row['function_role'] ?? '')),
             ];
         }
 

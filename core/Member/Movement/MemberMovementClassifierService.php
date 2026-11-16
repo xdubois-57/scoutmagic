@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Core\Member\Movement;
 
 use Core\Config\ScoutYearService;
+use Core\Member\SectionRosterEntry;
 
 /**
  * Generic, core-level classification of a member's situation this scout
@@ -36,11 +37,29 @@ use Core\Config\ScoutYearService;
  *                         function — covers both "gap year(s)" and "was
  *                         active last year but in a non-section function".
  *   4. BRANCH_CHANGE    — active in a section last year, and that
- *                         section's branch differs from this year's.
+ *                         section's branch differs from this year's — or,
+ *                         for an ANIMATEUR this year, was not an animateur
+ *                         last year (the move to the animateur status,
+ *                         whatever the sections).
  *   5. SECTION_CHANGE   — active in a section last year, same branch, but
- *                         a different section.
+ *                         a different section — or, for an animateur who
+ *                         already was one last year, a different section
+ *                         WHATEVER its branch.
  *   6. CONTINUING       — active in the exact same section last year and
  *                         this year (the default/fallback case).
+ *
+ * **Animateurs (#1323).** Once somebody is an animateur, the age branch of
+ * the section they lead no longer says what their branch is: an animateur
+ * who changes section stays an animateur. So when the member is an
+ * animateur this year the comparison is on the STATUS first — animé (or
+ * anything else) last year → BRANCH_CHANGE, even in the same section;
+ * animateur last year → CONTINUING or SECTION_CHANGE by section alone. The
+ * status is `functions.role` of the winning function, bucketed exactly as
+ * the roster does (SectionRosterEntry::bucketForRole), for both years; the
+ * previous year's winner is chosen the way the previous section is (main
+ * function, then lowest id). Nothing else changes: an animé, an intendant,
+ * and an animateur who is no longer one keep the comparison above, and a
+ * caller that does not pass the current bucket gets it too.
  *
  * scout_year_offset (skipped/held-back years) never enters this
  * comparison: it only affects which BRANCH a birth date maps to, never
@@ -59,10 +78,12 @@ final class MemberMovementClassifierService
      * Classify a whole roster in one pass — at most 3 extra queries total,
      * however many members are in $currentRoster.
      *
-     * @param array<int, array{member_id: int, section_id: int, age_branch_id: int}> $currentRoster
+     * @param array<int, array{member_id: int, section_id: int, age_branch_id: int, bucket?: string}> $currentRoster
      *        One entry per member currently shown, keyed however the
      *        caller likes (not read) — member_id must be the persistent
      *        Core\Member identity (members.id), not a member_year id.
+     *        `bucket` is the member's SectionRosterEntry bucket this year;
+     *        left out, the member is judged on sections and branches alone.
      * @return array<int, MemberMovementResult> keyed by member_id
      */
     public function classifyBatch(int $currentScoutYearId, array $currentRoster): array
@@ -72,6 +93,7 @@ final class MemberMovementClassifierService
             $byMemberId[(int) $row['member_id']] = [
                 'section_id' => (int) $row['section_id'],
                 'age_branch_id' => (int) $row['age_branch_id'],
+                'bucket' => isset($row['bucket']) ? (string) $row['bucket'] : null,
             ];
         }
         $memberIds = array_keys($byMemberId);
@@ -116,8 +138,8 @@ final class MemberMovementClassifierService
     }
 
     /**
-     * @param array{section_id: int, age_branch_id: int} $current
-     * @param array{section_id: int, age_branch_id: int}|null $previousSection
+     * @param array{section_id: int, age_branch_id: int, bucket: ?string} $current
+     * @param array{section_id: int, age_branch_id: int, bucket: string}|null $previousSection
      */
     private function classifyOne(
         array $current,
@@ -126,6 +148,10 @@ final class MemberMovementClassifierService
         bool $everActiveBeforeLastYear
     ): MemberMovementResult {
         if ($previousSection !== null) {
+            if ($current['bucket'] === SectionRosterEntry::BUCKET_ANIMATEUR) {
+                return $this->classifyAnimateur($current, $previousSection);
+            }
+
             if ($previousSection['section_id'] === $current['section_id']) {
                 return new MemberMovementResult(
                     MemberMovementStatus::CONTINUING,
@@ -159,6 +185,26 @@ final class MemberMovementClassifierService
         }
 
         return new MemberMovementResult(MemberMovementStatus::NEW);
+    }
+
+    /**
+     * An animateur this year: the status first, then the section — never the
+     * age branch, which says nothing about an adult leading a section.
+     *
+     * @param array{section_id: int, age_branch_id: int, bucket: ?string} $current
+     * @param array{section_id: int, age_branch_id: int, bucket: string} $previousSection
+     */
+    private function classifyAnimateur(array $current, array $previousSection): MemberMovementResult
+    {
+        if ($previousSection['bucket'] !== SectionRosterEntry::BUCKET_ANIMATEUR) {
+            $status = MemberMovementStatus::BRANCH_CHANGE;
+        } elseif ($previousSection['section_id'] === $current['section_id']) {
+            $status = MemberMovementStatus::CONTINUING;
+        } else {
+            $status = MemberMovementStatus::SECTION_CHANGE;
+        }
+
+        return new MemberMovementResult($status, $previousSection['section_id'], $previousSection['age_branch_id']);
     }
 
     /**
