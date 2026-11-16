@@ -274,6 +274,34 @@ class ProtectedCopier
         if ($md5 !== null && $announced !== null && !hash_equals($announced, $md5)) {
             return $this->disagree($destination, $key, 'L\'empreinte de la copie ne correspond pas à la source.');
         }
+        if ($announced === null) {
+            // « Nothing comparable » is the answer of a destination that
+            // announces no checksum — and also of an object that is no
+            // longer there, which no backend tells apart. The size was read
+            // by an earlier call, so the object may have gone since (#1308):
+            // with nothing to compare, the size is all the check there is,
+            // and it is read again rather than trusted. It narrows the
+            // window; nothing here can close it, and the next pass checks
+            // the copy again.
+            $again = $destination->size($key);
+            if ($again === null) {
+                return CopyOutcome::failed(
+                    'La copie a disparu de la destination pendant sa vérification : elle sera refaite au '
+                    . 'prochain passage.'
+                );
+            }
+            if ($again !== $expectedSizeBytes) {
+                return $this->disagree(
+                    $destination,
+                    $key,
+                    sprintf(
+                        'La copie fait %d octets alors que la source en annonce %d.',
+                        $again,
+                        $expectedSizeBytes
+                    )
+                );
+            }
+        }
 
         return CopyOutcome::completed($expectedSizeBytes, $md5);
     }

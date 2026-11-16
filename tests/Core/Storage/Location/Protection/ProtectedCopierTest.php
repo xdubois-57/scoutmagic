@@ -548,6 +548,69 @@ final class ProtectedCopierTest extends TestCase
     }
 
     /**
+     * `verify()` reads the size with one HEAD and the checksum with another.
+     * An object that disappears between the two used to announce « nothing
+     * comparable » like any other — null — and be recorded as protected
+     * while it no longer existed (#1308). When nothing comparable is
+     * announced, the size is all the check there is, so it is read again:
+     * a copy that cannot be found any more is a copy that was not verified.
+     */
+    public function testAnObjectThatVanishesBetweenTheSizeAndTheChecksumFailsTheCopy(): void
+    {
+        $this->source->put('12/med_88.jpg', 'fake-jpeg-bytes', 'image/jpeg');
+        $vanishing = new class ($this->root . '/vanishing') extends LocalStorageBackend {
+            public function announcedChecksum(string $key): ?string
+            {
+                // Gone after the size was read, as a missing object answers
+                // on every backend: nothing to announce.
+                $this->delete($key);
+
+                return null;
+            }
+        };
+
+        $outcome = $this->copier->copy(
+            $this->source,
+            $vanishing,
+            '12/med_88.jpg',
+            strlen('fake-jpeg-bytes'),
+            'image/jpeg',
+            $this->always()
+        );
+
+        $this->assertSame(CopyOutcome::FAILED, $outcome->status);
+        $this->assertStringContainsString('disparu', (string) $outcome->reason);
+        $this->assertNull($outcome->md5, 'a failed copy carries no digest');
+    }
+
+    /** The same second read catches an object replaced by another of a different size. */
+    public function testAnObjectWhoseSizeChangesAfterTheChecksumWasAskedIsADisagreement(): void
+    {
+        $this->source->put('12/med_88.jpg', 'fake-jpeg-bytes', 'image/jpeg');
+        $replaced = new class ($this->root . '/replaced') extends LocalStorageBackend {
+            public function announcedChecksum(string $key): ?string
+            {
+                $this->put($key, 'something else entirely', 'image/jpeg');
+
+                return null;
+            }
+        };
+
+        $outcome = $this->copier->copy(
+            $this->source,
+            $replaced,
+            '12/med_88.jpg',
+            strlen('fake-jpeg-bytes'),
+            'image/jpeg',
+            $this->always()
+        );
+
+        $this->assertSame(CopyOutcome::FAILED, $outcome->status);
+        $this->assertStringContainsString('octets', (string) $outcome->reason);
+        $this->assertNull($replaced->size('12/med_88.jpg'), 'the wrong copy must be removed, as on any disagreement');
+    }
+
+    /**
      * A disagreement is the failure to report even when the wrong copy
      * cannot then be removed: the next pass copies the file again, and the
      * removal's own refusal must not replace the reason.
