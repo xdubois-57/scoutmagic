@@ -373,6 +373,68 @@ class RentalAssetServiceTest extends TestCase
         $this->assertNull($this->assetRepository->findById($id));
     }
 
+    /**
+     * The check that nothing records a history and the deletion that relies
+     * on it are one decision (#1307): between the two, a booking validated
+     * for this asset would be missed by the check and then taken with the
+     * asset by `ON DELETE CASCADE`. Both therefore run in the transaction of
+     * the asset's lock (`AssetLock`), which every writer of a booking takes
+     * too. SQLite cannot show the wait itself; what it can show is that the
+     * two steps are inside that transaction — the MariaDB test shows the wait.
+     */
+    public function testTheHistoryCheckAndTheDeletionRunInsideTheAssetsTransaction(): void
+    {
+        $pdo = $this->pdo;
+        $seen = [];
+        $spy = new class (
+            $pdo,
+            new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)),
+            $seen
+        ) extends RentalAssetRepository {
+            /** @param list<string> $seen */
+            public function __construct(private \PDO $connection, EncryptionService $encryption, private array &$seen)
+            {
+                parent::__construct($connection, $encryption);
+            }
+
+            public function hasBookings(int $id): bool
+            {
+                $this->seen[] = 'check:' . ($this->connection->inTransaction() ? 'in' : 'out');
+
+                return parent::hasBookings($id);
+            }
+
+            public function delete(int $id): void
+            {
+                $this->seen[] = 'delete:' . ($this->connection->inTransaction() ? 'in' : 'out');
+                parent::delete($id);
+            }
+        };
+        $service = new RentalAssetService($spy, new RentalSlugGenerator($spy), $this->journalService);
+        $id = $spy->create('Local', 'Local Saint-Georges', 'local', 60, 1, null, null, null, true);
+
+        $service->delete($id, null);
+
+        $this->assertSame(['check:in', 'delete:in'], $seen);
+        $this->assertNull($spy->findById($id));
+    }
+
+    /** A refusal leaves nothing half done: the transaction is closed, not left open. */
+    public function testARefusedDeletionLeavesNoTransactionOpen(): void
+    {
+        $id = $this->create();
+        $this->insertBooking($id);
+
+        try {
+            $this->service->delete($id, null);
+            $this->fail('deleting an asset that has a booking must be refused');
+        } catch (RentalException) {
+        }
+
+        $this->assertFalse($this->pdo->inTransaction());
+        $this->assertNotNull($this->assetRepository->findById($id));
+    }
+
     #[\PHPUnit\Framework\Attributes\DataProvider('bookingStatuses')]
     public function testAnAssetWithABookingIsRefusedAndNothingIsDeleted(string $status): void
     {
