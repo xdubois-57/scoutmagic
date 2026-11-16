@@ -450,6 +450,81 @@ class InboundMessageLinkTest extends TestCase
         }
     }
 
+    /**
+     * The same narrowing as `recordOutboundMessageId()` (#1232), for the two
+     * methods that still swallowed any `PDOException` of their INSERT as
+     * « the unique index caught a concurrent insert » (#1303): a dropped
+     * connection, a full disk or the database's refusal wrote nothing, and
+     * answering « already there » left the association or the proposition
+     * missing without a word.
+     */
+    public function testARefusedWriteOfALinkIsNotTakenForADuplicate(): void
+    {
+        $id = $this->storeMessageWithHtml('<p>Bonjour</p>');
+        $this->makeEveryInsertFailWith(new \PDOException('SQLSTATE[HY000]: General error: server has gone away'));
+
+        try {
+            $this->messages->addLink($id, 'rental', 'LOC-1', LinkOrigin::MANUAL);
+            $this->fail('a write that failed must not look like an association that already exists');
+        } catch (\PDOException $e) {
+            $this->assertStringContainsString('server has gone away', $e->getMessage());
+        } finally {
+            $this->pdo->setAttribute(\PDO::ATTR_STATEMENT_CLASS, [\PDOStatement::class]);
+        }
+
+        $this->assertFalse($this->messages->hasLink($id, 'rental', 'LOC-1', 0));
+    }
+
+    public function testARefusedWriteOfACandidateIsNotTakenForADuplicate(): void
+    {
+        $id = $this->storeMessageWithHtml('<p>Bonjour</p>');
+        $this->makeEveryInsertFailWith(new \PDOException('SQLSTATE[HY000]: General error: server has gone away'));
+
+        try {
+            $this->messages->addCandidate($id, 'finance', $this->candidate('account-3'));
+            $this->fail('a write that failed must not look like a proposition that already exists');
+        } catch (\PDOException $e) {
+            $this->assertStringContainsString('server has gone away', $e->getMessage());
+        } finally {
+            $this->pdo->setAttribute(\PDO::ATTR_STATEMENT_CLASS, [\PDOStatement::class]);
+        }
+
+        $this->assertSame([], $this->messages->findActiveCandidates($id));
+    }
+
+    /**
+     * What the catch is for stays true: a concurrent insert of the very same
+     * association or proposition, caught by the unique index, is the state
+     * the caller asked for — answered « nothing created », not an error.
+     */
+    public function testAUniqueIndexRefusalOfALinkStillMeansItIsAlreadyThere(): void
+    {
+        $id = $this->storeMessageWithHtml('<p>Bonjour</p>');
+        $this->makeEveryInsertFailWith(self::duplicateKeyFailure());
+
+        try {
+            $created = $this->messages->addLink($id, 'rental', 'LOC-1', LinkOrigin::MANUAL);
+        } finally {
+            $this->pdo->setAttribute(\PDO::ATTR_STATEMENT_CLASS, [\PDOStatement::class]);
+        }
+
+        $this->assertFalse($created);
+    }
+
+    public function testAUniqueIndexRefusalOfACandidateStillMeansItIsAlreadyThere(): void
+    {
+        $id = $this->storeMessageWithHtml('<p>Bonjour</p>');
+        $this->makeEveryInsertFailWith(self::duplicateKeyFailure());
+
+        try {
+            $created = $this->messages->addCandidate($id, 'finance', $this->candidate('account-3'));
+        } finally {
+            $this->pdo->setAttribute(\PDO::ATTR_STATEMENT_CLASS, [\PDOStatement::class]);
+        }
+
+        $this->assertFalse($created);
+    }
+
     // ── The reprise of the stored HTML bodies (issue #1122) ─────────────
 
     public function testTheHtmlReprisePullsARemoteImageAnEarlierRegexLetThrough(): void
@@ -683,6 +758,40 @@ class InboundMessageLinkTest extends TestCase
         };
         $statement::$failure = $failure;
         $this->pdo->setAttribute(\PDO::ATTR_STATEMENT_CLASS, [$statement::class]);
+    }
+
+    /**
+     * Every INSERT prepared from now on throws this when executed, the other
+     * statements run as usual. Not `makeEveryWriteFailWith()`: `addLink()` and
+     * `addCandidate()` read first (« is it already there? »), and a statement
+     * that fails everywhere would fail that read, outside the `try` under
+     * test, and prove nothing about the INSERT.
+     */
+    private function makeEveryInsertFailWith(\PDOException $failure): void
+    {
+        $statement = new class extends \PDOStatement {
+            public static ?\PDOException $failure = null;
+
+            public function execute(?array $params = null): bool
+            {
+                if (str_starts_with(ltrim($this->queryString), 'INSERT')) {
+                    throw self::$failure ?? new \LogicException('no failure was set');
+                }
+
+                return parent::execute($params);
+            }
+        };
+        $statement::$failure = $failure;
+        $this->pdo->setAttribute(\PDO::ATTR_STATEMENT_CLASS, [$statement::class]);
+    }
+
+    /** What the driver raises for a unique index: SQLSTATE 23000, as a string code. */
+    private static function duplicateKeyFailure(): \PDOException
+    {
+        $failure = new \PDOException('SQLSTATE[23000]: Integrity constraint violation: UNIQUE constraint failed');
+        (new \ReflectionProperty(\Exception::class, 'code'))->setValue($failure, '23000');
+
+        return $failure;
     }
 
     private function candidate(string $reference, int $attachmentId = 0): MessageCandidate
