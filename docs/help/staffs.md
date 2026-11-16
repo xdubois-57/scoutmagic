@@ -17,6 +17,10 @@ l'année : chaque animateur avec sa fonction, son niveau de formation et
 ses coordonnées. Choisissez une section avec les pastilles en haut de
 page.
 
+Le responsable de la section, tel que le Trombinoscope le désigne pour
+l'année affichée, passe en premier ; les autres restent par ordre
+alphabétique.
+
 ## Ce que chacun y voit
 
 Un animateur ou un chef d'unité voit toutes les sections. Un intendant

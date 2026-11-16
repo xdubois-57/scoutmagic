@@ -15,12 +15,15 @@ use Core\Http\Request;
 use Core\Http\Response;
 use Core\Config\SettingService;
 use Core\Journal\JournalService;
+use Core\Member\MemberProfile;
 use Core\Member\MemberService;
 use Core\Member\SectionContactAccess;
 use Core\Member\SectionDocumentService;
 use Core\Member\SectionService;
 use Core\Member\SectionStaffAuthorizationService;
 use Core\Member\UnitStaffSectionService;
+use Core\Module\HookRegistry;
+use Core\Module\SectionResponsableProvider;
 use Core\Pdf\PdfCompressor;
 use Core\ScoutYear\ScoutYearResolver;
 use Core\ScoutYear\ScoutYearSession;
@@ -49,8 +52,48 @@ class StaffsController extends AbstractController
         private SettingService $settingService,
         private SectionStaffAuthorizationService $sectionStaffAuthorizationService,
         private EditableContentService $editableContentService,
-        private MemberSectionTotemRepository $sectionTotems
+        private MemberSectionTotemRepository $sectionTotems,
+        private ?HookRegistry $hooks = null
     ) {
+    }
+
+    /**
+     * The section's responsable first, the others in the order they came in
+     * (alphabetical, from SectionService::getSectionStaff()).
+     *
+     * « Responsable » is defined once, by the module that owns the flag, and
+     * reached through the optional core hook `SectionResponsableProvider`
+     * (ARCHITECTURE.md §7.4) — the same one « Sections » reads — so this page
+     * neither imports the module nor compares a function label. It asks for
+     * THIS section in THIS year, once: changing either changes the answer.
+     * Without the module, or without a responsable, the list is untouched, and
+     * a responsable who is not in this list adds nobody: the order is the only
+     * thing that can change, never who is there.
+     *
+     * @param MemberProfile[] $staff
+     * @return MemberProfile[]
+     */
+    private function responsableFirst(array $staff, int $sectionId, int $scoutYearId): array
+    {
+        if (count($staff) < 2) {
+            return $staff;
+        }
+
+        $provider = $this->hooks?->getOptional(SectionResponsableProvider::class);
+        $responsable = $provider?->getResponsable($sectionId, $scoutYearId);
+        if ($responsable === null) {
+            return $staff;
+        }
+
+        foreach ($staff as $position => $member) {
+            if ($member->memberId === $responsable->memberId) {
+                unset($staff[$position]);
+
+                return [$member, ...array_values($staff)];
+            }
+        }
+
+        return $staff;
     }
 
     /**
@@ -129,7 +172,11 @@ class StaffsController extends AbstractController
 
             if ($currentSection !== null) {
                 $canEditSection = $isChief && in_array((int) $currentSection['id'], $staffedSectionIds, true);
-                $staff = $this->sectionService->getSectionStaff($selectedSectionId, $scoutYearId);
+                $staff = $this->responsableFirst(
+                    $this->sectionService->getSectionStaff($selectedSectionId, $scoutYearId),
+                    $selectedSectionId,
+                    $scoutYearId
+                );
 
                 // Below chief, a section none of this account's linked
                 // members belongs to is shown without contact details —

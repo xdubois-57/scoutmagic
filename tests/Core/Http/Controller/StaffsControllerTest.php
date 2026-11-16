@@ -37,6 +37,8 @@ class StaffsControllerTest extends TestCase
 {
     private \PDO $pdo;
     private StaffsController $controller;
+    /** @var \Closure(?\Core\Module\HookRegistry): StaffsController */
+    private \Closure $controllerFactory;
     private SectionService $sectionService;
     private MemberService $memberService;
     private BadgeService $badgeService;
@@ -112,7 +114,7 @@ class StaffsControllerTest extends TestCase
         $twig->addGlobal('_section_photo_service', $sectionPhotoService);
         $twig->addGlobal('effective_scout_year_id', $this->scoutYearId);
 
-        $this->controller = new StaffsController(
+        $this->controllerFactory = fn(?\Core\Module\HookRegistry $hooks = null) => new StaffsController(
             $twig,
             $this->sectionService,
             $this->memberService,
@@ -127,8 +129,11 @@ class StaffsControllerTest extends TestCase
     $this->sectionService
 ),
             $this->editableContent = new \Core\View\EditableContentService(new \Core\View\EditableContentRepository($this->pdo)),
-            new \Core\Member\Repository\MemberSectionTotemRepository($this->pdo, $this->encryption)
+            new \Core\Member\Repository\MemberSectionTotemRepository($this->pdo, $this->encryption),
+            $hooks
         );
+        $this->controller = ($this->controllerFactory)();
+
 
         // Set up session as chief
         if (session_status() === PHP_SESSION_NONE) {
@@ -207,6 +212,221 @@ class StaffsControllerTest extends TestCase
         // (Core\Member\SectionService::colorForSection()) as every other
         // section picker/list across the site.
         $this->assertStringContainsString('background-color:', $body);
+    }
+
+    // ------------------------------------------------------------------
+    // The section's responsable comes first (#1323-adjacent: #1324). The
+    // definition is the trombinoscope's, reached through the core hook
+    // `SectionResponsableProvider` — the page never names the module.
+    // ------------------------------------------------------------------
+
+    /** @return array{int, list<int>} the section id and the member year ids, in creation order */
+    private function sectionWithStaff(string ...$firstNames): array
+    {
+        $branchId = $this->createBranch('BAL', 'Baladins', 1);
+        $sectionId = $this->createSection('BAL01', $branchId, 'Ma section');
+        $memberYearIds = [];
+        foreach ($firstNames as $firstName) {
+            $memberYearIds[] = $this->createMemberInSection($sectionId, $firstName, 'chief', strtolower($firstName) . '@test.be');
+        }
+
+        return [$sectionId, $memberYearIds];
+    }
+
+    /** @param list<string> $names */
+    private function assertShownInOrder(array $names, string $body): void
+    {
+        $positions = [];
+        foreach ($names as $name) {
+            $position = strpos($body, $name);
+            $this->assertNotFalse($position, $name . ' must be on the page');
+            $positions[$name] = $position;
+        }
+        $sorted = $positions;
+        asort($sorted);
+        $this->assertSame($names, array_keys($sorted), 'order on the page');
+    }
+
+    /**
+     * @param array<int, ?int> $responsableByMemberYear member year id answered for a section; null = no responsable
+     */
+    private function registryAnswering(?int $memberYearId, ?\ArrayObject $calls = null): \Core\Module\HookRegistry
+    {
+        $profile = $memberYearId === null ? null : $this->profileOf($memberYearId);
+        $registry = new \Core\Module\HookRegistry();
+        $registry->register(\Core\Module\SectionResponsableProvider::class, new class ($profile, $calls) implements \Core\Module\SectionResponsableProvider {
+            public function __construct(private readonly ?\Core\Member\MemberProfile $profile, private readonly ?\ArrayObject $calls)
+            {
+            }
+
+            public function getResponsable(int $sectionId, int $scoutYearId): ?\Core\Member\MemberProfile
+            {
+                $this->calls?->append([$sectionId, $scoutYearId]);
+
+                return $this->profile;
+            }
+
+            public function getResponsables(array $sectionIds, int $scoutYearId): array
+            {
+                return [];
+            }
+        });
+
+        return $registry;
+    }
+
+    private function profileOf(int $memberYearId): \Core\Member\MemberProfile
+    {
+        $stmt = $this->pdo->prepare('SELECT member_id FROM member_years WHERE id = ?');
+        $stmt->execute([$memberYearId]);
+
+        return new \Core\Member\MemberProfile(
+            memberYearId: $memberYearId,
+            memberId: (int) $stmt->fetchColumn(),
+            deskId: 'x',
+            firstName: 'x',
+            lastName: 'x',
+            totem: null,
+            quali: null,
+            gender: null,
+            birthDate: null,
+            phone: null,
+            mobile: null,
+            email: null,
+            patrol: null,
+            formationLevel: null,
+            federationMailConsent: false,
+            unitMailConsent: false,
+            addresses: [],
+            functions: [],
+            scoutYearLabel: ''
+        );
+    }
+
+    private function responsablePage(StaffsController $controller, int $sectionId): string
+    {
+        return $controller->index(
+            new Request('GET', '/chefs/staffs', ['section' => (string) $sectionId], [], [], []),
+            []
+        )->getBody();
+    }
+
+    public function testTheResponsableComesFirstEvenWhenLastInAlphabeticalOrder(): void
+    {
+        [$sectionId, $ids] = $this->sectionWithStaff('Alice', 'Bob', 'Zoé');
+
+        $controller = ($this->controllerFactory)($this->registryAnswering($ids[2]));
+
+        $this->assertShownInOrder(['Zoé', 'Alice', 'Bob'], $this->responsablePage($controller, $sectionId));
+    }
+
+    public function testTheOthersKeepTheirAlphabeticalOrder(): void
+    {
+        [$sectionId, $ids] = $this->sectionWithStaff('Alice', 'Bob', 'Chloé', 'Zoé');
+
+        $controller = ($this->controllerFactory)($this->registryAnswering($ids[2]));
+
+        $this->assertShownInOrder(['Chloé', 'Alice', 'Bob', 'Zoé'], $this->responsablePage($controller, $sectionId));
+    }
+
+    public function testWithoutAResponsableTheOrderIsAlphabeticalAsBefore(): void
+    {
+        [$sectionId] = $this->sectionWithStaff('Zoé', 'Alice', 'Bob');
+
+        $controller = ($this->controllerFactory)($this->registryAnswering(null));
+
+        $this->assertShownInOrder(['Alice', 'Bob', 'Zoé'], $this->responsablePage($controller, $sectionId));
+    }
+
+    /** The trombinoscope module is off, or never was: the page degrades to what it did. */
+    public function testWithoutAnyProviderTheOrderIsAlphabeticalAsBefore(): void
+    {
+        [$sectionId] = $this->sectionWithStaff('Zoé', 'Alice', 'Bob');
+
+        foreach ([null, new \Core\Module\HookRegistry()] as $hooks) {
+            $controller = ($this->controllerFactory)($hooks);
+            $this->assertShownInOrder(['Alice', 'Bob', 'Zoé'], $this->responsablePage($controller, $sectionId));
+        }
+    }
+
+    /** Nobody is added, dropped or shown twice. */
+    public function testAResponsableWhoIsNotInThisListChangesNothing(): void
+    {
+        [$sectionId] = $this->sectionWithStaff('Alice', 'Bob');
+        $otherSection = $this->createSection('BAL02', (int) $this->pdo->query('SELECT MIN(id) FROM age_branches')->fetchColumn(), 'Autre');
+        $elsewhere = $this->createMemberInSection($otherSection, 'Zoé', 'chief', 'zoe@test.be');
+
+        $controller = ($this->controllerFactory)($this->registryAnswering($elsewhere));
+        $body = $this->responsablePage($controller, $sectionId);
+
+        $this->assertShownInOrder(['Alice', 'Bob'], $body);
+        $this->assertSame(1, substr_count($body, 'Alice'), 'Alice once');
+        $this->assertSame(1, substr_count($body, 'Bob'), 'Bob once');
+        $this->assertStringNotContainsString('Zoé', $body);
+    }
+
+    public function testTheResponsableIsAskedForTheSectionAndYearOnScreenOnceOnly(): void
+    {
+        [$sectionId, $ids] = $this->sectionWithStaff('Alice', 'Zoé');
+        $calls = new \ArrayObject();
+
+        $controller = ($this->controllerFactory)($this->registryAnswering($ids[1], $calls));
+        $this->responsablePage($controller, $sectionId);
+
+        $this->assertSame([[$sectionId, $this->scoutYearId]], $calls->getArrayCopy());
+    }
+
+    public function testAnotherSectionIsAskedForItsOwnResponsable(): void
+    {
+        [$first] = $this->sectionWithStaff('Alice', 'Zoé');
+        $second = $this->createSection('BAL02', (int) $this->pdo->query('SELECT MIN(id) FROM age_branches')->fetchColumn(), 'Autre');
+        $this->createMemberInSection($second, 'Bob', 'chief', 'bob@test.be');
+        $this->createMemberInSection($second, 'Carl', 'chief', 'carl@test.be');
+        $calls = new \ArrayObject();
+
+        $controller = ($this->controllerFactory)($this->registryAnswering(null, $calls));
+        $this->responsablePage($controller, $first);
+        $this->responsablePage($controller, $second);
+
+        $this->assertSame([[$first, $this->scoutYearId], [$second, $this->scoutYearId]], $calls->getArrayCopy());
+    }
+
+    /** The composition root hands the controller the hook registry — the test above proves nothing without it. */
+    public function testTheCompositionRootWiresTheHookRegistryIntoTheController(): void
+    {
+        $source = (string) file_get_contents(dirname(__DIR__, 4) . '/public/index.php');
+
+        $this->assertMatchesRegularExpression(
+            '/new StaffsController\((?:(?!\n\);).)*\$moduleHooks\s*\)/s',
+            $source
+        );
+    }
+
+    /** One person has no order to settle: nothing is asked of the module. */
+    public function testASectionOfOneIsNotWorthAskingAbout(): void
+    {
+        [$sectionId, $ids] = $this->sectionWithStaff('Alice');
+        $calls = new \ArrayObject();
+
+        $controller = ($this->controllerFactory)($this->registryAnswering($ids[0], $calls));
+        $body = $this->responsablePage($controller, $sectionId);
+
+        $this->assertStringContainsString('Alice', $body);
+        $this->assertSame([], $calls->getArrayCopy());
+    }
+
+    /** Reading and editing see the same order: the order belongs to the section, not to the viewer. */
+    public function testTheOrderIsTheSameForAReaderAndForSomeoneWhoMayEditTheBadges(): void
+    {
+        [$sectionId, $ids] = $this->sectionWithStaff('Alice', 'Bob', 'Zoé');
+        $controller = ($this->controllerFactory)($this->registryAnswering($ids[2]));
+
+        $asChief = $this->responsablePage($controller, $sectionId);
+        AuthSession::login(1, 'admin@test.be', 'admin');
+        $asAdmin = $this->responsablePage($controller, $sectionId);
+
+        $this->assertShownInOrder(['Zoé', 'Alice', 'Bob'], $asChief);
+        $this->assertShownInOrder(['Zoé', 'Alice', 'Bob'], $asAdmin);
     }
 
     public function testIndexBreadcrumbReflectsTheSelectedSection(): void
