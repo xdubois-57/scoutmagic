@@ -1234,9 +1234,10 @@ class RentalBookingRepository
         } catch (\PDOException $e) {
             // Only a unique-key violation means « already there ». Any other
             // refusal is a write that failed, and calling it a duplicate
-            // made a filed message teach no address, silently (#1221) — the
-            // neighbouring repositories tell the two apart the same way.
-            if ((string) $e->getCode() !== '23000') {
+            // made a filed message teach no address, silently (#1221). A
+            // bare SQLSTATE 23000 is not enough: a foreign key (the booking
+            // deleted meanwhile, error 1452) shares it.
+            if (!\Core\Database\ConstraintViolation::isDuplicateKey($e)) {
                 throw $e;
             }
 

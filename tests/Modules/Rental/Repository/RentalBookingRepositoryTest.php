@@ -117,9 +117,30 @@ class RentalBookingRepositoryTest extends TestCase
     /** …and a unique-key violation is still the one thing that answers « not new ». */
     public function testAUniqueKeyViolationIsStillADuplicate(): void
     {
-        $this->makeTheInsertFailWith(new \PDOException('Duplicate entry', 23000));
+        $this->makeTheInsertFailWith(self::refusal('Duplicate entry', 1062));
 
         $this->assertFalse($this->repository->addRenterEmail($this->bookingId, 'tresorier@groupe.example', 9));
+    }
+
+    /**
+     * …but not every refusal under SQLSTATE 23000: a foreign key (the
+     * booking deleted between the read and the write, error 1452) shares it,
+     * and is a write that failed, not an address already there.
+     */
+    public function testAForeignKeyViolationIsNotTakenForADuplicate(): void
+    {
+        $this->makeTheInsertFailWith(self::refusal('Cannot add or update a child row', 1452));
+
+        $this->expectException(\PDOException::class);
+        $this->repository->addRenterEmail($this->bookingId, 'tresorier@groupe.example', 9);
+    }
+
+    private static function refusal(string $message, int $driverCode): \PDOException
+    {
+        $failure = new \PDOException($message, 23000);
+        $failure->errorInfo = ['23000', $driverCode, $message];
+
+        return $failure;
     }
 
     /**

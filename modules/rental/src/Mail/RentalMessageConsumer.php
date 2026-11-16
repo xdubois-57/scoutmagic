@@ -811,16 +811,19 @@ class RentalMessageConsumer implements
         // message from it unattended — a forged one would be taught to the
         // booking by the very decision it fooled.
         $address = $message->senderUnverified() ? '' : self::taughtAddress($message);
-        if ($address !== '' && !$this->bookingRepository->isAddressOfBooking($booking, $address)) {
+        if ($address !== '') {
             try {
-                $this->bookingRepository->addRenterEmail($booking->id, $address, $message->id);
+                if (!$this->bookingRepository->isAddressOfBooking($booking, $address)) {
+                    $this->bookingRepository->addRenterEmail($booking->id, $address, $message->id);
+                }
             } catch (\Throwable $e) {
                 // Learning an address is a convenience: it runs at the start
                 // of `onLinked()`, before the manager is told and before the
                 // attachments become documents of the booking, so a failed
-                // write here must not cost the message the rest of its
-                // filing (the dispatcher swallows what escapes, silently).
-                // Said, though — a write that fails is not a duplicate (#1221).
+                // read or write here must not cost the message the rest of
+                // its filing (the dispatcher swallows what escapes,
+                // silently). Said, though — a write that fails is not a
+                // duplicate (#1221).
                 $this->noteAddressNotLearned($e, $booking, $message);
             }
         }

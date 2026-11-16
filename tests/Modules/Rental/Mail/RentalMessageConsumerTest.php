@@ -1293,6 +1293,48 @@ class RentalMessageConsumerTest extends TestCase
     }
 
     /**
+     * The read that asks whether the booking already knows the address
+     * is part of the same convenience: a table that cannot be read there
+     * costs the message neither its notice nor its attachments, and is
+     * journaled like a failed write (#1221).
+     */
+    public function testAnAddressLookupThatFailsDoesNotCostTheMessageTheRestOfItsFiling(): void
+    {
+        $booking = $this->createBooking();
+        $failing = new class ($this->pdo, $this->encryption) extends RentalBookingRepository {
+            public function isAddressOfBooking(RentalBooking $booking, string $email): bool
+            {
+                throw new \PDOException('server has gone away');
+            }
+        };
+        $notifier = $this->createMock(\Modules\Rental\Mail\NewMessageNotifier::class);
+        $notifier->expects($this->once())->method('messageFiled');
+        $message = new \Modules\InboundMail\Api\InboundMessage(
+            41, $this->mailboxId, '', '', LinkOrigin::AI, 'Les clés', 'tresorier@groupe.example', null,
+            'a@b', null, new \DateTimeImmutable('2027-07-02 09:30:00'), '', '',
+            senderVerified: true
+        );
+
+        (new RentalMessageConsumer(
+            $failing,
+            $this->inboundMail,
+            $this->documentService,
+            assetRepository: $this->assetRepository,
+            newMessageNotifier: $notifier,
+            journalService: new \Core\Journal\JournalService(new \Core\Journal\JournalRepository($this->pdo))
+        ))->onLinked(
+            $message,
+            new MessageLink(RentalMessageConsumer::CONSUMER_ID, $booking->reference, LinkOrigin::AI)
+        );
+
+        $entry = $this->pdo->query(
+            "SELECT level, description, context FROM event_log WHERE event_type = 'rental_renter_address_not_learned'"
+        )->fetch(\PDO::FETCH_ASSOC);
+        $this->assertIsArray($entry);
+        $this->assertStringNotContainsString('tresorier@groupe.example', $entry['description'] . $entry['context']);
+    }
+
+    /**
      * With no journal to write to — or one that fails too — the failure
      * goes to the server's log instead of nowhere, still without an address.
      */
