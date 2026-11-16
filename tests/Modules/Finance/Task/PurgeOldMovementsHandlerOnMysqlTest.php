@@ -124,7 +124,9 @@ final class PurgeOldMovementsHandlerOnMysqlTest extends TestCase
         )->fetchAll(\PDO::FETCH_ASSOC);
         $this->assertCount(1, $failure);
         $this->assertSame('warning', $failure[0]['level']);
-        $this->assertSame(
+        // assertEquals: a JSON column does not keep its keys in the order they
+        // were written (MariaDB sorts them), and the order is not the point.
+        $this->assertEquals(
             ['attachment_id' => $attachmentId, 'error' => \PDOException::class],
             json_decode($failure[0]['context'], true)
         );
