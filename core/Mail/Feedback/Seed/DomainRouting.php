@@ -144,7 +144,7 @@ final class DomainRouting
      *
      * @return list<array{provider: string, measured: bool, runs: int, inbox: int, spam: int,
      *     missing: int, elsewhere: int, enough: bool, troubled: bool, routed_to: ?string,
-     *     alternative: ?string, verdict: string}>
+     *     routing_readable: bool, alternative: ?string, verdict: string}>
      */
     public function readings(\DateTimeImmutable $since): array
     {
@@ -173,8 +173,20 @@ final class DomainRouting
             // division is safe.
             $troubled = $enough && $answered > 0 && ($offInbox / $answered) >= self::TROUBLE_RATIO;
 
-            $current = $this->preferences?->forDomain($row['provider']);
-            $alternative = $this->alternativeFor($row['provider']);
+            // The same posture as `unmeasuredDecisions()`: a settings table
+            // that cannot be read degrades the row, it does not end the
+            // page. Not a silent « no relay chosen », though — that is a
+            // claim, and `routing_readable` is what lets the screen say it
+            // could not read the choice instead.
+            try {
+                $current = $this->preferences?->forDomain($row['provider']);
+                $alternative = $this->alternativeFor($row['provider']);
+                $readable = true;
+            } catch (\Throwable) {
+                $current = null;
+                $alternative = null;
+                $readable = false;
+            }
 
             $readings[] = [
                 'provider' => $row['provider'],
@@ -191,6 +203,7 @@ final class DomainRouting
                 // shows them, and an id on a screen is a number nobody
                 // can check against anything.
                 'routed_to' => $current === null ? null : $this->nameOf($current),
+                'routing_readable' => $readable,
                 'alternative' => $alternative?->name,
                 'verdict' => match (true) {
                     !$enough => 'Pas assez d’envois mesurés pour conclure',
@@ -222,7 +235,7 @@ final class DomainRouting
      * @param list<array{provider: string}> $measured
      * @return list<array{provider: string, measured: bool, runs: int, inbox: int, spam: int,
      *     missing: int, elsewhere: int, enough: bool, troubled: bool, routed_to: ?string,
-     *     alternative: ?string, verdict: string}>
+     *     routing_readable: bool, alternative: ?string, verdict: string}>
      */
     private function unmeasuredDecisions(array $measured): array
     {
@@ -251,6 +264,7 @@ final class DomainRouting
                 'enough' => false,
                 'troubled' => false,
                 'routed_to' => $this->nameOf($providerId),
+                'routing_readable' => true,
                 'alternative' => null,
                 'verdict' => $counted !== $domain
                     ? 'Choix toujours appliqué ; ses envois sont désormais comptés sous ' . $counted
