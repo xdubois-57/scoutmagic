@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Courrier entrant simplifié</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;600;700&display=swap">
+<style>
+/* Layout: ScoutMagic Bootstrap-like look, hand-rolled; mockup control bar on top, then one screen at desktop or phone width. */
+:root{
+  --bg:#f3f4f7; --surface:#fff; --surface-2:#f7f8fb; --fg:#1f2430; --muted:#5d6574; --line:#dde1e8;
+  --primary:#2f5bd3; --primary-fg:#fff; --ok:#1d7745; --ok-bg:#e2f3e9; --warn:#865700; --warn-bg:#fff2d3;
+  --danger:#b3232c; --danger-bg:#fde6e7; --info-bg:#e7edfc; --prop:#6a3fb5; --prop-bg:#efe8fb;
+  --new:#7a2fd3; --gone:#b3232c;
+  --font:"Source Sans 3","Segoe UI",system-ui,sans-serif; --mono:ui-monospace,"SFMono-Regular",Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#14161b; --surface:#1d2027; --surface-2:#23262e; --fg:#e7e9ee; --muted:#a3a9b6; --line:#353945;
+  --primary:#7196f3; --primary-fg:#0e1220; --ok:#72d39d; --ok-bg:#173225; --warn:#f1c35f; --warn-bg:#3a2f12;
+  --danger:#ff8b91; --danger-bg:#3d1c20; --info-bg:#1f2a45; --prop:#c3a6f5; --prop-bg:#2c2346;
+  --new:#bb95f6; --gone:#ff8b91; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#14161b; --surface:#1d2027; --surface-2:#23262e; --fg:#e7e9ee; --muted:#a3a9b6; --line:#353945;
+  --primary:#7196f3; --primary-fg:#0e1220; --ok:#72d39d; --ok-bg:#173225; --warn:#f1c35f; --warn-bg:#3a2f12;
+  --danger:#ff8b91; --danger-bg:#3d1c20; --info-bg:#1f2a45; --prop:#c3a6f5; --prop-bg:#2c2346;
+  --new:#bb95f6; --gone:#ff8b91; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font-family:var(--font);font-size:15px;line-height:1.45;margin:0;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:16px}
+h1,h2,h3{text-wrap:balance;margin:0;line-height:1.2}
+h1{font-size:24px}h2{font-size:18px}h3{font-size:15px}
+p{margin:0}
+button,select,input{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:3px solid var(--primary);outline-offset:2px}
+a{color:var(--primary)}
+code{font-family:var(--mono);font-size:13px}
+.mock-bar{max-width:1100px;margin:0 auto 14px;background:var(--surface-2);border:1px dashed var(--line);border-radius:8px;padding:10px 12px;display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;font-size:13px}
+.mock-bar b{font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-size:11px}
+.mock-bar label{display:inline-flex;gap:6px;align-items:center}
+.mock-bar select{padding:3px 6px;border:1px solid var(--line);border-radius:6px;background:var(--surface)}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:6px;overflow:hidden;flex-wrap:wrap}
+.seg button{border:0;background:var(--surface);padding:5px 10px;font-size:13px}
+.seg button[aria-pressed="true"]{background:var(--primary);color:var(--primary-fg)}
+.tag{display:inline-block;font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;padding:1px 6px;border-radius:4px;border:1px solid currentColor;vertical-align:middle;background:var(--surface)}
+.tag.new{color:var(--new)}.tag.gone{color:var(--gone)}
+.frame{max-width:1100px;margin:0 auto}
+.frame.phone{max-width:400px}
+.site{background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.crumbs{font-size:13px;color:var(--muted);padding:10px 18px;border-bottom:1px solid var(--line);background:var(--surface-2)}
+.page{padding:20px 18px 28px;display:grid;gap:18px}
+.lead{color:var(--muted);max-width:68ch}
+.card{border:1px solid var(--line);border-radius:8px;background:var(--surface)}
+.card-h{padding:12px 14px;border-bottom:1px solid var(--line);display:flex;gap:8px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+.card-b{padding:14px;display:grid;gap:14px}
+.btn{border:1px solid var(--line);background:var(--surface);border-radius:6px;padding:7px 13px;font-weight:600}
+.btn.sm{padding:4px 10px;font-size:13px}
+.btn.primary{background:var(--primary);border-color:var(--primary);color:var(--primary-fg)}
+.btn.danger{color:var(--danger)}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.between{justify-content:space-between}
+.muted{color:var(--muted)}
+.small{font-size:13px}
+.pill{display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:600;padding:2px 8px;border-radius:999px;white-space:nowrap}
+.pill.ok{background:var(--ok-bg);color:var(--ok)}
+.pill.warn{background:var(--warn-bg);color:var(--warn)}
+.pill.danger{background:var(--danger-bg);color:var(--danger)}
+.pill.info{background:var(--info-bg);color:var(--primary)}
+.pill.prop{background:var(--prop-bg);color:var(--prop)}
+.alert{border-radius:8px;padding:10px 12px;display:grid;gap:4px}
+.alert.info{background:var(--info-bg)}
+.alert.warn{background:var(--warn-bg)}
+.alert.danger{background:var(--danger-bg)}
+.alert.ok{background:var(--ok-bg)}
+.list{display:grid}
+.list > *{padding:14px;border-top:1px solid var(--line)}
+.list > *:first-child{border-top:0}
+.box{display:grid;grid-template-columns:1fr auto;gap:6px 12px;align-items:start}
+.box .actions{grid-column:1 / -1}
+.field{display:grid;gap:4px;max-width:520px}
+.field label,.field .lbl{font-weight:600}
+.field input,.field select{border:1px solid var(--line);border-radius:6px;padding:7px 9px;background:var(--surface);width:100%}
+.hint{font-size:13px;color:var(--muted)}
+.choice{border:1px solid var(--line);border-radius:8px;padding:12px;display:grid;grid-template-columns:auto 1fr;gap:4px 10px;align-items:start}
+.choice[data-on="true"]{border-color:var(--primary);background:var(--info-bg)}
+.choice input{margin-top:4px}
+.choice .sub{grid-column:2}
+.choices{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px}
+details.adv{border:1px solid var(--line);border-radius:8px}
+details.adv > summary{padding:10px 12px;cursor:pointer;font-weight:600}
+details.adv > div{padding:0 12px 12px;display:grid;gap:12px}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px}
+.cmp{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px}
+.col{border:1px solid var(--line);border-radius:8px;display:grid;align-content:start}
+.col h3{padding:12px 14px;border-bottom:1px solid var(--line);background:var(--surface-2)}
+.msg{padding:10px 14px;border-top:1px solid var(--line);display:grid;gap:4px}
+.msg:first-of-type{border-top:0}
+.msg .who{font-weight:600}
+.msg.risk{background:var(--danger-bg)}
+.legend{max-width:1100px;margin:14px auto 0;font-size:13px;color:var(--muted);display:grid;gap:6px}
+.examples{display:grid;gap:8px}
+.ex{display:grid;grid-template-columns:28px 1fr;gap:10px;align-items:start}
+.ex b.n{display:inline-grid;place-items:center;width:24px;height:24px;border-radius:50%;background:var(--surface-2);border:1px solid var(--line);font-size:12px}
+@media (max-width:560px){.box{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+
+<div class="mock-bar" role="group" aria-label="Commandes de la maquette">
+  <b>Maquette</b>
+  <label for="screen">Écran
+    <select id="screen">
+      <option value="list">Liste des adresses</option>
+      <option value="form">Ajouter une adresse</option>
+      <option value="who">Qui voit quoi (le choix à faire)</option>
+      <option value="before">Pour comparer : la page « Portée » actuelle</option>
+    </select>
+  </label>
+  <label for="formstate" id="formstate-wrap">État du formulaire
+    <select id="formstate">
+      <option value="first">Première adresse (Gmail reconnu)</option>
+      <option value="gmail">Deuxième adresse (Gmail reconnu)</option>
+      <option value="other">Fournisseur inconnu</option>
+      <option value="fail">Échec de la vérification</option>
+      <option value="ok">Vérifiée et enregistrée</option>
+    </select>
+  </label>
+  <span class="seg" role="group" aria-label="Largeur">
+    <button type="button" id="w-desk" aria-pressed="true">Ordinateur</button>
+    <button type="button" id="w-phone" aria-pressed="false">Téléphone</button>
+  </span>
+  <span><span class="tag new">Nouveau</span> <span class="tag gone">Supprimé</span></span>
+</div>
+
+<div class="frame" id="frame"><div class="site"><div class="crumbs" id="crumbs"></div><div class="page" id="page"></div></div></div>
+
+<div class="legend">
+  <p>Adresses et noms d'exemple, inventés. La maquette fait foi pour la hiérarchie, les libellés et les états, pas pour les classes CSS : le produit reste en Bootstrap 5.</p>
+</div>
+
+<script>
+(function(){
+const $=(s)=>document.querySelector(s);
+const state={screen:'list',form:'first',phone:false};
+const crumbs=(p)=>{$('#crumbs').textContent=p.join(' › ')};
+
+function list(){
+  crumbs(['Configuration','Courrier entrant']);
+  return `<div class="row between"><h1>Courrier entrant</h1><button class="btn primary" type="button">Ajouter une adresse</button></div>
+  <p class="lead">Le site lit ces adresses, sans jamais rien y modifier, pour ranger les réponses dans les bons dossiers. <a href="#">Comment ça marche</a></p>
+  <div class="card"><div class="list">
+    <div class="box">
+      <div><h3>contact@unite-exemple.be</h3><p class="muted small">Courrier général de l'unité</p></div>
+      <div class="row"><span class="pill ok">Relevée il y a 4 min</span></div>
+      <div class="actions grid" style="display:grid;gap:8px">
+        <p class="small">Locations, Camps et Finances y reconnaissent leurs messages. Le Staff d'U voit tout dans <a href="#">Courrier reçu</a>.</p>
+        <div class="row"><button class="btn sm" type="button">Modifier</button><button class="btn sm" type="button">Désactiver</button><button class="btn sm danger" type="button">Supprimer</button></div>
+      </div>
+    </div>
+    <div class="box">
+      <div><h3>locations@unite-exemple.be</h3><p class="muted small">Réservée aux Locations</p></div>
+      <div class="row"><span class="pill danger">Échec depuis 2 h</span></div>
+      <div class="actions" style="display:grid;gap:8px">
+        <p class="small">Les gestionnaires des biens voient tout ce qui y arrive, et le Staff d'U aussi.</p>
+        <div class="alert danger small"><span>Gmail refuse le mot de passe. Créez un nouveau mot de passe d'application, puis cliquez sur Modifier pour le remplacer.</span></div>
+        <div class="row"><button class="btn sm primary" type="button">Modifier</button><button class="btn sm" type="button">Désactiver</button><button class="btn sm danger" type="button">Supprimer</button></div>
+      </div>
+    </div>
+  </div></div>
+  <div class="alert info small"><span><strong>Ce qui disparaît de cette page :</strong> le nom de la boîte (l'adresse suffit), le serveur, le port et le chiffrement affichés sur chaque ligne, le bouton « Portée », les badges par module, « Rafraîchir maintenant » (déplacé dans Courrier reçu) et les deux paragraphes d'explication, qui vont dans l'aide.</span></div>`;
+}
+
+function form(){
+  crumbs(['Configuration','Courrier entrant','Ajouter une adresse']);
+  const s=state.form;
+  const first = s==='first';
+  const other = s==='other';
+  const email = other ? 'unite@exemple-hebergeur.be' : (first ? 'contact.unite@gmail.com' : 'locations.unite@gmail.com');
+  const provider = other
+    ? `<p class="hint">Fournisseur non reconnu : complétez les trois réglages de connexion. Ils figurent dans l'aide de votre hébergeur, rubrique IMAP.</p>`
+    : `<p class="hint"><span class="pill ok">Gmail reconnu</span> Les réglages de connexion sont remplis.</p>`;
+  const pwHelp = other ? '' : `<p class="hint">Gmail demande un <strong>mot de passe d'application</strong>, pas celui du compte. Créez-le sur <a href="https://myaccount.google.com/apppasswords">la page des mots de passe d'application de Google</a>. La validation en deux étapes doit être active.</p>`;
+  let result='';
+  if(s==='fail') result=`<div class="alert danger"><strong>La connexion a échoué. Rien n'est enregistré.</strong><span>Gmail refuse ce mot de passe. Vérifiez que c'est bien un mot de passe d'application de 16 lettres, sans espaces, et qu'IMAP est activé dans les paramètres de Gmail.</span></div>`;
+  if(s==='ok') result=`<div class="alert ok"><strong>Adresse vérifiée et enregistrée.</strong><span>Connexion réussie : 1 248 messages dans la boîte de réception. La première relève commence maintenant.</span></div>`;
+  const usage = first
+    ? `<div class="field" style="max-width:none"><span class="lbl">Usage</span>
+        <div class="choices">
+          <label class="choice" data-on="true" for="u-gen"><input type="radio" name="usage" id="u-gen" checked><span><strong>Courrier général de l'unité</strong></span><span class="sub hint">Parents, locataires, fournisseurs… Chaque module y reconnaît ses messages. Le Staff d'U voit tout.</span></label>
+          <label class="choice" data-on="false" for="u-ded"><input type="radio" name="usage" id="u-ded"><span><strong>Réservée à un module</strong></span><span class="sub hint">Une adresse créée pour un seul usage.</span></label>
+        </div><p class="hint">Proposé par défaut pour la première adresse.</p></div>`
+    : `<div class="field" style="max-width:none"><span class="lbl">Usage</span>
+        <div class="choices">
+          <label class="choice" data-on="false" for="u-gen"><input type="radio" name="usage" id="u-gen"><span><strong>Courrier général de l'unité</strong></span><span class="sub hint">contact@unite-exemple.be l'est déjà.</span></label>
+          <label class="choice" data-on="true" for="u-ded"><input type="radio" name="usage" id="u-ded" checked><span><strong>Réservée à un module</strong></span><span class="sub hint">Ses responsables voient tout ce qui y arrive, comme le Staff d'U.</span></label>
+        </div></div>
+      <div class="field"><label for="f-mod">Module</label><select id="f-mod"><option>Locations</option><option>Camps</option><option>Finances (notes de frais)</option></select><p class="hint">Un module qui a déjà son adresse n'est pas proposé.</p></div>`;
+  return `<h1>Ajouter une adresse <span class="tag new">Nouveau</span></h1>
+  ${result}
+  <div class="card"><div class="card-b">
+    <div class="field"><label for="f-email">Adresse e-mail</label><input id="f-email" type="email" value="${email}">${provider}</div>
+    <div class="field"><label for="f-pw">Mot de passe d'application</label><input id="f-pw" type="password" value="abcdabcdabcdabcd">${pwHelp}<p class="hint">Il ne sera plus jamais affiché.</p></div>
+    <div class="grid2">
+      <div class="field"><label for="a-host">Serveur IMAP</label><input id="a-host" value="${other?'':'imap.gmail.com'}" placeholder="imap.votre-hebergeur.be"></div>
+      <div class="field"><label for="a-port">Port</label><input id="a-port" value="993"></div>
+      <div class="field"><label for="a-enc">Chiffrement</label><select id="a-enc"><option>SSL</option><option>STARTTLS</option></select></div>
+    </div>
+    ${usage}
+    <p class="hint">Le site lit la boîte de réception et, quand un module en a besoin (aujourd'hui les Locations), les messages envoyés. Il ne garde un message envoyé que s'il concerne l'un des dossiers du module.</p>
+    <details class="adv"><summary>Dossiers lus (facultatif)</summary><div>
+      <div class="field"><label for="a-fold">Autres dossiers reçus</label><select id="a-fold"><option>Aucun, seulement la boîte de réception</option><option>Choisir des dossiers…</option></select></div>
+      <div class="field"><label for="a-sent">Dossier des messages envoyés</label><select id="a-sent"><option>Trouvé automatiquement : [Gmail]/Messages envoyés</option><option>Choisir un autre dossier…</option></select><p class="hint">À changer seulement si le serveur ne l'indique pas lui-même.</p></div>
+    </div></details>
+    <div class="row"><button class="btn primary" type="button">Vérifier et enregistrer</button><a href="#">Annuler</a></div>
+    <p class="hint">Le site se connecte avant d'enregistrer. Une adresse qui ne répond pas n'est pas enregistrée.</p>
+  </div></div>
+  <div class="alert info small"><span><strong>Retirés du formulaire :</strong> le nom (l'adresse e-mail en tient lieu), la case « Synchroniser cette boîte » (une adresse ajoutée est relevée) et le champ libre du dossier des envoyés (il est trouvé automatiquement et se corrige dans « Dossiers lus » si besoin).</span></div>`;
+}
+
+const MSGS=[
+  {n:1,who:'Locataire A',subj:'Re: Contrat LOC-K7Q2M4',why:'Référence de la réservation dans l\'objet.',kind:'auto'},
+  {n:2,who:'Locataire B',subj:'Clés et heure d\'arrivée',why:'Adresse d\'un locataire, sans référence. Il a deux réservations ce mois-ci.',kind:'prop'},
+  {n:3,who:'Un parent',subj:'Question sur le camp des Louveteaux',why:'Rien ne le relie à un module.',kind:'none'},
+  {n:4,who:'Un parent qui a loué le local en octobre',subj:'Allergie de notre fils avant le week-end',why:'Même adresse qu\'un ancien locataire, dans les semaines qui suivent sa location.',kind:'prop-wrong'}
+];
+function msg(m,label,risk){
+  return `<div class="msg${risk?' risk':''}"><div class="row between"><span class="who">${m.n}. ${m.subj}</span>${label}</div><p class="small muted">${m.who}</p></div>`;
+}
+function who(){
+  crumbs(['Pour décider','Adresse générale de l\'unité']);
+  const auto='<span class="pill ok">Rattaché</span>', prop='<span class="pill prop">Proposé</span>';
+  const ex=MSGS.map(m=>`<div class="ex"><b class="n">${m.n}</b><div><strong>${m.subj}</strong><p class="small muted">${m.who}. ${m.why}</p></div></div>`).join('');
+  const chief=MSGS.map(m=>msg(m, m.kind==='auto'?auto:(m.kind==='none'?'<span class="pill info">À lire</span>':prop+' <button class="btn sm" type="button">Confirmer</button>'))).join('');
+  const optA=[msg(MSGS[0],auto)].join('')+`<div class="msg"><p class="small muted">Le message 2 arrive ici quand le Staff d'U confirme qu'il concerne bien cette location.</p></div>`;
+  const optB=[msg(MSGS[0],auto),msg(MSGS[1],prop+' <button class="btn sm" type="button">Confirmer</button>'),msg(MSGS[3],prop,true)].join('')+`<div class="msg"><p class="small" style="color:var(--danger)">Le message 4 parle de la santé d'un enfant. Il est lisible par tous les gestionnaires des biens, parce que le module a cru le reconnaître.</p></div>`;
+  return `<h1>Qui voit quoi sur l'adresse de l'unité</h1>
+  <p class="lead">Quatre messages arrivent sur contact@unite-exemple.be. Ce que chacun voit dépend de la règle choisie. Le Staff d'U, lui, voit tout dans les deux cas.</p>
+  <div class="card"><div class="card-h"><h2>Les quatre messages</h2></div><div class="card-b examples">${ex}</div></div>
+  <div class="card"><div class="card-h"><h2>Courrier reçu — Staff d'U</h2><span class="muted small">identique dans les deux cas</span></div><div>${chief}</div></div>
+  <div class="cmp">
+    <div class="col"><h3>Règle A — seulement les messages rattachés <span class="pill ok">recommandée</span></h3>${optA}
+      <div class="msg"><p class="small"><strong>Pour le gestionnaire :</strong> moins de messages, aucun qui ne le concerne pas.<br><strong>Pour le Staff d'U :</strong> il confirme les propositions (ici, deux messages).</p></div></div>
+    <div class="col"><h3>Règle B — rattachés et proposés</h3>${optB}
+      <div class="msg"><p class="small"><strong>Pour le gestionnaire :</strong> il confirme lui-même.<br><strong>Pour le Staff d'U :</strong> moins de tri, mais une erreur du module expose un message privé.</p></div></div>
+  </div>
+  <p class="small muted">Sur une adresse réservée aux Locations, la question ne se pose pas : les gestionnaires des biens voient tout ce qui y arrive.</p>`;
+}
+
+function before(){
+  crumbs(['Configuration','Courrier entrant','Adresse de l\'unité','Portée']);
+  const mod=(n)=>`<div class="card"><div class="card-b" style="gap:8px"><label class="row"><input type="checkbox" checked> <strong>${n}</strong> <span class="hint">Analyse ce courrier pour le rattacher à ses propres éléments.</span></label>
+    <div class="small"><strong>Qui peut lire ce courrier depuis ${n} ?</strong></div>
+    <div class="seg"><button type="button" aria-pressed="false">Personne</button><button type="button" aria-pressed="true">Messages concernés</button><button type="button" aria-pressed="false">Tout le courrier</button></div>
+    <p class="hint">Personne — … Messages concernés — … ou pense pouvoir y rattacher … Tout le courrier — sur une boîte partagée, c'est un choix lourd …</p></div></div>`;
+  return `<h1>Adresse de l'unité <span class="tag gone">Supprimé</span></h1>
+  <div class="alert warn"><span>Cette page disparaît. Aujourd'hui, une boîte qu'on vient d'ajouter n'y est réglée pour aucun module : rien n'est classé tant qu'on n'est pas passé ici.</span></div>
+  <div class="card"><div class="card-b"><strong>À quoi sert cette boîte ?</strong><div class="row"><label><input type="radio" checked> Boîte partagée</label><label><input type="radio"> Boîte dédiée</label></div></div></div>
+  ${mod('Locations')}${mod('Camps')}${mod('Finances')}
+  <p class="small muted">Sur une boîte partagée : 3 interrupteurs et 3 choix à trois positions, soit 6 décisions. Sur l'installation support, 8.</p>`;
+}
+
+function render(){
+  $('#formstate-wrap').hidden = state.screen!=='form';
+  $('#frame').classList.toggle('phone',state.phone);
+  $('#page').innerHTML = {list,form,who,before}[state.screen]();
+}
+$('#screen').addEventListener('change',e=>{state.screen=e.target.value;render()});
+$('#formstate').addEventListener('change',e=>{state.form=e.target.value;render()});
+$('#w-desk').addEventListener('click',()=>{state.phone=false;$('#w-desk').setAttribute('aria-pressed','true');$('#w-phone').setAttribute('aria-pressed','false');render()});
+$('#w-phone').addEventListener('click',()=>{state.phone=true;$('#w-phone').setAttribute('aria-pressed','true');$('#w-desk').setAttribute('aria-pressed','false');render()});
+const h=location.hash.slice(1); if(['list','form','who','before'].includes(h)){state.screen=h;$('#screen').value=h}
+render();
+})();
+</script>
+</body>
+</html>
