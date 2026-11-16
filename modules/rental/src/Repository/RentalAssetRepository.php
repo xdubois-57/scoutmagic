@@ -245,6 +245,22 @@ class RentalAssetRepository
     }
 
     /**
+     * Runs `$work` holding `$assetId`'s row (`AssetLock`), the one lock every
+     * writer of a booking takes: a decision about the asset that must still
+     * be true when it is carried out — « no booking yet, so it can go » —
+     * is read and acted on under it, so nothing is written in between
+     * (#1307). Re-entrant inside a transaction already open.
+     *
+     * @template T
+     * @param callable(): T $work
+     * @return T
+     */
+    public function withAssetLocked(int $assetId, callable $work): mixed
+    {
+        return AssetLock::run($this->pdo, $assetId, $work);
+    }
+
+    /**
      * Hard delete. Only ever reachable for an asset with no history at all
      * — Service\RentalAssetService is what enforces that, since only it
      * knows which other tables reference an asset.

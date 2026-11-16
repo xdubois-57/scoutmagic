@@ -246,15 +246,25 @@ class RentalAssetService
      */
     public function delete(int $assetId, ?int $userId = null): void
     {
-        $asset = $this->requireAsset($assetId);
+        // The check and the deletion are ONE decision, taken under the
+        // asset's lock — the one every writer of a booking takes (#1307).
+        // Between a check made outside it and the DELETE, a booking could
+        // be validated, missed by the check and then taken with the asset by
+        // `ON DELETE CASCADE`. The asset is read again under the lock too: it
+        // may have gone while this request waited.
+        $asset = $this->assetRepository->withAssetLocked($assetId, function () use ($assetId): RentalAsset {
+            $asset = $this->requireAsset($assetId);
 
-        if ($this->hasHistory($assetId)) {
-            throw new RentalException(
-                'Ce bien a un historique de réservations : il peut être archivé, mais pas supprimé.'
-            );
-        }
+            if ($this->hasHistory($assetId)) {
+                throw new RentalException(
+                    'Ce bien a un historique de réservations : il peut être archivé, mais pas supprimé.'
+                );
+            }
 
-        $this->assetRepository->delete($assetId);
+            $this->assetRepository->delete($assetId);
+
+            return $asset;
+        });
 
         $this->journal->log(
             'rental',
