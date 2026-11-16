@@ -1209,6 +1209,8 @@ class RentalBookingRepository
      * it (`$learnedFromMessageId`), which « Détacher » then takes back.
      *
      * @return bool whether the address was new to this booking
+     * @throws \PDOException when the database refuses the write for any reason
+     *         other than the address already being there
      */
     public function addRenterEmail(int $bookingId, string $email, ?int $learnedFromMessageId = null): bool
     {
@@ -1229,7 +1231,16 @@ class RentalBookingRepository
                 $this->encryption->blindIndex($normalized, self::BLIND_INDEX_PURPOSE),
                 $learnedFromMessageId,
             ]);
-        } catch (\PDOException) {
+        } catch (\PDOException $e) {
+            // Only a unique-key violation means « already there ». Any other
+            // refusal is a write that failed, and calling it a duplicate
+            // made a filed message teach no address, silently (#1221). A
+            // bare SQLSTATE 23000 is not enough: a foreign key (the booking
+            // deleted meanwhile, error 1452) shares it.
+            if (!\Core\Database\ConstraintViolation::isDuplicateKey($e)) {
+                throw $e;
+            }
+
             return false;
         }
 

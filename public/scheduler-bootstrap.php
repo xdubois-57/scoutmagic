@@ -594,7 +594,11 @@ function scoutmagicBootstrapScheduler(
                         // connector, or a cheap model, nothing is asked.
                         modelChoice: new \Modules\Rental\Mail\BookingChoiceByModel(
                             $context->getOptional(\Modules\LlmConnector\Api\LlmConnectorInterface::class)
-                        )
+                        ),
+                        // `learnFrom()` runs on THIS path (a link made by the
+                        // model, #720 step 6): a failed write is said in the
+                        // journal here, not only in the server's log (#1221).
+                        journalService: $journalService
                     ));
                 }
 

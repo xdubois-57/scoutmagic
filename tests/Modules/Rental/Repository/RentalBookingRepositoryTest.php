@@ -97,4 +97,77 @@ class RentalBookingRepositoryTest extends TestCase
         $this->assertCount(1, $others);
         $this->assertSame(9, $others[0]->learnedFromMessageId);
     }
+
+    /**
+     * Only a unique-key violation — the address is already there — answers
+     * « not new » (#1221). A write the database refuses for any other reason
+     * is not a duplicate: it used to be taken for one, so the address
+     * learned from a filed message was lost without a word. Its neighbours
+     * (the milestone marks, the mail reads) already tell the two apart by
+     * the SQLSTATE.
+     */
+    public function testAWriteTheDatabaseRefusesForAnotherReasonIsNotTakenForADuplicate(): void
+    {
+        $this->makeTheInsertFailWith(new \PDOException('SQLSTATE[HY000]: General error: server has gone away'));
+
+        $this->expectException(\PDOException::class);
+        $this->repository->addRenterEmail($this->bookingId, 'tresorier@groupe.example', 9);
+    }
+
+    /** …and a unique-key violation is still the one thing that answers « not new ». */
+    public function testAUniqueKeyViolationIsStillADuplicate(): void
+    {
+        $this->makeTheInsertFailWith(self::refusal('Duplicate entry', 1062));
+
+        $this->assertFalse($this->repository->addRenterEmail($this->bookingId, 'tresorier@groupe.example', 9));
+    }
+
+    /**
+     * …but not every refusal under SQLSTATE 23000: a foreign key (the
+     * booking deleted between the read and the write, error 1452) shares it,
+     * and is a write that failed, not an address already there.
+     */
+    public function testAForeignKeyViolationIsNotTakenForADuplicate(): void
+    {
+        $this->makeTheInsertFailWith(self::refusal('Cannot add or update a child row', 1452));
+
+        $this->expectException(\PDOException::class);
+        $this->repository->addRenterEmail($this->bookingId, 'tresorier@groupe.example', 9);
+    }
+
+    private static function refusal(string $message, int $driverCode): \PDOException
+    {
+        $failure = new \PDOException($message, 23000);
+        $failure->errorInfo = ['23000', $driverCode, $message];
+
+        return $failure;
+    }
+
+    /**
+     * The INSERT must fail when it RUNS: SQLite compiles a trigger's body
+     * when the statement is prepared, which the repository does outside its
+     * try, so a trigger cannot play a failure of the write itself. A
+     * statement class whose execute() throws can.
+     */
+    private function makeTheInsertFailWith(\PDOException $failure): void
+    {
+        $statement = new class extends \PDOStatement {
+            public static ?\PDOException $failure = null;
+
+            public function execute(?array $params = null): bool
+            {
+                throw self::$failure ?? new \LogicException('no failure was set');
+            }
+        };
+        $statement::$failure = $failure;
+        $this->pdo->setAttribute(\PDO::ATTR_STATEMENT_CLASS, [$statement::class]);
+    }
+
+    public function testAnInvalidAddressIsStillRefusedWithoutTouchingTheDatabase(): void
+    {
+        $this->pdo->exec('DROP TABLE rental_booking_emails');
+
+        $this->assertFalse($this->repository->addRenterEmail($this->bookingId, 'not an address'));
+        $this->assertFalse($this->repository->addRenterEmail($this->bookingId, '   '));
+    }
 }

@@ -113,7 +113,13 @@ class RentalMessageConsumer implements
          * connector with no cheap model: an ambiguous message is filed
          * nowhere, as before.
          */
-        private ?BookingChoiceByModel $modelChoice = null
+        private ?BookingChoiceByModel $modelChoice = null,
+        /**
+         * Where a failure that must not stop the filing is written down
+         * (`learnFrom()`). Null on a build that has no journal: the server's
+         * log gets the line instead.
+         */
+        private ?\Core\Journal\JournalService $journalService = null
     ) {
     }
 
@@ -727,6 +733,37 @@ class RentalMessageConsumer implements
     }
 
     /**
+     * The journal line of an address that could not be learned — and, should
+     * the journal fail too (or be absent), the server's log instead. The
+     * kind of failure, the booking and the message, never an address.
+     */
+    private function noteAddressNotLearned(\Throwable $e, RentalBooking $booking, InboundMessage $message): void
+    {
+        $cause = (new \ReflectionClass($e))->getShortName();
+        try {
+            if ($this->journalService === null) {
+                throw new \LogicException('no journal');
+            }
+            $this->journalService->log(
+                'rental',
+                'rental_renter_address_not_learned',
+                'warning',
+                'Une adresse du locataire n\'a pas pu être retenue depuis un message (' . $cause . ').',
+                ['booking_id' => $booking->id, 'message_id' => $message->id]
+            );
+        } catch (\Throwable $journalError) {
+            error_log(sprintf(
+                'ScoutMagic: a renter address could not be learned (%s) and neither could the journal (%s):'
+                    . ' booking #%d, message #%d',
+                $cause,
+                $journalError::class,
+                $booking->id,
+                $message->id
+            ));
+        }
+    }
+
+    /**
      * « Nouveau message du locataire » (#720), once per message filed under
      * the booking — the association of the message itself, not one per
      * attachment.
@@ -774,8 +811,21 @@ class RentalMessageConsumer implements
         // message from it unattended — a forged one would be taught to the
         // booking by the very decision it fooled.
         $address = $message->senderUnverified() ? '' : self::taughtAddress($message);
-        if ($address !== '' && !$this->bookingRepository->isAddressOfBooking($booking, $address)) {
-            $this->bookingRepository->addRenterEmail($booking->id, $address, $message->id);
+        if ($address !== '') {
+            try {
+                if (!$this->bookingRepository->isAddressOfBooking($booking, $address)) {
+                    $this->bookingRepository->addRenterEmail($booking->id, $address, $message->id);
+                }
+            } catch (\Throwable $e) {
+                // Learning an address is a convenience: it runs at the start
+                // of `onLinked()`, before the manager is told and before the
+                // attachments become documents of the booking, so a failed
+                // read or write here must not cost the message the rest of
+                // its filing (the dispatcher swallows what escapes,
+                // silently). Said, though — a write that fails is not a
+                // duplicate (#1221).
+                $this->noteAddressNotLearned($e, $booking, $message);
+            }
         }
 
         try {

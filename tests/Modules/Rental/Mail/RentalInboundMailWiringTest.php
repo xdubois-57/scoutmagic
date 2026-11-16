@@ -46,6 +46,72 @@ class RentalInboundMailWiringTest extends TestCase
         $this->assertStringContainsString('new \\Modules\\Rental\\Mail\\RentalMessageConsumer(', $bootstrap);
     }
 
+    /**
+     * `learnFrom()` says a failed write in the journal (#1221), and it only
+     * runs for a link a person or the model made. The model's links come
+     * from the scheduler's registry, not from the web one: a consumer built
+     * there without the journal fell back to the server's log alone, and
+     * nothing in the code said so. Both constructions name it.
+     *
+     * @return array<string, array{string}>
+     */
+    public static function consumerConstructions(): array
+    {
+        return [
+            'the web request' => ['public/index.php'],
+            'the scheduler and its sync' => ['public/scheduler-bootstrap.php'],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('consumerConstructions')]
+    public function testEveryRentalConsumerIsBuiltWithTheJournal(string $file): void
+    {
+        $source = file_get_contents(dirname(__DIR__, 4) . '/' . $file);
+        $this->assertNotFalse($source);
+
+        $construction = self::constructionOf($source, '\\Modules\\Rental\\Mail\\RentalMessageConsumer');
+
+        $this->assertNotSame('', $construction, "$file must build the rental consumer.");
+        $this->assertMatchesRegularExpression('/journalService:\s*\$journalService/', $construction);
+    }
+
+    /**
+     * The source of the first `new $class(…)`, read from the tokens so a
+     * parenthesis in a comment or a string does not count.
+     */
+    private static function constructionOf(string $source, string $class): string
+    {
+        $tokens = token_get_all($source);
+        $count = count($tokens);
+        for ($i = 0; $i < $count; $i++) {
+            if (!is_array($tokens[$i]) || $tokens[$i][0] !== T_NEW) {
+                continue;
+            }
+            $name = '';
+            $j = $i + 1;
+            while ($j < $count && (!is_string($tokens[$j]) || $tokens[$j] !== '(')) {
+                $name .= is_array($tokens[$j]) ? $tokens[$j][1] : $tokens[$j];
+                $j++;
+            }
+            if (trim($name) !== $class) {
+                continue;
+            }
+
+            $depth = 0;
+            $text = '';
+            for (; $j < $count; $j++) {
+                $text .= is_array($tokens[$j]) ? $tokens[$j][1] : $tokens[$j];
+                if ($tokens[$j] === '(') {
+                    $depth++;
+                } elseif ($tokens[$j] === ')' && --$depth === 0) {
+                    return $text;
+                }
+            }
+        }
+
+        return '';
+    }
+
     public function testRentalReachesInboundMailThroughItsPublishedApiOnly(): void
     {
         // The §7.5 shape: a null-seeded handle to the module's Api
