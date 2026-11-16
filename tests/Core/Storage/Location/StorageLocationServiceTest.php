@@ -1096,8 +1096,11 @@ class StorageLocationServiceTest extends TestCase
     }
 
     /**
-     * Google refusing to describe the folder is its own French sentence,
-     * passed on as it stands; nothing is attached.
+     * Google refusing to describe the folder is its own French sentence —
+     * and, like every other way this step can fail, it says that nothing was
+     * changed (#1224). It used to be rethrown untouched, because a Drive
+     * refusal is a StorageLocationException and the first catch let every
+     * one through: the prefix this code was written to add was never added.
      */
     public function testAFolderGoogleRefusesToDescribeIsNotAttached(): void
     {
@@ -1110,10 +1113,95 @@ class StorageLocationServiceTest extends TestCase
             $service->attachDriveFolder($id, 'anciennes-photos-01', true);
             $this->fail('A folder Google would not describe must not be attached.');
         } catch (StorageLocationException $e) {
-            $this->assertSame('Google Drive n\'a pas pu décrire le dossier de cet emplacement.', $e->getMessage());
+            $this->assertSame(
+                'Google Drive n\'a pas pu montrer ce dossier : rien n\'a été changé. '
+                    . 'Google Drive n\'a pas pu décrire le dossier de cet emplacement.',
+                $e->getMessage()
+            );
         }
 
         $this->assertSame('folder-1', $this->driveFolderOf($id));
+    }
+
+    /**
+     * The wrapped refusal is still a DriveAccessException, because callers
+     * act on `needsReauthorisation`: a grant Google withdrew is a state the
+     * site is in, not a failure to retry, and wrapping the message must not
+     * flatten that distinction — in either direction.
+     *
+     * @return array<string, array{int, bool}>
+     */
+    public static function googleStatusesAndWhetherTheGrantWasWithdrawn(): array
+    {
+        return [
+            'the grant was withdrawn (401)' => [401, true],
+            'a server error (500)' => [500, false],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('googleStatusesAndWhetherTheGrantWasWithdrawn')]
+    public function testTheNothingWasChangedPrefixKeepsWhetherTheGrantWasWithdrawn(int $status, bool $withdrawn): void
+    {
+        [$drive, $service, $id] = $this->connectedDriveLocation();
+        $drive->addFolder('Anciennes photos', 'scoutmagic-1', 'anciennes-photos-01');
+        $drive->intercept = static fn (string $method, string $url): ?int
+            => $method === 'GET' && str_contains($url, '/files/anciennes-photos-01?') ? $status : null;
+
+        try {
+            $service->attachDriveFolder($id, 'anciennes-photos-01', true);
+            $this->fail("A {$status} from Google must not attach the folder.");
+        } catch (\Core\Storage\Location\Backend\Drive\DriveAccessException $e) {
+            $this->assertStringStartsWith(
+                'Google Drive n\'a pas pu montrer ce dossier : rien n\'a été changé. ',
+                $e->getMessage()
+            );
+            $this->assertSame($withdrawn, $e->needsReauthorisation);
+        }
+    }
+
+    /** Google's own words stay where they were: on the previous exception, for the journal. */
+    public function testWrappingAGoogleRefusalKeepsTheDetailForTheJournal(): void
+    {
+        [$drive, $service, $id] = $this->connectedDriveLocation();
+        $drive->addFolder('Anciennes photos', 'scoutmagic-1', 'anciennes-photos-01');
+        $drive->intercept = static fn (string $method, string $url): ?int
+            => $method === 'GET' && str_contains($url, '/files/anciennes-photos-01?') ? 500 : null;
+
+        try {
+            $service->attachDriveFolder($id, 'anciennes-photos-01', true);
+            $this->fail('A folder Google would not describe must not be attached.');
+        } catch (StorageLocationException $e) {
+            $previous = $e->getPrevious();
+            $this->assertNotNull($previous, 'the controller journals the previous exception\'s message as the detail');
+            $this->assertStringNotContainsString(
+                'rien n\'a été changé',
+                $previous->getMessage(),
+                'the detail is Google\'s account, not the French sentence wrapped around it'
+            );
+        }
+    }
+
+    /** The same for a new folder: Google refusing the creation changes nothing, and says so. */
+    public function testANewFolderGoogleRefusesToCreateSaysNothingWasChanged(): void
+    {
+        [$drive, $service, $id] = $this->connectedDriveLocation();
+        $drive->files['folder-1']['trashed'] = true;
+        $drive->intercept = static fn (string $method, string $url): ?int
+            => $method === 'POST' ? 500 : null;
+        $before = count($drive->files);
+
+        try {
+            $service->createDriveFolder($id);
+            $this->fail('A folder Google refuses to create must not be recorded.');
+        } catch (StorageLocationException $e) {
+            $this->assertStringStartsWith(
+                'Google Drive n\'a pas pu créer le dossier : rien n\'a été changé. ',
+                $e->getMessage()
+            );
+        }
+
+        $this->assertSame('folder-1', $this->driveFolderOf($id));
+        $this->assertCount($before, $drive->files);
     }
 
     /**
