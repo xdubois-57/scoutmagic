@@ -17,6 +17,7 @@ use Tests\Modules\Rental\RentalTestHelper;
 #[\PHPUnit\Framework\Attributes\Group('database')]
 class RentalAssetServiceTest extends TestCase
 {
+    private \PDO $pdo;
     private RentalAssetRepository $assetRepository;
     private RentalAssetService $service;
     private JournalService $journalService;
@@ -29,6 +30,7 @@ class RentalAssetServiceTest extends TestCase
         $pdo->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_EXCEPTION);
         $pdo->setAttribute(\PDO::ATTR_DEFAULT_FETCH_MODE, \PDO::FETCH_ASSOC);
         RentalTestHelper::createTables($pdo);
+        $this->pdo = $pdo;
 
         $this->assetRepository = new RentalAssetRepository(
             $pdo,
@@ -298,13 +300,106 @@ class RentalAssetServiceTest extends TestCase
         $this->assertSame('Terrain', $asset?->assetType);
     }
 
-    public function testHasHistoryIsFalseWhileNothingRecordsWhatHappened(): void
+    /**
+     * The smallest row rental_bookings accepts: the test is about whether a
+     * booking EXISTS for an asset, not about what is in it.
+     */
+    private function insertBooking(int $assetId, string $status = 'received'): void
     {
-        // Honest rather than a stub pretending to check: bookings arrive in
-        // a later iteration, and each history-bearing table extends this one
-        // gate.
+        $this->pdo->prepare(
+            'INSERT INTO rental_bookings (
+                asset_id, reference, arrival_date, departure_date, renter_name_encrypted,
+                renter_email_encrypted, renter_email_blind_index, tracking_token_encrypted, status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+        )->execute([
+            $assetId,
+            'REF-' . $assetId . '-' . $status . '-' . random_int(1000, 9999),
+            '2026-07-10',
+            '2026-07-12',
+            'x',
+            'x',
+            'x',
+            'x',
+            $status,
+        ]);
+    }
+
+    private function countBookings(int $assetId): int
+    {
+        $count = $this->pdo->prepare('SELECT COUNT(*) FROM rental_bookings WHERE asset_id = ?');
+        $count->execute([$assetId]);
+
+        return (int) $count->fetchColumn();
+    }
+
+    public function testHasHistoryIsFalseForAnAssetWithoutAnyBooking(): void
+    {
+        $id = $this->create();
+        $other = $this->create('Un autre local');
+        $this->insertBooking($other);
+
+        $this->assertFalse($this->service->hasHistory($id), 'another asset\'s booking is not this one\'s history');
+    }
+
+    /**
+     * @return array<string, array{string}>
+     */
+    public static function bookingStatuses(): array
+    {
+        return [
+            'received' => ['received'],
+            'confirmed' => ['confirmed'],
+            'cancelled' => ['cancelled'],
+            'declined' => ['declined'],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('bookingStatuses')]
+    public function testHasHistoryIsTrueForAnyBookingWhateverItsStatus(string $status): void
+    {
+        // A cancelled booking is history too: it records what happened.
+        $id = $this->create();
+        $this->insertBooking($id, $status);
+
+        $this->assertTrue($this->service->hasHistory($id));
+    }
+
+    public function testAnAssetWithoutBookingsCanBeDeleted(): void
+    {
         $id = $this->create();
 
-        $this->assertFalse($this->service->hasHistory($id));
+        $this->service->delete($id, null);
+
+        $this->assertNull($this->assetRepository->findById($id));
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('bookingStatuses')]
+    public function testAnAssetWithABookingIsRefusedAndNothingIsDeleted(string $status): void
+    {
+        $id = $this->create();
+        $this->insertBooking($id, $status);
+        $journalBefore = count($this->journalEntries);
+
+        try {
+            $this->service->delete($id, null);
+            $this->fail('deleting an asset that has a booking must be refused');
+        } catch (RentalException $e) {
+            $this->assertStringContainsString('archivé', $e->getMessage());
+        }
+
+        $this->assertNotNull($this->assetRepository->findById($id), 'the asset must still exist');
+        $this->assertSame(1, $this->countBookings($id), 'its booking must still exist');
+        $this->assertSame($journalBefore, count($this->journalEntries), 'no deletion may be journaled');
+    }
+
+    public function testAnArchivedAssetWithBookingsIsStillNotDeletable(): void
+    {
+        // « Archive it instead » must keep working, and stay the only way.
+        $id = $this->create();
+        $this->insertBooking($id);
+        $this->service->archive($id);
+
+        $this->expectException(RentalException::class);
+        $this->service->delete($id, null);
     }
 }

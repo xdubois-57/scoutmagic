@@ -192,6 +192,56 @@ class DomainRoutingTest extends TestCase
     }
 
     /**
+     * **The same outage reads the same way whether or not anything was
+     * measured.** `unmeasuredDecisions()` already tolerated an unreadable
+     * settings table; the loop over the measured providers asked the same
+     * table through `forDomain()` with no guard, so the page degraded only
+     * until the first provider had been measured — then it was an error
+     * page. The row is there, and says the routing could not be read
+     * rather than claiming no relay was chosen.
+     */
+    public function testAnUnreadableRoutingSettingDegradesAMeasuredProviderInsteadOfThrowing(): void
+    {
+        $this->record('t@orange.fr', 'Junk', DomainRouting::MINIMUM_RUNS);
+        $this->relay('un', 1);
+        $this->relay('deux', 2);
+        $down = new class ($this->pdo) extends SettingRepository {
+            public function findAll(): array
+            {
+                throw new \PDOException('settings unavailable');
+            }
+        };
+        $routing = new DomainRouting(
+            $this->copies,
+            $this->settings,
+            new DomainPreferences(new SettingService($down)),
+            $this->chains,
+            new MailProviderDirectory(
+                new MailProviderRepository($this->pdo),
+                new ProviderConnections([]),
+                $this->settings
+            )
+        );
+
+        $readings = $routing->readings(new \DateTimeImmutable('-30 days'));
+
+        $this->assertCount(1, $readings);
+        $this->assertSame('orange.fr', $readings[0]['provider']);
+        $this->assertTrue($readings[0]['measured'], 'the measurement is still shown');
+        $this->assertTrue($readings[0]['troubled']);
+        $this->assertFalse($readings[0]['routing_readable']);
+        $this->assertNull($readings[0]['routed_to'], 'no relay is claimed for a setting that was not read');
+        $this->assertNull($readings[0]['alternative'], 'and none is offered');
+    }
+
+    public function testAReadableRoutingSettingIsMarkedReadable(): void
+    {
+        $this->record('t@orange.fr', 'Junk', 2);
+
+        $this->assertTrue($this->readingFor('orange.fr')['routing_readable']);
+    }
+
+    /**
      * **A provider that is fine is still listed.** A screen showing only
      * problems leaves a reader unable to tell « rien d'anormal » from
      * « rien de mesuré », and the second is the one that needs acting on.

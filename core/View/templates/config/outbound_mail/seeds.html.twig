@@ -239,7 +239,14 @@
                                         {% endif %}
                                     </td>
                                     <td>
-                                        {% if reading.routed_to %}
+                                        {% if not reading.routing_readable %}
+                                            {# The routing setting could not be read: neither a relay
+                                               nor an offer to choose one is shown, since either would
+                                               be a claim about a choice the page has not seen. #}
+                                            <span class="text-body-secondary small">
+                                                Routage illisible pour le moment
+                                            </span>
+                                        {% elseif reading.routed_to %}
                                             <span class="d-block small">{{ reading.routed_to }}</span>
                                             <form method="post" action="{{ current_path }}/routage" class="d-inline">
                                                 {{ csrf_field()|raw }}
