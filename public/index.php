@@ -7257,7 +7257,8 @@ $frontController->registerController(
         $settingService,
         $sectionStaffAuthorizationService,
         $editableContentService,
-        new \Core\Member\Repository\MemberSectionTotemRepository($pdo, $encryptionService)
+        new \Core\Member\Repository\MemberSectionTotemRepository($pdo, $encryptionService),
+        $moduleHooks
     )
 );
 $frontController->registerController(
