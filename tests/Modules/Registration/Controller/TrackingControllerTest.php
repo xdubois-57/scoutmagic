@@ -8,6 +8,7 @@ use Tests\Core\Mail\Template\EmailTemplateRendererFactory;
 
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
+use Core\Mail\MailException;
 use Core\Mail\MailService;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
@@ -38,6 +39,7 @@ class TrackingControllerTest extends TestCase
     private array $created;
     private EncryptionService $encryption;
     private RegistrationRequestRepository $requestRepository;
+    private bool $mailRefuses = false;
 
     protected function setUp(): void
     {
@@ -51,7 +53,13 @@ class TrackingControllerTest extends TestCase
         $trackingService = new TrackingService($requestRepository, $secondaryEmailRepository, $this->encryption);
 
         $mailService = $this->createStub(MailService::class);
-        $mailService->method('send');
+        // One switch for the tests that need the transport to refuse: it is
+        // read when the e-mail is sent, not when the stub is built.
+        $mailService->method('send')->willReturnCallback(function (): void {
+            if ($this->mailRefuses) {
+                throw new MailException('SMTP refused');
+            }
+        });
         $twig = TwigFactory::create(dirname(__DIR__, 4) . '/core/View/templates', false, [
             'registration' => dirname(__DIR__, 4) . '/modules/registration/views',
         ]);
@@ -371,6 +379,47 @@ class TrackingControllerTest extends TestCase
             SecondaryEmailService::MAX_SECONDARY_EMAILS,
             (int) $this->pdo->query('SELECT COUNT(*) FROM registration_secondary_emails')->fetchColumn()
         );
+    }
+
+    private function addAddressAsTheLinkedFamily(string $address): void
+    {
+        AuthSession::login(1, 'marie@example.com', 'identified');
+        $this->controller->addEmail(
+            new Request('POST', '/inscriptions/suivi/demande/' . $this->created['id'] . '/emails', [], [
+                '_csrf_token' => CsrfGuard::generateToken(), 'email' => $address,
+            ], [], []),
+            ['id' => (string) $this->created['id']]
+        );
+    }
+
+    public function testAddEmailSaysTheConfirmationWasSentWhenItWas(): void
+    {
+        $this->addAddressAsTheLinkedFamily('secondary@example.com');
+
+        $this->assertSame(
+            ['type' => 'success', 'message' => 'Adresse ajoutée — un email de confirmation vient d\'être envoyé.'],
+            FlashMessage::get()
+        );
+    }
+
+    /**
+     * The transport refuses the e-mail: the address is kept, pending, but
+     * the family is no longer told a confirmation « vient d'être envoyé »
+     * (#1236) — it did not, and nothing else would tell them.
+     */
+    public function testAddEmailDoesNotClaimAConfirmationThatDidNotLeave(): void
+    {
+        $this->mailRefuses = true;
+
+        $this->addAddressAsTheLinkedFamily('secondary@example.com');
+
+        $flash = FlashMessage::get();
+        $this->assertSame('success', $flash['type'] ?? null, 'the address was added: this is not an error');
+        $this->assertSame(
+            'Adresse ajoutée, mais l\'email de confirmation n\'a pas pu partir — réessayez plus tard.',
+            $flash['message'] ?? null
+        );
+        $this->assertSame(1, (int) $this->pdo->query('SELECT COUNT(*) FROM registration_secondary_emails')->fetchColumn());
     }
 
     /**

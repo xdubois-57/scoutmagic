@@ -11,6 +11,7 @@ namespace Modules\Registration\Controller;
 use Core\Config\SettingService;
 use Core\Http\Controller\AbstractController;
 use Core\Http\Request;
+use Core\Journal\JournalService;
 use Core\Http\Response;
 use Core\Member\MemberService;
 use Core\Member\MemberYearService;
@@ -54,7 +55,11 @@ class PublicRegistrationController extends AbstractController
         // builds this controller for another reason — goes on working with
         // the question simply not stored.
         private ?ReenrollmentService $reenrollmentService = null,
-        private ?ReenrollmentRepository $reenrollmentRepository = null
+        private ?ReenrollmentRepository $reenrollmentRepository = null,
+        // Where a wish that could not be filed is said (#1236). Nullable, as
+        // the two above: a controller built without it behaves as it always
+        // did, and the loss is then silent.
+        private ?JournalService $journalService = null
     ) {
     }
 
@@ -456,7 +461,8 @@ class PublicRegistrationController extends AbstractController
      * Best-effort by construction: the inscription itself is already
      * recorded by the time this runs, and a family whose request went
      * through must not be told it failed because a wish could not be
-     * filed. The failure is swallowed here and the request stands.
+     * filed. The failure is not shown to the family and the request stands,
+     * but it is journaled as a warning (#1236).
      */
     private function storeFriendWishes(
         Request $request,
@@ -501,7 +507,17 @@ class PublicRegistrationController extends AbstractController
                 )
             );
         } catch (\Throwable) {
-            // Deliberately silent: see the docblock.
+            // The request stands (see the docblock), but the loss is said:
+            // the staff can ask the family what they wanted (#1236). The
+            // request only — the names are a child's friends, and the
+            // database's own message can quote them.
+            $this->journalService?->log(
+                'registration',
+                'registration_friend_wishes_failed',
+                'warning',
+                'Les souhaits « avec qui » d\'une demande n\'ont pas pu être enregistrés',
+                ['request_id' => $requestId]
+            );
         }
     }
 
