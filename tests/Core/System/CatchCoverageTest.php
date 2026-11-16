@@ -132,8 +132,8 @@ final class CatchCoverageTest extends TestCase
         $this->assertSame('unknown', \catchCoverageJudge($empty, [2 => ['T1']]));
 
         // try { a(); } catch (T) { b();
-        //     c(); } — judged on line 3 alone, which can prove the body ran
-        // but not that it did not: c() may sit in a branch b() did not take.
+        //     c(); } — judged on line 3 alone, and only a pass there is proof:
+        // the lines left may sit in a branch the catch did not take (below).
         $body = ['line' => 2, 'bodyLines' => [2, 3], 'empty' => false, 'marker' => null, 'sharedLine' => true];
         $this->assertSame('unknown', \catchCoverageJudge($body, [2 => ['T1'], 3 => []]));
         $this->assertSame('executed', \catchCoverageJudge($body, [2 => ['T1'], 3 => ['T1']]));
@@ -143,67 +143,102 @@ final class CatchCoverageTest extends TestCase
     }
 
     /**
-     * Once the entry line is set aside, a line inside a branch the body did
-     * not take proves nothing: no line of the rest ran is `unknown`, and any
-     * one that ran is `executed`.
+     * With the catch's own line set aside, the first line left may be the
+     * inside of an `if` the catch did not take: its silence says nothing
+     * about whether the catch ran. Only a pass on a remaining line proves.
      */
-    public function testAConditionalChildAfterASharedEntryLineIsNoProofOfNever(): void
+    public function testAConditionalChildOfASharedCatchLineIsNeverProofThatTheCatchDidNotRun(): void
     {
-        $catches = \catchCoverageScan(<<<'PHP'
+        $source = <<<'PHP'
             <?php
-            try { a(); } catch (\Exception $e) { $retry = check($e);
-                if ($retry) {
-                    again();
-                }
-            }
-            PHP);
+            try { a(); } catch (E) { if ($x) {
+                b();
+            } }
+            PHP;
+        $catch = \catchCoverageScan($source)[0];
 
-        $this->assertSame([2, 3, 4, 5], $catches[0]['bodyLines']);
-        $this->assertSame('unknown', \catchCoverageJudge($catches[0], [2 => ['T1'], 3 => [], 4 => [], 5 => []]));
-        $this->assertSame('executed', \catchCoverageJudge($catches[0], [2 => ['T1'], 3 => ['T1'], 4 => []]));
+        $this->assertTrue($catch['sharedLine']);
+        $this->assertSame('unknown', \catchCoverageJudge($catch, [2 => ['T1'], 3 => []]));
+        $this->assertSame('executed', \catchCoverageJudge($catch, [2 => ['T1'], 3 => ['T1']]));
     }
 
     /**
-     * A body that closes on a line code follows (`recover(); } after();`):
-     * after() marks that line whether the catch ran or not, so the line is
-     * set aside, and a body standing on it alone is `unknown`.
+     * `recover(); } after();` — the line of the closing brace holds code
+     * that runs whether or not the catch did, so it proves nothing, exactly
+     * like the catch line shared with the try.
      */
-    public function testAClosingLineThatCodeFollowsIsNotTakenAsEvidence(): void
+    public function testABodyClosingOnALineFollowedByCodeDoesNotProveItself(): void
+    {
+        $source = <<<'PHP'
+            <?php
+            try {
+                a();
+            } catch (E) {
+                recover(); } after();
+            PHP;
+        $catch = \catchCoverageScan($source)[0];
+
+        $this->assertSame(5, $catch['closingLine']);
+        $this->assertSame('unknown', \catchCoverageJudge($catch, [4 => ['T1'], 5 => ['T1']]));
+    }
+
+    /**
+     * The closing brace's line is set aside AFTER the lines above it, so it
+     * weakens none of them: an earlier unconditional line that never ran
+     * still proves `never`, and one that ran still proves `executed`.
+     */
+    public function testAClosingLineSetAsideDoesNotWeakenTheLinesAboveIt(): void
+    {
+        $catch = \catchCoverageScan(<<<'PHP'
+            <?php
+            try {
+                a();
+            } catch (E) {
+                log_it();
+                recover(); } after();
+            PHP)[0];
+
+        $this->assertSame([5, 6], $catch['bodyLines']);
+        $this->assertSame(6, $catch['closingLine']);
+        $this->assertSame('never', \catchCoverageJudge($catch, [5 => [], 6 => ['T1']]));
+        $this->assertSame('executed', \catchCoverageJudge($catch, [5 => ['T1'], 6 => ['T1']]));
+        $this->assertSame('unknown', \catchCoverageJudge($catch, [6 => ['T1']]), 'only the shared line is recorded');
+    }
+
+    public function testABodyClosingOnItsOwnLineOrBeforeOnlyACommentLeavesTheLineAlone(): void
     {
         $catches = \catchCoverageScan(<<<'PHP'
             <?php
             try {
                 a();
-            } catch (\Exception) {
-                recover(); } after();
+            } catch (E) {
+                recover();
+            }
+            try {
+                b();
+            } catch (F) {
+                recover(); } // nothing runs after the brace
             PHP);
 
-        $this->assertSame(5, $catches[0]['sharedCloseLine']);
-        $this->assertFalse($catches[0]['sharedLine']);
-        $this->assertSame('unknown', \catchCoverageJudge($catches[0], [4 => [], 5 => ['T1']]));
-
-        $own = \catchCoverageScan("<?php\ntry {\n    a();\n} catch (\\Exception) {\n    recover();\n}\nafter();\n");
-        $this->assertNull($own[0]['sharedCloseLine']);
-        $this->assertSame('never', \catchCoverageJudge($own[0], [5 => [], 7 => ['T1']]));
+        $this->assertSame([null, null], array_column($catches, 'closingLine'));
     }
 
     /**
-     * A string fragment whose text is a lone `}` is not a closing brace: the
-     * body is read to its real end.
+     * The text of a token is not its identity: the tail of an interpolated
+     * string can be exactly `}`, which is no brace and closes nothing.
      */
-    public function testABraceInsideAStringFragmentDoesNotCloseTheBody(): void
+    public function testAStringFragmentThatIsLiterallyABraceDoesNotCloseTheBody(): void
     {
         $catches = \catchCoverageScan(<<<'PHP'
             <?php
             try {
                 a();
             } catch (\Exception $e) {
-                $text = "{$e->getMessage()}}";
-                log($text);
+                $m = "$e}";
+                after();
             }
             PHP);
 
-        $this->assertCount(1, $catches);
         $this->assertSame([5, 6], $catches[0]['bodyLines']);
     }
 

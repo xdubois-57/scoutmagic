@@ -382,6 +382,74 @@ class InboundMessageLinkTest extends TestCase
         $this->assertSame(['reference' => 'LOC-1', 'consumer_id' => 'rental'], $found);
     }
 
+    /**
+     * Four DELETEs, one decision. Without a transaction a failure part-way
+     * left a message without its attachments, or attachments without their
+     * links, and the caller — which reads the attachment count straight
+     * after to decide what to do with the stored files — was told nothing
+     * until it threw. Here the last statement is refused: nothing before it
+     * may have gone.
+     */
+    public function testAFailedMessageDeletionLeavesTheMessageWholeNotHalfDeleted(): void
+    {
+        $id = $this->storeMessage('facture-1@example.be');
+        $this->messages->addLink($id, 'rental', 'LOC-K7Q2M4', LinkOrigin::REFERENCE);
+        $this->messages->addCandidate($id, 'finance', $this->candidate('ACC-1'));
+        $this->messages->addAttachment($id, $this->storeFile(), 'contrat.pdf', 'application/pdf', 1024, 'hash-a');
+        $this->pdo->exec(
+            "CREATE TRIGGER refuse_message_delete BEFORE DELETE ON inbound_messages
+             BEGIN SELECT RAISE(ABORT, 'suppression refusée'); END"
+        );
+
+        try {
+            $this->messages->deleteMessage($id);
+            $this->fail('the refused delete must reach the caller');
+        } catch (\PDOException $e) {
+            $this->assertStringContainsString('suppression refusée', $e->getMessage());
+        }
+
+        $this->assertSame(1, $this->countRows('inbound_messages'));
+        $this->assertSame(1, $this->countRows('inbound_message_links'), 'the links were not left deleted');
+        $this->assertSame(1, $this->countRows('inbound_message_candidates'));
+        $this->assertSame(1, $this->countRows('inbound_message_attachments'));
+    }
+
+    public function testADeletionInsideTheCallersOwnTransactionLeavesItsCommitToTheCaller(): void
+    {
+        $id = $this->storeMessage('facture-1@example.be');
+        $this->messages->addLink($id, 'rental', 'LOC-K7Q2M4', LinkOrigin::REFERENCE);
+
+        $this->pdo->beginTransaction();
+        $this->assertTrue($this->messages->deleteMessage($id));
+        $this->assertTrue($this->pdo->inTransaction(), 'a caller\'s transaction stays its own');
+        $this->pdo->rollBack();
+
+        $this->assertSame(1, $this->countRows('inbound_messages'), 'rolled back with the caller');
+    }
+
+    /**
+     * Only the unique index means « the same id was already recorded »; a
+     * write that failed for any other reason (a dropped connection, a full
+     * disk, a trigger's refusal) was swallowed as one, and the reply to that
+     * mail was then threaded onto nothing without a trace (#1232). The
+     * failure is made by a statement whose execute() throws, because a
+     * trigger's refusal is raised when the statement is PREPARED on SQLite,
+     * outside the try, and so cannot play a failed write.
+     */
+    public function testARefusedWriteOfASentMessageIdIsNotTakenForADuplicate(): void
+    {
+        $this->makeEveryWriteFailWith(new \PDOException('SQLSTATE[HY000]: General error: server has gone away'));
+
+        try {
+            $this->messages->recordOutboundMessageId('rental', 'LOC-1', '<envoi-9@unite.be>');
+            $this->fail('a write that failed must not look like a duplicate');
+        } catch (\PDOException $e) {
+            $this->assertStringContainsString('server has gone away', $e->getMessage());
+        } finally {
+            $this->pdo->setAttribute(\PDO::ATTR_STATEMENT_CLASS, [\PDOStatement::class]);
+        }
+    }
+
     // ── The reprise of the stored HTML bodies (issue #1122) ─────────────
 
     public function testTheHtmlReprisePullsARemoteImageAnEarlierRegexLetThrough(): void
@@ -600,6 +668,21 @@ class InboundMessageLinkTest extends TestCase
         $standing = $this->messages->findActiveCandidates($id);
         $this->assertCount(1, $standing);
         $this->assertSame(8, $standing[0]->attachmentId);
+    }
+
+    /** Every statement prepared from now on throws this when executed. */
+    private function makeEveryWriteFailWith(\PDOException $failure): void
+    {
+        $statement = new class extends \PDOStatement {
+            public static ?\PDOException $failure = null;
+
+            public function execute(?array $params = null): bool
+            {
+                throw self::$failure ?? new \LogicException('no failure was set');
+            }
+        };
+        $statement::$failure = $failure;
+        $this->pdo->setAttribute(\PDO::ATTR_STATEMENT_CLASS, [$statement::class]);
     }
 
     private function candidate(string $reference, int $attachmentId = 0): MessageCandidate

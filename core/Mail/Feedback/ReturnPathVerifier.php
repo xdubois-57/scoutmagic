@@ -111,10 +111,24 @@ final class ReturnPathVerifier
             return 0;
         }
 
+        return count(self::readScope($inboundMail) ?? []);
+    }
+
+    /**
+     * The addresses open to this consumer, or null when the module could not
+     * answer — which is not the same as an empty list (#1210). Counting
+     * callers read null as zero, as they always did; the two screens that
+     * word it differently ask {@see isCollectingWithoutScope()} and
+     * {@see isScopeUnreadable()}.
+     *
+     * @return list<string>|null
+     */
+    private static function readScope(InboundMailInterface $inboundMail): ?array
+    {
         try {
-            return count($inboundMail->probeAddressesFor(self::CONSUMER_ID));
+            return $inboundMail->probeAddressesFor(self::CONSUMER_ID);
         } catch (\Throwable) {
-            return 0;
+            return null;
         }
     }
 
@@ -136,9 +150,51 @@ final class ReturnPathVerifier
      */
     public function isCollectingWithoutScope(): bool
     {
-        return $this->inboundMail !== null
-            && $this->inboundMail->isCollecting()
-            && $this->scopedMailboxCount() === 0;
+        if ($this->inboundMail === null || !$this->inboundMail->isCollecting()) {
+            return false;
+        }
+
+        // An empty list, and only that: a list the module could not read is
+        // an outage, not a box to open (#1210) — see isScopeUnreadable().
+        return self::readScope($this->inboundMail) === [];
+    }
+
+    /**
+     * True when the module is collecting and FAILED to say which boxes are
+     * open to this check — an outage of the module, which no mailbox
+     * configuration can fix.
+     *
+     * Both this and « no box open » count zero boxes, and the screen used to
+     * choose the second sentence for both, inviting the operator to open a
+     * box for a problem that was a failure (#1210). Said once in the journal,
+     * where the screen sends them: the class of the failure, never the
+     * module's own words, which can quote an address.
+     */
+    public function isScopeUnreadable(): bool
+    {
+        if ($this->inboundMail === null || !$this->inboundMail->isCollecting()) {
+            return false;
+        }
+
+        try {
+            $this->inboundMail->probeAddressesFor(self::CONSUMER_ID);
+        } catch (\Throwable $e) {
+            try {
+                $this->journal->log(
+                    'core',
+                    'return_path_scope_unreadable',
+                    'warning',
+                    'La liste des boîtes ouvertes à la vérification du chemin de retour n’a pas pu être lue',
+                    ['cause' => $e::class]
+                );
+            } catch (\Throwable) {
+                error_log('ScoutMagic: the mailboxes open to the return-path check could not be read: ' . $e::class);
+            }
+
+            return true;
+        }
+
+        return false;
     }
 
     /**

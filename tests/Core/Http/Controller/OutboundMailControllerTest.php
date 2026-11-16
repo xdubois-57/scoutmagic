@@ -4145,4 +4145,32 @@ class OutboundMailControllerTest extends TestCase
         $this->assertStringNotContainsString('a besoin du module', $flash['message']);
         $this->assertStringNotContainsString('Regardez la page', $flash['message']);
     }
+
+    /**
+     * The page does not invite the operator to open a mailbox when the
+     * module that lists them is what failed (#1210): it says the list could
+     * not be read and points at the journal.
+     */
+    public function testAnUnreadableMailboxListIsNotPresentedAsAMailboxToOpen(): void
+    {
+        $inbound = $this->createStub(\Modules\InboundMail\Api\InboundMailInterface::class);
+        $inbound->method('isCollecting')->willReturn(true);
+        $inbound->method('probeAddressesFor')->willThrowException(new \PDOException('SQLSTATE[HY000]: gone away'));
+        $controller = $this->controllerWith('returns', new \Core\Mail\Feedback\ReturnPathVerifier(
+            new \Core\Mail\Feedback\ReturnProbeRepository(
+                $this->pdo,
+                new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32))
+            ),
+            $this->createStub(\Core\Mail\MailService::class),
+            new JournalService(new JournalRepository($this->pdo)),
+            $inbound
+        ));
+
+        $body = (string) $controller->authentication($this->getRequest(), [])->getBody();
+
+        $this->assertStringContainsString('n\'a pas pu être lue', $body);
+        $this->assertStringContainsString('journal', $body);
+        $this->assertStringNotContainsString('Ouvrez-lui une boîte', $body);
+        $this->assertStringNotContainsString('aucune n\'est ouverte', $body);
+    }
 }

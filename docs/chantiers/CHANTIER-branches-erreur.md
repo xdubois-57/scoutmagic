@@ -241,17 +241,16 @@ code 23000 qu'une collision de clé — et que le code lirait donc comme « déj
 là ». Un module doublé seulement quand sa panne est le sujet (le courrier
 entrant qui ne répond pas).
 
-**Les deux marqueurs.**
+**Les marqueurs.**
 - `MailTransportChain::hasSpentItsQuota()`, la réserve : elle ne relit que les
   deux tables que `candidates()` vient de lire dans le même envoi, sans E/S
   entre les deux. Seule une connexion perdue dans cet intervalle y mène.
 - `DrainDeferredMailHandler`, l'écriture des pièces jointes dans le répertoire
-  temporaire : seul un disque plein ou qui refuse l'atteint. **C'est un
-  compromis, pas une impossibilité** : la branche est réelle en production,
-  mais la classe ne prend aucun répertoire qu'un test pourrait rediriger, et
-  une suite qui tourne en root ne peut pas faire refuser `/tmp`. La couvrir
-  demanderait d'injecter le répertoire temporaire dans le gestionnaire — un
-  changement d'API hors du périmètre d'un lot de tests, suivi par #1217.
+  temporaire, a été marqué le temps d'un lot : la branche est réelle en
+  production (disque plein), mais la classe n'avait aucun répertoire qu'un test
+  pût rediriger. Le gestionnaire prend désormais ce répertoire en paramètre
+  (#1217) ; un test lui passe un répertoire qui accepte une pièce jointe et
+  refuse la suivante, et le marqueur a été retiré.
 
 **Trouvé en chemin.**
 - Un test de `PinnedProviderTransport` croyait la table des compteurs absente
@@ -697,7 +696,7 @@ test vérifie l'effet et échoue quand le `catch` relance ou change ce qu'il fai
 - `core/Image` (`PhotoNormalizer`) : `queryFormats()` filtre la liste des
   codecs compilés dans ImageMagick ; elle ne prend aucune entrée et ne lève pas.
 
-### PR finale — `guard()` et la mesure (#1214) — 2026-11-16
+### PR finale — `guard()` — 2026-11-16
 
 **1 → 0** : le dernier `catch` jamais exécuté, celui de
 `ErrorHandler::guard()` (`core/Http`, laissé ouvert au lot 4), terminait la
@@ -706,13 +705,10 @@ tests, remplace cet `exit` par une exception : le `catch` est traversé dans le
 processus de PHPUnit et compté. Le test en sous-processus reste, qui prouve le
 vrai `exit`.
 
-**`scripts/catch-coverage.php`** (#1214) :
-- une ligne du corps qui n'a pas tourné, une fois la ligne d'entrée écartée, ne
-  prouve plus rien (« inconnu ») : elle peut être dans une branche non prise ;
-- la ligne de l'accolade fermante suivie de code (`recover(); } after();`) est
-  écartée des preuves ;
-- les accolades sont lues par jeton, plus par leur texte : un `}` dans une
-  chaîne ne ferme plus le corps.
+**`scripts/catch-coverage.php`** : les corrections de #1214 (enfant
+conditionnel, accolade fermante suivie de code, accolades lues par jeton,
+php:S1808) sont arrivées par #1297. La mesure finale est faite avec cette
+version du script.
 
 **La fin est atteinte** : sur la suite entière, 0 bloc jamais exécuté et 0
 inconnu ; les 26 marqueurs portent chacun leur raison.

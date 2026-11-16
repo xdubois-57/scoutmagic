@@ -189,6 +189,86 @@ class DirectorySizeTest extends TestCase
     }
 
     /**
+     * `realpath()` returns false for two different reasons, and only one of
+     * them is « nothing there »: a link pointing nowhere, and a path that
+     * EXISTS but is longer than PATH_MAX. The second was taken for the
+     * first, so an archive quietly left out a whole subtree and still
+     * closed successfully — the very « skips what it cannot read » the
+     * archive intent exists to forbid.
+     */
+    public function testAnArchiveRefusesASubtreeWhosePathIsBeyondWhatRealpathCanResolve(): void
+    {
+        $this->write('kept.txt', 'x');
+        $names = $this->buildATreeDeeperThanPathMax();
+
+        try {
+            $this->expectException(\UnexpectedValueException::class);
+            iterator_to_array(DirectorySize::files($this->root, [], DirectoryWalk::Archive));
+        } finally {
+            $this->removeADeepTree($names);
+        }
+    }
+
+    public function testAMeasurementStillCarriesOnPastASubtreeBeyondPathMax(): void
+    {
+        $this->write('kept.txt', str_repeat('x', 5));
+        $names = $this->buildATreeDeeperThanPathMax();
+
+        try {
+            $this->assertSame(5, DirectorySize::measure($this->root));
+        } finally {
+            $this->removeADeepTree($names);
+        }
+    }
+
+    /**
+     * Directories 200 characters long, nested until the full path passes
+     * PATH_MAX (4096). Built by stepping into each one: a path that long
+     * cannot be handed to the kernel whole, but a relative `mkdir()` from
+     * inside the parent can.
+     *
+     * @return list<string> the directory names, outermost first
+     */
+    private function buildATreeDeeperThanPathMax(): array
+    {
+        $origin = (string) getcwd();
+        $names = [];
+        chdir($this->root);
+        try {
+            for ($level = 0; $level < 22; $level++) {
+                $name = str_repeat(chr(97 + $level), 200);
+                mkdir($name);
+                chdir($name);
+                $names[] = $name;
+            }
+            file_put_contents('leaf.txt', 'deep');
+        } finally {
+            chdir($origin);
+        }
+
+        return $names;
+    }
+
+    /** @param list<string> $names */
+    private function removeADeepTree(array $names): void
+    {
+        $origin = (string) getcwd();
+        chdir($this->root);
+        try {
+            foreach ($names as $name) {
+                chdir($name);
+            }
+            @unlink('leaf.txt');
+            for ($level = count($names) - 1; $level >= 0; $level--) {
+                chdir('..');
+                rmdir($names[$level]);
+            }
+        } finally {
+            chdir($origin);
+        }
+    }
+
+    /**
      * **An exclusion has to survive a symbolic link, or it is not an
      * exclusion** — and this is the one that hurts: `BackupService` uses
      * these prefixes to keep `storage/keys/master.key` and

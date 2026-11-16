@@ -331,23 +331,47 @@ class OutboundMailCollectorTest extends TestCase
     }
 
     /**
-     * The return probes cannot be read. Pinned as it stands: the section's
-     * heading is printed and each role whose probe could not be read is
-     * left out, so the heading has nothing under it — while the rest of
-     * the file is untouched.
+     * The return probes cannot be read. The heading says so under itself:
+     * a bare heading with nothing below it reads as « rien à signaler »,
+     * which is the opposite answer — and the other return sections, that
+     * vanish, are told apart from this one by the line that is there. Only
+     * the exception's class is written, never its message: this file goes
+     * to a third party, and a database message names tables and hosts.
      */
-    public function testUnreadableReturnProbesLeaveTheRolesOut(): void
+    public function testUnreadableReturnProbesSayTheirSectionCouldNotBeRead(): void
     {
         $this->registerIdentity('info@unite.be', 'secretariat@unite.be');
         $this->inboundMail = $this->collectingGateway();
         $this->pdo->exec('DROP TABLE mail_return_probes');
 
         $report = $this->collect();
+        $section = $this->section($report, '── Vérification des retours');
 
-        $this->assertMatchesRegularExpression('/── Vérification des retours ─+\n\n/u', $report);
-        $this->assertStringNotContainsString('Expédition (rebonds)', $report);
-        $this->assertStringNotContainsString('Réponses', $report);
+        $this->assertStringContainsString('Expédition (rebonds)', $section);
+        $this->assertStringContainsString('Réponses', $section);
+        $this->assertSame(2, substr_count($section, 'non lisible : PDOException'));
+        $this->assertStringNotContainsString('mail_return_probes', $report, 'no message, no table name');
         $this->assertStringContainsString('── Compteurs, 30 derniers jours', $report);
+    }
+
+    /**
+     * `mail_send_counters` cannot be read. The counters come last and are
+     * as optional as the sections before them: the archive keeps every
+     * other section, and the counters' own heading says it could not read
+     * them instead of printing « aucun envoi enregistré ».
+     */
+    public function testUnreadableCountersCostOnlyTheirRowsNotTheWholeFile(): void
+    {
+        $this->addRelay('Brevo', 'smtp-relay.brevo.com');
+        $this->pdo->exec('DROP TABLE mail_send_counters');
+
+        $report = $this->collect();
+        $section = $this->section($report, '── Compteurs, 30 derniers jours');
+
+        $this->assertStringContainsString('Brevo', $report, 'the sections before are still there');
+        $this->assertStringContainsString('non lisible : PDOException', $section);
+        $this->assertStringNotContainsString('aucun envoi enregistré', $section);
+        $this->assertStringNotContainsString('mail_send_counters', $report);
     }
 
     // ── the domain and the returns (roadmap IT-03) ────────────────────
