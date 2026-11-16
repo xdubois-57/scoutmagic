@@ -8,6 +8,8 @@ declare(strict_types=1);
 
 namespace Modules\InboundMail\Client;
 
+use Illuminate\Support\Collection;
+use Webklex\PHPIMAP\Connection\Protocols\ImapProtocol;
 use Webklex\PHPIMAP\Folder;
 use Webklex\PHPIMAP\Message;
 use Webklex\PHPIMAP\Query\WhereQuery;
@@ -63,9 +65,74 @@ final class TolerantMessageQuery extends WhereQuery
     {
         $client = $folder->getClient();
         $client->checkConnection();
-        $client->openFolder($folder->path);
+        // EXAMINE, not the library's `openFolder()`, which SELECTs (#1231).
+        // Marking the folder active afterwards keeps every later call of
+        // the library from opening it again, read-write.
+        $client->getConnection()->examineFolder($folder->path)->validatedData();
+        $client->setActiveFolder($folder->path);
 
         return new self($client, $client->extensions);
+    }
+
+    /**
+     * The library's fetch, made passive (#1231).
+     *
+     * The library reads a body with `RFC822.TEXT`, which a real server
+     * answers by setting `\Seen`, then — asked to « leave unread » —
+     * sends a `STORE -FLAGS \Seen` for each message that had been unread,
+     * and fetches its flags once more. The box was changed and put back:
+     * a mail client open at the same moment saw the message turn read.
+     *
+     * Here the header comes from `RFC822.HEADER`, which never sets a flag,
+     * the body from `BODY.PEEK[TEXT]`, and the flags are not fetched at
+     * all — this module has no use for them. Each message is handed to
+     * `make()` as already seen, which is what stops the library's own
+     * `peek()` from sending a STORE to undo a read that never happened.
+     *
+     * @param Collection<int, int> $available_messages
+     * @return array{uids: array<int, int>, flags: array<int, string[]>, headers: array<int, string>,
+     *     contents: array<int, string>, extensions: array<int, mixed>}
+     */
+    protected function fetch(Collection $available_messages): array
+    {
+        $connection = $this->client->getConnection();
+        if (!$connection instanceof ImapProtocol) {
+            // The PHP-extension protocol, which connect() never asks for.
+            return parent::fetch($available_messages);
+        }
+
+        if ($this->fetch_order === 'desc') {
+            $available_messages = $available_messages->reverse();
+        }
+
+        /** @var array<int, int> $uids */
+        $uids = $available_messages->forPage($this->page, $this->limit)->toArray();
+        if ($uids === []) {
+            return ['uids' => [], 'flags' => [], 'headers' => [], 'contents' => [], 'extensions' => []];
+        }
+
+        $headers = $connection->headers($uids, 'RFC822', $this->sequence)->validatedData();
+
+        $contents = [];
+        if ($this->getFetchBody()) {
+            // Two items, so the library keys each answer by its name: the
+            // server answers `BODY[TEXT]` to a `BODY.PEEK[TEXT]`, which a
+            // single-item request would never match.
+            $bodies = $connection->fetch(['UID', 'BODY.PEEK[TEXT]'], $uids, null, $this->sequence)->validatedData();
+            foreach (is_array($bodies) ? $bodies : [] as $uid => $parts) {
+                if (is_array($parts) && isset($parts['BODY[TEXT]'])) {
+                    $contents[$uid] = (string) $parts['BODY[TEXT]'];
+                }
+            }
+        }
+
+        return [
+            'uids' => $uids,
+            'flags' => array_fill_keys(array_keys(is_array($headers) ? $headers : []), ['\\Seen']),
+            'headers' => is_array($headers) ? $headers : [],
+            'contents' => $contents,
+            'extensions' => [],
+        ];
     }
 
     /** @return int[] */

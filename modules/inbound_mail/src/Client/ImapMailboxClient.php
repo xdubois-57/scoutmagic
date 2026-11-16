@@ -17,7 +17,6 @@ use Webklex\PHPIMAP\Client;
 use Webklex\PHPIMAP\ClientManager;
 use Webklex\PHPIMAP\Folder;
 use Webklex\PHPIMAP\Header;
-use Webklex\PHPIMAP\IMAP;
 use Webklex\PHPIMAP\Message;
 
 /**
@@ -47,13 +46,6 @@ use Webklex\PHPIMAP\Message;
  */
 class ImapMailboxClient implements IncomingMailboxClientInterface, PruningMailboxClientInterface
 {
-    /**
-     * The fetch option every body read here uses. Named rather than
-     * inlined so a test can assert on it: the difference between this and
-     * a plain fetch is invisible in a diff and catastrophic in production.
-     */
-    private const PEEK_ONLY = IMAP::FT_PEEK;
-
     private ?Client $client = null;
 
     /** See `IncomingMailboxClientInterface::lastSkippedUid()`. */
@@ -81,19 +73,17 @@ class ImapMailboxClient implements IncomingMailboxClientInterface, PruningMailbo
                 'username' => $credentials->username,
                 'password' => $credentials->password,
                 'timeout' => 30,
-                'options' => [
-                    'fetch' => self::PEEK_ONLY,
-                    'fetch_body' => true,
-                    // Flags are not read either: this module has no use for
-                    // them, and asking for them on some servers is what
-                    // implicitly opens a folder read-write.
-                    'fetch_flags' => false,
-                ],
+                // No `options` here (#1248): the library reads its
+                // `options.*` from its global configuration, never from an
+                // account, so `fetch => FT_PEEK` and the rest were set and
+                // ignored. How a message is read — EXAMINE, BODY.PEEK, no
+                // flags — is decided in TolerantMessageQuery, which issues
+                // the commands itself.
             ]);
 
             $client->connect();
         } catch (\Throwable $e) {
-            throw new MailboxConnectionException(self::safeReason($e), 0, $e);
+            throw MailboxConnectionException::at(MailboxConnectionException::STEP_CONNECT, $e);
         }
 
         $this->client = $client;
@@ -122,7 +112,7 @@ class ImapMailboxClient implements IncomingMailboxClientInterface, PruningMailbo
 
             return RemoteFolder::fromListing(is_array($listing) ? $listing : []);
         } catch (\Throwable $e) {
-            throw new MailboxConnectionException(self::safeReason($e), 0, $e);
+            throw MailboxConnectionException::at(MailboxConnectionException::STEP_LIST, $e);
         }
     }
 
@@ -135,7 +125,7 @@ class ImapMailboxClient implements IncomingMailboxClientInterface, PruningMailbo
             // folder. Some servers set \Recent on SELECT.
             $status = $imapFolder->examine();
         } catch (\Throwable $e) {
-            throw new MailboxConnectionException(self::safeReason($e), 0, $e);
+            throw MailboxConnectionException::at(MailboxConnectionException::STEP_OPEN_FOLDER, $e);
         }
 
         return new FolderState(
@@ -174,7 +164,7 @@ class ImapMailboxClient implements IncomingMailboxClientInterface, PruningMailbo
                 ->limit($limit)
                 ->get();
         } catch (\Throwable $e) {
-            throw new MailboxConnectionException(self::safeReason($e), 0, $e);
+            throw MailboxConnectionException::at(MailboxConnectionException::STEP_FETCH, $e);
         }
 
         // Above the cursor only, like the loop below: the cursor message a
@@ -352,8 +342,14 @@ class ImapMailboxClient implements IncomingMailboxClientInterface, PruningMailbo
     private static function sentAt(Message $message): \DateTimeImmutable
     {
         $date = $message->getDate()->first();
-        if (is_object($date) && method_exists($date, 'format')) {
-            $sent = DateInput::fromStorage((string) $date->format('Y-m-d H:i:s'));
+        if ($date instanceof \DateTimeInterface) {
+            // Moved into the site's time zone before it loses its offset
+            // (#1248). Stored as a wall clock, like every other date here,
+            // a `+0200` sending time was kept at its own clock hour and read
+            // back in the site's zone — an hour or two off.
+            $local = \DateTimeImmutable::createFromInterface($date)
+                ->setTimezone(new \DateTimeZone(date_default_timezone_get()));
+            $sent = DateInput::fromStorage($local->format('Y-m-d H:i:s'));
             if ($sent !== null) {
                 return $sent;
             }
@@ -401,11 +397,16 @@ class ImapMailboxClient implements IncomingMailboxClientInterface, PruningMailbo
         } catch (MailboxConnectionException $e) {
             throw $e;
         } catch (\Throwable $e) {
-            throw new MailboxConnectionException(self::safeReason($e), 0, $e);
+            throw MailboxConnectionException::at(MailboxConnectionException::STEP_OPEN_FOLDER, $e);
         }
 
         if ($imapFolder === null) {
-            throw new MailboxConnectionException('Le dossier demandé est introuvable sur le serveur.');
+            throw new MailboxConnectionException(
+                'Le dossier demandé est introuvable sur le serveur.',
+                0,
+                null,
+                MailboxConnectionException::STEP_OPEN_FOLDER
+            );
         }
 
         return $imapFolder;

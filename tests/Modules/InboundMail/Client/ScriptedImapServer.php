@@ -43,6 +43,13 @@ final class ScriptedImapServer extends ImapProtocol
     /** @var list<string> every flag set the client asked for, in order */
     public array $stored = [];
 
+    /**
+     * @var list<string> every command that opens a folder or reads a
+     * message, as the server would see it (#1231): EXAMINE or SELECT, and
+     * each FETCH item
+     */
+    public array $commands = [];
+
     private ?string $selected = null;
 
     /** @var list<int> */
@@ -87,6 +94,7 @@ final class ScriptedImapServer extends ImapProtocol
         if (in_array('examine', $this->refuse, true)) {
             return $this->no('EXAMINE');
         }
+        $this->commands[] = 'EXAMINE ' . $folder;
         $this->selected = $folder;
 
         return $this->ok($this->status($folder));
@@ -97,6 +105,7 @@ final class ScriptedImapServer extends ImapProtocol
         if (in_array('select', $this->refuse, true)) {
             return $this->no('SELECT');
         }
+        $this->commands[] = 'SELECT ' . $folder;
         $this->selected = $folder;
 
         return $this->ok($this->status($folder));
@@ -113,6 +122,7 @@ final class ScriptedImapServer extends ImapProtocol
 
     public function flags(int|array $uids, int|string $uid = IMAP::ST_UID): Response
     {
+        $this->commands[] = 'FETCH FLAGS';
         $flags = [];
         foreach ((array) $uids as $id) {
             $flags[$id] = [];
@@ -123,12 +133,47 @@ final class ScriptedImapServer extends ImapProtocol
 
     public function headers(int|array $uids, string $rfc = 'RFC822', int|string $uid = IMAP::ST_UID): Response
     {
+        $this->commands[] = 'FETCH ' . $rfc . '.HEADER';
+
         return $this->ok($this->part((array) $uids, 0), true);
     }
 
     public function content(int|array $uids, string $rfc = 'RFC822', int|string $uid = IMAP::ST_UID): Response
     {
+        $this->commands[] = 'FETCH ' . $rfc . '.TEXT';
+
         return $this->ok($this->part((array) $uids, 1), true);
+    }
+
+    /**
+     * A FETCH of named items. Only `BODY.PEEK[TEXT]` is answered — under
+     * the name a real server gives it back, `BODY[TEXT]` — since it is the
+     * one the client asks for this way.
+     *
+     * @param array<int, string>|string $items
+     * @param array<int, int>|int $from
+     */
+    public function fetch(
+        array|string $items,
+        array|int $from,
+        mixed $to = null,
+        int|string $uid = IMAP::ST_UID
+    ): Response {
+        $items = (array) $items;
+        $this->commands[] = 'FETCH ' . implode(' ', $items);
+        if (in_array('fetch', $this->refuse, true)) {
+            return $this->no('UID FETCH');
+        }
+
+        $result = [];
+        foreach ($this->part((array) $from, 1) as $id => $body) {
+            $result[$id] = ['UID' => $id];
+            if (in_array('BODY.PEEK[TEXT]', $items, true)) {
+                $result[$id]['BODY[TEXT]'] = $body;
+            }
+        }
+
+        return $this->ok($result, true);
     }
 
     public function store(

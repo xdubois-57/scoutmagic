@@ -81,7 +81,15 @@ class NonIntrusiveReadTest extends TestCase
             $source,
             'Bodies must be fetched with FT_PEEK, or reading a message marks it \\Seen on the server.'
         );
-        $this->assertStringContainsString('IMAP::FT_PEEK', $source);
+
+        // The commands themselves are chosen in the query (#1231), and what
+        // reaches the server is pinned in ImapClientAgainstAServerTest.
+        $query = (string) file_get_contents(
+            dirname(__DIR__, 4) . '/modules/inbound_mail/src/Client/TolerantMessageQuery.php'
+        );
+        $this->assertStringContainsString("'BODY.PEEK[TEXT]'", $query);
+        $this->assertStringContainsString('->examineFolder(', $query);
+        $this->assertStringNotContainsString('->openFolder(', $query);
     }
 
     public function testTheImapClientOpensFoldersReadOnly(): void

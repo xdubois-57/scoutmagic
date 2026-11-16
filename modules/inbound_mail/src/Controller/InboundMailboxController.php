@@ -123,7 +123,7 @@ class InboundMailboxController extends AbstractController
         }
 
         $outcome = $this->refreshService->refresh(new \DateTimeImmutable());
-        FlashMessage::set($outcome['ok'] ? 'success' : 'warning', $outcome['message']);
+        FlashMessage::set($outcome['level'], $outcome['message']);
 
         return $this->redirect('/courrier');
     }

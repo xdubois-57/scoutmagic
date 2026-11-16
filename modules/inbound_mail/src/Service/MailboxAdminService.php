@@ -210,10 +210,13 @@ class MailboxAdminService
      * Try the box and say what happened, in a sentence an operator can act
      * on.
      *
-     * The result is also written to the mailbox row, so a test that fails
-     * leaves the same trace a failed synchronisation would — an operator
-     * should not have to remember which of the two produced the error they
-     * are looking at.
+     * **Nothing is written to the mailbox row** (#1325). A test only logs
+     * in and lists the folders: it proves neither that a watched folder
+     * opens nor that its messages can be fetched. Recording its success as
+     * a synchronisation dated « dernière relève » a run that never
+     * happened, and wiped the error of the one that had just failed; its
+     * failure, in turn, would mark a working relève as broken. The row
+     * belongs to the relève alone, and the test answers on the screen.
      *
      * @return array{ok: bool, message: string, folders: string[], sent_folder?: ?string}
      */
@@ -233,14 +236,10 @@ class MailboxAdminService
             $listed = $client->listFolders();
             $client->disconnect();
         } catch (MailboxConnectionException | \RuntimeException $e) {
-            $reason = $this->errorFormatter->format($e);
-            $this->repository->recordFailure($id, $reason, $now);
             $client->disconnect();
 
-            return ['ok' => false, 'message' => $reason, 'folders' => []];
+            return ['ok' => false, 'message' => $this->errorFormatter->format($e), 'folders' => []];
         }
-
-        $this->repository->recordSuccess($id, $now);
 
         return [
             'ok' => true,
@@ -260,9 +259,7 @@ class MailboxAdminService
      * it, so "blank = keep" is the only reasonable default — same rule the
      * save path already follows).
      *
-     * If the box is already persisted, success/failure is recorded so the
-     * dashboard stays current even after a manual test. For a brand-new
-     * box (no id), there is nothing to record against.
+     * Like `testConnection()`, it records nothing on the box: see there.
      *
      * @return array{ok: bool, message: string, folders: string[], sent_folder?: ?string}
      */
@@ -308,18 +305,9 @@ class MailboxAdminService
             $listed = $client->listFolders();
             $client->disconnect();
         } catch (MailboxConnectionException | \RuntimeException $e) {
-            $reason = $this->errorFormatter->format($e);
             $client->disconnect();
 
-            if ($existingId !== null && $existingId > 0) {
-                $this->repository->recordFailure($existingId, $reason, $now);
-            }
-
-            return ['ok' => false, 'message' => $reason, 'folders' => []];
-        }
-
-        if ($existingId !== null && $existingId > 0) {
-            $this->repository->recordSuccess($existingId, $now);
+            return ['ok' => false, 'message' => $this->errorFormatter->format($e), 'folders' => []];
         }
 
         return [

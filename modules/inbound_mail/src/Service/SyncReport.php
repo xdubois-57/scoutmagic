@@ -54,6 +54,12 @@ class SyncReport
         return array_sum(array_map(static fn(SyncOutcome $o) => $o->messagesSeen, $this->outcomes));
     }
 
+    /** The boxes actually polled: every one that was not skipped. */
+    public function attemptedCount(): int
+    {
+        return count(array_filter($this->outcomes, static fn(SyncOutcome $o) => !$o->skipped));
+    }
+
     public function failureCount(): int
     {
         return count(array_filter($this->outcomes, static fn(SyncOutcome $o) => $o->isFailure()));

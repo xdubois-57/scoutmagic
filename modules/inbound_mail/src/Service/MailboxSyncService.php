@@ -226,6 +226,13 @@ class MailboxSyncService
             $reason = $this->errorFormatter->format($e);
             $this->mailboxRepository->recordFailure($mailbox->id, $reason, $now);
             $client->disconnect();
+            // The step and the classes, for the support: what the sentence
+            // on the page cannot say without quoting the server (#1325).
+            error_log(sprintf(
+                'ScoutMagic: inbound mailbox #%d sync failed: %s',
+                $mailbox->id,
+                $this->errorFormatter->diagnostic($e)
+            ));
 
             return SyncOutcome::failed($reason);
         }

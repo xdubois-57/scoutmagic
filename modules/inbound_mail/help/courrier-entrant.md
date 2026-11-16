@@ -7,7 +7,7 @@ role_min: superadmin
 question: Comment brancher une boîte e-mail de l'unité sur le site ?
 question: Le site peut-il envoyer ou effacer des mails de la boîte ?
 paths: /config/courrier-entrant, /config/courrier-entrant/boites/nouvelle, /config/courrier-entrant/boites/*/modification
-related: courrier-portee, courrier-reponse, courrier-envoyes, courrier-unite, gerer-les-locations
+related: courrier-releve, courrier-portee, courrier-reponse, courrier-envoyes, courrier-unite, gerer-les-locations
 ---
 
 Le courrier entrant relie une ou plusieurs boîtes e-mail de l'unité au
@@ -43,13 +43,8 @@ dossiers visibles et, s'il le reconnaît, le dossier des envoyés, ou une explic
 vérifié, authentification refusée, serveur muet. Un certificat
 invalide bloque toujours : il n'existe pas d'option pour l'ignorer.
 
-## Rafraîchir maintenant
-
-Le bouton relève les boîtes tout de suite, sans attendre le prochain
-passage automatique — pratique juste après avoir saisi un mot de passe.
-Un seul rafraîchissement à la fois : un second clic pendant qu'un
-premier tourne est refusé, sans quoi les deux se courraient après sur
-la même boîte.
+Un test réussi ne prouve pas encore que la relève fonctionne : voir
+« Relever une boîte et lire ses erreurs ».
 
 ## Ce qui se passe ensuite
 
