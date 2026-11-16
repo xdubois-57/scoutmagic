@@ -1309,10 +1309,22 @@ class RentalMessageConsumerTest extends TestCase
         };
         $notifier = $this->createMock(\Modules\Rental\Mail\NewMessageNotifier::class);
         $notifier->expects($this->once())->method('messageFiled');
+        $fileId = (new FileRepository($this->pdo))->create(
+            'rental-attachment-' . bin2hex(random_bytes(4)),
+            'piece',
+            'image/jpeg',
+            10,
+            'identified',
+            'inbound_mail',
+            null
+        );
         $message = new \Modules\InboundMail\Api\InboundMessage(
             41, $this->mailboxId, '', '', LinkOrigin::AI, 'Les clés', 'tresorier@groupe.example', null,
             'a@b', null, new \DateTimeImmutable('2027-07-02 09:30:00'), '', '',
-            senderVerified: true
+            senderVerified: true,
+            attachments: [new \Modules\InboundMail\Api\InboundAttachment(
+                1, 41, $fileId, 'piece', 'image/jpeg', 10, hash('sha256', 'image/jpeg')
+            )]
         );
 
         (new RentalMessageConsumer(
@@ -1332,6 +1344,7 @@ class RentalMessageConsumerTest extends TestCase
         )->fetch(\PDO::FETCH_ASSOC);
         $this->assertIsArray($entry);
         $this->assertStringNotContainsString('tresorier@groupe.example', $entry['description'] . $entry['context']);
+        $this->assertCount(1, $this->documentRepository->findForBooking($booking->id), 'its attachment is still filed');
     }
 
     /**
