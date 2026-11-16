@@ -95,6 +95,8 @@ final class PhotoNormalizer
         try {
             return \Imagick::queryFormats('HEIC') !== [];
         } catch (\Throwable) {
+            // @catch-unreachable queryFormats() filters the coder list compiled into ImageMagick: it
+            // takes no input, opens nothing, and answers an empty array rather than throwing.
             return false;
         }
     }

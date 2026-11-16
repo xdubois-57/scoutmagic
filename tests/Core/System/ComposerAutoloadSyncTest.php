@@ -49,6 +49,27 @@ class ComposerAutoloadSyncTest extends TestCase
         );
     }
 
+    /**
+     * A prefix written without its trailing backslash is refused by the
+     * class loader; it is skipped, and the well-formed prefixes after it
+     * are still registered.
+     */
+    public function testAMalformedPrefixIsSkippedAndTheOthersAreStillRegistered(): void
+    {
+        file_put_contents($this->tmpDir . '/composer.json', json_encode([
+            'autoload' => ['psr-4' => ['Broken' => 'src/', 'Fixture\\Widget\\' => 'src/Widget/']],
+        ]));
+
+        $loader = new ClassLoader();
+        ComposerAutoloadSync::apply($loader, $this->tmpDir . '/composer.json');
+
+        $this->assertArrayNotHasKey('Broken', $loader->getPrefixesPsr4());
+        $this->assertSame(
+            $this->tmpDir . '/src/Widget/Thing.php',
+            $loader->findFile('Fixture\\Widget\\Thing')
+        );
+    }
+
     public function testDoesNothingWhenComposerJsonIsMissing(): void
     {
         $loader = new ClassLoader();

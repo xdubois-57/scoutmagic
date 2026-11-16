@@ -46,4 +46,13 @@ class SquareJpegEncoderTest extends TestCase
         $this->assertNull(SquareJpegEncoder::encode('not an image at all', 64, 75));
         $this->assertNull(SquareJpegEncoder::encode('', 64, 75));
     }
+
+    /** A decompression bomb is refused before the decode, as the same null. */
+    public function testAnImageOverThePixelCeilingComesBackAsNull(): void
+    {
+        $bomb = "\x89PNG\r\n\x1a\n" . pack('N', 13) . 'IHDR' . pack('NN', 40000, 40000) . "\x08\x02\x00\x00\x00"
+            . str_repeat("\x00", 64);
+
+        $this->assertNull(SquareJpegEncoder::encode($bomb, 64, 75));
+    }
 }

@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Tests\Core\Signature;
 
+use Core\Image\ImageDimensionException;
 use Core\Signature\SignatureException;
 use Core\Signature\SignatureImage;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -198,5 +199,24 @@ final class SignatureImageTest extends TestCase
         $this->expectException(SignatureException::class);
 
         SignatureImage::fromUploadedFile(sys_get_temp_dir() . '/no-such-signature-' . bin2hex(random_bytes(4)));
+    }
+
+    /**
+     * A decompression bomb — a PNG announcing 40 000 × 40 000 pixels in a
+     * few bytes — is refused by the site-wide pixel guard before GD
+     * allocates for it, in the signature's own words.
+     */
+    public function testADecompressionBombIsRefusedByThePixelGuardBeforeTheDecode(): void
+    {
+        $bomb = "\x89PNG\r\n\x1a\n" . pack('N', 13) . 'IHDR' . pack('NN', 40000, 40000) . "\x08\x02\x00\x00\x00"
+            . str_repeat("\x00", 64);
+
+        try {
+            SignatureImage::fromBytes($bomb);
+            $this->fail('A decompression bomb must be refused.');
+        } catch (SignatureException $e) {
+            $this->assertSame('Cette image est trop grande : 25 mégapixels au plus.', $e->getMessage());
+            $this->assertInstanceOf(ImageDimensionException::class, $e->getPrevious());
+        }
     }
 }

@@ -120,4 +120,25 @@ class LandscapeImageProcessorTest extends TestCase
         $this->assertSame(800, $width);
         $this->assertEqualsWithDelta(16 / 9, $width / $height, 0.01);
     }
+
+    /**
+     * A decompression bomb — a PNG announcing 40 000 × 40 000 pixels — is
+     * refused before GD allocates for it, as an upload error carrying the
+     * guard's own French sentence.
+     */
+    public function testAnImageOverThePixelCeilingIsRefusedBeforeItIsDecoded(): void
+    {
+        $bomb = "\x89PNG\r\n\x1a\n" . pack('N', 13) . 'IHDR' . pack('NN', 40000, 40000) . "\x08\x02\x00\x00\x00"
+            . str_repeat("\x00", 64);
+
+        try {
+            $this->processor->process($bomb, 'image/png');
+            $this->fail('A decompression bomb must be refused.');
+        } catch (UploadException $e) {
+            $this->assertSame(
+                'Image trop grande (40000×40000 pixels) : la limite est de 50 mégapixels.',
+                $e->getMessage()
+            );
+        }
+    }
 }
