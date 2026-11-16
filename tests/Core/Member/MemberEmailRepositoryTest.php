@@ -141,6 +141,39 @@ class MemberEmailRepositoryTest extends TestCase
     }
 
     /**
+     * A 23000 for which the re-read finds no row is a refusal, not the race
+     * (SQLite reports a trigger's refusal under that code too): the
+     * database's own exception comes back, not an \Error from the assertion.
+     */
+    public function testADeskOverrideWriteRefusedWithNoRowToReReadRethrowsTheOriginalException(): void
+    {
+        $this->pdo->exec('INSERT INTO members (id, desk_id) VALUES (7, \'D7\')');
+        $this->pdo->exec(
+            "CREATE TRIGGER refuse_member_emails BEFORE INSERT ON member_emails
+             BEGIN SELECT RAISE(ABORT, 'adresse refusée'); END"
+        );
+
+        try {
+            $this->repository->findOrCreateDeskOverride(7, 'refused@test.com');
+            $this->fail('a refused write cannot produce a row');
+        } catch (\PDOException $e) {
+            $this->assertStringContainsString('adresse refusée', $e->getMessage());
+        }
+    }
+
+    public function testADeskOverrideIsCreatedOnceAndFoundAgain(): void
+    {
+        $this->pdo->exec('INSERT INTO members (id, desk_id) VALUES (7, \'D7\')');
+
+        $created = $this->repository->findOrCreateDeskOverride(7, 'Chef@Test.com');
+        $again = $this->repository->findOrCreateDeskOverride(7, 'chef@test.com');
+
+        $this->assertSame($created->id, $again->id);
+        $this->assertSame(MemberEmail::SOURCE_DESK, $created->source);
+        $this->assertSame(MemberEmail::STATUS_VALID, $created->status);
+    }
+
+    /**
      * The cleanup of issue #1100: a 'desk' row whose address is no longer
      * the member's Desk address in any year still open goes; the row of the
      * address Desk gives the member today stays, with its status.
