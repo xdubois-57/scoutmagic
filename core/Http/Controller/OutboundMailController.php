@@ -2656,6 +2656,8 @@ class OutboundMailController extends AbstractController
             'watched_mailboxes' => $this->returns->scopedMailboxCount(),
             'returns_possible' => $this->returns->isPossible(),
             'returns_need_scope' => $this->returns->isCollectingWithoutScope(),
+            // A module that FAILED to list its boxes is not a box to open (#1210).
+            'returns_scope_unreadable' => $this->returns->isScopeUnreadable(),
             'identity' => [
                 'from_address' => $identity->fromAddress,
                 'from_name' => $identity->fromName,
