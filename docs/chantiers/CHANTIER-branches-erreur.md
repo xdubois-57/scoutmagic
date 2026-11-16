@@ -132,15 +132,15 @@ Mesuré le 2026-11-14 sur `main` `fc8b1df1` — 28 996 tests, PCOV, MariaDB.
 | dont corps vide | 72 |
 | Marqués `@catch-unreachable` | 0 (lot 0 en ajoute un) |
 
-**Mesure finale**, le 2026-11-16 sur `main` `03c2bb38` (après #1288) plus la
-PR finale : 29 590 tests, PCOV, MariaDB.
+**Mesure finale**, le 2026-11-16 sur `main` `4c185749` plus la PR finale :
+29 636 tests, PCOV, MariaDB.
 
 | | Nombre |
 |---|---|
-| Blocs `catch` dans `core/` et `modules/` | 1108 |
-| Exécutés | 1082 |
+| Blocs `catch` dans `core/` et `modules/` | 1118 |
+| Exécutés | 1093 |
 | **Jamais exécutés** | **0** |
-| Marqués `@catch-unreachable` | 26 |
+| Marqués `@catch-unreachable` | 25 |
 | Inconnus | 0 |
 
 Ils se répartissent sur 254 fichiers. Les domaines où il en reste, dans
@@ -710,21 +710,24 @@ conditionnel, accolade fermante suivie de code, accolades lues par jeton,
 php:S1808) sont arrivées par #1297. La mesure finale est faite avec cette
 version du script.
 
+**Ce qui a fusionné pendant le chantier**, rattrapé ici :
+- **#1289** tronque le corps d'une notification push avant la bibliothèque,
+  qui ne peut donc plus refuser une charge trop longue. Le `catch` de
+  `queuePushForAccount()` (`core/Notification`) devient inatteignable et reçoit
+  un marqueur. Le test du lot 41 qui l'atteignait par une charge trop longue
+  échouait depuis ; #1312 (#1311) l'a réécrit avec une charge que rien ne
+  peut réduire, journalisée et non poussée.
+- **#1284** : son nouveau `catch (StorageLocationException)` de
+  `attachDriveFolder()` (`core/Storage`) ne voit passer que ce que le `catch`
+  de `DriveAccessException` placé avant lui n'a pas pris, et rien d'autre ne
+  lève cette exception dans ce `try`. Il reçoit un marqueur.
+- **#1293** : son `catch` de `ReturnPathVerifier::isScopeUnreadable()`
+  (`core/Mail`), quand le journal ne peut pas être écrit, est atteint par un
+  test : la liste reste lue comme illisible, et seule la classe de la cause
+  part au journal d'erreurs PHP.
+- **#1286** a retiré, avec le code qu'il couvrait, le marqueur du lot 10
+  (`RegistrationConfigController`), et **#1296** celui de
+  `DrainDeferredMailHandler`, dont le `catch` est désormais testé.
+
 **La fin est atteinte** : sur la suite entière, 0 bloc jamais exécuté et 0
-inconnu ; les 26 marqueurs portent chacun leur raison.
-
-**Après #1289** : depuis #1289, le corps d'une notification push est tronqué
-avant d'arriver à la bibliothèque, qui ne peut donc plus refuser une charge
-trop longue. Le `catch` de `queuePushForAccount()` (`core/Notification`)
-devient inatteignable : il reçoit un marqueur, et le test du lot 41 qui
-l'atteignait par une charge trop longue est retiré, sa prémisse n'existant
-plus.
-
-**Après #1284** : son nouveau `catch (StorageLocationException)` de
-`attachDriveFolder()` (`core/Storage`) ne laisse passer que ce que le `catch`
-de `DriveAccessException` placé avant lui n'a pas pris, et rien d'autre ne lève
-cette exception dans ce `try`. Il reçoit un marqueur. La suite entière,
-remesurée après ces deux rattrapages : 0 jamais exécuté, 0 inconnu.
-
-Les marqueurs sont 26 et non 25 + 2 : celui du lot 10 dans
-`RegistrationConfigController` est parti avec le code qu'il couvrait (#1286).
+inconnu ; les 25 marqueurs portent chacun leur raison.
