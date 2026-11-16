@@ -475,7 +475,9 @@ class FederalScaleLookupService
      * moved is a setting to edit, not a chain to chase, and refusing is
      * both safer and more honest than silently reading somewhere else.
      *
-     * protected so a test can substitute a page without a network.
+     * protected so a test can substitute a page without a network — and
+     * the request itself is a method of its own, {@see requestPage()}, so a
+     * test can also show that nothing is asked for a refused address (#1281).
      */
     protected function fetchPage(string $url): ?string
     {
@@ -485,6 +487,19 @@ class FederalScaleLookupService
             return null;
         }
 
+        return $this->requestPage($url);
+    }
+
+    /**
+     * The request, and only the request: it opens the connection, so it runs
+     * **after** the guard in {@see fetchPage()} and never before. Separate
+     * from it so that a test can replace the network without replacing the
+     * check — overriding `fetchPage()` also overrides the guard, and a test
+     * could then never see whether an internal address is refused before a
+     * request leaves (#1281).
+     */
+    protected function requestPage(string $url): ?string
+    {
         $context = stream_context_create(['http' => [
             'method' => 'GET',
             'timeout' => self::FETCH_TIMEOUT_SECONDS,

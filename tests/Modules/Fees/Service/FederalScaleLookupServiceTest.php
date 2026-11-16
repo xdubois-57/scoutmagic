@@ -15,6 +15,7 @@ use Modules\LlmConnector\Api\LlmTier;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Fees\Support\FakeLlmConnector;
+use Tests\Modules\Fees\Support\RequestSpyingFederalScaleLookupService;
 use Tests\Modules\Fees\Support\StubbedFederalScaleLookupService;
 
 /**
@@ -293,9 +294,14 @@ class FederalScaleLookupServiceTest extends TestCase
     }
 
     /**
-     * The real fetch, with no stub: a configured address that points inside
-     * the network is refused before any request leaves, and reads as a page
-     * that could not be reached.
+     * A configured address that points inside the network is refused before
+     * any request leaves, and reads as a page that could not be reached.
+     *
+     * « Before any request leaves » is proved, not assumed (#1281): only the
+     * request itself is replaced by a spy — the guard in front of it runs
+     * for real — and the spy must never have been asked. Without the spy, a
+     * request to a port where nothing listens fails the same way and the
+     * test could not tell a refusal from a refused connection.
      */
     public function testAnAddressInsideTheNetworkIsNeverFetched(): void
     {
@@ -309,16 +315,46 @@ class FederalScaleLookupServiceTest extends TestCase
         );
         $this->settings->setInternal(FederalScaleLookupService::SETTING_URL, 'https://127.0.0.1/cotisations', 'fees');
         $connector = new FakeLlmConnector(tierAvailable: true);
-        $service = new FederalScaleLookupService($connector, $this->settings, $this->journal);
+        $service = new RequestSpyingFederalScaleLookupService($connector, $this->settings, $this->journal, 'unused');
 
         $lookup = $service->lookup('2026-2027');
 
+        $this->assertSame([], $service->requested, 'a request left for an address inside the network');
         $this->assertSame(FederalScaleLookup::FETCH_FAILED, $lookup->status);
         $this->assertSame('https://127.0.0.1/cotisations', $lookup->url);
         $this->assertSame(0, $connector->calls);
         $stmt = $this->pdo->prepare('SELECT description FROM event_log WHERE category = ? AND event_type = ?');
         $stmt->execute(['fees', 'fees_federal_scale_fetch_failed']);
         $this->assertSame(['Page des cotisations fédérales injoignable'], $stmt->fetchAll(\PDO::FETCH_COLUMN));
+    }
+
+    /**
+     * The control that makes the test above worth anything: the same spy, a
+     * public address, and the request is made. A spy that nothing ever
+     * reaches would keep the previous test green whatever the guard did.
+     */
+    public function testAPublicAddressDoesReachTheRequest(): void
+    {
+        $this->settings->register(
+            FederalScaleLookupService::SETTING_URL,
+            '',
+            'url',
+            'Page des cotisations',
+            'desc',
+            'fees'
+        );
+        $this->settings->setInternal(FederalScaleLookupService::SETTING_URL, 'https://8.8.8.8/cotisations', 'fees');
+        $connector = new FakeLlmConnector(tierAvailable: true, content: $this->answer('2026-2027'));
+        $service = new RequestSpyingFederalScaleLookupService(
+            $connector,
+            $this->settings,
+            $this->journal,
+            '<html><body><p>Cotisation normale : 57,50 €</p></body></html>'
+        );
+
+        $service->lookup('2026-2027');
+
+        $this->assertSame(['https://8.8.8.8/cotisations'], $service->requested);
     }
 
     // ------------------------------------------------------------------
