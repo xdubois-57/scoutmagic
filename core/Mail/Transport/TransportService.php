@@ -246,19 +246,29 @@ final class TransportService
      */
     private function journalSaveFailure(string $operation, int $providerId, \Throwable $e, ?int $actorId): void
     {
-        $this->journal->log(
-            'core',
-            'mail_provider_save_failed',
-            'error',
-            'L’enregistrement d’un fournisseur d’envoi a échoué en base de données',
-            [
-                'operation' => $operation,
-                'provider_id' => $providerId,
-                'cause' => $e::class,
-                'detail' => mb_substr($e->getMessage(), 0, 300),
-            ],
-            $actorId
-        );
+        // Best effort, like rollBack() below: it runs inside a `catch` whose
+        // exception is the one worth reporting, and the journal is a table of
+        // the very database that may be the cause. A failure here must not
+        // replace it with a second exception that escapes the controller,
+        // which only expects a TransportException.
+        try {
+            $this->journal->log(
+                'core',
+                'mail_provider_save_failed',
+                'error',
+                'L’enregistrement d’un fournisseur d’envoi a échoué en base de données',
+                [
+                    'operation' => $operation,
+                    'provider_id' => $providerId,
+                    'cause' => $e::class,
+                    'detail' => mb_substr($e->getMessage(), 0, 300),
+                ],
+                $actorId
+            );
+        } catch (\Throwable) {
+            // Nothing left to tell anybody with: the exception that follows is
+            // the report.
+        }
     }
 
     /**

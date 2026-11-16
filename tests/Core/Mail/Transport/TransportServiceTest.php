@@ -40,6 +40,7 @@ class TransportServiceTest extends TestCase
     private TransportService $service;
     private JournalRepository $journalRepository;
     private ProviderHealthRepository $health;
+    private ProviderConnections $connections;
     private string $secretsDirectory = '';
 
     protected function setUp(): void
@@ -60,7 +61,7 @@ class TransportServiceTest extends TestCase
         );
         $secretManager->generateMasterKey();
         $secretManager->writeSecrets([]);
-        $connections = new ProviderConnections([], $secretManager);
+        $connections = $this->connections = new ProviderConnections([], $secretManager);
         $this->journalRepository = new JournalRepository($this->pdo);
 
         $this->health = new ProviderHealthRepository($this->pdo);
@@ -339,6 +340,51 @@ class TransportServiceTest extends TestCase
         $context = json_decode($entries[0][2], true);
         $this->assertSame('update', $context['operation']);
         $this->assertSame($relay, $context['provider_id']);
+    }
+
+    /**
+     * The journal is a database table too, and the failure being journaled
+     * may be the database itself being gone. A write that fails there must
+     * not replace the sentence the superadmin is about to get with a second
+     * exception — it would escape past the controller, which only expects a
+     * TransportException, as a bare 500.
+     */
+    public function testAJournalThatCannotBeWrittenDoesNotReplaceTheFailureBeingReported(): void
+    {
+        $relay = $this->providers->create('Ancien nom', null, 50, 10, 'mail_provider_7');
+        $this->pdo->exec(
+            "CREATE TRIGGER refuse_provider_update BEFORE UPDATE ON mail_providers
+             BEGIN SELECT RAISE(ABORT, 'refused by the test'); END"
+        );
+        $unjournaled = new TransportService(
+            $this->providers,
+            $this->chains,
+            new SendCounterRepository($this->pdo),
+            $this->connections,
+            new MailProviderDirectory(
+                $this->providers,
+                $this->connections,
+                new SettingService(new SettingRepository($this->pdo))
+            ),
+            new JournalService(new class ($this->pdo) extends JournalRepository {
+                public function insert(
+                    string $category,
+                    string $type,
+                    string $level,
+                    string $description,
+                    ?string $contextJson,
+                    ?int $userId,
+                    ?string $ipAddress = null
+                ): void {
+                    throw new \PDOException('server has gone away');
+                }
+            })
+        );
+
+        $this->expectException(TransportException::class);
+        $this->expectExceptionMessageMatches('/n’a pas pu être enregistré/u');
+
+        $unjournaled->updateProvider($relay, 'Nouveau nom', 'smtp.exemple.test', 587, 'u', 'p', 900, 99, 33);
     }
 
     public function testAFailedSecretsWriteIsNotJournaledAsADatabaseFailure(): void
