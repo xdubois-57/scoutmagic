@@ -132,13 +132,24 @@ Mesuré le 2026-11-14 sur `main` `fc8b1df1` — 28 996 tests, PCOV, MariaDB.
 | dont corps vide | 72 |
 | Marqués `@catch-unreachable` | 0 (lot 0 en ajoute un) |
 
+**Mesure finale**, le 2026-11-16 sur `main` `c64aec98` plus les lots 31 à 47
+et la PR finale : 29 552 tests, PCOV, MariaDB.
+
+| | Nombre |
+|---|---|
+| Blocs `catch` dans `core/` et `modules/` | 1105 |
+| Exécutés | 1080 |
+| **Jamais exécutés** | **0** |
+| Marqués `@catch-unreachable` | 25 |
+| Inconnus | 0 |
+
 Ils se répartissent sur 254 fichiers. Les domaines où il en reste, dans
 l'ordre des lots (ceux à zéro, 11 domaines, ne figurent pas) :
 
 | Domaine | Jamais exécutés | dont vides | Marqués | Blocs |
 |---|---|---|---|---|
 | `modules/rental` | ~~42~~ **0** (lots 3a-3b) | ~~6~~ 0 | 1 | 102 |
-| `core/Http` | ~~36~~ **1** (lot 4, voir le journal) | ~~4~~ 0 | 1 | 133 |
+| `core/Http` | ~~36~~ **0** (lot 4, puis la PR finale) | ~~4~~ 0 | 1 | 133 |
 | `core/Mail` | ~~35~~ **0** (lots 1-2) | ~~16~~ 0 | 2 | 77 |
 | `core/Storage` | ~~31~~ **0** (lot 5) | ~~9~~ 0 | 1 | 67 |
 | `modules/finance` | ~~23~~ **0** (lot 6) | 0 | 3 | 54 |
@@ -685,3 +696,23 @@ test vérifie l'effet et échoue quand le `catch` relance ou change ce qu'il fai
   connexion coupée depuis.
 - `core/Image` (`PhotoNormalizer`) : `queryFormats()` filtre la liste des
   codecs compilés dans ImageMagick ; elle ne prend aucune entrée et ne lève pas.
+
+### PR finale — `guard()` et la mesure (#1214) — 2026-11-16
+
+**1 → 0** : le dernier `catch` jamais exécuté, celui de
+`ErrorHandler::guard()` (`core/Http`, laissé ouvert au lot 4), terminait la
+requête par `exit`, qui emportait sa couverture. `setTerminator()`, réservé aux
+tests, remplace cet `exit` par une exception : le `catch` est traversé dans le
+processus de PHPUnit et compté. Le test en sous-processus reste, qui prouve le
+vrai `exit`.
+
+**`scripts/catch-coverage.php`** (#1214) :
+- une ligne du corps qui n'a pas tourné, une fois la ligne d'entrée écartée, ne
+  prouve plus rien (« inconnu ») : elle peut être dans une branche non prise ;
+- la ligne de l'accolade fermante suivie de code (`recover(); } after();`) est
+  écartée des preuves ;
+- les accolades sont lues par jeton, plus par leur texte : un `}` dans une
+  chaîne ne ferme plus le corps.
+
+**La fin est atteinte** : sur la suite entière, 0 bloc jamais exécuté et 0
+inconnu ; les 25 marqueurs portent chacun leur raison.
