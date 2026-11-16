@@ -77,6 +77,17 @@ class SecondaryEmailService
      */
     public function addEmail(int $requestId, string $rawEmail): RegistrationSecondaryEmail
     {
+        return $this->addEmailReporting($requestId, $rawEmail)->email;
+    }
+
+    /**
+     * addEmail(), and what became of the confirmation e-mail: the page that
+     * tells a family one was sent needs to know whether it was (#1236).
+     *
+     * @throws RegistrationException as addEmail() does
+     */
+    public function addEmailReporting(int $requestId, string $rawEmail): SecondaryEmailAddition
+    {
         $normalized = strtolower(trim($rawEmail));
         if (filter_var($normalized, FILTER_VALIDATE_EMAIL) === false) {
             throw new RegistrationException('Adresse email invalide.');
@@ -127,9 +138,9 @@ class SecondaryEmailService
         });
         [$row, $rawToken, $isNew] = $outcome;
 
-        if ($rawToken !== null) {
-            $this->sendConfirmationEmail($row->id, $row->email, $rawToken);
-        }
+        $confirmationSent = $rawToken !== null
+            ? $this->sendConfirmationEmail($row, $rawToken)
+            : null;
         if ($isNew) {
             $this->journalService->log(
                 'registration',
@@ -140,7 +151,7 @@ class SecondaryEmailService
             );
         }
 
-        return $row;
+        return new SecondaryEmailAddition($row, $confirmationSent);
     }
 
     /**
@@ -238,8 +249,12 @@ class SecondaryEmailService
         return new \DateTimeImmutable() >= $cooldownEnd;
     }
 
-    private function sendConfirmationEmail(int $emailId, string $to, string $rawToken): void
+    /**
+     * @return bool whether the e-mail left
+     */
+    private function sendConfirmationEmail(RegistrationSecondaryEmail $row, string $rawToken): bool
     {
+        $emailId = $row->id;
         $confirmUrl = rtrim($this->baseUrl, '/') . "/inscriptions/suivi/emails/confirm/{$emailId}?token={$rawToken}";
         $context = [
             'site_name' => $this->siteName,
@@ -257,15 +272,30 @@ class SecondaryEmailService
 
         try {
             $this->mailService->send(
-                to: $to,
+                to: $row->email,
                 subject: $email->subject,
                 bodyHtml: $email->bodyHtml,
                 bodyText: $email->bodyText
             );
         } catch (MailException) {
             // Best-effort, same rationale as the module's other emails —
-            // the row is kept either way so the parent can be re-sent one.
+            // the row is kept either way so the parent can be re-sent one —
+            // but not silent (#1236): the address stays pending with no
+            // e-mail on its way, and the staff are told. The request and
+            // the row, never the address nor the transport's message, which
+            // can quote it.
+            $this->journalService->log(
+                'registration',
+                'registration_secondary_email_confirmation_failed',
+                'warning',
+                'L\'email de confirmation d\'une adresse secondaire n\'a pas pu partir',
+                ['request_id' => $row->registrationRequestId, 'secondary_email_id' => $emailId]
+            );
+
+            return false;
         }
+
+        return true;
     }
 
     private function requireOwnRow(int $requestId, int $emailId): RegistrationSecondaryEmail

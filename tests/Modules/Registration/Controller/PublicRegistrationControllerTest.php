@@ -166,7 +166,8 @@ class PublicRegistrationControllerTest extends TestCase
                 RegistrationTestHelper::projectedPopulation($this->pdo, $this->encryption),
                 $sectionService
             ),
-            new ReenrollmentRepository($this->pdo, $this->encryption)
+            new ReenrollmentRepository($this->pdo, $this->encryption),
+            $journalService
         );
 
         if (session_status() === PHP_SESSION_NONE) {
@@ -435,6 +436,22 @@ class PublicRegistrationControllerTest extends TestCase
             0,
             (int) $this->pdo->query('SELECT COUNT(*) FROM registration_request_friend_wishes')->fetchColumn()
         );
+
+        // …but the loss is no longer silent (#1236): one warning names the
+        // request, so the staff can ask the family what they wanted. Never
+        // the names — they are a child's friends — nor the database's words.
+        $entries = $this->pdo->query(
+            "SELECT category, event_type, level, context FROM event_log
+             WHERE event_type = 'registration_friend_wishes_failed'"
+        )->fetchAll(\PDO::FETCH_ASSOC);
+        $this->assertCount(1, $entries);
+        $this->assertSame('registration', $entries[0]['category']);
+        $this->assertSame('warning', $entries[0]['level']);
+        $requestId = (int) $this->pdo->query('SELECT id FROM registration_requests')->fetchColumn();
+        $this->assertSame(['request_id' => $requestId], json_decode((string) $entries[0]['context'], true));
+        $this->assertStringNotContainsString('Zoé', (string) $entries[0]['context']);
+        $this->assertStringNotContainsString('Martin', (string) $entries[0]['context']);
+        $this->assertStringNotContainsString('wishes refused', (string) $entries[0]['context']);
     }
 
     /**
