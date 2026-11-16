@@ -306,10 +306,11 @@ function catchCoverageScan(string $source): array
  * A line shared with code before `catch`, or the line the body closes on when
  * code follows the brace (see catchCoverageScan()), is never taken as
  * evidence: an empty body there is `unknown`, and a body is judged on its
- * other lines only. And once such a line has been set aside, what is left no
- * longer proves absence: the first line left may be the inside of an `if` the
- * catch did not take, so only a pass on a remaining line is evidence
- * (`executed`) and silence on all of them is `unknown`.
+ * other lines only. And once a line has been set aside BEFORE a silent one,
+ * that silence no longer proves absence: the line may be the inside of an `if`
+ * the catch did not take, so only a pass is evidence (`executed`) and silence
+ * on all the lines left is `unknown`. A line set aside after it (the closing
+ * brace's) does not weaken what the lines above it say.
  *
  * @param array{line: int, bodyLines: list<int>, empty: bool, marker: ?string, sharedLine?: bool,
  *   closingLine?: ?int} $catch
@@ -342,16 +343,23 @@ function catchCoverageJudge(array $catch, ?array $lines): string
         $setAside[] = $catch['closingLine'];
     }
     $remaining = array_values(array_diff($candidates, $setAside));
-    $narrowed = count($remaining) !== count($candidates);
 
     foreach ($remaining as $line) {
         if (array_key_exists($line, $lines) && is_array($lines[$line])) {
             if ($lines[$line] !== []) {
                 return 'executed';
             }
-            // The first executable line left that did not run: absence of a
-            // pass proves `never` only when nothing was set aside before it.
-            if (!$narrowed) {
+            // The first executable line left that did not run. Absence of a
+            // pass proves `never` unless a line was set aside BEFORE it: the
+            // catch line (shared with the try), whose silence could hide that
+            // this line is the inside of an `if` the catch did not take. A
+            // line set aside AFTER it — the closing brace's — changes nothing
+            // about the lines above it.
+            $setAsideBefore = array_filter(
+                array_intersect($setAside, $candidates),
+                static fn(int $set): bool => $set < $line
+            );
+            if ($setAsideBefore === []) {
                 return $empty ? 'never-empty' : 'never';
             }
         }

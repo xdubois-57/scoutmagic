@@ -180,11 +180,29 @@ final class CatchCoverageTest extends TestCase
 
         $this->assertSame(5, $catch['closingLine']);
         $this->assertSame('unknown', \catchCoverageJudge($catch, [4 => ['T1'], 5 => ['T1']]));
+    }
 
-        // A later line of the body still proves, when it ran.
-        $own = ['line' => 4, 'bodyLines' => [5, 6], 'empty' => false, 'marker' => null, 'closingLine' => 5];
-        $this->assertSame('executed', \catchCoverageJudge($own, [5 => ['T1'], 6 => ['T1']]));
-        $this->assertSame('unknown', \catchCoverageJudge($own, [5 => ['T1'], 6 => []]));
+    /**
+     * The closing brace's line is set aside AFTER the lines above it, so it
+     * weakens none of them: an earlier unconditional line that never ran
+     * still proves `never`, and one that ran still proves `executed`.
+     */
+    public function testAClosingLineSetAsideDoesNotWeakenTheLinesAboveIt(): void
+    {
+        $catch = \catchCoverageScan(<<<'PHP'
+            <?php
+            try {
+                a();
+            } catch (E) {
+                log_it();
+                recover(); } after();
+            PHP)[0];
+
+        $this->assertSame([5, 6], $catch['bodyLines']);
+        $this->assertSame(6, $catch['closingLine']);
+        $this->assertSame('never', \catchCoverageJudge($catch, [5 => [], 6 => ['T1']]));
+        $this->assertSame('executed', \catchCoverageJudge($catch, [5 => ['T1'], 6 => ['T1']]));
+        $this->assertSame('unknown', \catchCoverageJudge($catch, [6 => ['T1']]), 'only the shared line is recorded');
     }
 
     public function testABodyClosingOnItsOwnLineOrBeforeOnlyACommentLeavesTheLineAlone(): void
