@@ -1004,6 +1004,19 @@ class RentalSignedContractServiceTest extends TestCase
         $this->assertSame(DocumentType::SIGNED_COPY, $copy->type);
         $this->assertSame($copy->id, $service->pendingCopy($booking->id)?->id);
         $this->assertSame([], $sent);
+
+        // Nobody was told, and now that is said (#1221): one warning, with
+        // the kind of failure and the booking — never a name or an address.
+        $entries = $this->pdo->query(
+            "SELECT category, level, description, context FROM event_log
+             WHERE event_type = 'rental_manager_notification_failed'"
+        )->fetchAll(\PDO::FETCH_ASSOC);
+        $this->assertCount(1, $entries);
+        $this->assertSame('rental', $entries[0]['category']);
+        $this->assertSame('warning', $entries[0]['level']);
+        $this->assertStringContainsString('PDOException', $entries[0]['description']);
+        $this->assertSame(['booking_id' => $booking->id], json_decode((string) $entries[0]['context'], true));
+        $this->assertStringNotContainsString('gestionnaire@test.be', serialize($entries));
     }
 
     public function testACopyOfAnotherBookingCannotBeAnsweredThroughThisOne(): void
