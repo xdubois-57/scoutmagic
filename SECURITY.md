@@ -1039,15 +1039,15 @@ Issue #1258, counter-audit of 14 November 2026, finding N7 (Low, High confidence
 **The rule it is an exception to.** On the ordinary path, a secondary address added to a registration request or to a member stays **pending** until its holder confirms it from their mailbox (§2, §31). A `valid` address of a member is a **login identity**: it opens the child's record, health record included, and inherits its role (§2, « A magic link identifies the address it was sent to »).
 
 **The exception** (module `data_migration`, import of next year's registrations):
-1. `Modules\Registration\Service\RequestImportService::fileSecondaryEmails()` takes each secondary address of the old site **in the state it had there** — `pending` or `valid` — through `createImported()`, and sends no confirmation e-mail.
-2. When the request is linked to a member, `Modules\Registration\Service\MigrationService` copies every `valid` address into `member_emails` as `valid` (`SOURCE_MANUAL`), again with no confirmation.
+1. `Modules\Registration\Service\RequestImportService::fileSecondaryEmails()` takes each secondary address of the old site **in the state it had there** — `pending` or `valid` — through `createImported()`, and sends no confirmation e-mail. **This is the step that lets an address reach `valid` without having been confirmed here**, and it is the superadmin's alone: every route of the `data_migration` module is `role_min: superadmin`.
+2. When the request is linked to a member, `Modules\Registration\Service\MigrationService::migrate()` copies every `valid` address into `member_emails` as `valid` (`SOURCE_MANUAL`), again with no confirmation — **the step that turns it into a login identity.** It is not superadmin-only: the same method serves the manual link (`POST /config/inscriptions/demandes/{id}/link`, `role_min: admin`) and `ReconciliationService`. It adds no unconfirmed address of its own, though: it only promotes addresses already `valid`, which are either confirmed by their holder here (§31) or were imported as `valid` by step 1.
 
-An address confirmed **on the old site** therefore becomes a login identity **here** without being confirmed here.
+An address confirmed **on the old site** therefore becomes a login identity **here** without being confirmed here. A superadmin's import creates the address; an `admin` linking the request to a member (or the reconciliation) is what makes it log in.
 
-**Why it is accepted:** continuity for families — the old site itself confirmed the address — and the action is reserved to the **superadmin**: every route of the module is `role_min: superadmin`, and a superadmin can already grant access through a Desk file.
+**Why it is accepted:** continuity for families — the old site itself confirmed the address — and the only way an address enters `valid` unconfirmed is a **superadmin**'s import, who can already grant access through a Desk file.
 
-**What it costs:** the old site becomes the proof that its holder owns the address. A typo, an unverified address or an obsolete address on the old site gives access to a child's record.
+**What it costs:** the old site becomes the proof that its holder owns the address. A typo, an unverified address or an obsolete address on the old site gives access to a child's record, and the link step (`admin`) will carry it through without asking again.
 
-**What would make it unacceptable:** an import reachable by a role below superadmin, or an import source other than the old site (any file whose addresses nobody confirmed).
+**What would make it unacceptable:** an import reachable by a role below superadmin; an import source other than the old site (any file whose addresses nobody confirmed); or a promotion step that took in an address which is not `valid`.
 
 **Not done, left to the maintainer:** one sentence on the import preview screen (« Les adresses confirmées sur l'ancien site seront actives ici sans nouvelle confirmation »), so the superadmin knows at the moment of validating. No behaviour changes with this section.
