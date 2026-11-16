@@ -579,7 +579,8 @@ final class ProtectedCopierTest extends TestCase
         );
 
         $this->assertSame(CopyOutcome::FAILED, $outcome->status);
-        $this->assertStringContainsString('disparu', (string) $outcome->reason);
+        $this->assertStringContainsString('relue', (string) $outcome->reason);
+        $this->assertStringNotContainsString('disparu', (string) $outcome->reason, 'the cause is not known, so not claimed');
         $this->assertNull($outcome->md5, 'a failed copy carries no digest');
     }
 

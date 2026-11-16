@@ -285,9 +285,12 @@ class ProtectedCopier
             // the copy again.
             $again = $destination->size($key);
             if ($again === null) {
+                // « Null » is « cannot be determined » here too — a missing
+                // object or a destination in trouble, which size() does not
+                // tell apart (see above): the cause is not claimed.
                 return CopyOutcome::failed(
-                    'La copie a disparu de la destination pendant sa vérification : elle sera refaite au '
-                    . 'prochain passage.'
+                    'La copie n\'a pas pu être relue sur la destination pendant sa vérification : elle sera '
+                    . 'refaite au prochain passage.'
                 );
             }
             if ($again !== $expectedSizeBytes) {
