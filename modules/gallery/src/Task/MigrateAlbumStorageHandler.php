@@ -112,10 +112,15 @@ class MigrateAlbumStorageHandler implements TaskHandlerInterface
                 try {
                     $sourceBytes = $sourceBackend->get($path);
                 } catch (\Throwable $e) {
-                    $albumRepository->failMigration(
+                    $this->failOnAFile(
+                        $context,
+                        $albumRepository,
                         $albumId,
-                        "Lecture impossible du fichier « {$path} » (média #{$media->id}) sur l'emplacement source : "
-                            . $e->getMessage()
+                        $media,
+                        $path,
+                        'source',
+                        "Un fichier de l'album n'a pas pu être lu sur l'emplacement source.",
+                        $e
                     );
                     return;
                 }
@@ -124,10 +129,15 @@ class MigrateAlbumStorageHandler implements TaskHandlerInterface
                     $targetBackend->put($path, $sourceBytes, $this->guessMimeType($path));
                     $verifyBytes = $targetBackend->get($path);
                 } catch (\Throwable $e) {
-                    $albumRepository->failMigration(
+                    $this->failOnAFile(
+                        $context,
+                        $albumRepository,
                         $albumId,
-                        "Écriture impossible du fichier « {$path} » (média #{$media->id}) sur l'emplacement cible : "
-                            . $e->getMessage()
+                        $media,
+                        $path,
+                        'target',
+                        "Un fichier de l'album n'a pas pu être écrit sur l'emplacement cible.",
+                        $e
                     );
                     return;
                 }
@@ -193,6 +203,45 @@ class MigrateAlbumStorageHandler implements TaskHandlerInterface
                 ]
             );
         }
+    }
+
+    /**
+     * Fails the migration on a file that could not be read or written.
+     *
+     * **What the badge shows is a French sentence and nothing else** (#1280).
+     * `migration_error` is rendered in a tooltip for the staff, and the
+     * message of an exception from the storage library is English, names an
+     * internal path and, depending on the backend, a bucket, an account or
+     * the provider's own answer — a screen never shows a library's text. The
+     * cause is not lost: it is journaled beside, at `warning`, with the
+     * media, the path and the exception's class, and never its message.
+     */
+    private function failOnAFile(
+        TaskContext $context,
+        AlbumRepository $albumRepository,
+        int $albumId,
+        Media $media,
+        string $path,
+        string $side,
+        string $sentence,
+        \Throwable $e
+    ): void {
+        $albumRepository->failMigration($albumId, $sentence);
+
+        $context->journal->log(
+            'gallery',
+            'album_storage_migration_failed',
+            'warning',
+            "Migration de l'album #{$albumId} interrompue : un fichier n'a pas pu être "
+                . ($side === 'source' ? 'lu' : 'écrit') . '.',
+            [
+                'album_id' => $albumId,
+                'media_id' => $media->id,
+                'path' => $path,
+                'side' => $side,
+                'error' => $e::class,
+            ]
+        );
     }
 
     /**
