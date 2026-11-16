@@ -859,21 +859,24 @@ class ReceiptControllerTest extends TestCase
     }
 
     /**
-     * Pins current behaviour: the sorting pile's grid offers « Remplacer »,
-     * and the service refuses a receipt with no account — under the
-     * message of a receipt that does not exist, although it is right there.
+     * The sorting pile's grid offers « Remplacer », and a receipt with no
+     * account can be replaced (#1226, the maintainer's decision): it used to
+     * be refused under the message of a receipt that does not exist, although
+     * it is right there. The replacement stays in the pile.
      */
-    public function testReplacingAReceiptOfTheSortingPileIsRefusedAsIfTheReceiptDidNotExist(): void
+    public function testAReceiptOfTheSortingPileCanBeReplacedAndStaysInThePile(): void
     {
         $id = $this->givenAReceiptInTheSortingPile();
 
         $response = $this->controller->replace($this->replaceRequest($id, $this->tmpPdfFile()), ['id' => (string) $id]);
 
-        $this->assertSame(200, $response->getStatusCode());
-        $this->assertStringContainsString('Reçu introuvable.', $response->getBody());
-        $this->assertSame('active', $this->attachmentRepository->findById($id)->status);
-        $this->assertSame(1, $this->countRows('SELECT COUNT(*) FROM finance_attachments'));
-        $this->assertSame(0, $this->countRows("SELECT COUNT(*) FROM event_log WHERE event_type = 'receipt_replaced'"));
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('archived', $this->attachmentRepository->findById($id)->status);
+        $active = $this->attachmentRepository->findActiveOrdered();
+        $this->assertCount(1, $active);
+        $this->assertNull($active[0]->accountId, 'the replacement is still in the sorting pile');
+        $this->assertSame($id, $active[0]->parentAttachmentId);
+        $this->assertSame(1, $this->countRows("SELECT COUNT(*) FROM event_log WHERE event_type = 'receipt_replaced'"));
     }
 
     public function testAssociatingAMovementOfAnotherAccountIsRefusedAndLinksNothing(): void

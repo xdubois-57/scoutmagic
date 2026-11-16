@@ -365,6 +365,9 @@ class ReceiptService
      * movement association the old version had (module spec: "transfère
      * les associations").
      *
+     * A receipt of the sorting pile (no account) is replaced like any other
+     * and its replacement stays in the pile.
+     *
      * @throws FinanceException when the attachment (or its account) is
      *                           unknown, or the new file's MIME type is unsupported
      */
@@ -377,12 +380,20 @@ class ReceiptService
     ): Attachment
     {
         $old = $this->attachmentRepository->findById($attachmentId);
-        if ($old === null || $old->accountId === null) {
+        if ($old === null) {
             throw new FinanceException('Reçu introuvable.');
         }
-        $account = $this->accountRepository->findById($old->accountId);
-        if ($account === null) {
-            throw new FinanceException('Compte introuvable.');
+        // A receipt of the sorting pile has no account and can be replaced
+        // like any other (#1226, the maintainer's decision): it used to be
+        // refused under the message of a receipt that does not exist. Its
+        // replacement stays in the pile, and its file is stamped the way
+        // store() stamps one — the pile's floor and owner.
+        $account = null;
+        if ($old->accountId !== null) {
+            $account = $this->accountRepository->findById($old->accountId);
+            if ($account === null) {
+                throw new FinanceException('Compte introuvable.');
+            }
         }
         $this->assertMimeTypeAllowed($mimeType);
         $content = $this->correctOrientation($content, $mimeType);
@@ -398,12 +409,12 @@ class ReceiptService
             $mimeType,
             $originalFilename,
             self::STORAGE_SUBDIRECTORY,
-            $account->roleMinView,
+            self::fileRoleMinFor($account),
             'finance',
             $uploadedBy,
             null,
             FinanceAccountOwnershipChecker::OWNER_TYPE,
-            $account->id
+            self::fileOwnerIdFor($account)
         );
 
         // Three writes after the file: the new receipt, the transfer of
