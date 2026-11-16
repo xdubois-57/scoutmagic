@@ -21,6 +21,9 @@ final class FakeGroupPublisher implements GroupPublisherInterface
     /** @var array<int, string> group id => refusal */
     public array $refusals = [];
 
+    /** @var array<int, \Throwable> group id => what the groups module breaks with, beyond a refusal */
+    public array $breakdowns = [];
+
     public function postableGroups(?string $email, string $role, ?int $userAccountId): array
     {
         return $role === 'intendant' ? [] : [
@@ -38,6 +41,9 @@ final class FakeGroupPublisher implements GroupPublisherInterface
         ?string $image,
         ?string $link
     ): PublishedGroupPost {
+        if (isset($this->breakdowns[$groupId])) {
+            throw $this->breakdowns[$groupId];
+        }
         if (isset($this->refusals[$groupId])) {
             throw new GroupPublishException($this->refusals[$groupId]);
         }

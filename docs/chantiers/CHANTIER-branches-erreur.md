@@ -154,18 +154,18 @@ l'ordre des lots (ceux à zéro, 11 domaines, ne figurent pas) :
 | `modules/news` | ~~9~~ **0** (lot 16) | 0 | 0 | 25 |
 | `modules/sos_staff` | ~~9~~ **0** (lot 17) | 0 | 1 | 23 |
 | `modules/support_dashboard` | ~~9~~ **0** (lot 18) | ~~2~~ 0 | 0 | 13 |
-| `modules/gallery` | 8 | 0 | 0 | 35 |
-| `modules/social` | 8 | 0 | 0 | 23 |
+| `modules/gallery` | ~~8~~ **0** (lot 19) | 0 | 0 | 35 |
+| `modules/social` | ~~8~~ **0** (lot 20) | 0 | 0 | 23 |
 | `core/Photo` | 6 | 0 | 0 | 8 |
 | `core/Security` | 6 | 3 | 0 | 14 |
-| `modules/documents` | 6 | 1 | 0 | 8 |
-| `modules/calendar` | 5 | 0 | 0 | 16 |
-| `modules/llm_connector` | 5 | 2 | 0 | 14 |
-| `modules/mass_mail` | 5 | 0 | 0 | 47 |
-| `modules/official_documents` | 5 | 0 | 0 | 9 |
+| `modules/documents` | ~~6~~ **0** (lot 21) | ~~1~~ 0 | 0 | 8 |
+| `modules/calendar` | ~~5~~ **0** (lot 22) | 0 | 0 | 16 |
+| `modules/llm_connector` | ~~5~~ **0** (lot 23) | ~~2~~ 0 | 0 | 14 |
+| `modules/mass_mail` | ~~5~~ **0** (lot 24) | 0 | 1 | 47 |
+| `modules/official_documents` | ~~5~~ **0** (lot 25) | 0 | 2 | 9 |
 | `core/File` | 4 | 0 | 0 | 9 |
 | `core/Import` | 4 | 1 | 0 | 5 |
-| `modules/covoiturage` | 4 | 0 | 0 | 9 |
+| `modules/covoiturage` | ~~4~~ **0** (lot 26) | 0 | 0 | 9 |
 | `core/Alert` | 3 | 1 | 0 | 9 |
 | `core/Database` | 3 | 2 | 0 | 14 |
 | `core/Statistics` | 3 | 1 | 0 | 7 |
@@ -175,14 +175,14 @@ l'ordre des lots (ceux à zéro, 11 domaines, ne figurent pas) :
 | `core/Notification` | 2 | 1 | 0 | 8 |
 | `core/Page` | 2 | 0 | 0 | 4 |
 | `core/System` | 2 | 0 | 0 | 3 |
-| `modules/fees` | 2 | 0 | 0 | 8 |
-| `modules/retro` | 2 | 0 | 0 | 20 |
-| `modules/test_tools` | 2 | 1 | 0 | 6 |
+| `modules/fees` | ~~2~~ **0** (lot 27) | 0 | 0 | 8 |
+| `modules/retro` | ~~2~~ **0** (lot 28) | 0 | 0 | 20 |
+| `modules/test_tools` | ~~2~~ **0** (lot 29) | ~~1~~ 0 | 0 | 6 |
 | `core/Scheduler` | 1 | 1 | 0 | 2 |
 | `core/Service` | 1 | 0 | 0 | 1 |
 | `core/Signature` | 1 | 0 | 0 | 3 |
 | `core/View` | 1 | 0 | 0 | 3 |
-| `modules/leadership` | 1 | 0 | 0 | 2 |
+| `modules/leadership` | ~~1~~ **0** (lot 30) | 0 | 0 | 2 |
 
 ## 5. Journal
 
@@ -608,3 +608,38 @@ qui n'est pas un zip, classeur illisible.
 
 Pour les quatre lots, chaque test vérifie l'effet et échoue quand le `catch`
 relance ou change ce qu'il fait.
+
+### Lots 19 à 30 — les douze derniers modules — 2026-11-15
+
+Un lot par domaine, remesurés ensemble sur leurs douze dossiers de tests (PCOV),
+après fusion de `main`. **53 → 0** jamais exécutés en tout ; deux marqueurs
+ajoutés.
+
+| Lot | Domaine | Jamais exécutés | Marqueurs |
+|---|---|---|---|
+| 19 | `modules/gallery` | 8 → 0 | 0 |
+| 20 | `modules/social` | 8 → 0 | 0 |
+| 21 | `modules/documents` | 6 → 0 | 0 |
+| 22 | `modules/calendar` | 5 → 0 | 0 |
+| 23 | `modules/llm_connector` | 5 → 0 | 0 |
+| 24 | `modules/mass_mail` | 5 → 0 | 1 |
+| 25 | `modules/official_documents` | 5 → 0 | 2 |
+| 26 | `modules/covoiturage` | 4 → 0 | 0 |
+| 27 | `modules/fees` | 2 → 0 | 0 |
+| 28 | `modules/retro` | 2 → 0 | 0 |
+| 29 | `modules/test_tools` | 2 → 0 | 0 |
+| 30 | `modules/leadership` | 1 → 0 | 0 |
+
+**Branches atteintes** par un état réel : secret chiffré sous une autre clé,
+trigger qui refuse une écriture, table absente, saisie refusée, partage WebDAV
+qui a perdu un fichier ou ignore `Range`, Meta qui refuse, modèle de langue en
+panne, fichier disparu du disque. Chaque test vérifie l'effet et échoue quand
+le `catch` relance ou change ce qu'il fait.
+
+**Les marqueurs** (`modules/official_documents`, deux) : deux relectures, dans
+la même requête, d'une ligne `member_years` que `canAccess()` vient de lire pour
+répondre « identifié ». `getMemberProfile()` relit la même ligne juste après ;
+seule une suppression entre les deux lectures mène au `catch`.
+
+Le marqueur de `modules/mass_mail` (`MassMailController`) vient de `main` et
+n'est pas de ce lot.

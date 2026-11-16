@@ -417,6 +417,72 @@ final class DocumentsControllerTest extends TestCase
         $this->assertSame(404, $response->getStatusCode());
     }
 
+    public function testADocumentWithoutAFileComesBackWithTheReasonAndIsNotAdded(): void
+    {
+        $this->loginAs('admin');
+        unset($_FILES['file']);
+        $body = [
+            '_csrf_token' => \Core\Security\CsrfGuard::generateToken(),
+            'title' => 'Charte des animateurs',
+            'visibility' => 'public',
+        ];
+
+        $response = $this->admin->create(new Request('POST', '/admin/documents/nouveau', [], $body, [], []), []);
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertStringContainsString(
+            '<div class="alert alert-danger" role="alert">Choisissez le fichier à partager.</div>',
+            $response->getBody()
+        );
+        $this->assertStringContainsString('value="Charte des animateurs"', $response->getBody());
+        $this->assertCount(1, $this->service->all());
+    }
+
+    public function testAnEditThatEmptiesTheTitleComesBackWithTheReasonAndChangesNothing(): void
+    {
+        $this->loginAs('admin');
+        unset($_FILES['file']);
+        $body = [
+            '_csrf_token' => \Core\Security\CsrfGuard::generateToken(),
+            'title' => '  ',
+            'visibility' => 'chief',
+        ];
+        $path = '/admin/documents/' . $this->documentId . '/modifier';
+
+        $response = $this->admin->update(
+            new Request('POST', $path, [], $body, [], []),
+            ['id' => (string) $this->documentId]
+        );
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertStringContainsString(
+            '<div class="alert alert-danger" role="alert">Donnez un titre au document.</div>',
+            $response->getBody()
+        );
+        $document = $this->service->findById($this->documentId);
+        $this->assertNotNull($document);
+        $this->assertSame('Règlement', $document->title);
+        $this->assertSame(DocumentVisibility::PUBLIC, $document->visibility);
+    }
+
+    public function testDeletingADocumentThatIsAlreadyGoneSaysSo(): void
+    {
+        $this->loginAs('admin');
+        $body = (string) json_encode(['_csrf_token' => \Core\Security\CsrfGuard::generateToken(), 'id' => 999]);
+
+        $response = $this->admin->delete(
+            new \Tests\RequestWithInput('POST', '/admin/documents/delete', [], [], [], [], $body),
+            []
+        );
+
+        $this->assertSame(400, $response->getStatusCode());
+        $this->assertSame(
+            ['success' => false, 'error' => 'Ce document n\'existe plus.'],
+            json_decode($response->getBody(), true)
+        );
+        $this->assertNotNull($this->service->findById($this->documentId));
+    }
+
     private function loginAs(string $role): void
     {
         if ($role !== 'public') {

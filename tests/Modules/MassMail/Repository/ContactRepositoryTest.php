@@ -262,6 +262,32 @@ class ContactRepositoryTest extends TestCase
         $this->assertSame([], $this->repository->findForBlock($this->groupA1));
     }
 
+    /**
+     * The delete half refused after the inserts went in: the group is left
+     * exactly as it was, never holding both the file and what it removed.
+     */
+    public function testAReplacementRefusedHalfWayLeavesTheGroupAsItWas(): void
+    {
+        $this->repository->create($this->groupA1, 'Ancien', 'retire@test.be');
+        $this->pdo->exec(
+            'CREATE TRIGGER refuse_contact_delete BEFORE DELETE ON mass_mail_block_contacts '
+            . "BEGIN SELECT RAISE(ABORT, 'contact delete refused'); END"
+        );
+
+        try {
+            $this->repository->replaceForBlock($this->groupA1, [['name' => 'Nouveau', 'email' => 'nouveau@test.be']]);
+            $this->fail('The refused delete must reach the caller.');
+        } catch (\PDOException $e) {
+            $this->assertStringContainsString('contact delete refused', $e->getMessage());
+        }
+
+        $this->assertFalse($this->pdo->inTransaction());
+        $this->assertSame(
+            ['retire@test.be'],
+            array_map(static fn($contact): string => $contact->email, $this->repository->findForBlock($this->groupA1))
+        );
+    }
+
     public function testOnlyTheUnsubscribedRowsAFileDoesNotCarryAreCountedAsSurviving(): void
     {
         $this->repository->create($this->groupA1, null, 'parti@test.be');

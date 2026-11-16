@@ -368,6 +368,28 @@ class CalendarConfigControllerTest extends TestCase
         $this->assertSame('admin', $this->calendarRepository->findById($calendar->id)->visibility);
     }
 
+    public function testUpdateVisibilityRefusesAnUnknownValueAndWritesNothing(): void
+    {
+        $calendar = $this->calendarService->addCalendar('Test', 'public');
+        $token = bin2hex(random_bytes(32));
+        $_SESSION['_csrf_token'] = $token;
+
+        $request = $this->createJsonRequest([
+            'calendar_id' => $calendar->id,
+            'visibility' => 'everyone',
+            '_csrf_token' => $token,
+        ]);
+        $response = $this->controller->updateVisibility($request, []);
+
+        $this->assertSame(400, $response->getStatusCode());
+        $this->assertSame(
+            ['success' => false, 'error' => 'Visibilité invalide.'],
+            json_decode($response->getBody(), true)
+        );
+        $this->assertSame('public', $this->calendarRepository->findById($calendar->id)->visibility);
+        $this->assertSame(0, $this->journalCount('visibility_changed'));
+    }
+
     public function testAddCalendarCreatesCustomCalendar(): void
     {
         $token = bin2hex(random_bytes(32));
@@ -407,6 +429,27 @@ class CalendarConfigControllerTest extends TestCase
         $decoded = json_decode($response->getBody(), true);
         $this->assertTrue($decoded['success']);
         $this->assertNotSame($oldToken, $decoded['ics_token']);
+    }
+
+    public function testRegenerateTokenRefusesASectionCalendarAndKeepsItsToken(): void
+    {
+        $sectionId = $this->createSection('BAL01', 'Renards');
+        $this->calendarService->ensureSectionCalendars();
+        $calendar = $this->calendarRepository->findBySectionId($sectionId);
+        $this->assertNotNull($calendar);
+        $token = bin2hex(random_bytes(32));
+        $_SESSION['_csrf_token'] = $token;
+
+        $request = $this->createJsonRequest(['calendar_id' => $calendar->id, '_csrf_token' => $token]);
+        $response = $this->controller->regenerateToken($request, []);
+
+        $this->assertSame(400, $response->getStatusCode());
+        $this->assertSame(
+            ['success' => false, 'error' => "Un calendrier de section n'a pas de lien ICS individuel."],
+            json_decode($response->getBody(), true)
+        );
+        $this->assertSame($calendar->icsToken, $this->calendarRepository->findById($calendar->id)->icsToken);
+        $this->assertSame(0, $this->journalCount('token_regenerated'));
     }
 
     public function testDeleteCalendarRemovesUnusedCustomCalendar(): void
@@ -571,6 +614,14 @@ class CalendarConfigControllerTest extends TestCase
         $response = $this->controller->updateEditRole($request, []);
 
         $this->assertSame(403, $response->getStatusCode());
+    }
+
+    private function journalCount(string $eventType): int
+    {
+        $stmt = $this->pdo->prepare('SELECT COUNT(*) FROM event_log WHERE category = ? AND event_type = ?');
+        $stmt->execute(['calendar', $eventType]);
+
+        return (int) $stmt->fetchColumn();
     }
 
     /**

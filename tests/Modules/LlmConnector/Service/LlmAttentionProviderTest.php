@@ -121,6 +121,28 @@ class LlmAttentionProviderTest extends TestCase
         $this->assertSame([], $this->points());
     }
 
+    /**
+     * A model the provider does not serve on its chat route is remembered in
+     * the probe cache — and when that cache cannot be written (this table is
+     * the one an install had before the cache column), the caller still gets
+     * the provider's own refusal and the failure is still recorded.
+     */
+    public function testAProbeCacheThatCannotBeWrittenNeverHidesTheProvidersRefusal(): void
+    {
+        $this->configuredProvider([['body' => (string) json_encode([
+            'error' => ['type' => 'route_not_supported', 'message' => 'Unsupported route'],
+        ])]]);
+
+        try {
+            $this->connector->complete(new LlmRequest(LlmTier::CHEAP, 'Bonjour'));
+            $this->fail('an unsupported route must throw');
+        } catch (LlmException $e) {
+            $this->assertSame(LlmException::API_ERROR, $e->getCode());
+        }
+
+        $this->assertSame(LlmException::API_ERROR, $this->store->lastFailure()['code'] ?? null);
+    }
+
     /** A configuration gap is the « not configured » point, never a failure. */
     public function testARefusalBeforeAnyProviderIsNotRecordedAsAFailure(): void
     {
@@ -211,6 +233,47 @@ class LlmAttentionProviderTest extends TestCase
         $this->store->recordFailure(LlmException::API_ERROR, new \DateTimeImmutable());
 
         $this->assertNull($this->store->lastFailure());
+    }
+
+    /** A clearing that cannot be written is swallowed too: the point simply stays. */
+    public function testAClearingThatCannotBeWrittenIsSwallowedAndThePointStays(): void
+    {
+        $this->store->recordFailure(LlmException::TIMEOUT, new \DateTimeImmutable('2026-10-18 09:30:00'));
+        $this->settings->refuseWrites = true;
+
+        $this->store->clear();
+
+        $this->assertSame(
+            ['at' => '2026-10-18 09:30:00', 'code' => LlmException::TIMEOUT],
+            $this->failureAsText()
+        );
+    }
+
+    /**
+     * Without the providers table there is no telling which provider is in
+     * use: the passing test clears nothing, and says nothing either.
+     */
+    public function testAPassingTestThatCannotReadTheActiveProviderClearsNothing(): void
+    {
+        $active = $this->providers->create('Mistral', 'mistral', 'https://api.mistral.ai', 'key', true);
+        $this->store->recordFailure(LlmException::API_ERROR, new \DateTimeImmutable('2026-10-18 09:30:00'));
+        $this->pdo->exec('DROP TABLE llm_provider_models');
+        $this->pdo->exec('DROP TABLE llm_providers');
+
+        $this->store->clearAfterPassingTest($active, $this->providers);
+
+        $this->assertSame(
+            ['at' => '2026-10-18 09:30:00', 'code' => LlmException::API_ERROR],
+            $this->failureAsText()
+        );
+    }
+
+    /** @return array{at: string, code: int}|null */
+    private function failureAsText(): ?array
+    {
+        $failure = $this->store->lastFailure();
+
+        return $failure === null ? null : ['at' => $failure['at']->format('Y-m-d H:i:s'), 'code' => $failure['code']];
     }
 
     /** A passing test of the provider in use clears it; of another one, not. */
