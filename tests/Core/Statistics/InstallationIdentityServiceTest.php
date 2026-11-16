@@ -234,6 +234,27 @@ class InstallationIdentityServiceTest extends TestCase
     }
 
     /**
+     * A secrets file that can be read and not written — here its lock
+     * cannot be opened — yields null too: no secret is generated that
+     * could not be kept, and the file is left exactly as it was.
+     */
+    public function testASecretThatCannotBeWrittenYieldsNullAndLeavesTheFileAlone(): void
+    {
+        $this->initializeSecrets();
+        $before = file_get_contents($this->tempDir . '/config/secrets.enc');
+        mkdir($this->tempDir . '/config/secrets.enc.lock');
+
+        try {
+            $secret = $this->service()->getSecret();
+        } finally {
+            rmdir($this->tempDir . '/config/secrets.enc.lock');
+        }
+
+        $this->assertNull($secret);
+        $this->assertSame($before, file_get_contents($this->tempDir . '/config/secrets.enc'));
+    }
+
+    /**
      * A stored value that is not 32 hex characters is not an identifier —
      * it is corruption, and adopting it would register this installation on
      * the receiver under something meaningless. A fresh one is claimed.

@@ -399,6 +399,66 @@ class TextPageServiceTest extends TestCase
     }
 
     /**
+     * A reorder refused part way — here the database turns down the last
+     * page's new rank — lands whole or not at all: the ranks already
+     * written are rolled back, and the refusal reaches the caller.
+     */
+    public function testAReorderRefusedHalfWayLeavesTheOldOrder(): void
+    {
+        $a = $this->service->create('A', 'A', MenuBuilder::MENU_NOTRE_UNITE, null);
+        $b = $this->service->create('B', 'B', MenuBuilder::MENU_NOTRE_UNITE, null);
+        $c = $this->service->create('C', 'C', MenuBuilder::MENU_NOTRE_UNITE, null);
+        $this->refuseUpdatesOfPage('B');
+
+        try {
+            $this->service->reorder([$c->id, $a->id, $b->id]);
+            $this->fail('the refusal was swallowed');
+        } catch (\PDOException $e) {
+            $this->assertStringContainsString('page refused', $e->getMessage());
+        }
+
+        $this->assertFalse($this->pdo->inTransaction());
+        $this->assertSame([$a->id => 0, $b->id => 1, $c->id => 2], $this->ranks(MenuBuilder::MENU_NOTRE_UNITE));
+    }
+
+    /**
+     * The same for a drop into another section: refused while the target
+     * section is renumbered, the moved page is back in the section it left,
+     * at its old rank, and neither section has changed.
+     */
+    public function testADropRefusedHalfWayMovesNothing(): void
+    {
+        $a = $this->service->create('A', 'A', MenuBuilder::MENU_ESPACE_ANIMES, 'unite');
+        $b = $this->service->create('B', 'B', MenuBuilder::MENU_ESPACE_ANIMES, 'unite');
+        $x = $this->service->create('X', 'X', MenuBuilder::MENU_NOTRE_UNITE, null);
+        $y = $this->service->create('Y', 'Y', MenuBuilder::MENU_NOTRE_UNITE, null);
+        $this->refuseUpdatesOfPage('Y');
+
+        try {
+            $this->service->placeInMenu(MenuBuilder::MENU_NOTRE_UNITE, [$x->id, $b->id, $y->id]);
+            $this->fail('the refusal was swallowed');
+        } catch (\PDOException $e) {
+            $this->assertStringContainsString('page refused', $e->getMessage());
+        }
+
+        $this->assertFalse($this->pdo->inTransaction());
+        $this->assertSame([$a->id => 0, $b->id => 1], $this->ranks(MenuBuilder::MENU_ESPACE_ANIMES));
+        $this->assertSame([$x->id => 0, $y->id => 1], $this->ranks(MenuBuilder::MENU_NOTRE_UNITE));
+    }
+
+    /** The database refuses every update of the page titled $title. */
+    private function refuseUpdatesOfPage(string $title): void
+    {
+        $this->pdo->exec('CREATE TABLE refused_pages (title TEXT NOT NULL)');
+        $this->pdo->prepare('INSERT INTO refused_pages (title) VALUES (?)')->execute([$title]);
+        $this->pdo->exec(
+            "CREATE TRIGGER refuse_page BEFORE UPDATE ON text_pages
+             WHEN OLD.title IN (SELECT title FROM refused_pages)
+             BEGIN SELECT RAISE(ABORT, 'page refused'); END"
+        );
+    }
+
+    /**
      * @return array<int, int> page id => rank, in rank order
      */
     private function ranks(string $menuId): array

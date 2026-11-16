@@ -291,4 +291,18 @@ class ShellExecutorTest extends TestCase
         $this->assertTrue($probe['works']);
         $this->assertSame('code 0', $probe['detail']);
     }
+
+    /**
+     * A probe asked for an impossible bound is refused by run() before
+     * anything executes, and the refusal is reported as it came back.
+     */
+    public function testAProbeWhoseRunIsRefusedReportsTheRefusalAsItCame(): void
+    {
+        $probe = ShellExecutor::probe(0);
+
+        $this->assertTrue($probe['declared']);
+        $this->assertFalse($probe['works']);
+        $this->assertNotNull($probe['function']);
+        $this->assertSame('InvalidArgumentException: A command timeout is at least one second.', $probe['detail']);
+    }
 }

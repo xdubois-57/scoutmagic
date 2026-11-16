@@ -47,6 +47,8 @@ class SchemaIntrospector
             try {
                 $version = (string) $this->pdo->getAttribute(\PDO::ATTR_SERVER_VERSION);
             } catch (\PDOException) {
+                // @catch-unreachable pdo_mysql answers ATTR_SERVER_VERSION from the handshake, cached, even
+                // on a connection the server has since killed, and every caller passes Connection's PDO.
                 // A driver that will not say is treated as MySQL: that
                 // branch changes nothing about what is reported, it only
                 // declines to reinterpret it.

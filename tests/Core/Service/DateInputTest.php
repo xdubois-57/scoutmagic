@@ -186,4 +186,26 @@ class DateInputTest extends TestCase
         $this->assertNull(DateInput::fromStorage('0000-00-00 00:00:00'));
         $this->assertNull(DateInput::fromStorage('0000-00-00'));
     }
+
+    /**
+     * A column that opens with a real calendar date and then holds
+     * something no parser reads — a time of day that cannot exist, a
+     * suffix pasted after it — reads as no value, never as an error page.
+     */
+    #[DataProvider('storedValuesWithAnUnreadableTail')]
+    public function testAValueOpeningWithADateButUnreadableAfterItReadsAsNothing(string $value): void
+    {
+        $this->assertNull(DateInput::fromStorage($value));
+    }
+
+    /**
+     * @return array<string, array{0: string}>
+     */
+    public static function storedValuesWithAnUnreadableTail(): array
+    {
+        return [
+            'an impossible time' => ['2026-01-31 25:99:00'],
+            'a suffix' => ['2026-01-31 garbage'],
+        ];
+    }
 }

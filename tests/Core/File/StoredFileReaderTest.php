@@ -115,6 +115,23 @@ final class StoredFileReaderTest extends TestCase
         );
     }
 
+    /**
+     * An encrypted file whose bytes no longer decrypt — written under
+     * another key, or damaged on disk — reads as null, like a missing one:
+     * the background pass that met it goes on to the next file.
+     */
+    public function testAnEncryptedFileThatNoLongerDecryptsIsNullRatherThanAThrow(): void
+    {
+        $other = new EncryptedFileStorageService(
+            $this->files,
+            new EncryptionService(str_repeat('c', 32), str_repeat('d', 32)),
+            $this->storagePath
+        );
+        $fileId = $other->store('écrit sous une autre clé', 'application/pdf', 'recu.pdf', 'finance/receipts', 'intendant');
+
+        $this->assertNull($this->reader->read($fileId));
+    }
+
     public function testAnUnknownFileIsNullRatherThanAThrow(): void
     {
         // Every caller is a background pass over somebody else's file: one

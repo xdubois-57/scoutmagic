@@ -156,32 +156,32 @@ l'ordre des lots (ceux à zéro, 11 domaines, ne figurent pas) :
 | `modules/support_dashboard` | ~~9~~ **0** (lot 18) | ~~2~~ 0 | 0 | 13 |
 | `modules/gallery` | ~~8~~ **0** (lot 19) | 0 | 0 | 35 |
 | `modules/social` | ~~8~~ **0** (lot 20) | 0 | 0 | 23 |
-| `core/Photo` | 6 | 0 | 0 | 8 |
-| `core/Security` | 6 | 3 | 0 | 14 |
+| `core/Photo` | ~~6~~ **0** (lot 31) | 0 | 1 | 8 |
+| `core/Security` | ~~6~~ **0** (lot 32) | ~~3~~ 0 | 0 | 14 |
 | `modules/documents` | ~~6~~ **0** (lot 21) | ~~1~~ 0 | 0 | 8 |
 | `modules/calendar` | ~~5~~ **0** (lot 22) | 0 | 0 | 16 |
 | `modules/llm_connector` | ~~5~~ **0** (lot 23) | ~~2~~ 0 | 0 | 14 |
 | `modules/mass_mail` | ~~5~~ **0** (lot 24) | 0 | 1 | 47 |
 | `modules/official_documents` | ~~5~~ **0** (lot 25) | 0 | 2 | 9 |
-| `core/File` | 4 | 0 | 0 | 9 |
-| `core/Import` | 4 | 1 | 0 | 5 |
+| `core/File` | ~~4~~ **0** (lot 33) | 0 | 0 | 9 |
+| `core/Import` | ~~4~~ **0** (lot 34) | ~~1~~ 0 | 0 | 5 |
 | `modules/covoiturage` | ~~4~~ **0** (lot 26) | 0 | 0 | 9 |
-| `core/Alert` | 3 | 1 | 0 | 9 |
-| `core/Database` | 3 | 2 | 0 | 14 |
-| `core/Statistics` | 3 | 1 | 0 | 7 |
-| `core/Contact` | 2 | 0 | 0 | 3 |
-| `core/Help` | 2 | 0 | 0 | 3 |
-| `core/Image` | 2 | 0 | 0 | 4 |
-| `core/Notification` | 2 | 1 | 0 | 8 |
-| `core/Page` | 2 | 0 | 0 | 4 |
-| `core/System` | 2 | 0 | 0 | 3 |
+| `core/Alert` | ~~3~~ **0** (lot 35) | ~~1~~ 0 | 1 | 9 |
+| `core/Database` | ~~3~~ **0** (lot 36) | ~~2~~ 0 | 1 | 14 |
+| `core/Statistics` | ~~3~~ **0** (lot 37) | ~~1~~ 0 | 0 | 7 |
+| `core/Contact` | ~~2~~ **0** (lot 38) | 0 | 0 | 3 |
+| `core/Help` | ~~2~~ **0** (lot 39) | 0 | 0 | 3 |
+| `core/Image` | ~~2~~ **0** (lot 40) | 0 | 1 | 4 |
+| `core/Notification` | ~~2~~ **0** (lot 41) | ~~1~~ 0 | 0 | 8 |
+| `core/Page` | ~~2~~ **0** (lot 42) | 0 | 0 | 4 |
+| `core/System` | ~~2~~ **0** (lot 43) | 0 | 0 | 3 |
 | `modules/fees` | ~~2~~ **0** (lot 27) | 0 | 0 | 8 |
 | `modules/retro` | ~~2~~ **0** (lot 28) | 0 | 0 | 20 |
 | `modules/test_tools` | ~~2~~ **0** (lot 29) | ~~1~~ 0 | 0 | 6 |
-| `core/Scheduler` | 1 | 1 | 0 | 2 |
-| `core/Service` | 1 | 0 | 0 | 1 |
-| `core/Signature` | 1 | 0 | 0 | 3 |
-| `core/View` | 1 | 0 | 0 | 3 |
+| `core/Scheduler` | ~~1~~ **0** (lot 44) | ~~1~~ 0 | 0 | 2 |
+| `core/Service` | ~~1~~ **0** (lot 45) | 0 | 0 | 1 |
+| `core/Signature` | ~~1~~ **0** (lot 46) | 0 | 0 | 3 |
+| `core/View` | ~~1~~ **0** (lot 47) | 0 | 0 | 3 |
 | `modules/leadership` | ~~1~~ **0** (lot 30) | 0 | 0 | 2 |
 
 ## 5. Journal
@@ -643,3 +643,45 @@ seule une suppression entre les deux lectures mène au `catch`.
 
 Le marqueur de `modules/mass_mail` (`MassMailController`) vient de `main` et
 n'est pas de ce lot.
+
+### Lots 31 à 47 — les dix-sept derniers domaines de `core/` — 2026-11-15
+
+Un lot par domaine, remesurés ensemble (PCOV, MariaDB) sur les tests qui les
+exercent, après fusion de `main`. **45 → 0** jamais exécutés en tout ; quatre
+marqueurs ajoutés.
+
+| Lot | Domaine | Jamais exécutés | Marqueurs |
+|---|---|---|---|
+| 31 | `core/Photo` | 6 → 0 | 1 |
+| 32 | `core/Security` | 6 → 0 | 0 |
+| 33 | `core/File` | 4 → 0 | 0 |
+| 34 | `core/Import` | 4 → 0 | 0 |
+| 35 | `core/Alert` | 3 → 0 | 1 |
+| 36 | `core/Database` | 3 → 0 | 1 |
+| 37 | `core/Statistics` | 3 → 0 | 0 |
+| 38 | `core/Contact` | 2 → 0 | 0 |
+| 39 | `core/Help` | 2 → 0 | 0 |
+| 40 | `core/Image` | 2 → 0 | 1 |
+| 41 | `core/Notification` | 2 → 0 | 0 |
+| 42 | `core/Page` | 2 → 0 | 0 |
+| 43 | `core/System` | 2 → 0 | 0 |
+| 44 | `core/Scheduler` | 1 → 0 | 0 |
+| 45 | `core/Service` | 1 → 0 | 0 |
+| 46 | `core/Signature` | 1 → 0 | 0 |
+| 47 | `core/View` | 1 → 0 | 0 |
+
+**Branches atteintes** par un état réel : fichier chiffré sous une autre clé,
+envoi d'e-mail refusé, table absente, image illisible ou trop grande. Chaque
+test vérifie l'effet et échoue quand le `catch` relance ou change ce qu'il fait.
+
+**Les marqueurs**, un par domaine :
+- `core/Photo` (`ImportedMemberPhotoWriter`) : la même lecture des dimensions
+  est refusée plus haut au-delà de 16 MP, sous la limite de 50 MP du garde.
+- `core/Alert` (`MailDnsRecordsCheck`) : `remember()` ne peut pas lever ; sa
+  seule étape faillible, l'écriture du réglage, est absorbée dans
+  `DnsCheckMemory::store()`.
+- `core/Database` (`SchemaIntrospector`) : `pdo_mysql` répond
+  `ATTR_SERVER_VERSION` depuis la poignée de main, en cache, même sur une
+  connexion coupée depuis.
+- `core/Image` (`PhotoNormalizer`) : `queryFormats()` filtre la liste des
+  codecs compilés dans ImageMagick ; elle ne prend aucune entrée et ne lève pas.

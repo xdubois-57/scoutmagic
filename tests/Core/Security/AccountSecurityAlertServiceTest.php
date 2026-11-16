@@ -233,6 +233,39 @@ final class AccountSecurityAlertServiceTest extends TestCase
     }
 
     /**
+     * The journal unavailable — its table gone, a restore half-way — must
+     * not cost the holder their warning: the change has happened, and the
+     * e-mail still leaves for the account's own address.
+     */
+    public function testAJournalThatCannotBeWrittenStillLetsTheEmailLeave(): void
+    {
+        $this->pdo->exec('DROP TABLE event_log');
+
+        $this->service()->report($this->accountId, AccountSecurityChange::PasswordChanged);
+
+        $this->assertCount(1, $this->sent);
+        $this->assertSame(self::ADDRESS, $this->sent[0]['to']);
+    }
+
+    /**
+     * Nothing left to report a failed e-mail to: the journal of that
+     * failure fails too, and the report still goes on to the in-app
+     * notification rather than throwing.
+     */
+    public function testAFailedEmailWithNoJournalStillReachesTheNotification(): void
+    {
+        $this->pdo->exec('DROP TABLE event_log');
+        $mailService = $this->createStub(MailService::class);
+        $mailService->method('send')->willThrowException(new MailException('SMTP connect() failed'));
+        $notifications = $this->createMock(NotificationService::class);
+        $notifications->expects($this->once())
+            ->method('notify')
+            ->with($this->identicalTo($this->accountId), 'Alerte de sécurité', $this->anything(), '/account');
+
+        $this->service($mailService, $notifications)->report($this->accountId, AccountSecurityChange::PasswordChanged);
+    }
+
+    /**
      * An account deleted in the meantime has no address to warn: nothing is
      * sent, and nothing throws.
      */

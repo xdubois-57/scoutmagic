@@ -240,6 +240,40 @@ class UploadHandlerTest extends TestCase
         );
     }
 
+    /**
+     * A decompression bomb — a PNG announcing 40 000 × 40 000 pixels — is
+     * refused as an upload error in the guard's own French words, before
+     * GD allocates for it: no row, and nothing kept on disk.
+     */
+    public function testAnImageOverThePixelCeilingIsRefusedAsAnUploadException(): void
+    {
+        $tmpFile = $this->tmpRoot . '/bomb.png';
+        file_put_contents(
+            $tmpFile,
+            "\x89PNG\r\n\x1a\n" . pack('N', 13) . 'IHDR' . pack('NN', 40000, 40000) . "\x08\x02\x00\x00\x00"
+                . str_repeat("\x00", 64)
+        );
+
+        try {
+            $this->handler->handle(
+                ['tmp_name' => $tmpFile, 'name' => 'bombe.png', 'size' => filesize($tmpFile), 'error' => UPLOAD_ERR_OK],
+                'test',
+                ['image/png'],
+                10 * 1024 * 1024,
+                'public'
+            );
+            $this->fail('A decompression bomb must be refused.');
+        } catch (UploadException $e) {
+            $this->assertSame(
+                'Image trop grande (40000×40000 pixels) : la limite est de 50 mégapixels.',
+                $e->getMessage()
+            );
+        }
+
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM files')->fetchColumn());
+        $this->assertSame([], glob($this->tmpDir . '/test/*') ?: []);
+    }
+
     private function createTempImage(): string
     {
         $tmpFile = tempnam(sys_get_temp_dir(), 'img');

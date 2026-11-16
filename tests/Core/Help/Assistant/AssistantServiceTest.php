@@ -478,4 +478,35 @@ final class AssistantServiceTest extends TestCase
         $this->assertStringContainsString('Comment écrire aux parents ?', (string) $connector->promptFor(LlmTier::CHEAP));
         $this->assertStringContainsString('Ouvrez la page.', (string) $connector->promptFor(LlmTier::CAPABLE));
     }
+
+    /**
+     * A topic file parsed at the start of the request and gone by the time
+     * its body is read — an update copying over the live install — costs
+     * that topic only: the answer is still asked for, over the others.
+     */
+    public function testATopicFileGoneSinceTheCatalogueWasReadCostsOnlyThatTopic(): void
+    {
+        $helpService = new HelpService(new HelpRegistry($this->topicDir));
+        $this->assertNotNull($helpService->findById('envoi-de-mails', Role::CHIEF));
+        foreach (glob($this->topicDir . '/envoi-de-mails*') ?: [] as $file) {
+            unlink($file);
+        }
+        $connector = $this->connectorAnswering(['envoi-de-mails', 'calendrier'], 'Voici le calendrier.');
+        $service = new AssistantService(
+            $helpService,
+            new AssistantCatalog($helpService),
+            new AssistantRateLimitRepository($this->pdo),
+            new AssistantCacheRepository($this->pdo),
+            new JournalService(new JournalRepository($this->pdo)),
+            '1.2.3',
+            $connector
+        );
+
+        $answer = $service->ask('Où voir les activités ?', Role::CHIEF, 1);
+
+        $this->assertSame('Voici le calendrier.', $answer->text);
+        $prompt = (string) $connector->promptFor(LlmTier::CAPABLE);
+        $this->assertStringContainsString('## Consulter le calendrier', $prompt);
+        $this->assertStringNotContainsString('Envoyer un e-mail groupé', $prompt);
+    }
 }
