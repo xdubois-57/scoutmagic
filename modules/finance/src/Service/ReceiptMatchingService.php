@@ -416,9 +416,28 @@ class ReceiptMatchingService
         if ($receipt->accountId === null && $this->receiptService !== null) {
             try {
                 $this->receiptService->reassign($receipt->id, $transaction->accountId);
-            } catch (\Throwable) {
-                // The account went away between the two reads. Filing
-                // nothing beats filing it somewhere it cannot be seen.
+            } catch (\Throwable $e) {
+                // Nothing deletes an account, so what lands here is the
+                // database refusing the write (a lock timeout, a lost
+                // connection): the receipt could not be filed on the
+                // movement's account. Attaching it anyway would put it on a
+                // movement of an account it is not on, so it stays in the
+                // sorting pile — but a match was found and lost, and that is
+                // said, once. The class of the failure and not its message:
+                // a database error can quote the values of the statement.
+                $this->journalService->log(
+                    'finance',
+                    'receipt_auto_filing_failed',
+                    'warning',
+                    'Reçu reconnu mais non rattaché : son classement sur le compte du mouvement a échoué',
+                    [
+                        'attachment_id' => $receipt->id,
+                        'account_id' => $transaction->accountId,
+                        'error' => $e::class,
+                    ],
+                    null
+                );
+
                 return;
             }
 
