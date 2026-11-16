@@ -271,6 +271,198 @@ class FeeAccuracyControllerTest extends TestCase
         $this->assertStringContainsString('Rue de la Station', $body);
     }
 
+    // ------------------------------------------------------------------
+    // The household card (#1326): readable enough to find the member in
+    // Desk and correct the category — nothing about the calculation moves.
+    // ------------------------------------------------------------------
+
+    /** A household of three on « normale » where « famille » is expected. */
+    private function aHouseholdToCorrect(): string
+    {
+        $this->tariffs->save(HouseholdFeeCategory::NORMAL, null, 2000);
+        $this->tariffs->save(HouseholdFeeCategory::FAMILY, null, 3000);
+        $this->createMember('Jean', $this->normalFeeId);
+        $this->createMember('Marie', $this->normalFeeId);
+        $this->createMember('Léa', $this->normalFeeId);
+        AuthSession::login(1, 'admin@test.be', 'admin');
+
+        return (string) $this->dispatch('GET', '/admin/fees/tarifs', 'index')->getBody();
+    }
+
+    public function testThereIsNoMoreCopyForDeskAnywhere(): void
+    {
+        foreach (['corriger', 'prevoir', 'ignores'] as $view) {
+            $this->createMember('Jean', $this->normalFeeId);
+            AuthSession::login(1, 'admin@test.be', 'admin');
+            $body = (string) $this->dispatch('GET', '/admin/fees/tarifs?vue=' . $view, 'index')->getBody();
+
+            $this->assertStringNotContainsString('Copier pour Desk', $body, $view);
+            $this->assertStringNotContainsString('data-fees-copy', $body, $view);
+            $this->assertStringNotContainsString('fees-clipboard-data', $body, $view);
+            $this->assertStringNotContainsString('fees-copy.js', $body, $view);
+        }
+    }
+
+    public function testTheOtherActionsOfTheCardAreKept(): void
+    {
+        $body = $this->aHouseholdToCorrect();
+
+        $this->assertStringContainsString('Ignorer ce foyer', $body);
+    }
+
+    public function testEveryMemberNameLinksToTheirStaffRecord(): void
+    {
+        $body = $this->aHouseholdToCorrect();
+
+        $ids = $this->pdo->query('SELECT id FROM member_years ORDER BY id')->fetchAll(\PDO::FETCH_COLUMN);
+        $this->assertCount(3, $ids);
+        foreach ($ids as $id) {
+            $this->assertStringContainsString('href="/admin/members/' . $id . '"', $body);
+        }
+    }
+
+    public function testTheNamesOfTheIgnoredTabLinkToo(): void
+    {
+        $this->createMember('Jean', $this->normalFeeId);
+        $this->createMember('Marie', $this->normalFeeId);
+        $household = $this->households->householdsForYear($this->scoutYearId)[$this->blindIndex()];
+        $this->ignored->ignore(
+            $this->scoutYearId,
+            $this->blindIndex(),
+            \Modules\Fees\Service\FeeAccuracyService::compositionHash($household),
+            'Colocation',
+            null
+        );
+        AuthSession::login(1, 'admin@test.be', 'admin');
+
+        $body = (string) $this->dispatch('GET', '/admin/fees/tarifs?vue=ignores', 'index')->getBody();
+
+        $id = (int) $this->pdo->query('SELECT MIN(id) FROM member_years')->fetchColumn();
+        $this->assertStringContainsString('href="/admin/members/' . $id . '"', $body);
+    }
+
+    public function testNothingIsEverStruckThrough(): void
+    {
+        // The three states on one screen: wrong, right and outside the tariffs.
+        $this->feeCategories->create('L_L_COTISATION IAMA', 'Cotisation iAMA');
+        $iamaId = (int) $this->pdo->query("SELECT id FROM fee_categories WHERE desk_code = 'L_L_COTISATION IAMA'")->fetchColumn();
+        $this->createMember('Jean', $this->normalFeeId);
+        $this->createMember('Marie', $this->familyFeeId);
+        $this->createMember('Léa', $iamaId);
+        AuthSession::login(1, 'admin@test.be', 'admin');
+
+        $body = (string) $this->dispatch('GET', '/admin/fees/tarifs', 'index')->getBody();
+
+        $this->assertStringContainsString('N_N_COTISATION NORMALE', $body, 'the wrong tariff must stay readable');
+        $this->assertStringNotContainsString('<s>', $body);
+        $this->assertStringNotContainsString('<del', $body);
+        $this->assertStringNotContainsString('<strike', $body);
+        $this->assertStringNotContainsString('line-through', $body);
+        $this->assertStringNotContainsString('text-decoration-line-through', $body);
+    }
+
+    public function testTheDifferenceIsInTheNormalTextColourWhateverItsSign(): void
+    {
+        $body = $this->aHouseholdToCorrect();
+
+        // 3 × (3000 − 2000) = +30,00 €.
+        $this->assertStringContainsString('à déclarer en plus', $body);
+        $this->assertMatchesRegularExpression('/<div class="fw-semibold">\s*\+?30,00/u', $body);
+        // The only red left on the page is the required-field asterisk of
+        // the « Ignorer » form: never the amount.
+        $this->assertDoesNotMatchRegularExpression('/text-(danger|body-secondary)[^>]*>\s*[−+-]?\s*\d+,\d{2}/u', $body);
+    }
+
+    public function testANegativeDifferenceKeepsItsSignAndItsSentence(): void
+    {
+        $this->tariffs->save(HouseholdFeeCategory::NORMAL, null, 2000);
+        $this->tariffs->save(HouseholdFeeCategory::FAMILY, null, 3000);
+        $this->tariffs->save(HouseholdFeeCategory::COUPLE, null, 2500);
+        // Three on « famille » where « normal » would be expected is not
+        // possible; two on « famille » where « couple » is expected is.
+        $this->createMember('Jean', $this->familyFeeId);
+        $this->createMember('Marie', $this->familyFeeId);
+        AuthSession::login(1, 'admin@test.be', 'admin');
+
+        $body = (string) $this->dispatch('GET', '/admin/fees/tarifs', 'index')->getBody();
+
+        $this->assertStringContainsString('déclaré en trop', $body);
+        $this->assertMatchesRegularExpression('/<div class="fw-semibold">\s*[−-]\s*\d/u', $body);
+        $this->assertDoesNotMatchRegularExpression('/text-(danger|body-secondary)[^>]*>\s*[−+-]?\s*\d+,\d{2}/u', $body);
+    }
+
+    public function testTheTwoColumnsSpeakTheSameLanguageTheDeskCodes(): void
+    {
+        $body = $this->aHouseholdToCorrect();
+
+        $this->assertStringContainsString('N_N_COTISATION NORMALE', $body, 'encoded');
+        $this->assertStringContainsString('N_F_COTISATION FAMILLE', $body, 'expected');
+        $this->assertStringContainsString('À corriger', $body);
+    }
+
+    public function testAMemberAlreadyRightShowsItsCodeAndSaysSo(): void
+    {
+        $this->createMember('Jean', $this->familyFeeId);
+        $this->createMember('Marie', $this->familyFeeId);
+        $this->createMember('Léa', $this->familyFeeId);
+        $this->createMember('Paul', $this->normalFeeId);
+        AuthSession::login(1, 'admin@test.be', 'admin');
+
+        $body = (string) $this->dispatch('GET', '/admin/fees/tarifs', 'index')->getBody();
+
+        $this->assertStringContainsString('Conforme', $body);
+        $this->assertStringContainsString('À corriger', $body);
+    }
+
+    public function testAMemberOutsideTheTariffsIsSaidNotToBeComparedNeverWrong(): void
+    {
+        $this->feeCategories->create('L_L_COTISATION IAMA', 'Cotisation iAMA');
+        $iamaId = (int) $this->pdo->query("SELECT id FROM fee_categories WHERE desk_code = 'L_L_COTISATION IAMA'")->fetchColumn();
+        $this->createMember('Jean', $this->normalFeeId);
+        $this->createMember('Marie', $iamaId);
+        AuthSession::login(1, 'admin@test.be', 'admin');
+
+        $body = (string) $this->dispatch('GET', '/admin/fees/tarifs', 'index')->getBody();
+
+        $this->assertStringContainsString('L_L_COTISATION IAMA', $body);
+        $this->assertStringContainsString('Hors tarif de foyer', $body);
+        $this->assertStringContainsString('Non comparé', $body);
+    }
+
+    /**
+     * Two people, so « couple » is expected, and Desk offers no category
+     * the site recognises as one: no code is made up and the row is not
+     * presented as fine.
+     */
+    public function testNoCodeIsInventedWhenTheExpectedTariffHasNoDeskCategory(): void
+    {
+        $this->createMember('Jean', $this->normalFeeId);
+        $this->createMember('Marie', $this->normalFeeId);
+        AuthSession::login(1, 'admin@test.be', 'admin');
+
+        $body = (string) $this->dispatch('GET', '/admin/fees/tarifs', 'index')->getBody();
+
+        $this->assertStringContainsString("Aucun code Desk n'est associé à Couple", $body);
+        $this->assertStringNotContainsString('Conforme', $body);
+        $this->assertStringContainsString('À corriger', $body);
+    }
+
+    public function testAnExplicitMappingIsWhatTheExpectedColumnShows(): void
+    {
+        $couple = $this->feeCategories->create('N_C_COTISATION COUPLE', 'Cotisation couple');
+        $special = $this->feeCategories->create('X_COUPLE SPÉCIAL', 'Couple spécial');
+        $this->tariffs->save(HouseholdFeeCategory::COUPLE, $special, null);
+        $this->createMember('Jean', $this->normalFeeId);
+        $this->createMember('Marie', $this->normalFeeId);
+        AuthSession::login(1, 'admin@test.be', 'admin');
+
+        $body = (string) $this->dispatch('GET', '/admin/fees/tarifs', 'index')->getBody();
+
+        $this->assertStringContainsString('X_COUPLE SPÉCIAL', $body);
+        $this->assertStringNotContainsString('N_C_COTISATION COUPLE', $body, 'the guess it replaced');
+        $this->assertGreaterThan(0, $couple);
+    }
+
     public function testTheScreenStatesWhichImportItReads(): void
     {
         $stmt = $this->pdo->prepare(

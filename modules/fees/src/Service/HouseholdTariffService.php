@@ -37,6 +37,9 @@ class HouseholdTariffService
     /** @var array<string, HouseholdTariff>|null */
     private ?array $tariffs = null;
 
+    /** @var array<string, list<string>>|null household category value => Desk codes */
+    private ?array $deskCodesByCategory = null;
+
     public function __construct(
         private HouseholdTariffRepository $repository,
         private FeeCategoryRepository $feeCategories
@@ -54,6 +57,43 @@ class HouseholdTariffService
         }
 
         return $this->mapping()[$feeCategoryId] ?? null;
+    }
+
+    /**
+     * The Desk codes (`fee_categories.desk_code`) a household tariff really
+     * stands for — read through the SAME mapping the calculation uses
+     * (`explicit override ?? heuristic`), so what the screen calls « attendu »
+     * is what the comparison compared against, never a second opinion.
+     *
+     * Empty when no Desk category is mapped to it: the caller says so rather
+     * than showing a code nobody has (#1326). More than one when the
+     * heuristic recognises several codes as the same tariff and nobody chose.
+     *
+     * @return list<string>
+     */
+    public function deskCodesFor(HouseholdFeeCategory $category): array
+    {
+        if ($this->deskCodesByCategory === null) {
+            $codeById = [];
+            foreach ($this->feeCategories->findAll() as $feeCategory) {
+                $codeById[$feeCategory['id']] = $feeCategory['desk_code'];
+            }
+
+            $byCategory = [];
+            foreach ($this->mapping() as $feeCategoryId => $mapped) {
+                if (isset($codeById[$feeCategoryId])) {
+                    $byCategory[$mapped->value][] = $codeById[$feeCategoryId];
+                }
+            }
+            foreach ($byCategory as &$codes) {
+                sort($codes);
+            }
+            unset($codes);
+
+            $this->deskCodesByCategory = $byCategory;
+        }
+
+        return $this->deskCodesByCategory[$category->value] ?? [];
     }
 
     /** What one person on this tariff costs, in cents, or null when nobody entered it. */
@@ -125,6 +165,7 @@ class HouseholdTariffService
         $this->repository->save($category, $feeCategoryId, $amountCents);
         $this->tariffs = null;
         $this->categoryByFeeCategoryId = null;
+        $this->deskCodesByCategory = null;
     }
 
     /** True once at least one of the three tariffs carries an amount. */

@@ -10,6 +10,12 @@
   coloured badge saying "écart" explains nothing and invites a treasurer to
   guess at the reason.
 
+  The table speaks the language of Desk: both columns carry the real
+  `desk_code`, the member's name opens their record, and nothing is ever
+  struck through — a tariff recorded in Desk stays readable whatever its
+  state. The state is written out (« Conforme », « À corriger », « Non
+  comparé »), never carried by a colour alone (#1326).
+
   Usage:
   {% include '@fees/partials/_household_card.html.twig' with {
       review: review, mode: 'corriger'|'prevoir'|'ignores',
@@ -28,8 +34,8 @@
             </div>
             <div class="text-sm-end flex-shrink-0">
                 {% if mode == 'corriger' and review.differenceCents is not null %}
-                    <div class="fw-semibold {{ review.differenceCents > 0 ? 'text-danger' : 'text-body-secondary' }}">
-                        {{ (review.differenceCents / 100)|money }}
+                    <div class="fw-semibold">
+                        {{ review.differenceCents > 0 ? '+' : '' }}{{ (review.differenceCents / 100)|money }}
                     </div>
                     <div class="small text-body-secondary">
                         {{ review.differenceCents > 0 ? 'à déclarer en plus' : 'déclaré en trop' }}
@@ -74,23 +80,37 @@
                 <tbody>
                     {% for member in review.members %}
                         <tr>
-                            <td>{{ member.nameParts|display_name_full }}</td>
+                            <td><a href="/admin/members/{{ member.memberYearId }}">{{ member.nameParts|display_name_full }}</a></td>
                             <td>
-                                {% if not member.comparable %}
-                                    {{ member.encodedFeeCategoryLabel|default('—') }}
-                                {% elseif member.matches(review.expectedCategory) %}
-                                    {{ member.encodedFeeCategoryLabel }}
+                                {% if member.encodedDeskCode is not null %}
+                                    <code class="text-body">{{ member.encodedDeskCode }}</code>
                                 {% else %}
-                                    <s>{{ member.encodedFeeCategoryLabel|default('aucun tarif') }}</s>
+                                    {{ member.comparable ? 'aucun tarif' : '—' }}
                                 {% endif %}
                             </td>
                             <td>
                                 {% if not member.comparable %}
-                                    <span class="text-body-secondary small">Hors tarif de foyer — non comparé</span>
+                                    <span class="small">
+                                        <i class="bi bi-dash-circle" aria-hidden="true"></i>
+                                        Hors tarif de foyer — <span class="fw-semibold">Non comparé</span>
+                                    </span>
                                 {% elseif member.matches(review.expectedCategory) %}
-                                    <span class="text-body-secondary small">Conforme</span>
+                                    <code class="text-body">{{ review.expectedDeskCodes|join(' ou ') }}</code>
+                                    <span class="small">
+                                        <i class="bi bi-check-circle" aria-hidden="true"></i>
+                                        <span class="fw-semibold">Conforme</span>
+                                    </span>
                                 {% else %}
-                                    <span class="fw-semibold">{{ category_labels[review.expectedCategory.value] }}</span>
+                                    {% if review.expectedDeskCodes is not empty %}
+                                        <code class="text-body">{{ review.expectedDeskCodes|join(' ou ') }}</code>
+                                    {% else %}
+                                        {# No code is made up: the tariff has no Desk category yet. #}
+                                        <span class="small">Aucun code Desk n'est associé à {{ category_labels[review.expectedCategory.value] }} (à associer dans le barème).</span>
+                                    {% endif %}
+                                    <span class="small">
+                                        <i class="bi bi-exclamation-circle" aria-hidden="true"></i>
+                                        <span class="fw-semibold">À corriger</span>
+                                    </span>
                                 {% endif %}
                             </td>
                         </tr>
@@ -100,10 +120,6 @@
         </div>
 
         <div class="d-flex flex-wrap gap-2 mt-3">
-            <button type="button" class="btn btn-sm btn-outline-secondary"
-                    data-fees-copy="{{ review.addressBlindIndex }}">
-                <i class="bi bi-clipboard" aria-hidden="true"></i> Copier pour Desk
-            </button>
             {% if mode == 'ignores' %}
                 <form method="post" action="/admin/fees/tarifs/reprendre" class="d-inline">
                     {{ csrf_field()|raw }}

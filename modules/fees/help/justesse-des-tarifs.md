@@ -19,7 +19,19 @@ personnes que Desk y place. Vous corrigez ensuite dans Desk : le site n'y
 
 Chaque foyer porte une phrase qui explique le verdict — « 3 membres dans
 Desk — tarif attendu Famille » — puis la comparaison, personne par
-personne : ce qui est encodé, barré, et ce qui est attendu.
+personne, dans la langue de Desk : la colonne **Encodé dans Desk** donne le
+code de la catégorie que Desk contient, la colonne **Attendu** celui de la
+catégorie qui correspond au tarif attendu, avec l'état écrit en toutes
+lettres : **Conforme**, **À corriger** ou **Non comparé**. Rien n'est
+barré : ce que Desk contient reste lisible, quel que soit son état.
+
+Le nom de chaque membre ouvre sa fiche : vous le retrouvez, puis vous
+corrigez sa catégorie dans Desk.
+
+Le code attendu est celui que le site utilise réellement pour calculer.
+Si aucune catégorie Desk n'est associée à un tarif (par exemple « Couple »),
+la carte le dit — « Aucun code Desk n'est associé à Couple » — au lieu
+d'afficher un code inventé ; associez-la dans le barème, ci-dessous.
 
 ## Deux onglets, deux moments
 
@@ -71,6 +83,7 @@ Le site devine tout seul lequel de vos tarifs Desk signifie « couple » ou
 un autre tarif — animateur, réduit, iAM — n'est jamais comparé, ni signalé
 comme une erreur.
 
-> Un écart négatif veut dire que l'unité déclare plus qu'elle ne doit. Un
-> écart positif reviendra dans la facture de régularisation : c'est le
-> plus urgent des deux.
+> Le montant de l'écart garde son signe et sa phrase : « + » (« à déclarer
+> en plus ») reviendra dans la facture de régularisation, c'est le plus
+> urgent ; « − » (« déclaré en trop ») veut dire que l'unité déclare plus
+> qu'elle ne doit.

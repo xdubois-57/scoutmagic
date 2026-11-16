@@ -31,6 +31,7 @@ final class HouseholdReview
 {
     /**
      * @param HouseholdReviewMember[] $members
+     * @param list<string> $expectedDeskCodes the Desk codes the expected tariff really stands for; empty when none is mapped
      * @param int[] $leavingMemberYearIds
      */
     public function __construct(
@@ -41,6 +42,7 @@ final class HouseholdReview
         public readonly int $projectedSize,
         public readonly HouseholdFeeCategory $expectedCategory,
         public readonly HouseholdFeeCategory $projectedCategory,
+        public readonly array $expectedDeskCodes,
         public readonly bool $needsCorrection,
         public readonly bool $willChange,
         public readonly ?int $differenceCents,

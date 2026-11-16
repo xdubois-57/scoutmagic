@@ -469,11 +469,6 @@ interface Window {
             members: Array<{ id: number, name: string }>
         ) => HTMLDataListElement;
     };
-    // public/assets/js/fees-copy.js — « Copier pour Desk » on Cotisations >
-    // Justesse des tarifs, present only on that page.
-    ScoutMagicFeesCopy?: {
-        blockFor: (texts: Record<string, string> | null, key: string) => string;
-    };
     // public/assets/js/import-barrier.js — the danger zone of the Desk
     // import barrier, present only when that barrier is on screen. The
     // confirmation word is checked server-side; this only decides whether

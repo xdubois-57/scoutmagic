@@ -23,7 +23,6 @@ use Core\Security\Role;
 use Modules\Fees\HouseholdCategoryLabel;
 use Modules\Fees\Repository\FeesImportRepository;
 use Modules\Fees\Repository\IgnoredHouseholdRepository;
-use Modules\Fees\Service\DeskClipboardText;
 use Modules\Fees\Service\FederalScaleLookupService;
 use Modules\Fees\Service\FeeAccuracyService;
 use Modules\Fees\Service\HouseholdTariffService;
@@ -129,11 +128,6 @@ class FeeAccuracyController extends AbstractController
             // the barème is unchanged when it is not.
             'scale_lookup_available' => $this->federalScale->isAvailable(),
             'scale_suggestion' => $suggested,
-            // Behaviour reads its data from a JSON island, never from an
-            // inline script (design.md §7.5). Only the households the
-            // current tab actually draws: on a large unit the other tabs'
-            // blocks would be page weight nobody reads.
-            'clipboard_texts' => self::clipboardTexts($this->reviewsFor($report, $view)),
         ]);
     }
 
@@ -415,31 +409,6 @@ class FeeAccuracyController extends AbstractController
         }
 
         return implode(' ; ', $parts);
-    }
-
-    /**
-     * @param HouseholdReview[] $reviews
-     * @return array<string, string> address blind index => the block « Copier pour Desk » puts in the clipboard
-     */
-    private static function clipboardTexts(array $reviews): array
-    {
-        $texts = [];
-        foreach ($reviews as $review) {
-            $texts[$review->addressBlindIndex] = DeskClipboardText::forHousehold($review);
-        }
-
-        return $texts;
-    }
-
-    /** @return HouseholdReview[] */
-    private function reviewsFor(FeeAccuracyReport $report, string $view): array
-    {
-        return match ($view) {
-            'prevoir' => $report->upcoming,
-            'ignores' => $report->ignored,
-            'sans-adresse' => [],
-            default => $report->toCorrect,
-        };
     }
 
     private function resolveView(mixed $requested): string
