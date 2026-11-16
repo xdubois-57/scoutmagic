@@ -50,6 +50,14 @@ class RequestStatusService
     public const MESSAGE_REFUSAL_REASON_REQUIRED =
         'Choisissez le motif du refus : « Pas de place » ou « Autre ». La demande n\'a pas été modifiée.';
 
+    /**
+     * What a decision answers when somebody else changed the request between
+     * the moment it was read and the moment the decision was written.
+     */
+    public const MESSAGE_CHANGED_MEANWHILE =
+        'Cette demande vient d\'être modifiée par quelqu\'un d\'autre : elle n\'a pas été changée. '
+        . 'Actualisez la page pour voir son état.';
+
     public function __construct(
         private RegistrationRequestRepository $repository,
         private JournalService $journalService
@@ -109,7 +117,8 @@ class RequestStatusService
 
     /**
      * @throws RegistrationException when $request's current status cannot
-     *         reach $newStatus manually
+     *         reach $newStatus manually, or when it was moved on by somebody
+     *         else since it was read (MESSAGE_CHANGED_MEANWHILE)
      */
     private function transition(
         RegistrationRequest $request,
@@ -123,7 +132,19 @@ class RequestStatusService
         }
 
         $finalAt = in_array($newStatus, RegistrationRequest::FINAL_STATUSES, true) ? new \DateTimeImmutable() : null;
-        $cancelledEmails = $this->repository->updateStatus($request->id, $newStatus, $finalAt, $refusalReason);
+        // Written only if the request is still in the status it was judged
+        // by: somebody else may have encoded, decided or withdrawn it since
+        // $request was read, and their decision is not ours to overwrite.
+        $cancelledEmails = $this->repository->updateStatusFrom(
+            $request->id,
+            $request->status,
+            $newStatus,
+            $finalAt,
+            $refusalReason
+        );
+        if ($cancelledEmails === null) {
+            throw new RegistrationException(self::MESSAGE_CHANGED_MEANWHILE);
+        }
 
         // The reason is a code ('no_room' / 'other'), never the child: it
         // says why the unit refused, which is what an audit asks.
