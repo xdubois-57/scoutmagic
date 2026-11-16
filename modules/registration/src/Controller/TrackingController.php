@@ -126,9 +126,10 @@ class TrackingController extends AbstractController
             );
             // The address is added either way; what the family is told about
             // the e-mail is what happened to it (#1236).
-            FlashMessage::set('success', $added->confirmationSent === false
+            $message = $added->confirmationSent === false
                 ? 'Adresse ajoutée, mais l\'email de confirmation n\'a pas pu partir — réessayez plus tard.'
-                : 'Adresse ajoutée — un email de confirmation vient d\'être envoyé.');
+                : 'Adresse ajoutée — un email de confirmation vient d\'être envoyé.';
+            FlashMessage::set('success', $message);
         } catch (RegistrationException $e) {
             FlashMessage::set('error', $e->getMessage());
         }
