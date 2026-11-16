@@ -556,7 +556,15 @@ class ObjectStorageBackendTest extends TestCase
     {
         foreach (['ServiceUnavailable', 'SlowDown', 'AccessDenied', ''] as $code) {
             $mock = new MockHandler();
-            $mock->appendException(new S3Exception('The bucket did not answer', new Command('HeadObject'), ['code' => $code]));
+            // The SDK retries throttling and server errors before it gives
+            // up, and each retry takes an answer from the queue: one
+            // exception would leave it asking an empty queue (a
+            // RuntimeException of the test double's, not the bucket's).
+            for ($attempt = 0; $attempt < 6; $attempt++) {
+                $mock->appendException(
+                    new S3Exception('The bucket did not answer', new Command('HeadObject'), ['code' => $code])
+                );
+            }
             $backend = $this->backendWithMockClient($mock);
 
             try {
