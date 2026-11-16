@@ -576,6 +576,44 @@ class GalleryConfigControllerTest extends TestCase
         ];
     }
 
+    /**
+     * The location picked for new albums was deleted while the page was
+     * open: the administrator reads the service's own sentence, and the
+     * setting keeps naming what it named. The numbers of the same tab were
+     * already written by then; pinned as it is.
+     */
+    public function testSaveNamesALocationDeletedSinceThePageWasRendered(): void
+    {
+        $before = (string) $this->settingService->get(
+            GalleryLocationService::NEW_ALBUM_LOCATION_SETTING,
+            'gallery',
+            0
+        );
+        $body = [
+            '_csrf_token' => $this->csrfToken(),
+            'gallery_max_media_per_album' => '150',
+            GalleryLocationService::NEW_ALBUM_LOCATION_SETTING => '99999',
+        ];
+
+        $response = $this->controller->save($this->saveRequest($body, 'general'), []);
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertStringContainsString(
+            'L&#039;emplacement choisi pour les nouveaux albums n&#039;existe plus. Rechargez la page et '
+                . 'choisissez-en un autre.',
+            $response->getBody()
+        );
+        $this->settingService->clearCache();
+        $this->assertSame(
+            $before,
+            (string) $this->settingService->get(GalleryLocationService::NEW_ALBUM_LOCATION_SETTING, 'gallery', 0)
+        );
+        $this->assertSame('150', (string) $this->settingService->get('gallery_max_media_per_album', 'gallery'));
+        $stmt = $this->pdo->prepare('SELECT COUNT(*) FROM event_log WHERE category = ? AND event_type = ?');
+        $stmt->execute(['gallery', 'config_update_failed']);
+        $this->assertSame(0, (int) $stmt->fetchColumn());
+    }
+
     public function testSaveRendersTheValidationMessage(): void
     {
         $token = $this->csrfToken();

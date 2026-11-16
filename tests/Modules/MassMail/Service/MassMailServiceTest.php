@@ -1478,6 +1478,30 @@ class MassMailServiceTest extends TestCase
         $this->assertFalse($repository->transitionStatus($email->id, Email::STATUS_TEST, Email::STATUS_SENDING));
     }
 
+    /** A deletion refused part-way removes nothing: the draft and its year are both still there. */
+    public function testADeletionRefusedPartWayLeavesTheDraftWhole(): void
+    {
+        $email = $this->createDraft();
+        $this->assertSame(1, $this->countWhere('mass_mail_email_scout_years', $email->id));
+        $this->pdo->exec(
+            'CREATE TRIGGER refuse_attachment_delete BEFORE DELETE ON mass_mail_attachments '
+            . "BEGIN SELECT RAISE(ABORT, 'attachment delete refused'); END"
+        );
+        $this->pdo->prepare('INSERT INTO mass_mail_attachments (email_id, file_id) VALUES (?, ?)')
+            ->execute([$email->id, 1]);
+
+        try {
+            (new EmailRepository($this->pdo))->deleteIfNotStarted($email->id);
+            $this->fail('The refused delete must reach the caller.');
+        } catch (\PDOException $e) {
+            $this->assertStringContainsString('attachment delete refused', $e->getMessage());
+        }
+
+        $this->assertFalse($this->pdo->inTransaction());
+        $this->assertNotNull($this->service->findById($email->id));
+        $this->assertSame(1, $this->countWhere('mass_mail_email_scout_years', $email->id));
+    }
+
     /** A start whose freeze fails leaves the email in test, nothing frozen. */
     public function testAFailedFreezeLeavesTheEmailInTest(): void
     {

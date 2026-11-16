@@ -3210,6 +3210,50 @@ final class CommunicationControllerTest extends TestCase
         $this->assertStringContainsString('fichier', FlashMessage::get()['message'] ?? '');
     }
 
+    /** A file that is not an image is refused in the handler's words, and the photo stays. */
+    public function testUploadingSomethingThatIsNotAnImageSaysWhyAndKeepsThePhoto(): void
+    {
+        $id = $this->communication('Week-end', 'Texte', self::PHOTO);
+        $this->loginAuthor();
+        $tmp = (string) tempnam(sys_get_temp_dir(), 'upl');
+        file_put_contents($tmp, "Ceci n'est pas une photo.\n");
+        $_FILES['image'] = [
+            'name' => 'a.jpg', 'tmp_name' => $tmp, 'error' => UPLOAD_ERR_OK, 'size' => filesize($tmp),
+            'type' => 'image/jpeg',
+        ];
+
+        try {
+            $this->controller()->update(
+                $this->post(['title' => 'Week-end', 'body' => 'Texte', 'action' => 'upload']),
+                ['id' => (string) $id]
+            );
+        } finally {
+            @unlink($tmp);
+        }
+
+        $this->assertSame(
+            ['type' => 'error', 'message' => 'Type de fichier non autorisé (text/plain).'],
+            FlashMessage::get()
+        );
+        $communication = $this->communications->find($id);
+        $this->assertSame(self::PHOTO, $communication?->galleryMediaId);
+        $this->assertNull($communication->fileId);
+    }
+
+    /** A photo the card cannot be drawn from answers 404, as every other refusal of the preview does. */
+    public function testAPreviewWhosePhotoCannotBeReadIsNotFound(): void
+    {
+        $this->picker = new FakePhotoPicker([7 => 'pas une image']);
+        $id = $this->communication('Week-end', 'Texte', 7);
+        $this->loginAuthor();
+
+        $response = $this->controller()->preview($this->get(), ['id' => (string) $id]);
+
+        $this->assertSame(404, $response->getStatusCode());
+        $this->assertSame('Not Found', $response->getBody());
+        $this->assertArrayNotHasKey('Content-Type', $response->getHeaders());
+    }
+
     // ————— Publishing —————
 
     public function testAGalleryPhotoLeavesBlurredWithTheTextAndTheCommunicationFreezes(): void

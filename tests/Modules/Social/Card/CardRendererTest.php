@@ -347,4 +347,19 @@ final class CardRendererTest extends TestCase
 
         (new CardRenderer())->render('not an image', 'T', 'a.be', true, 0.05);
     }
+
+    /**
+     * A header that announces forty thousand pixels a side is refused
+     * before GD is asked to allocate it, in French.
+     */
+    public function testAnImageThatAnnouncesTooManyPixelsIsRefusedInFrench(): void
+    {
+        $bomb = "\x89PNG\r\n\x1a\n" . pack('N', 13) . 'IHDR' . pack('N', 40000) . pack('N', 40000)
+            . "\x08\x02\x00\x00\x00\x00\x00\x00\x00";
+
+        $this->expectException(CardException::class);
+        $this->expectExceptionMessage('Cette image est trop grande pour être publiée.');
+
+        (new CardRenderer())->render($bomb, 'T', 'a.be', true, 0.05);
+    }
 }

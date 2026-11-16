@@ -154,6 +154,28 @@ final class AlbumReadmeTest extends TestCase
         );
     }
 
+    /**
+     * A location that cannot even be opened — a share whose stored address
+     * now points inside the network, as a restore from another install can
+     * leave it — costs the album its readme, never the album itself.
+     */
+    public function testALocationThatCannotBeOpenedStillSavesTheAlbum(): void
+    {
+        $shareId = $this->locations->create(
+            StorageLocationType::WebDav,
+            'Partage restauré',
+            new \Core\Storage\Location\Config\WebDavLocationConfig('https://10.1.2.3/dav', 'unite'),
+            'mot-de-passe'
+        );
+        $this->locations->setDefault($shareId);
+
+        $album = $this->create('Camp', '2026-07-01');
+
+        $saved = $this->albums->findById($album->id);
+        $this->assertSame('Camp', $saved?->title);
+        $this->assertSame($shareId, $saved?->locationId);
+    }
+
     /** On Drive, it lands in the album's folder under the location's own. */
     public function testOnGoogleDriveItLandsInTheAlbumFolder(): void
     {

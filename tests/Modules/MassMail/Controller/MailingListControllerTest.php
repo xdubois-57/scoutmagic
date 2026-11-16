@@ -571,6 +571,23 @@ class MailingListControllerTest extends TestCase
         $this->assertTrue($this->listService->getCustomListById($list->id)?->isActive);
     }
 
+    public function testToggleListRefusesAListThatIsGoneAndTouchesNoOther(): void
+    {
+        $list = $this->list('Bascule');
+
+        $response = $this->controller->toggleList(
+            $this->jsonRequest(['_csrf_token' => CsrfGuard::generateToken(), 'active' => false]),
+            ['id' => '999']
+        );
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertSame(
+            ['success' => false, 'error' => 'Liste introuvable.'],
+            json_decode($response->getBody(), true)
+        );
+        $this->assertTrue($this->listService->getCustomListById($list->id)?->isActive);
+    }
+
     public function testDeleteListRemovesAListNoEmailUses(): void
     {
         $list = $this->list('Jamais utilisée');

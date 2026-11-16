@@ -400,6 +400,114 @@ final class CovoiturageRbacTest extends TestCase
         $this->assertSame(SeatRequest::REVOKED, $requests->findById($this->requestId)?->status);
     }
 
+    public function testAnOfferWithoutAMeetingPointComesBackWithTheReasonAndCreatesNoCar(): void
+    {
+        AuthSession::login($this->accountId, 'parent@test.be', Role::IDENTIFIED->value);
+        $body = [
+            '_csrf_token' => \Core\Security\CsrfGuard::generateToken(),
+            'departure_time' => '08:00',
+            'endpoint' => '   ',
+            'seats' => '3',
+            'driver_name' => 'Paul Durand',
+            'phone' => '0470 00 00 00',
+        ];
+
+        $response = $this->frontController('POST', '/covoiturage/{id}/proposer', 'storeOffer', 'identified')
+            ->handle(new Request('POST', '/covoiturage/' . $this->carpoolId . '/proposer', [], $body, [], []));
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertStringContainsString(
+            '<div>Indiquez le point de rendez-vous : un parking, une gare, un carrefour.</div>',
+            $response->getBody()
+        );
+        $this->assertStringContainsString('value="Paul Durand"', $response->getBody());
+        $this->assertSame([$this->offerId], $this->offerIdsOfTheCarpool());
+    }
+
+    public function testAnOfferUpdateWithTooManySeatsComesBackAndChangesNothing(): void
+    {
+        AuthSession::login($this->accountId, 'parent@test.be', Role::IDENTIFIED->value);
+        $body = [
+            '_csrf_token' => \Core\Security\CsrfGuard::generateToken(),
+            'departure_time' => '09:15',
+            'endpoint' => 'Gare de Wavre',
+            'seats' => '12',
+            'driver_name' => 'Sophie Martin',
+            'phone' => '0478 12 34 56',
+        ];
+
+        $response = $this->frontController('POST', '/covoiturage/voitures/{id}/modifier', 'updateOffer', 'identified')
+            ->handle(new Request('POST', '/covoiturage/voitures/' . $this->offerId . '/modifier', [], $body, [], []));
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertStringContainsString(
+            '<div>Le nombre de places doit être compris entre 1 et 8.</div>',
+            $response->getBody()
+        );
+        $offer = (new OfferRepository($this->pdo, H::encryption()))->findById($this->offerId);
+        $this->assertNotNull($offer);
+        $this->assertSame(4, $offer->seats);
+        $this->assertSame('08:30', $offer->departureTime);
+        $this->assertSame('Parking des locaux', $offer->endpoint);
+    }
+
+    public function testACarpoolFamiliesAlreadyJoinedIsNotDeletedAndTheOrganizerIsToldWhy(): void
+    {
+        AuthSession::login($this->accountId, 'parent@test.be', Role::ADMIN->value);
+        \Core\Http\FlashMessage::get();
+        $body = ['_csrf_token' => \Core\Security\CsrfGuard::generateToken()];
+
+        $path = '/covoiturage/organiser/' . $this->carpoolId . '/supprimer';
+        $response = $this->frontController('POST', '/covoiturage/organiser/{id}/supprimer', 'delete', 'chief')
+            ->handle(new Request('POST', $path, [], $body, [], []));
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('/covoiturage/organiser', $response->getHeaders()['Location'] ?? null);
+        $this->assertSame(
+            [
+                'type' => 'error',
+                'message' => 'Suppression impossible : des familles se sont déjà organisées. '
+                    . 'Modifiez le covoiturage, ou prévenez-les.',
+            ],
+            \Core\Http\FlashMessage::get()
+        );
+        $this->assertNotNull($this->carpools->findById($this->carpoolId));
+    }
+
+    public function testAHalfTypedPointPostedBackIsAHumansPoint(): void
+    {
+        // A latitude with no longitude is no point at all, but somebody typed
+        // it: the form shown again must not let the page's lookup replace it.
+        (new \Modules\Covoiturage\Repository\CarpoolRepository($this->pdo))->points()
+            ->recordGeocoding($this->carpoolId, new \Core\Geo\GeoPoint(50.125, 5.187), new \DateTimeImmutable());
+        AuthSession::login($this->accountId, 'parent@test.be', Role::ADMIN->value);
+        $body = [
+            '_csrf_token' => \Core\Security\CsrfGuard::generateToken(),
+            'address' => 'Gîte de Han-sur-Lesse, rue des Grottes 12',
+            'outbound_date' => '2027-05-10',
+            'return_date' => '2027-05-01',
+            'latitude' => '50.200000',
+            'longitude' => '',
+            'point_automatic' => '0',
+        ];
+
+        $page = $this->frontController('POST', '/covoiturage/organiser/{id}/modifier', 'update', 'chief')
+            ->handle(new Request('POST', '/covoiturage/organiser/' . $this->carpoolId . '/modifier', [], $body, [], []))
+            ->getBody();
+
+        $this->assertStringContainsString('data-manual="1"', $page);
+        $this->assertStringContainsString('name="point_manual" value="1"', $page);
+    }
+
+    /** @return list<int> */
+    private function offerIdsOfTheCarpool(): array
+    {
+        $stmt = $this->pdo->prepare('SELECT id FROM carpool_offers WHERE carpool_id = ? ORDER BY id');
+        $stmt->execute([$this->carpoolId]);
+
+        return array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN));
+    }
+
     public function testAChiefOfAnotherSectionCannotEditACarpoolTheyDoNotOrganize(): void
     {
         // Past the route's floor, the controller narrows to whoever may

@@ -147,6 +147,31 @@ class TriageExtractBuilderTest extends TestCase
         $this->assertArrayHasKey('logs/error.log', $entries, 'the rest of the extract is unaffected');
     }
 
+    /**
+     * A zip that holds no workbook at all — small, so the ceiling lets it
+     * through to the reader, which then cannot open it. Omitted and named
+     * like an oversized one, and the rest of the extract still travels.
+     */
+    public function testAWorkbookTheReaderCannotOpenIsOmittedAndNamed(): void
+    {
+        $path = tempnam(sys_get_temp_dir(), 'sm-triage-broken-');
+        $zip = new \ZipArchive();
+        self::assertTrue($zip->open($path, \ZipArchive::CREATE | \ZipArchive::OVERWRITE) === true);
+        $zip->addFromString('readme.txt', 'no workbook in here');
+        $zip->close();
+        $broken = (string) file_get_contents($path);
+        @unlink($path);
+
+        $entries = $this->extract($this->archive(['event-journal.xlsx' => $broken]));
+
+        $this->assertArrayNotHasKey('event-journal.csv', $entries);
+        $this->assertStringContainsString(
+            'event-journal.xlsx : feuille de calcul illisible ou trop volumineuse une fois décompressée, non copiée',
+            $entries[TriageExtractBuilder::README_ENTRY]
+        );
+        $this->assertArrayHasKey('logs/error.log', $entries, 'the rest of the extract is unaffected');
+    }
+
     public function testBytesThatAreNotAZipAreRefused(): void
     {
         $this->expectException(\RuntimeException::class);

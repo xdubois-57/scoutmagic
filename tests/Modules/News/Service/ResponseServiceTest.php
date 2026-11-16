@@ -509,6 +509,52 @@ class ResponseServiceTest extends TestCase
         $this->assertFalse($this->responseRepository->findById($response->id)?->hasTicket());
     }
 
+    /**
+     * A ticket reference the database will not store, however many are
+     * drawn, costs the sign-up nothing: the response stays committed, the
+     * confirmation still goes to the address given, and the journal says
+     * the ticket was not issued — naming the response, never the person.
+     */
+    public function testAReferenceThatCannotBeStoredLeavesTheResponseAndJournalsIt(): void
+    {
+        $this->makeFormTicketed(true);
+        $fieldId = $this->fieldRepository->create(
+            $this->formId, 0, FormField::TYPE_SHORT_TEXT, 'Nom', false, null, null, null, null, null
+        );
+        $this->pdo->exec(
+            "CREATE TRIGGER refuse_ticket_reference BEFORE UPDATE OF ticket_reference ON news_form_responses
+             BEGIN SELECT RAISE(ABORT, 'ticket references are read-only'); END"
+        );
+        $sentTo = [];
+        $this->mailService->method('send')->willReturnCallback(
+            static function (string $to) use (&$sentTo): void {
+                $sentTo[] = $to;
+            }
+        );
+        $journal = new JournalService(new \Core\Journal\JournalRepository($this->pdo));
+
+        $response = $this->service(journalService: $journal)->submit(
+            $this->article, $this->form(), [$this->fieldRepository->findById($fieldId)],
+            null, null, 1, 'a@test.com', [$fieldId => 'Roskam'], null
+        );
+
+        $this->assertFalse($this->responseRepository->findById($response->id)?->hasTicket());
+        $this->assertSame(['Roskam'], array_values($this->responseRepository->getValues($response->id)));
+        $this->assertSame(['a@test.com'], $sentTo);
+        $stmt = $this->pdo->prepare('SELECT description, context FROM event_log WHERE event_type = ?');
+        $stmt->execute(['ticket_reference_failed']);
+        $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+        $this->assertCount(1, $rows);
+        $this->assertSame(
+            'Échec de la génération de la référence de billet pour une réponse de formulaire',
+            $rows[0]['description']
+        );
+        $this->assertSame(
+            ['article_id' => $this->article->id, 'form_id' => $this->formId, 'response_id' => $response->id],
+            json_decode((string) $rows[0]['context'], true)
+        );
+    }
+
     public function testTheConfirmationCarriesTheReferenceInPlainTextAndItsQr(): void
     {
         $this->makeFormTicketed(true);

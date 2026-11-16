@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Modules\Gallery\Service;
 
 use Core\Security\Role;
+use Core\Storage\Location\Backend\LocalStorageBackend;
 use Core\Storage\Location\Backend\StorageBackendFactory;
 use Core\Storage\Location\Backend\StorageBackendInterface;
 use Core\Storage\Location\Config\LocalLocationConfig;
@@ -180,6 +181,22 @@ final class PhotoPickerServiceTest extends TestCase
         $this->assertNull($this->service()->photoContents($photo, 'chief', []));
     }
 
+    /** A photo whose file the disk no longer holds is no photo to hand out, and no error either. */
+    public function testAPhotoWhoseFileIsGoneFromTheDiskHasNoContents(): void
+    {
+        $photo = $this->photo($this->album('2026-01-01', 'Camp'));
+        $directory = sys_get_temp_dir() . '/gallery_picker_' . bin2hex(random_bytes(6));
+        mkdir($directory, 0777, true);
+
+        try {
+            $contents = $this->service(new LocalStorageBackend($directory))->photoContents($photo, 'chief', []);
+        } finally {
+            rmdir($directory);
+        }
+
+        $this->assertNull($contents);
+    }
+
     private function album(string $date, string $title): int
     {
         return $this->albums->create(Album::TYPE_LOCAL, $title, null, $date, null, $this->scoutYearId, null, 1, 1);
@@ -196,7 +213,7 @@ final class PhotoPickerServiceTest extends TestCase
         return $id;
     }
 
-    private function service(): PhotoPickerService
+    private function service(?StorageBackendInterface $storedOn = null): PhotoPickerService
     {
         $mediaService = $this->createStub(MediaService::class);
         $mediaService->method('resolveUrl')->willReturn(null);
@@ -208,7 +225,7 @@ final class PhotoPickerServiceTest extends TestCase
         $backend = $this->createStub(StorageBackendInterface::class);
         $backend->method('get')->willReturnCallback(static fn (string $key): string => $key === 'large.jpg' ? 'LARGE' : 'OTHER');
         $backends = $this->createStub(StorageBackendFactory::class);
-        $backends->method('create')->willReturn($backend);
+        $backends->method('create')->willReturn($storedOn ?? $backend);
 
         $checker = new class ($this) implements DelegatedAlbumAccessChecker, DelegatedMediaAccessChecker {
             public function __construct(private readonly PhotoPickerServiceTest $test)

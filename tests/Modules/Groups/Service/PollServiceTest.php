@@ -232,6 +232,25 @@ class PollServiceTest extends TestCase
     }
 
     /**
+     * A double tap on a multiple-answer poll: both requests read « not
+     * picked yet » and both cast. The second meets the UNIQUE (option,
+     * voter) index — the state this calls the repository in — and that is
+     * the answer the voter wanted, so it is no error: one ballot, and the
+     * connection handed back with no transaction left open.
+     */
+    public function testTheLoserOfADoubleTapFindsItsAnswerAlreadyRecorded(): void
+    {
+        $options = $this->seedPoll(PollService::SCOPE_ACCOUNT, true);
+        $pollId = (int) $this->repository->findByPostId($this->postId)['id'];
+        $this->repository->castBallot($pollId, $options[0]['id'], 'a:9', 9, null, true, '2026-01-01 10:00:00');
+
+        $this->repository->castBallot($pollId, $options[0]['id'], 'a:9', 9, null, true, '2026-01-01 10:00:01');
+
+        $this->assertFalse($this->pdo->inTransaction());
+        $this->assertSame([$options[0]['id'] => 1], $this->repository->tallyForPolls([$pollId]));
+    }
+
+    /**
      * One answer per voter in a single-answer poll, and changing it
      * replaces rather than adds.
      */

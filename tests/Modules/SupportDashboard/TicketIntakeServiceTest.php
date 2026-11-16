@@ -430,6 +430,32 @@ class TicketIntakeServiceTest extends TestCase
         $this->assertSame(1, $this->countTickets());
     }
 
+    /**
+     * A notification that cannot be stored costs the ticket nothing, but
+     * leaves a trace: a warning naming the ticket's reference, beside the
+     * entry that says the ticket was received.
+     */
+    public function testANotificationThatCannotBeStoredIsJournaledAndTheTicketStillLands(): void
+    {
+        $this->seedUserAccount();
+        $this->pdo->exec('DROP TABLE notifications');
+
+        $result = $this->receive();
+
+        $this->assertTrue($result->accepted);
+        $this->assertSame(1, $this->countTickets());
+        $reference = (string) $this->pdo->query('SELECT reference FROM support_tickets')->fetchColumn();
+        $failures = array_values(array_filter(
+            $this->journalRows(),
+            static fn(array $row): bool => $row['type'] === 'support_ticket_notification_failed'
+        ));
+        $this->assertCount(1, $failures);
+        $this->assertSame('warning', $failures[0]['level']);
+        $context = json_decode((string) $failures[0]['context'], true);
+        $this->assertSame($reference, $context['ticket_reference']);
+        $this->assertStringContainsString('notifications', (string) $context['reason']);
+    }
+
     // ── Fixtures ────────────────────────────────────────────────────────
 
     // ── Limits an anonymous script cannot reset (issue #1113) ────────────

@@ -118,4 +118,26 @@ class ScalewayVisionVerifierTest extends TestCase
             $result['catalog']->chatModelIds(), $result['catalog']->visionModelIds(), $result['catalog']->exclusions(),
         ]);
     }
+
+    /**
+     * A probe that fails with something other than the provider's own
+     * refusal establishes nothing: each candidate reads as unverified, none
+     * becomes an image model, and the run asks to be retried.
+     */
+    public function testAProbeThatFailsOutrightProvesNoVisionAndAsksForARetry(): void
+    {
+        $driver = $this->driver();
+        $driver->expects($this->exactly(3))->method('probeVision')
+            ->willThrowException(new \RuntimeException('stream_socket_client(): unable to connect'));
+        $models = $this->createStub(ProviderModelRepository::class);
+        $models->method('modelProbeCache')->willReturn([]);
+
+        $result = (new ScalewayVisionVerifier($models))->verify(1, $driver, $this->catalog());
+
+        self::assertSame(3, $result['attempts']);
+        self::assertSame([], $result['catalog']->visionModelIds());
+        self::assertSame(['unverified'], array_values(array_unique($result['outcomes'])));
+        self::assertCount(3, $result['outcomes']);
+        self::assertTrue($result['retry_needed']);
+    }
 }

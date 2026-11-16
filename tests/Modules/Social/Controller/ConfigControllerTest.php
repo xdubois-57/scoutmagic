@@ -36,6 +36,12 @@ use Twig\Environment;
 #[\PHPUnit\Framework\Attributes\Group('database')]
 final class ConfigControllerTest extends TestCase
 {
+    /** What MetaClient says of a refusal it has no closer words for. */
+    private const REFUSED = 'Meta a refusé la demande. Le journal en garde le détail.';
+    /** And of an authorisation Meta no longer honours (code 190). */
+    private const EXPIRED = 'Meta a refusé l\'autorisation de ce site : elle a expiré ou a été retirée. '
+        . 'Reconnectez le compte.';
+
     private \PDO $pdo;
     private ConnectionRepository $connections;
     private RecordingJournalRepository $journal;
@@ -280,6 +286,59 @@ final class ConfigControllerTest extends TestCase
         $this->assertSame('42', $this->connections->find(SocialPlatform::Facebook)?->accountId);
         $this->assertSame('P42', $this->connections->secretsOf(SocialPlatform::Facebook)->accessToken);
         $this->assertSame('', $this->connections->secretsOf(SocialPlatform::Facebook)->pendingUserToken);
+    }
+
+    /**
+     * Meta refuses to exchange the code (a secret changed on its side): the
+     * administrator reads why, nothing is connected, and the journal keeps
+     * Meta's own words without the secret.
+     */
+    public function testACodeMetaRefusesToExchangeIsReportedAndConnectsNothing(): void
+    {
+        $this->connections->saveCredentials(SocialPlatform::Facebook, '123456', 'S3CR3T-APP');
+        SessionStore::set('social_oauth_state_facebook', 'st');
+        $this->meta->answers = ['oauth/access_token' => ['status' => 400, 'body' => (string) json_encode(
+            ['error' => ['message' => 'Error validating client secret.', 'type' => 'OAuthException', 'code' => 1]]
+        )]];
+
+        $response = $this->controller()->callback(
+            $this->get(['state' => 'st', 'code' => 'C']),
+            ['platform' => 'facebook']
+        );
+
+        $this->assertRedirectsToThePage($response);
+        $flash = FlashMessage::get();
+        $this->assertSame('error', $flash['type'] ?? null);
+        $this->assertSame(self::REFUSED, $flash['message'] ?? null);
+        $this->assertFalse($this->connections->find(SocialPlatform::Facebook)?->isConnected());
+        $this->assertSame(1, $this->journal->countOf('auth_failed'));
+        $this->assertStringContainsString('Error validating client secret.', $this->journal->textOf('auth_failed'));
+        $this->assertStringNotContainsString('S3CR3T-APP', $this->journal->textOf('auth_failed'));
+    }
+
+    /**
+     * Between the offer and the choice, Meta stopped honouring the consent:
+     * the choice is refused with the reason, journalled, and nothing is
+     * attached.
+     */
+    public function testAChoiceMetaNoLongerHonoursIsReportedAndAttachesNothing(): void
+    {
+        $this->connections->saveCredentials(SocialPlatform::Facebook, '123456', 'S');
+        $this->connections->holdPendingUserToken(SocialPlatform::Facebook, 'LONG-USER', new \DateTimeImmutable());
+        SessionStore::set('social_facebook_pages', [['id' => '42', 'name' => 'Unité 25']]);
+        $this->meta->answers = ['me/accounts' => ['status' => 400, 'body' => (string) json_encode(
+            ['error' => ['message' => 'Error validating access token: session has been invalidated', 'code' => 190]]
+        )]];
+
+        $response = $this->controller()->choosePage($this->post(['page_id' => '42']), []);
+
+        $this->assertRedirectsToThePage($response);
+        $flash = FlashMessage::get();
+        $this->assertSame('error', $flash['type'] ?? null);
+        $this->assertSame(self::EXPIRED, $flash['message'] ?? null);
+        $this->assertFalse((bool) $this->connections->find(SocialPlatform::Facebook)?->isConnected());
+        $this->assertSame(1, $this->journal->countOf('auth_failed'));
+        $this->assertStringNotContainsString('LONG-USER', $this->journal->textOf('auth_failed'));
     }
 
     public function testAReconnectionIsJournalledAsSuch(): void

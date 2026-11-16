@@ -292,6 +292,35 @@ class FederalScaleLookupServiceTest extends TestCase
         $this->assertSame(0, $connector->calls);
     }
 
+    /**
+     * The real fetch, with no stub: a configured address that points inside
+     * the network is refused before any request leaves, and reads as a page
+     * that could not be reached.
+     */
+    public function testAnAddressInsideTheNetworkIsNeverFetched(): void
+    {
+        $this->settings->register(
+            FederalScaleLookupService::SETTING_URL,
+            '',
+            'url',
+            'Page des cotisations',
+            'desc',
+            'fees'
+        );
+        $this->settings->setInternal(FederalScaleLookupService::SETTING_URL, 'https://127.0.0.1/cotisations', 'fees');
+        $connector = new FakeLlmConnector(tierAvailable: true);
+        $service = new FederalScaleLookupService($connector, $this->settings, $this->journal);
+
+        $lookup = $service->lookup('2026-2027');
+
+        $this->assertSame(FederalScaleLookup::FETCH_FAILED, $lookup->status);
+        $this->assertSame('https://127.0.0.1/cotisations', $lookup->url);
+        $this->assertSame(0, $connector->calls);
+        $stmt = $this->pdo->prepare('SELECT description FROM event_log WHERE category = ? AND event_type = ?');
+        $stmt->execute(['fees', 'fees_federal_scale_fetch_failed']);
+        $this->assertSame(['Page des cotisations fédérales injoignable'], $stmt->fetchAll(\PDO::FETCH_COLUMN));
+    }
+
     // ------------------------------------------------------------------
     // The whole chain, on a page shaped like the real one.
     // ------------------------------------------------------------------

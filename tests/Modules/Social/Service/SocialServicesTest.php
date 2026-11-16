@@ -182,4 +182,19 @@ final class SocialServicesTest extends TestCase
         // is still with Meta, and the unit may reconnect at any moment.
         $this->assertCount(1, (new SocialSubProcessorService($this->connections))->getSubProcessors());
     }
+
+    /**
+     * The connections cannot be read at all (the table is gone): Meta reads
+     * as no destination rather than an error, and a postable group is still
+     * somewhere to publish.
+     */
+    public function testUnreadableConnectionsAreNoDestinationAndGroupsStillCount(): void
+    {
+        $this->connect(SocialPlatform::Facebook);
+        $this->pdo->exec('DROP TABLE social_connections');
+
+        $this->assertSame([], (new SocialSharingService($this->connections))->connectedDestinations());
+        $this->assertFalse($this->sharing(null)->canPublish('chef@unite.test', 'chief', 7));
+        $this->assertTrue($this->sharing($this->groupDestination())->canPublish('chef@unite.test', 'chief', 7));
+    }
 }

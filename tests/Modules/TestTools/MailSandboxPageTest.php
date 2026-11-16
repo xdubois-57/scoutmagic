@@ -492,6 +492,27 @@ class MailSandboxPageTest extends TestCase
         $this->assertStringContainsString('Bonjour en texte', $this->detail($id));
     }
 
+    /**
+     * The row outlived its file (a manual deletion, a restored backup): the
+     * page still opens, and the text tab reads as if the message had no
+     * text part — it does not say the file is gone. Pinned as it is.
+     */
+    public function testATextHalfWhoseFileIsGoneStillOpensThePage(): void
+    {
+        $id = $this->capture('[25SV] Convocation', 'chef@example.be', '2026-03-01 09:00:00', text: 'Bonjour en texte');
+        $email = $this->repository->findById($id);
+        $this->assertNotNull($email);
+        $file = (new FileRepository($this->pdo))->findById((int) $email->bodyTextFileId);
+        $this->assertNotNull($file);
+        unlink($this->tempDir . '/' . $file->relativePath);
+
+        $body = $this->detail($id);
+
+        $this->assertStringNotContainsString('Bonjour en texte', $body);
+        $this->assertStringContainsString('Ce message ne comporte pas de partie texte.', $body);
+        $this->assertStringContainsString('[25SV] Convocation', $body);
+    }
+
     public function testTheHeadersTabShowsOnlyTheHeaderBlock(): void
     {
         $id = $this->capture(

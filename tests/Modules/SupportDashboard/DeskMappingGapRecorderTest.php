@@ -268,4 +268,35 @@ class DeskMappingGapRecorderTest extends TestCase
 
         $this->assertCount(1, $notifier->sent);
     }
+
+    /**
+     * The announcement went out but marking the rows as announced was
+     * refused: the report is not refused over it, the journal says the
+     * notification step failed, and the rows stay waiting — so the next
+     * report announces them again rather than never.
+     */
+    public function testAnAnnouncementThatCannotBeMarkedIsJournaledAndStaysWaiting(): void
+    {
+        $this->pdo->exec(
+            "CREATE TRIGGER refuse_gap_update BEFORE UPDATE ON support_desk_mapping_gaps
+             BEGIN SELECT RAISE(ABORT, 'gaps are read-only'); END"
+        );
+        $notifier = $this->notifier(true);
+
+        $this->recorder($notifier)->record($this->payload([['function', 'Animateur Nutons']]));
+
+        $this->assertCount(1, $notifier->sent);
+        $this->assertNull($this->gaps->findAllKeyed()['function|animateur nutons']['notified_at']);
+        $this->assertNotSame([], $this->gaps->idsAwaitingNotification());
+        $stmt = $this->pdo->prepare('SELECT level, description, context FROM event_log WHERE event_type = ?');
+        $stmt->execute(['desk_mapping_notification_failed']);
+        $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+        $this->assertCount(1, $rows);
+        $this->assertSame('warning', $rows[0]['level']);
+        $this->assertSame(
+            "Correspondance Desk inconnue enregistrée, mais la notification n'a pas pu être envoyée",
+            $rows[0]['description']
+        );
+        $this->assertStringContainsString('gaps are read-only', (string) $rows[0]['context']);
+    }
 }
