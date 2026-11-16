@@ -132,20 +132,31 @@ Mesuré le 2026-11-14 sur `main` `fc8b1df1` — 28 996 tests, PCOV, MariaDB.
 | dont corps vide | 72 |
 | Marqués `@catch-unreachable` | 0 (lot 0 en ajoute un) |
 
+**Mesure finale**, le 2026-11-16 sur `main` `4c185749` plus la PR finale :
+29 636 tests, PCOV, MariaDB.
+
+| | Nombre |
+|---|---|
+| Blocs `catch` dans `core/` et `modules/` | 1118 |
+| Exécutés | 1093 |
+| **Jamais exécutés** | **0** |
+| Marqués `@catch-unreachable` | 25 |
+| Inconnus | 0 |
+
 Ils se répartissent sur 254 fichiers. Les domaines où il en reste, dans
 l'ordre des lots (ceux à zéro, 11 domaines, ne figurent pas) :
 
-| Domaine | Jamais exécutés | dont vides | Marqués | Blocs |
+| Domaine | Jamais exécutés | dont vides | Marqués (fin) | Blocs (départ) |
 |---|---|---|---|---|
 | `modules/rental` | ~~42~~ **0** (lots 3a-3b) | ~~6~~ 0 | 1 | 102 |
-| `core/Http` | ~~36~~ **1** (lot 4, voir le journal) | ~~4~~ 0 | 1 | 133 |
-| `core/Mail` | ~~35~~ **0** (lots 1-2) | ~~16~~ 0 | 2 | 77 |
-| `core/Storage` | ~~31~~ **0** (lot 5) | ~~9~~ 0 | 1 | 67 |
+| `core/Http` | ~~36~~ **0** (lot 4, puis la PR finale) | ~~4~~ 0 | 1 | 133 |
+| `core/Mail` | ~~35~~ **0** (lots 1-2) | ~~16~~ 0 | 1 | 77 |
+| `core/Storage` | ~~31~~ **0** (lot 5) | ~~9~~ 0 | 2 | 67 |
 | `modules/finance` | ~~23~~ **0** (lot 6) | 0 | 3 | 54 |
 | `core/Maintenance` | ~~21~~ **0** (lot 7) | ~~3~~ 0 | 1 | 55 |
 | `modules/inbound_mail` | ~~21~~ **0** (lot 8) | ~~4~~ 0 | 1 | 42 |
 | `core/Support` | ~~20~~ **0** (lot 9) | ~~4~~ 0 | 1 | 29 |
-| `modules/registration` | ~~17~~ **0** (lot 10) | ~~4~~ 0 | 1 | 47 |
+| `modules/registration` | ~~17~~ **0** (lot 10) | ~~4~~ 0 | 0 | 47 |
 | `modules/camps` | ~~15~~ **0** (lot 11) | ~~1~~ 0 | 1 | 34 |
 | `core/Member` | ~~11~~ **0** (lot 12) | ~~2~~ 0 | 3 | 19 |
 | `modules/attestations` | ~~11~~ **0** (lot 13) | ~~1~~ 0 | 0 | 20 |
@@ -172,7 +183,7 @@ l'ordre des lots (ceux à zéro, 11 domaines, ne figurent pas) :
 | `core/Contact` | ~~2~~ **0** (lot 38) | 0 | 0 | 3 |
 | `core/Help` | ~~2~~ **0** (lot 39) | 0 | 0 | 3 |
 | `core/Image` | ~~2~~ **0** (lot 40) | 0 | 1 | 4 |
-| `core/Notification` | ~~2~~ **0** (lot 41) | ~~1~~ 0 | 0 | 8 |
+| `core/Notification` | ~~2~~ **0** (lot 41) | ~~1~~ 0 | 1 | 8 |
 | `core/Page` | ~~2~~ **0** (lot 42) | 0 | 0 | 4 |
 | `core/System` | ~~2~~ **0** (lot 43) | 0 | 0 | 3 |
 | `modules/fees` | ~~2~~ **0** (lot 27) | 0 | 0 | 8 |
@@ -684,3 +695,39 @@ test vérifie l'effet et échoue quand le `catch` relance ou change ce qu'il fai
   connexion coupée depuis.
 - `core/Image` (`PhotoNormalizer`) : `queryFormats()` filtre la liste des
   codecs compilés dans ImageMagick ; elle ne prend aucune entrée et ne lève pas.
+
+### PR finale — `guard()` — 2026-11-16
+
+**1 → 0** : le dernier `catch` jamais exécuté, celui de
+`ErrorHandler::guard()` (`core/Http`, laissé ouvert au lot 4), terminait la
+requête par `exit`, qui emportait sa couverture. `setTerminator()`, réservé aux
+tests, remplace cet `exit` par une exception : le `catch` est traversé dans le
+processus de PHPUnit et compté. Le test en sous-processus reste, qui prouve le
+vrai `exit`.
+
+**`scripts/catch-coverage.php`** : les corrections de #1214 (enfant
+conditionnel, accolade fermante suivie de code, accolades lues par jeton,
+php:S1808) sont arrivées par #1297. La mesure finale est faite avec cette
+version du script.
+
+**Ce qui a fusionné pendant le chantier**, rattrapé ici :
+- **#1289** tronque le corps d'une notification push avant la bibliothèque,
+  qui ne peut donc plus refuser une charge trop longue. Le `catch` de
+  `queuePushForAccount()` (`core/Notification`) devient inatteignable et reçoit
+  un marqueur. Le test du lot 41 qui l'atteignait par une charge trop longue
+  échouait depuis ; #1312 (#1311) l'a réécrit avec une charge que rien ne
+  peut réduire, journalisée et non poussée.
+- **#1284** : son nouveau `catch (StorageLocationException)` de
+  `attachDriveFolder()` (`core/Storage`) ne voit passer que ce que le `catch`
+  de `DriveAccessException` placé avant lui n'a pas pris, et rien d'autre ne
+  lève cette exception dans ce `try`. Il reçoit un marqueur.
+- **#1293** : son `catch` de `ReturnPathVerifier::isScopeUnreadable()`
+  (`core/Mail`), quand le journal ne peut pas être écrit, est atteint par un
+  test : la liste reste lue comme illisible, et seule la classe de la cause
+  part au journal d'erreurs PHP.
+- **#1286** a retiré, avec le code qu'il couvrait, le marqueur du lot 10
+  (`RegistrationConfigController`), et **#1296** celui de
+  `DrainDeferredMailHandler`, dont le `catch` est désormais testé.
+
+**La fin est atteinte** : sur la suite entière, 0 bloc jamais exécuté et 0
+inconnu ; les 25 marqueurs portent chacun leur raison.

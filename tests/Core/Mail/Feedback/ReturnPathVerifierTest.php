@@ -275,6 +275,36 @@ class ReturnPathVerifierTest extends TestCase
     }
 
     /**
+     * The journal is in the same database that may be failing: when it cannot
+     * be written either, the failure still reads as an unreadable scope, and
+     * the class of the cause goes to the PHP error log instead, never the
+     * module's own words.
+     */
+    public function testAnUnreadableScopeWhoseJournalCannotBeWrittenStillReadsUnreadable(): void
+    {
+        $gateway = $this->createStub(InboundMailInterface::class);
+        $gateway->method('isCollecting')->willReturn(true);
+        $gateway->method('probeAddressesFor')->willThrowException(new \PDOException('SQLSTATE[HY000]: boite@unite.be'));
+        $this->pdo->exec('DROP TABLE event_log');
+        $log = tempnam(sys_get_temp_dir(), 'return-path-log');
+        $previous = ini_set('error_log', (string) $log);
+
+        try {
+            $this->assertTrue($this->verifierWith($gateway)->isScopeUnreadable());
+            $written = (string) file_get_contents((string) $log);
+        } finally {
+            ini_set('error_log', (string) $previous);
+            @unlink((string) $log);
+        }
+
+        $this->assertStringContainsString(
+            'ScoutMagic: the mailboxes open to the return-path check could not be read: PDOException',
+            $written
+        );
+        $this->assertStringNotContainsString('boite@unite.be', $written);
+    }
+
+    /**
      * What stays what it was: no module, a module that is not collecting
      * (nobody asked it anything) and a module that answers « no box » are
      * none of them a failure.

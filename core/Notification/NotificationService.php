@@ -1038,8 +1038,12 @@ class NotificationService
                 );
                 $endpointMap[$subscription->endpoint] = $subscription->id;
             } catch (\Throwable) {
-                // Malformed subscription — skip, never block the rest of
-                // the batch (matches Iteration 1's per-device isolation).
+                // @catch-unreachable queueNotification() throws only for a payload over
+                // Encryption::MAX_PAYLOAD_LENGTH, which pushPayload() has already cut to fit
+                // (#1241), or for a subscription without a content encoding, which
+                // Subscription::create() always sets when keys are given. Malformed keys are
+                // not caught here: they fail at encryption, inside flush(). Kept so one device
+                // never blocks the rest of the batch should the library start refusing more.
             }
         }
     }

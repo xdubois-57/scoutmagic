@@ -32,6 +32,7 @@ class ErrorHandlerTest extends TestCase
     protected function tearDown(): void
     {
         ErrorHandler::setJournalService(null);
+        ErrorHandler::setTerminator(null);
 
         if ($this->logFile !== '' && is_file($this->logFile)) {
             @unlink($this->logFile);
@@ -69,6 +70,40 @@ class ErrorHandlerTest extends TestCase
     {
         ErrorHandler::register(false);
         $this->assertSame(42, ErrorHandler::guard(static fn() => 42));
+    }
+
+    /**
+     * The same branch in this process, with the request ended by a throw
+     * where production exits — so that the line coverage of the catch
+     * reaches the report (the subprocess test below cannot hand its own
+     * back). The page is the generic one, the detail is in the server's
+     * log only, and the request ends: nothing after guard() runs.
+     */
+    public function testGuardHandsTheThrowableToTheHandlerAndThenEndsTheRequest(): void
+    {
+        ErrorHandler::register(false);
+        $ended = new \LogicException('the request ended');
+        ErrorHandler::setTerminator(static function () use ($ended): never {
+            throw $ended;
+        });
+        $after = false;
+
+        ob_start();
+        try {
+            ErrorHandler::guard(static function (): never {
+                throw new \RuntimeException('needle-in-the-guard');
+            });
+            $after = true;
+        } catch (\LogicException $caught) {
+            $this->assertSame($ended, $caught);
+        } finally {
+            $page = (string) ob_get_clean();
+        }
+
+        $this->assertFalse($after, 'guard() let the request carry on');
+        $this->assertStringContainsString('Une erreur est survenue', $page);
+        $this->assertStringNotContainsString('needle-in-the-guard', $page);
+        $this->assertStringContainsString('needle-in-the-guard', (string) file_get_contents($this->logFile));
     }
 
     /**
