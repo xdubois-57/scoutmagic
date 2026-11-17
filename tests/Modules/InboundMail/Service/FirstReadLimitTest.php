@@ -283,6 +283,34 @@ class FirstReadLimitTest extends TestCase
         );
     }
 
+    /**
+     * The folder is renumbered between the folder state and the selection
+     * of the same pass: the cursor stores the generation the selected UIDs
+     * belong to, so the next pass does not take it for a renumbering and
+     * throw the retained messages away.
+     */
+    public function testARenumberingDuringTheFirstReadKeepsTheRetainedMessages(): void
+    {
+        $this->client->setUidValidity('INBOX', 5);
+        for ($uid = 1; $uid <= 120; $uid++) {
+            $this->add('INBOX', $uid, $this->now()->modify('-' . $uid . ' hours'));
+        }
+        $this->client->renumberBeforeFirstRead('INBOX', 6);
+
+        $this->sync();
+        $cursor = $this->mailboxes->findCursor($this->mailboxId, 'INBOX');
+        $this->assertSame(6, $cursor->uidValidity, 'the generation of the selection');
+        $this->assertCount(120 - MailboxSyncService::BATCH_SIZE, $cursor->pendingUids);
+
+        $this->client->calls = [];
+        $this->syncUntilDrained();
+
+        $this->assertSame(120, $this->countMessages(), 'every retained message read');
+        foreach ($this->client->calls as $call) {
+            $this->assertStringStartsNotWith('firstReadSelection', $call, 'no second selection');
+        }
+    }
+
     public function testAFolderTickedLaterHasAFirstReadOfItsOwn(): void
     {
         $this->add('INBOX', 1, $this->now());

@@ -32,11 +32,15 @@ final class FirstReadSelection
      * @param int[] $uids the retained messages, in any order
      * @param int $highestUid the folder's highest UID when the selection was taken
      * @param int $leftAside how many messages of the folder were not retained
+     * @param int $uidValidity the UIDVALIDITY of the EXAMINE the selection was
+     *                         taken under — the generation its UIDs belong to,
+     *                         which the cursor must store, not an earlier one
      */
     public function __construct(
         array $uids,
         public readonly int $highestUid,
-        public readonly int $leftAside
+        public readonly int $leftAside,
+        public readonly int $uidValidity
     ) {
         $uids = array_values(array_unique(array_filter(
             array_map('intval', $uids),

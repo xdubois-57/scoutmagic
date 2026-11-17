@@ -276,7 +276,7 @@ class MailboxSyncService
         $folderState = $client->folderState($folder);
         $cursor = $this->mailboxRepository->findCursor($mailbox->id, $folder);
         if ($cursor->wasReset($folderState->uidValidity) || $cursor->isUnread()) {
-            $cursor = $this->firstRead($mailbox, $client, $folder, $folderState->uidValidity, $now);
+            $cursor = $this->firstRead($mailbox, $client, $folder, $now);
         }
 
         $seen = 0;
@@ -344,7 +344,6 @@ class MailboxSyncService
         Mailbox $mailbox,
         IncomingMailboxClientInterface $client,
         string $folder,
-        int $uidValidity,
         \DateTimeImmutable $now
     ): FolderCursor {
         $selection = $client->firstReadSelection(
@@ -353,10 +352,12 @@ class MailboxSyncService
             self::FIRST_READ_LIMIT
         );
 
+        // The UIDVALIDITY the selection's own EXAMINE saw: its UIDs belong
+        // to that generation, whatever the folder state read a moment before.
         $cursor = new FolderCursor(
             $mailbox->id,
             $folder,
-            $uidValidity,
+            $selection->uidValidity,
             $selection->highestUid,
             $selection->uids
         );

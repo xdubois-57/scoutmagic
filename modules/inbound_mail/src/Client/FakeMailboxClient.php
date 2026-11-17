@@ -35,6 +35,9 @@ class FakeMailboxClient implements IncomingMailboxClientInterface
     /** @var array<string, int> */
     private array $uidValidityByFolder = [];
 
+    /** @var array<string, int> */
+    private array $renumberBeforeFirstRead = [];
+
     /** @var array<string, true> */
     private array $sentFolders = [];
 
@@ -197,9 +200,22 @@ class FakeMailboxClient implements IncomingMailboxClientInterface
      * dates, over the same messages: since $since by reception date, the
      * $limit most recent of them, never judged by UID.
      */
+    /**
+     * The folder is renumbered to $uidValidity just before its next first-read
+     * selection — after the folder state of the same pass was read.
+     */
+    public function renumberBeforeFirstRead(string $folder, int $uidValidity): void
+    {
+        $this->renumberBeforeFirstRead[$folder] = $uidValidity;
+    }
+
     public function firstReadSelection(string $folder, \DateTimeImmutable $since, int $limit): FirstReadSelection
     {
         $this->calls[] = 'firstReadSelection:' . $folder . ':' . $since->format('Y-m-d') . ':' . $limit;
+        if (isset($this->renumberBeforeFirstRead[$folder])) {
+            $this->uidValidityByFolder[$folder] = $this->renumberBeforeFirstRead[$folder];
+            unset($this->renumberBeforeFirstRead[$folder]);
+        }
 
         $entries = $this->foldersByPath[$folder] ?? [];
         $recent = array_values(array_filter(
@@ -222,7 +238,8 @@ class FakeMailboxClient implements IncomingMailboxClientInterface
         return new FirstReadSelection(
             $retained,
             $uids === [] ? 0 : max($uids),
-            count($entries) - count($retained)
+            count($entries) - count($retained),
+            $this->uidValidityByFolder[$folder] ?? 1
         );
     }
 

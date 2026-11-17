@@ -248,7 +248,8 @@ class ImapMailboxClient implements IncomingMailboxClientInterface, PruningMailbo
         return new FirstReadSelection(
             $uids,
             $highestUid,
-            max(0, (int) ($status['exists'] ?? 0) - count($uids))
+            max(0, (int) ($status['exists'] ?? 0) - count($uids)),
+            (int) ($status['uidvalidity'] ?? 0)
         );
     }
 
