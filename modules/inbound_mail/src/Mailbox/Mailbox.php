@@ -108,11 +108,16 @@ class Mailbox
      *
      * A general box is analysed by every active consumer, a reserved box
      * by its module alone. A box therefore works the moment it is saved:
-     * no module waits for a second screen to be told it may look.
+     * no module waits for a second screen to be told it may look. The one
+     * exception: a consumer that reads only boxes reserved to it — the
+     * seed boxes — never reads the general mail
+     * (`MailboxPurpose::readsReservedBoxesOnly()`).
      */
     public function isAnalysedBy(string $consumerId): bool
     {
-        return !$this->isDedicated() || $this->dedicatedTo === $consumerId;
+        return $this->isDedicated()
+            ? $this->dedicatedTo === $consumerId
+            : !MailboxPurpose::readsReservedBoxesOnly($consumerId);
     }
 
     /**

@@ -413,19 +413,24 @@ class InboundMailboxRepository
      * Declare what a box is for. A general box has no module; the caller
      * that offers the choice checks first that the module has no other
      * reserved box (`Service\MailboxAdminService::setPurpose()`), and the
-     * unique index on `dedicated_to` is what holds if two saves race.
+     * unique index on `dedication_key` is what holds if two saves race.
+     *
+     * `dedication_key` is written here and nowhere else: the module, except
+     * for a consumer allowed several boxes (the seed boxes), for which it
+     * stays NULL and the index lets them be.
      */
     public function setPurpose(int $id, MailboxPurpose $purpose, ?string $dedicatedTo): void
     {
+        $dedicatedTo = $purpose === MailboxPurpose::DEDICATED ? $dedicatedTo : null;
+        $key = $dedicatedTo !== null && !MailboxPurpose::readsReservedBoxesOnly($dedicatedTo)
+            ? $dedicatedTo
+            : null;
+
         $stmt = $this->pdo->prepare(
-            'UPDATE inbound_mailboxes SET purpose = ?, dedicated_to = ?, updated_at = ? WHERE id = ?'
+            'UPDATE inbound_mailboxes SET purpose = ?, dedicated_to = ?, dedication_key = ?, updated_at = ?
+              WHERE id = ?'
         );
-        $stmt->execute([
-            $purpose->value,
-            $purpose === MailboxPurpose::DEDICATED ? $dedicatedTo : null,
-            self::now(),
-            $id,
-        ]);
+        $stmt->execute([$purpose->value, $dedicatedTo, $key, self::now(), $id]);
     }
 
     /**

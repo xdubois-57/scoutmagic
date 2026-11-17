@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Tests\Modules\InboundMail\Service;
 
+use Modules\InboundMail\Api\MailboxPurpose;
 use Modules\InboundMail\Api\AnalysisResult;
 use Modules\InboundMail\Api\CandidateMessage;
 use Modules\InboundMail\Api\PruningConsumerInterface;
@@ -118,6 +119,9 @@ class PruningConsumerTest extends TestCase
             ['INBOX'],
             true
         );
+        // A seed box: reserved to the seed consumer, the only kind of box it
+        // reads (Api\MailboxPurpose::RESERVED_ONLY_CONSUMERS).
+        $mailboxRepository->setPurpose($this->mailboxId, MailboxPurpose::DEDICATED, 'core_mail_seed');
 
         $client->addRawMessage('INBOX', 7, InboundMailTestHelper::rawMessage([
             'From' => 'expediteur@exemple.be',

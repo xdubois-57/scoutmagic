@@ -93,7 +93,7 @@ d'application** :
 | **Chiffrement** | `SSL`, `TLS` ou `STARTTLS`. Il n'existe pas d'option « aucun ». |
 | **Mot de passe** | Le mot de passe d'application. Il ne sera **plus jamais réaffiché**. |
 | **Dossiers surveillés** | Un par ligne, avec leur nom exact sur le serveur. Vide = INBOX. |
-| **Usage** | **Courrier général de l'unité** — tous les modules actifs le lisent ; ou **Réservée à un module** — seul ce module la lit, et ses responsables y voient tout. Un module n'a qu'une adresse réservée. |
+| **Usage** | **Courrier général de l'unité** — tous les modules actifs le lisent ; ou **Réservée à un module** — seul ce module la lit, et ses responsables y voient tout. Un module n'a qu'une adresse réservée, sauf les boîtes témoins du courrier sortant, qui peuvent être plusieurs et ne sont jamais le courrier général. |
 
 Puis **testez la connexion** avant de compter dessus. Le test vous dit ce
 qui ne va pas en une phrase actionnable, et liste les dossiers réellement

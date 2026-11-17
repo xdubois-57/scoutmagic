@@ -431,10 +431,13 @@ class InboundMailConfigController extends AbstractController
     private function formContext(?Mailbox $mailbox): array
     {
         // A module that already has its address is not offered for another
-        // box (D5) — except this box's own module, which it keeps.
+        // box (D5) — except this box's own module, which it keeps, and the
+        // seed boxes, which may be several.
         $taken = [];
         foreach ($this->adminService->listMailboxes() as $other) {
-            if ($other->isDedicated() && $other->id !== $mailbox?->id) {
+            if ($other->isDedicated() && $other->id !== $mailbox?->id
+                && !MailboxPurpose::readsReservedBoxesOnly((string) $other->dedicatedTo)
+            ) {
                 $taken[(string) $other->dedicatedTo] = true;
             }
         }

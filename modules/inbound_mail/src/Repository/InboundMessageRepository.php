@@ -1872,6 +1872,33 @@ class InboundMessageRepository
     }
 
     /**
+     * How many messages wait for the Staff d'U to confirm a proposition:
+     * attached to nothing, with a proposition standing that no module's
+     * users are shown — one about a message of the general box (rule A,
+     * §8.58). Without this count they would sit in « Courrier reçu »
+     * unnoticed: `countUnassociated()` leaves out what carries a
+     * proposition, and the modules' own counts leave out the general box.
+     */
+    public function countAwaitingStaffConfirmation(bool $includeBulk = false): int
+    {
+        $sql = 'SELECT COUNT(*) FROM inbound_messages m
+                 WHERE NOT EXISTS (SELECT 1 FROM inbound_message_links l WHERE l.message_id = m.id)
+                   AND EXISTS (SELECT 1 FROM inbound_message_candidates c
+                                WHERE c.message_id = m.id AND c.dismissed_at IS NULL
+                                  AND NOT EXISTS (SELECT 1 FROM inbound_mailboxes pb
+                                                   WHERE pb.id = m.mailbox_id AND pb.purpose = ?
+                                                     AND pb.dedicated_to = c.consumer_id))';
+        if (!$includeBulk) {
+            $sql .= ' AND m.is_bulk = 0';
+        }
+
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute([MailboxPurpose::DEDICATED->value]);
+
+        return (int) $stmt->fetchColumn();
+    }
+
+    /**
      * Hydrate a set of rows read without a business reference — the
      * general mailbox's shape, where a message is not being looked at
      * through any one association.

@@ -47,9 +47,20 @@ CREATE TABLE IF NOT EXISTS inbound_mailboxes (
     -- module alone analyses it, and its users read all of it.
     purpose VARCHAR(20) NOT NULL DEFAULT 'shared',
     -- The consumer a dedicated box belongs to. NULL on a shared box, and
-    -- meaningless there. Unique: a module has at most one box of its own
-    -- (D5), and NULLs do not collide, so shared boxes are unconstrained.
+    -- meaningless there.
     dedicated_to VARCHAR(50) NULL,
+    -- What makes « a module has at most one reserved box » (D5) hold in
+    -- the database: `dedicated_to`, except NULL for the consumers allowed
+    -- several boxes (Api\MailboxPurpose::RESERVED_ONLY_CONSUMERS, the seed
+    -- boxes) and on a shared box. NULLs never collide in a unique index, so
+    -- the index constrains exactly the others. A partial index would say it
+    -- directly, and MySQL has none; a GENERATED column would too, and the
+    -- migration tooling (Core\Database\SqlParser, SchemaComparator) has no
+    -- notion of one — it would create a plain NULL column on a fresh
+    -- install, the index then holding nothing. So it is a plain column,
+    -- written by InboundMailboxRepository::setPurpose() and nothing else,
+    -- the same answer as mass_mail_notified_accounts.audience_row_key.
+    dedication_key VARCHAR(50) NULL,
     -- 'never' | 'ok' | 'error'. 'never' is a real state, distinct from
     -- 'ok': a box that has not once connected must not look healthy.
     sync_state VARCHAR(20) NOT NULL DEFAULT 'never',
@@ -69,7 +80,7 @@ CREATE TABLE IF NOT EXISTS inbound_mailboxes (
     failing_since DATETIME NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE INDEX idx_mailbox_dedicated_to (dedicated_to)
+    UNIQUE INDEX idx_mailbox_dedication_key (dedication_key)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- inbound_mailbox_cursors: how far each watched folder has been read.

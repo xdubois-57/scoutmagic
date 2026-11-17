@@ -247,17 +247,11 @@ class CampsMessageConsumerTest extends TestCase
 
     public function testTheDedicatedBoxIsTheOneInboundMailNamesAndNotTheOldSetting(): void
     {
-        // The regression this test exists for. `camps_dedicated_mailbox_ids`
-        // was this module's own list of dedicated boxes; the mailbox
-        // configuration took the question over and never wrote to that
-        // list again. The module kept reading it, so a unit that declared
-        // its camps box on the new screen had automatic stay creation
-        // silently switched off — and nothing anywhere said so.
-        $this->pdo->prepare(
-            'INSERT INTO settings (module_id, setting_key, setting_value, default_value,
-                                   setting_type, label, description)
-             VALUES (?, ?, ?, ?, ?, ?, ?)'
-        )->execute(['camps', 'camps_dedicated_mailbox_ids', '', '', 'text', 'Boîtes dédiées', '']);
+        // The regression this test exists for. The module used to read its
+        // own list of dedicated boxes, which the mailbox configuration took
+        // over and never wrote to again, so a unit that reserved its camps
+        // box there had automatic stay creation silently switched off. The
+        // box inbound_mail names is the only answer.
 
         $stayFromMail = $this->createMock(\Modules\Camps\Mail\StayFromMailService::class);
         $stayFromMail->method('isAutomatic')->willReturn(true);

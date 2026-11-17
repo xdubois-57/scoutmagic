@@ -33,6 +33,26 @@ enum MailboxPurpose: string
      */
     case DEDICATED = 'dedicated';
 
+    /**
+     * The consumers that read ONLY the boxes reserved to them, and may have
+     * several: the seed boxes (`Core\Mail\Feedback\Seed\SeedMailboxes`).
+     *
+     * A seed box receives a copy of every mailing and empties itself, so it
+     * must never be the unit's general address — and measuring a mailing
+     * takes several providers, hence several boxes. Every other consumer
+     * reads the general mail and has at most one reserved box (D5).
+     *
+     * A list of ids rather than something a consumer declares, because the
+     * answer is needed where no consumer is built: the scheduled capability
+     * that tells the mail service where to send seed copies has none.
+     */
+    public const RESERVED_ONLY_CONSUMERS = ['core_mail_seed'];
+
+    public static function readsReservedBoxesOnly(string $consumerId): bool
+    {
+        return in_array($consumerId, self::RESERVED_ONLY_CONSUMERS, true);
+    }
+
     public static function fromString(?string $value): self
     {
         return self::tryFrom((string) $value) ?? self::SHARED;

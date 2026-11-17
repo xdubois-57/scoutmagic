@@ -339,6 +339,41 @@ class GeneralMailboxTest extends TestCase
         $this->assertSame('/courrier', $points[0]->actionUrl);
     }
 
+    /**
+     * Rule A leaves the general box's propositions to the Staff d'U alone:
+     * no module counts them, so this point must, or they sit unnoticed.
+     */
+    public function testTheAttentionPointCountsGeneralBoxPropositionsWaitingForTheStaff(): void
+    {
+        $this->addCandidate($this->store('one@x'));
+        $this->addCandidate($this->store('two@x', '2027-07-12 09:31:00'));
+
+        $points = (new InboundMailAttentionProvider($this->messages))->collect(1);
+
+        $this->assertCount(1, $points);
+        $this->assertSame('2 messages reçus attendent une confirmation de rattachement', $points[0]->title);
+        $this->assertSame('/courrier?association=proposed', $points[0]->actionUrl);
+    }
+
+    /**
+     * A proposition on the box reserved to its module is that module's to
+     * settle, and counted on its side; one already settled by a link, or
+     * set aside, waits for nobody.
+     */
+    public function testTheStaffIsNotAskedAboutWhatAModuleOrADecisionAlreadySettles(): void
+    {
+        $this->mailboxes->setPurpose($this->otherMailboxId, MailboxPurpose::DEDICATED, 'rental');
+        $this->addCandidate($this->store('reserved@x', '2027-07-12 09:30:00', false, $this->otherMailboxId));
+        $linked = $this->store('linked@x');
+        $this->addCandidate($linked);
+        $this->messages->addLink($linked, 'camps', 'camp-1', LinkOrigin::REFERENCE);
+        $dismissed = $this->store('dismissed@x');
+        $this->addCandidate($dismissed);
+        $this->mailbox->dismissCandidate($dismissed, $this->mailbox->candidatesFor($dismissed)[0]->id);
+
+        $this->assertSame(0, $this->messages->countAwaitingStaffConfirmation());
+    }
+
     public function testTheAttentionPointIgnoresAutomaticMail(): void
     {
         // A chief told about one unattributed newsletter a week stops

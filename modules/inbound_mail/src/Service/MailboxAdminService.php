@@ -171,9 +171,10 @@ class MailboxAdminService
      * Declare what a box is for — the unit's general mail, or reserved to
      * one module (§8.58).
      *
-     * **A module has at most one reserved box** (D5). Checked here so the
-     * operator reads why in a sentence, and held by the unique index on
-     * `dedicated_to` should two saves race past the check.
+     * **A module has at most one reserved box** (D5) — except the seed
+     * boxes, which may be several. Checked here so the operator reads why
+     * in a sentence, and held by the unique index on `dedication_key`
+     * should two saves race past the check.
      *
      * @return string|null null when saved, otherwise the reason it was not,
      *   in a sentence for the operator
@@ -213,6 +214,12 @@ class MailboxAdminService
         $dedicatedTo = $dedicatedTo !== null ? trim($dedicatedTo) : '';
         if ($dedicatedTo === '') {
             return 'Choisissez le module auquel cette adresse est réservée.';
+        }
+
+        // The seed boxes are the one usage that takes several (D5's
+        // exception): copies are measured across several providers.
+        if (MailboxPurpose::readsReservedBoxesOnly($dedicatedTo)) {
+            return null;
         }
 
         $other = $this->repository->findOtherDedicatedTo($dedicatedTo, $id);

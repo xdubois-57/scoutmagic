@@ -17,9 +17,10 @@ use Modules\InboundMail\Api\InboundMailInterface;
  *
  * **There is no new kind of mailbox and no new configuration concept**
  * (D10). A seed box is an ordinary box of the unit's, declared under
- * « Courrier entrant » like any other, on which the super-admin grants
- * this consumer a scope. « Which boxes are seed boxes » is then answered
- * by the scope mechanism that already answers « who reads what », and the
+ * « Courrier entrant » like any other, which the super-admin reserves to
+ * this consumer — several may be, and the unit's general address never is
+ * a seed box (`Api\MailboxPurpose::RESERVED_ONLY_CONSUMERS`). « Which boxes
+ * are seed boxes » is then answered by the box's purpose, and the
  * addresses come back from
  * {@see InboundMailInterface::probeAddressesFor()} — the very method the
  * manual probe already uses to ask the same question. Nothing here

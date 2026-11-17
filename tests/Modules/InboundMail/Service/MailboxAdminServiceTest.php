@@ -94,6 +94,29 @@ class MailboxAdminServiceTest extends TestCase
         $this->assertFalse($this->repository->findById($chalet)?->isDedicated());
     }
 
+    /**
+     * The one exception to D5: the seed boxes may be several, in the
+     * service and in the database alike — while any other module is still
+     * refused a second box by the database on its own.
+     */
+    public function testSeveralBoxesMayBeReservedToTheSeedConsumer(): void
+    {
+        $gmail = $this->createMailbox('Gmail');
+        $outlook = $this->createMailbox('Outlook');
+
+        $this->assertNull($this->service->setPurpose($gmail, MailboxPurpose::DEDICATED, 'core_mail_seed'));
+        $this->assertNull($this->service->setPurpose($outlook, MailboxPurpose::DEDICATED, 'core_mail_seed'));
+        $this->assertSame('core_mail_seed', $this->repository->findById($outlook)?->dedicatedTo);
+    }
+
+    public function testTheDatabaseStillRefusesASecondBoxForAnyOtherModule(): void
+    {
+        $this->repository->setPurpose($this->createMailbox('Locations'), MailboxPurpose::DEDICATED, 'rental');
+
+        $this->expectException(\PDOException::class);
+        $this->repository->setPurpose($this->createMailbox('Chalet'), MailboxPurpose::DEDICATED, 'rental');
+    }
+
     public function testGivingTheModuleBackFreesItsPlace(): void
     {
         $locations = $this->createMailbox('Locations');

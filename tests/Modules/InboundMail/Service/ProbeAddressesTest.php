@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Modules\InboundMail\Service;
 
 use Core\File\FileRepository;
+use Core\Mail\Feedback\Seed\SeedMailboxes;
 use Core\Security\EncryptionService;
 use Modules\InboundMail\Api\AnalysisResult;
 use Modules\InboundMail\Api\CandidateMessage;
@@ -68,6 +69,33 @@ class ProbeAddressesTest extends TestCase
      * message would land where nobody claims it and produce a « jamais
      * reçu » that says nothing about the mail path.
      */
+    /**
+     * Seed copies of every mailing go to the boxes reserved to the seed
+     * consumer and never to the unit's general address — and several such
+     * boxes are allowed, one measurement spanning several providers.
+     */
+    public function testTheGeneralBoxIsNeverASeedBoxAndSeveralSeedBoxesAreAllowed(): void
+    {
+        $seed = SeedMailboxes::CONSUMER_ID;
+        $this->registry->register(new ProbingConsumer($seed));
+        $this->mailbox('contact@unite.be');
+        $this->reserve($this->mailbox('temoin.gmail@unite.be'), $seed);
+        $this->reserve($this->mailbox('temoin.outlook@unite.be'), $seed);
+
+        $this->assertSame(
+            ['temoin.gmail@unite.be', 'temoin.outlook@unite.be'],
+            $this->service()->probeAddressesFor($seed)
+        );
+        $this->assertSame(['contact@unite.be'], $this->service()->probeAddressesFor('support'));
+    }
+
+    /** The rule is keyed on the seed consumer's id; this keeps the two in step. */
+    public function testTheSeedConsumerIsTheOneThatReadsReservedBoxesOnly(): void
+    {
+        $this->assertTrue(MailboxPurpose::readsReservedBoxesOnly(SeedMailboxes::CONSUMER_ID));
+        $this->assertFalse(MailboxPurpose::readsReservedBoxesOnly('rental'));
+    }
+
     public function testABoxReservedToAnotherConsumerIsNotOffered(): void
     {
         $this->reserve($this->mailbox('locations@unite.be'), 'rental');

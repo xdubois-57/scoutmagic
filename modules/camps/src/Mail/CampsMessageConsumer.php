@@ -916,14 +916,13 @@ class CampsMessageConsumer implements
      * Whether that box is the one the operator declared to be the camps
      * box — asked of `inbound_mail`, which owns the answer.
      *
-     * **It used to be read from `camps_dedicated_mailbox_ids`, this
-     * module's own list of ids, and that had stopped being true.** The
+     * **It used to be read from this module's own list of box ids
+     * (a retired setting), and that had stopped being true.** The
      * mailbox configuration took the question over — a box is the unit's
      * general mail or reserved to one module (`Api\MailboxPurpose`) — and
      * never wrote to the old list again, so on every installation that
      * reserved its camps box there, this method answered « non » and
-     * automatic stay creation was silently off. The setting is still
-     * declared, and is read by nothing.
+     * automatic stay creation was silently off. The setting is gone.
      *
      * No `inbound_mail`, no answer, and therefore no creation: §7.5's
      * degradation, and the safe direction — a stay invented on a box
