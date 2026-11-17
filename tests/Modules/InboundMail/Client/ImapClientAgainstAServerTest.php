@@ -250,6 +250,26 @@ class ImapClientAgainstAServerTest extends TestCase
         $this->assertContains('SEARCH ALL', $this->server->commands);
     }
 
+    /**
+     * Without UIDNEXT, the folder status asks for the highest UID too, and
+     * agrees with the first read: a 0 here would hold new mail back behind
+     * a first read's whole backlog.
+     */
+    public function testAFolderStatusWithoutUidNextGivesTheSameHighestUidAsTheFirstRead(): void
+    {
+        $this->server->omitUidNext = true;
+        $this->server->folders['INBOX'] = [4 => self::MESSAGE, 9 => self::MESSAGE];
+
+        $client = $this->connected();
+
+        $this->assertSame(9, $client->folderState('INBOX')->highestUid);
+        $this->assertSame(9, $client->firstReadSelection('INBOX', new \DateTimeImmutable('-12 months'), 10)->highestUid);
+        $this->assertSame([], $this->server->stored, 'no flag was set or removed');
+
+        $this->server->folders['INBOX'] = [];
+        $this->assertSame(0, $client->folderState('INBOX')->highestUid, 'an empty folder');
+    }
+
     public function testAFirstReadWithinTheCapDoesNotEvenFetchTheDates(): void
     {
         $selection = $this->connected()->firstReadSelection('INBOX', new \DateTimeImmutable('-12 months'), 10);

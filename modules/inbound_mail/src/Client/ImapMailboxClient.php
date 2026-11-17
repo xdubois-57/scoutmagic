@@ -135,6 +135,12 @@ class ImapMailboxClient implements IncomingMailboxClientInterface, PruningMailbo
             // EXAMINE, never SELECT: the read-only form of opening a
             // folder. Some servers set \Recent on SELECT.
             $status = $imapFolder->examine();
+            // The same highest UID as a first read sees (firstReadSelection):
+            // were it 0 here for a server that leaves UIDNEXT out, new mail
+            // would wait behind a first read's whole backlog.
+            $highestUid = isset($status['uidnext'])
+                ? (int) $status['uidnext'] - 1
+                : $this->searchHighestUid($imapFolder);
         } catch (\Throwable $e) {
             throw MailboxConnectionException::at(MailboxConnectionException::STEP_OPEN_FOLDER, $e);
         }
@@ -142,7 +148,7 @@ class ImapMailboxClient implements IncomingMailboxClientInterface, PruningMailbo
         return new FolderState(
             $folder,
             (int) ($status['uidvalidity'] ?? 0),
-            (int) ($status['uidnext'] ?? 1) - 1
+            $highestUid
         );
     }
 
@@ -221,7 +227,7 @@ class ImapMailboxClient implements IncomingMailboxClientInterface, PruningMailbo
             // cursor at the bottom of the folder, the whole history.
             $highestUid = isset($status['uidnext'])
                 ? (int) $status['uidnext'] - 1
-                : self::highestUidIn($connection->search(['ALL'], IMAP::ST_UID)->validatedData());
+                : $this->searchHighestUid($imapFolder);
             $found = $connection->search(['SINCE', $since->format('j-M-Y')], IMAP::ST_UID)->validatedData();
             $uids = array_values(array_filter(
                 array_map('intval', is_array($found) ? $found : []),
@@ -247,10 +253,14 @@ class ImapMailboxClient implements IncomingMailboxClientInterface, PruningMailbo
     }
 
     /**
-     * The highest UID a `UID SEARCH ALL` named, 0 for an empty folder.
+     * The folder's highest UID by `UID SEARCH ALL`, 0 for an empty folder —
+     * for a server whose EXAMINE answer leaves UIDNEXT out. The folder was
+     * just EXAMINEd: the search runs read-only.
      */
-    private static function highestUidIn(mixed $found): int
+    private function searchHighestUid(Folder $imapFolder): int
     {
+        $imapFolder->getClient()->setActiveFolder($imapFolder->path);
+        $found = $imapFolder->getClient()->getConnection()->search(['ALL'], IMAP::ST_UID)->validatedData();
         $uids = array_map('intval', is_array($found) ? $found : []);
 
         return $uids === [] ? 0 : max(0, max($uids));
