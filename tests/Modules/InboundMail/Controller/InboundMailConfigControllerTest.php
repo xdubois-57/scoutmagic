@@ -287,6 +287,38 @@ class InboundMailConfigControllerTest extends TestCase
     }
 
     /**
+     * A box reserved to a module switched off since: the form still offers
+     * that module, selected, so an edit of the host does not silently hand
+     * the box to the first module in the list or make it the general box.
+     */
+    public function testTheFormKeepsTheModuleOfABoxReservedToAModuleSwitchedOff(): void
+    {
+        $this->mailboxes->setPurpose($this->mailboxId, MailboxPurpose::DEDICATED, 'sos_staff');
+
+        $body = $this->controller->editMailbox($this->get('/config/courrier-entrant'), $this->id())->getBody();
+
+        $this->assertMatchesRegularExpression('/<option value="sos_staff"\s+selected/', $body);
+        $this->assertDoesNotMatchRegularExpression('/id="mailbox-purpose-dedicated"[^>]*disabled/', $body);
+    }
+
+    public function testSavingABoxReservedToAModuleSwitchedOffKeepsItsReservation(): void
+    {
+        $this->mailboxes->setPurpose($this->mailboxId, MailboxPurpose::DEDICATED, 'sos_staff');
+
+        $this->save([
+            'id' => (string) $this->mailboxId,
+            'username' => 'contact@unite.be',
+            'host' => 'imap.autre.test',
+            'purpose' => MailboxPurpose::DEDICATED->value,
+            'dedicated_to' => 'sos_staff',
+        ]);
+
+        $this->assertSame('success', FlashMessage::get()['type'] ?? null);
+        $this->assertSame('sos_staff', $this->mailbox()->dedicatedTo);
+        $this->assertSame('imap.autre.test', $this->mailbox()->host);
+    }
+
+    /**
      * The unique index is what holds when two saves race past the check:
      * the database refuses the second reservation outright.
      */

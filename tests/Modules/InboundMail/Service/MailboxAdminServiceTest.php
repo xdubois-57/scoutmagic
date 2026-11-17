@@ -95,6 +95,22 @@ class MailboxAdminServiceTest extends TestCase
     }
 
     /**
+     * Only the unique index reads as « already reserved »: any other failure
+     * of the write — here the table itself gone — is not hidden behind that
+     * sentence, and goes on as the failure it is.
+     */
+    public function testAWriteFailureOtherThanTheUniqueIndexIsNotCalledAlreadyReserved(): void
+    {
+        $locations = $this->createMailbox('Locations');
+        $this->pdo->exec('CREATE TABLE kept_mailboxes AS SELECT * FROM inbound_mailboxes');
+        $this->pdo->exec('DROP TABLE inbound_mailboxes');
+        $this->pdo->exec('CREATE VIEW inbound_mailboxes AS SELECT * FROM kept_mailboxes');
+
+        $this->expectException(\PDOException::class);
+        $this->service->setPurpose($locations, MailboxPurpose::DEDICATED, 'rental');
+    }
+
+    /**
      * The one exception to D5: the seed boxes may be several, in the
      * service and in the database alike — while any other module is still
      * refused a second box by the database on its own.

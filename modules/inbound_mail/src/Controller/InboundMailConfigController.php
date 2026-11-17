@@ -215,8 +215,14 @@ class InboundMailConfigController extends AbstractController
         }
 
         // Only a module that reads mail can have an address of its own; a
-        // posted id that names nothing is refused rather than stored.
-        if ($dedicatedTo !== null && $dedicatedTo !== '' && $this->consumerRegistry?->find($dedicatedTo) === null) {
+        // posted id that names nothing is refused rather than stored — unless
+        // it is the module the box is already reserved to, switched off since,
+        // which an edit keeps as it is.
+        $keepsItsModule = $id > 0 && $dedicatedTo !== null
+            && $this->adminService->findById($id)?->dedicatedTo === $dedicatedTo;
+        if ($dedicatedTo !== null && $dedicatedTo !== '' && !$keepsItsModule
+            && $this->consumerRegistry?->find($dedicatedTo) === null
+        ) {
             FlashMessage::set('error', 'Choisissez le module auquel cette adresse est réservée.');
 
             return $this->redirect($back);
@@ -447,6 +453,16 @@ class InboundMailConfigController extends AbstractController
             if (!isset($taken[$consumer->consumerId()])) {
                 $modules[] = ['id' => $consumer->consumerId(), 'name' => $consumer->displayName()];
             }
+        }
+
+        // The box's own module is always offered, even when it is switched
+        // off and so registers no consumer: otherwise the select would post
+        // its first option, or the « réservée » choice would be disabled, and
+        // an unrelated save would silently hand the box to another module or
+        // make it the unit's general box.
+        $current = $mailbox?->isDedicated() === true ? (string) $mailbox->dedicatedTo : '';
+        if ($current !== '' && !in_array($current, array_column($modules, 'id'), true)) {
+            $modules[] = ['id' => $current, 'name' => $current . ' (module désactivé)'];
         }
 
         return [

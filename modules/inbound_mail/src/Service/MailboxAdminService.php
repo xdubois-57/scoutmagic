@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\InboundMail\Service;
 
+use Core\Database\ConstraintViolation;
 use Modules\InboundMail\Api\MailboxPurpose;
 use Modules\InboundMail\Client\MailboxConnectionException;
 use Modules\InboundMail\Client\RemoteFolder;
@@ -190,9 +191,15 @@ class MailboxAdminService
 
         try {
             $this->repository->setPurpose($id, $purpose, $dedicatedTo);
-        } catch (\PDOException) {
-            // The unique index: another save reserved an address to this
-            // module between the check above and this write.
+        } catch (\PDOException $e) {
+            // Only the unique index means « already reserved »: another save
+            // reserved an address to this module between the check above and
+            // this write. Anything else — a lost connection, a deadlock — is
+            // not that, and goes on as the failure it is.
+            if (!ConstraintViolation::isDuplicateKey($e)) {
+                throw $e;
+            }
+
             return self::alreadyReserved(null);
         }
 
