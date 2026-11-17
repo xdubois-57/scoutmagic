@@ -26,9 +26,9 @@ atterri, note le résultat, puis efface le message.
 ## Les déclarer
 
 Vous les déclarez dans « Courrier entrant » comme n'importe quelle autre
-boîte, puis vous leur ouvrez la portée « Courrier sortant — boîtes
-témoins ». Prenez-en trois à cinq, chez des fournisseurs différents, et
-**ajoutez-leur leur dossier d'indésirables** : sans ce réglage, une
+adresse, avec l'usage « Réservée à un module » et le module « Courrier
+sortant — boîtes témoins ». Prenez-en trois à cinq, chez des fournisseurs
+différents, et **cochez leur dossier d'indésirables** : sans ce réglage, une
 copie classée en indésirables n'est jamais vue et finit comptée « jamais
 arrivé ». Tout cela est expliqué dans « Déclarer et régler une boîte
 témoin ».
