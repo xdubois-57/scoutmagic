@@ -218,7 +218,7 @@ class ImapClientAgainstAServerTest extends TestCase
         $this->assertSame(5, $selection->leftAside);
         $this->assertContains('EXAMINE INBOX', $this->server->commands);
         $this->assertContains('SEARCH SINCE 12-Jul-2026', $this->server->commands);
-        $this->assertContains('FETCH UID INTERNALDATE', $this->server->commands);
+        $this->assertContains('FETCH INTERNALDATE', $this->server->commands);
         $this->assertSame([], $this->server->stored, 'no flag was set or removed');
         foreach ($this->server->commands as $command) {
             $this->assertStringStartsNotWith('SELECT', $command);
@@ -270,13 +270,33 @@ class ImapClientAgainstAServerTest extends TestCase
         $this->assertSame(0, $client->folderState('INBOX')->highestUid, 'an empty folder');
     }
 
+    /**
+     * Another client changes a message's flags while its reception date is
+     * being read: the server's unsolicited FLAGS answer must not erase the
+     * date, which would sort the newest message last and set it aside.
+     */
+    public function testAnUnsolicitedFlagsAnswerDoesNotEraseAReceptionDate(): void
+    {
+        $now = new \DateTimeImmutable('2027-07-12 10:00:00');
+        $this->server->folders['INBOX'] = [];
+        foreach ([1 => '-3 days', 2 => '-2 days', 3 => '-1 hour'] as $uid => $ago) {
+            $this->server->folders['INBOX'][$uid] = str_replace('<demande@', '<demande-' . $uid . '@', self::MESSAGE);
+            $this->server->internalDates['INBOX'][$uid] = $now->modify($ago);
+        }
+        $this->server->unsolicitedFlags = [3];
+
+        $selection = $this->connected()->firstReadSelection('INBOX', $now->modify('-12 months'), 2);
+
+        $this->assertSame([2, 3], $selection->uids, 'the newest is kept');
+    }
+
     public function testAFirstReadWithinTheCapDoesNotEvenFetchTheDates(): void
     {
         $selection = $this->connected()->firstReadSelection('INBOX', new \DateTimeImmutable('-12 months'), 10);
 
         $this->assertSame([5], $selection->uids);
         $this->assertSame(0, $selection->leftAside);
-        $this->assertNotContains('FETCH UID INTERNALDATE', $this->server->commands);
+        $this->assertNotContains('FETCH INTERNALDATE', $this->server->commands);
     }
 
     /** The retained messages, read by name — as passively as any other read. */

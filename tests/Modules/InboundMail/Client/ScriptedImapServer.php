@@ -38,6 +38,12 @@ final class ScriptedImapServer extends ImapProtocol
     public bool $omitUidNext = false;
 
     /**
+     * @var list<int> UIDs the server follows, within the same FETCH, with an
+     * unsolicited FLAGS-only answer — another client changed their flags
+     */
+    public array $unsolicitedFlags = [];
+
+    /**
      * @var array<string, array<int, \DateTimeImmutable>> folder => uid => the
      * server's reception date (`INTERNALDATE`); a message with none was
      * received just now
@@ -194,15 +200,35 @@ final class ScriptedImapServer extends ImapProtocol
             return $this->no('UID FETCH');
         }
 
-        $result = [];
+        // The untagged answers, in the order the server sends them.
+        $answers = [];
         foreach ($this->part((array) $from, 1) as $id => $body) {
-            $result[$id] = ['UID' => $id];
+            $answer = ['UID' => $id];
             if (in_array('BODY.PEEK[TEXT]', $items, true)) {
-                $result[$id]['BODY[TEXT]'] = $body;
+                $answer['BODY[TEXT]'] = $body;
             }
             if (in_array('INTERNALDATE', $items, true)) {
-                $result[$id]['INTERNALDATE'] = $this->receivedAt($id)->format('d-M-Y H:i:s O');
+                $answer['INTERNALDATE'] = $this->receivedAt($id)->format('d-M-Y H:i:s O');
             }
+            $answers[] = $answer;
+            if (in_array($id, $this->unsolicitedFlags, true)) {
+                $answers[] = ['UID' => $id, 'FLAGS' => ['\\Seen']];
+            }
+        }
+
+        // Parsed as the library parses them (ImapProtocol::fetch): filed
+        // under their UID, a later answer replacing an earlier one — but with
+        // one item asked for, that item's value alone, and an answer that
+        // does not carry it skipped.
+        $result = [];
+        foreach ($answers as $answer) {
+            if (count($items) === 1) {
+                if (array_key_exists($items[0], $answer)) {
+                    $result[$answer['UID']] = $answer[$items[0]];
+                }
+                continue;
+            }
+            $result[$answer['UID']] = $answer;
         }
 
         return $this->ok($result, true);

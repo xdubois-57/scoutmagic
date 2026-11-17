@@ -319,9 +319,12 @@ class ImapMailboxClient implements IncomingMailboxClientInterface, PruningMailbo
     {
         $receivedAt = [];
         foreach (array_chunk($uids, self::INTERNALDATE_SLICE) as $slice) {
-            $answer = $connection->fetch(['UID', 'INTERNALDATE'], $slice, null, IMAP::ST_UID)->validatedData();
-            foreach (is_array($answer) ? $answer : [] as $uid => $items) {
-                $date = is_array($items) ? ($items['INTERNALDATE'] ?? null) : null;
+            // INTERNALDATE alone: asked for one item, the library skips an
+            // unsolicited FETCH that lacks it (a FLAGS update from another
+            // client), where with two it would let that answer replace the
+            // date under the same UID — and the newest message sort last.
+            $answer = $connection->fetch(['INTERNALDATE'], $slice, null, IMAP::ST_UID)->validatedData();
+            foreach (is_array($answer) ? $answer : [] as $uid => $date) {
                 $receivedAt[(int) $uid] = self::internalDate(is_string($date) ? $date : '');
             }
         }
