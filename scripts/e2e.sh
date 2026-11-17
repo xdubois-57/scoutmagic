@@ -153,6 +153,7 @@ SUPPORT="${REPO_ROOT}/scripts/e2e-support.php"
 # resource actually exists, so cleanup is safe at any point.
 SERVER_PID=""
 PLAYWRIGHT_PID=""
+IMAP_PID=""
 INSTANCE_DIR=""
 DOCKER_CONTAINER=""
 DATABASE_PROVISIONED=0
@@ -206,6 +207,11 @@ cleanup() {
     fi
 
     stop_server
+
+    if [[ -n "${IMAP_PID}" ]]; then
+        kill "${IMAP_PID}" 2>/dev/null
+        IMAP_PID=""
+    fi
 
     if [[ "${DATABASE_PROVISIONED}" -eq 1 ]]; then
         php "${SUPPORT}" teardown-db
@@ -340,6 +346,13 @@ export E2E_MAILDROP
 # holding public/cron.php.
 export E2E_INSTANCE_DIR="${INSTANCE_DIR}/instance"
 
+# The run's IMAP server, for « Vérifier et enregistrer » (#1333) — see
+# scripts/e2e-imap.sh. Its certificate is trusted by php -S below.
+# shellcheck source=scripts/e2e-imap.sh
+source "${REPO_ROOT}/scripts/e2e-imap.sh"
+start_e2e_imap "${INSTANCE_DIR}/imap" "${SUPPORT}"
+IMAP_PID="${E2E_IMAP_PID}"
+
 # ---------------------------------------------------------------
 # PHP coverage of the application, when asked for. The fragments live
 # inside the run's own temporary directory, so cleanup() removes them with
@@ -407,6 +420,9 @@ while true; do
         # a shell, so a repository path containing a space would otherwise
         # arrive as two arguments.
         -d sendmail_path="php '${REPO_ROOT}/scripts/e2e-maildrop.php'"
+        # The run's IMAP server certificate, trusted alongside the
+        # system's authorities (scripts/e2e-imap.sh).
+        -d openssl.cafile="${E2E_IMAP_CA_BUNDLE}"
     )
     if [[ -n "${COVERAGE_DIR}" ]]; then
         # pcov.directory has to span both trees the run executes PHP from:
