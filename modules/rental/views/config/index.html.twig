@@ -109,7 +109,7 @@
             {% endif %}
         </section>
 
-        {# ── Ce qui concerne tout le module ───────────────────────────── #}
+        {# ── What applies to the whole module ─────────────────────────── #}
         {#
           Below the list and under a heading of its own, so that neither
           section reads as a property of the asset just above it — the very
@@ -122,7 +122,7 @@
                 particulier.
             </p>
 
-            {# ── Rappels automatiques (§6.29) ────────────────────────── #}
+            {# ── Automatic reminders (§6.29) ─────────────────────────── #}
             {# Through the shared partial since issue #248: without a
                crontab the reminders do not arrive late — they do not
                arrive (ARCHITECTURE.md §8.5). #}
@@ -132,7 +132,7 @@
                 consequence: "Un locataire peut donc arriver sans avoir jamais reçu les informations pratiques.",
             } only %}
 
-            {# ── Courrier entrant (§7.5) ─────────────────────────────── #}
+            {# ── Inbound mail (§7.5) ─────────────────────────────────── #}
             <div class="card mb-4" id="courrier">
                 <div class="card-body">
                     <h3 class="h6 mb-2">Courrier entrant</h3>
@@ -159,9 +159,9 @@
                             Les réponses reçues dans ces boîtes sont rattachées automatiquement à la
                             réservation concernée : d'abord par la référence dans le sujet, puis par la
                             conversation, puis par l'adresse de l'expéditeur dans une fenêtre de temps
-                            autour du séjour. En cas d'ambiguïté, une proposition est faite : sur une
-                            adresse réservée aux Locations, un gestionnaire la confirme ou l'écarte depuis
-                            la réservation ; sur le courrier général, le Staff d'U le fait depuis
+                            autour du séjour. En cas d'ambiguïté, rien n'est rattaché d'office : avec le
+                            connecteur IA, le modèle choisit dans l'heure parmi les réservations possibles,
+                            ou aucune ; sinon, le Staff d'U peut rattacher le message à la main depuis
                             « Courrier reçu ».
                         </p>
 

@@ -103,7 +103,7 @@ class PruningConsumerTest extends TestCase
         };
     }
 
-    private function syncWith(FakeMailboxClient $client): void
+    private function syncWith(FakeMailboxClient $client, string $reservedTo = 'core_mail_seed'): void
     {
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $mailboxRepository = new InboundMailboxRepository($this->pdo, $encryption);
@@ -121,7 +121,7 @@ class PruningConsumerTest extends TestCase
         );
         // A seed box: reserved to the seed consumer, the only kind of box it
         // reads (Api\MailboxPurpose::RESERVED_ONLY_CONSUMERS).
-        $mailboxRepository->setPurpose($this->mailboxId, MailboxPurpose::DEDICATED, 'core_mail_seed');
+        $mailboxRepository->setPurpose($this->mailboxId, MailboxPurpose::DEDICATED, $reservedTo);
 
         $client->addRawMessage('INBOX', 7, InboundMailTestHelper::rawMessage([
             'From' => 'expediteur@exemple.be',
@@ -180,14 +180,22 @@ class PruningConsumerTest extends TestCase
      */
     public function testAnOrdinaryConsumerCannotRemoveAnything(): void
     {
+        $analysed = 0;
         $this->registry->register(new FakeMessageConsumer(
             id: 'rental',
-            onAnalyze: static fn(CandidateMessage $m): AnalysisResult => AnalysisResult::nothing()
+            onAnalyze: static function (CandidateMessage $m) use (&$analysed): AnalysisResult {
+                $analysed++;
+
+                return AnalysisResult::nothing();
+            }
         ));
         $client = new PruningFakeMailboxClient();
 
-        $this->syncWith($client);
+        // Rental's own box, so rental is the one asked — and, not being a
+        // pruning consumer, it removes nothing.
+        $this->syncWith($client, 'rental');
 
+        $this->assertSame(1, $analysed, 'the box was read and its message analysed');
         $this->assertSame([], $client->deleted);
     }
 

@@ -13,6 +13,7 @@ use Modules\InboundMail\Repository\InboundMailboxRepository;
 use Modules\InboundMail\Service\MailboxAdminService;
 use Modules\InboundMail\Service\MailboxClientFactory;
 use Modules\InboundMail\Service\MailboxErrorFormatter;
+use Modules\InboundMail\Service\MailboxReservationRefused;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\InboundMail\InboundMailTestHelper;
@@ -131,6 +132,46 @@ class MailboxAdminServiceTest extends TestCase
 
         $this->expectException(\PDOException::class);
         $this->repository->setPurpose($this->createMailbox('Chalet'), MailboxPurpose::DEDICATED, 'rental');
+    }
+
+    /**
+     * A reserved box is created in one write. When the unique index refuses
+     * it — a save that raced past the check — no row exists afterwards,
+     * rather than an enabled general box every module reads.
+     */
+    public function testACreateTheIndexRefusesLeavesNoRow(): void
+    {
+        $this->repository->setPurpose($this->createMailbox('Locations'), MailboxPurpose::DEDICATED, 'rental');
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $blind = new class ($this->pdo, $encryption) extends InboundMailboxRepository {
+            public function findOtherDedicatedTo(string $consumerId, int $exceptId): ?int
+            {
+                return null; // as if another save had not committed yet
+            }
+        };
+        $service = new MailboxAdminService($blind, new MailboxClientFactory(), new MailboxErrorFormatter());
+
+        try {
+            $service->create(
+                'imap.test', 993, 'ssl', 'chalet@unite.be', 'mdp', ['INBOX'], true, '',
+                MailboxPurpose::DEDICATED, 'rental'
+            );
+            $this->fail('the second reservation must be refused');
+        } catch (MailboxReservationRefused $refused) {
+            $this->assertStringContainsString('déjà son adresse réservée', $refused->getMessage());
+        }
+
+        $this->assertCount(1, $this->repository->findAll());
+    }
+
+    public function testAReservedBoxIsCreatedWithItsPurpose(): void
+    {
+        $id = $this->service->create(
+            'imap.test', 993, 'ssl', 'camps@unite.be', 'mdp', ['INBOX'], true, '',
+            MailboxPurpose::DEDICATED, 'camps'
+        );
+
+        $this->assertSame('camps', $this->repository->findById($id)?->dedicatedTo);
     }
 
     public function testGivingTheModuleBackFreesItsPlace(): void

@@ -106,7 +106,11 @@ class MailboxAdminService
     }
 
     /**
+     * Create a box with its purpose in one write: a reservation the unique
+     * index refuses leaves no row behind.
+     *
      * @param string[] $folders
+     * @throws MailboxReservationRefused when the module already has its box
      */
     public function create(
         string $host,
@@ -116,21 +120,46 @@ class MailboxAdminService
         string $password,
         array $folders,
         bool $isEnabled,
-        string $sentFolder = ''
+        string $sentFolder = '',
+        MailboxPurpose $purpose = MailboxPurpose::SHARED,
+        ?string $dedicatedTo = null
     ): int {
-        $id = $this->repository->create(
-            // The manifest offers IMAP and only IMAP (§7.2); the enum's
-            // other case exists for tests, and letting it be chosen here
-            // would put a fixture in front of an operator.
-            ProviderType::IMAP,
-            $host,
-            $port,
-            self::normaliseEncryption($encryption),
-            $username,
-            $password,
-            $folders,
-            $isEnabled
-        );
+        $dedicatedTo = $dedicatedTo !== null ? trim($dedicatedTo) : null;
+        $refusal = $this->purposeRefusal(0, $purpose, $dedicatedTo);
+        if ($refusal !== null) {
+            throw new MailboxReservationRefused($refusal);
+        }
+
+        try {
+            $id = $this->repository->create(
+                // The manifest offers IMAP and only IMAP (§7.2); the enum's
+                // other case exists for tests, and letting it be chosen here
+                // would put a fixture in front of an operator.
+                ProviderType::IMAP,
+                $host,
+                $port,
+                self::normaliseEncryption($encryption),
+                $username,
+                $password,
+                $folders,
+                $isEnabled,
+                $purpose,
+                $dedicatedTo
+            );
+        } catch (\PDOException $e) {
+            if (!ConstraintViolation::isDuplicateKey($e)) {
+                throw $e;
+            }
+
+            // A save that raced past the check above: the index said no,
+            // and no row was written.
+            $other = $dedicatedTo === null ? null : $this->repository->findOtherDedicatedTo($dedicatedTo, 0);
+            throw new MailboxReservationRefused(
+                self::alreadyReserved($other === null ? null : $this->repository->findById($other)),
+                0,
+                $e
+            );
+        }
         $this->repository->setSentFolder($id, $sentFolder);
 
         return $id;

@@ -15,6 +15,9 @@ use Modules\InboundMail\Client\FakeMailboxClient;
 use Modules\InboundMail\Mailbox\ProviderType;
 use Modules\InboundMail\Repository\InboundMailboxRepository;
 use Modules\InboundMail\Repository\InboundMessageRepository;
+use Core\Journal\JournalRepository;
+use Core\Journal\JournalService;
+use Modules\InboundMail\Service\AnalysisJournal;
 use Modules\InboundMail\Service\AnalysisResultApplier;
 use Modules\InboundMail\Service\AttachmentPolicy;
 use Modules\InboundMail\Service\MailboxClientFactory;
@@ -172,6 +175,43 @@ class ScopedSyncAndRefreshTest extends TestCase
         $this->assertSame([], $this->messages->findForReference('rental', 'LOC-K7Q2M4'));
     }
 
+    // ── The journal names a box by its id, never its address ───────────
+
+    /**
+     * The analysed and no-module events carry `mailbox_id` and « boîte
+     * #id », never the address the box is shown under on screen.
+     */
+    public function testTheSyncJournalNamesTheBoxByItsIdAndNeverItsAddress(): void
+    {
+        $this->registry->register(new FakeMessageConsumer('rental'));
+        $this->addMessage(10);
+        $this->syncWithJournal();
+
+        $this->mailboxes->setPurpose($this->mailboxId, MailboxPurpose::DEDICATED, 'finance');
+        $this->addMessage(11);
+        $this->syncWithJournal();
+
+        foreach (['inbound_message_analysed', 'inbound_no_module_analyses'] as $event) {
+            $stmt = $this->pdo->prepare('SELECT * FROM event_log WHERE event_type = ?');
+            $stmt->execute([$event]);
+            $entry = $stmt->fetch(\PDO::FETCH_ASSOC);
+            $this->assertIsArray($entry, $event . ' was written');
+
+            $this->assertStringNotContainsString('contact@unite.be', (string) json_encode($entry), $event);
+            $this->assertStringContainsString('#' . $this->mailboxId, (string) $entry['description'], $event);
+            $this->assertSame($this->mailboxId, json_decode((string) $entry['context'], true)['mailbox_id'], $event);
+        }
+    }
+
+    private function syncWithJournal(): void
+    {
+        $mailbox = $this->mailboxes->findById($this->mailboxId);
+        $this->assertNotNull($mailbox);
+
+        $this->syncService(new AnalysisJournal(new JournalService(new JournalRepository($this->pdo))))
+            ->syncMailbox($mailbox, new \DateTimeImmutable('2027-07-12 10:00:00'));
+    }
+
     // ── « Rafraîchir maintenant » ───────────────────────────────────────
 
     public function testRefreshingReadsTheBoxAndSaysWhatItFound(): void
@@ -281,7 +321,7 @@ class ScopedSyncAndRefreshTest extends TestCase
         return $factory;
     }
 
-    private function syncService(): MailboxSyncService
+    private function syncService(?AnalysisJournal $journal = null): MailboxSyncService
     {
         return new MailboxSyncService(
             $this->mailboxes,
@@ -293,7 +333,9 @@ class ScopedSyncAndRefreshTest extends TestCase
             $this->clientFactory(),
             new AnalysisResultApplier($this->messages),
             null,
-            null
+            null,
+            null,
+            $journal
         );
     }
 

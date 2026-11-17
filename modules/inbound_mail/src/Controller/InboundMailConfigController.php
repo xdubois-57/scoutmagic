@@ -17,6 +17,7 @@ use Core\Security\CsrfGuard;
 use Modules\InboundMail\Api\MailboxPurpose;
 use Modules\InboundMail\Mailbox\Mailbox;
 use Modules\InboundMail\Service\MailboxAdminService;
+use Modules\InboundMail\Service\MailboxReservationRefused;
 use Modules\InboundMail\Service\ManualRefreshService;
 use Modules\InboundMail\Service\MessageConsumerRegistry;
 use Twig\Environment;
@@ -33,9 +34,10 @@ use Twig\Environment;
  * it", because there is no way to show an operator what they would be
  * retyping.
  *
- * Journal entries name the mailbox by id and by its address — a box's only
- * name (D7) — never by its host: the journal is not a place for
- * credentials, and a host is half of one.
+ * Journal entries name the mailbox by its id and nothing else (« boîte
+ * #12 »). The screens show its address, a box's only name (D7); the
+ * journal is not a place for an address, nor for a host, which is half a
+ * credential.
  */
 class InboundMailConfigController extends AbstractController
 {
@@ -250,7 +252,7 @@ class InboundMailConfigController extends AbstractController
                 $sentFolder
             );
 
-            return $this->afterSave($id, $purpose, $dedicatedTo, 'inbound_mailbox_updated', 'mise à jour', $username);
+            return $this->afterSave($id, $purpose, $dedicatedTo, 'inbound_mailbox_updated', 'mise à jour');
         }
 
         if ($password === '') {
@@ -259,40 +261,53 @@ class InboundMailConfigController extends AbstractController
             return $this->redirect('/config/courrier-entrant');
         }
 
-        $newId = $this->adminService->create(
-            $host,
-            $port,
-            $encryption,
-            $username,
-            $password,
-            $folders,
-            $isEnabled,
-            $sentFolder
-        );
+        try {
+            // The purpose travels with the INSERT: a refused reservation
+            // creates no box at all, rather than a general one.
+            $newId = $this->adminService->create(
+                $host,
+                $port,
+                $encryption,
+                $username,
+                $password,
+                $folders,
+                $isEnabled,
+                $sentFolder,
+                $purpose,
+                $dedicatedTo
+            );
+        } catch (MailboxReservationRefused $refused) {
+            FlashMessage::set('error', $refused->getMessage());
 
-        return $this->afterSave($newId, $purpose, $dedicatedTo, 'inbound_mailbox_created', 'ajoutée', $username);
+            return $this->redirect($back);
+        }
+
+        return $this->afterSave($newId, $purpose, null, 'inbound_mailbox_created', 'ajoutée');
     }
 
     /**
-     * Write the purpose, journal the save and say how it went. The purpose
-     * was checked before the box was written; a refusal here is the unique
-     * index catching a save that raced this one, and is said the same way.
+     * Write the purpose of an edited box, journal the save and say how it
+     * went. The purpose was checked before the box was written; a refusal
+     * here is the unique index catching a save that raced this one, and is
+     * said the same way. A created box already carries its purpose, so
+     * `$dedicatedTo` is not written again for it.
      */
     private function afterSave(
         int $id,
         MailboxPurpose $purpose,
         ?string $dedicatedTo,
         string $event,
-        string $verb,
-        string $address
+        string $verb
     ): Response {
-        $refusal = $this->adminService->setPurpose($id, $purpose, $dedicatedTo);
+        $refusal = $event === 'inbound_mailbox_created'
+            ? null
+            : $this->adminService->setPurpose($id, $purpose, $dedicatedTo);
 
         $this->journalService->log(
             'inbound_mail',
             $event,
             'info',
-            'Boîte de courrier entrant ' . $verb . ' : ' . $address,
+            'Boîte de courrier entrant #' . $id . ' ' . $verb . '.',
             ['mailbox_id' => $id, 'purpose' => $purpose->value]
         );
 
@@ -448,19 +463,23 @@ class InboundMailConfigController extends AbstractController
             }
         }
 
+        // The box's own module is always offered — even when another box
+        // holds it too (duplicates from before the unique index; the save
+        // then refuses it through purposeRefusal() before any write), and
+        // even when it is switched off and so registers no consumer.
+        // Otherwise the select would post its first option, or the
+        // « réservée » choice would be disabled, and an unrelated save would
+        // silently hand the box to another module or make it general mail.
+        $current = $mailbox?->isDedicated() === true ? (string) $mailbox->dedicatedTo : '';
+
         $modules = [];
         foreach ($this->consumerRegistry?->all() ?? [] as $consumer) {
-            if (!isset($taken[$consumer->consumerId()])) {
-                $modules[] = ['id' => $consumer->consumerId(), 'name' => $consumer->displayName()];
+            $id = $consumer->consumerId();
+            if (!isset($taken[$id]) || $id === $current) {
+                $modules[] = ['id' => $id, 'name' => $consumer->displayName()];
             }
         }
 
-        // The box's own module is always offered, even when it is switched
-        // off and so registers no consumer: otherwise the select would post
-        // its first option, or the « réservée » choice would be disabled, and
-        // an unrelated save would silently hand the box to another module or
-        // make it the unit's general box.
-        $current = $mailbox?->isDedicated() === true ? (string) $mailbox->dedicatedTo : '';
         if ($current !== '' && !in_array($current, array_column($modules, 'id'), true)) {
             $modules[] = ['id' => $current, 'name' => $current . ' (module désactivé)'];
         }

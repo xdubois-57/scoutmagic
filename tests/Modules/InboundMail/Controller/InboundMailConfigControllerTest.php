@@ -372,9 +372,54 @@ class InboundMailConfigControllerTest extends TestCase
         $row = json_encode($entry, JSON_UNESCAPED_UNICODE);
         $this->assertIsString($row);
 
-        $this->assertStringContainsString('contact@unite.be', $row);
+        $this->assertStringNotContainsString('contact@unite.be', $row, 'no address in the journal');
+        $this->assertStringContainsString('#' . $this->mailboxId, (string) $entry['description']);
+        $this->assertSame($this->mailboxId, json_decode((string) $entry['context'], true)['mailbox_id']);
         $this->assertStringContainsString('dedicated', $row);
         $this->assertStringNotContainsString('imap.test', $row);
+    }
+
+    public function testCreatingABoxJournalsItsIdAndNotItsAddress(): void
+    {
+        $this->save(['username' => 'nouvelle@unite.be', 'password' => 'mdp']);
+        $id = $this->findByAddress('nouvelle@unite.be')->id;
+
+        $entry = $this->pdo->query(
+            "SELECT * FROM event_log WHERE event_type = 'inbound_mailbox_created'"
+        )->fetch(\PDO::FETCH_ASSOC);
+        $this->assertIsArray($entry);
+
+        $this->assertStringNotContainsString('nouvelle@unite.be', (string) json_encode($entry));
+        $this->assertSame($id, json_decode((string) $entry['context'], true)['mailbox_id']);
+    }
+
+    /**
+     * Two boxes reserved to one module from before the unique index: the
+     * edit form still offers the box its own module — or an unrelated save
+     * would quietly hand the box to another — and the unchanged submit is
+     * refused before any write, the box keeping its module.
+     */
+    public function testAnEditOfADuplicateReservationKeepsItsModuleAndIsRefused(): void
+    {
+        $other = $this->reservedBox('locations@unite.be');
+        $this->pdo->prepare('UPDATE inbound_mailboxes SET purpose = ?, dedicated_to = ? WHERE id IN (?, ?)')
+            ->execute([MailboxPurpose::DEDICATED->value, 'rental', $this->mailboxId, $other]);
+
+        $form = $this->controller->editMailbox($this->get('/x'), $this->id())->getBody();
+        $this->assertStringContainsString('value="rental"', $form);
+        $this->assertStringNotContainsString('(module désactivé)', $form);
+
+        $this->save([
+            'id' => (string) $this->mailboxId,
+            'host' => 'imap.autre',
+            'username' => 'contact@unite.be',
+            'purpose' => MailboxPurpose::DEDICATED->value,
+            'dedicated_to' => 'rental',
+        ]);
+
+        $this->assertSame('error', FlashMessage::get()['type'] ?? null);
+        $this->assertSame('rental', $this->mailbox()->dedicatedTo);
+        $this->assertSame('imap.test', $this->mailbox()->host, 'nothing was written');
     }
 
     // ── « Rafraîchir maintenant » ───────────────────────────────────────

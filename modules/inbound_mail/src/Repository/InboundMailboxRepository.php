@@ -176,13 +176,21 @@ class InboundMailboxRepository
         string $username,
         string $password,
         array $folders,
-        bool $isEnabled
+        bool $isEnabled,
+        MailboxPurpose $purpose = MailboxPurpose::SHARED,
+        ?string $dedicatedTo = null
     ): int {
+        // The purpose is written by the INSERT itself: a box reserved to a
+        // module that already has one is refused by the unique index before
+        // any row exists, and no sync ever sees the box as general mail for
+        // the instant between two writes.
+        [$dedicatedTo, $key] = self::dedication($purpose, $dedicatedTo);
+
         $stmt = $this->pdo->prepare(
             'INSERT INTO inbound_mailboxes
                 (provider_type, host, port, encryption, username_encrypted, password_encrypted,
-                 folders, is_enabled, sync_state)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                 folders, is_enabled, sync_state, purpose, dedicated_to, dedication_key)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([
             $providerType->value,
@@ -194,6 +202,9 @@ class InboundMailboxRepository
             implode("\n", $folders),
             $isEnabled ? 1 : 0,
             SyncState::NEVER->value,
+            $purpose->value,
+            $dedicatedTo,
+            $key,
         ]);
 
         return (int) $this->pdo->lastInsertId();
@@ -421,16 +432,30 @@ class InboundMailboxRepository
      */
     public function setPurpose(int $id, MailboxPurpose $purpose, ?string $dedicatedTo): void
     {
-        $dedicatedTo = $purpose === MailboxPurpose::DEDICATED ? $dedicatedTo : null;
-        $key = $dedicatedTo !== null && !MailboxPurpose::readsReservedBoxesOnly($dedicatedTo)
-            ? $dedicatedTo
-            : null;
+        [$dedicatedTo, $key] = self::dedication($purpose, $dedicatedTo);
 
         $stmt = $this->pdo->prepare(
             'UPDATE inbound_mailboxes SET purpose = ?, dedicated_to = ?, dedication_key = ?, updated_at = ?
               WHERE id = ?'
         );
         $stmt->execute([$purpose->value, $dedicatedTo, $key, self::now(), $id]);
+    }
+
+    /**
+     * The module a box is reserved to, and its `dedication_key`: the
+     * module, or NULL for a consumer allowed several boxes (the seed boxes)
+     * and on a general box — the one place that rule is written.
+     *
+     * @return array{0: ?string, 1: ?string}
+     */
+    private static function dedication(MailboxPurpose $purpose, ?string $dedicatedTo): array
+    {
+        $dedicatedTo = $purpose === MailboxPurpose::DEDICATED ? $dedicatedTo : null;
+        $key = $dedicatedTo !== null && !MailboxPurpose::readsReservedBoxesOnly($dedicatedTo)
+            ? $dedicatedTo
+            : null;
+
+        return [$dedicatedTo, $key];
     }
 
     /**

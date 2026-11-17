@@ -356,17 +356,34 @@ class GeneralMailboxTest extends TestCase
     }
 
     /**
+     * A link elsewhere settles nothing: Camps confirmed, the Rental
+     * proposition on the same general-box message still waits for the
+     * Staff d'U — and the « Avec proposition » filter the point links to
+     * lists that message.
+     */
+    public function testAPropositionStillWaitsWhenTheMessageIsLinkedElsewhere(): void
+    {
+        $linked = $this->store('linked@x');
+        $this->addCandidate($linked);
+        $this->messages->addLink($linked, 'camps', 'camp-1', LinkOrigin::REFERENCE);
+
+        $this->assertSame(1, $this->messages->countAwaitingStaffConfirmation());
+        $listed = $this->mailbox->page(['association' => 'proposed'], null)['messages'];
+        $this->assertSame([$linked], array_map(static fn(InboundMessage $m) => $m->id, $listed));
+    }
+
+    /**
      * A proposition on the box reserved to its module is that module's to
-     * settle, and counted on its side; one already settled by a link, or
-     * set aside, waits for nobody.
+     * settle, and counted on its side; one settled by a link on its own
+     * object, or set aside, waits for nobody.
      */
     public function testTheStaffIsNotAskedAboutWhatAModuleOrADecisionAlreadySettles(): void
     {
         $this->mailboxes->setPurpose($this->otherMailboxId, MailboxPurpose::DEDICATED, 'rental');
         $this->addCandidate($this->store('reserved@x', '2027-07-12 09:30:00', false, $this->otherMailboxId));
-        $linked = $this->store('linked@x');
-        $this->addCandidate($linked);
-        $this->messages->addLink($linked, 'camps', 'camp-1', LinkOrigin::REFERENCE);
+        $settled = $this->store('settled@x');
+        $this->addCandidate($settled);
+        $this->messages->addLink($settled, 'rental', 'LOC-1', LinkOrigin::MANUAL);
         $dismissed = $this->store('dismissed@x');
         $this->addCandidate($dismissed);
         $this->mailbox->dismissCandidate($dismissed, $this->mailbox->candidatesFor($dismissed)[0]->id);

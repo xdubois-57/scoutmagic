@@ -81,7 +81,6 @@ class AnalysisJournal
     public function analysed(
         int $messageId,
         int $mailboxId,
-        string $mailboxName,
         array $consumerIds,
         array $results,
         string $pass
@@ -91,9 +90,9 @@ class AnalysisJournal
             'inbound_message_analysed',
             'info',
             sprintf(
-                'Message #%d (boîte « %s ») : %s',
+                'Message #%d (boîte #%d) : %s',
                 $messageId,
-                $mailboxName,
+                $mailboxId,
                 self::summarise($consumerIds, $results)
             ),
             [
@@ -201,16 +200,16 @@ class AnalysisJournal
      * configuration answer, a different instruction from telling a
      * superadmin their mail does not match anything.
      */
-    public function noConsumerAllowed(int $mailboxId, string $mailboxName): void
+    public function noConsumerAllowed(int $mailboxId): void
     {
         $this->journal?->log(
             self::CATEGORY,
             'inbound_no_module_analyses',
             'warning',
             sprintf(
-                'Boîte « %s » : aucun module actif ne lit son courrier. '
+                'Boîte #%d : aucun module actif ne lit son courrier. '
                 . 'Le courrier est conservé, rien ne le classe.',
-                $mailboxName
+                $mailboxId
             ),
             ['mailbox_id' => $mailboxId]
         );

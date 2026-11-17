@@ -164,7 +164,7 @@ class MailboxSyncService
             // no active module reads still collects —
             // but « rien ne le classe » is the answer to « pourquoi mon
             // courrier ne produit rien », and until now it was nowhere.
-            $this->analysisJournal?->noConsumerAllowed($mailbox->id, $mailbox->displayName());
+            $this->analysisJournal?->noConsumerAllowed($mailbox->id);
         }
 
         $client = $this->clientFactory->forMailbox($mailbox);
@@ -529,7 +529,6 @@ class MailboxSyncService
         $this->analysisJournal?->analysed(
             $storedId,
             $mailbox->id,
-            $mailbox->displayName(),
             array_map(
                 static fn(MessageConsumerInterface $consumer): string => $consumer->consumerId(),
                 $consumers
