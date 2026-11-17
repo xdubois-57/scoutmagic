@@ -17,7 +17,7 @@ use Core\Security\CsrfGuard;
 use Modules\InboundMail\Api\MailboxPurpose;
 use Modules\InboundMail\Mailbox\Mailbox;
 use Modules\InboundMail\Service\MailboxAdminService;
-use Modules\InboundMail\Service\MailboxReservationRefused;
+use Modules\InboundMail\Service\MailboxReservationRefusedException;
 use Modules\InboundMail\Service\ManualRefreshService;
 use Modules\InboundMail\Service\MessageConsumerRegistry;
 use Twig\Environment;
@@ -276,7 +276,7 @@ class InboundMailConfigController extends AbstractController
                 $purpose,
                 $dedicatedTo
             );
-        } catch (MailboxReservationRefused $refused) {
+        } catch (MailboxReservationRefusedException $refused) {
             FlashMessage::set('error', $refused->getMessage());
 
             return $this->redirect($back);
@@ -303,12 +303,15 @@ class InboundMailConfigController extends AbstractController
             ? null
             : $this->adminService->setPurpose($id, $purpose, $dedicatedTo);
 
+        // A refused purpose leaves the box as it was stored, its other
+        // fields saved: the journal records that purpose, not the one asked.
+        $stored = $refusal === null ? $purpose : ($this->adminService->findById($id)->purpose ?? $purpose);
         $this->journalService->log(
             'inbound_mail',
             $event,
             'info',
             'Boîte de courrier entrant #' . $id . ' ' . $verb . '.',
-            ['mailbox_id' => $id, 'purpose' => $purpose->value]
+            ['mailbox_id' => $id, 'purpose' => $stored->value]
         );
 
         if ($refusal !== null) {

@@ -422,6 +422,34 @@ class InboundMailConfigControllerTest extends TestCase
         $this->assertSame('imap.test', $this->mailbox()->host, 'nothing was written');
     }
 
+    /**
+     * A reservation the unique index refuses after the check passed — a
+     * save that raced this one, simulated by a row holding the key alone.
+     * The journal records the purpose the box kept, not the one asked.
+     */
+    public function testARefusedReservationIsNotJournalledAsTheRequestedPurpose(): void
+    {
+        $other = $this->reservedBox('locations@unite.be');
+        $this->pdo->prepare(
+            'UPDATE inbound_mailboxes SET purpose = ?, dedicated_to = NULL, dedication_key = ? WHERE id = ?'
+        )->execute([MailboxPurpose::SHARED->value, 'rental', $other]);
+
+        $this->save([
+            'id' => (string) $this->mailboxId,
+            'username' => 'contact@unite.be',
+            'purpose' => MailboxPurpose::DEDICATED->value,
+            'dedicated_to' => 'rental',
+        ]);
+
+        $this->assertSame('error', FlashMessage::get()['type'] ?? null);
+        $this->assertFalse($this->mailbox()->isDedicated());
+        $entry = $this->pdo->query(
+            "SELECT context FROM event_log WHERE event_type = 'inbound_mailbox_updated'"
+        )->fetch(\PDO::FETCH_ASSOC);
+        $this->assertIsArray($entry);
+        $this->assertSame(MailboxPurpose::SHARED->value, json_decode((string) $entry['context'], true)['purpose']);
+    }
+
     // ── « Rafraîchir maintenant » ───────────────────────────────────────
 
     public function testTheRefreshButtonIsNotOfferedWhenNothingCanRunIt(): void

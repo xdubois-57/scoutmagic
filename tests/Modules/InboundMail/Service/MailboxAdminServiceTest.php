@@ -13,7 +13,7 @@ use Modules\InboundMail\Repository\InboundMailboxRepository;
 use Modules\InboundMail\Service\MailboxAdminService;
 use Modules\InboundMail\Service\MailboxClientFactory;
 use Modules\InboundMail\Service\MailboxErrorFormatter;
-use Modules\InboundMail\Service\MailboxReservationRefused;
+use Modules\InboundMail\Service\MailboxReservationRefusedException;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\InboundMail\InboundMailTestHelper;
@@ -157,7 +157,7 @@ class MailboxAdminServiceTest extends TestCase
                 MailboxPurpose::DEDICATED, 'rental'
             );
             $this->fail('the second reservation must be refused');
-        } catch (MailboxReservationRefused $refused) {
+        } catch (MailboxReservationRefusedException $refused) {
             $this->assertStringContainsString('déjà son adresse réservée', $refused->getMessage());
         }
 

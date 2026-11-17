@@ -110,7 +110,7 @@ class MailboxAdminService
      * index refuses leaves no row behind.
      *
      * @param string[] $folders
-     * @throws MailboxReservationRefused when the module already has its box
+     * @throws MailboxReservationRefusedException when the module already has its box
      */
     public function create(
         string $host,
@@ -127,7 +127,7 @@ class MailboxAdminService
         $dedicatedTo = $dedicatedTo !== null ? trim($dedicatedTo) : null;
         $refusal = $this->purposeRefusal(0, $purpose, $dedicatedTo);
         if ($refusal !== null) {
-            throw new MailboxReservationRefused($refusal);
+            throw new MailboxReservationRefusedException($refusal);
         }
 
         try {
@@ -154,7 +154,7 @@ class MailboxAdminService
             // A save that raced past the check above: the index said no,
             // and no row was written.
             $other = $dedicatedTo === null ? null : $this->repository->findOtherDedicatedTo($dedicatedTo, 0);
-            throw new MailboxReservationRefused(
+            throw new MailboxReservationRefusedException(
                 self::alreadyReserved($other === null ? null : $this->repository->findById($other)),
                 0,
                 $e

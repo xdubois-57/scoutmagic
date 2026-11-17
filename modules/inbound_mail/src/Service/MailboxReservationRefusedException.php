@@ -8,11 +8,15 @@ declare(strict_types=1);
 
 namespace Modules\InboundMail\Service;
 
+use Core\Exception\UserFacingException;
+
 /**
  * A box could not be reserved to its module because another box already
  * is (D5). The message is the sentence the operator reads; nothing was
- * written.
+ * written. Both throw sites build a French sentence naming only the
+ * module and the box that already holds it, so the message may be shown
+ * as is.
  */
-final class MailboxReservationRefused extends \RuntimeException
+final class MailboxReservationRefusedException extends \RuntimeException implements UserFacingException
 {
 }
