@@ -250,6 +250,39 @@ class InboundMailboxRepository
     }
 
     /**
+     * The connection settings of a box, and nothing about whether it is
+     * read: `is_enabled` and `failing_since` are left as they stand. An edit
+     * verifies the connection before it writes (#1333, D10), and a box
+     * disabled from the list in the meantime must stay disabled — so the
+     * configuration form never writes the enabled state it read earlier.
+     *
+     * @param string[] $folders
+     */
+    public function updateConnection(
+        int $id,
+        string $host,
+        int $port,
+        string $encryption,
+        string $username,
+        array $folders
+    ): void {
+        $stmt = $this->pdo->prepare(
+            'UPDATE inbound_mailboxes
+                SET host = ?, port = ?, encryption = ?, username_encrypted = ?, folders = ?, updated_at = ?
+              WHERE id = ?'
+        );
+        $stmt->execute([
+            $host,
+            $port,
+            $encryption,
+            $this->encryption->encrypt($username, 'inbound_mailboxes.username'),
+            implode("\n", $folders),
+            self::now(),
+            $id,
+        ]);
+    }
+
+    /**
      * The folder to read as the box's sent mail when the server marks none
      * `\Sent` (#720). Blank or null clears it: the server's mark applies.
      */
@@ -284,6 +317,25 @@ class InboundMailboxRepository
               WHERE id = ?'
         );
         $stmt->execute([SyncState::OK->value, $at->format('Y-m-d H:i:s'), self::now(), $id]);
+    }
+
+    /**
+     * Forget a failure the operator has just fixed: an edit whose new
+     * settings connected (#1333, D10). The box leaves the error state —
+     * back to « ok » if it was ever relevée, to « never » otherwise — and
+     * the run of failures ends (`failing_since`), so a failure of the next
+     * relève dates a new run. `last_synced_at` is left alone, since nothing
+     * was read, and so is `is_enabled`.
+     */
+    public function clearFailure(int $id): void
+    {
+        $stmt = $this->pdo->prepare(
+            'UPDATE inbound_mailboxes
+                SET sync_state = CASE WHEN last_synced_at IS NULL THEN ? ELSE ? END,
+                    last_error = NULL, last_error_at = NULL, failing_since = NULL, updated_at = ?
+              WHERE id = ? AND sync_state = ?'
+        );
+        $stmt->execute([SyncState::NEVER->value, SyncState::OK->value, self::now(), $id, SyncState::ERROR->value]);
     }
 
     /**

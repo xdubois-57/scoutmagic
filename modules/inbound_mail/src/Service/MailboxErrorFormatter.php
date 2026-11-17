@@ -50,8 +50,8 @@ class MailboxErrorFormatter
         . 'mode de chiffrement.';
 
     private const AUTHENTICATION = 'Le serveur a refusé l\'authentification. Vérifiez le nom d\'utilisateur et, pour '
-        . 'une boîte Gmail ou Outlook, utilisez un mot de passe d\'application plutôt que le '
-        . 'mot de passe du compte.';
+        . 'une boîte Gmail, utilisez un mot de passe d\'application plutôt que le mot de passe du compte. '
+        . 'Outlook et Microsoft 365 refusent en général toute connexion IMAP par mot de passe.';
 
     private const FOLDER_NOT_FOUND = 'Un des dossiers surveillés est introuvable sur le serveur. '
         . 'Vérifiez son nom exact '

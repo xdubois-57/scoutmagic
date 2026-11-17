@@ -1,71 +1,79 @@
 ---
 id: courrier-entrant
 title: Raccorder le courrier entrant
-summary: Connecter les boîtes e-mail de l'unité, en lecture seule.
+summary: Ajouter une adresse e-mail de l'unité, en lecture seule, et choisir son usage.
 category: Configuration
 role_min: superadmin
 question: Comment brancher une boîte e-mail de l'unité sur le site ?
 question: Le site peut-il envoyer ou effacer des mails de la boîte ?
+question: Comment réserver une boîte e-mail à un seul usage ?
+question: Qui a le droit de lire le courrier entrant ?
 paths: /config/courrier-entrant, /config/courrier-entrant/boites/nouvelle, /config/courrier-entrant/boites/*/modification
-related: courrier-releve, courrier-portee, courrier-reponse, courrier-envoyes, courrier-unite, gerer-les-locations
+related: courrier-releve, courrier-reponse, courrier-envoyes, courrier-unite, gerer-les-locations
 ---
 
-Le courrier entrant relie une ou plusieurs boîtes e-mail de l'unité au
-site, pour que les réponses des correspondants — les locataires,
-aujourd'hui — se rattachent toutes seules au bon dossier.
+Le site lit une ou plusieurs adresses e-mail de l'unité pour ranger les
+réponses des correspondants — un locataire, un parent, un fournisseur —
+dans le bon dossier.
 
-## Trois garanties à connaître
+## Ce que le site fait de la boîte
 
-- **Rien n'est jamais modifié dans la boîte** : aucun message marqué
-  lu, déplacé ou supprimé. Le trésorier qui travaille dans cette boîte
-  ne verra aucune différence.
-- **Tout le courrier relevé est conservé**, y compris ce qu'aucun
-  module ne reconnaît. Ce n'était pas le cas avant, et c'est un
-  changement voulu : un message ignoré était un message perdu, et
-  personne ne s'en apercevait. Ce qu'aucun module ne rattache ni ne
-  propose est supprimé automatiquement au bout du délai réglé plus bas,
-  et seul le chef d'unité peut consulter ce courrier-là, depuis
-  *Espace chefs d'U > Courrier*.
-- **Les identifiants sont chiffrés et jamais réaffichés**, même
-  partiellement.
+- **Rien n'y est jamais modifié** : aucun message marqué lu, déplacé ou
+  supprimé. Le trésorier qui y travaille ne voit aucune différence.
+- **Le courrier relevé est conservé**, même ce qu'aucun module ne
+  reconnaît, puis supprimé au terme du délai de conservation s'il n'est
+  rattaché à rien (voir « Le courrier de l'unité »).
+- **Les identifiants sont chiffrés** et le mot de passe n'est jamais
+  réaffiché.
 
-## Ajouter une boîte
+## Ajouter une adresse
 
-Renseignez un nom (c'est tout ce que verront les gestionnaires — ni le
-serveur, ni le compte), le compte, le serveur IMAP, le port et le
-chiffrement, puis le mot de passe. Pour Gmail ou Outlook, créez un
-**mot de passe d'application** dans les réglages de sécurité du
-compte : c'est la voie prévue, le mot de passe habituel ne
-fonctionnera pas.
+Dans « Ajouter une adresse », tapez l'adresse e-mail. Pour Gmail, Google
+Workspace, Outlook, Microsoft 365, OVH et Infomaniak, le site reconnaît
+le fournisseur et remplit le serveur, le port et le chiffrement. Sinon,
+complétez-les d'après l'aide de votre hébergeur, rubrique IMAP.
 
-Après l'ajout, **testez la connexion** : le test annonce le nombre de
-dossiers visibles et, s'il le reconnaît, le dossier des envoyés, ou une explication en clair — certificat non
-vérifié, authentification refusée, serveur muet. Un certificat
-invalide bloque toujours : il n'existe pas d'option pour l'ignorer.
+Gmail demande un **mot de passe d'application**, pas celui du compte :
+le formulaire indique où le créer, et la validation en deux étapes doit
+être active. Outlook et Microsoft 365 refusent en général toute
+connexion IMAP par mot de passe ; le formulaire le signale. Il n'existe pas de
+connecteur Gmail natif, et c'est voulu : Google imposerait à chaque
+unité une évaluation de sécurité annuelle payante.
 
-Un test réussi ne prouve pas encore que la relève fonctionne : voir
-« Relever une boîte et lire ses erreurs ».
+« Vérifier et enregistrer » se connecte avant d'enregistrer. Une adresse
+qui ne répond pas **n'est pas enregistrée** : une phrase dit quoi
+vérifier, et les champs restent remplis, sauf le mot de passe. Un
+certificat invalide bloque toujours.
 
-## Ce qui se passe ensuite
+## Deux usages
 
-La relève tourne régulièrement en arrière-plan (un vrai cron chez
-l'hébergeur la rend ponctuelle ; la page vous prévient quand aucune
-tâche planifiée n'est détectée, et la relève ne se fait alors qu'à
-l'occasion des visites). Son rythme se règle dans
-*Configuration > Réglages*, sous « Intervalle entre deux relèves du
-courrier » : quinze minutes par défaut, entre 5 minutes et 24 heures.
-Inutile de descendre au plus bas — plusieurs hébergeurs de messagerie
-bloquent temporairement un client qui se reconnecte sans arrêt, et
-l'unité perd alors toutes ses relèves le temps du blocage. Chaque
-message relevé est proposé aux
-fonctions du site qui savent le reconnaître — une réponse de locataire
-rejoint sa réservation d'après la référence du sujet, la conversation
-ou l'expéditeur. Dans le doute, rien n'est rattaché d'office : le site
-fait une proposition, qu'une personne confirme ou écarte.
+**Courrier général de l'unité** — l'adresse où l'on trouve de tout.
+Chaque module actif y reconnaît ses messages. Le Staff d'U voit tout
+dans « Courrier reçu ». Les responsables d'un module ne voient que les
+messages rattachés à un dossier qu'ils gèrent : quand un module hésite,
+sa proposition reste dans « Courrier reçu », où le Staff d'U la
+confirme ou l'écarte.
 
-La colonne « État » de la liste dit si chaque boîte fonctionne ;
-« Désactiver » suspend une boîte sans la supprimer, et supprimer une
-boîte conserve les messages déjà rattachés aux dossiers.
+**Réservée à un module** — une adresse créée pour un seul usage. Seul
+ce module la lit, et ses responsables voient tout ce qui y arrive,
+comme le Staff d'U. Un module n'a qu'une adresse réservée, et un module
+qui a déjà la sienne n'est pas proposé — sauf « Courrier sortant —
+boîtes témoins », qui peut en avoir plusieurs.
 
-Chaque boîte est soit le courrier général de l'unité, soit réservée à
-un module : voir « Courrier général ou adresse réservée ».
+La première adresse est proposée comme courrier général, les suivantes
+comme réservées ; ce n'est qu'une valeur par défaut. Une adresse
+fonctionne dès qu'elle est enregistrée.
+
+## Dossiers lus
+
+Le site lit la boîte de réception et, pour les Locations, les messages
+envoyés. « Dossiers lus (facultatif) » permet d'ajouter d'autres
+dossiers ; la corbeille, les brouillons et les vues comme « Tous les
+messages » ne sont jamais proposés, ni les indésirables, sauf à une
+boîte témoin, qui doit les cocher.
+
+## Ensuite
+
+La liste montre l'état de chaque adresse et, en cas d'échec, quoi
+faire. « Désactiver » suspend une adresse sans la supprimer ;
+« Supprimer » conserve les messages déjà rattachés aux dossiers.

@@ -266,6 +266,7 @@ export E2E_UNIT_ADMIN_PASSWORD="${E2E_UNIT_ADMIN_PASSWORD:-$(generate_password)}
 SERVER_PID=""
 TLS_PID=""
 PLAYWRIGHT_PID=""
+IMAP_PID=""
 INSTANCE_DIR=""
 MYSQL_CONTAINER=""
 ZAP_CONTAINER=""
@@ -298,6 +299,7 @@ cleanup() {
     # connection errors.
     stop_pid "${PLAYWRIGHT_PID}" "Playwright"
     stop_pid "${TLS_PID}" "the TLS terminator"
+    stop_pid "${IMAP_PID}" "the IMAP server"
     stop_pid "${SERVER_PID}" "the application server"
 
     # Both of those FORK: `php -S` spawns PHP_CLI_SERVER_WORKERS children,
@@ -457,6 +459,14 @@ export E2E_MAILDROP="${INSTANCE_DIR}/maildrop"
 mkdir -p "${E2E_MAILDROP}"
 export E2E_INSTANCE_DIR="${INSTANCE_DIR}/instance"
 
+# The run's IMAP server, for the same reason: the replayed confidence tier
+# adds a mailbox through « Vérifier et enregistrer », which connects
+# before it saves (#1333) — see scripts/e2e-imap.sh.
+# shellcheck source=scripts/e2e-imap.sh
+source "${REPO_ROOT}/scripts/e2e-imap.sh"
+start_e2e_imap "${INSTANCE_DIR}/imap" "${SUPPORT}"
+IMAP_PID="${E2E_IMAP_PID}"
+
 # Shared with the ZAP container: the plan reads the release file from
 # here and writes its reports into it. One mount, so nothing else of the
 # host filesystem is visible to the scanner. The matrix profile has no
@@ -539,6 +549,7 @@ PHP_CLI_SERVER_WORKERS="${DAST_WORKERS}" php \
     -d post_max_size=110M \
     -d pcov.enabled=0 \
     -d sendmail_path="php '${REPO_ROOT}/scripts/e2e-maildrop.php'" \
+    -d openssl.cafile="${E2E_IMAP_CA_BUNDLE}" \
     -S "127.0.0.1:${BACKEND_PORT}" \
     -t "${INSTANCE_DIR}/instance/public" \
     > "${SERVER_LOG}" 2>&1 &

@@ -9,7 +9,7 @@ question: Pourquoi l'adresse de réponse du site contient-elle un « + » et une
 question: Comment faire reconnaître une réponse sans référence dans l'objet ?
 question: Les réponses à nos e-mails reviennent en erreur, que faire ?
 paths: /config/courrier-entrant
-related: courrier-entrant, courrier-portee, locations-courrier
+related: courrier-entrant, locations-courrier
 ---
 
 Quand le site écrit au sujet d'un dossier — l'accusé de réception d'une

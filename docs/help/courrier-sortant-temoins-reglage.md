@@ -14,9 +14,10 @@ related: courrier-sortant-temoins, courrier-sortant, courrier-entrant
 ## Les déclarer
 
 Ce ne sont pas des boîtes d'un genre nouveau. Vous les déclarez dans
-« Courrier entrant » comme n'importe quelle autre boîte, puis vous leur
-ouvrez la portée « Courrier sortant — boîtes témoins ». C'est cette
-portée qui fait d'une boîte une boîte témoin.
+« Courrier entrant » comme n'importe quelle autre adresse, avec l'usage
+« Réservée à un module » et le module « Courrier sortant — boîtes
+témoins ». C'est cet usage qui fait d'une boîte une boîte témoin, et
+vous pouvez en déclarer plusieurs.
 
 Prenez des boîtes chez des **fournisseurs différents** — une Gmail, une
 Outlook, une chez votre opérateur. C'est la comparaison entre eux qui
@@ -36,8 +37,8 @@ arrivé ».
 
 Vous liriez donc le pire verdict de la page pour un message pourtant
 distribué, et c'est la seule différence que cette page existe pour
-mesurer. Ouvrez chaque boîte témoin dans « Courrier entrant » et ajoutez
-son dossier d'indésirables aux dossiers surveillés — il s'appelle
+mesurer. Ouvrez chaque boîte témoin dans « Courrier entrant » et cochez
+son dossier d'indésirables dans « Dossiers lus (facultatif) » — il s'appelle
 « Spam » chez la plupart, « Indésirables » chez d'autres, « Junk » chez
 Google.
 

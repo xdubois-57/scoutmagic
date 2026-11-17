@@ -566,4 +566,74 @@ class MailboxAdminServiceTest extends TestCase
         $this->assertFalse($result['ok']);
         $this->assertSame('Boîte introuvable.', $result['message']);
     }
+
+    // ── The form's defaults (D6, D9) ────────────────────────────────────
+
+    public function testTheFirstAddressIsProposedAsTheGeneralMail(): void
+    {
+        $this->assertSame(MailboxPurpose::SHARED, $this->service->suggestedPurpose(true));
+    }
+
+    public function testOnceAGeneralAddressExistsAReservedOneIsProposed(): void
+    {
+        $this->createMailbox('Contact');
+
+        $this->assertSame(MailboxPurpose::DEDICATED, $this->service->suggestedPurpose(true));
+        $this->assertSame(['contact@unite.be'], $this->service->generalAddresses());
+    }
+
+    public function testWithNoModuleToOfferTheGeneralMailIsProposedAnyway(): void
+    {
+        $this->createMailbox('Contact');
+
+        $this->assertSame(MailboxPurpose::SHARED, $this->service->suggestedPurpose(false));
+    }
+
+    public function testAReservedBoxIsNoGeneralAddress(): void
+    {
+        $this->service->setPurpose($this->createMailbox('Locations'), MailboxPurpose::DEDICATED, 'rental');
+
+        $this->assertSame([], $this->service->generalAddresses());
+        $this->assertSame(MailboxPurpose::SHARED, $this->service->suggestedPurpose(true));
+    }
+
+    public function testOtherFoldersAreReadWithTheInbox(): void
+    {
+        $this->assertSame([], MailboxAdminService::foldersWithInbox([]));
+        $this->assertSame([], MailboxAdminService::foldersWithInbox(['inbox']));
+        $this->assertSame(['INBOX', 'Factures'], MailboxAdminService::foldersWithInbox(['Factures', 'INBOX']));
+    }
+
+    public function testFromParamsOffersTheFoldersWithoutTheSpecialOnes(): void
+    {
+        $this->client->markAttributes('INBOX');
+        $this->client->markAttributes('Factures');
+        $this->client->markAttributes('Corbeille', '\\Trash');
+        $this->client->markAttributes('Spam', '\\Junk');
+        $this->client->markSent('Envoyés');
+
+        $now = new \DateTimeImmutable();
+        $result = $this->service->testConnectionFromParams('imap.test', 993, 'ssl', 'user@test', 'secret', null, $now);
+        $forSeed = $this->service->testConnectionFromParams('imap.test', 993, 'ssl', 'u@test', 'secret', null, $now, true);
+
+        $this->assertSame(['Factures'], $result['offered_folders'] ?? null);
+        $this->assertSame(['Factures', 'Spam'], $forSeed['offered_folders'] ?? null);
+        $this->assertSame('Envoyés', $result['sent_folder'] ?? null);
+    }
+
+    /** The connection edit leaves the enabled state, and the failure date, as they stand. */
+    public function testUpdatingTheConnectionLeavesTheEnabledStateAlone(): void
+    {
+        $id = $this->createMailbox();
+        $this->service->setEnabled($id, false);
+
+        $this->service->updateConnection($id, 'imap.autre.test', 143, 'starttls', 'locations@unite.be', '', ['INBOX']);
+
+        $box = $this->repository->findById($id);
+        $this->assertNotNull($box);
+        $this->assertFalse($box->isEnabled);
+        $this->assertSame('imap.autre.test', $box->host);
+        $this->assertSame(143, $box->port);
+        $this->assertSame('un-mot-de-passe', $this->repository->findCredentials($id)?->password);
+    }
 }

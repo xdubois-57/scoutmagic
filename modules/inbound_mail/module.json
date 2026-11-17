@@ -2,7 +2,7 @@
   "id": "inbound_mail",
   "name": "Courrier entrant",
   "description": "Relève les boîtes mail de l'unité et répartit les messages.",
-  "version": "1.16.0",
+  "version": "1.17.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -125,7 +125,7 @@
       "role_min": "superadmin",
       "label": "",
       "breadcrumb": {
-        "label": "Nouvelle boîte",
+        "label": "Ajouter une adresse",
         "parents": [
           "Configuration"
         ],
@@ -155,7 +155,7 @@
       "role_min": "superadmin",
       "label": "",
       "breadcrumb": {
-        "label": "Modifier la boîte",
+        "label": "Modifier l'adresse",
         "parents": [
           "Configuration"
         ],
@@ -168,19 +168,19 @@
       }
     },
     {
-      "path": "/config/courrier-entrant/boites/{id}/test",
+      "path": "/config/courrier-entrant/test-connexion",
       "method": "POST",
       "controller": "Modules\\InboundMail\\Controller\\InboundMailConfigController",
-      "action": "testConnection",
+      "action": "testConnectionFromForm",
       "menu": "configuration",
       "role_min": "superadmin",
       "label": ""
     },
     {
-      "path": "/config/courrier-entrant/test-connexion",
+      "path": "/config/courrier-entrant/fournisseur",
       "method": "POST",
       "controller": "Modules\\InboundMail\\Controller\\InboundMailConfigController",
-      "action": "testConnectionFromForm",
+      "action": "recognizeProvider",
       "menu": "configuration",
       "role_min": "superadmin",
       "label": ""
@@ -199,15 +199,6 @@
       "method": "POST",
       "controller": "Modules\\InboundMail\\Controller\\InboundMailConfigController",
       "action": "delete",
-      "menu": "configuration",
-      "role_min": "superadmin",
-      "label": ""
-    },
-    {
-      "path": "/config/courrier-entrant/rafraichir",
-      "method": "POST",
-      "controller": "Modules\\InboundMail\\Controller\\InboundMailConfigController",
-      "action": "refreshNow",
       "menu": "configuration",
       "role_min": "superadmin",
       "label": ""

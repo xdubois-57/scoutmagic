@@ -7,7 +7,7 @@ role_min: superadmin
 question: Le site lit-il les e-mails envoyés depuis la boîte ?
 question: Que faire si le dossier des envoyés n'est pas reconnu ?
 paths: /config/courrier-entrant/boites/nouvelle, /config/courrier-entrant/boites/*/modification
-related: courrier-entrant, courrier-portee, locations-courrier
+related: courrier-entrant, locations-courrier
 ---
 
 Les Locations lisent aussi le dossier des envoyés d'une boîte ouverte à
@@ -17,13 +17,13 @@ e-mails.
 
 ## Le dossier des envoyés
 
-Le site trouve ce dossier tout seul quand le serveur le désigne : le
-test de connexion le nomme alors (« Dossier des envoyés reconnu »). Il
-ne devine jamais d'après un nom. Si le test n'en reconnaît aucun,
-indiquez son nom dans « Dossier des envoyés », tel qu'il apparaît dans
-la liste des dossiers. Laissez le champ vide sinon.
+Le site trouve ce dossier tout seul quand le serveur le désigne : en
+ouvrant « Dossiers lus (facultatif) », le formulaire l'affiche comme
+« Trouvé automatiquement ». Il ne devine jamais d'après un nom. Si le
+serveur n'en désigne aucun, indiquez son nom dans « Dossier des messages
+envoyés », tel que votre webmail l'affiche. Laissez le champ vide sinon.
 
-Un dossier déjà coché dans « Dossiers surveillés » reste lu comme du
+Un dossier déjà coché dans « Autres dossiers reçus » reste lu comme du
 courrier reçu, et n'est pas lu une seconde fois.
 
 ## Ce qui est gardé

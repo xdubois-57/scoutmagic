@@ -41,12 +41,18 @@ class FakeMailboxClient implements IncomingMailboxClientInterface
     /** @var array<string, true> */
     private array $sentFolders = [];
 
+    /** @var array<string, list<string>> */
+    private array $attributesByFolder = [];
+
     private bool $connected = false;
 
     /** @var list<string> */
     public array $calls = [];
 
     private ?\Throwable $connectFailure = null;
+
+    /** @var (\Closure(): void)|null */
+    private ?\Closure $onConnect = null;
 
     private int $lastSkippedUid = 0;
 
@@ -102,6 +108,29 @@ class FakeMailboxClient implements IncomingMailboxClientInterface
         $this->uidValidityByFolder[$folder] ??= 1;
     }
 
+    /**
+     * Have the server list $folder with these attributes (`\Junk`,
+     * `\Noselect`…). The folder exists, empty, from then on.
+     */
+    public function markAttributes(string $folder, string ...$attributes): void
+    {
+        $this->attributesByFolder[$folder] = array_values($attributes);
+        $this->foldersByPath[$folder] ??= [];
+        $this->uidValidityByFolder[$folder] ??= 1;
+    }
+
+    /**
+     * Run $callback every time the box is opened — what happens elsewhere
+     * on the site while a connection is under way, such as the box being
+     * disabled from the list while its edit is being verified.
+     *
+     * @param \Closure(): void $callback
+     */
+    public function onConnect(\Closure $callback): void
+    {
+        $this->onConnect = $callback;
+    }
+
     public function failNextConnect(\Throwable $failure): void
     {
         $this->connectFailure = $failure;
@@ -117,6 +146,10 @@ class FakeMailboxClient implements IncomingMailboxClientInterface
     public function connect(Mailbox $mailbox, MailboxCredentials $credentials): void
     {
         $this->calls[] = 'connect';
+
+        if ($this->onConnect !== null) {
+            ($this->onConnect)();
+        }
 
         if ($this->connectFailure !== null) {
             $failure = $this->connectFailure;
@@ -142,7 +175,11 @@ class FakeMailboxClient implements IncomingMailboxClientInterface
         $this->calls[] = 'listFolders';
 
         return array_map(
-            fn(string $path): RemoteFolder => new RemoteFolder($path, isset($this->sentFolders[$path])),
+            fn(string $path): RemoteFolder => new RemoteFolder(
+                $path,
+                isset($this->sentFolders[$path]),
+                $this->attributesByFolder[$path] ?? []
+            ),
             array_keys($this->foldersByPath)
         );
     }
