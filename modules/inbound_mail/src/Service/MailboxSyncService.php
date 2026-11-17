@@ -30,6 +30,7 @@ use Modules\InboundMail\Client\IncomingMailboxClientInterface;
 use Modules\InboundMail\Client\MailboxConnectionException;
 use Modules\InboundMail\Client\PruningMailboxClientInterface;
 use Modules\InboundMail\Client\RemoteFolder;
+use Modules\InboundMail\Mailbox\FolderCursor;
 use Modules\InboundMail\Mailbox\Mailbox;
 use Modules\InboundMail\Repository\InboundMailboxRepository;
 use Modules\InboundMail\Repository\InboundMessageRepository;
@@ -56,9 +57,11 @@ use Modules\InboundMail\Repository\InboundMessageRepository;
  * **The cursor still advances past everything.** Otherwise the same message
  * is fetched and parsed on every run forever, and a mailbox with one
  * awkward message at the top never gets past it. That is also why a
- * UIDVALIDITY change is safe to handle by re-reading a folder from zero: the message-level deduplication is on
- * Message-ID **within the mailbox**, so a re-read recognises what it
- * already has whatever the message has since been associated with.
+ * UIDVALIDITY change is safe to handle by reading the folder again — as a
+ * first read, limited to its recent mail (D11): the message-level
+ * deduplication is on Message-ID **within the mailbox**, so a re-read
+ * recognises what it already has whatever the message has since been
+ * associated with.
  *
  * A stored message and the business objects it belongs to are two separate
  * writes: `create()` puts the message down, `addLink()` associates it. A
@@ -77,6 +80,18 @@ class MailboxSyncService
      * The task simply comes back for the rest.
      */
     public const BATCH_SIZE = 50;
+
+    /**
+     * How far back the first read of a folder goes, in months (D11): by the
+     * server's reception date, never by UID.
+     */
+    public const FIRST_READ_MONTHS = 12;
+
+    /**
+     * The most messages the first read of a folder retains (D11): the most
+     * recent by reception date, within `FIRST_READ_MONTHS`.
+     */
+    public const FIRST_READ_LIMIT = 5000;
 
     public function __construct(
         private InboundMailboxRepository $mailboxRepository,
@@ -189,7 +204,8 @@ class MailboxSyncService
                     $client,
                     $folder,
                     $consumers,
-                    MessageDirection::RECEIVED
+                    MessageDirection::RECEIVED,
+                    $now
                 );
                 $seen += $folderSeen;
                 $stored += $folderStored;
@@ -207,7 +223,8 @@ class MailboxSyncService
                     $client,
                     $sentFolder,
                     $outbound,
-                    MessageDirection::SENT
+                    MessageDirection::SENT,
+                    $now
                 );
                 $seen += $folderSeen;
                 $stored += $folderStored;
@@ -247,6 +264,13 @@ class MailboxSyncService
      * Read one folder from its cursor, and move the cursor past everything
      * read.
      *
+     * **A folder read for the first time is not read from UID 0** (D11):
+     * see `firstRead()`. What that leaves on the cursor — the retained
+     * messages, named — is read here a batch at a time, after whatever
+     * arrived above the cursor since, and within the same `BATCH_SIZE` per
+     * pass: a first read of 5 000 messages spans a hundred passes, each as
+     * bounded as any other.
+     *
      * @param MessageConsumerInterface[] $consumers
      * @return array{0: int, 1: int} messages seen, messages stored
      */
@@ -255,33 +279,109 @@ class MailboxSyncService
         IncomingMailboxClientInterface $client,
         string $folder,
         array $consumers,
-        MessageDirection $direction
+        MessageDirection $direction,
+        \DateTimeImmutable $now
     ): array {
         $folderState = $client->folderState($folder);
-        $cursor = $this->mailboxRepository
-            ->findCursor($mailbox->id, $folder)
-            ->forUidValidity($folderState->uidValidity);
+        $cursor = $this->mailboxRepository->findCursor($mailbox->id, $folder);
+        if ($cursor->wasReset($folderState->uidValidity)) {
+            $cursor = $this->firstRead($mailbox, $client, $folder, $folderState->uidValidity, $now);
+        }
 
         $seen = 0;
         $stored = 0;
-        foreach ($client->fetchSince($folder, $cursor->lastUid, self::BATCH_SIZE) as $message) {
-            $seen++;
-            if ($this->store($mailbox, $message, $consumers, $client, $direction)) {
-                $stored++;
-            }
 
-            // Advanced for every message, claimed or not — see the
-            // class docblock.
-            $cursor = $cursor->advancedTo($message->uid);
+        // New arrivals first, so a long first read never holds this week's
+        // mail back. Skipped while a first read is pending and nothing is
+        // above the cursor: a `*` range on an empty tail hands back the
+        // last message, body and all, for nothing.
+        if (!$cursor->hasPending() || $folderState->highestUid > $cursor->lastUid) {
+            foreach ($client->fetchSince($folder, $cursor->lastUid, self::BATCH_SIZE) as $message) {
+                $seen++;
+                if ($this->store($mailbox, $message, $consumers, $client, $direction)) {
+                    $stored++;
+                }
+
+                // Advanced for every message, claimed or not — see the
+                // class docblock.
+                $cursor = $cursor->advancedTo($message->uid);
+            }
+            // And past what the client read but could not hand back: it is
+            // not in the loop above, and a cursor left below it would fetch
+            // it again on every pass.
+            $cursor = $cursor->advancedTo($client->lastSkippedUid());
         }
-        // And past what the client read but could not hand back: it is
-        // not in the loop above, and a cursor left below it would fetch it
-        // again on every pass.
-        $cursor = $cursor->advancedTo($client->lastSkippedUid());
+
+        // Then the retained messages of a first read, by name, with what is
+        // left of this pass's budget. Every UID asked for leaves the list,
+        // handed back or not, so none is read twice and none blocks the
+        // rest. They are all at or below the cursor: it does not move.
+        $batch = $cursor->nextPending(self::BATCH_SIZE - $seen);
+        if ($batch !== []) {
+            foreach ($client->fetchUids($folder, $batch) as $message) {
+                $seen++;
+                if ($this->store($mailbox, $message, $consumers, $client, $direction)) {
+                    $stored++;
+                }
+            }
+            $cursor = $cursor->withoutPending($batch);
+        }
 
         $this->mailboxRepository->saveCursor($cursor);
 
         return [$seen, $stored];
+    }
+
+    /**
+     * The first read of a folder — no cursor yet, a folder ticked later,
+     * the sent folder read for the first time, or a UIDVALIDITY that
+     * changed (D11).
+     *
+     * Only the last `FIRST_READ_MONTHS` months, and at most the
+     * `FIRST_READ_LIMIT` most recent of those by the server's reception
+     * date. A five-year-old box used to be read whole — tens of thousands of
+     * messages fetched, parsed and stored for a unit that wanted this
+     * year's bookings.
+     *
+     * The cursor starts at the folder's highest UID as the selection saw it,
+     * carrying the retained UIDs as a list. Saved at once, before a message
+     * is read: a pass that fails halfway resumes the same list rather than
+     * choosing again, and nothing set aside is ever reached later, since it
+     * is below a cursor that only moves up.
+     */
+    private function firstRead(
+        Mailbox $mailbox,
+        IncomingMailboxClientInterface $client,
+        string $folder,
+        int $uidValidity,
+        \DateTimeImmutable $now
+    ): FolderCursor {
+        $selection = $client->firstReadSelection(
+            $folder,
+            $now->modify('-' . self::FIRST_READ_MONTHS . ' months'),
+            self::FIRST_READ_LIMIT
+        );
+
+        $cursor = new FolderCursor(
+            $mailbox->id,
+            $folder,
+            $uidValidity,
+            $selection->highestUid,
+            $selection->uids
+        );
+        $this->mailboxRepository->saveCursor($cursor);
+
+        if ($selection->leftAside > 0) {
+            $this->analysisJournal?->firstReadLimited(
+                $mailbox->id,
+                $mailbox->name,
+                $folder,
+                count($selection->uids),
+                $selection->leftAside
+            );
+        }
+
+        return $cursor;
     }
 
     /**

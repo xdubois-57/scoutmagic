@@ -128,12 +128,19 @@ CREATE TABLE IF NOT EXISTS inbound_mailbox_consumers (
 -- value, and a cursor remembering only "last UID 4212" would then skip
 -- every message below the new 4212 (§7.5). Storing the pair is what makes a
 -- renumbering a re-read rather than a silent loss.
+--
+-- first_read_pending_uids: the messages a first read retained and has not
+-- read yet (D11), as comma-separated UIDs, all at or below last_uid. A first
+-- read takes the last twelve months by reception date, at most 5 000 — not
+-- a UID range, so the list is named. NULL once it is read. MEDIUMTEXT:
+-- 5 000 UIDs of up to ten digits do not fit in a TEXT.
 CREATE TABLE IF NOT EXISTS inbound_mailbox_cursors (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     mailbox_id INT UNSIGNED NOT NULL,
     folder VARCHAR(255) NOT NULL,
     uid_validity BIGINT UNSIGNED NOT NULL DEFAULT 0,
     last_uid BIGINT UNSIGNED NOT NULL DEFAULT 0,
+    first_read_pending_uids MEDIUMTEXT NULL,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE INDEX idx_cursor_mailbox_folder (mailbox_id, folder),
     CONSTRAINT fk_cursor_mailbox FOREIGN KEY (mailbox_id) REFERENCES inbound_mailboxes(id) ON DELETE CASCADE

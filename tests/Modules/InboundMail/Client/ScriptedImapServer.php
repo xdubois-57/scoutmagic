@@ -34,6 +34,13 @@ final class ScriptedImapServer extends ImapProtocol
 
     public int $uidValidity = 1;
 
+    /**
+     * @var array<string, array<int, \DateTimeImmutable>> folder => uid => the
+     * server's reception date (`INTERNALDATE`); a message with none was
+     * received just now
+     */
+    public array $internalDates = [];
+
     /** @var list<string> commands to answer with a tagged NO: list, examine, search, select, store */
     public array $refuse = [];
 
@@ -45,8 +52,8 @@ final class ScriptedImapServer extends ImapProtocol
 
     /**
      * @var list<string> every command that opens a folder or reads a
-     * message, as the server would see it (#1231): EXAMINE or SELECT, and
-     * each FETCH item
+     * message, as the server would see it (#1231): EXAMINE or SELECT, each
+     * FETCH item, and a SEARCH by date
      */
     public array $commands = [];
 
@@ -117,7 +124,22 @@ final class ScriptedImapServer extends ImapProtocol
             return $this->no('UID SEARCH');
         }
 
-        return $this->ok(array_keys($this->folders[(string) $this->selected] ?? []), true);
+        $uids = array_keys($this->folders[(string) $this->selected] ?? []);
+
+        // `SINCE <date>` (D11) is answered as a server does: on the
+        // reception date, by day. Every other criterion is not interpreted,
+        // and the whole folder comes back.
+        if (($params[0] ?? null) === 'SINCE') {
+            $this->commands[] = 'SEARCH SINCE ' . (string) ($params[1] ?? '');
+            $since = \DateTimeImmutable::createFromFormat('!j-M-Y', (string) ($params[1] ?? ''));
+            $uids = array_values(array_filter(
+                $uids,
+                fn(int $id): bool => $since === false
+                    || $this->receivedAt($id)->format('Y-m-d') >= $since->format('Y-m-d')
+            ));
+        }
+
+        return $this->ok($uids, true);
     }
 
     public function flags(int|array $uids, int|string $uid = IMAP::ST_UID): Response
@@ -146,9 +168,9 @@ final class ScriptedImapServer extends ImapProtocol
     }
 
     /**
-     * A FETCH of named items. Only `BODY.PEEK[TEXT]` is answered — under
-     * the name a real server gives it back, `BODY[TEXT]` — since it is the
-     * one the client asks for this way.
+     * A FETCH of named items. Only `BODY.PEEK[TEXT]` — answered under the
+     * name a real server gives it back, `BODY[TEXT]` — and `INTERNALDATE`
+     * are, since they are the ones the client asks for this way.
      *
      * @param array<int, string>|string $items
      * @param array<int, int>|int $from
@@ -170,6 +192,9 @@ final class ScriptedImapServer extends ImapProtocol
             $result[$id] = ['UID' => $id];
             if (in_array('BODY.PEEK[TEXT]', $items, true)) {
                 $result[$id]['BODY[TEXT]'] = $body;
+            }
+            if (in_array('INTERNALDATE', $items, true)) {
+                $result[$id]['INTERNALDATE'] = $this->receivedAt($id)->format('d-M-Y H:i:s O');
             }
         }
 
@@ -205,6 +230,11 @@ final class ScriptedImapServer extends ImapProtocol
         $this->flaggedDeleted = [];
 
         return $this->ok([], true);
+    }
+
+    private function receivedAt(int $uid): \DateTimeImmutable
+    {
+        return $this->internalDates[(string) $this->selected][$uid] ?? new \DateTimeImmutable('now');
     }
 
     /** @return array<string, int> */

@@ -9,14 +9,17 @@ declare(strict_types=1);
 namespace Modules\InboundMail\Client;
 
 use Core\Service\DateInput;
+use Illuminate\Support\Collection;
 use Modules\InboundMail\Mailbox\Mailbox;
 use Modules\InboundMail\Mailbox\MailboxCredentials;
 use Modules\InboundMail\Mime\MimeMessageParser;
 use Webklex\PHPIMAP\Attachment;
 use Webklex\PHPIMAP\Client;
 use Webklex\PHPIMAP\ClientManager;
+use Webklex\PHPIMAP\Connection\Protocols\ImapProtocol;
 use Webklex\PHPIMAP\Folder;
 use Webklex\PHPIMAP\Header;
+use Webklex\PHPIMAP\IMAP;
 use Webklex\PHPIMAP\Message;
 
 /**
@@ -47,6 +50,14 @@ use Webklex\PHPIMAP\Message;
 class ImapMailboxClient implements IncomingMailboxClientInterface, PruningMailboxClientInterface
 {
     private ?Client $client = null;
+
+    /**
+     * How many UIDs one `UID FETCH (UID INTERNALDATE)` names. A first read
+     * may weigh up thousands of them, and a command line of a few thousand
+     * numbers is past what some servers accept (RFC 7162 §4 recommends
+     * clients stay under 8 192 octets).
+     */
+    private const INTERNALDATE_SLICE = 500;
 
     /** See `IncomingMailboxClientInterface::lastSkippedUid()`. */
     private int $lastSkippedUid = 0;
@@ -167,17 +178,167 @@ class ImapMailboxClient implements IncomingMailboxClientInterface, PruningMailbo
             throw MailboxConnectionException::at(MailboxConnectionException::STEP_FETCH, $e);
         }
 
-        // Above the cursor only, like the loop below: the cursor message a
-        // `*` can hand back was already read, and traced, by an earlier pass.
+        // Above the cursor only: the cursor message a `*` can hand back
+        // was already read, and traced, by an earlier pass. A UID range
+        // starting at `n+1` is inclusive of `n+1`, but a server that
+        // ignores the range (or a `*` that resolves to the last message
+        // when the folder has none above the cursor) can still hand back
+        // the cursor message itself.
+        [$fetched, $skipped] = $this->convert(
+            $folder,
+            $query,
+            $messages,
+            static fn(int $uid): bool => $uid > $sinceUid
+        );
+        $this->lastSkippedUid = $skipped === [] ? 0 : max($skipped);
+
+        return $fetched;
+    }
+
+    /**
+     * Which messages a first read takes (D11), asked of the server without
+     * reading one of them.
+     *
+     * The folder is EXAMINEd (read-only), `UID SEARCH SINCE` names what it
+     * received in the window — SINCE compares the server's reception date,
+     * not the `Date:` a sender wrote — and only when that is more than
+     * $limit are the reception dates fetched, `UID FETCH (UID INTERNALDATE)`
+     * in slices short enough for any server's command line, to keep the most
+     * recent. No body, no header, no flag: nothing a mail client open at the
+     * same moment could notice.
+     */
+    public function firstReadSelection(string $folder, \DateTimeImmutable $since, int $limit): FirstReadSelection
+    {
+        $imapFolder = $this->requireFolder($folder);
+
+        try {
+            $status = $imapFolder->examine();
+            $imapFolder->getClient()->setActiveFolder($imapFolder->path);
+            $connection = $imapFolder->getClient()->getConnection();
+
+            $highestUid = (int) ($status['uidnext'] ?? 1) - 1;
+            $found = $connection->search(['SINCE', $since->format('j-M-Y')], IMAP::ST_UID)->validatedData();
+            $uids = array_values(array_filter(
+                array_map('intval', is_array($found) ? $found : []),
+                static fn(int $uid): bool => $uid > 0 && $uid <= $highestUid
+            ));
+
+            if (count($uids) > $limit) {
+                if (!$connection instanceof ImapProtocol) {
+                    // The PHP-extension protocol, which connect() never asks for.
+                    throw new \RuntimeException('Reception dates need the IMAP protocol.');
+                }
+                $uids = self::mostRecentlyReceived($connection, $uids, $limit);
+            }
+        } catch (\Throwable $e) {
+            throw MailboxConnectionException::at(MailboxConnectionException::STEP_FETCH, $e);
+        }
+
+        return new FirstReadSelection(
+            $uids,
+            $highestUid,
+            max(0, (int) ($status['exists'] ?? 0) - count($uids))
+        );
+    }
+
+    /**
+     * The retained messages of a first read, by UID — the same passive
+     * fetch as `fetchSince()` (EXAMINE, `RFC822.HEADER`, `BODY.PEEK[TEXT]`),
+     * over a named set rather than a range. Called with at most
+     * `MailboxSyncService::BATCH_SIZE` UIDs, so the command line stays short.
+     *
+     * @param int[] $uids
+     * @return FetchedMessage[]
+     */
+    public function fetchUids(string $folder, array $uids): array
+    {
+        $uids = array_values(array_unique(array_filter(array_map('intval', $uids), static fn(int $uid) => $uid > 0)));
+        if ($uids === []) {
+            return [];
+        }
+        sort($uids);
+
+        $imapFolder = $this->requireFolder($folder);
+
+        try {
+            // Straight to the fetch, with no SEARCH: the UIDs are already
+            // known, and a UID no longer in the folder is simply not in the
+            // server's answer.
+            $query = TolerantMessageQuery::on($imapFolder);
+            $messages = $query
+                ->leaveUnread()
+                ->setFetchOrderAsc()
+                ->limit(count($uids))
+                ->curate_messages(new Collection($uids));
+        } catch (\Throwable $e) {
+            throw MailboxConnectionException::at(MailboxConnectionException::STEP_FETCH, $e);
+        }
+
+        // Only what was asked for: a server that ignores the set must not
+        // slip a message set aside back in.
+        $wanted = array_flip($uids);
+        [$fetched] = $this->convert($folder, $query, $messages, static fn(int $uid): bool => isset($wanted[$uid]));
+
+        return $fetched;
+    }
+
+    /**
+     * The $limit UIDs among $uids the server received last, by
+     * `INTERNALDATE`, the higher UID first between two of the same second.
+     * A UID the server no longer answers for is gone, and dropped.
+     *
+     * @param list<int> $uids
+     * @return list<int>
+     */
+    private static function mostRecentlyReceived(ImapProtocol $connection, array $uids, int $limit): array
+    {
+        $receivedAt = [];
+        foreach (array_chunk($uids, self::INTERNALDATE_SLICE) as $slice) {
+            $answer = $connection->fetch(['UID', 'INTERNALDATE'], $slice, null, IMAP::ST_UID)->validatedData();
+            foreach (is_array($answer) ? $answer : [] as $uid => $items) {
+                $date = is_array($items) ? ($items['INTERNALDATE'] ?? null) : null;
+                $receivedAt[(int) $uid] = self::internalDate(is_string($date) ? $date : '');
+            }
+        }
+
+        uksort($receivedAt, static fn(int $a, int $b): int => [$receivedAt[$b], $b] <=> [$receivedAt[$a], $a]);
+
+        return array_slice(array_map('intval', array_keys($receivedAt)), 0, max(0, $limit));
+    }
+
+    /**
+     * An `INTERNALDATE` (`17-Jul-1996 02:44:25 -0700`, the day possibly
+     * space-padded) as a timestamp — 0, the oldest of all, for one the
+     * server wrote in some other form.
+     */
+    private static function internalDate(string $value): int
+    {
+        $parsed = \DateTimeImmutable::createFromFormat('!j-M-Y H:i:s O', trim($value));
+
+        return $parsed instanceof \DateTimeImmutable ? $parsed->getTimestamp() : 0;
+    }
+
+    /**
+     * Turn what the query handed back into our messages, keeping only the
+     * UIDs $keep accepts, and trace what it could not read — named by
+     * folder and UID only.
+     *
+     * @param iterable<mixed> $messages
+     * @param \Closure(int): bool $keep
+     * @return array{0: FetchedMessage[], 1: int[]} the messages, and the UIDs skipped as unreadable
+     */
+    private function convert(string $folder, TolerantMessageQuery $query, iterable $messages, \Closure $keep): array
+    {
+        $skipped = [];
         foreach ($query->undatedUids() as $uid) {
-            if ($uid > $sinceUid) {
+            if ($keep($uid)) {
                 self::trace($folder, $uid, 'has an unreadable Date header; kept, dated at this sync');
             }
         }
         foreach ($query->unreadableUids() as $uid) {
-            if ($uid > $sinceUid) {
+            if ($keep($uid)) {
                 self::trace($folder, $uid, 'could not be parsed; skipped');
-                $this->lastSkippedUid = max($this->lastSkippedUid, $uid);
+                $skipped[] = $uid;
             }
         }
 
@@ -188,11 +349,7 @@ class ImapMailboxClient implements IncomingMailboxClientInterface, PruningMailbo
             }
 
             $uid = (int) $message->getUid();
-            // A UID range starting at `n+1` is inclusive of `n+1`, but a
-            // server that ignores the range (or a `*` that resolves to the
-            // last message when the folder has none above the cursor) can
-            // still hand back the cursor message itself.
-            if ($uid <= $sinceUid) {
+            if (!$keep($uid)) {
                 continue;
             }
 
@@ -211,12 +368,12 @@ class ImapMailboxClient implements IncomingMailboxClientInterface, PruningMailbo
                 // doubled headers, an unknown charset and broken base64 all come back as messages. Kept
                 // for a library release that reads lazily: one message must still cost only itself.
                 self::trace($folder, $uid, 'could not be read (' . self::safeReason($e) . '); skipped');
-                $this->lastSkippedUid = max($this->lastSkippedUid, $uid);
+                $skipped[] = $uid;
                 continue;
             }
         }
 
-        return $fetched;
+        return [$fetched, $skipped];
     }
 
     public function lastSkippedUid(): int

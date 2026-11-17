@@ -190,6 +190,84 @@ class ImapClientAgainstAServerTest extends TestCase
         $this->assertSame([['folder' => 'INBOX', 'uid' => 5]], $this->server->deleted);
     }
 
+    // ── The first read (D11) ────────────────────────────────────────────
+
+    /**
+     * The selection is a SEARCH by reception date and, past the cap, the
+     * reception dates themselves — read-only open, no body, no flag. The
+     * most recent are kept by INTERNALDATE: UIDs 4 to 6 are an old import
+     * with UIDs above this year's mail.
+     */
+    public function testAFirstReadSelectionKeepsTheMostRecentlyReceivedAndTouchesNothing(): void
+    {
+        $now = new \DateTimeImmutable('2027-07-12 10:00:00');
+        $this->server->folders['INBOX'] = [];
+        $ages = [1 => '-3 days', 2 => '-1 day', 3 => '-2 days', 4 => '-2 years', 5 => '-3 years', 6 => '-4 years'];
+        foreach ($ages as $uid => $ago) {
+            $this->server->folders['INBOX'][$uid] = str_replace('<demande@', '<demande-' . $uid . '@', self::MESSAGE);
+            $this->server->internalDates['INBOX'][$uid] = $now->modify($ago);
+        }
+        // An old import, with UIDs above this year's mail.
+        $this->server->folders['INBOX'][7] = self::MESSAGE;
+        $this->server->internalDates['INBOX'][7] = $now->modify('-5 years');
+
+        $selection = $this->connected()->firstReadSelection('INBOX', $now->modify('-12 months'), 2);
+
+        $this->assertSame([2, 3], $selection->uids, 'the two received last, never the highest UIDs');
+        $this->assertSame(7, $selection->highestUid);
+        $this->assertSame(5, $selection->leftAside);
+        $this->assertContains('EXAMINE INBOX', $this->server->commands);
+        $this->assertContains('SEARCH SINCE 12-Jul-2026', $this->server->commands);
+        $this->assertContains('FETCH UID INTERNALDATE', $this->server->commands);
+        $this->assertSame([], $this->server->stored, 'no flag was set or removed');
+        foreach ($this->server->commands as $command) {
+            $this->assertStringStartsNotWith('SELECT', $command);
+            $this->assertStringNotContainsString('BODY', $command, 'no message is read to choose');
+            $this->assertStringNotContainsString('RFC822', $command);
+        }
+    }
+
+    public function testAFirstReadWithinTheCapDoesNotEvenFetchTheDates(): void
+    {
+        $selection = $this->connected()->firstReadSelection('INBOX', new \DateTimeImmutable('-12 months'), 10);
+
+        $this->assertSame([5], $selection->uids);
+        $this->assertSame(0, $selection->leftAside);
+        $this->assertNotContains('FETCH UID INTERNALDATE', $this->server->commands);
+    }
+
+    /** The retained messages, read by name — as passively as any other read. */
+    public function testRetainedMessagesAreReadByNameAndPassively(): void
+    {
+        $this->server->folders['INBOX'] = [];
+        foreach ([3, 5, 8] as $uid) {
+            $this->server->folders['INBOX'][$uid] = str_replace('<demande@', '<demande-' . $uid . '@', self::MESSAGE);
+        }
+
+        $fetched = $this->connected()->fetchUids('INBOX', [8, 3, 42]);
+
+        $this->assertSame([3, 8], array_map(static fn($message): int => $message->uid, $fetched));
+        $this->assertSame('Bonjour, est-ce libre ?', $fetched[0]->bodyText);
+        $this->assertSame([], $this->server->stored, 'no flag was set or removed');
+        $this->assertContains('EXAMINE INBOX', $this->server->commands);
+        $this->assertContains('FETCH UID BODY.PEEK[TEXT]', $this->server->commands);
+        foreach ($this->server->commands as $command) {
+            $this->assertStringStartsNotWith('SELECT', $command);
+            $this->assertNotSame('FETCH RFC822.TEXT', $command, 'RFC822.TEXT marks the message read');
+            $this->assertNotSame('FETCH FLAGS', $command);
+        }
+    }
+
+    public function testAFirstReadSearchTheServerRefusesIsAConnectionProblem(): void
+    {
+        $this->server->refuse = ['search'];
+
+        $this->assertConnectionProblem(
+            fn() => $this->connected()->firstReadSelection('INBOX', new \DateTimeImmutable('-12 months'), 10),
+            MailboxConnectionException::STEP_FETCH
+        );
+    }
+
     /**
      * @param \Closure(): mixed $operation
      */

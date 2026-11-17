@@ -55,6 +55,7 @@ class InboundMailTestHelper
             folder TEXT NOT NULL,
             uid_validity INTEGER NOT NULL DEFAULT 0,
             last_uid INTEGER NOT NULL DEFAULT 0,
+            first_read_pending_uids TEXT NULL,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             UNIQUE (mailbox_id, folder)
         )');
