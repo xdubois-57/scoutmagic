@@ -34,6 +34,22 @@ final class ScriptedImapServer extends ImapProtocol
 
     public int $uidValidity = 1;
 
+    /** Leave UIDNEXT out of the folder status, as some servers do. */
+    public bool $omitUidNext = false;
+
+    /**
+     * @var list<int> UIDs the server follows, within the same FETCH, with an
+     * unsolicited FLAGS-only answer — another client changed their flags
+     */
+    public array $unsolicitedFlags = [];
+
+    /**
+     * @var array<string, array<int, \DateTimeImmutable>> folder => uid => the
+     * server's reception date (`INTERNALDATE`); a message with none was
+     * received just now
+     */
+    public array $internalDates = [];
+
     /** @var list<string> commands to answer with a tagged NO: list, examine, search, select, store */
     public array $refuse = [];
 
@@ -45,8 +61,8 @@ final class ScriptedImapServer extends ImapProtocol
 
     /**
      * @var list<string> every command that opens a folder or reads a
-     * message, as the server would see it (#1231): EXAMINE or SELECT, and
-     * each FETCH item
+     * message, as the server would see it (#1231): EXAMINE or SELECT, each
+     * FETCH item, and a SEARCH by date
      */
     public array $commands = [];
 
@@ -117,7 +133,26 @@ final class ScriptedImapServer extends ImapProtocol
             return $this->no('UID SEARCH');
         }
 
-        return $this->ok(array_keys($this->folders[(string) $this->selected] ?? []), true);
+        $uids = array_keys($this->folders[(string) $this->selected] ?? []);
+
+        // `SINCE <date>` (D11) is answered as a server does: on the
+        // reception date, by day. Every other criterion is not interpreted,
+        // and the whole folder comes back.
+        if (($params[0] ?? null) === 'SINCE') {
+            $this->commands[] = 'SEARCH SINCE ' . (string) ($params[1] ?? '');
+            $since = \DateTimeImmutable::createFromFormat('!j-M-Y', (string) ($params[1] ?? ''));
+            $uids = array_values(array_filter(
+                $uids,
+                fn(int $id): bool => $since === false
+                    || $this->receivedAt($id)->format('Y-m-d') >= $since->format('Y-m-d')
+            ));
+        }
+
+        if (($params[0] ?? null) === 'ALL') {
+            $this->commands[] = 'SEARCH ALL';
+        }
+
+        return $this->ok($uids, true);
     }
 
     public function flags(int|array $uids, int|string $uid = IMAP::ST_UID): Response
@@ -146,9 +181,9 @@ final class ScriptedImapServer extends ImapProtocol
     }
 
     /**
-     * A FETCH of named items. Only `BODY.PEEK[TEXT]` is answered — under
-     * the name a real server gives it back, `BODY[TEXT]` — since it is the
-     * one the client asks for this way.
+     * A FETCH of named items. Only `BODY.PEEK[TEXT]` — answered under the
+     * name a real server gives it back, `BODY[TEXT]` — and `INTERNALDATE`
+     * are, since they are the ones the client asks for this way.
      *
      * @param array<int, string>|string $items
      * @param array<int, int>|int $from
@@ -165,12 +200,35 @@ final class ScriptedImapServer extends ImapProtocol
             return $this->no('UID FETCH');
         }
 
-        $result = [];
+        // The untagged answers, in the order the server sends them.
+        $answers = [];
         foreach ($this->part((array) $from, 1) as $id => $body) {
-            $result[$id] = ['UID' => $id];
+            $answer = ['UID' => $id];
             if (in_array('BODY.PEEK[TEXT]', $items, true)) {
-                $result[$id]['BODY[TEXT]'] = $body;
+                $answer['BODY[TEXT]'] = $body;
             }
+            if (in_array('INTERNALDATE', $items, true)) {
+                $answer['INTERNALDATE'] = $this->receivedAt($id)->format('d-M-Y H:i:s O');
+            }
+            $answers[] = $answer;
+            if (in_array($id, $this->unsolicitedFlags, true)) {
+                $answers[] = ['UID' => $id, 'FLAGS' => ['\\Seen']];
+            }
+        }
+
+        // Parsed as the library parses them (ImapProtocol::fetch): filed
+        // under their UID, a later answer replacing an earlier one — but with
+        // one item asked for, that item's value alone, and an answer that
+        // does not carry it skipped.
+        $result = [];
+        foreach ($answers as $answer) {
+            if (count($items) === 1) {
+                if (array_key_exists($items[0], $answer)) {
+                    $result[$answer['UID']] = $answer[$items[0]];
+                }
+                continue;
+            }
+            $result[$answer['UID']] = $answer;
         }
 
         return $this->ok($result, true);
@@ -207,16 +265,26 @@ final class ScriptedImapServer extends ImapProtocol
         return $this->ok([], true);
     }
 
+    private function receivedAt(int $uid): \DateTimeImmutable
+    {
+        return $this->internalDates[(string) $this->selected][$uid] ?? new \DateTimeImmutable('now');
+    }
+
     /** @return array<string, int> */
     private function status(string $folder): array
     {
         $uids = array_keys($this->folders[$folder] ?? []);
 
-        return [
+        $status = [
             'exists' => count($uids),
             'uidvalidity' => $this->uidValidity,
             'uidnext' => ($uids === [] ? 0 : max($uids)) + 1,
         ];
+        if ($this->omitUidNext) {
+            unset($status['uidnext']);
+        }
+
+        return $status;
     }
 
     /**

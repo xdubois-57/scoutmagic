@@ -210,7 +210,9 @@ class ImapClientBehaviourTest extends TestCase
      */
     public function testAStatusMissingItsKeysDoesNotInventACursor(): void
     {
-        $client = $this->connectedTo([]);
+        // UIDNEXT present, UIDVALIDITY absent: a missing UIDNEXT is asked
+        // of the server instead (ImapClientAgainstAServerTest).
+        $client = $this->connectedTo(['uidnext' => 1]);
 
         $state = $client->folderState('INBOX');
 

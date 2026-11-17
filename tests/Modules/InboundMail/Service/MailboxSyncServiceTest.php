@@ -639,11 +639,16 @@ class MailboxSyncServiceTest extends TestCase
 
         $this->sync();
 
+        // A folder never read is a first read (D11): the selection, then
+        // the retained messages by name — both after the EXAMINE.
         $examineIndex = array_search('folderState:INBOX', $this->client->calls, true);
-        $fetchIndex = array_search('fetchSince:INBOX:0', $this->client->calls, true);
+        $selectIndex = array_search('firstReadSelection:INBOX:2026-07-12:5000', $this->client->calls, true);
+        $fetchIndex = array_search('fetchUids:INBOX:1', $this->client->calls, true);
         $this->assertIsInt($examineIndex);
+        $this->assertIsInt($selectIndex);
         $this->assertIsInt($fetchIndex);
-        $this->assertLessThan($fetchIndex, $examineIndex);
+        $this->assertLessThan($selectIndex, $examineIndex);
+        $this->assertLessThan($fetchIndex, $selectIndex);
     }
 
     public function testTheConnectionIsAlwaysClosed(): void
