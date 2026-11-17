@@ -128,7 +128,7 @@ class FirstReadLimitTest extends TestCase
         $this->assertSame($expected, $taken, 'the 5 000 most recent by reception date, and only those');
 
         $entry = $this->journalEntry();
-        $this->assertSame(['mailbox_id' => $this->mailboxId, 'retained' => 5000, 'left_aside' => 2000], $entry);
+        $this->assertSame(['left_aside' => 2000, 'mailbox_id' => $this->mailboxId, 'retained' => 5000], $entry);
     }
 
     public function testASmallRecentBoxIsReadWhole(): void
@@ -165,7 +165,7 @@ class FirstReadLimitTest extends TestCase
         $this->assertSame(60, $this->countMessages());
         $this->assertSame(100, $this->mailboxes->findCursor($this->mailboxId, 'INBOX')->lastUid);
         $this->assertSame(
-            ['mailbox_id' => $this->mailboxId, 'retained' => 60, 'left_aside' => 40],
+            ['left_aside' => 40, 'mailbox_id' => $this->mailboxId, 'retained' => 60],
             $this->journalEntry()
         );
 
@@ -249,7 +249,7 @@ class FirstReadLimitTest extends TestCase
         $this->assertSame(10, $this->countMessages());
         $this->assertNotContains(11, $this->client->fetchedUids['INBOX'], 'the old ones are left aside');
         $this->assertSame(
-            ['mailbox_id' => $this->mailboxId, 'retained' => 10, 'left_aside' => 5],
+            ['left_aside' => 5, 'mailbox_id' => $this->mailboxId, 'retained' => 10],
             $this->journalEntry()
         );
     }
@@ -362,6 +362,9 @@ class FirstReadLimitTest extends TestCase
                 $this->assertStringNotContainsString('Message ', (string) $entry['description']);
                 $context = json_decode((string) $entry['context'], true);
                 $this->assertIsArray($context);
+                // MySQL's JSON type stores keys in its own order, MariaDB
+                // and SQLite keep the written one: compare by key.
+                ksort($context);
 
                 return $context;
             }
