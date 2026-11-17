@@ -387,17 +387,21 @@ class FirstReadLimitTest extends TestCase
      */
     private function journalEntry(): ?array
     {
-        foreach ($this->journal->search() as $entry) {
-            if ($entry['event_type'] === 'inbound_first_read_limited') {
-                $this->assertStringNotContainsString('Message ', (string) $entry['description']);
-                $context = json_decode((string) $entry['context'], true);
-                $this->assertIsArray($context);
-                // MySQL's JSON type stores keys in its own order, MariaDB
-                // and SQLite keep the written one: compare by key.
-                ksort($context);
+        // By its event type, not through search(): that is one page of 50,
+        // newest first, and a pass journals about as many analysed messages
+        // in the same second — which of them make the page is up to the
+        // engine.
+        $stmt = $this->pdo->prepare('SELECT * FROM event_log WHERE event_type = ?');
+        $stmt->execute(['inbound_first_read_limited']);
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $entry) {
+            $this->assertStringNotContainsString('Message ', (string) $entry['description']);
+            $context = json_decode((string) $entry['context'], true);
+            $this->assertIsArray($context);
+            // MySQL's JSON type stores keys in its own order, MariaDB
+            // and SQLite keep the written one: compare by key.
+            ksort($context);
 
-                return $context;
-            }
+            return $context;
         }
 
         return null;
