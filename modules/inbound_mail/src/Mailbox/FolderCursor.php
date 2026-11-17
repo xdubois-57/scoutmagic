@@ -73,6 +73,17 @@ class FolderCursor
         return $observedUidValidity !== $this->uidValidity;
     }
 
+    /**
+     * Nothing has been read through this cursor yet. A folder never read
+     * starts at UIDVALIDITY 0, which a server that leaves UIDVALIDITY out
+     * of its answer also reports: `wasReset()` then sees no change, and
+     * only this tells the first read from an ordinary pass.
+     */
+    public function isUnread(): bool
+    {
+        return $this->uidValidity === 0 && $this->lastUid === 0 && $this->pendingUids === [];
+    }
+
     public function advancedTo(int $uid): self
     {
         return $uid > $this->lastUid

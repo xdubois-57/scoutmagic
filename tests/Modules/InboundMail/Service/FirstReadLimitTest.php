@@ -146,6 +146,36 @@ class FirstReadLimitTest extends TestCase
     }
 
     /**
+     * A server that leaves UIDVALIDITY out of its answer reports 0, the
+     * value a cursor never saved starts at: the first read must apply all
+     * the same, and not read the whole history from UID 0.
+     */
+    public function testAServerReportingNoUidValidityStillGetsTheFirstRead(): void
+    {
+        $this->client->setUidValidity('INBOX', 0);
+        for ($uid = 1; $uid <= 30; $uid++) {
+            $this->add('INBOX', $uid, $this->now()->modify('-' . $uid . ' days'));
+        }
+        for ($uid = 31; $uid <= 50; $uid++) {
+            $this->add('INBOX', $uid, $this->now()->modify('-3 years')->modify('-' . $uid . ' days'));
+        }
+
+        $this->syncUntilDrained();
+
+        $this->assertSame(range(1, 30), $this->client->fetchedUids['INBOX'], 'the old ones are left aside');
+        $this->assertSame(50, $this->mailboxes->findCursor($this->mailboxId, 'INBOX')->lastUid);
+        $this->assertSame(
+            ['left_aside' => 20, 'mailbox_id' => $this->mailboxId, 'retained' => 30],
+            $this->journalEntry()
+        );
+
+        // The cursor has moved: the next pass is an ordinary one.
+        $this->client->calls = [];
+        $this->assertSame(0, $this->sync()->messagesSeen);
+        $this->assertContains('fetchSince:INBOX:50', $this->client->calls);
+    }
+
+    /**
      * The trap D11 names: an old mailbox imported into this one gets UIDs
      * above this year's mail. Judged by UID, the import would be kept and
      * the year lost.

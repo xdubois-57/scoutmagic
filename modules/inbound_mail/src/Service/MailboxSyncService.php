@@ -284,7 +284,7 @@ class MailboxSyncService
     ): array {
         $folderState = $client->folderState($folder);
         $cursor = $this->mailboxRepository->findCursor($mailbox->id, $folder);
-        if ($cursor->wasReset($folderState->uidValidity)) {
+        if ($cursor->wasReset($folderState->uidValidity) || $cursor->isUnread()) {
             $cursor = $this->firstRead($mailbox, $client, $folder, $folderState->uidValidity, $now);
         }
 
