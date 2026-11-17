@@ -208,10 +208,13 @@ changement s'applique dès la visite suivante : une relève déjà
 programmée plus loin que le nouvel intervalle est avancée, plutôt
 qu'attendre l'échéance de l'ancien.
 
-Si votre serveur renumérote un dossier — cela arrive après une restauration
-ou une migration — ScoutMagic le détecte et relit le dossier depuis le
-début sans rien dupliquer : la déduplication se fait sur l'identifiant
-propre de chaque message, pas sur sa position.
+**La première lecture d'un dossier est limitée** : quand une adresse vient
+d'être ajoutée, qu'un dossier est coché plus tard, ou que le serveur a
+renuméroté un dossier (après une restauration ou une migration), ScoutMagic
+ne lit que les messages reçus au cours des 12 derniers mois, et au plus les
+5 000 plus récents, jugés sur leur date de réception. Les relèves suivantes
+reprennent de là, sans rien dupliquer : la déduplication se fait sur
+l'identifiant propre de chaque message, pas sur sa position.
 
 **Sans tâche planifiée réelle sur votre hébergement**, la synchronisation ne
 tourne qu'à l'occasion d'une visite du site : un message peut donc mettre
