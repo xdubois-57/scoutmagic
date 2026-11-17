@@ -146,6 +146,25 @@ describe('inbound-mail-config.js', () => {
             expect($('mailbox-host').value).toBe('imap.mon-serveur.be');
         });
 
+        it('decides field by field: a port and an encryption chosen with the server empty stay', async () => {
+            global.fetch = mockFetch({ fournisseur: GMAIL });
+            await boot();
+            $('mailbox-port').value = '143';
+            $('mailbox-encryption').value = 'starttls';
+            type('mailbox-username', 'contact.unite@gmail.com');
+
+            await vi.waitFor(() => expect($('mailbox-host').value).toBe('imap.gmail.com'));
+            expect($('mailbox-port').value).toBe('143');
+            expect($('mailbox-encryption').value).toBe('starttls');
+
+            // An unknown address then clears only the server the script wrote.
+            global.fetch = mockFetch({ fournisseur: { recognized: false, provider: null } });
+            type('mailbox-username', 'unite@exemple-hebergeur.be');
+            await vi.waitFor(() => expect($('mailbox-host').value).toBe(''));
+            expect($('mailbox-port').value).toBe('143');
+            expect($('mailbox-encryption').value).toBe('starttls');
+        });
+
         it('leaves the settings empty for an unknown provider, clearing only its own prefill', async () => {
             global.fetch = mockFetch({ fournisseur: GMAIL });
             await boot();
@@ -161,6 +180,17 @@ describe('inbound-mail-config.js', () => {
             expect($('mailbox-encryption').value).toBe('');
             expect($('mailbox-provider-known').hidden).toBe(true);
             expect(document.querySelector('[data-password-help="gmail"]').hidden).toBe(true);
+        });
+
+        it('asks once on load about an address the page already holds', async () => {
+            global.fetch = mockFetch({ fournisseur: GMAIL });
+            $('mailbox-username').value = 'contact.unite@gmail.com';
+            $('mailbox-host').value = 'imap.mon-serveur.be';
+            await boot();
+
+            await vi.waitFor(() => expect($('mailbox-provider-known').hidden).toBe(false));
+            expect(lastRequest().url).toBe('/config/courrier-entrant/fournisseur');
+            expect($('mailbox-host').value).toBe('imap.mon-serveur.be');
         });
 
         it('does not ask about something that is not an address', async () => {

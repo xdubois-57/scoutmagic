@@ -320,6 +320,25 @@ class InboundMailboxRepository
     }
 
     /**
+     * Forget a failure the operator has just fixed: an edit whose new
+     * settings connected (#1333, D10). The box leaves the error state —
+     * back to « ok » if it was ever relevée, to « never » otherwise — and
+     * the run of failures ends (`failing_since`), so a failure of the next
+     * relève dates a new run. `last_synced_at` is left alone, since nothing
+     * was read, and so is `is_enabled`.
+     */
+    public function clearFailure(int $id): void
+    {
+        $stmt = $this->pdo->prepare(
+            'UPDATE inbound_mailboxes
+                SET sync_state = CASE WHEN last_synced_at IS NULL THEN ? ELSE ? END,
+                    last_error = NULL, last_error_at = NULL, failing_since = NULL, updated_at = ?
+              WHERE id = ? AND sync_state = ?'
+        );
+        $stmt->execute([SyncState::NEVER->value, SyncState::OK->value, self::now(), $id, SyncState::ERROR->value]);
+    }
+
+    /**
      * $reason must already be the operator-facing sentence — see
      * Service\MailboxErrorFormatter. This method does no formatting of its
      * own precisely so there is one place where that rule lives.

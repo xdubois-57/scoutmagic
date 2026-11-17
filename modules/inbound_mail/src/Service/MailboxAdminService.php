@@ -264,6 +264,16 @@ class MailboxAdminService
     }
 
     /**
+     * After an edit whose verification succeeded: the error shown on the
+     * list was about settings that no longer stand, and the new ones just
+     * connected. See `InboundMailboxRepository::clearFailure()`.
+     */
+    public function clearFailureAfterVerifiedEdit(int $id): void
+    {
+        $this->repository->clearFailure($id);
+    }
+
+    /**
      * Declare what a box is for — the unit's general mail, or reserved to
      * one module (§8.58).
      *

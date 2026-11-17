@@ -55,6 +55,9 @@ class InboundMailConfigControllerTest extends TestCase
     /** @var array<string, list<string>> domain => its mail exchangers */
     private array $mx = [];
 
+    /** @var list<string> the domains whose MX the screen asked for */
+    private array $mxAsked = [];
+
     protected function setUp(): void
     {
         $this->pdo = DatabaseTestHelper::createTestDatabase();
@@ -85,7 +88,11 @@ class InboundMailConfigControllerTest extends TestCase
             new JournalService(new JournalRepository($this->pdo)),
             $this->registry,
             null,
-            new MailProviderRecognizer(fn(string $domain): array => $this->mx[$domain] ?? [])
+            new MailProviderRecognizer(function (string $domain): array {
+                $this->mxAsked[] = $domain;
+
+                return $this->mx[$domain] ?? [];
+            })
         );
 
         $this->mailboxId = $this->mailboxes->create(
@@ -548,6 +555,59 @@ class InboundMailConfigControllerTest extends TestCase
         $this->assertFalse($this->mailbox()->isEnabled, 'and the box stayed disabled');
     }
 
+    /**
+     * A box in error, then an edit whose new settings connect: the red
+     * « Échec » was about the settings replaced, and goes. Nothing was
+     * read, so the last relève's date stays what it was.
+     */
+    public function testAVerifiedEditClearsTheFailureTheListShowed(): void
+    {
+        $this->mailboxes->recordSuccess($this->mailboxId, new \DateTimeImmutable('2026-11-01 08:00:00'));
+        $this->mailboxes->recordFailure(
+            $this->mailboxId,
+            'Le serveur a refusé l\'authentification.',
+            new \DateTimeImmutable()
+        );
+        $this->assertSame('error', $this->mailbox()->syncState->value);
+
+        $this->save(['id' => (string) $this->mailboxId, 'username' => 'contact@unite.be', 'password' => 'nouveau']);
+
+        $box = $this->mailbox();
+        $this->assertSame('ok', $box->syncState->value);
+        $this->assertNull($box->lastError);
+        $this->assertNull($box->lastErrorAt);
+        $this->assertSame('2026-11-01 08:00:00', $box->lastSyncedAt?->format('Y-m-d H:i:s'));
+        $failingSince = $this->pdo->query('SELECT failing_since FROM inbound_mailboxes WHERE id = ' . $this->mailboxId);
+        $this->assertNotFalse($failingSince);
+        $this->assertNull($failingSince->fetchColumn() ?: null);
+        $list = $this->controller->index($this->get('/config/courrier-entrant'), [])->getBody();
+        $this->assertStringNotContainsString('Corrigez ensuite le réglage en cause', $list);
+        $this->assertStringNotContainsString('Échec', $list);
+    }
+
+    /** Never relevée, in error, then verified: back to « Pas encore relevée ». */
+    public function testAVerifiedEditOfABoxNeverReadLeavesItNeverRead(): void
+    {
+        $this->mailboxes->recordFailure($this->mailboxId, 'Le serveur n\'a pas répondu.', new \DateTimeImmutable());
+
+        $this->save(['id' => (string) $this->mailboxId, 'username' => 'contact@unite.be']);
+
+        $this->assertSame('never', $this->mailbox()->syncState->value);
+        $this->assertNull($this->mailbox()->lastSyncedAt);
+    }
+
+    /** A refused verification leaves the failure as it was. */
+    public function testAFailedVerificationLeavesTheFailureInPlace(): void
+    {
+        $this->mailboxes->recordFailure($this->mailboxId, 'Le serveur n\'a pas répondu.', new \DateTimeImmutable());
+        $this->client->failNextConnect(new \RuntimeException('timeout'));
+
+        $this->save(['id' => (string) $this->mailboxId, 'username' => 'contact@unite.be']);
+
+        $this->assertSame('error', $this->mailbox()->syncState->value);
+        $this->assertNotNull($this->mailbox()->lastError);
+    }
+
     /** On an edit, an empty password verifies with the stored one and keeps it. */
     public function testAnEditWithAnEmptyPasswordKeepsTheStoredOne(): void
     {
@@ -680,7 +740,8 @@ class InboundMailConfigControllerTest extends TestCase
 
     public function testTheProviderEndpointRefusesARequestWithoutItsToken(): void
     {
-        $request = new RequestWithInput('POST', '/config/courrier-entrant/fournisseur', [], [], [], [], (string) json_encode([
+        $path = '/config/courrier-entrant/fournisseur';
+        $request = new RequestWithInput('POST', $path, [], [], [], [], (string) json_encode([
             'address' => 'a@gmail.com',
             '_csrf_token' => 'pas-le-bon',
         ]));
@@ -698,6 +759,22 @@ class InboundMailConfigControllerTest extends TestCase
         $this->assertStringContainsString('Gmail reconnu', $body);
         $this->assertMatchesRegularExpression('/data-password-help="gmail"\s*>/', $body);
         $this->assertStringContainsString('https://myaccount.google.com/apppasswords', $body);
+    }
+
+    /**
+     * A page render never waits on the DNS: the form is prefilled from the
+     * domain alone, and the script asks the endpoint for the MX afterwards.
+     */
+    public function testRenderingTheFormNeverLooksUpAnMx(): void
+    {
+        $this->mx['unite.be'] = ['unite-be.mail.protection.outlook.com'];
+
+        $edit = $this->controller->editMailbox($this->get('/x'), $this->id())->getBody();
+        $refused = $this->save(['username' => 'locations@unite.be', 'password' => '', 'host' => ''])->getBody();
+
+        $this->assertSame([], $this->mxAsked);
+        $this->assertStringNotContainsString('Microsoft 365 reconnu', $edit);
+        $this->assertMatchesRegularExpression('/id="mailbox-host"[^>]*value=""/', $refused);
     }
 
     /** A port and an encryption the operator chose survive, even with the server left empty. */
@@ -726,14 +803,20 @@ class InboundMailConfigControllerTest extends TestCase
 
         $this->assertStringContainsString('value="outlook.office365.com"', $body);
         $this->assertMatchesRegularExpression('/data-password-help="outlook"\s*>/', $body);
-        $this->assertMatchesRegularExpression('/Microsoft refuse en général la connexion IMAP par mot de passe/', $body);
+        $this->assertMatchesRegularExpression('/Microsoft refuse en général la connexion\s+IMAP/', $body);
         $this->assertMatchesRegularExpression('/seul un connecteur OAuth\s+fonctionnerait/', $body);
     }
 
     /** Unknown: server, port and encryption stay empty, with a sentence. */
     public function testAnUnknownProviderLeavesTheSettingsEmpty(): void
     {
-        $body = $this->save(['username' => 'unite@exemple-hebergeur.be', 'password' => '', 'host' => '', 'port' => '', 'encryption' => ''])
+        $body = $this->save([
+            'username' => 'unite@exemple-hebergeur.be',
+            'password' => '',
+            'host' => '',
+            'port' => '',
+            'encryption' => '',
+        ])
             ->getBody();
 
         $this->assertStringContainsString('Indiquez le serveur IMAP', $body);
@@ -845,7 +928,8 @@ class InboundMailConfigControllerTest extends TestCase
     /** @return array<string, mixed> */
     private function recognize(string $address): array
     {
-        $request = new RequestWithInput('POST', '/config/courrier-entrant/fournisseur', [], [], [], [], (string) json_encode([
+        $path = '/config/courrier-entrant/fournisseur';
+        $request = new RequestWithInput('POST', $path, [], [], [], [], (string) json_encode([
             'address' => $address,
             '_csrf_token' => $this->token(),
         ]));

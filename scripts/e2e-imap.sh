@@ -42,4 +42,21 @@ start_e2e_imap() {
     php "${repo_root}/scripts/e2e-imap.php" "${E2E_IMAP_PORT}" "${directory}/cert.pem" "${directory}/key.pem" \
         > "${directory}/server.log" 2>&1 &
     E2E_IMAP_PID=$!
+
+    # Listening before anything asks: a server still starting would turn the
+    # first verification into « la connexion a échoué », which a scenario
+    # expecting a refusal could not tell from the refusal it asked for.
+    if ! php -r '
+        $deadline = microtime(true) + 15;
+        while (microtime(true) < $deadline) {
+            $socket = @stream_socket_client("tcp://127.0.0.1:" . $argv[1], $errno, $errstr, 1);
+            if ($socket !== false) { fclose($socket); exit(0); }
+            usleep(100000);
+        }
+        exit(1);
+    ' "${E2E_IMAP_PORT}"; then
+        echo "ERROR: the E2E IMAP server did not listen on port ${E2E_IMAP_PORT}." >&2
+        cat "${directory}/server.log" >&2 || true
+        return 1
+    fi
 }

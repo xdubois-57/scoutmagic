@@ -65,6 +65,14 @@ class MailProviderRecognizer
         '.infomaniak.com' => 'infomaniak',
     ];
 
+    /**
+     * Top-level names that never resolve (RFC 2606, RFC 6761): asking the
+     * DNS about them can only wait for a timeout, which on some resolvers
+     * is several seconds of a request — on a single-threaded server, of
+     * every request behind it.
+     */
+    private const NEVER_RESOLVED = ['test', 'invalid', 'example', 'localhost', 'local'];
+
     /** @var \Closure(string): list<string> */
     private \Closure $mxResolver;
 
@@ -77,7 +85,12 @@ class MailProviderRecognizer
         $this->mxResolver = $mxResolver ?? static fn(string $domain): array => self::dnsMx($domain);
     }
 
-    public function recognize(string $address): ?MailProvider
+    /**
+     * @param bool $lookUpMx false to answer from the domain alone, without
+     *   any network: what a page render does, so that a slow resolver never
+     *   holds a page up — the form's script asks the full question after.
+     */
+    public function recognize(string $address, bool $lookUpMx = true): ?MailProvider
     {
         $domain = self::domainOf($address);
         if ($domain === null) {
@@ -86,6 +99,11 @@ class MailProviderRecognizer
 
         if (isset(self::DOMAINS[$domain])) {
             return self::provider(self::DOMAINS[$domain]);
+        }
+
+        $topLevel = substr($domain, (int) strrpos($domain, '.') + 1);
+        if (!$lookUpMx || in_array($topLevel, self::NEVER_RESOLVED, true)) {
+            return null;
         }
 
         foreach (($this->mxResolver)($domain) as $exchanger) {

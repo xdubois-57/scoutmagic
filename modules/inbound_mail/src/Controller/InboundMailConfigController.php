@@ -220,6 +220,9 @@ class InboundMailConfigController extends AbstractController
                 $folders,
                 $input['sent_folder']
             );
+            // Verified just above: the list's red « Échec » was about the
+            // settings this edit replaced.
+            $this->adminService->clearFailureAfterVerifiedEdit($existing->id);
 
             return $this->afterSave($existing->id, $purpose, $dedicatedTo, 'inbound_mailbox_updated', 'mise à jour');
         }
@@ -532,7 +535,10 @@ class InboundMailConfigController extends AbstractController
 
         // Prefill only what is empty: a server the operator typed is
         // theirs, and a recognised provider never overwrites it.
-        $provider = $form['username'] !== '' ? $this->providers->recognize($form['username']) : null;
+        // The domain alone, never the DNS: a page render must not wait on a
+        // resolver. The form's script asks the endpoint, MX included, once
+        // the page is there.
+        $provider = $form['username'] !== '' ? $this->providers->recognize($form['username'], false) : null;
         // Each field on its own: a port or an encryption the operator
         // chose survives a refused form even when the server was left empty.
         if ($provider !== null) {

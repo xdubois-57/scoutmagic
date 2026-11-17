@@ -129,4 +129,25 @@ final class MailProviderRecognizerTest extends TestCase
         $this->assertNull(MailProviderRecognizer::provider('infomaniak')?->passwordHelp);
         $this->assertNull(MailProviderRecognizer::provider('inconnu'));
     }
+
+    /** A name that never resolves (RFC 6761) is never looked up: the lookup could only time out. */
+    public function testAReservedNameIsNeverLookedUp(): void
+    {
+        $recognizer = $this->recognizer(['unite.test' => ['aspmx.l.google.com']]);
+
+        foreach (['a@unite.test', 'a@unite.invalid', 'a@unite.example', 'a@unite.local'] as $address) {
+            $this->assertNull($recognizer->recognize($address), $address);
+        }
+        $this->assertSame([], $this->asked);
+    }
+
+    /** Without the MX, only a domain that names its provider is recognised. */
+    public function testWithoutTheMxOnlyTheDomainCounts(): void
+    {
+        $recognizer = $this->recognizer(['unite.be' => ['aspmx.l.google.com']]);
+
+        $this->assertNull($recognizer->recognize('a@unite.be', false));
+        $this->assertSame('gmail', $recognizer->recognize('a@gmail.com', false)?->key);
+        $this->assertSame([], $this->asked);
+    }
 }

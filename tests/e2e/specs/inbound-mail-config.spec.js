@@ -55,6 +55,22 @@ async function fillConnection(page, address, password) {
     await page.getByLabel('Chiffrement').selectOption('ssl');
 }
 
+/**
+ * The server's folders, listed in « Dossiers lus ». On failure the status
+ * line is what says why — an IMAP error, a missing field — so it goes into
+ * the message rather than leaving a bare « element not found ».
+ *
+ * @param {import('@playwright/test').Page} page
+ */
+async function expectListing(page) {
+    try {
+        await expect(page.locator('#mailbox-folders-list').getByLabel('Factures')).toBeVisible();
+    } catch (error) {
+        const status = await page.locator('#mailbox-folders-status').textContent();
+        throw new Error(`the folders were not listed; the status line said « ${status} »`, { cause: error });
+    }
+}
+
 test('a first general address, then one reserved to the Locations, verified before they are saved', async ({ page }) => {
     /** @type {string[]} */
     const pageErrors = [];
@@ -94,7 +110,7 @@ test('a first general address, then one reserved to the Locations, verified befo
     // and names the sent folder it marks.
     await page.getByLabel("Mot de passe d'application").fill('bon-mot-de-passe');
     await page.getByText('Dossiers lus (facultatif)').click();
-    await expect(page.locator('#mailbox-folders-list').getByLabel('Factures')).toBeVisible();
+    await expectListing(page);
     await expect(page.locator('#mailbox-folders-list')).not.toContainText('Indesirables');
     await expect(page.locator('#mailbox-sent-found')).toContainText('Trouvé automatiquement : Envoyes');
 

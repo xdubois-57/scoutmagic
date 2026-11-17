@@ -530,6 +530,10 @@ if [[ "${PLAYWRIGHT_EXIT}" -ne 0 ]]; then
         echo "--- PHP error log (last 40 lines) ---" >&2
         tail -40 "${INSTANCE_DIR}/php-error.log" >&2 || true
     fi
+    if [[ -s "${INSTANCE_DIR}/imap/server.log" ]]; then
+        echo "--- E2E IMAP server log (last 40 lines) ---" >&2
+        tail -40 "${INSTANCE_DIR}/imap/server.log" >&2 || true
+    fi
     echo "E2E FAILED (Playwright exit code ${PLAYWRIGHT_EXIT}). Report: tests/e2e/playwright-report/" >&2
 else
     echo "E2E OK."

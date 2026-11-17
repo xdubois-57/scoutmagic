@@ -53,23 +53,32 @@
     // ── Provider recognition (D8) ──────────────────────────────────────
 
     /**
-     * The settings this script last wrote, so a later recognition may
-     * replace them — and never replaces what the operator typed.
+     * The value this script last wrote in each connection field, so a later
+     * recognition may replace it — and never replaces what the operator
+     * typed. Decided field by field, like the server's own prefill: a port
+     * chosen with the server still empty is the operator's.
      *
-     * @type {{host: string, port: string, encryption: string}|null}
+     * @type {{host?: string, port?: string, encryption?: string}}
      */
-    var prefilled = null;
+    var prefilled = {};
 
-    function connectionIsUntouched() {
-        if (!hostInput) {
+    /** @returns {{host: (HTMLInputElement|null), port: (HTMLInputElement|null), encryption: (HTMLSelectElement|null)}} */
+    function connectionFields() {
+        return { host: hostInput, port: portInput, encryption: encryptionSelect };
+    }
+
+    /**
+     * Whether this script may write the field: empty, or still holding what
+     * the script itself wrote there.
+     *
+     * @param {'host'|'port'|'encryption'} name
+     */
+    function isScriptOwned(name) {
+        var field = connectionFields()[name];
+        if (!field) {
             return false;
         }
-        if (hostInput.value.trim() === '') {
-            return true;
-        }
-        return prefilled !== null && hostInput.value === prefilled.host
-            && (!portInput || portInput.value === prefilled.port)
-            && (!encryptionSelect || encryptionSelect.value === prefilled.encryption);
+        return field.value.trim() === '' || (prefilled[name] !== undefined && field.value === prefilled[name]);
     }
 
     /** @param {string|null} key */
@@ -101,47 +110,60 @@
     }
 
     /**
-     * Write the three connection settings, and remember them as this
-     * script's own; null empties what the script itself had written.
+     * Fill, among the three settings, those this script may write.
      *
-     * @param {{host: string, port: string, encryption: string}|null} settings
+     * @param {{host: string, port: string, encryption: string}} settings
      */
-    function writeConnection(settings) {
-        prefilled = settings;
-        var values = settings ?? { host: '', port: '', encryption: '' };
-        if (hostInput) {
-            hostInput.value = values.host;
-        }
-        if (portInput) {
-            portInput.value = values.port;
-        }
-        if (encryptionSelect) {
-            encryptionSelect.value = values.encryption;
-        }
+    function prefillConnection(settings) {
+        /** @type {Array<'host'|'port'|'encryption'>} */
+        var names = ['host', 'port', 'encryption'];
+        names.forEach(function (name) {
+            var field = connectionFields()[name];
+            if (field && isScriptOwned(name)) {
+                field.value = settings[name];
+                prefilled[name] = settings[name];
+            }
+        });
+    }
+
+    /**
+     * Empty what this script prefilled and nobody changed since; what the
+     * operator typed stays.
+     */
+    function clearOwnPrefill() {
+        /** @type {Array<'host'|'port'|'encryption'>} */
+        var names = ['host', 'port', 'encryption'];
+        names.forEach(function (name) {
+            var field = connectionFields()[name];
+            if (field && prefilled[name] !== undefined && field.value === prefilled[name]) {
+                field.value = '';
+            }
+            delete prefilled[name];
+        });
     }
 
     /**
      * @param {{label: string, host: string, port: number, encryption: string, password_help: (string|null)}|null} provider
      */
     function applyProvider(provider) {
-        var untouched = connectionIsUntouched();
         showProviderHints(provider);
 
-        if (provider && untouched) {
-            writeConnection({
+        if (provider) {
+            prefillConnection({
                 host: String(provider.host),
                 port: String(provider.port),
                 encryption: String(provider.encryption)
             });
-        } else if (!provider && untouched && prefilled !== null) {
+        } else {
             // An unknown provider leaves the three settings empty: what this
-            // script prefilled for the previous address goes, what the
-            // operator typed stays.
-            writeConnection(null);
+            // script prefilled for the previous address goes.
+            clearOwnPrefill();
         }
     }
 
-    var lastAsked = usernameInput ? usernameInput.value.trim() : '';
+    // Nothing asked yet: the page's own prefill reads the domain alone, so
+    // an address already there is asked once on load, MX included.
+    var lastAsked = '';
 
     async function recognize() {
         if (!usernameInput) {
@@ -169,6 +191,9 @@
 
     if (usernameInput) {
         usernameInput.addEventListener('change', recognize);
+        if (usernameInput.value.trim() !== '') {
+            void recognize();
+        }
     }
 
     // ── Usage → module field ───────────────────────────────────────────

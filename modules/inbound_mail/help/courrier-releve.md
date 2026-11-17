@@ -18,8 +18,9 @@ ajoutée, ou garde ses réglages précédents. Les champs restent remplis,
 sauf le mot de passe, à retaper.
 
 La vérification ne lit aucun message et ne touche pas à la date de
-dernière relève : une vérification réussie n'efface pas l'erreur d'une
-relève qui vient d'échouer. La relève suivante le dira.
+dernière relève. Quand elle réussit, la modification est enregistrée et
+l'erreur affichée sur l'adresse disparaît : elle portait sur les anciens
+réglages. Si la relève suivante échoue encore, la liste le dira.
 
 ## La liste des adresses
 
