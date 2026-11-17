@@ -67,5 +67,5 @@ La colonne « État » de la liste dit si chaque boîte fonctionne ;
 « Désactiver » suspend une boîte sans la supprimer, et supprimer une
 boîte conserve les messages déjà rattachés aux dossiers.
 
-Reste à dire ce que chaque module a le droit d'en faire : voir
-« Ce que chaque module fait d'une boîte ».
+Chaque boîte est soit le courrier général de l'unité, soit réservée à
+un module : voir « Courrier général ou adresse réservée ».

@@ -180,8 +180,8 @@ interface MessageConsumerInterface
 
     /**
      * Who, concretely, will see the mail this consumer sorts — « les
-     * gestionnaires de biens », « le staff d'unité ». Shown next to the
-     * scope choice on the configuration screen.
+     * gestionnaires de biens », « le staff d'unité ». For a screen that
+     * says who reads a box reserved to this consumer.
      */
     public function triageAudienceLabel(): string;
 

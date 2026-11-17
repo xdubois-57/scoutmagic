@@ -248,8 +248,8 @@ class CampsMessageConsumerTest extends TestCase
     public function testTheDedicatedBoxIsTheOneInboundMailNamesAndNotTheOldSetting(): void
     {
         // The regression this test exists for. `camps_dedicated_mailbox_ids`
-        // was this module's own list of dedicated boxes; the « Portée des
-        // modules » screen took the question over and never wrote to that
+        // was this module's own list of dedicated boxes; the mailbox
+        // configuration took the question over and never wrote to that
         // list again. The module kept reading it, so a unit that declared
         // its camps box on the new screen had automatic stay creation
         // silently switched off — and nothing anywhere said so.
@@ -510,7 +510,7 @@ class CampsMessageConsumerTest extends TestCase
      * An `inbound_mail` that declares those boxes dedicated to Camps.
      *
      * The module used to answer this question itself, from a list of ids in
-     * its own settings; `Service\MailboxScopeService` took it over and the
+     * its own settings; the mailbox configuration took it over and the
      * old list stopped being written, so on every installation configured
      * through the new screen the module thought it had no dedicated box at
      * all. The consumer now asks, and these tests ask the same way.

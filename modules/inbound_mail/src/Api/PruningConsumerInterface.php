@@ -25,12 +25,10 @@ namespace Modules\InboundMail\Api;
  * reply keeps the reply: the answer is about this message, never about
  * the mailbox.
  *
- * **What bounds it is the scope.** A consumer is only ever offered
- * messages from the boxes the super-admin opened to it, so « what may I
- * delete » has the same answer as « what may I read » — the question that
- * screen already asks, in the operator's own words, and the mechanism D10
- * chose for exactly this reason. Nothing here can reach a box that was
- * not granted.
+ * **What bounds it is the box's purpose.** A consumer is only ever
+ * offered messages from the boxes it analyses (`Mailbox::isAnalysedBy()`),
+ * so « what may I delete » has the same answer as « what may I read ».
+ * Nothing here can reach a box reserved to another module.
  *
  * **The burden an implementer carries**: answer yes only about a message
  * you have actually recorded something from. The reference implementation
@@ -48,10 +46,10 @@ interface PruningConsumerInterface
     /**
      * Whether this message may be removed now that it has been analysed.
      *
-     * **Asked of every consumer the mailbox's scope names, claim or no
-     * claim.** `MailboxSyncService::pruneIfAsked()` iterates the scoped
+     * **Asked of every consumer the mailbox is offered to, claim or no
+     * claim.** `MailboxSyncService::pruneIfAsked()` iterates those
      * consumers and never filters on the analysis results — it cannot,
-     * since the seed consumer claims nothing on purpose. The scope is the
+     * since the seed consumer claims nothing on purpose. The purpose is the
      * bound, as the class docblock above says; there is no claim filter
      * in front of this, and an implementer that assumed one and skipped
      * its own check would answer yes for a message it recorded nothing

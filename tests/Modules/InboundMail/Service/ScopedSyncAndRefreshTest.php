@@ -10,8 +10,7 @@ use Core\Security\EncryptionService;
 use Core\Security\HtmlSanitizer;
 use Modules\InboundMail\Api\AnalysisResult;
 use Modules\InboundMail\Api\LinkOrigin;
-use Modules\InboundMail\Api\MailboxScope;
-use Modules\InboundMail\Api\ReadMode;
+use Modules\InboundMail\Api\MailboxPurpose;
 use Modules\InboundMail\Client\FakeMailboxClient;
 use Modules\InboundMail\Mailbox\ProviderType;
 use Modules\InboundMail\Repository\InboundMailboxRepository;
@@ -20,7 +19,6 @@ use Modules\InboundMail\Service\AnalysisResultApplier;
 use Modules\InboundMail\Service\AttachmentPolicy;
 use Modules\InboundMail\Service\MailboxClientFactory;
 use Modules\InboundMail\Service\MailboxErrorFormatter;
-use Modules\InboundMail\Service\MailboxScopeService;
 use Modules\InboundMail\Service\MailboxSyncService;
 use Modules\InboundMail\Service\ManualRefreshService;
 use Modules\InboundMail\Service\MessageConsumerRegistry;
@@ -31,11 +29,13 @@ use Tests\Modules\InboundMail\FakeMessageConsumer;
 use Tests\Modules\InboundMail\InboundMailTestHelper;
 
 /**
- * The configuration screen is a setting, not a suggestion.
+ * A box's purpose is a setting, not a suggestion (§8.58, D2).
  *
- * A module that a box was not opened to is never handed its mail at all —
- * rather than handed it and trusted to ignore it, which would leave the
- * decision in the module's hands and make the screen advisory. And
+ * The general box is offered to every active module the moment it is
+ * saved; a box reserved to one module is offered to that module alone, and
+ * the others are never handed its mail at all — rather than handed it and
+ * trusted to ignore it, which would leave the decision in the module's
+ * hands. And
  * « Rafraîchir maintenant » is behind a lock, because it runs inside a
  * request and two clicks would race each other on the cursor.
  *
@@ -48,7 +48,6 @@ class ScopedSyncAndRefreshTest extends TestCase
     private InboundMailboxRepository $mailboxes;
     private InboundMessageRepository $messages;
     private MessageConsumerRegistry $registry;
-    private MailboxScopeService $scopes;
     private FakeMailboxClient $client;
     private int $mailboxId;
     private string $storagePath;
@@ -62,7 +61,6 @@ class ScopedSyncAndRefreshTest extends TestCase
         $this->mailboxes = new InboundMailboxRepository($this->pdo, $encryption);
         $this->messages = new InboundMessageRepository($this->pdo, $encryption);
         $this->registry = new MessageConsumerRegistry();
-        $this->scopes = new MailboxScopeService($this->mailboxes, $this->registry);
         $this->client = new FakeMailboxClient();
         $this->storagePath = sys_get_temp_dir() . '/scoutmagic-scoped-sync-' . bin2hex(random_bytes(4));
 
@@ -73,7 +71,6 @@ class ScopedSyncAndRefreshTest extends TestCase
         $stmt->execute([ManualRefreshService::SETTING_LOCK, 'inbound_mail']);
 
         $this->mailboxId = $this->mailboxes->create(
-            'Unité',
             ProviderType::FAKE,
             'imap.test',
             993,
@@ -96,45 +93,43 @@ class ScopedSyncAndRefreshTest extends TestCase
         @rmdir($this->storagePath);
     }
 
-    // ── The scope decides who is even asked ─────────────────────────────
+    // ── The purpose decides who is even asked ───────────────────────────
 
-    public function testAModuleTheBoxWasNotOpenedToIsNeverOfferedTheMessage(): void
+    /** A box just added, with nothing else configured, is at work (D2). */
+    public function testTheGeneralBoxIsOfferedToEveryActiveModuleWithNothingElseToSet(): void
     {
         $offered = [];
         $this->registry->register($this->recorder('rental', $offered));
         $this->registry->register($this->recorder('camps', $offered));
 
-        $this->scopes->saveSharedScopes($this->mailboxId, [
-            'rental' => ['analyze' => true, 'read' => 'relevant'],
-            'camps' => ['analyze' => false, 'read' => 'none'],
-        ]);
-
         $this->addMessage(10);
         $this->sync();
 
-        $this->assertSame(['rental'], array_keys($offered));
+        $this->assertSame(['rental', 'camps'], array_keys($offered));
     }
 
-    public function testTheMessageIsStillStoredForAModuleThatWasNotAsked(): void
+    public function testTheMessageIsStoredWhenTheModuleItIsReservedToIsInactive(): void
     {
-        // Scoping decides who sorts the mail, never whether the unit keeps
-        // it: a box nobody sorts is exactly what the general mailbox is for.
+        // The purpose decides who sorts the mail, never whether the unit
+        // keeps it: a box nobody sorts is exactly what the general mailbox
+        // is for.
         $this->registry->register($this->recorder('camps', $ignored));
-        $this->scopes->saveSharedScopes($this->mailboxId, []);
+        $this->mailboxes->setPurpose($this->mailboxId, MailboxPurpose::DEDICATED, 'finance');
 
         $this->addMessage(10);
         $this->sync();
 
+        $this->assertSame([], $ignored);
         $this->assertSame(1, (int) $this->pdo->query('SELECT COUNT(*) FROM inbound_messages')->fetchColumn());
     }
 
-    public function testADedicatedBoxAsksItsOwnModuleAndNobodyElse(): void
+    public function testAReservedBoxAsksItsOwnModuleAndNobodyElse(): void
     {
         $offered = [];
         $this->registry->register($this->recorder('rental', $offered));
         $this->registry->register($this->recorder('camps', $offered));
 
-        $this->scopes->saveDedicated($this->mailboxId, 'camps');
+        $this->mailboxes->setPurpose($this->mailboxId, MailboxPurpose::DEDICATED, 'camps');
 
         $this->addMessage(10);
         $this->sync();
@@ -142,7 +137,7 @@ class ScopedSyncAndRefreshTest extends TestCase
         $this->assertSame(['camps'], array_keys($offered));
     }
 
-    public function testAnAssociationIsStillMadeByAnAuthorisedModule(): void
+    public function testAnAssociationIsMadeOnTheGeneralBox(): void
     {
         $this->registry->register(new FakeMessageConsumer(
             id: 'rental',
@@ -152,9 +147,6 @@ class ScopedSyncAndRefreshTest extends TestCase
                 LinkOrigin::REFERENCE
             )
         ));
-        $this->scopes->saveSharedScopes($this->mailboxId, [
-            'rental' => ['analyze' => true, 'read' => 'relevant'],
-        ]);
 
         $this->addMessage(10);
         $this->sync();
@@ -162,7 +154,7 @@ class ScopedSyncAndRefreshTest extends TestCase
         $this->assertCount(1, $this->messages->findForReference('rental', 'LOC-K7Q2M4'));
     }
 
-    public function testAModuleShutOutMakesNoAssociationEvenIfItWouldHave(): void
+    public function testAModuleMakesNoAssociationOnABoxReservedToAnother(): void
     {
         $this->registry->register(new FakeMessageConsumer(
             id: 'rental',
@@ -172,9 +164,7 @@ class ScopedSyncAndRefreshTest extends TestCase
                 LinkOrigin::REFERENCE
             )
         ));
-        $this->scopes->saveSharedScopes($this->mailboxId, [
-            'rental' => ['analyze' => false, 'read' => 'none'],
-        ]);
+        $this->mailboxes->setPurpose($this->mailboxId, MailboxPurpose::DEDICATED, 'camps');
 
         $this->addMessage(10);
         $this->sync();
@@ -303,9 +293,7 @@ class ScopedSyncAndRefreshTest extends TestCase
             $this->clientFactory(),
             new AnalysisResultApplier($this->messages),
             null,
-            null,
-            null,
-            $this->scopes
+            null
         );
     }
 

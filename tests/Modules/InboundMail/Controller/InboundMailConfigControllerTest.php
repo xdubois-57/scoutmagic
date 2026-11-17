@@ -6,13 +6,13 @@ namespace Tests\Modules\InboundMail\Controller;
 
 use Core\Config\SettingRepository;
 use Core\Config\SettingService;
+use Core\Http\FlashMessage;
 use Core\Http\Request;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Security\AuthSession;
 use Core\Security\EncryptionService;
 use Modules\InboundMail\Api\MailboxPurpose;
-use Modules\InboundMail\Api\ReadMode;
 use Modules\InboundMail\Controller\InboundMailConfigController;
 use Modules\InboundMail\Mailbox\ProviderType;
 use Modules\InboundMail\Repository\InboundMailboxRepository;
@@ -20,7 +20,6 @@ use Modules\InboundMail\Repository\InboundMessageRepository;
 use Modules\InboundMail\Service\MailboxAdminService;
 use Modules\InboundMail\Service\MailboxClientFactory;
 use Modules\InboundMail\Service\MailboxErrorFormatter;
-use Modules\InboundMail\Service\MailboxScopeService;
 use Modules\InboundMail\Service\MessageConsumerRegistry;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
@@ -30,11 +29,13 @@ use Tests\TestTwig;
 use Twig\Environment;
 
 /**
- * The screen where a superadmin says what each module may do with each box.
+ * The screen where a superadmin configures the boxes: their connection and
+ * the one setting that decides who reads them — general mail, or reserved
+ * to one module (§8.58).
  *
- * `MailboxScopeTest` pins the rules; this pins the screen that carries
- * them — above all the two things a screen can get wrong on its own: what
- * it renders about a box, and which half of a form it believes.
+ * What a screen can get wrong on its own: what it renders about a box,
+ * what it accepts as a purpose, and the rule that a module has at most one
+ * reserved address (D5), which the server holds whatever the form offered.
  *
  * @group database
  */
@@ -43,7 +44,6 @@ class InboundMailConfigControllerTest extends TestCase
 {
     private \PDO $pdo;
     private InboundMailboxRepository $mailboxes;
-    private MailboxScopeService $scopes;
     private MessageConsumerRegistry $registry;
     private InboundMailConfigController $controller;
     private int $mailboxId;
@@ -58,7 +58,6 @@ class InboundMailConfigControllerTest extends TestCase
         $this->registry = new MessageConsumerRegistry();
         $this->registry->register(new FakeMessageConsumer('rental'));
         $this->registry->register(new FakeMessageConsumer('camps'));
-        $this->scopes = new MailboxScopeService($this->mailboxes, $this->registry);
 
         $adminService = new MailboxAdminService(
             $this->mailboxes,
@@ -72,12 +71,10 @@ class InboundMailConfigControllerTest extends TestCase
             $this->twig(),
             $adminService,
             new JournalService(new JournalRepository($this->pdo)),
-            $this->scopes,
             $this->registry
         );
 
         $this->mailboxId = $this->mailboxes->create(
-            'Boîte des locations',
             ProviderType::IMAP,
             'imap.test',
             993,
@@ -92,6 +89,7 @@ class InboundMailConfigControllerTest extends TestCase
             session_start();
         }
         AuthSession::login(1, 'superadmin@test.be', 'superadmin');
+        FlashMessage::get();
     }
 
     protected function tearDown(): void
@@ -101,327 +99,250 @@ class InboundMailConfigControllerTest extends TestCase
 
     // ── What the screen shows ───────────────────────────────────────────
 
-    public function testTheListNamesEachBoxAndNeverItsCredentials(): void
+    public function testTheListNamesEachBoxByItsAddressAndUsageAndNeverItsPassword(): void
     {
-        // The journal rule applies to the screen too: a host is half a
-        // credential, and the page renders Mailbox objects precisely
-        // because they carry no password at all (§7.4).
+        $this->mailboxes->setPurpose($this->reservedBox('locations@unite.be'), MailboxPurpose::DEDICATED, 'rental');
+
         $body = $this->controller->index($this->get('/config/courrier-entrant'), [])->getBody();
 
-        $this->assertStringContainsString('Boîte des locations', $body);
+        $this->assertStringContainsString('contact@unite.be', $body);
+        $this->assertStringContainsString("Courrier général de l&#039;unité", $body);
+        $this->assertStringContainsString('locations@unite.be', $body);
+        $this->assertStringContainsString('Réservée au module « Rental »', $body);
         $this->assertStringNotContainsString('secret', $body);
     }
 
-    public function testTheScopeFormOffersEveryRegisteredModuleAndEveryReadMode(): void
+    /** The per-module page is gone, and nothing on the list leads to it. */
+    public function testTheListOffersNoScopePage(): void
     {
-        $body = $this->controller->editScopes($this->get($this->scopeUrl()), $this->id())->getBody();
+        $body = $this->controller->index($this->get('/config/courrier-entrant'), [])->getBody();
 
-        foreach ($this->registry->all() as $consumer) {
-            $this->assertStringContainsString($consumer->consumerId(), $body);
-        }
-        foreach (ReadMode::cases() as $mode) {
-            $this->assertStringContainsString($mode->label(), $body);
-        }
+        $this->assertStringNotContainsString('/portee', $body);
+        $this->assertStringNotContainsString('Portée', $body);
     }
 
-    public function testABoxThatDoesNotExistIsNotFound(): void
+    public function testTheFormAsksNoNameAndOffersBothUsages(): void
     {
-        $this->assertSame(
-            404,
-            $this->controller->editScopes($this->get('/x'), ['id' => '9999'])->getStatusCode()
-        );
+        $body = $this->controller->newMailbox($this->get('/config/courrier-entrant/boites/nouvelle'), [])->getBody();
+
+        $this->assertStringNotContainsString('name="name"', $body);
+        $this->assertStringContainsString('name="purpose" value="shared"', $body);
+        $this->assertStringContainsString('name="purpose" value="dedicated"', $body);
+        $this->assertStringContainsString('value="rental"', $body);
+        $this->assertStringContainsString('value="camps"', $body);
     }
 
-    // ── Which half of the form the server believes ──────────────────────
-
-    public function testASharedBoxIsSavedFromTheSharedHalfOfTheForm(): void
+    /**
+     * A module that already has its address is not offered for another
+     * box (D5) — but a box reserved to it keeps offering it, or its own
+     * edit form could not be saved as it stands.
+     */
+    public function testTheFormOffersOnlyModulesWithoutAnAddressOfTheirOwn(): void
     {
-        $response = $this->post([
-            'purpose' => MailboxPurpose::SHARED->value,
-            // Submitted by the page even though it is the hidden half: the
-            // server picks, because the server is the only place the choice
-            // can be enforced.
-            'dedicated_to' => 'camps',
-            'scope' => ['rental' => ['analyze' => '1', 'read' => ReadMode::RELEVANT->value]],
-        ]);
+        $locations = $this->reservedBox('locations@unite.be');
+        $this->mailboxes->setPurpose($locations, MailboxPurpose::DEDICATED, 'rental');
+
+        $other = $this->controller->editMailbox($this->get('/x'), $this->id())->getBody();
+        $own = $this->controller->editMailbox($this->get('/x'), ['id' => (string) $locations])->getBody();
+
+        $this->assertStringNotContainsString('value="rental"', $other);
+        $this->assertStringContainsString('value="camps"', $other);
+        $this->assertStringContainsString('value="rental"', $own);
+    }
+
+    // ── What the server accepts as a purpose ────────────────────────────
+
+    /** A box added is general mail unless said otherwise, and at work at once. */
+    public function testANewBoxIsGeneralMailByDefault(): void
+    {
+        $response = $this->save(['username' => 'unite@unite.be', 'password' => 'mdp']);
 
         $this->assertSame(302, $response->getStatusCode());
-        $scope = $this->scopes->scopeFor($this->mailbox(), 'rental');
-        $this->assertTrue($scope->analyzes);
-        $this->assertSame(ReadMode::RELEVANT, $scope->readMode);
-        $this->assertFalse($this->mailbox()->isDedicated());
+        $box = $this->findByAddress('unite@unite.be');
+        $this->assertSame(MailboxPurpose::SHARED, $box->purpose);
+        $this->assertNull($box->dedicatedTo);
+        $this->assertSame('success', FlashMessage::get()['type'] ?? null);
     }
 
-    public function testADedicatedBoxIsSavedFromTheOtherHalfAndNamesItsModule(): void
+    public function testANewBoxCanBeReservedToAModule(): void
     {
-        $response = $this->post([
+        $this->save([
+            'username' => 'camps@unite.be',
+            'password' => 'mdp',
             'purpose' => MailboxPurpose::DEDICATED->value,
             'dedicated_to' => 'camps',
-            'scope' => ['rental' => ['analyze' => '1', 'read' => ReadMode::ALL->value]],
         ]);
 
-        $this->assertSame(302, $response->getStatusCode());
-        $mailbox = $this->mailbox();
-        $this->assertTrue($mailbox->isDedicated());
-        $this->assertSame('camps', $mailbox->dedicatedTo);
+        $box = $this->findByAddress('camps@unite.be');
+        $this->assertTrue($box->isDedicated());
+        $this->assertSame('camps', $box->dedicatedTo);
     }
 
-    public function testADedicatedBoxWithNoModuleNamedIsRefusedRatherThanSavedEmpty(): void
+    public function testAGeneralBoxIgnoresTheModuleTheFormAlsoSent(): void
     {
-        // Saving it would leave a box dedicated to nobody, which reads on
-        // every later screen as "dedicated" while behaving as nothing.
-        $response = $this->post([
+        // The select is submitted whatever the radio says; the server
+        // reads it only for a reserved box.
+        $this->save([
+            'id' => (string) $this->mailboxId,
+            'username' => 'contact@unite.be',
+            'purpose' => MailboxPurpose::SHARED->value,
+            'dedicated_to' => 'camps',
+        ]);
+
+        $this->assertFalse($this->mailbox()->isDedicated());
+        $this->assertNull($this->mailbox()->dedicatedTo);
+    }
+
+    public function testAReservedBoxWithNoModuleNamedIsRefusedRatherThanSavedEmpty(): void
+    {
+        // Saving it would leave a box reserved to nobody, which reads on
+        // every later screen as « réservée » while behaving as nothing.
+        $this->save([
+            'id' => (string) $this->mailboxId,
+            'username' => 'contact@unite.be',
             'purpose' => MailboxPurpose::DEDICATED->value,
             'dedicated_to' => '',
         ]);
 
-        $this->assertSame(302, $response->getStatusCode());
         $this->assertFalse($this->mailbox()->isDedicated());
+        $this->assertSame('error', FlashMessage::get()['type'] ?? null);
     }
 
-    public function testAModuleNobodyRegisteredCannotBeDedicatedTo(): void
+    public function testAModuleNobodyRegisteredCannotBeReservedTo(): void
     {
-        $response = $this->post([
+        $this->save([
+            'id' => (string) $this->mailboxId,
+            'username' => 'contact@unite.be',
             'purpose' => MailboxPurpose::DEDICATED->value,
             'dedicated_to' => 'module-inexistant',
         ]);
 
-        $this->assertSame(302, $response->getStatusCode());
         $this->assertFalse($this->mailbox()->isDedicated());
+    }
+
+    /**
+     * D5: a module has at most one reserved address. The second is refused
+     * in a sentence that names the first, and nothing of the refused save
+     * is written — the existing box stays as it was, a new one is not
+     * created.
+     */
+    public function testASecondBoxReservedToTheSameModuleIsRefused(): void
+    {
+        $locations = $this->reservedBox('locations@unite.be');
+        $this->mailboxes->setPurpose($locations, MailboxPurpose::DEDICATED, 'rental');
+
+        $this->save([
+            'id' => (string) $this->mailboxId,
+            'host' => 'imap.autre',
+            'username' => 'contact@unite.be',
+            'purpose' => MailboxPurpose::DEDICATED->value,
+            'dedicated_to' => 'rental',
+        ]);
+
+        $flash = FlashMessage::get();
+        $this->assertSame('error', $flash['type'] ?? null);
+        $this->assertStringContainsString('locations@unite.be', $flash['message'] ?? '');
+        $this->assertFalse($this->mailbox()->isDedicated());
+        $this->assertSame('imap.test', $this->mailbox()->host, 'nothing of the refused save is written');
+
+        $this->save([
+            'username' => 'chalet@unite.be',
+            'password' => 'mdp',
+            'purpose' => MailboxPurpose::DEDICATED->value,
+            'dedicated_to' => 'rental',
+        ]);
+        $this->assertCount(2, $this->mailboxes->findAll(), 'no box is created for a refused purpose');
+    }
+
+    /** A disabled box still holds its module's place. */
+    public function testADisabledReservedBoxStillHoldsItsModulesPlace(): void
+    {
+        $locations = $this->reservedBox('locations@unite.be', enabled: false);
+        $this->mailboxes->setPurpose($locations, MailboxPurpose::DEDICATED, 'rental');
+
+        $this->save([
+            'id' => (string) $this->mailboxId,
+            'username' => 'contact@unite.be',
+            'purpose' => MailboxPurpose::DEDICATED->value,
+            'dedicated_to' => 'rental',
+        ]);
+
+        $this->assertFalse($this->mailbox()->isDedicated());
+    }
+
+    /** Saving a reserved box as it stands is not a conflict with itself. */
+    public function testAReservedBoxSavedAgainKeepsItsModule(): void
+    {
+        $this->mailboxes->setPurpose($this->mailboxId, MailboxPurpose::DEDICATED, 'rental');
+
+        $this->save([
+            'id' => (string) $this->mailboxId,
+            'username' => 'contact@unite.be',
+            'purpose' => MailboxPurpose::DEDICATED->value,
+            'dedicated_to' => 'rental',
+        ]);
+
+        $this->assertSame('rental', $this->mailbox()->dedicatedTo);
+        $this->assertSame('success', FlashMessage::get()['type'] ?? null);
+    }
+
+    /**
+     * The unique index is what holds when two saves race past the check:
+     * the database refuses the second reservation outright.
+     */
+    public function testTheDatabaseRefusesASecondReservationOnItsOwn(): void
+    {
+        $this->mailboxes->setPurpose($this->reservedBox('locations@unite.be'), MailboxPurpose::DEDICATED, 'rental');
+
+        $this->expectException(\PDOException::class);
+        $this->mailboxes->setPurpose($this->mailboxId, MailboxPurpose::DEDICATED, 'rental');
     }
 
     public function testSavingWithoutAValidTokenChangesNothing(): void
     {
-        $request = new Request('POST', $this->scopeUrl(), [], [
+        $request = new Request('POST', '/config/courrier-entrant/boites', [], [
+            'id' => (string) $this->mailboxId,
+            'host' => 'imap.test',
+            'port' => '993',
+            'username' => 'contact@unite.be',
             'purpose' => MailboxPurpose::DEDICATED->value,
             'dedicated_to' => 'camps',
             '_csrf_token' => 'pas-le-bon',
         ], [], []);
 
-        $this->controller->saveScopes($request, $this->id());
+        $this->controller->save($request, []);
 
         $this->assertFalse($this->mailbox()->isDedicated());
     }
 
-    public function testTheJournalNamesTheBoxAndItsPurposeAndNeitherAccountNorHost(): void
+    public function testTheAddressAndTheHostAreBothRequired(): void
     {
-        $this->post([
+        $this->save(['id' => (string) $this->mailboxId, 'username' => '', 'host' => 'imap.autre']);
+
+        $this->assertSame('error', FlashMessage::get()['type'] ?? null);
+        $this->assertSame('imap.test', $this->mailbox()->host);
+    }
+
+    /** The journal names the box by its address, its only name (D7), and never its host. */
+    public function testTheJournalNamesTheBoxAndItsPurposeAndNotItsHost(): void
+    {
+        $this->save([
+            'id' => (string) $this->mailboxId,
+            'username' => 'contact@unite.be',
             'purpose' => MailboxPurpose::DEDICATED->value,
             'dedicated_to' => 'camps',
         ]);
 
         $entry = $this->pdo->query(
-            "SELECT * FROM event_log WHERE event_type = 'inbound_mailbox_scopes_saved'"
+            "SELECT * FROM event_log WHERE event_type = 'inbound_mailbox_updated'"
         )->fetch(\PDO::FETCH_ASSOC);
         $this->assertIsArray($entry);
         $row = json_encode($entry, JSON_UNESCAPED_UNICODE);
         $this->assertIsString($row);
 
-        $this->assertStringContainsString('locations', mb_strtolower($row));
+        $this->assertStringContainsString('contact@unite.be', $row);
         $this->assertStringContainsString('dedicated', $row);
-        $this->assertStringNotContainsString('contact@unite.be', $row);
         $this->assertStringNotContainsString('imap.test', $row);
-    }
-
-    // ── Two boxes dedicated to one module (issue #462, IT-04) ──────────
-
-    /**
-     * A module has a box of its own only when exactly one is dedicated to
-     * it: the rentals' Courrier page disappears with a second one. The
-     * operator who made that configuration is told on the screen where it
-     * can be undone, and the journal keeps it for whoever asks later why
-     * the page went away.
-     */
-    public function testASecondBoxDedicatedToTheSameModuleIsExplainedAndJournaled(): void
-    {
-        $this->post(['purpose' => MailboxPurpose::DEDICATED->value, 'dedicated_to' => 'rental']);
-        $this->assertStringNotContainsString(
-            'data-dedication-conflict',
-            $this->controller->index($this->get('/config/courrier-entrant'), [])->getBody()
-        );
-        $this->assertSame(0, $this->conflictEntries());
-
-        $second = $this->mailboxes->create(
-            'Boîte du chalet',
-            ProviderType::IMAP,
-            'imap.test',
-            993,
-            'ssl',
-            'chalet@unite.be',
-            'secret',
-            [],
-            true
-        );
-        $this->post(
-            ['purpose' => MailboxPurpose::DEDICATED->value, 'dedicated_to' => 'rental'],
-            $second
-        );
-
-        $body = $this->controller->index($this->get('/config/courrier-entrant'), [])->getBody();
-        $this->assertStringContainsString('data-dedication-conflict', $body);
-        $this->assertStringContainsString('2 boîtes sont dédiées à « Rental »', $body);
-        $this->assertStringContainsString('Boîte des locations, Boîte du chalet', $body);
-        $this->assertSame(1, $this->conflictEntries());
-    }
-
-    /**
-     * The journal records the change that CREATED the conflict, not every
-     * later save that left it as it was.
-     */
-    public function testAConflictIsJournaledOnceNotOnEveryLaterSave(): void
-    {
-        $this->post(['purpose' => MailboxPurpose::DEDICATED->value, 'dedicated_to' => 'rental']);
-        $second = $this->mailboxes->create(
-            'Boîte du chalet',
-            ProviderType::IMAP,
-            'imap.test',
-            993,
-            'ssl',
-            'chalet@unite.be',
-            'secret',
-            [],
-            true
-        );
-        $this->post(['purpose' => MailboxPurpose::DEDICATED->value, 'dedicated_to' => 'rental'], $second);
-        $this->assertSame(1, $this->conflictEntries());
-
-        $this->post(['purpose' => MailboxPurpose::DEDICATED->value, 'dedicated_to' => 'rental'], $second);
-        $this->post(['purpose' => MailboxPurpose::DEDICATED->value, 'dedicated_to' => 'rental']);
-
-        $this->assertSame(1, $this->conflictEntries());
-    }
-
-    /**
-     * Enabling a box is a change like a scope save: turning on a second box
-     * dedicated to a module journals the conflict, and switching an
-     * unrelated box on and off afterwards does not write it again.
-     */
-    public function testEnablingASecondDedicatedBoxJournalsTheConflictOnce(): void
-    {
-        $this->post(['purpose' => MailboxPurpose::DEDICATED->value, 'dedicated_to' => 'rental']);
-        $chalet = $this->disabledBoxDedicatedTo('rental', 'Boîte du chalet');
-        $unrelated = $this->disabledBoxDedicatedTo('camps', 'Boîte des camps');
-        $this->assertSame(0, $this->conflictEntries());
-
-        $this->toggle($chalet, true);
-        $this->assertSame(1, $this->conflictEntries());
-
-        $this->toggle($unrelated, true);
-        $this->toggle($unrelated, false);
-        $this->assertSame(1, $this->conflictEntries());
-    }
-
-    /**
-     * The edit form carries « activée » as well, so re-enabling a box from
-     * there is the same change and is journaled the same way.
-     */
-    public function testEnablingASecondDedicatedBoxFromItsEditFormJournalsTheConflict(): void
-    {
-        $this->post(['purpose' => MailboxPurpose::DEDICATED->value, 'dedicated_to' => 'rental']);
-        $chalet = $this->disabledBoxDedicatedTo('rental', 'Boîte du chalet');
-
-        $this->controller->save(new Request('POST', '/config/courrier-entrant/boites', [], [
-            '_csrf_token' => $this->token(),
-            'id' => (string) $chalet,
-            'name' => 'Boîte du chalet',
-            'host' => 'imap.test',
-            'port' => '993',
-            'encryption' => 'ssl',
-            'username' => 'chalet@unite.be',
-            'folders' => 'INBOX',
-            'is_enabled' => '1',
-        ], [], []), []);
-
-        $this->assertTrue($this->mailboxes->findById($chalet)?->isEnabled);
-        $this->assertSame(1, $this->conflictEntries());
-    }
-
-    private function disabledBoxDedicatedTo(string $consumerId, string $name): int
-    {
-        $id = $this->mailboxes->create(
-            $name,
-            ProviderType::IMAP,
-            'imap.test',
-            993,
-            'ssl',
-            strtolower(str_replace(' ', '.', $name)) . '@unite.be',
-            'secret',
-            ['INBOX'],
-            false
-        );
-        $this->mailboxes->setPurpose($id, MailboxPurpose::DEDICATED, $consumerId);
-
-        return $id;
-    }
-
-    private function toggle(int $mailboxId, bool $enable): void
-    {
-        $body = ['_csrf_token' => $this->token()];
-        if ($enable) {
-            $body['enable'] = '1';
-        }
-
-        $this->controller->toggle(
-            new Request('POST', '/config/courrier-entrant/boites/' . $mailboxId . '/activation', [], $body, [], []),
-            ['id' => (string) $mailboxId]
-        );
-    }
-
-    /**
-     * A box is the same box under another name: renaming one of the two
-     * from its edit form leaves the conflict as it was, and it is not
-     * written again.
-     */
-    public function testRenamingABoxOfAnExistingConflictDoesNotJournalItAgain(): void
-    {
-        $this->post(['purpose' => MailboxPurpose::DEDICATED->value, 'dedicated_to' => 'rental']);
-        $chalet = $this->disabledBoxDedicatedTo('rental', 'Boîte du chalet');
-        $this->toggle($chalet, true);
-        $this->assertSame(1, $this->conflictEntries());
-
-        $this->controller->save(new Request('POST', '/config/courrier-entrant/boites', [], [
-            '_csrf_token' => $this->token(),
-            'id' => (string) $chalet,
-            'name' => 'Chalet du bois',
-            'host' => 'imap.test',
-            'port' => '993',
-            'encryption' => 'ssl',
-            'username' => 'chalet@unite.be',
-            'folders' => 'INBOX',
-            'is_enabled' => '1',
-        ], [], []), []);
-
-        $this->assertSame('Chalet du bois', $this->mailboxes->findById($chalet)?->name);
-        $this->assertSame(1, $this->conflictEntries());
-    }
-
-    public function testOneDedicatedBoxPerModuleIsNoConflict(): void
-    {
-        $this->post(['purpose' => MailboxPurpose::DEDICATED->value, 'dedicated_to' => 'rental']);
-        $second = $this->mailboxes->create(
-            'Boîte des camps',
-            ProviderType::IMAP,
-            'imap.test',
-            993,
-            'ssl',
-            'camps@unite.be',
-            'secret',
-            [],
-            true
-        );
-        $this->post(['purpose' => MailboxPurpose::DEDICATED->value, 'dedicated_to' => 'camps'], $second);
-
-        $body = $this->controller->index($this->get('/config/courrier-entrant'), [])->getBody();
-        $this->assertStringNotContainsString('data-dedication-conflict', $body);
-        $this->assertSame(0, $this->conflictEntries());
-    }
-
-    private function conflictEntries(): int
-    {
-        $stmt = $this->pdo->prepare('SELECT COUNT(*) FROM event_log WHERE event_type = ?');
-        $stmt->execute(['inbound_mailbox_dedication_conflict']);
-
-        return (int) $stmt->fetchColumn();
     }
 
     // ── « Rafraîchir maintenant » ───────────────────────────────────────
@@ -452,11 +373,6 @@ class InboundMailConfigControllerTest extends TestCase
         return ['id' => (string) $this->mailboxId];
     }
 
-    private function scopeUrl(): string
-    {
-        return '/config/courrier-entrant/boites/' . $this->mailboxId . '/portee';
-    }
-
     private function mailbox(): \Modules\InboundMail\Mailbox\Mailbox
     {
         $mailbox = $this->mailboxes->findById($this->mailboxId);
@@ -470,18 +386,51 @@ class InboundMailConfigControllerTest extends TestCase
         return new Request('GET', $path, [], [], [], []);
     }
 
-    /**
-     * @param array<string, mixed> $body
-     */
-    private function post(array $body, ?int $mailboxId = null): \Core\Http\Response
+    private function reservedBox(string $address, bool $enabled = true): int
     {
-        $body['_csrf_token'] = $this->token();
-        $mailboxId ??= $this->mailboxId;
-
-        return $this->controller->saveScopes(
-            new Request('POST', '/config/courrier-entrant/boites/' . $mailboxId . '/portee', [], $body, [], []),
-            ['id' => (string) $mailboxId]
+        return $this->mailboxes->create(
+            ProviderType::IMAP,
+            'imap.test',
+            993,
+            'ssl',
+            $address,
+            'secret',
+            ['INBOX'],
+            $enabled
         );
+    }
+
+    private function findByAddress(string $address): \Modules\InboundMail\Mailbox\Mailbox
+    {
+        foreach ($this->mailboxes->findAll() as $mailbox) {
+            if ($mailbox->username === $address) {
+                return $mailbox;
+            }
+        }
+
+        $this->fail('No box ' . $address);
+    }
+
+    /**
+     * The mailbox form, as the page posts it: every field, defaults filled.
+     *
+     * @param array<string, string> $fields
+     */
+    private function save(array $fields): \Core\Http\Response
+    {
+        $body = $fields + [
+            'id' => '0',
+            'host' => 'imap.test',
+            'port' => '993',
+            'encryption' => 'ssl',
+            'password' => '',
+            'folders' => 'INBOX',
+            'is_enabled' => '1',
+            'purpose' => MailboxPurpose::SHARED->value,
+        ];
+        $body['_csrf_token'] = $this->token();
+
+        return $this->controller->save(new Request('POST', '/config/courrier-entrant/boites', [], $body, [], []), []);
     }
 
     private function token(): string

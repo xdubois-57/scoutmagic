@@ -150,26 +150,26 @@
                            configurée » here would be false on a site whose
                            boxes all serve another module. #}
                         <p class="text-body-secondary small mb-0" data-no-rental-mailbox>
-                            Aucune boîte n'est reliée au module Locations. Un superadministrateur peut en
-                            dédier une aux locations, ou lui ouvrir une boîte partagée, depuis
-                            <em>Configuration &gt; Courrier entrant</em>, sous « Portée ».
+                            Aucune boîte n'est reliée au module Locations. Un superadministrateur peut
+                            ajouter le courrier général de l'unité, ou une adresse réservée aux Locations,
+                            depuis <em>Configuration &gt; Courrier entrant</em>.
                         </p>
                     {% else %}
                         <p class="text-body-secondary small">
                             Les réponses reçues dans ces boîtes sont rattachées automatiquement à la
                             réservation concernée : d'abord par la référence dans le sujet, puis par la
                             conversation, puis par l'adresse de l'expéditeur dans une fenêtre de temps
-                            autour du séjour. En cas d'ambiguïté, une proposition est faite, qu'un
-                            gestionnaire confirme ou écarte depuis la réservation.
-                            Quelles boîtes ce module lit se règle par boîte, dans
-                            <em>Configuration &gt; Courrier entrant</em>, sous « Portée ».
+                            autour du séjour. En cas d'ambiguïté, une proposition est faite : sur une
+                            adresse réservée aux Locations, un gestionnaire la confirme ou l'écarte depuis
+                            la réservation ; sur le courrier général, le Staff d'U le fait depuis
+                            « Courrier reçu ».
                         </p>
 
                         <ul class="list-group" data-rental-mailboxes>
                             {% for mailbox in inbound_mailboxes %}
                                 <li class="list-group-item d-flex flex-wrap align-items-center gap-2">
-                                    {# Name and state only: the host, the port and the
-                                       account stay on the superadmin page (§7.4). #}
+                                    {# Address and state only: the host and the port
+                                       stay on the superadmin page (§7.4). #}
                                     <span class="me-auto">
                                         {{ mailbox.name }}
                                         <span class="form-text">

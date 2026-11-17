@@ -17,7 +17,7 @@ namespace Modules\InboundMail\Api;
  * never handed a message whose `direction` is `MessageDirection::SENT`:
  * its rules read the sender as the person writing to the unit, and on a
  * sent message the sender IS the unit. Declaring it is also what makes a
- * box's « Envoyés » folder read at all: a box opened to no such consumer
+ * box's « Envoyés » folder read at all: a box offered to no such consumer
  * reads its configured folders and nothing else.
  *
  * **A sent message is stored only when one of these consumers files it.**

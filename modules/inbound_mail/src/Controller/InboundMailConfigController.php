@@ -15,10 +15,8 @@ use Core\Http\Response;
 use Core\Journal\JournalService;
 use Core\Security\CsrfGuard;
 use Modules\InboundMail\Api\MailboxPurpose;
-use Modules\InboundMail\Api\ReadMode;
 use Modules\InboundMail\Mailbox\Mailbox;
 use Modules\InboundMail\Service\MailboxAdminService;
-use Modules\InboundMail\Service\MailboxScopeService;
 use Modules\InboundMail\Service\ManualRefreshService;
 use Modules\InboundMail\Service\MessageConsumerRegistry;
 use Twig\Environment;
@@ -35,8 +33,8 @@ use Twig\Environment;
  * it", because there is no way to show an operator what they would be
  * retyping.
  *
- * Journal entries name the mailbox by id and by the name the operator gave
- * it, never by its account or host: the journal is not a place for
+ * Journal entries name the mailbox by id and by its address — a box's only
+ * name (D7) — never by its host: the journal is not a place for
  * credentials, and a host is half of one.
  */
 class InboundMailConfigController extends AbstractController
@@ -46,12 +44,11 @@ class InboundMailConfigController extends AbstractController
         private MailboxAdminService $adminService,
         private JournalService $journalService,
         /**
-         * What each module may do with each box (IT-05). Optional because
-         * the technical half of this screen — hosts, ports, credentials —
-         * works without a single consumer being registered, and a fresh
-         * installation has none.
+         * The modules a box can be reserved to. Optional because the
+         * technical half of this screen — hosts, ports, credentials — works
+         * without a single consumer being registered, and a fresh
+         * installation has none: every box is then general mail.
          */
-        private ?MailboxScopeService $scopeService = null,
         private ?MessageConsumerRegistry $consumerRegistry = null,
         /**
          * Runs a synchronisation on demand for « Rafraîchir maintenant ».
@@ -91,18 +88,14 @@ class InboundMailConfigController extends AbstractController
     {
         $mailboxes = $this->adminService->listMailboxes();
 
-        // One summary row per box, assembled here rather than in the
-        // template: « quels modules, et jusqu'où » is three joins deep and
-        // a template that reached for it would be querying inside a loop.
-        $summaries = [];
+        $usages = [];
         foreach ($mailboxes as $mailbox) {
-            $summaries[$mailbox->id] = $this->scopeSummary($mailbox);
+            $usages[$mailbox->id] = $this->usageSentence($mailbox);
         }
 
         return $this->render('@inbound_mail/config/index.html.twig', [
             'mailboxes' => $mailboxes,
-            'scope_summaries' => $summaries,
-            'dedication_conflicts' => $this->namedConflicts($this->adminService->dedicationConflicts()),
+            'usages' => $usages,
             'stored_counts' => $this->adminService->storedMessageCounts(),
             'can_refresh' => $this->refreshService !== null,
             'cron_detected' => $this->cronDetected(),
@@ -111,85 +104,19 @@ class InboundMailConfigController extends AbstractController
     }
 
     /**
-     * GET /config/courrier-entrant/boites/{id}/portee
-     *
-     * @param array<string, string> $params
+     * What a box is for, in the words of the index: « Courrier général de
+     * l'unité », or the module it is reserved to.
      */
-    public function editScopes(Request $request, array $params): Response
+    private function usageSentence(Mailbox $mailbox): string
     {
-        $mailbox = $this->adminService->findById((int) ($params['id'] ?? 0));
-        if ($mailbox === null || $this->scopeService === null || $this->consumerRegistry === null) {
-            return $this->notFound();
+        if (!$mailbox->isDedicated()) {
+            return "Courrier général de l'unité";
         }
 
-        return $this->render('@inbound_mail/config/mailbox_scopes.html.twig', [
-            'mailbox' => $mailbox,
-            'consumers' => $this->consumerRegistry->all(),
-            'scopes' => $this->scopeService->scopesFor($mailbox),
-            'read_modes' => ReadMode::cases(),
-            'retention_days' => $this->adminService->retentionDays(),
-            'breadcrumb_trail' => [
-                ['label' => 'Courrier entrant', 'url' => '/config/courrier-entrant'],
-            ],
-            'csrf_token' => CsrfGuard::generateToken(),
-        ]);
-    }
+        $module = $this->consumerRegistry?->find((string) $mailbox->dedicatedTo)?->displayName()
+            ?? (string) $mailbox->dedicatedTo;
 
-    /**
-     * POST /config/courrier-entrant/boites/{id}/portee
-     *
-     * The purpose decides which half of the form is read. Both halves are
-     * always submitted — the page shows one and hides the other rather than
-     * removing it, so that the choice still works without JavaScript — and
-     * the server picks, because the server is the only place that choice
-     * can be enforced.
-     *
-     * @param array<string, string> $params
-     */
-    public function saveScopes(Request $request, array $params): Response
-    {
-        $id = (int) ($params['id'] ?? 0);
-        $back = '/config/courrier-entrant/boites/' . $id . '/portee';
-
-        if (($guard = $this->guardCsrf($request, $back)) !== null) {
-            return $guard;
-        }
-
-        $mailbox = $this->adminService->findById($id);
-        if ($mailbox === null || $this->scopeService === null || $this->consumerRegistry === null) {
-            return $this->notFound();
-        }
-
-        $conflictsBefore = $this->adminService->dedicationConflicts();
-        $purpose = MailboxPurpose::fromString((string) $request->getBody('purpose', ''));
-
-        if ($purpose === MailboxPurpose::DEDICATED) {
-            $dedicatedTo = trim((string) $request->getBody('dedicated_to', ''));
-            if ($this->consumerRegistry->find($dedicatedTo) === null) {
-                FlashMessage::set('error', 'Choisissez le module auquel cette boîte est dédiée.');
-
-                return $this->redirect($back);
-            }
-
-            $this->scopeService->saveDedicated($id, $dedicatedTo);
-        } else {
-            $raw = $request->getBody('scope');
-            $this->scopeService->saveSharedScopes($id, is_array($raw) ? self::normalizeAnswers($raw) : []);
-        }
-
-        // The mailbox by id and by the name its operator gave it, and the
-        // purpose. Never the account, never the host (§7.4).
-        $this->journalService->log(
-            'inbound_mail',
-            'inbound_mailbox_scopes_saved',
-            'info',
-            'Portée des modules mise à jour pour la boîte : ' . $mailbox->name,
-            ['mailbox_id' => $id, 'purpose' => $purpose->value]
-        );
-        FlashMessage::set('success', 'Portée enregistrée.');
-        $this->journalNewDedicationConflicts($conflictsBefore);
-
-        return $this->redirect('/config/courrier-entrant');
+        return 'Réservée au module « ' . $module . ' »';
     }
 
     /**
@@ -222,106 +149,6 @@ class InboundMailConfigController extends AbstractController
         FlashMessage::set($outcome['level'], $outcome['message']);
 
         return $this->redirect('/config/courrier-entrant');
-    }
-
-    /**
-     * @return array<string, array{analyze: bool, read: string}>
-     */
-    private static function normalizeAnswers(mixed $raw): array
-    {
-        $answers = [];
-        foreach (is_array($raw) ? $raw : [] as $consumerId => $answer) {
-            if (!is_array($answer)) {
-                continue;
-            }
-
-            $answers[(string) $consumerId] = [
-                // A checkbox absent from the body is a checkbox unchecked.
-                'analyze' => ($answer['analyze'] ?? null) !== null,
-                'read' => (string) ($answer['read'] ?? ReadMode::NONE->value),
-            ];
-        }
-
-        return $answers;
-    }
-
-    /**
-     * The conflicts as the screen and the journal say them: the module by
-     * its name, the boxes by theirs.
-     *
-     * @param array<string, array<int, string>> $conflicts
-     * @return list<array{module: string, boxes: list<string>}>
-     */
-    private function namedConflicts(array $conflicts): array
-    {
-        $named = [];
-        foreach ($conflicts as $consumerId => $boxes) {
-            $named[] = [
-                'module' => $this->consumerRegistry?->find($consumerId)?->displayName() ?? $consumerId,
-                'boxes' => array_values($boxes),
-            ];
-        }
-
-        return $named;
-    }
-
-    /**
-     * Journals the conflicts a change CREATED — a box that joined one, by
-     * being dedicated or enabled: that is the configuration a support
-     * request will need explained from a distance (« la page Courrier a
-     * disparu »), and the journal is where that answer is read. Compared by
-     * box id, so a conflict the change left as it was — a box renamed, one
-     * of three boxes taken out — is not written again: one entry per change
-     * that made it, not one per later save.
-     *
-     * @param array<string, array<int, string>> $before the conflicts before the change
-     */
-    private function journalNewDedicationConflicts(array $before): void
-    {
-        $created = array_filter(
-            $this->adminService->dedicationConflicts(),
-            static fn(array $boxes, string $consumerId): bool
-                => array_diff_key($boxes, $before[$consumerId] ?? []) !== [],
-            ARRAY_FILTER_USE_BOTH
-        );
-
-        foreach ($this->namedConflicts($created) as $conflict) {
-            $this->journalService->log(
-                'inbound_mail',
-                'inbound_mailbox_dedication_conflict',
-                'warning',
-                'Plusieurs boîtes sont dédiées à « ' . $conflict['module'] . ' » : '
-                    . implode(', ', $conflict['boxes']) . '. Aucune ne compte comme la sienne.',
-                ['module' => $conflict['module'], 'mailboxes' => $conflict['boxes']]
-            );
-        }
-    }
-
-    /**
-     * The pills of one row of the index: which modules sort this box, and
-     * how far each one's users may read.
-     *
-     * @return array<int, array{name: string, read: ReadMode}>
-     */
-    private function scopeSummary(Mailbox $mailbox): array
-    {
-        if ($this->scopeService === null || $this->consumerRegistry === null) {
-            return [];
-        }
-
-        $scopes = $this->scopeService->scopesFor($mailbox);
-        $summary = [];
-
-        foreach ($this->consumerRegistry->all() as $consumer) {
-            $scope = $scopes[$consumer->consumerId()] ?? null;
-            if ($scope === null || !$scope->analyzes) {
-                continue;
-            }
-
-            $summary[] = ['name' => $consumer->displayName(), 'read' => $scope->effectiveReadMode()];
-        }
-
-        return $summary;
     }
 
     /**
@@ -359,7 +186,6 @@ class InboundMailConfigController extends AbstractController
         }
 
         $id = (int) $request->getBody('id', 0);
-        $name = trim((string) $request->getBody('name', ''));
         $host = trim((string) $request->getBody('host', ''));
         $port = (int) $request->getBody('port', 993);
         $encryption = (string) $request->getBody('encryption', 'ssl');
@@ -368,9 +194,16 @@ class InboundMailConfigController extends AbstractController
         $folders = MailboxAdminService::parseFolders((string) $request->getBody('folders', ''));
         $sentFolder = trim((string) $request->getBody('sent_folder', ''));
         $isEnabled = $request->getBody('is_enabled') !== null;
+        $purpose = MailboxPurpose::fromString((string) $request->getBody('purpose', ''));
+        $dedicatedTo = $purpose === MailboxPurpose::DEDICATED
+            ? trim((string) $request->getBody('dedicated_to', ''))
+            : null;
+        $back = $id > 0
+            ? '/config/courrier-entrant/boites/' . $id . '/modification'
+            : '/config/courrier-entrant/boites/nouvelle';
 
-        if ($name === '' || $host === '' || $username === '') {
-            FlashMessage::set('error', 'Le nom, l\'hôte et le compte sont obligatoires.');
+        if ($host === '' || $username === '') {
+            FlashMessage::set('error', "L'adresse et le serveur sont obligatoires.");
 
             return $this->redirect('/config/courrier-entrant');
         }
@@ -381,13 +214,26 @@ class InboundMailConfigController extends AbstractController
             return $this->redirect('/config/courrier-entrant');
         }
 
+        // Only a module that reads mail can have an address of its own; a
+        // posted id that names nothing is refused rather than stored.
+        if ($dedicatedTo !== null && $dedicatedTo !== '' && $this->consumerRegistry?->find($dedicatedTo) === null) {
+            FlashMessage::set('error', 'Choisissez le module auquel cette adresse est réservée.');
+
+            return $this->redirect($back);
+        }
+
+        // Asked before anything is written: a refused purpose leaves the
+        // box exactly as it was (D5, one reserved address per module).
+        $refusal = $this->adminService->purposeRefusal($id, $purpose, $dedicatedTo);
+        if ($refusal !== null) {
+            FlashMessage::set('error', $refusal);
+
+            return $this->redirect($back);
+        }
+
         if ($id > 0) {
-            // The edit form carries « activée » too: re-enabling a box here
-            // can create a conflict as surely as the toggle can.
-            $conflictsBefore = $this->adminService->dedicationConflicts();
             $this->adminService->update(
                 $id,
-                $name,
                 $host,
                 $port,
                 $encryption,
@@ -397,17 +243,8 @@ class InboundMailConfigController extends AbstractController
                 $isEnabled,
                 $sentFolder
             );
-            $this->journalService->log(
-                'inbound_mail',
-                'inbound_mailbox_updated',
-                'info',
-                'Boîte de courrier entrant mise à jour : ' . $name,
-                ['mailbox_id' => $id]
-            );
-            FlashMessage::set('success', 'Boîte mise à jour.');
-            $this->journalNewDedicationConflicts($conflictsBefore);
 
-            return $this->redirect('/config/courrier-entrant');
+            return $this->afterSave($id, $purpose, $dedicatedTo, 'inbound_mailbox_updated', 'mise à jour', $username);
         }
 
         if ($password === '') {
@@ -417,7 +254,6 @@ class InboundMailConfigController extends AbstractController
         }
 
         $newId = $this->adminService->create(
-            $name,
             $host,
             $port,
             $encryption,
@@ -427,14 +263,43 @@ class InboundMailConfigController extends AbstractController
             $isEnabled,
             $sentFolder
         );
+
+        return $this->afterSave($newId, $purpose, $dedicatedTo, 'inbound_mailbox_created', 'ajoutée', $username);
+    }
+
+    /**
+     * Write the purpose, journal the save and say how it went. The purpose
+     * was checked before the box was written; a refusal here is the unique
+     * index catching a save that raced this one, and is said the same way.
+     */
+    private function afterSave(
+        int $id,
+        MailboxPurpose $purpose,
+        ?string $dedicatedTo,
+        string $event,
+        string $verb,
+        string $address
+    ): Response {
+        $refusal = $this->adminService->setPurpose($id, $purpose, $dedicatedTo);
+
         $this->journalService->log(
             'inbound_mail',
-            'inbound_mailbox_created',
+            $event,
             'info',
-            'Boîte de courrier entrant ajoutée : ' . $name,
-            ['mailbox_id' => $newId]
+            'Boîte de courrier entrant ' . $verb . ' : ' . $address,
+            ['mailbox_id' => $id, 'purpose' => $purpose->value]
         );
-        FlashMessage::set('success', 'Boîte ajoutée. Testez la connexion avant de compter dessus.');
+
+        if ($refusal !== null) {
+            FlashMessage::set('error', $refusal);
+        } else {
+            FlashMessage::set(
+                'success',
+                $event === 'inbound_mailbox_created'
+                    ? 'Boîte ajoutée. Testez la connexion avant de compter dessus.'
+                    : 'Boîte mise à jour.'
+            );
+        }
 
         return $this->redirect('/config/courrier-entrant');
     }
@@ -517,7 +382,6 @@ class InboundMailConfigController extends AbstractController
         $id = (int) ($params['id'] ?? 0);
         $enable = $request->getBody('enable') !== null;
 
-        $conflictsBefore = $this->adminService->dedicationConflicts();
         $this->adminService->setEnabled($id, $enable);
         $this->journalService->log(
             'inbound_mail',
@@ -527,7 +391,6 @@ class InboundMailConfigController extends AbstractController
             ['mailbox_id' => $id]
         );
         FlashMessage::set('success', $enable ? 'Boîte réactivée.' : 'Boîte désactivée.');
-        $this->journalNewDedicationConflicts($conflictsBefore);
 
         return $this->redirect('/config/courrier-entrant');
     }
@@ -567,8 +430,25 @@ class InboundMailConfigController extends AbstractController
      */
     private function formContext(?Mailbox $mailbox): array
     {
+        // A module that already has its address is not offered for another
+        // box (D5) — except this box's own module, which it keeps.
+        $taken = [];
+        foreach ($this->adminService->listMailboxes() as $other) {
+            if ($other->isDedicated() && $other->id !== $mailbox?->id) {
+                $taken[(string) $other->dedicatedTo] = true;
+            }
+        }
+
+        $modules = [];
+        foreach ($this->consumerRegistry?->all() ?? [] as $consumer) {
+            if (!isset($taken[$consumer->consumerId()])) {
+                $modules[] = ['id' => $consumer->consumerId(), 'name' => $consumer->displayName()];
+            }
+        }
+
         return [
             'mailbox' => $mailbox,
+            'modules' => $modules,
             'csrf_token' => CsrfGuard::generateToken(),
         ];
     }

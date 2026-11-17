@@ -8,6 +8,7 @@ use Core\File\FileRepository;
 use Core\Security\EncryptionService;
 use Modules\InboundMail\Api\InboundMessage;
 use Modules\InboundMail\Api\LinkOrigin;
+use Modules\InboundMail\Api\MailboxPurpose;
 use Modules\InboundMail\Api\MessageCandidate;
 use Modules\InboundMail\Mailbox\ProviderType;
 use Modules\InboundMail\Repository\InboundMailboxRepository;
@@ -40,6 +41,7 @@ class GeneralMailboxTest extends TestCase
     private FakeMessageConsumer $consumer;
     private int $mailboxId;
     private int $otherMailboxId;
+    private InboundMailboxRepository $mailboxes;
 
     protected function setUp(): void
     {
@@ -49,14 +51,15 @@ class GeneralMailboxTest extends TestCase
 
         $this->messages = new InboundMessageRepository($this->pdo, $encryption);
         $mailboxes = new InboundMailboxRepository($this->pdo, $encryption);
+        $this->mailboxes = $mailboxes;
 
         $registry = new MessageConsumerRegistry();
         $this->consumer = new FakeMessageConsumer('rental');
         $registry->register($this->consumer);
         $this->mailbox = new GeneralMailboxService($this->messages, $mailboxes, $registry);
 
-        $this->mailboxId = $mailboxes->create('Unité', ProviderType::FAKE, 'h', 993, 'ssl', 'a@b.be', 's', [], true);
-        $this->otherMailboxId = $mailboxes->create('Camps', ProviderType::FAKE, 'h', 993, 'ssl', 'c@b.be', 's', [], true);
+        $this->mailboxId = $mailboxes->create(ProviderType::FAKE, 'h', 993, 'ssl', 'a@b.be', 's', [], true);
+        $this->otherMailboxId = $mailboxes->create(ProviderType::FAKE, 'h', 993, 'ssl', 'c@b.be', 's', [], true);
     }
 
     // ── Cursor pagination (A13) ─────────────────────────────────────────
@@ -188,6 +191,29 @@ class GeneralMailboxTest extends TestCase
         $page = $this->mailbox->page(['association' => 'all', 'mailbox_id' => $this->mailboxId], null);
 
         $this->assertSame([$here], array_map(static fn(InboundMessage $m) => $m->id, $page['messages']));
+    }
+
+    /**
+     * Rule A (§8.58): the Staff d'U sees everything — every box, the
+     * general one and the reserved ones, linked or not, and the
+     * propositions a module is not shown on the general box.
+     */
+    public function testTheStaffSeesEveryBoxAndEveryPropositionOfTheGeneralBox(): void
+    {
+        $this->mailboxes->setPurpose($this->otherMailboxId, MailboxPurpose::DEDICATED, 'rental');
+        $general = $this->store('general@x', '2027-07-12 09:30:00');
+        $reserved = $this->store('reserved@x', '2027-07-12 09:31:00', false, $this->otherMailboxId);
+        $this->addCandidate($general);
+
+        $page = $this->mailbox->page(['association' => 'all'], null);
+
+        $this->assertSame([$reserved, $general], array_map(static fn(InboundMessage $m) => $m->id, $page['messages']));
+        $this->assertCount(1, $this->mailbox->candidatesFor($general));
+        $this->assertSame(
+            [$this->mailboxId => 'a@b.be', $this->otherMailboxId => 'c@b.be'],
+            $this->mailbox->mailboxNames(),
+            'each box by its address, its only name (D7)'
+        );
     }
 
     // ── Confirming and dismissing a proposition ─────────────────────────

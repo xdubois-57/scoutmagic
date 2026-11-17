@@ -11,8 +11,6 @@ namespace Modules\InboundMail\Repository;
 use Core\Security\EncryptionService;
 use Core\Service\DateInput;
 use Modules\InboundMail\Api\MailboxPurpose;
-use Modules\InboundMail\Api\MailboxScope;
-use Modules\InboundMail\Api\ReadMode;
 use Modules\InboundMail\Mailbox\FolderCursor;
 use Modules\InboundMail\Mailbox\Mailbox;
 use Modules\InboundMail\Mailbox\MailboxCredentials;
@@ -56,7 +54,7 @@ class InboundMailboxRepository
      */
     public function findAll(): array
     {
-        $stmt = $this->pdo->query('SELECT * FROM inbound_mailboxes ORDER BY name ASC');
+        $stmt = $this->pdo->query('SELECT * FROM inbound_mailboxes ORDER BY id ASC');
 
         return array_map(
             fn(array $row) => $this->hydrate($row),
@@ -92,11 +90,11 @@ class InboundMailboxRepository
     }
 
     /**
-     * The sync state of every enabled box, and nothing that needs the key:
-     * no account name, no password, no host (#718 § C point 8). For the
-     * attention page, which renders on demand for an admin and must neither
-     * decrypt credentials it has no use for nor fail because one of them
-     * cannot be read.
+     * The sync state of every enabled box, with its address and nothing
+     * else: no password, no host (#718 § C point 8). For the attention
+     * page, which renders on demand for an admin. The address is the box's
+     * only name (D7), so it is decrypted — and an address that cannot be
+     * read falls back to the box's number rather than failing the page.
      *
      * @return list<array{
      *     name: string,
@@ -108,13 +106,13 @@ class InboundMailboxRepository
     public function enabledSyncStates(): array
     {
         $stmt = $this->pdo->query(
-            'SELECT name, sync_state, last_synced_at, failing_since FROM inbound_mailboxes
+            'SELECT id, username_encrypted, sync_state, last_synced_at, failing_since FROM inbound_mailboxes
               WHERE is_enabled = 1 ORDER BY id ASC'
         );
 
         return array_map(
-            static fn(array $row): array => [
-                'name' => (string) $row['name'],
+            fn(array $row): array => [
+                'name' => $this->readableAddress($row),
                 'state' => SyncState::from((string) $row['sync_state']),
                 'lastSyncedAt' => DateInput::fromStorage(
                     $row['last_synced_at'] === null ? null : (string) $row['last_synced_at']
@@ -125,6 +123,18 @@ class InboundMailboxRepository
             ],
             $stmt === false ? [] : $stmt->fetchAll(\PDO::FETCH_ASSOC)
         );
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     */
+    private function readableAddress(array $row): string
+    {
+        try {
+            return $this->encryption->decrypt((string) $row['username_encrypted'], 'inbound_mailboxes.username');
+        } catch (\RuntimeException) {
+            return 'n° ' . (int) $row['id'];
+        }
     }
 
     public function countEnabled(): int
@@ -159,7 +169,6 @@ class InboundMailboxRepository
      * @param string[] $folders
      */
     public function create(
-        string $name,
         ProviderType $providerType,
         string $host,
         int $port,
@@ -171,12 +180,11 @@ class InboundMailboxRepository
     ): int {
         $stmt = $this->pdo->prepare(
             'INSERT INTO inbound_mailboxes
-                (name, provider_type, host, port, encryption, username_encrypted, password_encrypted,
+                (provider_type, host, port, encryption, username_encrypted, password_encrypted,
                  folders, is_enabled, sync_state)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([
-            $name,
             $providerType->value,
             $host,
             $port,
@@ -205,7 +213,6 @@ class InboundMailboxRepository
      */
     public function update(
         int $id,
-        string $name,
         string $host,
         int $port,
         string $encryption,
@@ -215,12 +222,11 @@ class InboundMailboxRepository
     ): void {
         $stmt = $this->pdo->prepare(
             'UPDATE inbound_mailboxes
-                SET ' . ($isEnabled ? self::FAILING_SINCE_ON_ENABLE : '') . 'name = ?, host = ?, port = ?,
+                SET ' . ($isEnabled ? self::FAILING_SINCE_ON_ENABLE : '') . 'host = ?, port = ?,
                     encryption = ?, username_encrypted = ?, folders = ?, is_enabled = ?, updated_at = ?
               WHERE id = ?'
         );
         $stmt->execute([
-            $name,
             $host,
             $port,
             $encryption,
@@ -376,7 +382,6 @@ class InboundMailboxRepository
 
         return new Mailbox(
             id: (int) $row['id'],
-            name: (string) $row['name'],
             providerType: ProviderType::from((string) $row['provider_type']),
             host: (string) $row['host'],
             port: (int) $row['port'],
@@ -402,74 +407,13 @@ class InboundMailboxRepository
         );
     }
 
-    // ── What each module may do with each box (IT-05) ────────────────────
+    // ── What each box is for (§8.58) ────────────────────────────────────
 
     /**
-     * What the operator answered for this box, module by module.
-     *
-     * A module with no row is absent from the result rather than present
-     * and empty: « aucune ligne » is itself the answer — do nothing — and
-     * the caller that needs a scope for every registered consumer asks
-     * `Service\MailboxScopeService`, which knows the full list.
-     *
-     * @return array<string, MailboxScope>
-     */
-    public function findScopes(int $mailboxId): array
-    {
-        $stmt = $this->pdo->prepare(
-            'SELECT consumer_id, analyze_enabled, read_mode
-               FROM inbound_mailbox_consumers WHERE mailbox_id = ?'
-        );
-        $stmt->execute([$mailboxId]);
-
-        $scopes = [];
-        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
-            $consumerId = (string) $row['consumer_id'];
-            $scopes[$consumerId] = new MailboxScope(
-                $consumerId,
-                (bool) $row['analyze_enabled'],
-                ReadMode::fromString((string) $row['read_mode'])
-            );
-        }
-
-        return $scopes;
-    }
-
-    /**
-     * Replace one module's answer on one box.
-     *
-     * An UPSERT written as delete-then-insert rather than
-     * `ON DUPLICATE KEY`, which SQLite — the test database — spells
-     * differently; the unique index is what makes it correct either way.
-     */
-    public function saveScope(int $mailboxId, MailboxScope $scope): void
-    {
-        $delete = $this->pdo->prepare(
-            'DELETE FROM inbound_mailbox_consumers WHERE mailbox_id = ? AND consumer_id = ?'
-        );
-        $delete->execute([$mailboxId, $scope->consumerId]);
-
-        $insert = $this->pdo->prepare(
-            'INSERT INTO inbound_mailbox_consumers
-                (mailbox_id, consumer_id, analyze_enabled, read_mode, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?)'
-        );
-        $now = (new \DateTimeImmutable())->format('Y-m-d H:i:s');
-        $insert->execute([
-            $mailboxId,
-            $scope->consumerId,
-            $scope->analyzes ? 1 : 0,
-            $scope->effectiveReadMode()->value,
-            $now,
-            $now,
-        ]);
-    }
-
-    /**
-     * Declare what a box is for. Writing the purpose is a separate call
-     * from writing the scopes on purpose: on a dedicated box the scopes are
-     * *implied* by the purpose (`Mailbox::impliedScopes()`), and letting
-     * one write set both would be two sources of truth for the same fact.
+     * Declare what a box is for. A general box has no module; the caller
+     * that offers the choice checks first that the module has no other
+     * reserved box (`Service\MailboxAdminService::setPurpose()`), and the
+     * unique index on `dedicated_to` is what holds if two saves race.
      */
     public function setPurpose(int $id, MailboxPurpose $purpose, ?string $dedicatedTo): void
     {
@@ -479,33 +423,40 @@ class InboundMailboxRepository
         $stmt->execute([
             $purpose->value,
             $purpose === MailboxPurpose::DEDICATED ? $dedicatedTo : null,
-            (new \DateTimeImmutable())->format('Y-m-d H:i:s'),
+            self::now(),
             $id,
         ]);
     }
 
     /**
-     * The boxes one consumer may read entirely — what the general listing
-     * of IT-07 needs, and the only query here that is keyed by consumer
-     * rather than by box.
-     *
-     * A dedicated box counts through its `dedicated_to`, without needing a
-     * row: the purpose is the source of truth there.
+     * The box reserved to this consumer other than `$exceptId`, enabled or
+     * not — a module has at most one (D5), and a disabled box still holds
+     * its place.
+     */
+    public function findOtherDedicatedTo(string $consumerId, int $exceptId): ?int
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT id FROM inbound_mailboxes WHERE dedicated_to = ? AND id <> ? ORDER BY id ASC LIMIT 1'
+        );
+        $stmt->execute([$consumerId, $exceptId]);
+        $id = $stmt->fetchColumn();
+
+        return $id === false ? null : (int) $id;
+    }
+
+    /**
+     * The boxes one consumer reads in full: the one reserved to it, if
+     * any. A general box is never among them — there, a module's users see
+     * only what is attached to something they manage (D3).
      *
      * @return int[]
      */
     public function mailboxIdsReadableInFull(string $consumerId): array
     {
         $stmt = $this->pdo->prepare(
-            'SELECT m.id
-               FROM inbound_mailboxes m
-               LEFT JOIN inbound_mailbox_consumers c
-                      ON c.mailbox_id = m.id AND c.consumer_id = ?
-              WHERE m.dedicated_to = ?
-                 OR (m.purpose <> ? AND c.analyze_enabled = 1 AND c.read_mode = ?)
-           ORDER BY m.id ASC'
+            'SELECT id FROM inbound_mailboxes WHERE purpose = ? AND dedicated_to = ? ORDER BY id ASC'
         );
-        $stmt->execute([$consumerId, $consumerId, MailboxPurpose::DEDICATED->value, ReadMode::ALL->value]);
+        $stmt->execute([MailboxPurpose::DEDICATED->value, $consumerId]);
 
         return array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN));
     }

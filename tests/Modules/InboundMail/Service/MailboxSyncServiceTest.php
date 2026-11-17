@@ -79,7 +79,6 @@ class MailboxSyncServiceTest extends TestCase
         $this->service = $this->createSyncService();
 
         $this->mailboxId = $this->mailboxRepository->create(
-            'Locations',
             ProviderType::FAKE,
             'imap.test',
             993,
@@ -406,7 +405,6 @@ class MailboxSyncServiceTest extends TestCase
     {
         $this->mailboxRepository->update(
             $this->mailboxId,
-            'Témoin',
             'imap.test',
             993,
             'ssl',
@@ -615,7 +613,6 @@ class MailboxSyncServiceTest extends TestCase
     {
         $this->mailboxRepository->update(
             $this->mailboxId,
-            'Locations',
             'imap.test',
             993,
             'ssl',
@@ -739,7 +736,6 @@ class MailboxSyncServiceTest extends TestCase
         $this->registry->register($this->claimEverything());
 
         $second = $this->mailboxRepository->create(
-            'Secrétariat',
             ProviderType::FAKE,
             'imap.test',
             993,

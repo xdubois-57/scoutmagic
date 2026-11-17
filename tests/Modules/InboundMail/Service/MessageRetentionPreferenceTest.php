@@ -86,7 +86,6 @@ class MessageRetentionPreferenceTest extends TestCase
         );
 
         $this->mailboxId = $this->mailboxRepository->create(
-            'Support',
             ProviderType::FAKE,
             'imap.test',
             993,

@@ -79,7 +79,6 @@ class RemoteFolderTest extends TestCase
     {
         return new Mailbox(
             id: 1,
-            name: 'Locations',
             providerType: ProviderType::FAKE,
             host: 'imap.test',
             port: 993,

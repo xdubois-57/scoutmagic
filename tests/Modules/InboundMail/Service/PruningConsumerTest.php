@@ -109,7 +109,6 @@ class PruningConsumerTest extends TestCase
         $messageRepository = new InboundMessageRepository($this->pdo, $encryption);
 
         $this->mailboxId = $mailboxRepository->create(
-            'Témoin',
             ProviderType::FAKE,
             'imap.test',
             993,

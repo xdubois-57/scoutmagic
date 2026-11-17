@@ -59,7 +59,6 @@ class ConsumerLifecycleTest extends TestCase
         );
 
         $this->mailboxId = $mailboxes->create(
-            'Unité',
             ProviderType::IMAP,
             'imap.test',
             993,

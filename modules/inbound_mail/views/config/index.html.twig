@@ -41,19 +41,6 @@
     </div>
 </div>
 
-{# A module has a box of its own only when exactly one is dedicated to
-   it (issue #462): with several it has none, and the screens that exist
-   for that box do not appear. Said here, where the operator can fix it. #}
-{% for conflict in dedication_conflicts %}
-    <div class="alert alert-warning" role="alert" data-dedication-conflict>
-        <strong>{{ conflict.boxes|length }} boîtes sont dédiées à « {{ conflict.module }} »</strong>
-        ({{ conflict.boxes|join(', ') }}). Un module n'a de boîte à lui que si une seule lui est
-        dédiée : tant que plusieurs boîtes lui sont dédiées, les écrans qui existent pour cette
-        boîte — la page « Courrier » d'une réservation, pour les locations — n'apparaissent pas.
-        Rendez l'une des boîtes partagée, ou dédiez-la à un autre module.
-    </div>
-{% endfor %}
-
 {# Through the shared partial since issue #248, and reworded with it:
    this page said the mailbox was polled « à l'occasion d'une visite du
    site », which stopped being true when the poor man's cron was removed
@@ -97,14 +84,13 @@
                         <div class="d-flex flex-wrap justify-content-between align-items-start gap-2">
                             <div class="min-w-0">
                                 <div class="fw-semibold">
-                                    {{ mailbox.name }}
-                                    <span class="badge text-bg-light">{{ mailbox.purpose.label }}</span>
+                                    {{ mailbox.displayName }}
                                     {% if not mailbox.isEnabled %}
                                         {% include 'partials/status_badge.html.twig' with { status: 'inactive', label: 'désactivée' } only %}
                                     {% endif %}
                                 </div>
                                 <div class="form-text mb-0">
-                                    {{ mailbox.username }} · {{ mailbox.host }}:{{ mailbox.port }} ({{ mailbox.encryption }})
+                                    {{ usages[mailbox.id]|default('') }} · {{ mailbox.host }}:{{ mailbox.port }} ({{ mailbox.encryption }})
                                 </div>
                             </div>
                             <div class="text-sm-end">
@@ -126,19 +112,7 @@
                         {% endif %}
 
                         <div class="mt-2 d-flex flex-wrap align-items-center gap-1">
-                            {% set summary = scope_summaries[mailbox.id]|default([]) %}
-                            {% if summary is empty %}
-                                <span class="text-body-secondary small">
-                                    Aucun module — le courrier est conservé mais rien ne le classe.
-                                </span>
-                            {% else %}
-                                {% for entry in summary %}
-                                    <span class="badge {{ entry.read.value == 'all' ? 'text-bg-warning' : 'text-bg-secondary' }}">
-                                        {{ entry.name }} · {{ entry.read.pillLabel }}
-                                    </span>
-                                {% endfor %}
-                            {% endif %}
-                            <span class="form-text mb-0 ms-1">
+                            <span class="form-text mb-0">
                                 {{ stored_counts[mailbox.id]|default(0) }} message(s) conservé(s)
                             </span>
                         </div>
@@ -152,9 +126,6 @@
                                     <i class="bi bi-plug" aria-hidden="true"></i> Tester la connexion
                                 </button>
                             </form>
-                            <a href="/config/courrier-entrant/boites/{{ mailbox.id }}/portee" class="btn btn-sm btn-outline-primary">
-                                <i class="bi bi-sliders" aria-hidden="true"></i> Portée
-                            </a>
                             <a href="/config/courrier-entrant/boites/{{ mailbox.id }}/modification" class="btn btn-sm btn-outline-secondary">
                                 <i class="bi bi-pencil" aria-hidden="true"></i> Modifier
                             </a>

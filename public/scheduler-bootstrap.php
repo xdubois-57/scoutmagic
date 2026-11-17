@@ -198,15 +198,13 @@ function scoutmagicBootstrapScheduler(
             new \Core\File\FileRepository($pdo),
             null,
             null,
-            null,
             // Signed reply addresses (§8.58) for the mail a task sends —
-            // the rental reminders, for one. No scope service here: the
-            // box declared dedicated to the consumer, else the first
-            // enabled box whose account is an address.
+            // the rental reminders, for one: the box reserved to the
+            // consumer, else the first enabled general box whose account
+            // is an address.
             new \Modules\InboundMail\Service\ReplyAddressService(
                 new \Modules\InboundMail\Repository\InboundMailboxRepository($pdo, $encryptionService),
                 $encryptionService,
-                null,
                 $settingService
             ),
             // Row AND bytes when a retention window takes an attachment
@@ -450,14 +448,11 @@ function scoutmagicBootstrapScheduler(
                 ));
 
                 // The bounce consumer (roadmap IT-05), and THIS is the
-                // registration that makes it do anything: the web
-                // registry in public/index.php only tells the mailbox
-                // configuration screen which scopes exist, while the one
-                // built here is what `SyncMailboxesHandler` calls
-                // `analyze()` against. Registered on the web one alone,
-                // a super-admin could tick « Rebonds » on a mailbox and
-                // no bounce would ever be recorded — the whole feature
-                // inert, with nothing on screen saying so.
+                // registration that makes it do anything: the one built
+                // here is what `SyncMailboxesHandler` calls `analyze()`
+                // against. Registered on the web registry alone, no bounce
+                // would ever be recorded — the whole feature inert, with
+                // nothing on screen saying so.
                 //
                 // Unconditional for the same reason as the consumer
                 // above: it belongs to the core, and a bounce concerns
@@ -925,16 +920,12 @@ function scoutmagicBootstrapScheduler(
                     $pdo,
                     $encryptionService
                 );
-                // What each box lets each module do (IT-05). Built from
-                // the SAME registry the handler gets, so the modules the
-                // screen scopes and the modules the sync asks cannot be
-                // two different lists.
-                $inboundScopes = new \Modules\InboundMail\Service\MailboxScopeService($inboundMailboxes, $registry);
-
+                // Who analyses each box follows from its purpose alone
+                // (§8.58): the general box is offered to every consumer of
+                // this registry, a reserved box to its module.
                 return new \Modules\InboundMail\Task\SyncMailboxesHandler(
                     $registry,
                     $quota,
-                    $inboundScopes,
                     // One journal line per message stored, saying what each
                     // module made of it — including « rien », which is the
                     // answer a unit most often needs and the one this
@@ -946,7 +937,6 @@ function scoutmagicBootstrapScheduler(
                     new \Modules\InboundMail\Service\ReplyAddressService(
                         $inboundMailboxes,
                         $encryptionService,
-                        $inboundScopes,
                         $settingService
                     )
                 );

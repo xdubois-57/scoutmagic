@@ -144,8 +144,8 @@ final class ConsumerRegistrationOrderTest extends TestCase
      * to say so.
      *
      * It used to carry the warning about pointing two modules at one
-     * mailbox — a warning the « Portée des modules » screen now gives in
-     * place. What matters here is the opposite: a superadmin must not spend
+     * mailbox — a question the mailbox configuration now answers in
+     * place, by reserving a box to one module. What matters here is the opposite: a superadmin must not spend
      * an afternoon filling in a field the module stopped reading, which is
      * exactly how the automatic stay creation came to be off on an
      * installation that had configured everything correctly.

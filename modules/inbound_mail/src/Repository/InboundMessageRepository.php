@@ -16,6 +16,7 @@ use Modules\InboundMail\Api\AttachmentOmission;
 use Modules\InboundMail\Api\InboundAttachment;
 use Modules\InboundMail\Api\InboundMessage;
 use Modules\InboundMail\Api\LinkOrigin;
+use Modules\InboundMail\Api\MailboxPurpose;
 use Modules\InboundMail\Api\MessageCandidate;
 use Modules\InboundMail\Api\MessageDirection;
 use Modules\InboundMail\Api\MessageLink;
@@ -614,18 +615,39 @@ class InboundMessageRepository
      */
     /**
      * How many messages still carry an unsettled proposition of this
-     * consumer. Confirming and dismissing both settle one, and so does an
-     * association on the same object (`dismissCandidatesSettledBy()`).
+     * consumer that its users may see — on its own reserved box only
+     * (`ownBoxCandidate()`). Confirming and dismissing both settle one, and
+     * so does an association on the same object
+     * (`dismissCandidatesSettledBy()`).
      */
     public function countMessagesWithActiveCandidatesFor(string $consumerId): int
     {
         $stmt = $this->pdo->prepare(
-            'SELECT COUNT(DISTINCT message_id) FROM inbound_message_candidates
-              WHERE consumer_id = ? AND dismissed_at IS NULL'
+            'SELECT COUNT(DISTINCT c.message_id) FROM inbound_message_candidates c
+              WHERE c.consumer_id = ? AND c.dismissed_at IS NULL
+                AND ' . self::ownBoxCandidate()
         );
-        $stmt->execute([$consumerId]);
+        $stmt->execute([$consumerId, MailboxPurpose::DEDICATED->value, $consumerId]);
 
         return (int) $stmt->fetchColumn();
+    }
+
+    /**
+     * Whether this message arrived on the box reserved to this consumer —
+     * the only place its propositions are shown to the module's users, and
+     * therefore the only place they are announced to them (rule A, §8.58).
+     */
+    public function isOnBoxReservedTo(int $messageId, string $consumerId): bool
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT 1 FROM inbound_messages pm
+               JOIN inbound_mailboxes pb ON pb.id = pm.mailbox_id
+              WHERE pm.id = ? AND pb.purpose = ? AND pb.dedicated_to = ?
+              LIMIT 1'
+        );
+        $stmt->execute([$messageId, MailboxPurpose::DEDICATED->value, $consumerId]);
+
+        return $stmt->fetchColumn() !== false;
     }
 
     public function hasActiveCandidates(int $messageId): bool
@@ -1416,6 +1438,22 @@ class InboundMessageRepository
     }
 
     /**
+     * « This proposition (`c`) is about a message of the box reserved to
+     * its consumer » — the one place a module's users are shown a
+     * proposition (D3, D4). On the general box the Staff d'U settles it in
+     * « Courrier reçu »; once confirmed it is a link, and visible.
+     *
+     * Binds two parameters, in this order: `MailboxPurpose::DEDICATED` and
+     * the consumer id.
+     */
+    private static function ownBoxCandidate(): string
+    {
+        return 'EXISTS (SELECT 1 FROM inbound_messages pm
+                          JOIN inbound_mailboxes pb ON pb.id = pm.mailbox_id
+                         WHERE pm.id = c.message_id AND pb.purpose = ? AND pb.dedicated_to = ?)';
+    }
+
+    /**
      * The predicate « ce message est dans la liste de tri de ce consommateur »,
      * as SQL and its parameters, or null when the answer is « aucun ».
      *
@@ -1444,14 +1482,19 @@ class InboundMessageRepository
                 $params[] = $reference;
             }
 
+            // A proposition shows only on the module's own reserved box:
+            // on the general box it stays with the Staff d'U (D3).
             $clauses[] = "EXISTS (SELECT 1 FROM inbound_message_candidates c
                                    WHERE c.message_id = m.id AND c.consumer_id = ?
                                      AND c.dismissed_at IS NULL
-                                     AND c.business_reference IN ({$placeholders}))";
+                                     AND c.business_reference IN ({$placeholders})
+                                     AND " . self::ownBoxCandidate() . ')';
             $params[] = $consumerId;
             foreach ($ownReferences as $reference) {
                 $params[] = $reference;
             }
+            $params[] = MailboxPurpose::DEDICATED->value;
+            $params[] = $consumerId;
         }
 
         if ($fullReadMailboxIds !== []) {
@@ -1647,7 +1690,10 @@ class InboundMessageRepository
      *
      * Scoped to the consumer: another module's propositions on the same
      * message are not this screen's business, and showing them would leak
-     * one module's guesses into another's audience.
+     * one module's guesses into another's audience. And scoped to the
+     * consumer's own reserved box: a proposition about a message of the
+     * general box is the Staff d'U's to settle in « Courrier reçu », never
+     * shown to the module (D3).
      *
      * @param int[] $messageIds
      * @return array<int, MessageCandidate[]>
@@ -1660,11 +1706,12 @@ class InboundMessageRepository
 
         $placeholders = implode(',', array_fill(0, count($messageIds), '?'));
         $stmt = $this->pdo->prepare(
-            "SELECT * FROM inbound_message_candidates
-              WHERE message_id IN ({$placeholders}) AND consumer_id = ? AND dismissed_at IS NULL
-           ORDER BY id ASC"
+            "SELECT c.* FROM inbound_message_candidates c
+              WHERE c.message_id IN ({$placeholders}) AND c.consumer_id = ? AND c.dismissed_at IS NULL
+                AND " . self::ownBoxCandidate() . '
+           ORDER BY c.id ASC'
         );
-        $stmt->execute([...$messageIds, $consumerId]);
+        $stmt->execute([...$messageIds, $consumerId, MailboxPurpose::DEDICATED->value, $consumerId]);
 
         $byMessage = [];
         foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
