@@ -22,15 +22,36 @@ namespace Modules\InboundMail\Mailbox;
  * Re-reading a renumbered folder from the start is not a duplication
  * problem: the message-level dedup is on Message-ID within the mailbox, so
  * a message already stored is recognised whatever UID it now carries.
+ *
+ * **A first read leaves a list behind it** (D11). The first read of a
+ * folder takes only the recent messages, chosen by reception date, so
+ * they are not a UID range: they are named, one by one, in `$pendingUids`,
+ * and the cursor itself already stands at the folder's highest UID of that
+ * moment. Each pass reads a batch of the list and removes it; what arrives
+ * meanwhile is above `$lastUid` and read the ordinary way. The list is all
+ * at or below `$lastUid`, so moving the cursor never touches it.
  */
 class FolderCursor
 {
+    /** @var list<int> ascending, every one at or below $lastUid */
+    public readonly array $pendingUids;
+
+    /**
+     * @param int[] $pendingUids the retained messages of a first read not read yet
+     */
     public function __construct(
         public readonly int $mailboxId,
         public readonly string $folder,
         public readonly int $uidValidity,
-        public readonly int $lastUid
+        public readonly int $lastUid,
+        array $pendingUids = []
     ) {
+        $pending = array_values(array_unique(array_filter(
+            array_map('intval', $pendingUids),
+            static fn(int $uid): bool => $uid > 0 && $uid <= $lastUid
+        )));
+        sort($pending);
+        $this->pendingUids = $pending;
     }
 
     /**
@@ -52,10 +73,59 @@ class FolderCursor
         return $observedUidValidity !== $this->uidValidity;
     }
 
+    /**
+     * Nothing has been read through this cursor yet. A folder never read
+     * starts at UIDVALIDITY 0, which a server that leaves UIDVALIDITY out
+     * of its answer also reports: `wasReset()` then sees no change, and
+     * only this tells the first read from an ordinary pass.
+     */
+    public function isUnread(): bool
+    {
+        return $this->uidValidity === 0 && $this->lastUid === 0 && $this->pendingUids === [];
+    }
+
     public function advancedTo(int $uid): self
     {
         return $uid > $this->lastUid
-            ? new self($this->mailboxId, $this->folder, $this->uidValidity, $uid)
+            ? new self($this->mailboxId, $this->folder, $this->uidValidity, $uid, $this->pendingUids)
             : $this;
+    }
+
+    public function hasPending(): bool
+    {
+        return $this->pendingUids !== [];
+    }
+
+    /**
+     * The next at most $count retained messages to read, lowest UID first.
+     *
+     * @return list<int>
+     */
+    public function nextPending(int $count): array
+    {
+        return $count > 0 ? array_slice($this->pendingUids, 0, $count) : [];
+    }
+
+    /**
+     * This cursor once $uids have been read — whether the server handed
+     * each one back or not: a UID asked for by name and not returned is
+     * gone from the folder or unreadable, and asking again would only meet
+     * it again.
+     *
+     * @param int[] $uids
+     */
+    public function withoutPending(array $uids): self
+    {
+        if ($uids === []) {
+            return $this;
+        }
+
+        return new self(
+            $this->mailboxId,
+            $this->folder,
+            $this->uidValidity,
+            $this->lastUid,
+            array_diff($this->pendingUids, $uids)
+        );
     }
 }

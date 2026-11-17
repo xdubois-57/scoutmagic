@@ -335,8 +335,26 @@ class InboundMailboxRepository
             $mailboxId,
             $folder,
             (int) $row['uid_validity'],
-            (int) $row['last_uid']
+            (int) $row['last_uid'],
+            self::decodeUids($row['first_read_pending_uids'] ?? null)
         );
+    }
+
+    /**
+     * @return list<int>
+     */
+    private static function decodeUids(mixed $stored): array
+    {
+        if (!is_string($stored) || $stored === '') {
+            return [];
+        }
+
+        return array_map('intval', explode(',', $stored));
+    }
+
+    private static function encodeUids(FolderCursor $cursor): ?string
+    {
+        return $cursor->hasPending() ? implode(',', $cursor->pendingUids) : null;
     }
 
     /**
@@ -356,22 +374,32 @@ class InboundMailboxRepository
 
         if ($existingId !== false) {
             $stmt = $this->pdo->prepare(
-                'UPDATE inbound_mailbox_cursors SET uid_validity = ?, last_uid = ?, updated_at = ? WHERE id = ?'
+                'UPDATE inbound_mailbox_cursors
+                 SET uid_validity = ?, last_uid = ?, first_read_pending_uids = ?, updated_at = ?
+                 WHERE id = ?'
             );
-            $stmt->execute([$cursor->uidValidity, $cursor->lastUid, self::now(), (int) $existingId]);
+            $stmt->execute([
+                $cursor->uidValidity,
+                $cursor->lastUid,
+                self::encodeUids($cursor),
+                self::now(),
+                (int) $existingId,
+            ]);
 
             return;
         }
 
         $stmt = $this->pdo->prepare(
-            'INSERT INTO inbound_mailbox_cursors (mailbox_id, folder, uid_validity, last_uid, updated_at)
-             VALUES (?, ?, ?, ?, ?)'
+            'INSERT INTO inbound_mailbox_cursors
+                (mailbox_id, folder, uid_validity, last_uid, first_read_pending_uids, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([
             $cursor->mailboxId,
             $cursor->folder,
             $cursor->uidValidity,
             $cursor->lastUid,
+            self::encodeUids($cursor),
             self::now(),
         ]);
     }

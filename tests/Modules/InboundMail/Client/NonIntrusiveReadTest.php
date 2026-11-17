@@ -64,7 +64,19 @@ class NonIntrusiveReadTest extends TestCase
 
     public function testTheContractIsOnlyConnectReadAndDisconnect(): void
     {
-        $expected = ['connect', 'disconnect', 'fetchSince', 'folderState', 'lastSkippedUid', 'listFolders'];
+        // `firstReadSelection` and `fetchUids` (D11) are reads too: a SEARCH
+        // and the reception dates, then the same passive fetch by name —
+        // what the server sees of them is pinned in ImapClientAgainstAServerTest.
+        $expected = [
+            'connect',
+            'disconnect',
+            'fetchSince',
+            'fetchUids',
+            'firstReadSelection',
+            'folderState',
+            'lastSkippedUid',
+            'listFolders',
+        ];
         $actual = self::interfaceMethods();
         sort($expected);
         sort($actual);

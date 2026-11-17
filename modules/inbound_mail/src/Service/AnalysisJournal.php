@@ -216,6 +216,35 @@ class AnalysisJournal
     }
 
     /**
+     * How many messages the first read of a folder left aside (D11): older
+     * than its window, or beyond its cap. A count and a folder name, never
+     * a word of any of the messages — and nothing in the interface: the
+     * journal is where « pourquoi mon ancien courrier n'est pas là » finds
+     * its answer.
+     */
+    public function firstReadLimited(
+        int $mailboxId,
+        string $folder,
+        int $retained,
+        int $leftAside
+    ): void {
+        $this->journal?->log(
+            self::CATEGORY,
+            'inbound_first_read_limited',
+            'info',
+            sprintf(
+                'Boîte #%d, dossier « %s » : première relève limitée au courrier récent, '
+                . '%d message(s) retenu(s), %d message(s) plus ancien(s) laissé(s) de côté.',
+                $mailboxId,
+                $folder,
+                $retained,
+                $leftAside
+            ),
+            ['mailbox_id' => $mailboxId, 'retained' => $retained, 'left_aside' => $leftAside]
+        );
+    }
+
+    /**
      * One consumer's answer, as a word: what a reader scans a journal for.
      *
      * @param string[] $consumerIds

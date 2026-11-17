@@ -62,6 +62,28 @@ interface IncomingMailboxClientInterface
     public function fetchSince(string $folder, int $sinceUid, int $limit): array;
 
     /**
+     * Which messages the first read of $folder takes (D11): those the server
+     * received on or after $since, at most $limit of them, the most recent
+     * by reception date (`INTERNALDATE`) — never by UID.
+     *
+     * A read like the others: the folder is EXAMINEd, the server searched,
+     * and at most the reception dates fetched. No body, no flag.
+     */
+    public function firstReadSelection(string $folder, \DateTimeImmutable $since, int $limit): FirstReadSelection;
+
+    /**
+     * The messages of $folder carrying these UIDs, oldest UID first — the
+     * retained messages of a first read, read by name. A UID no longer in
+     * the folder, or a message that cannot be parsed, is simply not in the
+     * answer: the caller drops every UID it asked for either way, so it
+     * plays no part in `lastSkippedUid()`.
+     *
+     * @param int[] $uids
+     * @return FetchedMessage[]
+     */
+    public function fetchUids(string $folder, array $uids): array;
+
+    /**
      * The highest UID the last `fetchSince()` read and could not hand
      * back — a message it skipped as unreadable — or 0 when it skipped
      * none.
