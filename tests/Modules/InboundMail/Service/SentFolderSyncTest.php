@@ -71,7 +71,6 @@ class SentFolderSyncTest extends TestCase
         );
 
         $this->mailboxId = $this->mailboxes->create(
-            'Locations',
             ProviderType::FAKE,
             'imap.test',
             993,
@@ -184,7 +183,7 @@ class SentFolderSyncTest extends TestCase
     {
         // An operator who once ticked « Envoyés » among the watched folders
         // keeps what they had: one reading, as received.
-        $this->mailboxes->update($this->mailboxId, 'Locations', 'imap.test', 993, 'ssl', 'locations@unite.be', ['INBOX', 'Envoyés'], true);
+        $this->mailboxes->update($this->mailboxId, 'imap.test', 993, 'ssl', 'locations@unite.be', ['INBOX', 'Envoyés'], true);
         $this->client->markSent('Envoyés');
         $this->addMessage('Envoyés', 1, 'sent-1@unite.be', from: 'locations@unite.be', to: 'jeanne@example.be');
         $rental = $this->outbound();

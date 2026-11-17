@@ -14,20 +14,11 @@
                 <div class="row g-3">
                     <div class="col-12 col-md-6">
                         {% include 'partials/form_field.html.twig' with {
-                            field_id: 'mailbox-name', field_name: 'name',
-                            label: 'Nom', required: true,
-                            maxlength: 150, placeholder: 'Locations',
-                            value: mailbox ? mailbox.name : '',
-                            help: "Le seul élément que verront les gestionnaires : ni l'hôte, ni le compte.",
-                        } only %}
-                    </div>
-
-                    <div class="col-12 col-md-6">
-                        {% include 'partials/form_field.html.twig' with {
                             field_id: 'mailbox-username', field_name: 'username',
-                            label: 'Compte', required: true,
+                            label: 'Adresse e-mail', required: true,
                             autocomplete: 'off', placeholder: 'locations@unite.be',
                             value: mailbox ? mailbox.username : '',
+                            help: "C'est sous cette adresse que la boîte apparaît partout sur le site.",
                         } only %}
                     </div>
 
@@ -73,6 +64,58 @@
                             {% endif %}
                         </div>
                     </div>
+
+                    {# ── Usage: the one answer that decides who analyses and
+                       who reads this box (§8.58). A module that already has
+                       its address is not offered (D5); the server refuses it
+                       anyway. #}
+                    {% set dedicated = mailbox and mailbox.isDedicated %}
+                    <div class="col-12">
+                        <fieldset>
+                            <legend class="form-label fs-6">Usage</legend>
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="purpose" value="shared"
+                                       id="mailbox-purpose-shared" {{ dedicated ? '' : 'checked' }}>
+                                <label class="form-check-label" for="mailbox-purpose-shared">
+                                    Courrier général de l'unité
+                                    <span class="d-block form-text">
+                                        Parents, locataires, fournisseurs… Chaque module y reconnaît ses
+                                        messages. Le Staff d'U voit tout.
+                                    </span>
+                                </label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="purpose" value="dedicated"
+                                       id="mailbox-purpose-dedicated" {{ dedicated ? 'checked' : '' }}
+                                       {{ modules is empty ? 'disabled' : '' }}>
+                                <label class="form-check-label" for="mailbox-purpose-dedicated">
+                                    Réservée à un module
+                                    <span class="d-block form-text">
+                                        Une adresse créée pour un seul usage. Ses responsables voient tout ce qui
+                                        y arrive, comme le Staff d'U.
+                                    </span>
+                                </label>
+                            </div>
+                        </fieldset>
+                    </div>
+
+                    {% if modules is not empty %}
+                        <div class="col-12 col-md-6">
+                            <label class="form-label" for="mailbox-dedicated-to">Module</label>
+                            <select class="form-select" id="mailbox-dedicated-to" name="dedicated_to">
+                                {% for module in modules %}
+                                    <option value="{{ module.id }}"
+                                            {{ dedicated and mailbox.dedicatedTo == module.id ? 'selected' : '' }}>
+                                        {{ module.name }}
+                                    </option>
+                                {% endfor %}
+                            </select>
+                            <div class="form-text">
+                                Lu seulement pour une adresse réservée. Un module qui a déjà son adresse
+                                n'est pas proposé.
+                            </div>
+                        </div>
+                    {% endif %}
 
                     {# ── Test connection + folder picker ──────────────────────── #}
                     <div class="col-12">

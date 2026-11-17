@@ -87,6 +87,7 @@ final class UserFacingExceptionInventoryTest extends TestCase
         \Modules\Groups\Service\GroupsException::class,
         \Modules\Groups\Api\GroupPublishException::class,
         \Modules\InboundMail\Client\MailboxConnectionException::class,
+        \Modules\InboundMail\Service\MailboxReservationRefusedException::class,
         \Modules\LlmConnector\Api\LlmException::class,
         \Modules\MassMail\Service\AudienceImportException::class,
         \Modules\Social\Card\CardException::class,

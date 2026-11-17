@@ -17,7 +17,6 @@ use Modules\InboundMail\Repository\InboundMessageRepository;
 use Modules\InboundMail\Service\AnalysisJournal;
 use Modules\InboundMail\Service\AnalysisResultApplier;
 use Modules\InboundMail\Service\LinkedMessageNotifier;
-use Modules\InboundMail\Service\MailboxScopeService;
 use Modules\InboundMail\Service\MessageConsumerRegistry;
 
 /**
@@ -126,12 +125,10 @@ class AnalyzeStoredMessagesHandler implements TaskHandlerInterface
     private function analyzeBatch(InboundMessageRepository $messages, InboundMailboxRepository $mailboxes): void
     {
         $applier = new AnalysisResultApplier($messages);
-        // The same narrowing the arrival pass applies (IT-05), and it was
-        // missing here: every registered consumer was handed the stored
-        // content of every message, including on a box whose operator had
-        // said « n'analyse pas » for that module. Resolved once per box,
-        // not once per message.
-        $scopes = new MailboxScopeService($mailboxes, $this->consumerRegistry ?? new MessageConsumerRegistry());
+        // The same narrowing the arrival pass applies (D2): a box reserved
+        // to one module is offered to that module alone. Resolved once per
+        // box, not once per message.
+        $registry = $this->consumerRegistry ?? new MessageConsumerRegistry();
         $allowedByMailbox = [];
         // The half this pass was missing. `apply()` writes the rows and
         // reports which associations are new; somebody then has to tell
@@ -167,7 +164,9 @@ class AnalyzeStoredMessagesHandler implements TaskHandlerInterface
             if (!array_key_exists($stored->mailboxId, $allowedByMailbox)) {
                 $mailbox = $mailboxes->findById($stored->mailboxId);
                 // A box deleted since the message arrived is open to nobody.
-                $allowedByMailbox[$stored->mailboxId] = $mailbox === null ? [] : $scopes->analyzingConsumers($mailbox);
+                $allowedByMailbox[$stored->mailboxId] = $mailbox === null
+                    ? []
+                    : $mailbox->analysingConsumersAmong($registry->all());
             }
 
             $results = $this->consumerRegistry?->analyzeAllStored($stored, $allowedByMailbox[$stored->mailboxId]) ?? [];

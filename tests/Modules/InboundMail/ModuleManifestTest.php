@@ -56,10 +56,14 @@ class ModuleManifestTest extends TestCase
      * 1.15.0 knows which way a message went: `inbound_messages.direction`,
      * and the box's « Envoyés » read for the consumers that ask for it
      * (`inbound_mailboxes.sent_folder` corrects it, #720).
+     *
+     * 1.16.0 leaves a box two purposes and nothing else: the per-module
+     * settings (`inbound_mailbox_consumers`) and the box's name are gone,
+     * and a module has at most one reserved box (unique `dedicated_to`).
      */
     public function testTheVersionIsBumpedWheneverTheSchemaChanges(): void
     {
-        $this->assertSame('1.15.0', $this->manifest->version);
+        $this->assertSame('1.16.0', $this->manifest->version);
     }
 
     /**

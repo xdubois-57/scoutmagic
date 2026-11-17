@@ -59,12 +59,10 @@ class ReanalyzeUnlinkedTest extends TestCase
             $mailboxes,
             new FileRepository($this->pdo),
             $this->consumers,
-            null,
             new AnalysisJournal(new JournalService(new JournalRepository($this->pdo)))
         );
 
         $this->mailboxId = $mailboxes->create(
-            'Camps',
             ProviderType::IMAP,
             'imap.test',
             993,

@@ -84,7 +84,36 @@ class InboundMailAttentionProvider implements AttentionPointProvider
      */
     public function collect(int $scoutYearId): array
     {
-        return array_merge($this->boxes(), $this->unattributedMail());
+        return array_merge($this->boxes(), $this->unattributedMail(), $this->propositionsToConfirm());
+    }
+
+    /**
+     * The propositions about the general box's mail, which only the Staff
+     * d'U settles (rule A, §8.58): no module's users are shown them, so
+     * without this point nobody would be told they are waiting.
+     *
+     * @return AttentionPoint[]
+     */
+    private function propositionsToConfirm(): array
+    {
+        $waiting = $this->messages->countAwaitingStaffConfirmation(false);
+
+        if ($waiting < self::THRESHOLD) {
+            return [];
+        }
+
+        $plural = $waiting > 1;
+
+        return [new AttentionPoint(
+            title: $waiting . ' message' . ($plural ? 's' : '') . ' reçu' . ($plural ? 's' : '')
+                . ' attend' . ($plural ? 'ent' : '') . ' une confirmation de rattachement',
+            why: 'Un module a reconnu un dossier probable, sans certitude. Sur le courrier général, '
+                . 'ses responsables ne voient pas ces propositions : seul le Staff d\'U les confirme '
+                . 'ou les écarte, et le message rejoint alors le dossier.',
+            actionLabel: 'Voir les propositions',
+            actionUrl: '/courrier?association=proposed',
+            severity: AttentionPoint::SEVERITY_ATTENTION
+        )];
     }
 
     /**

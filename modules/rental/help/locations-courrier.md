@@ -25,8 +25,9 @@ Un e-mail du site qui n'a pas pu partir est marqué « Non envoyé » :
 la réservation. Une fois parti, il n'est plus marqué.
 
 Les e-mails arrivent depuis les boîtes de l'unité ouvertes aux Locations.
-Si aucune ne l'est, la page le dit : un superadministrateur peut en
-ouvrir une depuis *Configuration > Courrier entrant*, sous « Portée ».
+Si aucune ne l'est, la page le dit : un superadministrateur peut
+ajouter le courrier général de l'unité, ou une adresse réservée aux
+Locations, depuis *Configuration > Courrier entrant*.
 Un e-mail écrit depuis une adresse personnelle n'apparaît pas ici.
 
 ## Ce que le site reconnaît tout seul

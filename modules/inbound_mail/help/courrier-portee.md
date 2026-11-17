@@ -1,52 +1,35 @@
 ---
 id: courrier-portee
-title: Ce que chaque module fait d'une boîte
-summary: Boîte partagée ou dédiée, qui analyse, qui peut lire, et combien de temps le courrier est conservé.
+title: Courrier général ou adresse réservée
+summary: Les deux usages d'une boîte, qui la lit, et combien de temps le courrier est conservé.
 category: Configuration
 role_min: superadmin
 discovery: 3
 question: Comment réserver une boîte e-mail à un seul usage ?
 question: Qui a le droit de lire le courrier entrant ?
-paths: /config/courrier-entrant/boites/*/portee
 related: courrier-entrant, courrier-unite
 ---
 
-## À quoi sert cette boîte ?
+## Deux usages
 
-C'est la première question de l'écran de portée, et elle commande tout
-le reste.
+Chaque boîte a l'un de ces deux usages, choisi dans son formulaire, et
+c'est tout ce qu'il y a à régler.
 
-**Boîte partagée** — l'adresse publique de l'unité, où l'on trouve de
-tout. Chaque module y reçoit sa propre réponse : est-il autorisé à
-*analyser* ce courrier, et jusqu'où ses utilisateurs peuvent-ils le
-*lire* ? Ce sont bien deux questions distinctes : un module peut très
-bien rattacher un message à une réservation sans que ses utilisateurs
-aient à voir le reste de la boîte.
+**Courrier général de l'unité** — l'adresse publique, où l'on trouve de
+tout. Tous les modules actifs y reconnaissent leurs messages. Le Staff
+d'U voit tout dans « Courrier reçu ». Les responsables d'un module ne
+voient que les messages rattachés à un dossier qu'ils gèrent : quand un
+module hésite et fait une **proposition**, elle reste dans « Courrier
+reçu », où le Staff d'U la confirme ou l'écarte. Une fois confirmé, le
+message est rattaché et le module le voit.
 
-**Boîte dédiée** — une adresse créée pour un seul usage. Le module
-choisi lit et classe tout, aucun autre module n'y touche. Dédiez-lui
-une seule boîte : avec deux, aucune ne compte comme la sienne, et la
-page « Courrier » d'une réservation disparaît. La liste des boîtes le
-signale.
+**Réservée à un module** — une adresse créée pour un seul usage. Seul
+ce module la lit, et ses responsables voient tout ce qui y arrive,
+propositions comprises, comme le Staff d'U. Un module n'a qu'une seule
+adresse réservée : le site refuse d'en réserver une deuxième au même
+module.
 
-### Qui peut lire ce courrier ?
-
-- **Personne** — le module classe automatiquement, mais n'ouvre aucune
-  liste. Les messages restent visibles depuis la fiche à laquelle ils
-  sont rattachés. C'est le réglage par défaut, et le plus prudent.
-- **Messages concernés** — les utilisateurs du module voient ce qu'il a
-  rattaché à un élément qu'ils gèrent, *et* ce qu'il propose d'y
-  rattacher : une proposition n'a de sens que si quelqu'un peut la
-  confirmer.
-- **Tout le courrier** — normal sur une boîte dédiée, **lourd sur une
-  boîte partagée** : vous confiez alors aux utilisateurs de ce module
-  les questions des parents, les documents médicaux et les
-  candidatures. L'écran affiche combien de personnes cela représente
-  exactement.
-
-Un module pour lequel personne n'a répondu ne fait **rien**. Un module
-installé après la configuration d'une boîte reste donc inerte tant que
-vous ne dites pas le contraire.
+Une boîte ajoutée fonctionne dès qu'elle est enregistrée.
 
 ## Conservation et espace disque
 

@@ -54,13 +54,6 @@ class CampsMailControllerTest extends TestCase
         CampsTestHelper::createTables($this->pdo);
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
 
-        // Without a dedicated mailbox the screen renders an empty state and
-        // nothing else — the messages below would never arrive.
-        $this->pdo->exec(
-            "INSERT INTO settings (setting_key, setting_value, module_id, setting_type, label, description)
-             VALUES ('camps_dedicated_mailbox_ids', '2', 'camps', 'text', 'x', 'x')"
-        );
-
         $message = new InboundMessage(
             id: 42,
             mailboxId: 2,

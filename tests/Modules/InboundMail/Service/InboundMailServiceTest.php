@@ -57,7 +57,6 @@ class InboundMailServiceTest extends TestCase
             null,
             null,
             null,
-            null,
             // Row AND bytes when a retention window takes an attachment
             // away (#242) — the repository's own delete() removes the row
             // alone, which is what left the files behind.
@@ -69,7 +68,6 @@ class InboundMailServiceTest extends TestCase
         );
 
         $this->mailboxId = $this->mailboxRepository->create(
-            'Locations',
             ProviderType::IMAP,
             'imap.test',
             993,
@@ -119,11 +117,11 @@ class InboundMailServiceTest extends TestCase
     public function testAConsumerIsToldWhichEnabledBoxesAreItsOwn(): void
     {
         $this->mailboxRepository->setPurpose($this->mailboxId, MailboxPurpose::DEDICATED, 'rental');
-        $camps = $this->mailboxRepository->create('Camps', ProviderType::IMAP, 'imap.test', 993, 'ssl', 'camps@unite.be', 'secret', ['INBOX'], true);
+        $camps = $this->mailboxRepository->create(ProviderType::IMAP, 'imap.test', 993, 'ssl', 'camps@unite.be', 'secret', ['INBOX'], true);
         $this->mailboxRepository->setPurpose($camps, MailboxPurpose::DEDICATED, 'camps');
-        $disabled = $this->mailboxRepository->create('Ancienne', ProviderType::IMAP, 'imap.test', 993, 'ssl', 'ancienne@unite.be', 'secret', ['INBOX'], false);
-        $this->mailboxRepository->setPurpose($disabled, MailboxPurpose::DEDICATED, 'rental');
-        $this->mailboxRepository->create('Unité', ProviderType::IMAP, 'imap.test', 993, 'ssl', 'unite@unite.be', 'secret', ['INBOX'], true);
+        $disabled = $this->mailboxRepository->create(ProviderType::IMAP, 'imap.test', 993, 'ssl', 'ancienne@unite.be', 'secret', ['INBOX'], false);
+        $this->mailboxRepository->setPurpose($disabled, MailboxPurpose::DEDICATED, 'finance');
+        $this->mailboxRepository->create(ProviderType::IMAP, 'imap.test', 993, 'ssl', 'unite@unite.be', 'secret', ['INBOX'], true);
 
         $boxes = $this->service->dedicatedMailboxesFor('rental');
 
@@ -140,7 +138,6 @@ class InboundMailServiceTest extends TestCase
     public function testABoxWhoseLoginIsNotAnAddressGivesNone(): void
     {
         $login = $this->mailboxRepository->create(
-            'Chalet',
             ProviderType::IMAP,
             'imap.test',
             993,
@@ -155,7 +152,7 @@ class InboundMailServiceTest extends TestCase
         $boxes = $this->service->dedicatedMailboxesFor('camps');
 
         $this->assertCount(1, $boxes);
-        $this->assertSame('Chalet', $boxes[0]->name);
+        $this->assertSame('chalet', $boxes[0]->name, 'the login is the only name the box has (D7)');
         $this->assertNull($boxes[0]->address);
     }
 

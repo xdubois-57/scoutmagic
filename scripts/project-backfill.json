@@ -1,5 +1,5 @@
 {
-  "_comment": "One-off catch-up for issue #923 (§ 9 « Migration initiale »). Efforts are the HISTORICAL estimates of the 2026-10-12 audit in the issue's appendix, plus the 2026-11-13 sizing of the Ready tickets that had none (#1101 to #1147, each read against the code it points to), not values already in the Project; project-effort.sh writes one only when the field is EMPTY, re-reading it just before. `unknown` writes nothing. Priority is never part of this file. Dependencies are only those the issue text itself proves.",
+  "_comment": "One-off catch-up for issue #923 (§ 9 « Migration initiale »). Efforts are the HISTORICAL estimates of the 2026-10-12 audit in the issue's appendix, plus the 2026-11-13 sizing of the Ready tickets that had none (#1101 to #1147, each read against the code it points to), plus the 2026-11-17 sizing of the 13 Ready tickets that still had none (#1239 to #1271, each read against the code it points to), not values already in the Project; project-effort.sh writes one only when the field is EMPTY, re-reading it just before. `unknown` writes nothing. Priority is never part of this file. Dependencies are only those the issue text itself proves.",
   "efforts": {
     "923": "L",
     "919": "M",
@@ -57,7 +57,20 @@
     "1128": "M",
     "1126": "M",
     "1118": "M",
-    "1113": "L"
+    "1113": "L",
+    "1253": "S",
+    "1254": "M",
+    "1257": "M",
+    "1267": "M",
+    "1245": "M",
+    "1263": "M",
+    "1268": "L",
+    "1270": "M",
+    "1239": "S",
+    "1261": "M",
+    "1265": "S",
+    "1269": "L",
+    "1271": "M"
   },
   "dependencies": [
     {

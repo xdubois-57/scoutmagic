@@ -211,8 +211,8 @@ class RentalMessageConsumer implements
         }
 
         // Which boxes this module reads is the mailbox configuration's
-        // answer (§8.58, `Service\MailboxScopeService`): a consumer is
-        // only ever handed the messages of a box it was opened to. The
+        // answer (§8.58, `Mailbox::isAnalysedBy()`): a consumer is only
+        // ever handed the messages of the general box or its own. The
         // module's own list of box ids, which used to be checked here,
         // said something the operator's answer could contradict without
         // anything on either screen explaining why nothing arrived.

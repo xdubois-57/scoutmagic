@@ -44,8 +44,7 @@ class LinkPositionsTest extends TestCase
             new FileRepository($pdo),
             new MessageConsumerRegistry()
         );
-        $this->mailboxId = $mailboxes->create(
-            'Locations', ProviderType::IMAP, 'imap.test', 993, 'ssl', 'locations@unite.be', 'secret', ['INBOX'], true
+        $this->mailboxId = $mailboxes->create(ProviderType::IMAP, 'imap.test', 993, 'ssl', 'locations@unite.be', 'secret', ['INBOX'], true
         );
     }
 

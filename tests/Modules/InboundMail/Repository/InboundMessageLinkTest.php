@@ -52,7 +52,6 @@ class InboundMessageLinkTest extends TestCase
             null,
             null,
             null,
-            null,
             // Row AND bytes (#242).
             new \Core\File\EncryptedFileStorageService(
                 new FileRepository($this->pdo),
@@ -62,7 +61,6 @@ class InboundMessageLinkTest extends TestCase
         );
 
         $this->mailboxId = $mailboxes->create(
-            'Unité',
             ProviderType::IMAP,
             'imap.test',
             993,
@@ -253,7 +251,6 @@ class InboundMessageLinkTest extends TestCase
     public function testDeduplicationDoesNotReachIntoAnotherMailbox(): void
     {
         $other = (new InboundMailboxRepository($this->pdo, $this->encryption))->create(
-            'Trésorerie',
             ProviderType::IMAP,
             'imap.test',
             993,

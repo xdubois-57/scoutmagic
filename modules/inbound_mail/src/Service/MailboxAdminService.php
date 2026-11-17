@@ -8,6 +8,8 @@ declare(strict_types=1);
 
 namespace Modules\InboundMail\Service;
 
+use Core\Database\ConstraintViolation;
+use Modules\InboundMail\Api\MailboxPurpose;
 use Modules\InboundMail\Client\MailboxConnectionException;
 use Modules\InboundMail\Client\RemoteFolder;
 use Modules\InboundMail\Mailbox\Mailbox;
@@ -81,32 +83,6 @@ class MailboxAdminService
         return $this->repository->findAll();
     }
 
-    /**
-     * The modules several enabled boxes are dedicated to at once, keyed by
-     * consumer id, each with those boxes as id => name (issue #462). The
-     * ids are what a comparison holds on to — a box renamed is the same
-     * box — and the names what a person reads.
-     *
-     * A module has a box of its own only when exactly one is dedicated to
-     * it; with two it has none, and the screens that exist for that box —
-     * the rentals' « Courrier » page — do not appear. That is the consumer's
-     * rule rather than an arbitrary pick between the two, and the list of
-     * boxes is where the operator learns why.
-     *
-     * @return array<string, array<int, string>>
-     */
-    public function dedicationConflicts(): array
-    {
-        $byConsumer = [];
-        foreach ($this->repository->findAll() as $mailbox) {
-            if ($mailbox->isEnabled && $mailbox->isDedicated()) {
-                $byConsumer[(string) $mailbox->dedicatedTo][$mailbox->id] = $mailbox->name;
-            }
-        }
-
-        return array_filter($byConsumer, static fn(array $names): bool => count($names) > 1);
-    }
-
     public function findById(int $id): ?Mailbox
     {
         return $this->repository->findById($id);
@@ -114,8 +90,8 @@ class MailboxAdminService
 
     /**
      * What a module or a page outside Configuration may know about the
-     * boxes: their name and whether they are working (§7.4). Never the
-     * host, the port or the account.
+     * boxes: their address and whether they are working (§7.4). Never the
+     * host or the port.
      *
      * @return array<int, array{name: string, state: string, is_enabled: bool}>
      */
@@ -130,10 +106,13 @@ class MailboxAdminService
     }
 
     /**
+     * Create a box with its purpose in one write: a reservation the unique
+     * index refuses leaves no row behind.
+     *
      * @param string[] $folders
+     * @throws MailboxReservationRefusedException when the module already has its box
      */
     public function create(
-        string $name,
         string $host,
         int $port,
         string $encryption,
@@ -141,22 +120,46 @@ class MailboxAdminService
         string $password,
         array $folders,
         bool $isEnabled,
-        string $sentFolder = ''
+        string $sentFolder = '',
+        MailboxPurpose $purpose = MailboxPurpose::SHARED,
+        ?string $dedicatedTo = null
     ): int {
-        $id = $this->repository->create(
-            $name,
-            // The manifest offers IMAP and only IMAP (§7.2); the enum's
-            // other case exists for tests, and letting it be chosen here
-            // would put a fixture in front of an operator.
-            ProviderType::IMAP,
-            $host,
-            $port,
-            self::normaliseEncryption($encryption),
-            $username,
-            $password,
-            $folders,
-            $isEnabled
-        );
+        $dedicatedTo = $dedicatedTo !== null ? trim($dedicatedTo) : null;
+        $refusal = $this->purposeRefusal(0, $purpose, $dedicatedTo);
+        if ($refusal !== null) {
+            throw new MailboxReservationRefusedException($refusal);
+        }
+
+        try {
+            $id = $this->repository->create(
+                // The manifest offers IMAP and only IMAP (§7.2); the enum's
+                // other case exists for tests, and letting it be chosen here
+                // would put a fixture in front of an operator.
+                ProviderType::IMAP,
+                $host,
+                $port,
+                self::normaliseEncryption($encryption),
+                $username,
+                $password,
+                $folders,
+                $isEnabled,
+                $purpose,
+                $dedicatedTo
+            );
+        } catch (\PDOException $e) {
+            if (!ConstraintViolation::isDuplicateKey($e)) {
+                throw $e;
+            }
+
+            // A save that raced past the check above: the index said no,
+            // and no row was written.
+            $other = $dedicatedTo === null ? null : $this->repository->findOtherDedicatedTo($dedicatedTo, 0);
+            throw new MailboxReservationRefusedException(
+                self::alreadyReserved($other === null ? null : $this->repository->findById($other)),
+                0,
+                $e
+            );
+        }
         $this->repository->setSentFolder($id, $sentFolder);
 
         return $id;
@@ -169,7 +172,6 @@ class MailboxAdminService
      */
     public function update(
         int $id,
-        string $name,
         string $host,
         int $port,
         string $encryption,
@@ -181,7 +183,6 @@ class MailboxAdminService
     ): void {
         $this->repository->update(
             $id,
-            $name,
             $host,
             $port,
             self::normaliseEncryption($encryption),
@@ -194,6 +195,80 @@ class MailboxAdminService
         if ($password !== '') {
             $this->repository->setPassword($id, $password);
         }
+    }
+
+    /**
+     * Declare what a box is for — the unit's general mail, or reserved to
+     * one module (§8.58).
+     *
+     * **A module has at most one reserved box** (D5) — except the seed
+     * boxes, which may be several. Checked here so the operator reads why
+     * in a sentence, and held by the unique index on `dedication_key`
+     * should two saves race past the check.
+     *
+     * @return string|null null when saved, otherwise the reason it was not,
+     *   in a sentence for the operator
+     */
+    public function setPurpose(int $id, MailboxPurpose $purpose, ?string $dedicatedTo): ?string
+    {
+        $dedicatedTo = $dedicatedTo !== null ? trim($dedicatedTo) : null;
+
+        $refusal = $this->purposeRefusal($id, $purpose, $dedicatedTo);
+        if ($refusal !== null) {
+            return $refusal;
+        }
+
+        try {
+            $this->repository->setPurpose($id, $purpose, $dedicatedTo);
+        } catch (\PDOException $e) {
+            // Only the unique index means « already reserved »: another save
+            // reserved an address to this module between the check above and
+            // this write. Anything else — a lost connection, a deadlock — is
+            // not that, and goes on as the failure it is.
+            if (!ConstraintViolation::isDuplicateKey($e)) {
+                throw $e;
+            }
+
+            return self::alreadyReserved(null);
+        }
+
+        return null;
+    }
+
+    /**
+     * Why this purpose cannot be given to this box, or null when it can —
+     * asked before anything is written, so a refused save changes nothing.
+     *
+     * @param int $id the box, or 0 for one not created yet
+     */
+    public function purposeRefusal(int $id, MailboxPurpose $purpose, ?string $dedicatedTo): ?string
+    {
+        if ($purpose !== MailboxPurpose::DEDICATED) {
+            return null;
+        }
+
+        $dedicatedTo = $dedicatedTo !== null ? trim($dedicatedTo) : '';
+        if ($dedicatedTo === '') {
+            return 'Choisissez le module auquel cette adresse est réservée.';
+        }
+
+        // The seed boxes are the one usage that takes several (D5's
+        // exception): copies are measured across several providers.
+        if (MailboxPurpose::readsReservedBoxesOnly($dedicatedTo)) {
+            return null;
+        }
+
+        $other = $this->repository->findOtherDedicatedTo($dedicatedTo, $id);
+
+        return $other === null ? null : self::alreadyReserved($this->repository->findById($other));
+    }
+
+    private static function alreadyReserved(?Mailbox $other): string
+    {
+        return $other !== null
+            ? 'Ce module a déjà son adresse réservée : ' . $other->displayName()
+                . '. Un module n\'a qu\'une adresse réservée.'
+            : 'Ce module a déjà son adresse réservée. Un module n\'a qu\'une adresse réservée.';
     }
 
     public function setEnabled(int $id, bool $isEnabled): void
@@ -286,7 +361,6 @@ class MailboxAdminService
 
         $mailbox = new Mailbox(
             id: 0,
-            name: 'test',
             providerType: ProviderType::IMAP,
             host: $host,
             port: $port,

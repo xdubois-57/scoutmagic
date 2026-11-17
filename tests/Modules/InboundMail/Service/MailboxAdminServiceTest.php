@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Modules\InboundMail\Service;
 
 use Core\Security\EncryptionService;
+use Modules\InboundMail\Api\MailboxPurpose;
 use Modules\InboundMail\Client\FakeMailboxClient;
 use Modules\InboundMail\Mailbox\ProviderType;
 use Modules\InboundMail\Mailbox\SyncState;
@@ -12,6 +13,7 @@ use Modules\InboundMail\Repository\InboundMailboxRepository;
 use Modules\InboundMail\Service\MailboxAdminService;
 use Modules\InboundMail\Service\MailboxClientFactory;
 use Modules\InboundMail\Service\MailboxErrorFormatter;
+use Modules\InboundMail\Service\MailboxReservationRefusedException;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\InboundMail\InboundMailTestHelper;
@@ -54,7 +56,6 @@ class MailboxAdminServiceTest extends TestCase
     private function createMailbox(string $name = 'Locations', string $password = 'un-mot-de-passe'): int
     {
         return $this->service->create(
-            $name,
             'imap.test',
             993,
             'ssl',
@@ -65,29 +66,130 @@ class MailboxAdminServiceTest extends TestCase
         );
     }
 
-    // ── Dedication conflicts (issue #462) ───────────────────────────────
+    // ── One reserved address per module (D5) ────────────────────────────
+
+    public function testAModuleWithoutAnAddressOfItsOwnCanBeGivenOne(): void
+    {
+        $locations = $this->createMailbox('Locations');
+
+        $this->assertNull($this->service->setPurpose($locations, MailboxPurpose::DEDICATED, 'rental'));
+        $this->assertSame('rental', $this->repository->findById($locations)?->dedicatedTo);
+    }
 
     /**
-     * Two enabled boxes dedicated to one module are a conflict: that module
-     * has no box of its own. One box per module, a disabled second box, or
-     * a shared one, are not.
+     * A second address reserved to the same module is refused in a sentence
+     * that names the first, disabled or not — a box switched off still
+     * holds its module's place.
      */
-    public function testTwoEnabledBoxesDedicatedToOneModuleAreAConflict(): void
+    public function testASecondAddressReservedToTheSameModuleIsRefused(): void
     {
         $locations = $this->createMailbox('Locations');
         $chalet = $this->createMailbox('Chalet');
-        $camps = $this->createMailbox('Camps');
-        $old = $this->createMailbox('Ancienne');
-        $this->repository->setPurpose($locations, \Modules\InboundMail\Api\MailboxPurpose::DEDICATED, 'rental');
-        $this->repository->setPurpose($camps, \Modules\InboundMail\Api\MailboxPurpose::DEDICATED, 'camps');
-        $this->repository->setPurpose($old, \Modules\InboundMail\Api\MailboxPurpose::DEDICATED, 'camps');
-        $this->service->setEnabled($old, false);
+        $this->service->setPurpose($locations, MailboxPurpose::DEDICATED, 'rental');
+        $this->service->setEnabled($locations, false);
 
-        $this->assertSame([], $this->service->dedicationConflicts());
+        $refusal = $this->service->setPurpose($chalet, MailboxPurpose::DEDICATED, 'rental');
 
-        $this->repository->setPurpose($chalet, \Modules\InboundMail\Api\MailboxPurpose::DEDICATED, 'rental');
+        $this->assertNotNull($refusal);
+        $this->assertStringContainsString('locations@unite.be', $refusal);
+        $this->assertFalse($this->repository->findById($chalet)?->isDedicated());
+    }
 
-        $this->assertSame(['rental' => [$chalet => 'Chalet', $locations => 'Locations']], $this->service->dedicationConflicts());
+    /**
+     * Only the unique index reads as « already reserved »: any other failure
+     * of the write — here the table itself gone — is not hidden behind that
+     * sentence, and goes on as the failure it is.
+     */
+    public function testAWriteFailureOtherThanTheUniqueIndexIsNotCalledAlreadyReserved(): void
+    {
+        $locations = $this->createMailbox('Locations');
+        $this->pdo->exec('CREATE TABLE kept_mailboxes AS SELECT * FROM inbound_mailboxes');
+        $this->pdo->exec('DROP TABLE inbound_mailboxes');
+        $this->pdo->exec('CREATE VIEW inbound_mailboxes AS SELECT * FROM kept_mailboxes');
+
+        $this->expectException(\PDOException::class);
+        $this->service->setPurpose($locations, MailboxPurpose::DEDICATED, 'rental');
+    }
+
+    /**
+     * The one exception to D5: the seed boxes may be several, in the
+     * service and in the database alike — while any other module is still
+     * refused a second box by the database on its own.
+     */
+    public function testSeveralBoxesMayBeReservedToTheSeedConsumer(): void
+    {
+        $gmail = $this->createMailbox('Gmail');
+        $outlook = $this->createMailbox('Outlook');
+
+        $this->assertNull($this->service->setPurpose($gmail, MailboxPurpose::DEDICATED, 'core_mail_seed'));
+        $this->assertNull($this->service->setPurpose($outlook, MailboxPurpose::DEDICATED, 'core_mail_seed'));
+        $this->assertSame('core_mail_seed', $this->repository->findById($outlook)?->dedicatedTo);
+    }
+
+    public function testTheDatabaseStillRefusesASecondBoxForAnyOtherModule(): void
+    {
+        $this->repository->setPurpose($this->createMailbox('Locations'), MailboxPurpose::DEDICATED, 'rental');
+
+        $this->expectException(\PDOException::class);
+        $this->repository->setPurpose($this->createMailbox('Chalet'), MailboxPurpose::DEDICATED, 'rental');
+    }
+
+    /**
+     * A reserved box is created in one write. When the unique index refuses
+     * it — a save that raced past the check — no row exists afterwards,
+     * rather than an enabled general box every module reads.
+     */
+    public function testACreateTheIndexRefusesLeavesNoRow(): void
+    {
+        $this->repository->setPurpose($this->createMailbox('Locations'), MailboxPurpose::DEDICATED, 'rental');
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $blind = new class ($this->pdo, $encryption) extends InboundMailboxRepository {
+            public function findOtherDedicatedTo(string $consumerId, int $exceptId): ?int
+            {
+                return null; // as if another save had not committed yet
+            }
+        };
+        $service = new MailboxAdminService($blind, new MailboxClientFactory(), new MailboxErrorFormatter());
+
+        try {
+            $service->create(
+                'imap.test', 993, 'ssl', 'chalet@unite.be', 'mdp', ['INBOX'], true, '',
+                MailboxPurpose::DEDICATED, 'rental'
+            );
+            $this->fail('the second reservation must be refused');
+        } catch (MailboxReservationRefusedException $refused) {
+            $this->assertStringContainsString('déjà son adresse réservée', $refused->getMessage());
+        }
+
+        $this->assertCount(1, $this->repository->findAll());
+    }
+
+    public function testAReservedBoxIsCreatedWithItsPurpose(): void
+    {
+        $id = $this->service->create(
+            'imap.test', 993, 'ssl', 'camps@unite.be', 'mdp', ['INBOX'], true, '',
+            MailboxPurpose::DEDICATED, 'camps'
+        );
+
+        $this->assertSame('camps', $this->repository->findById($id)?->dedicatedTo);
+    }
+
+    public function testGivingTheModuleBackFreesItsPlace(): void
+    {
+        $locations = $this->createMailbox('Locations');
+        $chalet = $this->createMailbox('Chalet');
+        $this->service->setPurpose($locations, MailboxPurpose::DEDICATED, 'rental');
+
+        $this->assertNull($this->service->setPurpose($locations, MailboxPurpose::SHARED, null));
+        $this->assertNull($this->service->setPurpose($chalet, MailboxPurpose::DEDICATED, 'rental'));
+    }
+
+    public function testAReservedAddressNeedsAModule(): void
+    {
+        $locations = $this->createMailbox('Locations');
+
+        $this->assertNotNull($this->service->setPurpose($locations, MailboxPurpose::DEDICATED, ''));
+        $this->assertFalse($this->repository->findById($locations)?->isDedicated());
     }
 
     // ── Several boxes at once (§7.4) ────────────────────────────────────
@@ -158,7 +260,7 @@ class MailboxAdminServiceTest extends TestCase
         // would explain.
         $id = $this->createMailbox(password: 'un-mot-de-passe');
 
-        $this->service->update($id, 'Locations', 'imap.test', 143, 'starttls', 'locations@unite.be', '', ['INBOX'], true);
+        $this->service->update($id, 'imap.test', 143, 'starttls', 'locations@unite.be', '', ['INBOX'], true);
 
         $credentials = $this->repository->findCredentials($id);
         $this->assertNotNull($credentials);
@@ -173,14 +275,14 @@ class MailboxAdminServiceTest extends TestCase
     {
         $id = $this->createMailbox(password: 'ancien');
 
-        $this->service->update($id, 'Locations', 'imap.test', 993, 'ssl', 'locations@unite.be', 'nouveau', ['INBOX'], true);
+        $this->service->update($id, 'imap.test', 993, 'ssl', 'locations@unite.be', 'nouveau', ['INBOX'], true);
 
         $credentials = $this->repository->findCredentials($id);
         $this->assertNotNull($credentials);
         $this->assertSame('nouveau', $credentials->password);
     }
 
-    public function testWhatANonSuperadminMayKnowIsTheNameAndTheStateOnly(): void
+    public function testWhatANonSuperadminMayKnowIsTheAddressAndTheStateOnly(): void
     {
         $this->createMailbox();
 
@@ -189,6 +291,7 @@ class MailboxAdminServiceTest extends TestCase
 
         $this->assertIsArray($summary);
         $this->assertSame(['name', 'state', 'is_enabled'], array_keys($summary));
+        $this->assertSame('locations@unite.be', $summary['name'], 'the address is the box\'s only name (D7)');
     }
 
     // ── TLS is not negotiable (§7.5) ────────────────────────────────────
@@ -197,7 +300,7 @@ class MailboxAdminServiceTest extends TestCase
     {
         // An allowlist decides, so a hand-crafted POST asking for a plain
         // session gets SSL rather than what it asked for.
-        $id = $this->service->create('X', 'imap.test', 143, 'none', 'x@unite.be', 'mdp', [], true);
+        $id = $this->service->create('imap.test', 143, 'none', 'x@unite.be', 'mdp', [], true);
 
         $mailbox = $this->repository->findById($id);
         $this->assertNotNull($mailbox);
@@ -206,7 +309,7 @@ class MailboxAdminServiceTest extends TestCase
 
     public function testStarttlsIsAcceptedBecauseItIsARealEncryptedMode(): void
     {
-        $id = $this->service->create('X', 'imap.test', 143, 'STARTTLS', 'x@unite.be', 'mdp', [], true);
+        $id = $this->service->create('imap.test', 143, 'STARTTLS', 'x@unite.be', 'mdp', [], true);
 
         $mailbox = $this->repository->findById($id);
         $this->assertNotNull($mailbox);
@@ -266,10 +369,10 @@ class MailboxAdminServiceTest extends TestCase
 
     public function testTheSentFolderTheOperatorNamesIsKeptAndABlankOneClearsIt(): void
     {
-        $id = $this->service->create('X', 'imap.test', 993, 'ssl', 'x@unite.be', 'mdp', [], true, ' INBOX.Sent ');
+        $id = $this->service->create('imap.test', 993, 'ssl', 'x@unite.be', 'mdp', [], true, ' INBOX.Sent ');
         $this->assertSame('INBOX.Sent', $this->repository->findById($id)?->sentFolder);
 
-        $this->service->update($id, 'X', 'imap.test', 993, 'ssl', 'x@unite.be', '', [], true, '');
+        $this->service->update($id, 'imap.test', 993, 'ssl', 'x@unite.be', '', [], true, '');
         $this->assertNull($this->repository->findById($id)?->sentFolder);
     }
 
@@ -356,7 +459,7 @@ class MailboxAdminServiceTest extends TestCase
     public function testAnEmptyFolderListMeansInboxRatherThanNothing(): void
     {
         // "None" would be a box that silently collects nothing.
-        $id = $this->service->create('X', 'imap.test', 993, 'ssl', 'x@unite.be', 'mdp', [], true);
+        $id = $this->service->create('imap.test', 993, 'ssl', 'x@unite.be', 'mdp', [], true);
 
         $mailbox = $this->repository->findById($id);
         $this->assertNotNull($mailbox);
