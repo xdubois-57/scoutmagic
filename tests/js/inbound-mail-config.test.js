@@ -387,6 +387,37 @@ describe('inbound-mail-config.js', () => {
             expect($('mailbox-folders').value).toBe('Locations');
         });
 
+        it('lists once the missing password is typed, after asking for it', async () => {
+            global.fetch = mockFetch({ 'test-connexion': { success: true, folders: ['Factures'], sent_folder: null } });
+            await boot();
+            fillConnection();
+            $('mailbox-password').value = '';
+            openFolders();
+            // Let the section's own queued toggle pass first: only typing the
+            // password may trigger the listing.
+            await new Promise((resolve) => setTimeout(resolve, 0));
+            expect($('mailbox-folders-status').textContent).toContain('Renseignez');
+            expect(fetch).not.toHaveBeenCalled();
+
+            type('mailbox-password', 'secret');
+
+            await vi.waitFor(() => expect(document.querySelectorAll('.folder-checkbox').length).toBe(1));
+        });
+
+        it('tries again after a failed listing once a setting is corrected', async () => {
+            let answer = { success: false, error: 'Identifiants refusés.' };
+            global.fetch = vi.fn(() => jsonResponse(answer));
+            await boot();
+            fillConnection();
+            openFolders();
+            await vi.waitFor(() => expect($('mailbox-folders-status').textContent).toContain('Identifiants refusés'));
+
+            answer = { success: true, folders: ['Factures'], sent_folder: null };
+            type('mailbox-host', 'imap.autre.be');
+
+            await vi.waitFor(() => expect(document.querySelectorAll('.folder-checkbox').length).toBe(1));
+        });
+
         it('lists the folders of a section rendered already open, which fires no toggle', async () => {
             global.fetch = mockFetch({ 'test-connexion': { success: true, folders: ['Factures'], sent_folder: null } });
             fillConnection();

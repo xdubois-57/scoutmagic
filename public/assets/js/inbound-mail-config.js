@@ -458,7 +458,10 @@
     // A change of server, port, encryption, address or usage makes the
     // listing on screen another box's: drop it, and read again if open.
     function connectionChanged() {
+        // Nothing listed yet, or the last attempt failed or lacked a
+        // field: try again, since the change may be the missing piece.
         if (loadedKey === null && pendingKey === null) {
+            void listFolders();
             return;
         }
         if (connectionKey() === loadedKey) {
@@ -469,7 +472,7 @@
         void listFolders();
     }
 
-    [hostInput, portInput, encryptionSelect, usernameInput,
+    [hostInput, portInput, encryptionSelect, usernameInput, passwordInput,
         document.getElementById('mailbox-dedicated-to')].forEach(function (control) {
         if (control) {
             control.addEventListener('change', connectionChanged);
