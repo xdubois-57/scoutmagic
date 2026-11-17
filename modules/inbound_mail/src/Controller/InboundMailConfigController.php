@@ -206,7 +206,11 @@ class InboundMailConfigController extends AbstractController
         $folders = MailboxAdminService::foldersWithInbox(MailboxAdminService::parseFolders($input['folders']));
 
         if ($existing !== null) {
-            $this->adminService->update(
+            // No « Synchroniser cette boîte » any more (D10): a box is
+            // suspended with « Désactiver » in the list, and an edit never
+            // writes the enabled state — not even the one read before the
+            // verification, which a click in another tab may have changed.
+            $this->adminService->updateConnection(
                 $existing->id,
                 $input['host'],
                 (int) $input['port'],
@@ -214,10 +218,6 @@ class InboundMailConfigController extends AbstractController
                 $input['username'],
                 $password,
                 $folders,
-                // No « Synchroniser cette boîte » any more (D10): a box is
-                // suspended with « Désactiver » in the list, and an edit
-                // keeps whatever that says.
-                $existing->isEnabled,
                 $input['sent_folder']
             );
 
@@ -533,10 +533,12 @@ class InboundMailConfigController extends AbstractController
         // Prefill only what is empty: a server the operator typed is
         // theirs, and a recognised provider never overwrites it.
         $provider = $form['username'] !== '' ? $this->providers->recognize($form['username']) : null;
-        if ($provider !== null && $form['host'] === '') {
-            $form['host'] = $provider->host;
-            $form['port'] = (string) $provider->port;
-            $form['encryption'] = $provider->encryption;
+        // Each field on its own: a port or an encryption the operator
+        // chose survives a refused form even when the server was left empty.
+        if ($provider !== null) {
+            $form['host'] = $form['host'] !== '' ? $form['host'] : $provider->host;
+            $form['port'] = $form['port'] !== '' ? $form['port'] : (string) $provider->port;
+            $form['encryption'] = $form['encryption'] !== '' ? $form['encryption'] : $provider->encryption;
         }
 
         // The inbox is always read and is not one of the « autres dossiers ».

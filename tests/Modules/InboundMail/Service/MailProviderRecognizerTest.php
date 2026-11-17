@@ -115,8 +115,11 @@ final class MailProviderRecognizerTest extends TestCase
         $this->assertSame([], $this->asked);
     }
 
-    /** The app-password help is for Gmail and Outlook alone (D12). */
-    public function testOnlyGoogleAndMicrosoftAskForAnAppPassword(): void
+    /**
+     * The help under the password is for Google (an app password) and
+     * Microsoft (a password login is generally refused) alone (D12).
+     */
+    public function testOnlyGoogleAndMicrosoftGetAPasswordHelp(): void
     {
         $this->assertSame(MailProvider::HELP_GMAIL, MailProviderRecognizer::provider('gmail')?->passwordHelp);
         $this->assertSame(MailProvider::HELP_GMAIL, MailProviderRecognizer::provider('google_workspace')?->passwordHelp);

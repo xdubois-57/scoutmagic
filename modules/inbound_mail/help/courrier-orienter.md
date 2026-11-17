@@ -48,8 +48,12 @@ veut dire « ce message ne concerne pas ce module ».
 
 Les images **dans le corps** d'un message ne sont pas chargées : cela
 renseignerait l'expéditeur sur votre lecture. Si tout le message était
-une image, le site le signale. Une image jointe reste téléchargeable, en
-JPEG sans métadonnées ni position GPS.
+une image, le site le signale. Une image jointe reste téléchargeable.
+
+Les photos reçues depuis cette version sont converties en JPEG, sans
+métadonnées ni position GPS ; le HEIC l'est si le serveur sait le lire.
+Les pièces jointes plus anciennes gardent leur format d'origine, et
+peut-être leur position GPS.
 
 ## Une pièce jointe non conservée
 

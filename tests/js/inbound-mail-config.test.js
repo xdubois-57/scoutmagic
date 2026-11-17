@@ -265,6 +265,98 @@ describe('inbound-mail-config.js', () => {
             expect($('mailbox-folders-picker').classList.contains('d-none')).toBe(true);
         });
 
+        it('reads the folders again for other settings, and drops what it showed for the old ones', async () => {
+            global.fetch = mockFetch({
+                'test-connexion': { success: true, folders: ['Factures'], sent_folder: 'Envoyés' },
+            });
+            await boot();
+            fillConnection();
+            openFolders();
+            await vi.waitFor(() => expect(document.querySelectorAll('.folder-checkbox').length).toBe(1));
+            expect($('mailbox-sent-found').hidden).toBe(false);
+
+            // Reopening with the same settings asks nothing again.
+            openFolders();
+            expect(fetch).toHaveBeenCalledTimes(1);
+
+            global.fetch = mockFetch({ 'test-connexion': { success: true, folders: ['Archives'], sent_folder: null } });
+            type('mailbox-host', 'imap.ailleurs.be');
+
+            await vi.waitFor(() => expect(document.querySelector('.folder-checkbox')?.value).toBe('Archives'));
+            expect(lastRequest().body.host).toBe('imap.ailleurs.be');
+            expect($('mailbox-sent-found').hidden).toBe(true);
+            expect($('mailbox-sent-field').hidden).toBe(false);
+        });
+
+        it('lists again when the usage changes, since a seed box is offered its junk folder', async () => {
+            global.fetch = mockFetch({ 'test-connexion': { success: true, folders: [], sent_folder: null } });
+            await boot();
+            fillConnection();
+            $('mailbox-dedicated-to').innerHTML = '<option value="core_mail_seed" selected>Témoins</option>';
+            openFolders();
+            await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+
+            $('mailbox-purpose-dedicated').checked = true;
+            $('mailbox-purpose-dedicated').dispatchEvent(new Event('change', { bubbles: true }));
+
+            await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+            expect(lastRequest().body.dedicated_to).toBe('core_mail_seed');
+        });
+
+        it('ignores a late answer for settings changed since', async () => {
+            /** @type {(value: unknown) => void} */
+            let answerOld = () => {};
+            global.fetch = vi.fn((url, opts) => {
+                const body = JSON.parse(opts.body);
+                if (body.host === 'imap.unite.be') {
+                    return new Promise((resolve) => {
+                        answerOld = () => resolve({
+                            ok: true,
+                            status: 200,
+                            json: () => Promise.resolve({ success: true, folders: ['Ancien'], sent_folder: 'Vieux' }),
+                        });
+                    });
+                }
+                return jsonResponse({ success: true, folders: ['Nouveau'], sent_folder: null });
+            });
+            await boot();
+            fillConnection();
+            openFolders();
+            await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+
+            type('mailbox-host', 'imap.nouveau.be');
+            await vi.waitFor(() => expect(document.querySelector('.folder-checkbox')?.value).toBe('Nouveau'));
+
+            answerOld();
+            await new Promise((resolve) => setTimeout(resolve, 0));
+            expect([...document.querySelectorAll('.folder-checkbox')].map((cb) => cb.value)).toEqual(['Nouveau']);
+            expect($('mailbox-sent-found').hidden).toBe(true);
+        });
+
+        it('keeps a folder typed while the server was answering', async () => {
+            /** @type {(value: unknown) => void} */
+            let answer = () => {};
+            global.fetch = vi.fn(() => new Promise((resolve) => {
+                answer = () => resolve({
+                    ok: true,
+                    status: 200,
+                    json: () => Promise.resolve({ success: true, folders: ['Factures'], sent_folder: null }),
+                });
+            }));
+            await boot();
+            fillConnection();
+            openFolders();
+            await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+
+            $('mailbox-folders').value = 'Locations';
+            answer();
+
+            await vi.waitFor(() => expect(document.querySelectorAll('.folder-checkbox').length).toBe(2));
+            const boxes = [...document.querySelectorAll('.folder-checkbox')];
+            expect(boxes.map((cb) => [cb.value, cb.checked])).toEqual([['Factures', false], ['Locations', true]]);
+            expect($('mailbox-folders').value).toBe('Locations');
+        });
+
         it('lists the folders of a saved box without retyping its password', async () => {
             await boot();
             fillConnection();

@@ -51,6 +51,9 @@ class FakeMailboxClient implements IncomingMailboxClientInterface
 
     private ?\Throwable $connectFailure = null;
 
+    /** @var (\Closure(): void)|null */
+    private ?\Closure $onConnect = null;
+
     private int $lastSkippedUid = 0;
 
     /**
@@ -116,6 +119,18 @@ class FakeMailboxClient implements IncomingMailboxClientInterface
         $this->uidValidityByFolder[$folder] ??= 1;
     }
 
+    /**
+     * Run $callback every time the box is opened — what happens elsewhere
+     * on the site while a connection is under way, such as the box being
+     * disabled from the list while its edit is being verified.
+     *
+     * @param \Closure(): void $callback
+     */
+    public function onConnect(\Closure $callback): void
+    {
+        $this->onConnect = $callback;
+    }
+
     public function failNextConnect(\Throwable $failure): void
     {
         $this->connectFailure = $failure;
@@ -131,6 +146,10 @@ class FakeMailboxClient implements IncomingMailboxClientInterface
     public function connect(Mailbox $mailbox, MailboxCredentials $credentials): void
     {
         $this->calls[] = 'connect';
+
+        if ($this->onConnect !== null) {
+            ($this->onConnect)();
+        }
 
         if ($this->connectFailure !== null) {
             $failure = $this->connectFailure;

@@ -528,6 +528,26 @@ class InboundMailConfigControllerTest extends TestCase
         $this->assertSame('secret', $this->mailboxes->findCredentials($this->mailboxId)?->password);
     }
 
+    /**
+     * The box is disabled from the list while its edit is being verified:
+     * the edit must not write back the enabled state it read before.
+     */
+    public function testAnEditDoesNotUndoADisableMadeDuringItsVerification(): void
+    {
+        $this->client->onConnect(function (): void {
+            $this->mailboxes->setEnabled($this->mailboxId, false);
+        });
+
+        $this->save([
+            'id' => (string) $this->mailboxId,
+            'username' => 'contact@unite.be',
+            'host' => 'imap.nouveau.test',
+        ]);
+
+        $this->assertSame('imap.nouveau.test', $this->mailbox()->host, 'the edit was saved');
+        $this->assertFalse($this->mailbox()->isEnabled, 'and the box stayed disabled');
+    }
+
     /** On an edit, an empty password verifies with the stored one and keeps it. */
     public function testAnEditWithAnEmptyPasswordKeepsTheStoredOne(): void
     {
@@ -678,6 +698,36 @@ class InboundMailConfigControllerTest extends TestCase
         $this->assertStringContainsString('Gmail reconnu', $body);
         $this->assertMatchesRegularExpression('/data-password-help="gmail"\s*>/', $body);
         $this->assertStringContainsString('https://myaccount.google.com/apppasswords', $body);
+    }
+
+    /** A port and an encryption the operator chose survive, even with the server left empty. */
+    public function testARefusedFormPrefillsOnlyTheEmptySettings(): void
+    {
+        $body = $this->save([
+            'username' => 'contact.unite@gmail.com',
+            'password' => '',
+            'host' => '',
+            'port' => '143',
+            'encryption' => 'starttls',
+        ])->getBody();
+
+        $this->assertStringContainsString('value="imap.gmail.com"', $body);
+        $this->assertStringContainsString('value="143"', $body);
+        $this->assertMatchesRegularExpression('/<option value="starttls"\s+selected/', $body);
+    }
+
+    /**
+     * Microsoft refuses IMAP password logins: the form says so instead of
+     * sending the operator after an app password that would not work.
+     */
+    public function testAMicrosoftAddressIsToldThatAPasswordLoginIsRefused(): void
+    {
+        $body = $this->save(['username' => 'unite@outlook.com', 'password' => '', 'host' => ''])->getBody();
+
+        $this->assertStringContainsString('value="outlook.office365.com"', $body);
+        $this->assertMatchesRegularExpression('/data-password-help="outlook"\s*>/', $body);
+        $this->assertMatchesRegularExpression('/Microsoft refuse en général la connexion IMAP par mot de passe/', $body);
+        $this->assertMatchesRegularExpression('/seul un connecteur OAuth\s+fonctionnerait/', $body);
     }
 
     /** Unknown: server, port and encryption stay empty, with a sentence. */

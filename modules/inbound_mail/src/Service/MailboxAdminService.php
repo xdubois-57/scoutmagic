@@ -229,6 +229,41 @@ class MailboxAdminService
     }
 
     /**
+     * What the configuration form writes on an edit: the connection, the
+     * folders and — when one was typed — the password, never the enabled
+     * state, which belongs to the list's « Désactiver » (see
+     * `InboundMailboxRepository::updateConnection()`).
+     *
+     * @param string[] $folders
+     * @param string $password blank leaves the stored one untouched
+     * @param string $sentFolder blank: the folder the server marks `\Sent`
+     */
+    public function updateConnection(
+        int $id,
+        string $host,
+        int $port,
+        string $encryption,
+        string $username,
+        string $password,
+        array $folders,
+        string $sentFolder = ''
+    ): void {
+        $this->repository->updateConnection(
+            $id,
+            $host,
+            $port,
+            self::normaliseEncryption($encryption),
+            $username,
+            $folders
+        );
+        $this->repository->setSentFolder($id, $sentFolder);
+
+        if ($password !== '') {
+            $this->repository->setPassword($id, $password);
+        }
+    }
+
+    /**
      * Declare what a box is for — the unit's general mail, or reserved to
      * one module (§8.58).
      *

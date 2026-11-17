@@ -287,7 +287,17 @@
         foldersList.addEventListener('change', syncFoldersToTextarea);
     }
 
-    var foldersLoaded = false;
+    /**
+     * What the folder listing on screen was read for — the connection and
+     * the usage, since a seed box is offered its junk folder — or null.
+     * A listing is only good for the settings it was asked with.
+     *
+     * @type {string|null}
+     */
+    var loadedKey = null;
+
+    /** The settings of the request in flight, so a late answer for older ones is dropped. */
+    var pendingKey = /** @type {string|null} */ (null);
 
     /** The module an address is reserved to, or '' for the general mail. */
     function reservedModule() {
@@ -296,9 +306,52 @@
         return dedicated && dedicated.checked && select ? select.value : '';
     }
 
+    function connectionKey() {
+        return JSON.stringify([
+            hostInput ? hostInput.value.trim() : '',
+            portInput ? portInput.value.trim() : '',
+            encryptionSelect ? encryptionSelect.value : '',
+            usernameInput ? usernameInput.value.trim() : '',
+            reservedModule()
+        ]);
+    }
+
+    /**
+     * Put the folder section back as the page rendered it: the textarea
+     * (which holds the current choice) instead of a picker read for other
+     * settings, and the sent-folder field instead of a « trouvé
+     * automatiquement » that may name another server's folder.
+     */
+    function resetFolderListing() {
+        loadedKey = null;
+        if (foldersList) {
+            foldersList.textContent = '';
+        }
+        if (foldersPicker) {
+            foldersPicker.classList.add('d-none');
+        }
+        if (foldersWrapper) {
+            foldersWrapper.classList.remove('d-none');
+        }
+        if (sentFound) {
+            sentFound.hidden = true;
+        }
+        if (sentField) {
+            sentField.hidden = false;
+        }
+        setFoldersStatus('');
+    }
+
     async function listFolders() {
-        if (foldersLoaded || !foldersDetails || !foldersDetails.open) {
+        if (!foldersDetails || !foldersDetails.open) {
             return;
+        }
+        var key = connectionKey();
+        if (key === loadedKey || key === pendingKey) {
+            return;
+        }
+        if (loadedKey !== null) {
+            resetFolderListing();
         }
 
         var editing = idInput ? Number.parseInt(idInput.value, 10) > 0 : false;
@@ -311,7 +364,7 @@
         }
 
         setFoldersStatus('Lecture des dossiers du serveur…');
-        var selectedBefore = currentSelectedFolders();
+        pendingKey = key;
 
         var res = await api.postJson('/config/courrier-entrant/test-connexion', {
             host: hostInput ? hostInput.value : '',
@@ -323,12 +376,22 @@
             dedicated_to: reservedModule()
         });
 
+        // An answer for settings changed since, or overtaken by a newer
+        // request, describes some other box: it is dropped.
+        if (pendingKey !== key || connectionKey() !== key) {
+            return;
+        }
+        pendingKey = null;
+
         if (!res.data || !res.data.success) {
             setFoldersStatus((res.data && res.data.error) || 'Erreur : réponse serveur invalide.');
             return;
         }
 
-        foldersLoaded = true;
+        loadedKey = key;
+        // The choice as it stands NOW: a folder typed while the server was
+        // answering is kept, not the snapshot taken before the request.
+        var selectedBefore = currentSelectedFolders();
         var offered = Array.isArray(res.data.folders) ? res.data.folders : [];
         // A folder already chosen stays listed, checked, even when the
         // server no longer offers it: a listing never unticks it silently.
@@ -343,4 +406,28 @@
     if (foldersDetails) {
         foldersDetails.addEventListener('toggle', listFolders);
     }
+
+    // A change of server, port, encryption, address or usage makes the
+    // listing on screen another box's: drop it, and read again if open.
+    function connectionChanged() {
+        if (loadedKey === null && pendingKey === null) {
+            return;
+        }
+        if (connectionKey() === loadedKey) {
+            return;
+        }
+        pendingKey = null;
+        resetFolderListing();
+        void listFolders();
+    }
+
+    [hostInput, portInput, encryptionSelect, usernameInput,
+        document.getElementById('mailbox-dedicated-to')].forEach(function (control) {
+        if (control) {
+            control.addEventListener('change', connectionChanged);
+        }
+    });
+    form.querySelectorAll('input[name="purpose"]').forEach(function (radio) {
+        radio.addEventListener('change', connectionChanged);
+    });
 })();

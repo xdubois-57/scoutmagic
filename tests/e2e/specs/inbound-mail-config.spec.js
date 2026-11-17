@@ -59,6 +59,13 @@ test('a first general address, then one reserved to the Locations, verified befo
     /** @type {string[]} */
     const pageErrors = [];
     page.on('pageerror', (error) => pageErrors.push(error.message));
+    /** @type {string[]} */
+    const serverErrors = [];
+    page.on('response', (response) => {
+        if (response.status() >= 500) {
+            serverErrors.push(`HTTP ${response.status()} on ${response.url()}`);
+        }
+    });
 
     await autoConfirm(page);
     await loginAsAdmin(page);
@@ -125,4 +132,5 @@ test('a first general address, then one reserved to the Locations, verified befo
     }
 
     expect(pageErrors).toEqual([]);
+    expect(serverErrors).toEqual([]);
 });

@@ -33,9 +33,10 @@ Workspace, Outlook, Microsoft 365, OVH et Infomaniak, le site reconnaît
 le fournisseur et remplit le serveur, le port et le chiffrement. Sinon,
 complétez-les d'après l'aide de votre hébergeur, rubrique IMAP.
 
-Gmail et Outlook demandent un **mot de passe d'application**, pas celui
-du compte : le formulaire indique où le créer. Pour Gmail, la
-validation en deux étapes doit être active. Il n'existe pas de
+Gmail demande un **mot de passe d'application**, pas celui du compte :
+le formulaire indique où le créer, et la validation en deux étapes doit
+être active. Outlook et Microsoft 365 refusent en général toute
+connexion IMAP par mot de passe ; le formulaire le signale. Il n'existe pas de
 connecteur Gmail natif, et c'est voulu : Google imposerait à chaque
 unité une évaluation de sécurité annuelle payante.
 
@@ -55,8 +56,9 @@ confirme ou l'écarte.
 
 **Réservée à un module** — une adresse créée pour un seul usage. Seul
 ce module la lit, et ses responsables voient tout ce qui y arrive,
-comme le Staff d'U. Un module n'a qu'une adresse réservée : un module
-qui a déjà la sienne n'est pas proposé.
+comme le Staff d'U. Un module n'a qu'une adresse réservée, et un module
+qui a déjà la sienne n'est pas proposé — sauf « Courrier sortant —
+boîtes témoins », qui peut en avoir plusieurs.
 
 La première adresse est proposée comme courrier général, les suivantes
 comme réservées ; ce n'est qu'une valeur par défaut. Une adresse
@@ -66,8 +68,9 @@ fonctionne dès qu'elle est enregistrée.
 
 Le site lit la boîte de réception et, pour les Locations, les messages
 envoyés. « Dossiers lus (facultatif) » permet d'ajouter d'autres
-dossiers ; les indésirables, la corbeille, les brouillons et les vues
-comme « Tous les messages » ne sont jamais proposés.
+dossiers ; la corbeille, les brouillons et les vues comme « Tous les
+messages » ne sont jamais proposés, ni les indésirables, sauf à une
+boîte témoin, qui doit les cocher.
 
 ## Ensuite
 

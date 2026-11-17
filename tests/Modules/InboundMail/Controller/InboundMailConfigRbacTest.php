@@ -163,7 +163,10 @@ final class InboundMailConfigRbacTest extends TestCase
         $response = $this->frontController($method, $path, $action, $floor)
             ->handle(new Request($method, $this->resolve($path), [], [], [], []));
 
-        $this->assertContains($response->getStatusCode(), [302, 403], "admin reached {$method} {$path}");
+        // An authenticated visitor below the floor gets the guard's 403 on
+        // every route, never a redirect: only an anonymous one is sent to
+        // the login page (Core\Security\RbacGuard::enforce()).
+        $this->assertSame(403, $response->getStatusCode(), "admin reached {$method} {$path}");
     }
 
     private function resolve(string $path): string

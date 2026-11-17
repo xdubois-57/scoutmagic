@@ -19,7 +19,11 @@ namespace Modules\InboundMail\Mailbox;
  */
 final class MailProvider
 {
-    /** The app-password help shown under the password field, if any. */
+    /**
+     * The help shown under the password field, if any: Gmail's app
+     * password, or — for Microsoft — that a password login is generally
+     * refused there, since only OAuth works and this module has none.
+     */
     public const HELP_GMAIL = 'gmail';
     public const HELP_OUTLOOK = 'outlook';
 

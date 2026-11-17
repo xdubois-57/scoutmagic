@@ -250,6 +250,39 @@ class InboundMailboxRepository
     }
 
     /**
+     * The connection settings of a box, and nothing about whether it is
+     * read: `is_enabled` and `failing_since` are left as they stand. An edit
+     * verifies the connection before it writes (#1333, D10), and a box
+     * disabled from the list in the meantime must stay disabled — so the
+     * configuration form never writes the enabled state it read earlier.
+     *
+     * @param string[] $folders
+     */
+    public function updateConnection(
+        int $id,
+        string $host,
+        int $port,
+        string $encryption,
+        string $username,
+        array $folders
+    ): void {
+        $stmt = $this->pdo->prepare(
+            'UPDATE inbound_mailboxes
+                SET host = ?, port = ?, encryption = ?, username_encrypted = ?, folders = ?, updated_at = ?
+              WHERE id = ?'
+        );
+        $stmt->execute([
+            $host,
+            $port,
+            $encryption,
+            $this->encryption->encrypt($username, 'inbound_mailboxes.username'),
+            implode("\n", $folders),
+            self::now(),
+            $id,
+        ]);
+    }
+
+    /**
      * The folder to read as the box's sent mail when the server marks none
      * `\Sent` (#720). Blank or null clears it: the server's mark applies.
      */

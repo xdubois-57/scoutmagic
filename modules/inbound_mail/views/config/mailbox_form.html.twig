@@ -54,7 +54,10 @@
                         <label class="form-label" for="mailbox-password">Mot de passe d'application</label>
                         <input type="password" class="form-control" id="mailbox-password" name="password"
                                autocomplete="new-password" aria-describedby="mailbox-password-help" {{ mailbox ? '' : 'required' }}>
-                        {# Shown for a recognised provider only (D12). The direct
+                        {# Shown for a recognised provider only (D12): Gmail's app
+                           password, and Microsoft's refusal of password logins,
+                           said before the verification fails rather than after.
+                           For Gmail, the direct
                            link rather than « look in your account settings »:
                            Google's app-password page is in no menu, and finding
                            it is where a unit gives up. #}
@@ -67,9 +70,10 @@
                         </p>
                         <p class="form-text mb-0" data-password-help="outlook"
                            {{ provider and provider.passwordHelp == 'outlook' ? '' : 'hidden' }}>
-                            Outlook demande un <strong>mot de passe d'application</strong>, pas celui du compte,
-                            quand la validation en deux étapes est active. Il se crée dans les options de sécurité
-                            du compte Microsoft ; sur un compte Microsoft 365, l'administrateur doit aussi autoriser IMAP.
+                            Microsoft refuse en général la connexion IMAP par mot de passe, mot de passe
+                            d'application compris, sur Outlook comme sur Microsoft 365 : seul un connecteur OAuth
+                            fonctionnerait, et le site n'en a pas. Si la vérification échoue, relevez plutôt une
+                            adresse chez un autre fournisseur, ou faites-y suivre le courrier.
                         </p>
                         <p class="form-text mb-0" id="mailbox-password-help">
                             {% if mailbox %}

@@ -620,4 +620,20 @@ class MailboxAdminServiceTest extends TestCase
         $this->assertSame(['Factures', 'Spam'], $forSeed['offered_folders'] ?? null);
         $this->assertSame('Envoyés', $result['sent_folder'] ?? null);
     }
+
+    /** The connection edit leaves the enabled state, and the failure date, as they stand. */
+    public function testUpdatingTheConnectionLeavesTheEnabledStateAlone(): void
+    {
+        $id = $this->createMailbox();
+        $this->service->setEnabled($id, false);
+
+        $this->service->updateConnection($id, 'imap.autre.test', 143, 'starttls', 'locations@unite.be', '', ['INBOX']);
+
+        $box = $this->repository->findById($id);
+        $this->assertNotNull($box);
+        $this->assertFalse($box->isEnabled);
+        $this->assertSame('imap.autre.test', $box->host);
+        $this->assertSame(143, $box->port);
+        $this->assertSame('un-mot-de-passe', $this->repository->findCredentials($id)?->password);
+    }
 }

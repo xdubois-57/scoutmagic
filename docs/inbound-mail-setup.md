@@ -96,9 +96,9 @@ vérification et une évaluation de sécurité annuelle **payante** chez Google,
 faute de quoi ses jetons expireraient tous les 7 jours et sa synchronisation
 casserait chaque semaine.
 
-Une boîte Gmail ou Outlook se connecte donc **en IMAP, avec un mot de passe
-d'application**, et le formulaire l'explique sous le champ du mot de passe
-quand il reconnaît l'un des deux :
+Une boîte Gmail se connecte donc **en IMAP, avec un mot de passe
+d'application** ; le formulaire l'explique sous le champ du mot de passe
+quand il reconnaît Gmail ou Microsoft :
 
 - **Gmail** : activez la validation en deux étapes sur le compte, puis
   créez un mot de passe d'application dédié sur
@@ -109,10 +109,13 @@ quand il reconnaît l'un des deux :
   sécurité, et sur un compte Workspace dont l'administrateur l'a
   désactivée : dans ces trois cas, la boîte doit être relevée autrement.
   Vérifiez qu'IMAP est activé dans les paramètres Gmail.
-- **Outlook / Microsoft 365** : selon la configuration de votre
-  organisation, IMAP peut devoir être activé par un administrateur, et
-  Microsoft réserve de plus en plus souvent l'accès IMAP aux applications
-  qui s'identifient par OAuth, que ScoutMagic ne propose pas.
+- **Outlook / Microsoft 365** : Microsoft a retiré la connexion IMAP par
+  mot de passe (l'« authentification de base ») d'Exchange Online et de
+  Microsoft 365, et Outlook.com a suivi ; un mot de passe d'application n'y
+  change rien. Seul un connecteur OAuth fonctionnerait, et ScoutMagic n'en a
+  pas (hors du périmètre du chantier #1333). Le fournisseur reste reconnu et
+  ses réglages remplis, mais la vérification échouera en général : relevez
+  une adresse chez un autre fournisseur, ou faites-y suivre le courrier.
 
 ## 4. Ajouter une adresse
 
