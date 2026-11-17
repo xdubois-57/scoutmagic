@@ -47,7 +47,7 @@ const PAGE_DOM = `
             <div id="mailbox-folders-picker" class="d-none">
                 <div id="mailbox-folders-list"></div>
             </div>
-            <p id="mailbox-folders-status"></p>
+            <output id="mailbox-folders-status" aria-live="polite"></output>
             <p id="mailbox-sent-found" hidden>Trouvé automatiquement : <span id="mailbox-sent-found-name"></span></p>
             <div id="mailbox-sent-field"><input id="mailbox-sent-folder" name="sent_folder" value=""></div>
         </details>

@@ -359,7 +359,8 @@ class MailboxAdminService
      * failure, in turn, would mark a working relève as broken. The row
      * belongs to the relève alone, and the test answers on the screen.
      *
-     * @return array{ok: bool, message: string, folders: string[], offered_folders?: list<string>, sent_folder?: ?string}
+     * @return array{ok: bool, message: string, folders: string[], offered_folders?: list<string>,
+     *   sent_folder?: ?string}
      */
     public function testConnection(int $id, \DateTimeImmutable $now): array
     {
@@ -405,7 +406,8 @@ class MailboxAdminService
      * `$offerJunk` keeps the junk folder among those offered, for a seed
      * box (`RemoteFolder::offeredAmong()`).
      *
-     * @return array{ok: bool, message: string, folders: string[], offered_folders?: list<string>, sent_folder?: ?string}
+     * @return array{ok: bool, message: string, folders: string[], offered_folders?: list<string>,
+     *   sent_folder?: ?string}
      */
     public function testConnectionFromParams(
         string $host,

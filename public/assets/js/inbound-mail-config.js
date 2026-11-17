@@ -75,8 +75,49 @@
     /** @param {string|null} key */
     function showPasswordHelp(key) {
         form.querySelectorAll('[data-password-help]').forEach(function (node) {
-            /** @type {HTMLElement} */ (node).hidden = node.getAttribute('data-password-help') !== key;
+            var help = /** @type {HTMLElement} */ (node);
+            help.hidden = help.dataset.passwordHelp !== key;
         });
+    }
+
+    /**
+     * The sentences under the address and the password: « X reconnu » and
+     * that provider's password help, or « Fournisseur non reconnu ».
+     *
+     * @param {{label: string, password_help: (string|null)}|null} provider
+     */
+    function showProviderHints(provider) {
+        if (providerKnown) {
+            var badge = providerKnown.querySelector('.badge');
+            if (badge && provider) {
+                badge.textContent = provider.label + ' reconnu';
+            }
+            providerKnown.hidden = !provider;
+        }
+        if (providerUnknown) {
+            providerUnknown.hidden = !!provider || (usernameInput?.value.trim() ?? '') === '';
+        }
+        showPasswordHelp(provider?.password_help || null);
+    }
+
+    /**
+     * Write the three connection settings, and remember them as this
+     * script's own; null empties what the script itself had written.
+     *
+     * @param {{host: string, port: string, encryption: string}|null} settings
+     */
+    function writeConnection(settings) {
+        prefilled = settings;
+        var values = settings ?? { host: '', port: '', encryption: '' };
+        if (hostInput) {
+            hostInput.value = values.host;
+        }
+        if (portInput) {
+            portInput.value = values.port;
+        }
+        if (encryptionSelect) {
+            encryptionSelect.value = values.encryption;
+        }
     }
 
     /**
@@ -84,57 +125,19 @@
      */
     function applyProvider(provider) {
         var untouched = connectionIsUntouched();
+        showProviderHints(provider);
 
-        if (provider) {
-            if (providerKnown) {
-                var badge = providerKnown.querySelector('.badge');
-                if (badge) {
-                    badge.textContent = provider.label + ' reconnu';
-                }
-                providerKnown.hidden = false;
-            }
-            if (providerUnknown) {
-                providerUnknown.hidden = true;
-            }
-            showPasswordHelp(provider.password_help || null);
-
-            if (untouched && hostInput) {
-                prefilled = {
-                    host: String(provider.host),
-                    port: String(provider.port),
-                    encryption: String(provider.encryption)
-                };
-                hostInput.value = prefilled.host;
-                if (portInput) {
-                    portInput.value = prefilled.port;
-                }
-                if (encryptionSelect) {
-                    encryptionSelect.value = prefilled.encryption;
-                }
-            }
-            return;
-        }
-
-        if (providerKnown) {
-            providerKnown.hidden = true;
-        }
-        if (providerUnknown) {
-            providerUnknown.hidden = !usernameInput || usernameInput.value.trim() === '';
-        }
-        showPasswordHelp(null);
-
-        // An unknown provider leaves the three settings empty: what this
-        // script prefilled for the previous address goes, what the
-        // operator typed stays.
-        if (prefilled !== null && untouched && hostInput) {
-            hostInput.value = '';
-            if (portInput) {
-                portInput.value = '';
-            }
-            if (encryptionSelect) {
-                encryptionSelect.value = '';
-            }
-            prefilled = null;
+        if (provider && untouched) {
+            writeConnection({
+                host: String(provider.host),
+                port: String(provider.port),
+                encryption: String(provider.encryption)
+            });
+        } else if (!provider && untouched && prefilled !== null) {
+            // An unknown provider leaves the three settings empty: what this
+            // script prefilled for the previous address goes, what the
+            // operator typed stays.
+            writeConnection(null);
         }
     }
 
@@ -161,7 +164,7 @@
         if (usernameInput.value.trim() !== address) {
             return;
         }
-        applyProvider(res.data && res.data.recognized ? res.data.provider : null);
+        applyProvider(res.data?.recognized ? res.data.provider : null);
     }
 
     if (usernameInput) {
@@ -175,7 +178,7 @@
             return;
         }
         var dedicated = /** @type {HTMLInputElement|null} */ (document.getElementById('mailbox-purpose-dedicated'));
-        moduleField.hidden = !(dedicated && dedicated.checked);
+        moduleField.hidden = !dedicated?.checked;
     }
 
     form.querySelectorAll('input[name="purpose"]').forEach(function (radio) {
@@ -269,7 +272,7 @@
     function showSentFolder(sentFolder) {
         // Found by the server and not overridden: said, not asked. An
         // operator's own entry stays editable.
-        if (!sentFolder || (sentInput && sentInput.value.trim() !== '')) {
+        if (!sentFolder || (sentInput?.value.trim() ?? '') !== '') {
             return;
         }
         if (sentFoundName) {
@@ -303,7 +306,7 @@
     function reservedModule() {
         var dedicated = /** @type {HTMLInputElement|null} */ (document.getElementById('mailbox-purpose-dedicated'));
         var select = /** @type {HTMLSelectElement|null} */ (document.getElementById('mailbox-dedicated-to'));
-        return dedicated && dedicated.checked && select ? select.value : '';
+        return dedicated?.checked && select ? select.value : '';
     }
 
     function connectionKey() {
@@ -342,8 +345,50 @@
         setFoldersStatus('');
     }
 
+    /** Whether the form holds enough to open a connection. */
+    function canListFolders() {
+        var editing = idInput ? Number.parseInt(idInput.value, 10) > 0 : false;
+        return (usernameInput?.value.trim() ?? '') !== ''
+            && (hostInput?.value.trim() ?? '') !== ''
+            && (editing || (passwordInput?.value ?? '') !== '');
+    }
+
+    /** What the test endpoint is asked, from the form as it stands. */
+    function folderRequest() {
+        return {
+            host: hostInput?.value ?? '',
+            port: portInput ? Number.parseInt(portInput.value, 10) : 993,
+            encryption: encryptionSelect?.value ?? 'ssl',
+            username: usernameInput?.value ?? '',
+            password: passwordInput?.value ?? '',
+            mailbox_id: idInput ? Number.parseInt(idInput.value, 10) : 0,
+            dedicated_to: reservedModule()
+        };
+    }
+
+    /**
+     * Show a successful listing.
+     *
+     * @param {{folders?: unknown, sent_folder?: unknown}} data
+     */
+    function showFolderListing(data) {
+        // The choice as it stands NOW: a folder typed while the server was
+        // answering is kept, not the snapshot taken before the request.
+        var selected = currentSelectedFolders();
+        /** @type {string[]} */
+        var offered = Array.isArray(data.folders) ? data.folders : [];
+        // A folder already chosen stays listed, checked, even when the
+        // server no longer offers it: a listing never unticks it silently.
+        var folders = offered.concat(selected.filter(function (f) { return !offered.includes(f); }));
+        setFoldersStatus(folders.length > 0 ? '' : "Le serveur n'a pas d'autre dossier à proposer.");
+        if (folders.length > 0) {
+            showFolderPicker(folders, selected);
+        }
+        showSentFolder(typeof data.sent_folder === 'string' ? data.sent_folder : null);
+    }
+
     async function listFolders() {
-        if (!foldersDetails || !foldersDetails.open) {
+        if (!foldersDetails?.open) {
             return;
         }
         var key = connectionKey();
@@ -353,28 +398,14 @@
         if (loadedKey !== null) {
             resetFolderListing();
         }
-
-        var editing = idInput ? Number.parseInt(idInput.value, 10) > 0 : false;
-        var ready = usernameInput && usernameInput.value.trim() !== ''
-            && hostInput && hostInput.value.trim() !== ''
-            && (editing || (passwordInput && passwordInput.value !== ''));
-        if (!ready) {
+        if (!canListFolders()) {
             setFoldersStatus("Renseignez l'adresse, le mot de passe et le serveur pour voir les dossiers de la boîte.");
             return;
         }
 
         setFoldersStatus('Lecture des dossiers du serveur…');
         pendingKey = key;
-
-        var res = await api.postJson('/config/courrier-entrant/test-connexion', {
-            host: hostInput ? hostInput.value : '',
-            port: portInput ? Number.parseInt(portInput.value, 10) : 993,
-            encryption: encryptionSelect ? encryptionSelect.value : 'ssl',
-            username: usernameInput ? usernameInput.value : '',
-            password: passwordInput ? passwordInput.value : '',
-            mailbox_id: idInput ? Number.parseInt(idInput.value, 10) : 0,
-            dedicated_to: reservedModule()
-        });
+        var res = await api.postJson('/config/courrier-entrant/test-connexion', folderRequest());
 
         // An answer for settings changed since, or overtaken by a newer
         // request, describes some other box: it is dropped.
@@ -383,24 +414,13 @@
         }
         pendingKey = null;
 
-        if (!res.data || !res.data.success) {
-            setFoldersStatus((res.data && res.data.error) || 'Erreur : réponse serveur invalide.');
+        if (!res.data?.success) {
+            setFoldersStatus(res.data?.error || 'Erreur : réponse serveur invalide.');
             return;
         }
 
         loadedKey = key;
-        // The choice as it stands NOW: a folder typed while the server was
-        // answering is kept, not the snapshot taken before the request.
-        var selectedBefore = currentSelectedFolders();
-        var offered = Array.isArray(res.data.folders) ? res.data.folders : [];
-        // A folder already chosen stays listed, checked, even when the
-        // server no longer offers it: a listing never unticks it silently.
-        var folders = offered.concat(selectedBefore.filter(function (f) { return !offered.includes(f); }));
-        setFoldersStatus(folders.length > 0 ? '' : "Le serveur n'a pas d'autre dossier à proposer.");
-        if (folders.length > 0) {
-            showFolderPicker(folders, selectedBefore);
-        }
-        showSentFolder(typeof res.data.sent_folder === 'string' ? res.data.sent_folder : null);
+        showFolderListing(res.data);
     }
 
     if (foldersDetails) {

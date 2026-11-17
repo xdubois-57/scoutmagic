@@ -77,8 +77,10 @@
 
                     {% if failed and mailbox.lastError %}
                         {# The sentence MailboxErrorFormatter wrote — never a
-                           library's own text — then what to do with it. #}
-                        <div class="alert alert-danger small py-2 mb-2" role="status">
+                           library's own text — then what to do with it.
+                           Rendered with the page and never updated after,
+                           so it is no live region. #}
+                        <div class="alert alert-danger small py-2 mb-2">
                             {{ mailbox.lastError }} Corrigez ensuite le réglage en cause avec « Modifier ».
                         </div>
                     {% endif %}

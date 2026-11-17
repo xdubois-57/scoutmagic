@@ -207,7 +207,9 @@
                                     <div id="mailbox-folders-list" class="border rounded p-2 overflow-auto"></div>
                                     <div class="form-text">Aucun coché : seulement la boîte de réception.</div>
                                 </div>
-                                <p class="form-text" id="mailbox-folders-status" role="status"></p>
+                                {# <output> is a polite live region of its own: the
+                                   script writes the listing's progress here. #}
+                                <output class="form-text d-block mb-3" id="mailbox-folders-status" aria-live="polite"></output>
 
                                 <p class="mb-1" id="mailbox-sent-found" hidden>
                                     <span class="form-label d-block mb-0">Dossier des messages envoyés</span>
