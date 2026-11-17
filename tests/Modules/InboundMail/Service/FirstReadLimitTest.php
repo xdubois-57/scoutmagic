@@ -81,7 +81,6 @@ class FirstReadLimitTest extends TestCase
         );
 
         $this->mailboxId = $this->mailboxes->create(
-            'Locations',
             ProviderType::FAKE,
             'imap.test',
             993,
@@ -293,7 +292,6 @@ class FirstReadLimitTest extends TestCase
         $this->add('Archives', 2, $this->now()->modify('-5 years'), 'archive-ancien');
         $this->mailboxes->update(
             $this->mailboxId,
-            'Locations',
             'imap.test',
             993,
             'ssl',
@@ -395,6 +393,10 @@ class FirstReadLimitTest extends TestCase
         $stmt->execute(['inbound_first_read_limited']);
         foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $entry) {
             $this->assertStringNotContainsString('Message ', (string) $entry['description']);
+            // The box by its number, never its address (no personal data in
+            // the journal).
+            $this->assertStringContainsString('#' . $this->mailboxId, (string) $entry['description']);
+            $this->assertStringNotContainsString('locations@unite.be', (string) $entry['description']);
             $context = json_decode((string) $entry['context'], true);
             $this->assertIsArray($context);
             // MySQL's JSON type stores keys in its own order, MariaDB

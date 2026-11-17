@@ -365,7 +365,6 @@ class MailboxSyncService
         if ($selection->leftAside > 0) {
             $this->analysisJournal?->firstReadLimited(
                 $mailbox->id,
-                $mailbox->name,
                 $folder,
                 count($selection->uids),
                 $selection->leftAside

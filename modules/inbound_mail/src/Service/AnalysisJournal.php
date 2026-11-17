@@ -224,7 +224,6 @@ class AnalysisJournal
      */
     public function firstReadLimited(
         int $mailboxId,
-        string $mailboxName,
         string $folder,
         int $retained,
         int $leftAside
@@ -234,9 +233,9 @@ class AnalysisJournal
             'inbound_first_read_limited',
             'info',
             sprintf(
-                'Boîte « %s », dossier « %s » : première relève limitée au courrier récent, '
+                'Boîte #%d, dossier « %s » : première relève limitée au courrier récent, '
                 . '%d message(s) retenu(s), %d message(s) plus ancien(s) laissé(s) de côté.',
-                $mailboxName,
+                $mailboxId,
                 $folder,
                 $retained,
                 $leftAside
