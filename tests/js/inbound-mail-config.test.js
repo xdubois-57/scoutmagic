@@ -357,6 +357,22 @@ describe('inbound-mail-config.js', () => {
             expect($('mailbox-folders').value).toBe('Locations');
         });
 
+        it('lists the folders of a section rendered already open, which fires no toggle', async () => {
+            global.fetch = mockFetch({ 'test-connexion': { success: true, folders: ['Factures'], sent_folder: null } });
+            fillConnection();
+            $('mailbox-id').value = '42';
+            $('mailbox-password').value = '';
+            $('mailbox-folders').value = 'Factures';
+            $('mailbox-folders-details').open = true;
+            // The section's own toggle is spent before the script listens,
+            // as when the page parses an already open <details>.
+            await new Promise((resolve) => setTimeout(resolve, 0));
+            await boot();
+
+            await vi.waitFor(() => expect(document.querySelectorAll('.folder-checkbox').length).toBe(1));
+            expect(document.querySelector('.folder-checkbox').checked).toBe(true);
+        });
+
         it('lists the folders of a saved box without retyping its password', async () => {
             await boot();
             fillConnection();

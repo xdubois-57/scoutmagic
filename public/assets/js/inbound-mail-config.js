@@ -405,6 +405,9 @@
 
     if (foldersDetails) {
         foldersDetails.addEventListener('toggle', listFolders);
+        // Rendered already open (an edited box with folders chosen), the
+        // section fires no toggle: list its folders now.
+        void listFolders();
     }
 
     // A change of server, port, encryption, address or usage makes the

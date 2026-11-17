@@ -815,7 +815,9 @@ class InboundMailConfigControllerTest extends TestCase
         $body = $this->controller->index($this->get('/config/courrier-entrant'), [])->getBody();
 
         $this->assertStringNotContainsString('imap.test', $body);
-        $this->assertStringNotContainsString('993', $body);
+        // A port-shaped needle: the page's random CSRF token can contain
+        // the bare digits.
+        $this->assertDoesNotMatchRegularExpression('/[^0-9a-f]993[^0-9a-f]/', $body);
         $this->assertStringNotContainsString('Rafraîchir maintenant', $body);
         $this->assertStringNotContainsString('/rafraichir', $body);
         $this->assertStringNotContainsString('Tester la connexion', $body);
