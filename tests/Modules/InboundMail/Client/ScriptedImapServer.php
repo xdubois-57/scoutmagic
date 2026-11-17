@@ -34,6 +34,9 @@ final class ScriptedImapServer extends ImapProtocol
 
     public int $uidValidity = 1;
 
+    /** Leave UIDNEXT out of the folder status, as some servers do. */
+    public bool $omitUidNext = false;
+
     /**
      * @var array<string, array<int, \DateTimeImmutable>> folder => uid => the
      * server's reception date (`INTERNALDATE`); a message with none was
@@ -139,6 +142,10 @@ final class ScriptedImapServer extends ImapProtocol
             ));
         }
 
+        if (($params[0] ?? null) === 'ALL') {
+            $this->commands[] = 'SEARCH ALL';
+        }
+
         return $this->ok($uids, true);
     }
 
@@ -242,11 +249,16 @@ final class ScriptedImapServer extends ImapProtocol
     {
         $uids = array_keys($this->folders[$folder] ?? []);
 
-        return [
+        $status = [
             'exists' => count($uids),
             'uidvalidity' => $this->uidValidity,
             'uidnext' => ($uids === [] ? 0 : max($uids)) + 1,
         ];
+        if ($this->omitUidNext) {
+            unset($status['uidnext']);
+        }
+
+        return $status;
     }
 
     /**

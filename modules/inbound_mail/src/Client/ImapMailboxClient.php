@@ -216,7 +216,12 @@ class ImapMailboxClient implements IncomingMailboxClientInterface, PruningMailbo
             $imapFolder->getClient()->setActiveFolder($imapFolder->path);
             $connection = $imapFolder->getClient()->getConnection();
 
-            $highestUid = (int) ($status['uidnext'] ?? 1) - 1;
+            // A server that leaves UIDNEXT out is asked for the folder's
+            // UIDs instead: 0 here would retain nothing and start the
+            // cursor at the bottom of the folder, the whole history.
+            $highestUid = isset($status['uidnext'])
+                ? (int) $status['uidnext'] - 1
+                : self::highestUidIn($connection->search(['ALL'], IMAP::ST_UID)->validatedData());
             $found = $connection->search(['SINCE', $since->format('j-M-Y')], IMAP::ST_UID)->validatedData();
             $uids = array_values(array_filter(
                 array_map('intval', is_array($found) ? $found : []),
@@ -239,6 +244,16 @@ class ImapMailboxClient implements IncomingMailboxClientInterface, PruningMailbo
             $highestUid,
             max(0, (int) ($status['exists'] ?? 0) - count($uids))
         );
+    }
+
+    /**
+     * The highest UID a `UID SEARCH ALL` named, 0 for an empty folder.
+     */
+    private static function highestUidIn(mixed $found): int
+    {
+        $uids = array_map('intval', is_array($found) ? $found : []);
+
+        return $uids === [] ? 0 : max(0, max($uids));
     }
 
     /**

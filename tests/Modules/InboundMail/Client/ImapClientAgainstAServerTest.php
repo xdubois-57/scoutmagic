@@ -227,6 +227,29 @@ class ImapClientAgainstAServerTest extends TestCase
         }
     }
 
+    /**
+     * A server that leaves UIDNEXT out of its status: the highest UID comes
+     * from the folder's UIDs, not 0 — which would retain nothing and start
+     * the cursor at the bottom, the whole history.
+     */
+    public function testAFirstReadWithoutUidNextStillFindsTheHighestUid(): void
+    {
+        $now = new \DateTimeImmutable('2027-07-12 10:00:00');
+        $this->server->omitUidNext = true;
+        $this->server->folders['INBOX'] = [];
+        foreach ([3 => '-1 day', 8 => '-2 days', 12 => '-3 years'] as $uid => $ago) {
+            $this->server->folders['INBOX'][$uid] = str_replace('<demande@', '<demande-' . $uid . '@', self::MESSAGE);
+            $this->server->internalDates['INBOX'][$uid] = $now->modify($ago);
+        }
+
+        $selection = $this->connected()->firstReadSelection('INBOX', $now->modify('-12 months'), 10);
+
+        $this->assertSame([3, 8], $selection->uids);
+        $this->assertSame(12, $selection->highestUid, 'the cursor starts above the old import');
+        $this->assertSame(1, $selection->leftAside);
+        $this->assertContains('SEARCH ALL', $this->server->commands);
+    }
+
     public function testAFirstReadWithinTheCapDoesNotEvenFetchTheDates(): void
     {
         $selection = $this->connected()->firstReadSelection('INBOX', new \DateTimeImmutable('-12 months'), 10);
