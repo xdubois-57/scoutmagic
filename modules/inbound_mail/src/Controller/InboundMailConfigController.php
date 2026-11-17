@@ -18,7 +18,7 @@ use Modules\InboundMail\Api\MailboxPurpose;
 use Modules\InboundMail\Mailbox\Mailbox;
 use Modules\InboundMail\Service\MailboxAdminService;
 use Modules\InboundMail\Service\MailboxReservationRefusedException;
-use Modules\InboundMail\Service\ManualRefreshService;
+use Modules\InboundMail\Service\MailProviderRecognizer;
 use Modules\InboundMail\Service\MessageConsumerRegistry;
 use Twig\Environment;
 
@@ -34,6 +34,12 @@ use Twig\Environment;
  * it", because there is no way to show an operator what they would be
  * retyping.
  *
+ * **A box is verified before it is saved** (D10): « Vérifier et
+ * enregistrer » opens the connection with what the form holds, and an
+ * address that does not answer is not written. The form comes back with
+ * its fields as typed — all but the password, which is never rendered —
+ * and one sentence saying what to check.
+ *
  * Journal entries name the mailbox by its id and nothing else (« boîte
  * #12 »). The screens show its address, a box's only name (D7); the
  * journal is not a place for an address, nor for a host, which is half a
@@ -41,6 +47,10 @@ use Twig\Environment;
  */
 class InboundMailConfigController extends AbstractController
 {
+    private const INDEX = '/config/courrier-entrant';
+
+    private MailProviderRecognizer $providers;
+
     public function __construct(
         protected Environment $twig,
         private MailboxAdminService $adminService,
@@ -53,18 +63,15 @@ class InboundMailConfigController extends AbstractController
          */
         private ?MessageConsumerRegistry $consumerRegistry = null,
         /**
-         * Runs a synchronisation on demand for « Rafraîchir maintenant ».
-         * Null means the button is not offered rather than offered and
-         * inert — a button that does nothing is worse than none.
-         */
-        private ?ManualRefreshService $refreshService = null,
-        /**
          * Read for one thing: whether a real cron has run lately. On shared
          * hosting without one the relève only happens on page views, and a
          * unit that does not know it reads the delay as a broken box.
          */
-        private ?\Core\Config\SettingService $settings = null
+        private ?\Core\Config\SettingService $settings = null,
+        /** Prefills the connection settings of a known provider (D8). */
+        ?MailProviderRecognizer $providers = null
     ) {
+        $this->providers = $providers ?? new MailProviderRecognizer();
     }
 
     /**
@@ -84,6 +91,8 @@ class InboundMailConfigController extends AbstractController
     }
 
     /**
+     * GET /config/courrier-entrant — one card per address.
+     *
      * @param array<string, string> $params
      */
     public function index(Request $request, array $params): Response
@@ -98,8 +107,6 @@ class InboundMailConfigController extends AbstractController
         return $this->render('@inbound_mail/config/index.html.twig', [
             'mailboxes' => $mailboxes,
             'usages' => $usages,
-            'stored_counts' => $this->adminService->storedMessageCounts(),
-            'can_refresh' => $this->refreshService !== null,
             'cron_detected' => $this->cronDetected(),
             'csrf_token' => CsrfGuard::generateToken(),
         ]);
@@ -122,45 +129,13 @@ class InboundMailConfigController extends AbstractController
     }
 
     /**
-     * POST /config/courrier-entrant/rafraichir
-     *
-     * A synchronisation on demand, so a superadmin who has just configured
-     * a box does not have to wait a quarter of an hour to find out whether
-     * it works.
-     *
-     * **Behind a lock**, because it runs inside the request: two clicks a
-     * second apart would open two IMAP sessions on the same box, read the
-     * same messages twice and race each other on the cursor. The lock is a
-     * setting rather than a table — one row, no schema, and readable from
-     * the scheduled path too.
-     *
-     * @param array<string, string> $params
-     */
-    public function refreshNow(Request $request, array $params): Response
-    {
-        if (($guard = $this->guardCsrf($request, '/config/courrier-entrant')) !== null) {
-            return $guard;
-        }
-
-        if ($this->refreshService === null) {
-            return $this->notFound();
-        }
-
-        $outcome = $this->refreshService->refresh(new \DateTimeImmutable());
-
-        FlashMessage::set($outcome['level'], $outcome['message']);
-
-        return $this->redirect('/config/courrier-entrant');
-    }
-
-    /**
      * GET /config/courrier-entrant/boites/nouvelle
      *
      * @param array<string, string> $params
      */
     public function newMailbox(Request $request, array $params): Response
     {
-        return $this->render('@inbound_mail/config/mailbox_form.html.twig', $this->formContext(null));
+        return $this->renderForm(null, null);
     }
 
     /**
@@ -175,114 +150,168 @@ class InboundMailConfigController extends AbstractController
             return $this->notFound();
         }
 
-        return $this->render('@inbound_mail/config/mailbox_form.html.twig', $this->formContext($mailbox));
+        return $this->renderForm($mailbox, null);
     }
 
     /**
+     * POST /config/courrier-entrant/boites — « Vérifier et enregistrer ».
+     *
+     * Every refusal renders the form again, filled as it was posted, so
+     * nothing typed is lost; nothing is written before the connection has
+     * answered (D10).
+     *
      * @param array<string, string> $params
      */
     public function save(Request $request, array $params): Response
     {
-        if (($guard = $this->guardCsrf($request, '/config/courrier-entrant')) !== null) {
+        if (($guard = $this->guardCsrf($request, self::INDEX)) !== null) {
             return $guard;
         }
 
         $id = (int) $request->getBody('id', 0);
-        $host = trim((string) $request->getBody('host', ''));
-        $port = (int) $request->getBody('port', 993);
-        $encryption = (string) $request->getBody('encryption', 'ssl');
-        $username = trim((string) $request->getBody('username', ''));
+        $existing = $id > 0 ? $this->adminService->findById($id) : null;
+        if ($id > 0 && $existing === null) {
+            return $this->notFound();
+        }
+
+        $input = self::readForm($request);
         $password = (string) $request->getBody('password', '');
-        $folders = MailboxAdminService::parseFolders((string) $request->getBody('folders', ''));
-        $sentFolder = trim((string) $request->getBody('sent_folder', ''));
-        $isEnabled = $request->getBody('is_enabled') !== null;
-        $purpose = MailboxPurpose::fromString((string) $request->getBody('purpose', ''));
-        $dedicatedTo = $purpose === MailboxPurpose::DEDICATED
-            ? trim((string) $request->getBody('dedicated_to', ''))
-            : null;
-        $back = $id > 0
-            ? '/config/courrier-entrant/boites/' . $id . '/modification'
-            : '/config/courrier-entrant/boites/nouvelle';
 
-        if ($host === '' || $username === '') {
-            FlashMessage::set('error', "L'adresse et le serveur sont obligatoires.");
-
-            return $this->redirect('/config/courrier-entrant');
-        }
-
-        if ($port < 1 || $port > 65535) {
-            FlashMessage::set('error', 'Le port doit être compris entre 1 et 65535.');
-
-            return $this->redirect('/config/courrier-entrant');
-        }
-
-        // Only a module that reads mail can have an address of its own; a
-        // posted id that names nothing is refused rather than stored — unless
-        // it is the module the box is already reserved to, switched off since,
-        // which an edit keeps as it is.
-        $keepsItsModule = $id > 0 && $dedicatedTo !== null
-            && $this->adminService->findById($id)?->dedicatedTo === $dedicatedTo;
-        if ($dedicatedTo !== null && $dedicatedTo !== '' && !$keepsItsModule
-            && $this->consumerRegistry?->find($dedicatedTo) === null
-        ) {
-            FlashMessage::set('error', 'Choisissez le module auquel cette adresse est réservée.');
-
-            return $this->redirect($back);
-        }
-
-        // Asked before anything is written: a refused purpose leaves the
-        // box exactly as it was (D5, one reserved address per module).
-        $refusal = $this->adminService->purposeRefusal($id, $purpose, $dedicatedTo);
+        $refusal = $this->refusal($existing, $input, $password);
         if ($refusal !== null) {
-            FlashMessage::set('error', $refusal);
-
-            return $this->redirect($back);
+            return $this->renderForm($existing, $input, ['title' => null, 'message' => $refusal]);
         }
 
-        if ($id > 0) {
+        $purpose = MailboxPurpose::fromString($input['purpose']);
+        $dedicatedTo = $purpose === MailboxPurpose::DEDICATED ? $input['dedicated_to'] : null;
+
+        // The connection first: an address that does not answer is not
+        // saved, and the box as stored is left exactly as it was.
+        $verified = $this->adminService->testConnectionFromParams(
+            $input['host'],
+            (int) $input['port'],
+            $input['encryption'],
+            $input['username'],
+            $password,
+            $existing?->id,
+            new \DateTimeImmutable()
+        );
+        if (!$verified['ok']) {
+            return $this->renderForm($existing, $input, [
+                'title' => "La connexion a échoué. Rien n'est enregistré.",
+                'message' => $verified['message'],
+            ]);
+        }
+
+        $folders = MailboxAdminService::foldersWithInbox(MailboxAdminService::parseFolders($input['folders']));
+
+        if ($existing !== null) {
             $this->adminService->update(
-                $id,
-                $host,
-                $port,
-                $encryption,
-                $username,
+                $existing->id,
+                $input['host'],
+                (int) $input['port'],
+                $input['encryption'],
+                $input['username'],
                 $password,
                 $folders,
-                $isEnabled,
-                $sentFolder
+                // No « Synchroniser cette boîte » any more (D10): a box is
+                // suspended with « Désactiver » in the list, and an edit
+                // keeps whatever that says.
+                $existing->isEnabled,
+                $input['sent_folder']
             );
 
-            return $this->afterSave($id, $purpose, $dedicatedTo, 'inbound_mailbox_updated', 'mise à jour');
-        }
-
-        if ($password === '') {
-            FlashMessage::set('error', 'Le mot de passe est obligatoire pour une nouvelle boîte.');
-
-            return $this->redirect('/config/courrier-entrant');
+            return $this->afterSave($existing->id, $purpose, $dedicatedTo, 'inbound_mailbox_updated', 'mise à jour');
         }
 
         try {
             // The purpose travels with the INSERT: a refused reservation
             // creates no box at all, rather than a general one.
             $newId = $this->adminService->create(
-                $host,
-                $port,
-                $encryption,
-                $username,
+                $input['host'],
+                (int) $input['port'],
+                $input['encryption'],
+                $input['username'],
                 $password,
                 $folders,
-                $isEnabled,
-                $sentFolder,
+                true,
+                $input['sent_folder'],
                 $purpose,
                 $dedicatedTo
             );
         } catch (MailboxReservationRefusedException $refused) {
-            FlashMessage::set('error', $refused->getMessage());
-
-            return $this->redirect($back);
+            return $this->renderForm(null, $input, ['title' => null, 'message' => $refused->getMessage()]);
         }
 
         return $this->afterSave($newId, $purpose, null, 'inbound_mailbox_created', 'ajoutée');
+    }
+
+    /**
+     * Why the posted form cannot be verified as it stands, or null.
+     *
+     * @param array<string, string> $input
+     */
+    private function refusal(?Mailbox $existing, array $input, string $password): ?string
+    {
+        if ($input['username'] === '') {
+            return "Indiquez l'adresse e-mail de la boîte.";
+        }
+
+        if ($input['host'] === '') {
+            return 'Indiquez le serveur IMAP : il figure dans l\'aide de votre fournisseur, rubrique IMAP.';
+        }
+
+        $port = (int) $input['port'];
+        if ($port < 1 || $port > 65535 || (string) $port !== $input['port']) {
+            return 'Le port doit être un nombre compris entre 1 et 65535.';
+        }
+
+        if (!in_array($input['encryption'], ['ssl', 'tls', 'starttls'], true)) {
+            return 'Choisissez le chiffrement : SSL, TLS ou STARTTLS.';
+        }
+
+        if ($existing === null && $password === '') {
+            return "Indiquez le mot de passe d'application de la boîte.";
+        }
+
+        $purpose = MailboxPurpose::fromString($input['purpose']);
+        $dedicatedTo = $purpose === MailboxPurpose::DEDICATED ? $input['dedicated_to'] : null;
+
+        // Only a module that reads mail can have an address of its own; a
+        // posted id that names nothing is refused rather than stored — unless
+        // it is the module the box is already reserved to, switched off since,
+        // which an edit keeps as it is.
+        $keepsItsModule = $existing !== null && $dedicatedTo !== null && $existing->dedicatedTo === $dedicatedTo;
+        if ($dedicatedTo !== null && $dedicatedTo !== '' && !$keepsItsModule
+            && $this->consumerRegistry?->find($dedicatedTo) === null
+        ) {
+            return 'Choisissez le module auquel cette adresse est réservée.';
+        }
+
+        // Asked before anything is written: a refused purpose leaves the
+        // box exactly as it was (D5, one reserved address per module).
+        return $this->adminService->purposeRefusal($existing->id ?? 0, $purpose, $dedicatedTo);
+    }
+
+    /**
+     * The form as it was posted, trimmed — the password apart, which is
+     * never rendered back.
+     *
+     * @return array{username: string, host: string, port: string, encryption: string, purpose: string,
+     *   dedicated_to: string, folders: string, sent_folder: string}
+     */
+    private static function readForm(Request $request): array
+    {
+        return [
+            'username' => trim((string) $request->getBody('username', '')),
+            'host' => trim((string) $request->getBody('host', '')),
+            'port' => trim((string) $request->getBody('port', '')),
+            'encryption' => trim((string) $request->getBody('encryption', '')),
+            'purpose' => (string) $request->getBody('purpose', ''),
+            'dedicated_to' => trim((string) $request->getBody('dedicated_to', '')),
+            'folders' => (string) $request->getBody('folders', ''),
+            'sent_folder' => trim((string) $request->getBody('sent_folder', '')),
+        ];
     }
 
     /**
@@ -319,38 +348,23 @@ class InboundMailConfigController extends AbstractController
         } else {
             FlashMessage::set(
                 'success',
-                $event === 'inbound_mailbox_created'
-                    ? 'Boîte ajoutée. Testez la connexion avant de compter dessus.'
-                    : 'Boîte mise à jour.'
+                'Adresse vérifiée et enregistrée. Elle sera relevée au prochain passage de la relève.'
             );
         }
 
-        return $this->redirect('/config/courrier-entrant');
+        return $this->redirect(self::INDEX);
     }
 
     /**
-     * @param array<string, string> $params
-     */
-    public function testConnection(Request $request, array $params): Response
-    {
-        if (($guard = $this->guardCsrf($request, '/config/courrier-entrant')) !== null) {
-            return $guard;
-        }
-
-        $result = $this->adminService->testConnection((int) ($params['id'] ?? 0), new \DateTimeImmutable());
-
-        FlashMessage::set($result['ok'] ? 'success' : 'danger', $result['message']);
-
-        return $this->redirect('/config/courrier-entrant');
-    }
-
-    /**
-     * JSON endpoint for the form's « Tester la connexion » button.
+     * POST /config/courrier-entrant/test-connexion — JSON, for « Dossiers
+     * lus (facultatif) ».
      *
      * Accepts the connection parameters as JSON, tries them without saving
-     * anything, and returns the list of folders the server exposes. When
-     * editing an existing box and the password field was left blank the
-     * stored one is reused — the page never re-displays it.
+     * anything, and returns the folders the form may offer — the special
+     * ones filtered out (D9), the junk folder kept for a seed box — and the
+     * one the server marks as the sent
+     * mail. When editing an existing box and the password field was left
+     * blank the stored one is reused — the page never re-displays it.
      *
      * @param array<string, string> $params
      */
@@ -371,9 +385,15 @@ class InboundMailConfigController extends AbstractController
         $username = trim((string) ($data['username'] ?? ''));
         $password = (string) ($data['password'] ?? '');
         $existingId = (int) ($data['mailbox_id'] ?? 0);
+        // A seed box must read its junk folder — the one place it is
+        // offered (§8.58 and Core\Mail\Feedback\Seed).
+        $offerJunk = MailboxPurpose::readsReservedBoxesOnly(trim((string) ($data['dedicated_to'] ?? '')));
 
         if ($host === '' || $username === '') {
-            return $this->json(['success' => false, 'error' => "L'hôte et le compte sont obligatoires."]);
+            return $this->json([
+                'success' => false,
+                'error' => "Renseignez d'abord l'adresse, le mot de passe et le serveur.",
+            ]);
         }
 
         $result = $this->adminService->testConnectionFromParams(
@@ -383,14 +403,44 @@ class InboundMailConfigController extends AbstractController
             $username,
             $password,
             $existingId > 0 ? $existingId : null,
-            new \DateTimeImmutable()
+            new \DateTimeImmutable(),
+            $offerJunk
         );
 
         return $this->json([
             'success' => $result['ok'],
             'error' => $result['ok'] ? null : $result['message'],
             'message' => $result['ok'] ? $result['message'] : null,
-            'folders' => $result['folders'],
+            'folders' => $result['offered_folders'] ?? [],
+            'sent_folder' => $result['sent_folder'] ?? null,
+        ]);
+    }
+
+    /**
+     * POST /config/courrier-entrant/fournisseur — JSON: the provider an
+     * address belongs to and the settings the form prefills (D8).
+     *
+     * A POST and not a GET: the address is somebody's, and a query string
+     * is written to every access log on the way.
+     *
+     * @param array<string, string> $params
+     */
+    public function recognizeProvider(Request $request, array $params): Response
+    {
+        $data = json_decode($request->getRawBody(), true);
+        if (!is_array($data)) {
+            return $this->json(['recognized' => false, 'provider' => null]);
+        }
+
+        if (($guard = $this->guardCsrfJson($request, (string) ($data['_csrf_token'] ?? ''))) !== null) {
+            return $guard;
+        }
+
+        $provider = $this->providers->recognize(trim((string) ($data['address'] ?? '')));
+
+        return $this->json([
+            'recognized' => $provider !== null,
+            'provider' => $provider?->toArray(),
         ]);
     }
 
@@ -399,7 +449,7 @@ class InboundMailConfigController extends AbstractController
      */
     public function toggle(Request $request, array $params): Response
     {
-        if (($guard = $this->guardCsrf($request, '/config/courrier-entrant')) !== null) {
+        if (($guard = $this->guardCsrf($request, self::INDEX)) !== null) {
             return $guard;
         }
 
@@ -414,9 +464,9 @@ class InboundMailConfigController extends AbstractController
             $enable ? 'Boîte de courrier entrant réactivée.' : 'Boîte de courrier entrant désactivée.',
             ['mailbox_id' => $id]
         );
-        FlashMessage::set('success', $enable ? 'Boîte réactivée.' : 'Boîte désactivée.');
+        FlashMessage::set('success', $enable ? 'Adresse réactivée.' : 'Adresse désactivée.');
 
-        return $this->redirect('/config/courrier-entrant');
+        return $this->redirect(self::INDEX);
     }
 
     /**
@@ -431,7 +481,7 @@ class InboundMailConfigController extends AbstractController
      */
     public function delete(Request $request, array $params): Response
     {
-        if (($guard = $this->guardCsrf($request, '/config/courrier-entrant')) !== null) {
+        if (($guard = $this->guardCsrf($request, self::INDEX)) !== null) {
             return $guard;
         }
 
@@ -444,19 +494,79 @@ class InboundMailConfigController extends AbstractController
             'Boîte de courrier entrant supprimée.',
             ['mailbox_id' => $id]
         );
-        FlashMessage::set('success', 'Boîte supprimée.');
+        FlashMessage::set('success', 'Adresse supprimée.');
 
-        return $this->redirect('/config/courrier-entrant');
+        return $this->redirect(self::INDEX);
     }
 
     /**
-     * @return array<string, mixed>
+     * The add/edit form, from the stored box, from what was just posted,
+     * or blank — with the outcome of a refused « Vérifier et enregistrer »
+     * on top.
+     *
+     * @param array<string, string>|null $input what was posted, null on a GET
+     * @param array{title: ?string, message: string}|null $failure
      */
-    private function formContext(?Mailbox $mailbox): array
+    private function renderForm(?Mailbox $mailbox, ?array $input, ?array $failure = null): Response
     {
-        // A module that already has its address is not offered for another
-        // box (D5) — except this box's own module, which it keeps, and the
-        // seed boxes, which may be several.
+        $modules = $this->offeredModules($mailbox);
+        $general = array_values(array_filter(
+            $this->adminService->generalAddresses(),
+            static fn(string $address): bool => $address !== $mailbox?->displayName()
+        ));
+
+        $form = $input ?? [
+            'username' => $mailbox->username ?? '',
+            'host' => $mailbox->host ?? '',
+            // Empty for a new box: an unknown provider's settings are
+            // typed, never guessed.
+            'port' => $mailbox !== null ? (string) $mailbox->port : '',
+            'encryption' => $mailbox->encryption ?? '',
+            'purpose' => $mailbox !== null
+                ? ($mailbox->isDedicated() ? MailboxPurpose::DEDICATED->value : MailboxPurpose::SHARED->value)
+                : $this->adminService->suggestedPurpose($modules !== [])->value,
+            'dedicated_to' => $mailbox?->isDedicated() === true ? (string) $mailbox->dedicatedTo : '',
+            'folders' => implode("\n", $mailbox->folders ?? []),
+            'sent_folder' => $mailbox->sentFolder ?? '',
+        ];
+
+        // Prefill only what is empty: a server the operator typed is
+        // theirs, and a recognised provider never overwrites it.
+        $provider = $form['username'] !== '' ? $this->providers->recognize($form['username']) : null;
+        if ($provider !== null && $form['host'] === '') {
+            $form['host'] = $provider->host;
+            $form['port'] = (string) $provider->port;
+            $form['encryption'] = $provider->encryption;
+        }
+
+        // The inbox is always read and is not one of the « autres dossiers ».
+        $others = array_values(array_filter(
+            MailboxAdminService::parseFolders($form['folders']),
+            static fn(string $folder): bool => strcasecmp($folder, 'INBOX') !== 0
+        ));
+
+        return $this->render('@inbound_mail/config/mailbox_form.html.twig', [
+            'mailbox' => $mailbox,
+            'form' => $form,
+            'other_folders' => $others,
+            'provider' => $provider,
+            'modules' => $modules,
+            'general_addresses' => $general,
+            'is_first_address' => $mailbox === null && $this->adminService->listMailboxes() === [],
+            'failure' => $failure,
+            'csrf_token' => CsrfGuard::generateToken(),
+        ]);
+    }
+
+    /**
+     * The modules a box may be reserved to: the active ones that read mail
+     * and have no address of their own yet (D5) — the seed boxes, which may
+     * be several, always — plus this box's own module, which it keeps.
+     *
+     * @return list<array{id: string, name: string}>
+     */
+    private function offeredModules(?Mailbox $mailbox): array
+    {
         $taken = [];
         foreach ($this->adminService->listMailboxes() as $other) {
             if ($other->isDedicated() && $other->id !== $mailbox?->id
@@ -487,10 +597,6 @@ class InboundMailConfigController extends AbstractController
             $modules[] = ['id' => $current, 'name' => $current . ' (module désactivé)'];
         }
 
-        return [
-            'mailbox' => $mailbox,
-            'modules' => $modules,
-            'csrf_token' => CsrfGuard::generateToken(),
-        ];
+        return $modules;
     }
 }

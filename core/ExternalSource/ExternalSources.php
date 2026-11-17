@@ -343,7 +343,7 @@ final class ExternalSources
                 'google-app-passwords',
                 'https://myaccount.google.com/apppasswords',
                 'Google app passwords (inbound mail over IMAP)',
-                ['modules/inbound_mail/views/config/index.html.twig']
+                ['modules/inbound_mail/views/config/mailbox_form.html.twig']
             ),
         ];
     }

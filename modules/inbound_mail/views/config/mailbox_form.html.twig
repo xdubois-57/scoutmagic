@@ -1,9 +1,22 @@
 {% extends 'base.html.twig' %}
 
-{% block title %}{{ mailbox ? 'Modifier la boîte' : 'Nouvelle boîte' }} — {{ site_name }}{% endblock %}
+{% set page_title = mailbox ? "Modifier l'adresse" : 'Ajouter une adresse' %}
+
+{% block title %}{{ page_title }} — {{ site_name }}{% endblock %}
 
 {% block content %}
-    {% include 'partials/page_header.html.twig' with { title: mailbox ? 'Modifier la boîte' : 'Nouvelle boîte' } only %}
+    {% include 'partials/page_header.html.twig' with { title: page_title } only %}
+
+    {# A refused « Vérifier et enregistrer » (D10): nothing was written, every
+       field is as it was typed except the password, which is never rendered. #}
+    {% if failure %}
+        <div class="alert alert-danger" role="alert" id="mailbox-failure">
+            {% if failure.title %}<strong class="d-block">{{ failure.title }}</strong>{% endif %}
+            {{ failure.message }}
+        </div>
+    {% endif %}
+
+    {% set dedicated = form.purpose == 'dedicated' and modules is not empty %}
 
     <form method="post" action="/config/courrier-entrant/boites" id="mailbox-form">
         {{ csrf_field()|raw }}
@@ -12,64 +25,96 @@
         <div class="card mb-4">
             <div class="card-body">
                 <div class="row g-3">
-                    <div class="col-12 col-md-6">
+                    {# 1. The address, which is also the box's only name (D7). #}
+                    <div class="col-12 col-md-8">
                         {% include 'partials/form_field.html.twig' with {
-                            field_id: 'mailbox-username', field_name: 'username',
-                            label: 'Adresse e-mail', required: true,
-                            autocomplete: 'off', placeholder: 'locations@unite.be',
-                            value: mailbox ? mailbox.username : '',
-                            help: "C'est sous cette adresse que la boîte apparaît partout sur le site.",
+                            field_id: 'mailbox-username', field_name: 'username', type: 'email',
+                            label: 'Adresse e-mail', required: true, wrapper_class: 'mb-0',
+                            autocomplete: 'off', placeholder: 'contact@votre-unite.be',
+                            value: form.username,
                         } only %}
+                        {# What the address says about its provider (D8). Both
+                           sentences ship in the page; the script shows the one
+                           that applies, so nothing it writes is markup. #}
+                        <p class="form-text mb-0" id="mailbox-provider-known" {{ provider ? '' : 'hidden' }}>
+                            {% include 'partials/status_badge.html.twig' with {
+                                status: 'success',
+                                label: (provider ? provider.label : '') ~ ' reconnu',
+                            } only %}
+                            Les réglages de connexion sont remplis.
+                        </p>
+                        <p class="form-text mb-0" id="mailbox-provider-unknown" {{ form.username != '' and not provider ? '' : 'hidden' }}>
+                            Fournisseur non reconnu : complétez les trois réglages de connexion. Ils figurent dans
+                            l'aide de votre hébergeur, rubrique IMAP.
+                        </p>
                     </div>
 
+                    {# 2. The password: never rendered, blank on an edit keeps it. #}
+                    <div class="col-12 col-md-8">
+                        <label class="form-label" for="mailbox-password">Mot de passe d'application</label>
+                        <input type="password" class="form-control" id="mailbox-password" name="password"
+                               autocomplete="new-password" aria-describedby="mailbox-password-help" {{ mailbox ? '' : 'required' }}>
+                        {# Shown for a recognised provider only (D12). The direct
+                           link rather than « look in your account settings »:
+                           Google's app-password page is in no menu, and finding
+                           it is where a unit gives up. #}
+                        <p class="form-text mb-0" data-password-help="gmail"
+                           {{ provider and provider.passwordHelp == 'gmail' ? '' : 'hidden' }}>
+                            Gmail demande un <strong>mot de passe d'application</strong>, pas celui du compte.
+                            Créez-le sur
+                            <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener noreferrer">la page des mots de passe d'application de Google</a>.
+                            La validation en deux étapes doit être active.
+                        </p>
+                        <p class="form-text mb-0" data-password-help="outlook"
+                           {{ provider and provider.passwordHelp == 'outlook' ? '' : 'hidden' }}>
+                            Outlook demande un <strong>mot de passe d'application</strong>, pas celui du compte,
+                            quand la validation en deux étapes est active. Il se crée dans les options de sécurité
+                            du compte Microsoft ; sur un compte Microsoft 365, l'administrateur doit aussi autoriser IMAP.
+                        </p>
+                        <p class="form-text mb-0" id="mailbox-password-help">
+                            {% if mailbox %}
+                                Laissez le champ vide pour conserver le mot de passe enregistré.
+                            {% else %}
+                                Il ne sera plus jamais affiché.
+                            {% endif %}
+                        </p>
+                    </div>
+
+                    {# 3–5. Server, port and encryption: visible and required,
+                       never folded away (D8). #}
                     <div class="col-12 col-md-6">
                         {% include 'partials/form_field.html.twig' with {
                             field_id: 'mailbox-host', field_name: 'host',
-                            label: 'Serveur IMAP', required: true,
-                            placeholder: 'imap.gmail.com',
-                            value: mailbox ? mailbox.host : '',
+                            label: 'Serveur IMAP', required: true, wrapper_class: 'mb-0',
+                            placeholder: 'imap.votre-hebergeur.be',
+                            value: form.host,
                         } only %}
                     </div>
 
                     <div class="col-6 col-md-3">
                         {% include 'partials/form_field.html.twig' with {
                             field_id: 'mailbox-port', field_name: 'port', type: 'number',
-                            label: 'Port', required: true,
-                            value: mailbox ? mailbox.port : 993, min: 1, max: 65535,
+                            label: 'Port', required: true, wrapper_class: 'mb-0',
+                            value: form.port, min: 1, max: 65535,
                         } only %}
                     </div>
 
                     <div class="col-6 col-md-3">
                         {% include 'partials/form_field.html.twig' with {
                             field_id: 'mailbox-encryption', field_name: 'encryption', type: 'select',
-                            label: 'Chiffrement',
+                            label: 'Chiffrement', wrapper_class: 'mb-0',
                             options: [
-                                { value: 'ssl', label: 'SSL', selected: mailbox ? mailbox.encryption == 'ssl' : true },
-                                { value: 'tls', label: 'TLS', selected: mailbox ? mailbox.encryption == 'tls' : false },
-                                { value: 'starttls', label: 'STARTTLS', selected: mailbox ? mailbox.encryption == 'starttls' : false },
+                                { value: '', label: 'Choisir…', selected: form.encryption == '' },
+                                { value: 'ssl', label: 'SSL', selected: form.encryption == 'ssl' },
+                                { value: 'tls', label: 'TLS', selected: form.encryption == 'tls' },
+                                { value: 'starttls', label: 'STARTTLS', selected: form.encryption == 'starttls' },
                             ],
-                            help: "Un certificat invalide fait échouer la connexion : il n'y a pas d'option pour l'ignorer.",
                         } only %}
                     </div>
 
-                    <div class="col-12 col-md-6">
-                        <label class="form-label" for="mailbox-password">Mot de passe</label>
-                        <input type="password" class="form-control" id="mailbox-password" name="password"
-                               autocomplete="new-password" {{ mailbox ? '' : 'required' }}>
-                        <div class="form-text">
-                            {% if mailbox %}
-                                Laissez le champ vide pour conserver le mot de passe déjà enregistré.
-                            {% else %}
-                                Il ne sera plus jamais réaffiché.
-                            {% endif %}
-                        </div>
-                    </div>
-
-                    {# ── Usage: the one answer that decides who analyses and
-                       who reads this box (§8.58). A module that already has
-                       its address is not offered (D5); the server refuses it
-                       anyway. #}
-                    {% set dedicated = mailbox and mailbox.isDedicated %}
+                    {# 6. Usage: the one answer that decides who analyses and
+                       who reads this box (§8.58). Proposed by default as the
+                       general mail while there is none (D6). #}
                     <div class="col-12">
                         <fieldset>
                             <legend class="form-label fs-6">Usage</legend>
@@ -79,8 +124,12 @@
                                 <label class="form-check-label" for="mailbox-purpose-shared">
                                     Courrier général de l'unité
                                     <span class="d-block form-text">
-                                        Parents, locataires, fournisseurs… Chaque module y reconnaît ses
-                                        messages. Le Staff d'U voit tout.
+                                        {% if general_addresses is not empty %}
+                                            {{ general_addresses|join(', ') }} {{ general_addresses|length > 1 ? "le sont déjà." : "l'est déjà." }}
+                                        {% else %}
+                                            Parents, locataires, fournisseurs… Chaque module y reconnaît ses
+                                            messages. Le Staff d'U voit tout.
+                                        {% endif %}
                                     </span>
                                 </label>
                             </div>
@@ -96,82 +145,93 @@
                                     </span>
                                 </label>
                             </div>
+                            {% if is_first_address %}
+                                <p class="form-text mb-0">Proposé par défaut pour la première adresse.</p>
+                            {% endif %}
                         </fieldset>
                     </div>
 
+                    {# 7. The module, for a reserved address only: the script
+                       hides it while « Courrier général » is chosen, and the
+                       server reads it for a reserved box alone. #}
                     {% if modules is not empty %}
-                        <div class="col-12 col-md-6">
+                        <div class="col-12 col-md-6" id="mailbox-module-field">
                             <label class="form-label" for="mailbox-dedicated-to">Module</label>
-                            <select class="form-select" id="mailbox-dedicated-to" name="dedicated_to">
+                            <select class="form-select" id="mailbox-dedicated-to" name="dedicated_to"
+                                    aria-describedby="mailbox-module-help">
                                 {% for module in modules %}
                                     <option value="{{ module.id }}"
-                                            {{ dedicated and mailbox.dedicatedTo == module.id ? 'selected' : '' }}>
+                                            {{ form.dedicated_to == module.id ? 'selected' : '' }}>
                                         {{ module.name }}
                                     </option>
                                 {% endfor %}
                             </select>
-                            <div class="form-text">
-                                Lu seulement pour une adresse réservée. Un module qui a déjà son adresse
-                                n'est pas proposé.
+                            <div class="form-text" id="mailbox-module-help">
+                                Un module qui a déjà son adresse n'est pas proposé.
                             </div>
                         </div>
                     {% endif %}
 
-                    {# ── Test connection + folder picker ──────────────────────── #}
                     <div class="col-12">
-                        <div class="d-flex align-items-center gap-3 mb-2">
-                            <button type="button" class="btn btn-outline-primary" id="test-connection-btn">
-                                <i class="bi bi-plug" aria-hidden="true"></i>
-                                Tester la connexion
-                            </button>
-                            <span id="test-connection-result"></span>
-                        </div>
+                        <p class="form-text mb-0">
+                            Le site lit la boîte de réception et, quand un module en a besoin (aujourd'hui les
+                            Locations), les messages envoyés. Il ne garde un message envoyé que s'il concerne
+                            l'un des dossiers du module.
+                        </p>
                     </div>
 
-                    <div class="col-12 col-md-6">
-                        {# Textarea fallback (no-JS) + backing store for the checkbox picker.
-                           JS hides it and shows the checkbox container instead. #}
-                        <div id="mailbox-folders-wrapper">
-                            {% include 'partials/form_field.html.twig' with {
-                                field_id: 'mailbox-folders', field_name: 'folders', type: 'textarea',
-                                label: 'Dossiers surveillés', rows: 3, placeholder: 'INBOX',
-                                value: mailbox ? mailbox.folders|join("\n") : '',
-                                help: 'Testez la connexion pour afficher les dossiers disponibles. Vide = INBOX.',
-                            } only %}
-                        </div>
-                        {# Populated by JS after a successful connection test. #}
-                        <div id="mailbox-folders-picker" class="d-none">
-                            <span class="form-label d-block mb-1">Dossiers surveillés</span>
-                            <div id="mailbox-folders-list" class="border rounded p-2" style="max-height: 12rem; overflow-y: auto;"></div>
-                            <div class="form-text">Cochez les dossiers à surveiller. Vide = INBOX.</div>
-                        </div>
-                    </div>
-
-                    <div class="col-12 col-md-6">
-                        {% include 'partials/form_field.html.twig' with {
-                            field_id: 'mailbox-sent-folder', field_name: 'sent_folder',
-                            label: 'Dossier des envoyés', placeholder: 'Reconnu par le serveur',
-                            value: mailbox ? mailbox.sentFolder : '',
-                            help: 'À remplir seulement si le test de connexion ne reconnaît pas le dossier des envoyés. Il n\'est lu que pour les modules qui suivent le courrier envoyé, comme les Locations.',
-                        } only %}
-                    </div>
-
+                    {# Folders read (D9), folded: the inbox is always read; the
+                       server's other folders are offered without its special
+                       ones (junk, trash, drafts, « Tous les messages »…), and
+                       its sent folder is found automatically. The textarea is
+                       the no-script path; the script replaces it with the
+                       server's own list when the section is opened. #}
                     <div class="col-12">
-                        <div class="form-check">
-                            <input class="form-check-input" type="checkbox" id="mailbox-enabled"
-                                   name="is_enabled" {{ (not mailbox or mailbox.isEnabled) ? 'checked' : '' }}>
-                            <label class="form-check-label" for="mailbox-enabled">
-                                Synchroniser cette boîte
-                            </label>
-                        </div>
+                        <details class="border rounded" id="mailbox-folders-details" {{ other_folders is not empty or form.sent_folder != '' ? 'open' : '' }}>
+                            <summary class="px-3 py-2 fw-semibold">Dossiers lus (facultatif)</summary>
+                            <div class="px-3 pb-3">
+                                <div id="mailbox-folders-wrapper">
+                                    {% include 'partials/form_field.html.twig' with {
+                                        field_id: 'mailbox-folders', field_name: 'folders', type: 'textarea',
+                                        label: 'Autres dossiers reçus', rows: 3, placeholder: 'Aucun, seulement la boîte de réception',
+                                        value: other_folders|join("\n"),
+                                        help: 'Un dossier par ligne, avec son nom exact sur le serveur.',
+                                    } only %}
+                                </div>
+                                <div id="mailbox-folders-picker" class="mb-3 d-none">
+                                    <span class="form-label d-block mb-1">Autres dossiers reçus</span>
+                                    <div id="mailbox-folders-list" class="border rounded p-2 overflow-auto"></div>
+                                    <div class="form-text">Aucun coché : seulement la boîte de réception.</div>
+                                </div>
+                                <p class="form-text" id="mailbox-folders-status" role="status"></p>
+
+                                <p class="mb-1" id="mailbox-sent-found" hidden>
+                                    <span class="form-label d-block mb-0">Dossier des messages envoyés</span>
+                                    Trouvé automatiquement : <span id="mailbox-sent-found-name"></span>
+                                </p>
+                                <div id="mailbox-sent-field">
+                                    {% include 'partials/form_field.html.twig' with {
+                                        field_id: 'mailbox-sent-folder', field_name: 'sent_folder',
+                                        label: 'Dossier des messages envoyés', wrapper_class: 'mb-0',
+                                        placeholder: 'Trouvé automatiquement',
+                                        value: form.sent_folder,
+                                        help: "À changer seulement si le serveur ne l'indique pas lui-même.",
+                                    } only %}
+                                </div>
+                            </div>
+                        </details>
                     </div>
                 </div>
             </div>
         </div>
 
-        <button type="submit" class="btn btn-primary">
-            {{ mailbox ? 'Enregistrer' : 'Ajouter la boîte' }}
-        </button>
+        <div class="d-flex flex-wrap gap-2 align-items-center">
+            <button type="submit" class="btn btn-primary">Vérifier et enregistrer</button>
+            <a href="/config/courrier-entrant" class="btn btn-outline-secondary">Annuler</a>
+        </div>
+        <p class="form-text">
+            Le site se connecte avant d'enregistrer. Une adresse qui ne répond pas n'est pas enregistrée.
+        </p>
     </form>
 {% endblock %}
 

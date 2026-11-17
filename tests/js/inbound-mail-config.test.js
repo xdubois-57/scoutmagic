@@ -4,36 +4,53 @@
 // public/assets/js/api.js.
 //
 // What this file protects:
-//   - the test button sends the form values as a JSON body (never in the URL);
-//   - a successful test populates the folder checkboxes and hides the textarea;
-//   - a failed test shows an error and does not touch the folder picker;
+//   - a typed address is sent to the provider endpoint in a JSON body,
+//     never in the URL, and a recognised provider prefills an EMPTY
+//     server, port and encryption, shows « X reconnu » and the
+//     app-password help that applies (D8);
+//   - a server the operator typed is never overwritten, and an unknown
+//     provider empties only what the script itself had prefilled;
+//   - the module field shows only for an address reserved to a module;
+//   - opening « Dossiers lus » lists the server's folders as checkboxes
+//     backed by the textarea, keeps what was chosen, and names the sent
+//     folder found by the server (D9); a failure says why and touches
+//     nothing;
 //   - no credential is ever put into a URL.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const PAGE_DOM = `
     <form method="post" action="/config/courrier-entrant/boites" id="mailbox-form">
-        <input type="hidden" name="_csrf_token" value="tok-csrf">
         <input type="hidden" name="id" id="mailbox-id" value="0">
-        <input id="mailbox-username" name="username" value="">
+        <input id="mailbox-username" name="username" type="email" value="">
+        <p id="mailbox-provider-known" hidden><span class="badge"> reconnu</span> Les réglages de connexion sont remplis.</p>
+        <p id="mailbox-provider-unknown" hidden>Fournisseur non reconnu</p>
+        <input type="password" id="mailbox-password" name="password" required>
+        <p data-password-help="gmail" hidden>Gmail</p>
+        <p data-password-help="outlook" hidden>Outlook</p>
         <input id="mailbox-host" name="host" value="">
-        <input id="mailbox-port" name="port" type="number" value="993">
+        <input id="mailbox-port" name="port" type="number" value="">
         <select id="mailbox-encryption" name="encryption">
-            <option value="ssl" selected>SSL</option>
+            <option value="" selected>Choisir…</option>
+            <option value="ssl">SSL</option>
             <option value="tls">TLS</option>
             <option value="starttls">STARTTLS</option>
         </select>
-        <input type="password" id="mailbox-password" name="password" required>
+        <input type="radio" name="purpose" value="shared" id="mailbox-purpose-shared" checked>
+        <input type="radio" name="purpose" value="dedicated" id="mailbox-purpose-dedicated">
+        <div id="mailbox-module-field"><select id="mailbox-dedicated-to" name="dedicated_to"></select></div>
 
-        <button type="button" id="test-connection-btn">Tester la connexion</button>
-        <span id="test-connection-result"></span>
-
-        <div id="mailbox-folders-wrapper">
-            <textarea id="mailbox-folders" name="folders"></textarea>
-        </div>
-        <div id="mailbox-folders-picker" class="d-none">
-            <span class="form-label d-block mb-1">Dossiers surveillés</span>
-            <div id="mailbox-folders-list"></div>
-        </div>
+        <details id="mailbox-folders-details">
+            <summary>Dossiers lus (facultatif)</summary>
+            <div id="mailbox-folders-wrapper">
+                <textarea id="mailbox-folders" name="folders"></textarea>
+            </div>
+            <div id="mailbox-folders-picker" class="d-none">
+                <div id="mailbox-folders-list"></div>
+            </div>
+            <p id="mailbox-folders-status"></p>
+            <p id="mailbox-sent-found" hidden>Trouvé automatiquement : <span id="mailbox-sent-found-name"></span></p>
+            <div id="mailbox-sent-field"><input id="mailbox-sent-folder" name="sent_folder" value=""></div>
+        </details>
     </form>
 `;
 
@@ -48,15 +65,29 @@ function mockFetch(bodiesByUrlFragment) {
     });
 }
 
-function click(el) {
-    (typeof el === 'string' ? document.getElementById(el) : el)
-        .dispatchEvent(new Event('click', { bubbles: true }));
+function $(id) {
+    return document.getElementById(id);
+}
+
+function type(id, value) {
+    $(id).value = value;
+    $(id).dispatchEvent(new Event('change', { bubbles: true }));
+}
+
+function openFolders() {
+    $('mailbox-folders-details').open = true;
+    $('mailbox-folders-details').dispatchEvent(new Event('toggle'));
 }
 
 function lastRequest() {
     const [url, opts] = fetch.mock.calls[fetch.mock.calls.length - 1];
     return { url, opts, body: JSON.parse(opts.body) };
 }
+
+const GMAIL = {
+    recognized: true,
+    provider: { key: 'gmail', label: 'Gmail', host: 'imap.gmail.com', port: 993, encryption: 'ssl', password_help: 'gmail' },
+};
 
 describe('inbound-mail-config.js', () => {
     beforeEach(() => {
@@ -72,163 +103,177 @@ describe('inbound-mail-config.js', () => {
         await import('../../public/assets/js/inbound-mail-config.js');
     }
 
-    describe('entry guard', () => {
-        it('does nothing on a page without the form', async () => {
-            document.body.innerHTML = '<p>Pas la bonne page</p>';
-            await expect(boot()).resolves.not.toThrow();
-        });
+    it('does nothing on a page without the form', async () => {
+        document.body.innerHTML = '<p>Pas la bonne page</p>';
+        await expect(boot()).resolves.not.toThrow();
     });
 
-    describe('test connection', () => {
-        it('POSTs form values as JSON to the test endpoint', async () => {
+    describe('provider recognition', () => {
+        it('POSTs the address as JSON, never in the URL', async () => {
             await boot();
-            document.getElementById('mailbox-host').value = 'imap.test';
-            document.getElementById('mailbox-port').value = '993';
-            document.getElementById('mailbox-username').value = 'user@test';
-            document.getElementById('mailbox-password').value = 'secret';
-
-            click('test-connection-btn');
+            type('mailbox-username', 'contact.unite@gmail.com');
             await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
 
             const { url, body } = lastRequest();
-            expect(url).toBe('/config/courrier-entrant/test-connexion');
-            expect(body.host).toBe('imap.test');
-            expect(body.username).toBe('user@test');
-            expect(body.password).toBe('secret');
+            expect(url).toBe('/config/courrier-entrant/fournisseur');
+            expect(url).not.toContain('gmail');
+            expect(body.address).toBe('contact.unite@gmail.com');
             expect(body._csrf_token).toBe('tok-csrf');
         });
 
-        it('never puts a credential in the URL', async () => {
+        it('prefills empty settings and shows the help of a recognised provider', async () => {
+            global.fetch = mockFetch({ fournisseur: GMAIL });
             await boot();
-            document.getElementById('mailbox-password').value = 'my-secret';
+            type('mailbox-username', 'contact.unite@gmail.com');
 
-            click('test-connection-btn');
-            await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
-
-            const { url } = lastRequest();
-            expect(url).not.toContain('my-secret');
+            await vi.waitFor(() => expect($('mailbox-host').value).toBe('imap.gmail.com'));
+            expect($('mailbox-port').value).toBe('993');
+            expect($('mailbox-encryption').value).toBe('ssl');
+            expect($('mailbox-provider-known').hidden).toBe(false);
+            expect($('mailbox-provider-known').textContent).toContain('Gmail reconnu');
+            expect($('mailbox-provider-unknown').hidden).toBe(true);
+            expect(document.querySelector('[data-password-help="gmail"]').hidden).toBe(false);
+            expect(document.querySelector('[data-password-help="outlook"]').hidden).toBe(true);
         });
 
-        it('populates folder checkboxes on success', async () => {
-            global.fetch = mockFetch({
-                'test-connexion': { success: true, message: 'OK', folders: ['INBOX', 'Sent', 'Drafts'] },
-            });
+        it('never overwrites a server the operator typed', async () => {
+            global.fetch = mockFetch({ fournisseur: GMAIL });
             await boot();
-            document.getElementById('mailbox-host').value = 'imap.test';
-            document.getElementById('mailbox-username').value = 'u@t';
-            document.getElementById('mailbox-password').value = 'p';
+            $('mailbox-host').value = 'imap.mon-serveur.be';
+            type('mailbox-username', 'contact.unite@gmail.com');
 
-            click('test-connection-btn');
-            await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
-            // Wait for DOM updates (async handler).
-            await vi.waitFor(() => {
-                const picker = document.getElementById('mailbox-folders-picker');
-                return expect(picker.classList.contains('d-none')).toBe(false);
-            });
-
-            const checkboxes = document.querySelectorAll('.folder-checkbox');
-            expect(checkboxes.length).toBe(3);
-            expect(checkboxes[0].value).toBe('INBOX');
-            expect(checkboxes[1].value).toBe('Sent');
-
-            // The textarea wrapper is hidden.
-            expect(document.getElementById('mailbox-folders-wrapper').classList.contains('d-none')).toBe(true);
+            await vi.waitFor(() => expect($('mailbox-provider-known').hidden).toBe(false));
+            expect($('mailbox-host').value).toBe('imap.mon-serveur.be');
         });
 
-        it('pre-checks folders that were already selected', async () => {
-            global.fetch = mockFetch({
-                'test-connexion': { success: true, message: 'OK', folders: ['INBOX', 'Sent', 'Drafts'] },
-            });
+        it('leaves the settings empty for an unknown provider, clearing only its own prefill', async () => {
+            global.fetch = mockFetch({ fournisseur: GMAIL });
             await boot();
-            document.getElementById('mailbox-folders').value = 'INBOX\nDrafts';
-            document.getElementById('mailbox-host').value = 'h';
-            document.getElementById('mailbox-username').value = 'u';
-            document.getElementById('mailbox-password').value = 'p';
+            type('mailbox-username', 'contact.unite@gmail.com');
+            await vi.waitFor(() => expect($('mailbox-host').value).toBe('imap.gmail.com'));
 
-            click('test-connection-btn');
-            await vi.waitFor(() => {
-                return expect(document.querySelectorAll('.folder-checkbox').length).toBe(3);
-            });
+            global.fetch = mockFetch({ fournisseur: { recognized: false, provider: null } });
+            type('mailbox-username', 'unite@exemple-hebergeur.be');
 
-            const cbs = document.querySelectorAll('.folder-checkbox');
-            expect(cbs[0].checked).toBe(true);  // INBOX
-            expect(cbs[1].checked).toBe(false); // Sent
-            expect(cbs[2].checked).toBe(true);  // Drafts
+            await vi.waitFor(() => expect($('mailbox-provider-unknown').hidden).toBe(false));
+            expect($('mailbox-host').value).toBe('');
+            expect($('mailbox-port').value).toBe('');
+            expect($('mailbox-encryption').value).toBe('');
+            expect($('mailbox-provider-known').hidden).toBe(true);
+            expect(document.querySelector('[data-password-help="gmail"]').hidden).toBe(true);
         });
 
-        it('syncs checked folders back into the textarea', async () => {
-            global.fetch = mockFetch({
-                'test-connexion': { success: true, message: 'OK', folders: ['INBOX', 'Sent'] },
-            });
+        it('does not ask about something that is not an address', async () => {
             await boot();
-            document.getElementById('mailbox-host').value = 'h';
-            document.getElementById('mailbox-username').value = 'u';
-            document.getElementById('mailbox-password').value = 'p';
-
-            click('test-connection-btn');
-            await vi.waitFor(() => {
-                return expect(document.querySelectorAll('.folder-checkbox').length).toBe(2);
-            });
-
-            // Check the second folder.
-            const sent = document.querySelectorAll('.folder-checkbox')[1];
-            sent.checked = true;
-            sent.dispatchEvent(new Event('change', { bubbles: true }));
-
-            expect(document.getElementById('mailbox-folders').value).toContain('Sent');
-        });
-
-        it('shows an error on failure without touching the folder picker', async () => {
-            global.fetch = mockFetch({
-                'test-connexion': { success: false, error: 'Connexion refusée.' },
-            });
-            await boot();
-            document.getElementById('mailbox-host').value = 'h';
-            document.getElementById('mailbox-username').value = 'u';
-            document.getElementById('mailbox-password').value = 'p';
-
-            click('test-connection-btn');
-            await vi.waitFor(() => {
-                const result = document.getElementById('test-connection-result');
-                return expect(result.textContent).toContain('Connexion refusée.');
-            });
-
-            // Picker stays hidden.
-            expect(document.getElementById('mailbox-folders-picker').classList.contains('d-none')).toBe(true);
-        });
-
-        it('shows a success icon and message on success', async () => {
-            global.fetch = mockFetch({
-                'test-connexion': { success: true, message: 'Connexion réussie. 3 dossier(s) visible(s).', folders: ['INBOX'] },
-            });
-            await boot();
-            document.getElementById('mailbox-host').value = 'h';
-            document.getElementById('mailbox-username').value = 'u';
-            document.getElementById('mailbox-password').value = 'p';
-
-            click('test-connection-btn');
-            await vi.waitFor(() => {
-                const result = document.getElementById('test-connection-result');
-                return expect(result.textContent).toContain('Connexion réussie');
-            });
-
-            expect(document.querySelector('#test-connection-result .text-success')).not.toBeNull();
+            type('mailbox-username', 'pas une adresse');
+            await Promise.resolve();
+            expect(fetch).not.toHaveBeenCalled();
         });
     });
 
-    describe('edit page (existing mailbox)', () => {
-        it('sends the mailbox_id from the hidden field when testing', async () => {
-            document.getElementById('mailbox-id').value = '42';
+    describe('usage', () => {
+        it('shows the module field only for a reserved address', async () => {
             await boot();
-            document.getElementById('mailbox-host').value = 'imap.gmail.com';
-            document.getElementById('mailbox-username').value = 'locs@unite.be';
-            document.getElementById('mailbox-password').value = '';
+            expect($('mailbox-module-field').hidden).toBe(true);
 
-            click('test-connection-btn');
+            $('mailbox-purpose-dedicated').checked = true;
+            $('mailbox-purpose-dedicated').dispatchEvent(new Event('change', { bubbles: true }));
+            expect($('mailbox-module-field').hidden).toBe(false);
+        });
+    });
+
+    describe('folders read', () => {
+        function fillConnection() {
+            $('mailbox-username').value = 'u@unite.be';
+            $('mailbox-host').value = 'imap.unite.be';
+            $('mailbox-port').value = '993';
+            $('mailbox-encryption').value = 'ssl';
+            $('mailbox-password').value = 'secret';
+        }
+
+        it('asks for the connection first rather than calling the server', async () => {
+            await boot();
+            openFolders();
+            expect($('mailbox-folders-status').textContent).toContain('Renseignez');
+            expect(fetch).not.toHaveBeenCalled();
+        });
+
+        it('lists the offered folders, keeps the chosen ones, and names the sent folder', async () => {
+            global.fetch = mockFetch({
+                'test-connexion': { success: true, folders: ['Factures', 'Locations'], sent_folder: '[Gmail]/Messages envoyés' },
+            });
+            await boot();
+            fillConnection();
+            $('mailbox-folders').value = 'Locations';
+            openFolders();
+
+            await vi.waitFor(() => expect(document.querySelectorAll('.folder-checkbox').length).toBe(2));
+            const { url, body } = lastRequest();
+            expect(url).toBe('/config/courrier-entrant/test-connexion');
+            expect(url).not.toContain('secret');
+            expect(body.password).toBe('secret');
+
+            const boxes = document.querySelectorAll('.folder-checkbox');
+            expect(boxes[0].checked).toBe(false);
+            expect(boxes[1].checked).toBe(true);
+            expect($('mailbox-folders-wrapper').classList.contains('d-none')).toBe(true);
+            expect($('mailbox-sent-found').hidden).toBe(false);
+            expect($('mailbox-sent-found-name').textContent).toBe('[Gmail]/Messages envoyés');
+            expect($('mailbox-sent-field').hidden).toBe(true);
+
+            boxes[0].checked = true;
+            boxes[0].dispatchEvent(new Event('change', { bubbles: true }));
+            expect($('mailbox-folders').value).toBe('Factures\nLocations');
+        });
+
+        it('keeps a chosen folder the server no longer offers, and says which module the box is for', async () => {
+            global.fetch = mockFetch({ 'test-connexion': { success: true, folders: ['Factures'], sent_folder: null } });
+            await boot();
+            fillConnection();
+            $('mailbox-folders').value = 'Spam';
+            $('mailbox-dedicated-to').innerHTML = '<option value="core_mail_seed" selected>Témoins</option>';
+            $('mailbox-purpose-dedicated').checked = true;
+            openFolders();
+
+            await vi.waitFor(() => expect(document.querySelectorAll('.folder-checkbox').length).toBe(2));
+            expect(lastRequest().body.dedicated_to).toBe('core_mail_seed');
+            const boxes = document.querySelectorAll('.folder-checkbox');
+            expect(boxes[1].value).toBe('Spam');
+            expect(boxes[1].checked).toBe(true);
+            expect($('mailbox-folders').value).toBe('Spam');
+        });
+
+        it('keeps an operator-named sent folder editable', async () => {
+            global.fetch = mockFetch({ 'test-connexion': { success: true, folders: [], sent_folder: 'Sent' } });
+            await boot();
+            fillConnection();
+            $('mailbox-sent-folder').value = 'Éléments envoyés';
+            openFolders();
+
+            await vi.waitFor(() => expect($('mailbox-folders-status').textContent).toContain("pas d'autre dossier"));
+            expect($('mailbox-sent-field').hidden).toBe(false);
+            expect($('mailbox-sent-found').hidden).toBe(true);
+        });
+
+        it('says why on failure and touches nothing', async () => {
+            global.fetch = mockFetch({ 'test-connexion': { success: false, error: 'Connexion refusée.' } });
+            await boot();
+            fillConnection();
+            openFolders();
+
+            await vi.waitFor(() => expect($('mailbox-folders-status').textContent).toBe('Connexion refusée.'));
+            expect($('mailbox-folders-picker').classList.contains('d-none')).toBe(true);
+        });
+
+        it('lists the folders of a saved box without retyping its password', async () => {
+            await boot();
+            fillConnection();
+            $('mailbox-id').value = '42';
+            $('mailbox-password').value = '';
+            openFolders();
+
             await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
-
-            const { body } = lastRequest();
-            expect(body.mailbox_id).toBe(42);
+            expect(lastRequest().body.mailbox_id).toBe(42);
         });
     });
 });

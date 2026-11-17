@@ -13,6 +13,7 @@ use Core\Journal\JournalService;
 use Core\Security\AuthSession;
 use Core\Security\EncryptionService;
 use Modules\InboundMail\Api\MailboxPurpose;
+use Modules\InboundMail\Client\FakeMailboxClient;
 use Modules\InboundMail\Controller\InboundMailConfigController;
 use Modules\InboundMail\Mailbox\ProviderType;
 use Modules\InboundMail\Repository\InboundMailboxRepository;
@@ -20,9 +21,11 @@ use Modules\InboundMail\Repository\InboundMessageRepository;
 use Modules\InboundMail\Service\MailboxAdminService;
 use Modules\InboundMail\Service\MailboxClientFactory;
 use Modules\InboundMail\Service\MailboxErrorFormatter;
+use Modules\InboundMail\Service\MailProviderRecognizer;
 use Modules\InboundMail\Service\MessageConsumerRegistry;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
+use Tests\RequestWithInput;
 use Tests\Modules\InboundMail\FakeMessageConsumer;
 use Tests\Modules\InboundMail\InboundMailTestHelper;
 use Tests\TestTwig;
@@ -46,7 +49,11 @@ class InboundMailConfigControllerTest extends TestCase
     private InboundMailboxRepository $mailboxes;
     private MessageConsumerRegistry $registry;
     private InboundMailConfigController $controller;
+    private FakeMailboxClient $client;
     private int $mailboxId;
+
+    /** @var array<string, list<string>> domain => its mail exchangers */
+    private array $mx = [];
 
     protected function setUp(): void
     {
@@ -59,9 +66,14 @@ class InboundMailConfigControllerTest extends TestCase
         $this->registry->register(new FakeMessageConsumer('rental'));
         $this->registry->register(new FakeMessageConsumer('camps'));
 
+        // Every connection the screen opens lands here, never on a network.
+        $this->client = new FakeMailboxClient();
+        $factory = new MailboxClientFactory();
+        $factory->register(ProviderType::IMAP, $this->client);
+
         $adminService = new MailboxAdminService(
             $this->mailboxes,
-            new MailboxClientFactory(),
+            $factory,
             new MailboxErrorFormatter(),
             new InboundMessageRepository($this->pdo, $encryption),
             new SettingService(new SettingRepository($this->pdo))
@@ -71,7 +83,9 @@ class InboundMailConfigControllerTest extends TestCase
             $this->twig(),
             $adminService,
             new JournalService(new JournalRepository($this->pdo)),
-            $this->registry
+            $this->registry,
+            null,
+            new MailProviderRecognizer(fn(string $domain): array => $this->mx[$domain] ?? [])
         );
 
         $this->mailboxId = $this->mailboxes->create(
@@ -197,7 +211,7 @@ class InboundMailConfigControllerTest extends TestCase
     {
         // Saving it would leave a box reserved to nobody, which reads on
         // every later screen as « réservée » while behaving as nothing.
-        $this->save([
+        $response = $this->save([
             'id' => (string) $this->mailboxId,
             'username' => 'contact@unite.be',
             'purpose' => MailboxPurpose::DEDICATED->value,
@@ -205,7 +219,7 @@ class InboundMailConfigControllerTest extends TestCase
         ]);
 
         $this->assertFalse($this->mailbox()->isDedicated());
-        $this->assertSame('error', FlashMessage::get()['type'] ?? null);
+        $this->assertSame(200, $response->getStatusCode(), 'the form comes back, nothing saved');
     }
 
     public function testAModuleNobodyRegisteredCannotBeReservedTo(): void
@@ -231,17 +245,16 @@ class InboundMailConfigControllerTest extends TestCase
         $locations = $this->reservedBox('locations@unite.be');
         $this->mailboxes->setPurpose($locations, MailboxPurpose::DEDICATED, 'rental');
 
-        $this->save([
+        $body = $this->save([
             'id' => (string) $this->mailboxId,
             'host' => 'imap.autre',
             'username' => 'contact@unite.be',
             'purpose' => MailboxPurpose::DEDICATED->value,
             'dedicated_to' => 'rental',
-        ]);
+        ])->getBody();
 
-        $flash = FlashMessage::get();
-        $this->assertSame('error', $flash['type'] ?? null);
-        $this->assertStringContainsString('locations@unite.be', $flash['message'] ?? '');
+        $this->assertStringContainsString('Ce module a déjà son adresse réservée : locations@unite.be', $body);
+        $this->assertSame([], $this->client->calls, 'refused before any connection');
         $this->assertFalse($this->mailbox()->isDedicated());
         $this->assertSame('imap.test', $this->mailbox()->host, 'nothing of the refused save is written');
 
@@ -351,7 +364,6 @@ class InboundMailConfigControllerTest extends TestCase
     {
         $this->save(['id' => (string) $this->mailboxId, 'username' => '', 'host' => 'imap.autre']);
 
-        $this->assertSame('error', FlashMessage::get()['type'] ?? null);
         $this->assertSame('imap.test', $this->mailbox()->host);
     }
 
@@ -409,15 +421,15 @@ class InboundMailConfigControllerTest extends TestCase
         $this->assertStringContainsString('value="rental"', $form);
         $this->assertStringNotContainsString('(module désactivé)', $form);
 
-        $this->save([
+        $body = $this->save([
             'id' => (string) $this->mailboxId,
             'host' => 'imap.autre',
             'username' => 'contact@unite.be',
             'purpose' => MailboxPurpose::DEDICATED->value,
             'dedicated_to' => 'rental',
-        ]);
+        ])->getBody();
 
-        $this->assertSame('error', FlashMessage::get()['type'] ?? null);
+        $this->assertStringContainsString('Ce module a déjà son adresse réservée', $body);
         $this->assertSame('rental', $this->mailbox()->dedicatedTo);
         $this->assertSame('imap.test', $this->mailbox()->host, 'nothing was written');
     }
@@ -450,24 +462,343 @@ class InboundMailConfigControllerTest extends TestCase
         $this->assertSame(MailboxPurpose::SHARED->value, json_decode((string) $entry['context'], true)['purpose']);
     }
 
-    // ── « Rafraîchir maintenant » ───────────────────────────────────────
+    // ── « Vérifier et enregistrer » (D10) ───────────────────────────────
 
-    public function testTheRefreshButtonIsNotOfferedWhenNothingCanRunIt(): void
+    /** The connection is opened before anything is written. */
+    public function testANewAddressIsVerifiedThenSaved(): void
     {
-        // Not offered rather than offered and inert: a button that does
-        // nothing is worse than no button.
-        $body = $this->controller->index($this->get('/config/courrier-entrant'), [])->getBody();
+        $response = $this->save(['username' => 'unite@unite.be', 'password' => 'mdp']);
 
-        $this->assertStringNotContainsString('Rafraîchir maintenant', $body);
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame(['connect', 'listFolders', 'disconnect'], $this->client->calls);
+        $box = $this->findByAddress('unite@unite.be');
+        $this->assertTrue($box->isEnabled, 'an address added is read: there is no « Synchroniser » box to tick');
+        $flash = FlashMessage::get();
+        $this->assertSame('success', $flash['type'] ?? null);
+        $this->assertStringContainsString('Adresse vérifiée et enregistrée', $flash['message'] ?? '');
     }
 
-    public function testAskingForARefreshWithNoServiceBehindItIsNotFound(): void
+    /**
+     * An address that does not connect is not saved; the form comes back
+     * with every field as typed, the password emptied, and a sentence.
+     */
+    public function testAFailedVerificationSavesNothingAndKeepsTheFieldsButThePassword(): void
     {
-        $request = new Request('POST', '/config/courrier-entrant/rafraichir', [], [
-            '_csrf_token' => $this->token(),
-        ], [], []);
+        $this->client->failNextConnect(new \RuntimeException('authentication failed'));
 
-        $this->assertSame(404, $this->controller->refreshNow($request, [])->getStatusCode());
+        $response = $this->save([
+            'username' => 'locations@unite.be',
+            'password' => 'le-mot-de-passe-refuse',
+            'host' => 'imap.locations.test',
+            'port' => '143',
+            'encryption' => 'starttls',
+            'purpose' => MailboxPurpose::DEDICATED->value,
+            'dedicated_to' => 'camps',
+            'folders' => "Factures",
+        ]);
+        $body = $response->getBody();
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertCount(1, $this->mailboxes->findAll(), 'nothing was created');
+        $this->assertStringContainsString("La connexion a échoué. Rien n&#039;est enregistré.", $body);
+        $this->assertStringContainsString('Le serveur a refusé l&#039;authentification', $body);
+        $this->assertStringContainsString('value="locations@unite.be"', $body);
+        $this->assertStringContainsString('value="imap.locations.test"', $body);
+        $this->assertStringContainsString('value="143"', $body);
+        $this->assertMatchesRegularExpression('/<option value="starttls"\s+selected/', $body);
+        $this->assertMatchesRegularExpression('/<option value="camps"\s+selected/', $body);
+        $this->assertMatchesRegularExpression('/id="mailbox-purpose-dedicated"[^>]*checked/', $body);
+        $this->assertStringContainsString('Factures', $body);
+        $this->assertStringNotContainsString('le-mot-de-passe-refuse', $body);
+        $this->assertNull(FlashMessage::get(), 'the outcome is on the form, not in a flash');
+    }
+
+    public function testAFailedVerificationOfAnEditLeavesTheBoxAsItWas(): void
+    {
+        $this->client->failNextConnect(new \RuntimeException('timeout'));
+
+        $this->save([
+            'id' => (string) $this->mailboxId,
+            'username' => 'contact@unite.be',
+            'host' => 'imap.ailleurs.test',
+            'password' => 'nouveau',
+        ]);
+
+        $this->assertSame('imap.test', $this->mailbox()->host);
+        $this->assertSame('secret', $this->mailboxes->findCredentials($this->mailboxId)?->password);
+    }
+
+    /** On an edit, an empty password verifies with the stored one and keeps it. */
+    public function testAnEditWithAnEmptyPasswordKeepsTheStoredOne(): void
+    {
+        $this->save([
+            'id' => (string) $this->mailboxId,
+            'username' => 'contact@unite.be',
+            'host' => 'imap.nouveau.test',
+            'password' => '',
+        ]);
+
+        $this->assertSame('imap.nouveau.test', $this->mailbox()->host);
+        $this->assertSame('secret', $this->mailboxes->findCredentials($this->mailboxId)?->password);
+        $this->assertContains('connect', $this->client->calls);
+    }
+
+    /** « Désactiver » is the list's job: an edit keeps the box as it was. */
+    public function testAnEditKeepsADisabledBoxDisabled(): void
+    {
+        $this->mailboxes->setEnabled($this->mailboxId, false);
+
+        $this->save(['id' => (string) $this->mailboxId, 'username' => 'contact@unite.be']);
+
+        $this->assertFalse($this->mailbox()->isEnabled);
+    }
+
+    public function testANewAddressWithoutAPasswordIsRefusedBeforeAnyConnection(): void
+    {
+        $body = $this->save(['username' => 'unite@unite.be', 'password' => ''])->getBody();
+
+        $this->assertStringContainsString('Indiquez le mot de passe d&#039;application', $body);
+        $this->assertSame([], $this->client->calls);
+        $this->assertCount(1, $this->mailboxes->findAll());
+    }
+
+    /** Other folders are read in addition to the inbox, never instead of it (D9). */
+    public function testOtherFoldersAreReadAlongsideTheInbox(): void
+    {
+        $this->save(['username' => 'unite@unite.be', 'password' => 'mdp', 'folders' => "Factures\nINBOX"]);
+        $this->save(['username' => 'seule@unite.be', 'password' => 'mdp', 'folders' => '']);
+
+        $this->assertSame(['INBOX', 'Factures'], $this->findByAddress('unite@unite.be')->folders);
+        $this->assertSame([], $this->findByAddress('seule@unite.be')->folders);
+    }
+
+    // ── The usage proposed, the modules offered (D5, D6) ────────────────
+
+    public function testTheFirstAddressIsProposedAsTheGeneralMail(): void
+    {
+        $this->mailboxes->delete($this->mailboxId);
+
+        $body = $this->controller->newMailbox($this->get('/x'), [])->getBody();
+
+        $this->assertMatchesRegularExpression('/id="mailbox-purpose-shared"[^>]*checked/', $body);
+        $this->assertStringContainsString('Proposé par défaut pour la première adresse.', $body);
+    }
+
+    /** Once a general address exists, the next one is proposed as reserved — still a default. */
+    public function testOnceAGeneralAddressExistsTheNextIsProposedAsReserved(): void
+    {
+        $body = $this->controller->newMailbox($this->get('/x'), [])->getBody();
+
+        $this->assertMatchesRegularExpression('/id="mailbox-purpose-dedicated"[^>]*checked/', $body);
+        $this->assertDoesNotMatchRegularExpression('/id="mailbox-purpose-shared"[^>]*checked/', $body);
+        $this->assertMatchesRegularExpression('/contact@unite\.be\s+l(&#039;|\x27)est déjà\./', $body);
+    }
+
+    /** With no module left to reserve to, the general mail stays the proposal. */
+    public function testWithNoModuleToOfferTheGeneralMailStaysTheProposal(): void
+    {
+        $this->mailboxes->setPurpose($this->reservedBox('loc@unite.be'), MailboxPurpose::DEDICATED, 'rental');
+        $this->mailboxes->setPurpose($this->reservedBox('camps@unite.be'), MailboxPurpose::DEDICATED, 'camps');
+
+        $body = $this->controller->newMailbox($this->get('/x'), [])->getBody();
+
+        $this->assertMatchesRegularExpression('/id="mailbox-purpose-shared"[^>]*checked/', $body);
+        $this->assertMatchesRegularExpression('/id="mailbox-purpose-dedicated"[^>]*disabled/', $body);
+        $this->assertStringNotContainsString('name="dedicated_to"', $body);
+    }
+
+    public function testTheFormAsksTheFieldsInTheRoadmapsOrder(): void
+    {
+        $body = $this->controller->newMailbox($this->get('/x'), [])->getBody();
+
+        $positions = array_map(static fn(string $needle): int|false => strpos($body, $needle), [
+            'id="mailbox-username"',
+            'id="mailbox-password"',
+            'id="mailbox-host"',
+            'id="mailbox-port"',
+            'id="mailbox-encryption"',
+            'name="purpose"',
+            'id="mailbox-dedicated-to"',
+            'Dossiers lus (facultatif)',
+            'Vérifier et enregistrer',
+        ]);
+        $this->assertNotContains(false, $positions);
+        $sorted = $positions;
+        sort($sorted);
+        $this->assertSame($sorted, $positions);
+        $this->assertStringNotContainsString('Synchroniser cette boîte', $body);
+        $this->assertStringNotContainsString('Tester la connexion', $body);
+    }
+
+    // ── Provider recognition (D8) ───────────────────────────────────────
+
+    public function testTheProviderEndpointRecognisesAnAddressByItsDomain(): void
+    {
+        $data = $this->recognize('contact.unite@gmail.com');
+
+        $this->assertTrue($data['recognized']);
+        $this->assertSame('imap.gmail.com', $data['provider']['host']);
+        $this->assertSame(993, $data['provider']['port']);
+        $this->assertSame('ssl', $data['provider']['encryption']);
+        $this->assertSame('gmail', $data['provider']['password_help']);
+    }
+
+    public function testTheProviderEndpointRecognisesAnOwnDomainByItsMx(): void
+    {
+        $this->mx['unite.be'] = ['unite-be.mail.protection.outlook.com.'];
+
+        $data = $this->recognize('locations@unite.be');
+
+        $this->assertSame('Microsoft 365', $data['provider']['label']);
+        $this->assertSame('outlook.office365.com', $data['provider']['host']);
+    }
+
+    public function testTheProviderEndpointSaysSoWhenItDoesNotKnow(): void
+    {
+        $this->assertSame(['recognized' => false, 'provider' => null], $this->recognize('unite@exemple-hebergeur.be'));
+    }
+
+    public function testTheProviderEndpointRefusesARequestWithoutItsToken(): void
+    {
+        $request = new RequestWithInput('POST', '/config/courrier-entrant/fournisseur', [], [], [], [], (string) json_encode([
+            'address' => 'a@gmail.com',
+            '_csrf_token' => 'pas-le-bon',
+        ]));
+
+        $this->assertSame(403, $this->controller->recognizeProvider($request, [])->getStatusCode());
+    }
+
+    /** A form rendered again prefills an empty server from the address, and shows the app-password help. */
+    public function testARefusedFormPrefillsTheSettingsOfARecognisedProvider(): void
+    {
+        $body = $this->save(['username' => 'contact.unite@gmail.com', 'password' => '', 'host' => '', 'port' => ''])
+            ->getBody();
+
+        $this->assertStringContainsString('value="imap.gmail.com"', $body);
+        $this->assertStringContainsString('Gmail reconnu', $body);
+        $this->assertMatchesRegularExpression('/data-password-help="gmail"\s*>/', $body);
+        $this->assertStringContainsString('https://myaccount.google.com/apppasswords', $body);
+    }
+
+    /** Unknown: server, port and encryption stay empty, with a sentence. */
+    public function testAnUnknownProviderLeavesTheSettingsEmpty(): void
+    {
+        $body = $this->save(['username' => 'unite@exemple-hebergeur.be', 'password' => '', 'host' => '', 'port' => '', 'encryption' => ''])
+            ->getBody();
+
+        $this->assertStringContainsString('Indiquez le serveur IMAP', $body);
+        $this->assertMatchesRegularExpression('/id="mailbox-host"[^>]*value=""/', $body);
+        $this->assertMatchesRegularExpression('/<option value=""\s+selected/', $body);
+        $this->assertMatchesRegularExpression('/id="mailbox-provider-unknown"\s*>/', $body);
+        $this->assertMatchesRegularExpression('/data-password-help="gmail"\s+hidden/', $body);
+    }
+
+    // ── « Dossiers lus » (D9) ───────────────────────────────────────────
+
+    /** The server's special folders are never offered, and the sent one is named apart. */
+    public function testTheFolderListOffersNoSpecialFolder(): void
+    {
+        $this->client->markAttributes('INBOX');
+        $this->client->markAttributes('Factures', '\\HasNoChildren');
+        $this->client->markAttributes('[Gmail]', '\\Noselect', '\\HasChildren');
+        foreach (['Junk', 'Trash', 'Drafts', 'All', 'Flagged', 'Important'] as $special) {
+            $this->client->markAttributes('[Gmail]/' . $special, '\\' . $special);
+        }
+        $this->client->markSent('[Gmail]/Messages envoyés');
+
+        $response = $this->controller->testConnectionFromForm(new RequestWithInput(
+            'POST',
+            '/config/courrier-entrant/test-connexion',
+            [],
+            [],
+            [],
+            [],
+            (string) json_encode([
+                'host' => 'imap.gmail.com',
+                'username' => 'contact.unite@gmail.com',
+                'password' => 'mdp',
+                '_csrf_token' => $this->token(),
+            ])
+        ), []);
+        $data = json_decode($response->getBody(), true);
+
+        $this->assertTrue($data['success']);
+        $this->assertSame(['Factures'], $data['folders']);
+        $this->assertSame('[Gmail]/Messages envoyés', $data['sent_folder']);
+    }
+
+    /** A seed box must read its junk folder (Core\Mail\Feedback\Seed): there, and only there, it is offered. */
+    public function testTheJunkFolderIsOfferedToASeedBoxOnly(): void
+    {
+        $this->client->markAttributes('INBOX');
+        $this->client->markAttributes('Spam', '\\Junk');
+
+        $folders = function (string $dedicatedTo): array {
+            $response = $this->controller->testConnectionFromForm(new RequestWithInput(
+                'POST',
+                '/config/courrier-entrant/test-connexion',
+                [],
+                [],
+                [],
+                [],
+                (string) json_encode([
+                    'host' => 'imap.test',
+                    'username' => 'temoin@gmail.com',
+                    'password' => 'mdp',
+                    'dedicated_to' => $dedicatedTo,
+                    '_csrf_token' => $this->token(),
+                ])
+            ), []);
+
+            return json_decode($response->getBody(), true)['folders'];
+        };
+
+        $this->assertSame([], $folders(''));
+        $this->assertSame([], $folders('rental'));
+        $this->assertSame(['Spam'], $folders('core_mail_seed'));
+    }
+
+    // ── The list of addresses ───────────────────────────────────────────
+
+    public function testTheListShowsNoHostNorRefreshNorTestButton(): void
+    {
+        $body = $this->controller->index($this->get('/config/courrier-entrant'), [])->getBody();
+
+        $this->assertStringNotContainsString('imap.test', $body);
+        $this->assertStringNotContainsString('993', $body);
+        $this->assertStringNotContainsString('Rafraîchir maintenant', $body);
+        $this->assertStringNotContainsString('/rafraichir', $body);
+        $this->assertStringNotContainsString('Tester la connexion', $body);
+        $this->assertStringContainsString('href="/aide/courrier-entrant"', $body);
+        $this->assertStringContainsString('Ajouter une adresse', $body);
+        $this->assertStringContainsString('Pas encore relevée', $body);
+        foreach (['Modifier', 'Désactiver', 'Supprimer'] as $action) {
+            $this->assertStringContainsString($action, $body);
+        }
+    }
+
+    /** A failing box says why, and what to do about it. */
+    public function testAFailingBoxSaysWhatToDo(): void
+    {
+        $this->pdo->prepare(
+            "UPDATE inbound_mailboxes SET sync_state = 'error', last_error = ?, last_error_at = ? WHERE id = ?"
+        )->execute(['Le serveur a refusé l\'authentification.', date('Y-m-d H:i:s', time() - 7200), $this->mailboxId]);
+
+        $body = $this->controller->index($this->get('/config/courrier-entrant'), [])->getBody();
+
+        $this->assertStringContainsString('Échec il y a 2 heures', $body);
+        $this->assertStringContainsString('Corrigez ensuite le réglage en cause avec « Modifier ».', $body);
+    }
+
+    /** @return array<string, mixed> */
+    private function recognize(string $address): array
+    {
+        $request = new RequestWithInput('POST', '/config/courrier-entrant/fournisseur', [], [], [], [], (string) json_encode([
+            'address' => $address,
+            '_csrf_token' => $this->token(),
+        ]));
+
+        return json_decode($this->controller->recognizeProvider($request, [])->getBody(), true);
     }
 
     // ── Harness ─────────────────────────────────────────────────────────
@@ -529,8 +860,7 @@ class InboundMailConfigControllerTest extends TestCase
             'port' => '993',
             'encryption' => 'ssl',
             'password' => '',
-            'folders' => 'INBOX',
-            'is_enabled' => '1',
+            'folders' => '',
             'purpose' => MailboxPurpose::SHARED->value,
         ];
         $body['_csrf_token'] = $this->token();

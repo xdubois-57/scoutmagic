@@ -3,15 +3,23 @@
  * Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
  */
 
-// Inbound-mail mailbox form page
+// Inbound-mail address form
 // (modules/inbound_mail/views/config/mailbox_form.html.twig):
-// the « Tester la connexion » button and the folder-checkbox picker it
-// populates on success.
+//   - the provider an address belongs to, asked of the server once the
+//     address is typed, which prefills an EMPTY server, port and
+//     encryption and shows the app-password help that applies (D8);
+//   - the module field, shown only for an address reserved to a module;
+//   - « Dossiers lus (facultatif) »: opened, it lists the server's folders
+//     — the special ones already filtered out server-side — as checkboxes
+//     backed by the no-script textarea, and says which folder holds the
+//     sent mail when the server marks one (D9).
+//
+// The page works without any of it: the form posts as typed, and the
+// server verifies the connection before saving (D10).
 //
 // Same conventions as sos-config.js: fetches ride ScoutMagicApi, every
-// server-supplied string reaches the screen via textContent or a DOM
-// node (never innerHTML), and no credential is ever logged or
-// interpolated into a URL.
+// server-supplied string reaches the screen via textContent (never
+// innerHTML), and no credential is ever logged or put into a URL.
 (function () {
     var form = /** @type {HTMLFormElement|null} */ (document.getElementById('mailbox-form'));
     if (!form) {
@@ -28,54 +36,163 @@
     var portInput = /** @type {HTMLInputElement|null} */ (document.getElementById('mailbox-port'));
     var encryptionSelect = /** @type {HTMLSelectElement|null} */ (document.getElementById('mailbox-encryption'));
     var passwordInput = /** @type {HTMLInputElement|null} */ (document.getElementById('mailbox-password'));
+    var providerKnown = document.getElementById('mailbox-provider-known');
+    var providerUnknown = document.getElementById('mailbox-provider-unknown');
+    var moduleField = document.getElementById('mailbox-module-field');
+    var foldersDetails = /** @type {HTMLDetailsElement|null} */ (document.getElementById('mailbox-folders-details'));
     var foldersTextarea = /** @type {HTMLTextAreaElement|null} */ (document.getElementById('mailbox-folders'));
     var foldersWrapper = document.getElementById('mailbox-folders-wrapper');
     var foldersPicker = document.getElementById('mailbox-folders-picker');
     var foldersList = document.getElementById('mailbox-folders-list');
-    var testBtn = /** @type {HTMLButtonElement|null} */ (document.getElementById('test-connection-btn'));
-    var testResult = document.getElementById('test-connection-result');
+    var foldersStatus = document.getElementById('mailbox-folders-status');
+    var sentInput = /** @type {HTMLInputElement|null} */ (document.getElementById('mailbox-sent-folder'));
+    var sentField = document.getElementById('mailbox-sent-field');
+    var sentFound = document.getElementById('mailbox-sent-found');
+    var sentFoundName = document.getElementById('mailbox-sent-found-name');
 
-    // ── Helpers ─────────────────────────────────────────────────────────
+    // ── Provider recognition (D8) ──────────────────────────────────────
 
     /**
-     * @param {{ok: boolean, status: number, data: any}} res
-     * @returns {boolean}
+     * The settings this script last wrote, so a later recognition may
+     * replace them — and never replaces what the operator typed.
+     *
+     * @type {{host: string, port: string, encryption: string}|null}
      */
-    function succeeded(res) {
-        return !!(res.data?.success);
+    var prefilled = null;
+
+    function connectionIsUntouched() {
+        if (!hostInput) {
+            return false;
+        }
+        if (hostInput.value.trim() === '') {
+            return true;
+        }
+        return prefilled !== null && hostInput.value === prefilled.host
+            && (!portInput || portInput.value === prefilled.port)
+            && (!encryptionSelect || encryptionSelect.value === prefilled.encryption);
+    }
+
+    /** @param {string|null} key */
+    function showPasswordHelp(key) {
+        form.querySelectorAll('[data-password-help]').forEach(function (node) {
+            /** @type {HTMLElement} */ (node).hidden = node.getAttribute('data-password-help') !== key;
+        });
     }
 
     /**
-     * @param {{ok: boolean, status: number, data: any}} res
-     * @returns {string}
+     * @param {{label: string, host: string, port: number, encryption: string, password_help: (string|null)}|null} provider
      */
-    function failureMessage(res) {
-        return res.data?.error || 'Erreur : réponse serveur invalide.';
-    }
+    function applyProvider(provider) {
+        var untouched = connectionIsUntouched();
 
-    /**
-     * @param {boolean} ok
-     * @param {string} message
-     */
-    function renderTestResult(ok, message) {
-        if (!testResult) {
+        if (provider) {
+            if (providerKnown) {
+                var badge = providerKnown.querySelector('.badge');
+                if (badge) {
+                    badge.textContent = provider.label + ' reconnu';
+                }
+                providerKnown.hidden = false;
+            }
+            if (providerUnknown) {
+                providerUnknown.hidden = true;
+            }
+            showPasswordHelp(provider.password_help || null);
+
+            if (untouched && hostInput) {
+                prefilled = {
+                    host: String(provider.host),
+                    port: String(provider.port),
+                    encryption: String(provider.encryption)
+                };
+                hostInput.value = prefilled.host;
+                if (portInput) {
+                    portInput.value = prefilled.port;
+                }
+                if (encryptionSelect) {
+                    encryptionSelect.value = prefilled.encryption;
+                }
+            }
             return;
         }
-        testResult.textContent = '';
 
-        var wrapper = document.createElement('span');
-        wrapper.className = ok ? 'text-success' : 'text-danger';
+        if (providerKnown) {
+            providerKnown.hidden = true;
+        }
+        if (providerUnknown) {
+            providerUnknown.hidden = !usernameInput || usernameInput.value.trim() === '';
+        }
+        showPasswordHelp(null);
 
-        var icon = document.createElement('i');
-        icon.className = ok ? 'bi bi-check-circle' : 'bi bi-x-circle';
-        icon.setAttribute('aria-hidden', 'true');
-        wrapper.appendChild(icon);
-        wrapper.appendChild(document.createTextNode(' ' + message));
-
-        testResult.appendChild(wrapper);
+        // An unknown provider leaves the three settings empty: what this
+        // script prefilled for the previous address goes, what the
+        // operator typed stays.
+        if (prefilled !== null && untouched && hostInput) {
+            hostInput.value = '';
+            if (portInput) {
+                portInput.value = '';
+            }
+            if (encryptionSelect) {
+                encryptionSelect.value = '';
+            }
+            prefilled = null;
+        }
     }
 
-    /** The folder names the operator had selected before the last test. */
+    var lastAsked = usernameInput ? usernameInput.value.trim() : '';
+
+    async function recognize() {
+        if (!usernameInput) {
+            return;
+        }
+        var address = usernameInput.value.trim();
+        if (address === lastAsked) {
+            return;
+        }
+        lastAsked = address;
+
+        if (address.indexOf('@') < 1) {
+            applyProvider(null);
+            return;
+        }
+
+        var res = await api.postJson('/config/courrier-entrant/fournisseur', { address: address });
+        // An answer for an address the operator has since replaced is not
+        // this address's answer.
+        if (usernameInput.value.trim() !== address) {
+            return;
+        }
+        applyProvider(res.data && res.data.recognized ? res.data.provider : null);
+    }
+
+    if (usernameInput) {
+        usernameInput.addEventListener('change', recognize);
+    }
+
+    // ── Usage → module field ───────────────────────────────────────────
+
+    function syncModuleField() {
+        if (!moduleField) {
+            return;
+        }
+        var dedicated = /** @type {HTMLInputElement|null} */ (document.getElementById('mailbox-purpose-dedicated'));
+        moduleField.hidden = !(dedicated && dedicated.checked);
+    }
+
+    form.querySelectorAll('input[name="purpose"]').forEach(function (radio) {
+        radio.addEventListener('change', syncModuleField);
+    });
+    syncModuleField();
+
+    // ── Folders read (D9) ──────────────────────────────────────────────
+
+    /** @param {string} message */
+    function setFoldersStatus(message) {
+        if (foldersStatus) {
+            foldersStatus.textContent = message;
+        }
+    }
+
+    /** The other folders the operator had chosen before the listing. */
     function currentSelectedFolders() {
         if (!foldersTextarea) {
             return [];
@@ -87,14 +204,13 @@
     }
 
     /**
-     * Build one checkbox row for the folder picker.
-     *
      * @param {string} folderName
+     * @param {number} index
      * @param {boolean} checked
      * @returns {HTMLDivElement}
      */
-    function buildFolderCheckbox(folderName, checked) {
-        var id = 'folder-cb-' + folderName.replace(/[^a-zA-Z0-9_-]/g, '_');
+    function buildFolderCheckbox(folderName, index, checked) {
+        var id = 'folder-cb-' + index;
 
         var wrapper = document.createElement('div');
         wrapper.className = 'form-check';
@@ -117,35 +233,6 @@
         return wrapper;
     }
 
-    /**
-     * Populate the folder picker with checkboxes and sync the hidden
-     * textarea whenever a checkbox changes.
-     *
-     * @param {string[]} folders
-     * @param {string[]} selected
-     */
-    function showFolderPicker(folders, selected) {
-        if (!foldersList || !foldersPicker || !foldersWrapper) {
-            return;
-        }
-
-        foldersList.textContent = '';
-
-        folders.forEach(function (folder) {
-            var isSelected = selected.includes(folder);
-            var row = buildFolderCheckbox(folder, isSelected);
-            foldersList.appendChild(row);
-        });
-
-        // Sync checkboxes → textarea on every change.
-        foldersList.addEventListener('change', syncFoldersToTextarea);
-
-        syncFoldersToTextarea();
-
-        foldersWrapper.classList.add('d-none');
-        foldersPicker.classList.remove('d-none');
-    }
-
     function syncFoldersToTextarea() {
         if (!foldersTextarea || !foldersList) {
             return;
@@ -158,38 +245,102 @@
         foldersTextarea.value = checked.join('\n');
     }
 
-    // ── Test connection ────────────────────────────────────────────────
+    /**
+     * @param {string[]} folders
+     * @param {string[]} selected
+     */
+    function showFolderPicker(folders, selected) {
+        if (!foldersList || !foldersPicker || !foldersWrapper) {
+            return;
+        }
 
-    if (testBtn) {
-        testBtn.addEventListener('click', async function () {
-            if (testResult) {
-                testResult.textContent = '…';
-            }
-
-            var selectedBefore = currentSelectedFolders();
-
-            var res = await api.withDisabled(testBtn, function () {
-                return api.postJson('/config/courrier-entrant/test-connexion', {
-                    host: hostInput ? hostInput.value : '',
-                    port: portInput ? Number.parseInt(portInput.value, 10) : 993,
-                    encryption: encryptionSelect ? encryptionSelect.value : 'ssl',
-                    username: usernameInput ? usernameInput.value : '',
-                    password: passwordInput ? passwordInput.value : '',
-                    mailbox_id: idInput ? Number.parseInt(idInput.value, 10) : 0
-                });
-            });
-
-            if (succeeded(res)) {
-                renderTestResult(true, res.data.message || 'Connexion réussie');
-
-                var folders = Array.isArray(res.data.folders) ? res.data.folders : [];
-                if (folders.length > 0) {
-                    showFolderPicker(folders, selectedBefore);
-                }
-            } else {
-                renderTestResult(false, failureMessage(res));
-            }
+        foldersList.textContent = '';
+        folders.forEach(function (folder, index) {
+            foldersList.appendChild(buildFolderCheckbox(folder, index, selected.includes(folder)));
         });
+
+        syncFoldersToTextarea();
+
+        foldersWrapper.classList.add('d-none');
+        foldersPicker.classList.remove('d-none');
     }
 
+    /** @param {string|null} sentFolder */
+    function showSentFolder(sentFolder) {
+        // Found by the server and not overridden: said, not asked. An
+        // operator's own entry stays editable.
+        if (!sentFolder || (sentInput && sentInput.value.trim() !== '')) {
+            return;
+        }
+        if (sentFoundName) {
+            sentFoundName.textContent = sentFolder;
+        }
+        if (sentFound) {
+            sentFound.hidden = false;
+        }
+        if (sentField) {
+            sentField.hidden = true;
+        }
+    }
+
+    if (foldersList) {
+        foldersList.addEventListener('change', syncFoldersToTextarea);
+    }
+
+    var foldersLoaded = false;
+
+    /** The module an address is reserved to, or '' for the general mail. */
+    function reservedModule() {
+        var dedicated = /** @type {HTMLInputElement|null} */ (document.getElementById('mailbox-purpose-dedicated'));
+        var select = /** @type {HTMLSelectElement|null} */ (document.getElementById('mailbox-dedicated-to'));
+        return dedicated && dedicated.checked && select ? select.value : '';
+    }
+
+    async function listFolders() {
+        if (foldersLoaded || !foldersDetails || !foldersDetails.open) {
+            return;
+        }
+
+        var editing = idInput ? Number.parseInt(idInput.value, 10) > 0 : false;
+        var ready = usernameInput && usernameInput.value.trim() !== ''
+            && hostInput && hostInput.value.trim() !== ''
+            && (editing || (passwordInput && passwordInput.value !== ''));
+        if (!ready) {
+            setFoldersStatus("Renseignez l'adresse, le mot de passe et le serveur pour voir les dossiers de la boîte.");
+            return;
+        }
+
+        setFoldersStatus('Lecture des dossiers du serveur…');
+        var selectedBefore = currentSelectedFolders();
+
+        var res = await api.postJson('/config/courrier-entrant/test-connexion', {
+            host: hostInput ? hostInput.value : '',
+            port: portInput ? Number.parseInt(portInput.value, 10) : 993,
+            encryption: encryptionSelect ? encryptionSelect.value : 'ssl',
+            username: usernameInput ? usernameInput.value : '',
+            password: passwordInput ? passwordInput.value : '',
+            mailbox_id: idInput ? Number.parseInt(idInput.value, 10) : 0,
+            dedicated_to: reservedModule()
+        });
+
+        if (!res.data || !res.data.success) {
+            setFoldersStatus((res.data && res.data.error) || 'Erreur : réponse serveur invalide.');
+            return;
+        }
+
+        foldersLoaded = true;
+        var offered = Array.isArray(res.data.folders) ? res.data.folders : [];
+        // A folder already chosen stays listed, checked, even when the
+        // server no longer offers it: a listing never unticks it silently.
+        var folders = offered.concat(selectedBefore.filter(function (f) { return !offered.includes(f); }));
+        setFoldersStatus(folders.length > 0 ? '' : "Le serveur n'a pas d'autre dossier à proposer.");
+        if (folders.length > 0) {
+            showFolderPicker(folders, selectedBefore);
+        }
+        showSentFolder(typeof res.data.sent_folder === 'string' ? res.data.sent_folder : null);
+    }
+
+    if (foldersDetails) {
+        foldersDetails.addEventListener('toggle', listFolders);
+    }
 })();

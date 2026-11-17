@@ -89,6 +89,37 @@ class MailboxAdminService
     }
 
     /**
+     * The addresses of the boxes that are the unit's general mail, for the
+     * form's « … l'est déjà ».
+     *
+     * @return list<string>
+     */
+    public function generalAddresses(): array
+    {
+        $addresses = [];
+        foreach ($this->repository->findAll() as $mailbox) {
+            if (!$mailbox->isDedicated()) {
+                $addresses[] = $mailbox->displayName();
+            }
+        }
+
+        return $addresses;
+    }
+
+    /**
+     * The usage a new box's form proposes (D6): the unit's general mail
+     * while there is none, reserved to a module once there is — and
+     * general mail anyway when no module could take a reserved box. Only
+     * a default: several general boxes stay allowed.
+     */
+    public function suggestedPurpose(bool $aModuleIsOffered): MailboxPurpose
+    {
+        return $aModuleIsOffered && $this->generalAddresses() !== []
+            ? MailboxPurpose::DEDICATED
+            : MailboxPurpose::SHARED;
+    }
+
+    /**
      * What a module or a page outside Configuration may know about the
      * boxes: their address and whether they are working (§7.4). Never the
      * host or the port.
@@ -293,7 +324,7 @@ class MailboxAdminService
      * failure, in turn, would mark a working relève as broken. The row
      * belongs to the relève alone, and the test answers on the screen.
      *
-     * @return array{ok: bool, message: string, folders: string[], sent_folder?: ?string}
+     * @return array{ok: bool, message: string, folders: string[], offered_folders?: list<string>, sent_folder?: ?string}
      */
     public function testConnection(int $id, \DateTimeImmutable $now): array
     {
@@ -320,6 +351,7 @@ class MailboxAdminService
             'ok' => true,
             'message' => self::successMessage($listed),
             'folders' => RemoteFolder::paths($listed),
+            'offered_folders' => RemoteFolder::offeredAmong($listed),
             'sent_folder' => RemoteFolder::sentAmong($listed),
         ];
     }
@@ -335,8 +367,10 @@ class MailboxAdminService
      * save path already follows).
      *
      * Like `testConnection()`, it records nothing on the box: see there.
+     * `$offerJunk` keeps the junk folder among those offered, for a seed
+     * box (`RemoteFolder::offeredAmong()`).
      *
-     * @return array{ok: bool, message: string, folders: string[], sent_folder?: ?string}
+     * @return array{ok: bool, message: string, folders: string[], offered_folders?: list<string>, sent_folder?: ?string}
      */
     public function testConnectionFromParams(
         string $host,
@@ -345,7 +379,8 @@ class MailboxAdminService
         string $username,
         string $password,
         ?int $existingId,
-        \DateTimeImmutable $now
+        \DateTimeImmutable $now,
+        bool $offerJunk = false
     ): array {
         if ($password === '' && $existingId !== null && $existingId > 0) {
             $storedCredentials = $this->repository->findCredentials($existingId);
@@ -388,6 +423,7 @@ class MailboxAdminService
             'ok' => true,
             'message' => self::successMessage($listed),
             'folders' => RemoteFolder::paths($listed),
+            'offered_folders' => RemoteFolder::offeredAmong($listed, $offerJunk),
             'sent_folder' => RemoteFolder::sentAmong($listed),
         ];
     }
@@ -401,6 +437,25 @@ class MailboxAdminService
         $encryption = strtolower(trim($encryption));
 
         return in_array($encryption, ['ssl', 'tls', 'starttls'], true) ? $encryption : 'ssl';
+    }
+
+    /**
+     * The folders a box reads, from the « Autres dossiers reçus » the form
+     * posted: the inbox is always read (D9), so other folders come in
+     * addition to it, never instead. None chosen is the empty list, which
+     * reads the inbox alone (`Mailbox::watchedFolders()`).
+     *
+     * @param string[] $others
+     * @return string[]
+     */
+    public static function foldersWithInbox(array $others): array
+    {
+        $others = array_values(array_filter(
+            $others,
+            static fn(string $folder): bool => strcasecmp($folder, 'INBOX') !== 0
+        ));
+
+        return $others === [] ? [] : ['INBOX', ...$others];
     }
 
     /**

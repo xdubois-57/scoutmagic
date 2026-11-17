@@ -38,6 +38,9 @@ class FakeMailboxClient implements IncomingMailboxClientInterface
     /** @var array<string, true> */
     private array $sentFolders = [];
 
+    /** @var array<string, list<string>> */
+    private array $attributesByFolder = [];
+
     private bool $connected = false;
 
     /** @var list<string> */
@@ -77,6 +80,17 @@ class FakeMailboxClient implements IncomingMailboxClientInterface
     public function markSent(string $folder): void
     {
         $this->sentFolders[$folder] = true;
+        $this->foldersByPath[$folder] ??= [];
+        $this->uidValidityByFolder[$folder] ??= 1;
+    }
+
+    /**
+     * Have the server list $folder with these attributes (`\Junk`,
+     * `\Noselect`…). The folder exists, empty, from then on.
+     */
+    public function markAttributes(string $folder, string ...$attributes): void
+    {
+        $this->attributesByFolder[$folder] = array_values($attributes);
         $this->foldersByPath[$folder] ??= [];
         $this->uidValidityByFolder[$folder] ??= 1;
     }
@@ -121,7 +135,11 @@ class FakeMailboxClient implements IncomingMailboxClientInterface
         $this->calls[] = 'listFolders';
 
         return array_map(
-            fn(string $path): RemoteFolder => new RemoteFolder($path, isset($this->sentFolders[$path])),
+            fn(string $path): RemoteFolder => new RemoteFolder(
+                $path,
+                isset($this->sentFolders[$path]),
+                $this->attributesByFolder[$path] ?? []
+            ),
             array_keys($this->foldersByPath)
         );
     }

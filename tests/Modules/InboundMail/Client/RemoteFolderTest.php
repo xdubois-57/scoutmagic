@@ -90,4 +90,50 @@ class RemoteFolderTest extends TestCase
             sentFolder: $sentFolder
         );
     }
+
+    /**
+     * The folders the form may offer as received mail (D9): never the
+     * inbox, which is always read, nor the sent mail, shown apart, nor any
+     * special folder — however the server spells the attribute.
+     */
+    public function testSpecialFoldersAreNeverOffered(): void
+    {
+        $folders = RemoteFolder::fromListing([
+            'INBOX' => ['delimiter' => '/', 'flags' => ['\\HasNoChildren']],
+            'Factures' => ['delimiter' => '/', 'flags' => ['\\HasNoChildren']],
+            'Locations/2027' => ['delimiter' => '/', 'flags' => []],
+            '[Gmail]' => ['delimiter' => '/', 'flags' => ['\\Noselect', '\\HasChildren']],
+            '[Gmail]/Spam' => ['delimiter' => '/', 'flags' => ['\\Junk']],
+            '[Gmail]/Corbeille' => ['delimiter' => '/', 'flags' => ['\\TRASH']],
+            '[Gmail]/Brouillons' => ['delimiter' => '/', 'flags' => ['\\Drafts']],
+            '[Gmail]/Tous les messages' => ['delimiter' => '/', 'flags' => ['\\All']],
+            '[Gmail]/Suivis' => ['delimiter' => '/', 'flags' => ['\\Flagged']],
+            '[Gmail]/Important' => ['delimiter' => '/', 'flags' => ['\\Important']],
+            '[Gmail]/Messages envoyés' => ['delimiter' => '/', 'flags' => ['\\Sent']],
+            'Fantome' => ['delimiter' => '/', 'flags' => ['\\NonExistent']],
+        ]);
+
+        $this->assertSame(['Factures', 'Locations/2027'], RemoteFolder::offeredAmong($folders));
+        $this->assertSame('[Gmail]/Messages envoyés', RemoteFolder::sentAmong($folders));
+    }
+
+    /** A folder only named like a special one is a folder like any other: names are never guessed. */
+    public function testAFolderNamedLikeASpecialOneIsStillOffered(): void
+    {
+        $folders = RemoteFolder::fromListing(['Spam' => ['delimiter' => '/', 'flags' => []]]);
+
+        $this->assertSame(['Spam'], RemoteFolder::offeredAmong($folders));
+    }
+
+    /** A seed box reads its junk folder: only there is it offered — and never the trash with it. */
+    public function testTheJunkFolderIsOfferedOnlyWhenAskedFor(): void
+    {
+        $folders = RemoteFolder::fromListing([
+            'Spam' => ['delimiter' => '/', 'flags' => ['\\Junk']],
+            'Corbeille' => ['delimiter' => '/', 'flags' => ['\\Trash']],
+        ]);
+
+        $this->assertSame([], RemoteFolder::offeredAmong($folders));
+        $this->assertSame(['Spam'], RemoteFolder::offeredAmong($folders, includingJunk: true));
+    }
 }

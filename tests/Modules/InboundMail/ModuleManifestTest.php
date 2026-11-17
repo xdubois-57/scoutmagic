@@ -60,10 +60,15 @@ class ModuleManifestTest extends TestCase
      * 1.16.0 leaves a box two purposes and nothing else: the per-module
      * settings (`inbound_mailbox_consumers`) and the box's name are gone,
      * and a module has at most one reserved box (unique `dedicated_to`).
+     *
+     * 1.17.0 is the new configuration screen (lot B of #1333): an address
+     * is verified before it is saved, a known provider's settings are
+     * prefilled, and the list's « Tester la connexion » and « Rafraîchir
+     * maintenant » are gone with their routes. No schema change.
      */
     public function testTheVersionIsBumpedWheneverTheSchemaChanges(): void
     {
-        $this->assertSame('1.16.0', $this->manifest->version);
+        $this->assertSame('1.17.0', $this->manifest->version);
     }
 
     /**
@@ -157,7 +162,8 @@ class ModuleManifestTest extends TestCase
     {
         $writePaths = [
             '/config/courrier-entrant/boites',
-            '/config/courrier-entrant/boites/{id}/test',
+            '/config/courrier-entrant/test-connexion',
+            '/config/courrier-entrant/fournisseur',
             '/config/courrier-entrant/boites/{id}/activation',
             '/config/courrier-entrant/boites/{id}/suppression',
         ];

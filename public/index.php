@@ -8473,13 +8473,12 @@ if ($isEnabled('inbound_mail')) {
         $inboundReadConsumers
     );
 
-    // « Rafraîchir maintenant » assembles a synchronisation graph, which
-    // is the one thing an ordinary page view must never do — so it goes
-    // in as a CLOSURE, resolved only when that button is actually pressed.
-    // Same reasoning as the sync task's own lazy factory in
-    // scheduler-bootstrap.php. One service for the two screens that offer
-    // the button: the superadmin's configuration page and the chief's
-    // courrier page share its lock.
+    // « Relever le courrier maintenant » assembles a synchronisation graph,
+    // which is the one thing an ordinary page view must never do — so it
+    // goes in as a CLOSURE, resolved only when that button is actually
+    // pressed. Same reasoning as the sync task's own lazy factory in
+    // scheduler-bootstrap.php. Only « Courrier reçu » offers it: the
+    // configuration page's own button went with lot B of #1333.
     $inboundManualRefresh = new \Modules\InboundMail\Service\ManualRefreshService(
         static fn(): \Modules\InboundMail\Service\MailboxSyncService
             => new \Modules\InboundMail\Service\MailboxSyncService(
@@ -8514,7 +8513,6 @@ if ($isEnabled('inbound_mail')) {
             ),
             $journalService,
             $inboundReadConsumers,
-            $inboundManualRefresh,
             $settingService
         )
     );
