@@ -11,9 +11,9 @@
 -- about to connect. Nothing renders it, not even partially (§7.4).
 CREATE TABLE IF NOT EXISTS inbound_mailboxes (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    -- What the superadmin called it, and the only thing a non-superadmin
-    -- ever learns about a box besides whether it is working.
-    name VARCHAR(150) NOT NULL,
+    -- No name column: the account address is the box's name everywhere
+    -- (D7 of the « courrier entrant simplifié » roadmap). It is encrypted,
+    -- so every screen that shows it decrypts it.
     -- 'imap' | 'fake'. The abstraction exists so a native connector could
     -- be added later (§7.2); no such connector is implemented, and Gmail
     -- deliberately connects over IMAP with an app password.
@@ -37,24 +37,30 @@ CREATE TABLE IF NOT EXISTS inbound_mailboxes (
     -- its own; this is only the correction for a server that marks none.
     sent_folder VARCHAR(255) NULL,
     is_enabled TINYINT(1) NOT NULL DEFAULT 1,
-    -- 'shared' | 'dedicated'. **The first question the configuration
-    -- screen asks, and the one that determines every other answer.**
+    -- 'shared' | 'dedicated' (Api\MailboxPurpose), and the only setting
+    -- that decides who analyses the box and who reads it.
     --
-    -- A dedicated box is an address created for one purpose, whose entire
-    -- content concerns one module: that module reads and files all of it,
-    -- and no other module looks at it. A shared box is the unit's public
-    -- address, where a parent's question sits next to a supplier's invoice
-    -- and a medical certificate — there, each module is told what it may
-    -- analyse and what its users may read, one answer per module.
-    --
-    -- Stored rather than derived, because the two produce identical
-    -- per-module rows and only the operator knows which of the two they
-    -- meant. Reading « dédiée » back off the rows would make the screen
-    -- flip its own answer the first time somebody narrowed one scope.
+    -- A shared box is the unit's general mail: every active module analyses
+    -- it, and a module's users see only the messages attached to something
+    -- they manage — its propositions stay with the Staff d'U in « Courrier
+    -- reçu ». A dedicated box is an address created for one module: that
+    -- module alone analyses it, and its users read all of it.
     purpose VARCHAR(20) NOT NULL DEFAULT 'shared',
     -- The consumer a dedicated box belongs to. NULL on a shared box, and
     -- meaningless there.
     dedicated_to VARCHAR(50) NULL,
+    -- What makes « a module has at most one reserved box » (D5) hold in
+    -- the database: `dedicated_to`, except NULL for the consumers allowed
+    -- several boxes (Api\MailboxPurpose::RESERVED_ONLY_CONSUMERS, the seed
+    -- boxes) and on a shared box. NULLs never collide in a unique index, so
+    -- the index constrains exactly the others. A partial index would say it
+    -- directly, and MySQL has none; a GENERATED column would too, and the
+    -- migration tooling (Core\Database\SqlParser, SchemaComparator) has no
+    -- notion of one — it would create a plain NULL column on a fresh
+    -- install, the index then holding nothing. So it is a plain column,
+    -- written by InboundMailboxRepository::setPurpose() and nothing else,
+    -- the same answer as mass_mail_notified_accounts.audience_row_key.
+    dedication_key VARCHAR(50) NULL,
     -- 'never' | 'ok' | 'error'. 'never' is a real state, distinct from
     -- 'ok': a box that has not once connected must not look healthy.
     sync_state VARCHAR(20) NOT NULL DEFAULT 'never',
@@ -73,52 +79,8 @@ CREATE TABLE IF NOT EXISTS inbound_mailboxes (
     -- `last_synced_at` would count the time a box spent switched off.
     failing_since DATETIME NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- inbound_mailbox_consumers: what each module may do with each box.
---
--- **Two separate questions, deliberately not one.** « Analyser » is whether
--- the module is asked to recognise this box's mail at all; « qui peut
--- lire » is whether its users get a list of that mail and how much of it.
--- The first screen conflated them into one checkbox plus three radios that
--- overlapped, and an operator could not tell which combination meant what.
---
--- read_mode is 'none' | 'relevant' | 'all':
---
---   none      the module files mail automatically but opens no list. The
---             messages stay visible from the record they are attached to,
---             which is where somebody already has the right to be.
---   relevant  the module's users see the messages it attached to something
---             they manage, AND the ones it merely proposed. A proposition
---             is shown because the whole point is that somebody confirms
---             or dismisses it.
---   all       the module's users read EVERY message of the box. On a
---             dedicated box that is the normal answer. On a shared one it
---             is a heavy choice, and the screen says so in as many words:
---             it hands a module's audience the parents' questions, the
---             medical documents and the applications too.
---
--- A missing row means « ne rien faire » — no analysis, no reading. A module
--- installed later is therefore inert on every existing box until somebody
--- says otherwise, which is the right default for a screen whose whole
--- subject is who sees what.
-CREATE TABLE IF NOT EXISTS inbound_mailbox_consumers (
-    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    mailbox_id INT UNSIGNED NOT NULL,
-    -- Api\MessageConsumerInterface::consumerId(). Not a foreign key: a
-    -- module can be deactivated and reactivated, and losing its
-    -- configuration in between would be a surprise.
-    consumer_id VARCHAR(50) NOT NULL,
-    -- Named analyze_enabled rather than `analyze`, which is a keyword in
-    -- more than one engine this schema has to survive.
-    analyze_enabled TINYINT(1) NOT NULL DEFAULT 0,
-    read_mode VARCHAR(20) NOT NULL DEFAULT 'none',
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE INDEX idx_mailbox_consumer (mailbox_id, consumer_id),
-    INDEX idx_consumer_scope (consumer_id, read_mode),
-    CONSTRAINT fk_scope_mailbox FOREIGN KEY (mailbox_id) REFERENCES inbound_mailboxes(id) ON DELETE CASCADE
+    UNIQUE INDEX idx_mailbox_dedication_key (dedication_key)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- inbound_mailbox_cursors: how far each watched folder has been read.

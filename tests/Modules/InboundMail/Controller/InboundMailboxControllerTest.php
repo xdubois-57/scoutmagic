@@ -72,7 +72,6 @@ class InboundMailboxControllerTest extends TestCase
         );
 
         $this->mailboxId = $mailboxes->create(
-            'Boîte des locations',
             ProviderType::FAKE,
             'h',
             993,
@@ -151,7 +150,6 @@ class InboundMailboxControllerTest extends TestCase
         // the one it exists to end.
         $this->store('bare@x');
         $other = $this->mailboxes->create(
-            'Autre',
             ProviderType::IMAP,
             'imap.test',
             993,

@@ -56,7 +56,6 @@ class AnalysisJournalTest extends TestCase
         $this->journal->analysed(
             42,
             2,
-            'Locations',
             ['camps', 'rental'],
             [],
             AnalysisJournal::PASS_ARRIVAL
@@ -65,7 +64,7 @@ class AnalysisJournalTest extends TestCase
         $entry = $this->entries()[0];
         $this->assertSame('inbound_message_analysed', $entry['event_type']);
         $this->assertStringContainsString('#42', $entry['description']);
-        $this->assertStringContainsString('Locations', $entry['description']);
+        $this->assertStringContainsString('boîte #2', $entry['description']);
         $this->assertStringContainsString('camps : rien', $entry['description']);
         $this->assertStringContainsString('rental : rien', $entry['description']);
     }
@@ -75,7 +74,6 @@ class AnalysisJournalTest extends TestCase
         $this->journal->analysed(
             7,
             1,
-            'Unité',
             ['camps', 'rental', 'finance'],
             [
                 'rental' => AnalysisResult::linkedTo('rental', 'LOC-K7Q2M4', LinkOrigin::SENDER),
@@ -100,7 +98,7 @@ class AnalysisJournalTest extends TestCase
         // A journal entry is read by a superadmin and travels in a support
         // archive: it may name an internal id and a mailbox, never a
         // sender, a subject or a file (§8.6).
-        $this->journal->analysed(3, 1, 'Unité', ['camps'], [], AnalysisJournal::PASS_STORED);
+        $this->journal->analysed(3, 1, ['camps'], [], AnalysisJournal::PASS_STORED);
 
         $entry = $this->entries()[0];
         $whole = $entry['description'] . '|' . (string) $entry['context'];
@@ -146,12 +144,12 @@ class AnalysisJournalTest extends TestCase
 
     public function testABoxNoModuleMayAnalyseSaysSoRatherThanSayingNothing(): void
     {
-        $this->journal->noConsumerAllowed(2, 'Locations');
+        $this->journal->noConsumerAllowed(2);
 
         $entry = $this->entries()[0];
         $this->assertSame('inbound_no_module_analyses', $entry['event_type']);
         $this->assertSame('warning', $entry['level']);
-        $this->assertStringContainsString('Locations', $entry['description']);
+        $this->assertStringContainsString('Boîte #2', $entry['description']);
     }
 
     public function testTheDeferredPassSaysNothingWhenItExaminedNothing(): void

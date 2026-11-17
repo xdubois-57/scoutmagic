@@ -25,7 +25,6 @@ use Modules\InboundMail\Service\AnalysisResultApplier;
 use Modules\InboundMail\Service\AttachmentPolicy;
 use Modules\InboundMail\Service\MailboxClientFactory;
 use Modules\InboundMail\Service\MailboxErrorFormatter;
-use Modules\InboundMail\Service\MailboxScopeService;
 use Modules\InboundMail\Service\MailboxSyncService;
 use Modules\InboundMail\Service\ReplyAddressService;
 use Modules\InboundMail\Service\MessageConsumerRegistry;
@@ -105,12 +104,6 @@ class SyncMailboxesHandler implements TaskHandlerInterface
          */
         private ?StorageQuotaService $quotaService = null,
         /**
-         * What each box lets each module do (IT-05). Null means every
-         * consumer is offered every message, which is what the contract was
-         * before the configuration screen existed.
-         */
-        private ?MailboxScopeService $scopeService = null,
-        /**
          * What the arrival pass leaves in the journal — one line per
          * message stored, and one per consumer that threw. Null writes
          * nothing.
@@ -148,7 +141,6 @@ class SyncMailboxesHandler implements TaskHandlerInterface
                 ),
                 $this->quotaService,
                 new EncryptedFileStorageService(new FileRepository($pdo), $context->encryption, $context->storagePath),
-                $this->scopeService,
                 $this->analysisJournal,
                 $this->replyAddresses
             );

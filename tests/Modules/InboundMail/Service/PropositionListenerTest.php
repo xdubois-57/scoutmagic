@@ -7,6 +7,7 @@ namespace Tests\Modules\InboundMail\Service;
 use Core\Security\EncryptionService;
 use Modules\InboundMail\Api\AnalysisResult;
 use Modules\InboundMail\Api\LinkOrigin;
+use Modules\InboundMail\Api\MailboxPurpose;
 use Modules\InboundMail\Api\MessageCandidate;
 use Modules\InboundMail\Mailbox\ProviderType;
 use Modules\InboundMail\Repository\InboundMailboxRepository;
@@ -35,6 +36,7 @@ class PropositionListenerTest extends TestCase
     private FakeListeningConsumer $rental;
     private FakeMessageConsumer $camps;
     private int $messageId;
+    private int $generalBox;
 
     protected function setUp(): void
     {
@@ -43,7 +45,15 @@ class PropositionListenerTest extends TestCase
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $this->messages = new InboundMessageRepository($this->pdo, $encryption);
         $mailboxes = new InboundMailboxRepository($this->pdo, $encryption);
-        $mailboxId = $mailboxes->create('Unité', ProviderType::FAKE, 'imap.test', 993, 'ssl', 'unite@unite.be', 'mdp', ['INBOX'], true);
+        $mailboxId = $mailboxes->create(
+            ProviderType::FAKE, 'imap.test', 993, 'ssl', 'locations@unite.be', 'mdp', ['INBOX'], true
+        );
+        // Reserved to rental: the one place its propositions are shown to its
+        // users, and so the one place they are announced (rule A, §8.58).
+        $mailboxes->setPurpose($mailboxId, MailboxPurpose::DEDICATED, 'rental');
+        $this->generalBox = $mailboxes->create(
+            ProviderType::FAKE, 'imap.test', 993, 'ssl', 'unite@unite.be', 'mdp', ['INBOX'], true
+        );
 
         $this->rental = new FakeListeningConsumer('rental');
         $this->camps = new FakeMessageConsumer('camps');
@@ -95,7 +105,25 @@ class PropositionListenerTest extends TestCase
         $this->applyAndNotify(['camps' => AnalysisResult::proposing($this->candidate('camp-1'))]);
 
         $this->assertSame([], $this->rental->proposed);
-        $this->assertSame(1, $this->messages->countMessagesWithActiveCandidatesFor('camps'));
+        $this->assertCount(1, $this->messages->findActiveCandidates($this->messageId));
+    }
+
+    /**
+     * Rule A: a proposition about a message of the general box is never
+     * shown to the module's users, so it is not announced to them either —
+     * it waits in « Courrier reçu » for the Staff d'U.
+     */
+    public function testAPropositionOnTheGeneralBoxIsNotAnnounced(): void
+    {
+        $this->messageId = $this->messages->create(
+            $this->generalBox, 'INBOX', 1, 11, 'b@x', null, 'Bonjour', 'jeanne@example.be', null, 'Corps', '',
+            new \DateTimeImmutable('2027-07-12 09:30:00')
+        );
+
+        $this->applyAndNotify(['rental' => AnalysisResult::proposing($this->candidate('LOC-1'))]);
+
+        $this->assertSame([], $this->rental->proposed);
+        $this->assertCount(1, $this->messages->findActiveCandidates($this->messageId), 'the proposition stands');
     }
 
     public function testEachConsumerHearsOnlyItsOwn(): void

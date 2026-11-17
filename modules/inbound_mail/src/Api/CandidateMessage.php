@@ -79,8 +79,8 @@ class CandidateMessage
          * mean something on a dedicated one. « Ce message porte une pièce
          * jointe » is a parent's holiday photo in the unit's public
          * mailbox and an expense receipt in the box the unit created for
-         * its treasury — and only the operator's answer on the scope
-         * screen tells the two apart.
+         * its treasury — and only the box's purpose, as the operator
+         * declared it, tells the two apart.
          *
          * Last and defaulted so a test building a candidate says nothing
          * about mailbox purpose unless it means to; null reads as "shared",
@@ -173,7 +173,7 @@ class CandidateMessage
      *
      * Asked rather than compared inline, so a consumer cannot accidentally
      * test another module's id — which would be a module claiming a box
-     * that was opened to somebody else.
+     * that was reserved to somebody else.
      */
     public function mailboxIsDedicatedTo(string $consumerId): bool
     {

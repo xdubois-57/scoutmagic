@@ -107,14 +107,15 @@ interface InboundMailInterface
      * **Still scoped**, and that is why it may live on this contract at
      * all: the caller passes the references the requester can actually
      * reach, and this module never invents one. What it adds on top comes
-     * from the mailbox configuration alone — a box the superadmin declared
-     * this consumer may read in full contributes everything it holds, and
-     * a box they did not contributes nothing.
+     * from the mailbox configuration alone — the box reserved to this
+     * consumer contributes everything it holds, and the general box
+     * contributes only what is attached to one of those references.
      *
-     * Propositions are included alongside associations, because a
-     * proposition exists to be confirmed or dismissed by somebody who
-     * knows, and a list showing only what the module was already sure
-     * about would hide exactly the messages that need a human.
+     * Propositions are included alongside associations **on the box
+     * reserved to this consumer only** (rule A, §8.58). There a proposition
+     * exists to be confirmed or dismissed by the module's users; on the
+     * general box it stays with the Staff d'U in « Courrier reçu », and
+     * the module sees the message once somebody has confirmed it.
      *
      * Messages this consumer has SET ASIDE are left out unless
      * `$dismissed` asks for exactly those — a chief's « ce courrier ne
@@ -149,7 +150,8 @@ interface InboundMailInterface
      * one-line excerpt, whether it was cut, whether there is a body at all,
      * how many attachments.
      *
-     * Only THIS consumer's links and propositions: another module's
+     * Only THIS consumer's links and propositions — propositions on its
+     * reserved box only, as `findCandidatesFor()` answers: another module's
      * business on the same message is not this screen's, and showing it
      * would leak one module's guesses into another's audience. Scoped
      * exactly as `findForTriage()` is, which it reads through.
@@ -231,7 +233,9 @@ interface InboundMailInterface
      *
      * Another module's propositions on the same message are deliberately
      * absent: they are not this screen's business, and showing them would
-     * leak one module's guesses into another module's audience.
+     * leak one module's guesses into another module's audience. So are
+     * this consumer's own propositions on a message of the general box:
+     * the Staff d'U settles those in « Courrier reçu » (rule A, §8.58).
      *
      * @param int[] $messageIds
      * @return array<int, MessageCandidate[]>
@@ -418,10 +422,11 @@ interface InboundMailInterface
      * settled; offering it around again could only produce a second claim
      * on what is not in doubt.
      *
-     * **Scoped twice.** Only the boxes this consumer is allowed to analyse
-     * are read, and only THIS consumer is asked — a chief pressing a
-     * button on their own module's screen must not quietly make another
-     * module claim mail, nor reach a box the operator never opened to it.
+     * **Scoped twice.** Only the boxes this consumer analyses — the
+     * general box and its own — are read, and only THIS consumer is asked:
+     * a chief pressing a button on their own module's screen must not
+     * quietly make another module claim mail, nor reach a box reserved to
+     * another module.
      *
      * It also puts the messages back in front of the deferred,
      * content-level pass, whose readings (an attachment's text, a model
@@ -485,15 +490,17 @@ interface InboundMailInterface
 
     /**
      * How many messages carry a proposition of this consumer that nobody
-     * has settled — what a module's attention point counts.
+     * has settled and that its users are shown — on its reserved box only,
+     * as `findCandidatesFor()` answers. What a module's attention point
+     * counts.
      */
     public function countCandidatesFor(string $consumerId): int;
 
     /**
-     * What a non-superadmin may know about the configured mailboxes: a name
-     * and whether it is working (§7.4). Never the host, the port or the
-     * account — a manager choosing which box their module listens to needs
-     * to recognise it, not to be able to reach it.
+     * What a non-superadmin may know about the configured mailboxes: its
+     * address, which is a box's only name, and whether it is working
+     * (§7.4). Never the host or the port — a manager needs to recognise a
+     * box, not to be able to log into it.
      *
      * @return array<int, array{name: string, state: string, is_enabled: bool}> keyed by mailbox id
      */
@@ -504,18 +511,14 @@ interface InboundMailInterface
      * and no others — what a module's own screen shows when it says where
      * its mail comes from (issue #748).
      *
-     * The effective scope decides, exactly as it decides what the
-     * consumer is offered: a box dedicated to it, and a shared box whose
-     * scope lets it analyse. A box dedicated to another module, or shared
-     * without a row for this one, is absent — a module's page that listed
+     * The box's purpose decides, exactly as it decides what the consumer
+     * is offered: the general box, and the box reserved to it. A box
+     * reserved to another module is absent — a module's page that listed
      * every box on the site would read as « these are mine ».
      *
-     * A disabled box in scope stays in the list, flagged by `is_enabled`,
-     * as `listMailboxSummaries()` does: the box is still this module's,
+     * A disabled box stays in the list, flagged by `is_enabled`, as
+     * `listMailboxSummaries()` does: the box is still this module's,
      * nothing arrives in it for now, and saying so is the point.
-     *
-     * Without a way to read scopes, nothing is in scope — never « all of
-     * them » — as `probeAddressesFor()` answers.
      *
      * @return array<int, array{name: string, state: string, is_enabled: bool}> keyed by mailbox id
      */

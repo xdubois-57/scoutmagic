@@ -10,15 +10,12 @@ use Modules\InboundMail\Api\AnalysisResult;
 use Modules\InboundMail\Api\CandidateMessage;
 use Modules\InboundMail\Api\InboundMessage;
 use Modules\InboundMail\Api\MailboxPurpose;
-use Modules\InboundMail\Api\MailboxScope;
 use Modules\InboundMail\Api\MessageConsumerInterface;
 use Modules\InboundMail\Api\MessageLink;
-use Modules\InboundMail\Api\ReadMode;
 use Modules\InboundMail\Mailbox\ProviderType;
 use Modules\InboundMail\Repository\InboundMailboxRepository;
 use Modules\InboundMail\Repository\InboundMessageRepository;
 use Modules\InboundMail\Service\InboundMailService;
-use Modules\InboundMail\Service\MailboxScopeService;
 use Modules\InboundMail\Service\MessageConsumerRegistry;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
@@ -26,11 +23,12 @@ use Tests\Modules\InboundMail\InboundMailTestHelper;
 
 /**
  * `Api\InboundMailInterface::listMailboxSummariesFor()` — the boxes one
- * module may analyse, named for that module's own screen (issue #748).
+ * module analyses, named for that module's own screen (issue #748).
  *
  * The page « Biens à louer » used to list every box on the site under
- * « Courrier entrant », a box another module reads included. The
- * effective scope decides now, the one the sync itself obeys.
+ * « Courrier entrant », a box another module reads included. The box's
+ * purpose decides now, the same rule the sync itself obeys (§8.58): the
+ * general box and the module's own reserved box, never another module's.
  *
  * @group database
  */
@@ -52,48 +50,41 @@ class ScopedMailboxSummariesTest extends TestCase
         $this->registry->register(new ScopeNamingConsumer('camps'));
     }
 
-    public function testADedicatedBoxAndASharedBoxOpenToTheModuleAreListed(): void
+    /** The box's address is its name (D7): there is no other to show. */
+    public function testTheReservedBoxAndTheGeneralBoxAreListedByTheirAddress(): void
     {
-        $dedicated = $this->mailbox('Locations');
+        $dedicated = $this->mailbox('locations');
         $this->mailboxRepository->setPurpose($dedicated, MailboxPurpose::DEDICATED, 'rental');
-        $shared = $this->mailbox('Unité');
-        $this->scope($shared, 'rental', true);
+        $shared = $this->mailbox('unite');
 
         $summaries = $this->service()->listMailboxSummariesFor('rental');
 
         $this->assertSame([$dedicated, $shared], array_keys($summaries));
-        $this->assertSame('Locations', $summaries[$dedicated]['name']);
-        $this->assertSame('Unité', $summaries[$shared]['name']);
+        $this->assertSame('locations@unite.be', $summaries[$dedicated]['name']);
+        $this->assertSame('unite@unite.be', $summaries[$shared]['name']);
     }
 
     /**
-     * A box another module reads is not this module's: listing it on the
-     * Locations page would read as « Locations receives this ».
+     * A box reserved to another module is not this module's: listing it on
+     * the Locations page would read as « Locations receives this ».
      */
-    public function testABoxOfAnotherModuleIsNeverListed(): void
+    public function testABoxReservedToAnotherModuleIsNeverListed(): void
     {
-        $camps = $this->mailbox('Camps');
+        $camps = $this->mailbox('camps');
         $this->mailboxRepository->setPurpose($camps, MailboxPurpose::DEDICATED, 'camps');
-        $sharedWithCampsOnly = $this->mailbox('Unité');
-        $this->scope($sharedWithCampsOnly, 'camps', true);
-        $this->scope($sharedWithCampsOnly, 'rental', false);
-        $this->mailbox('Personne');
+        $general = $this->mailbox('unite');
 
-        $this->assertSame([], $this->service()->listMailboxSummariesFor('rental'));
-        $this->assertSame(
-            [$camps, $sharedWithCampsOnly],
-            array_keys($this->service()->listMailboxSummariesFor('camps'))
-        );
+        $this->assertSame([$general], array_keys($this->service()->listMailboxSummariesFor('rental')));
+        $this->assertSame([$camps, $general], array_keys($this->service()->listMailboxSummariesFor('camps')));
     }
 
     /**
-     * A disabled box in scope is still this module's: it stays, flagged,
-     * as the unscoped summaries already showed it.
+     * A disabled box is still this module's: it stays, flagged, as the
+     * unscoped summaries already showed it.
      */
-    public function testADisabledBoxInScopeStaysAndSaysSo(): void
+    public function testADisabledBoxStaysAndSaysSo(): void
     {
-        $box = $this->mailbox('Locations', enabled: false);
-        $this->scope($box, 'rental', true);
+        $box = $this->mailbox('locations', enabled: false);
 
         $summaries = $this->service()->listMailboxSummariesFor('rental');
 
@@ -101,31 +92,15 @@ class ScopedMailboxSummariesTest extends TestCase
         $this->assertFalse($summaries[$box]['is_enabled']);
     }
 
-    /** What a manager sees of a box: its name and state, never how to reach it. */
-    public function testASummaryCarriesNoHostAndNoAccount(): void
+    /** What a manager sees of a box: its address and state, never how to log in. */
+    public function testASummaryCarriesNoHost(): void
     {
-        $box = $this->mailbox('Locations');
-        $this->scope($box, 'rental', true);
+        $box = $this->mailbox('locations');
 
         $this->assertSame(
             ['name', 'state', 'is_enabled'],
             array_keys($this->service()->listMailboxSummariesFor('rental')[$box])
         );
-    }
-
-    /** Without a way to read scopes, nothing is in scope — never every box. */
-    public function testWithoutAScopeServiceNothingIsListed(): void
-    {
-        $this->scope($this->mailbox('Locations'), 'rental', true);
-
-        $service = new InboundMailService(
-            new InboundMessageRepository($this->pdo, $this->encryption()),
-            $this->mailboxRepository,
-            new FileRepository($this->pdo),
-            $this->registry
-        );
-
-        $this->assertSame([], $service->listMailboxSummariesFor('rental'));
     }
 
     private function service(): InboundMailService
@@ -134,31 +109,21 @@ class ScopedMailboxSummariesTest extends TestCase
             new InboundMessageRepository($this->pdo, $this->encryption()),
             $this->mailboxRepository,
             new FileRepository($this->pdo),
-            $this->registry,
-            new MailboxScopeService($this->mailboxRepository, $this->registry)
+            $this->registry
         );
     }
 
-    private function mailbox(string $name, bool $enabled = true): int
+    private function mailbox(string $local, bool $enabled = true): int
     {
         return $this->mailboxRepository->create(
-            $name,
             ProviderType::IMAP,
             'imap.test',
             993,
             'ssl',
-            strtolower($name) . '@unite.be',
+            $local . '@unite.be',
             'secret',
             ['INBOX'],
             $enabled
-        );
-    }
-
-    private function scope(int $mailboxId, string $consumerId, bool $analyzes): void
-    {
-        $this->mailboxRepository->saveScope(
-            $mailboxId,
-            new MailboxScope($consumerId, $analyzes, $analyzes ? ReadMode::ALL : ReadMode::NONE)
         );
     }
 
@@ -169,7 +134,7 @@ class ScopedMailboxSummariesTest extends TestCase
 }
 
 /**
- * A consumer that exists only to have an id the scope rows can name.
+ * A consumer that exists only to have an id a box can be reserved to.
  */
 final class ScopeNamingConsumer implements MessageConsumerInterface
 {

@@ -195,9 +195,8 @@ class GeneralMailboxService
     }
 
     /**
-     * The mailboxes, for the filter. `publicSummary()` is not enough here —
-     * the filter needs an id — but nothing about the host, the port or the
-     * account leaves this method either.
+     * The mailboxes, for the filter, each by its address — a box's only
+     * name (D7). Nothing about the host or the port leaves this method.
      *
      * @return array<int, string>
      */
@@ -205,7 +204,7 @@ class GeneralMailboxService
     {
         $names = [];
         foreach ($this->mailboxes->findAll() as $mailbox) {
-            $names[$mailbox->id] = $mailbox->name;
+            $names[$mailbox->id] = $mailbox->displayName();
         }
 
         return $names;

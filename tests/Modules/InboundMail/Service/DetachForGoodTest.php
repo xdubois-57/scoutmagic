@@ -58,12 +58,10 @@ class DetachForGoodTest extends TestCase
             $mailboxes,
             new FileRepository($pdo),
             $this->consumers,
-            null,
             new AnalysisJournal(new JournalService(new JournalRepository($pdo)))
         );
 
         $this->mailboxId = $mailboxes->create(
-            'Locations',
             ProviderType::IMAP,
             'imap.test',
             993,

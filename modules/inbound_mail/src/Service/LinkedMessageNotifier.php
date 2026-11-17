@@ -98,6 +98,11 @@ class LinkedMessageNotifier
      * message with two candidates of one module is one call, and one
      * notification to whoever settles them.
      *
+     * Only on the box reserved to that consumer. On the general box the
+     * module's users are never shown a proposition — the Staff d'U settles
+     * it in « Courrier reçu » (rule A, §8.58) — so telling them about one
+     * would send them to a screen where it is not.
+     *
      * @param array<int, array{consumerId: string, candidate: \Modules\InboundMail\Api\MessageCandidate}> $proposed
      */
     private function notifyProposed(int $messageId, array $proposed): void
@@ -114,7 +119,9 @@ class LinkedMessageNotifier
         $stored = null;
         foreach ($byConsumer as $consumerId => $candidates) {
             $consumer = $this->consumerRegistry->find($consumerId);
-            if (!$consumer instanceof PropositionListener) {
+            if (!$consumer instanceof PropositionListener
+                || !$this->messageRepository->isOnBoxReservedTo($messageId, $consumerId)
+            ) {
                 continue;
             }
 

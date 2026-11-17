@@ -14,9 +14,14 @@ use Modules\InboundMail\Api\MailboxPurpose;
  * One configured mailbox — **without its password**, which lives in
  * `MailboxCredentials` and is loaded separately (see that class).
  *
- * Several boxes may be configured at once, one box may feed several
- * consumer modules, and one consumer may read from several boxes (§7.4):
- * nothing here ties a box to a module.
+ * Several boxes may be configured at once. A box has one of exactly two
+ * purposes (`Api\MailboxPurpose`): the unit's general mail, read by every
+ * consumer, or reserved to one module, read by that module alone. Who
+ * analyses a box follows from that answer and nothing else
+ * (`isAnalysedBy()`): there is no per-module setting to forget.
+ *
+ * A box has no name of its own: its account address is what every screen
+ * shows (`displayName()`).
  */
 class Mailbox
 {
@@ -26,7 +31,6 @@ class Mailbox
      */
     public function __construct(
         public readonly int $id,
-        public readonly string $name,
         public readonly ProviderType $providerType,
         public readonly string $host,
         public readonly int $port,
@@ -44,8 +48,7 @@ class Mailbox
         public readonly ?string $lastError = null,
         public readonly ?\DateTimeImmutable $lastErrorAt = null,
         /**
-         * What the box is for. Answered by the operator, not derived from
-         * the per-module rows — see `Api\MailboxPurpose`.
+         * What the box is for — see `Api\MailboxPurpose`.
          */
         public readonly MailboxPurpose $purpose = MailboxPurpose::SHARED,
         /** The consumer a dedicated box belongs to; null on a shared one. */
@@ -91,45 +94,60 @@ class Mailbox
     }
 
     /**
-     * What a non-superadmin may know about this box (§7.4): that it exists
-     * and whether it is working. Never the host, the port, the account or
-     * anything that would help somebody reach it.
+     * What every screen calls this box: its account address. A box has no
+     * other name — a second label the operator had to invent and keep in
+     * step with the address was one more thing to get wrong.
+     */
+    public function displayName(): string
+    {
+        return $this->username;
+    }
+
+    /**
+     * Whether this consumer is offered this box's mail.
+     *
+     * A general box is analysed by every active consumer, a reserved box
+     * by its module alone. A box therefore works the moment it is saved:
+     * no module waits for a second screen to be told it may look. The one
+     * exception: a consumer that reads only boxes reserved to it — the
+     * seed boxes — never reads the general mail
+     * (`MailboxPurpose::readsReservedBoxesOnly()`).
+     */
+    public function isAnalysedBy(string $consumerId): bool
+    {
+        return $this->isDedicated()
+            ? $this->dedicatedTo === $consumerId
+            : !MailboxPurpose::readsReservedBoxesOnly($consumerId);
+    }
+
+    /**
+     * The consumers, among those given, that this box's mail is offered to.
+     *
+     * @template T of \Modules\InboundMail\Api\MessageConsumerInterface
+     * @param T[] $consumers
+     * @return list<T>
+     */
+    public function analysingConsumersAmong(array $consumers): array
+    {
+        return array_values(array_filter(
+            $consumers,
+            fn($consumer): bool => $this->isAnalysedBy($consumer->consumerId())
+        ));
+    }
+
+    /**
+     * What a non-superadmin may know about this box (§7.4): its address
+     * and whether it is working. Never the host, the port or anything that
+     * would help somebody log into it.
      *
      * @return array{name: string, state: string, is_enabled: bool}
      */
     public function publicSummary(): array
     {
         return [
-            'name' => $this->name,
+            'name' => $this->displayName(),
             'state' => $this->syncState->label(),
             'is_enabled' => $this->isEnabled,
         ];
-    }
-
-    /**
-     * The scopes a dedicated box implies, whatever its rows happen to say.
-     *
-     * Computed rather than stored twice: « dédiée à camps » and « camps
-     * analyse et lit tout, les autres rien » must never be able to drift
-     * apart, and the way to guarantee that is for one of them not to be a
-     * second source of truth.
-     *
-     * @param string[] $consumerIds every registered consumer
-     * @return array<string, \Modules\InboundMail\Api\MailboxScope>
-     */
-    public function impliedScopes(array $consumerIds): array
-    {
-        $scopes = [];
-        foreach ($consumerIds as $consumerId) {
-            $scopes[$consumerId] = $consumerId === $this->dedicatedTo
-                ? new \Modules\InboundMail\Api\MailboxScope(
-                    $consumerId,
-                    true,
-                    \Modules\InboundMail\Api\ReadMode::ALL
-                )
-                : \Modules\InboundMail\Api\MailboxScope::inert($consumerId);
-        }
-
-        return $scopes;
     }
 }

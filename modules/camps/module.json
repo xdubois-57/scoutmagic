@@ -2,7 +2,7 @@
   "id": "camps",
   "name": "Camps",
   "description": "Les lieux de camp de l'unité et les séjours qui s'y sont tenus.",
-  "version": "1.18.0",
+  "version": "1.19.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -573,13 +573,6 @@
       "type": "boolean",
       "label": "Géocoder automatiquement les lieux",
       "description": "Cherche les coordonnées d'un lieu à partir de son adresse, via OpenStreetMap (Nominatim). Un lieu dont les coordonnées ont été saisies ou corrigées à la main n'est jamais retouché. Désactivez ce réglage pour n'envoyer aucune adresse à un service extérieur."
-    },
-    {
-      "key": "camps_dedicated_mailbox_ids",
-      "default_value": "",
-      "type": "text",
-      "label": "Boîtes aux lettres dédiées aux camps",
-      "description": "RÉGLAGE HISTORIQUE, plus lu par le module. Le choix se fait désormais sur Configuration > Courrier entrant, en déclarant la boîte « dédiée » au module Camps : c'est ce choix-là, et lui seul, qui autorise la création automatique d'un séjour. Cette valeur n'est conservée que pour la reprise automatique d'une installation qui n'a pas encore vu le nouvel écran."
     },
     {
       "key": "camps_short_stay_max_days",

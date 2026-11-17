@@ -75,13 +75,12 @@ class AnalysisJournal
      * that produced an association — « personne ne l'a reconnu » is the
      * answer a unit most often needs and the one that was hardest to get.
      *
-     * @param string[] $consumerIds the consumers this box was opened to
+     * @param string[] $consumerIds the consumers this box is offered to
      * @param array<string, AnalysisResult> $results keyed by consumer id
      */
     public function analysed(
         int $messageId,
         int $mailboxId,
-        string $mailboxName,
         array $consumerIds,
         array $results,
         string $pass
@@ -91,9 +90,9 @@ class AnalysisJournal
             'inbound_message_analysed',
             'info',
             sprintf(
-                'Message #%d (boîte « %s ») : %s',
+                'Message #%d (boîte #%d) : %s',
                 $messageId,
-                $mailboxName,
+                $mailboxId,
                 self::summarise($consumerIds, $results)
             ),
             [
@@ -194,23 +193,23 @@ class AnalysisJournal
     }
 
     /**
-     * Nothing to analyse at all, because no module is allowed to.
+     * Nothing to analyse at all: no active module reads this box — none
+     * reads mail, or the one it is reserved to is switched off.
      *
-     * Distinct from « tout le monde a dit non » on purpose: a box no module
-     * was opened to is a configuration answer, and telling a superadmin to
-     * go and look at the scope screen is a different instruction from
-     * telling them their mail does not match anything.
+     * Distinct from « tout le monde a dit non » on purpose: it is a
+     * configuration answer, a different instruction from telling a
+     * superadmin their mail does not match anything.
      */
-    public function noConsumerAllowed(int $mailboxId, string $mailboxName): void
+    public function noConsumerAllowed(int $mailboxId): void
     {
         $this->journal?->log(
             self::CATEGORY,
             'inbound_no_module_analyses',
             'warning',
             sprintf(
-                'Boîte « %s » : aucun module n\'est autorisé à analyser son courrier. '
+                'Boîte #%d : aucun module actif ne lit son courrier. '
                 . 'Le courrier est conservé, rien ne le classe.',
-                $mailboxName
+                $mailboxId
             ),
             ['mailbox_id' => $mailboxId]
         );

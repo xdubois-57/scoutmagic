@@ -156,7 +156,6 @@ class RentalMessageConsumerTest extends TestCase
         );
 
         $this->mailboxId = $this->mailboxRepository->create(
-            'Locations',
             ProviderType::FAKE,
             'imap.test',
             993,
@@ -201,7 +200,6 @@ class RentalMessageConsumerTest extends TestCase
             $factory,
             new \Modules\InboundMail\Service\AnalysisResultApplier($this->messageRepository),
             new UploadHandler(new FileRepository($this->pdo), $this->storagePath),
-            null,
             null,
             null,
             null,

@@ -37,8 +37,8 @@ use Modules\InboundMail\Repository\InboundMailboxRepository;
  * a unit whose provider does not is one whose replies would bounce — so
  * the operator can turn it off, and the rules above are then all there is.
  *
- * **Which box.** The one declared dedicated to the consumer, else the
- * first enabled box that consumer analyses — whose account name must be
+ * **Which box.** The one reserved to the consumer, else the first enabled
+ * general box (`Mailbox::isAnalysedBy()`) — whose account name must be
  * an address, since an IMAP login that is not one has no domain to reply
  * to. Nothing is minted when there is no such box: on a site that
  * collects no mail, a reply address would be a promise nobody keeps.
@@ -54,7 +54,6 @@ class ReplyAddressService
     public function __construct(
         private InboundMailboxRepository $mailboxes,
         private EncryptionService $encryption,
-        private ?MailboxScopeService $scopes = null,
         private ?SettingService $settings = null
     ) {
     }
@@ -152,9 +151,10 @@ class ReplyAddressService
             if ($mailbox->isDedicated() && $mailbox->dedicatedTo === $consumerId) {
                 return $mailbox;
             }
-            if ($fallback === null
-                && ($this->scopes === null || $this->scopes->scopeFor($mailbox, $consumerId)->analyzes)
-            ) {
+            // The general box, never one reserved to another module: that
+            // box's mail is offered to its module alone, so a reply sent
+            // there would reach nobody who reads for this one.
+            if ($fallback === null && $mailbox->isAnalysedBy($consumerId)) {
                 $fallback = $mailbox;
             }
         }

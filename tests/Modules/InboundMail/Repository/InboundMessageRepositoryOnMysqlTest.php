@@ -48,7 +48,6 @@ final class InboundMessageRepositoryOnMysqlTest extends TestCase
         $this->messages = new InboundMessageRepository($this->pdo, $this->encryption);
 
         $mailboxId = (new InboundMailboxRepository($this->pdo, $this->encryption))->create(
-            'Unité',
             ProviderType::FAKE,
             'imap.test',
             993,

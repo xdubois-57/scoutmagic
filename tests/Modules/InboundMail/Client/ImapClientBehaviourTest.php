@@ -320,7 +320,6 @@ class ImapClientBehaviourTest extends TestCase
     {
         return new Mailbox(
             1,
-            'Boîte de l\'unité',
             ProviderType::IMAP,
             'imap.example.be',
             993,

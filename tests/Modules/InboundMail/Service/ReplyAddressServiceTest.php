@@ -6,14 +6,12 @@ namespace Tests\Modules\InboundMail\Service;
 
 use Core\Config\SettingService;
 use Core\Security\EncryptionService;
+use Modules\InboundMail\Api\MailboxPurpose;
 use Modules\InboundMail\Mailbox\ProviderType;
 use Modules\InboundMail\Repository\InboundMailboxRepository;
-use Modules\InboundMail\Service\MailboxScopeService;
-use Modules\InboundMail\Service\MessageConsumerRegistry;
 use Modules\InboundMail\Service\ReplyAddressService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
-use Tests\Modules\InboundMail\FakeMessageConsumer;
 use Tests\Modules\InboundMail\InboundMailTestHelper;
 
 /**
@@ -28,7 +26,6 @@ class ReplyAddressServiceTest extends TestCase
     private \PDO $pdo;
     private EncryptionService $encryption;
     private InboundMailboxRepository $mailboxes;
-    private MailboxScopeService $scopes;
 
     protected function setUp(): void
     {
@@ -36,25 +33,31 @@ class ReplyAddressServiceTest extends TestCase
         InboundMailTestHelper::createTables($this->pdo);
         $this->encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $this->mailboxes = new InboundMailboxRepository($this->pdo, $this->encryption);
-
-        $registry = new MessageConsumerRegistry();
-        $registry->register(new FakeMessageConsumer('rental'));
-        $registry->register(new FakeMessageConsumer('camps'));
-        $this->scopes = new MailboxScopeService($this->mailboxes, $registry);
     }
 
-    /** A shared box the operator opened to rental. */
-    private function mailbox(string $username, string $name = 'Locations', bool $enabled = true): int
+    /** A general box, which every consumer analyses (§8.58). */
+    private function mailbox(string $username, bool $enabled = true): int
     {
-        $id = $this->mailboxes->create($name, ProviderType::FAKE, 'imap.test', 993, 'ssl', $username, 'mdp', ['INBOX'], $enabled);
-        $this->scopes->saveSharedScopes($id, ['rental' => ['analyze' => true, 'read' => 'none']]);
-
-        return $id;
+        return $this->mailboxes->create(
+            ProviderType::FAKE,
+            'imap.test',
+            993,
+            'ssl',
+            $username,
+            'mdp',
+            ['INBOX'],
+            $enabled
+        );
     }
 
-    private function service(?SettingService $settings = null, bool $withScopes = true): ReplyAddressService
+    private function reserve(int $mailboxId, string $consumerId): void
     {
-        return new ReplyAddressService($this->mailboxes, $this->encryption, $withScopes ? $this->scopes : null, $settings);
+        $this->mailboxes->setPurpose($mailboxId, MailboxPurpose::DEDICATED, $consumerId);
+    }
+
+    private function service(?SettingService $settings = null): ReplyAddressService
+    {
+        return new ReplyAddressService($this->mailboxes, $this->encryption, $settings);
     }
 
     public function testTheAddressIsTheBoxsOwnWithTheObjectAndASignature(): void
@@ -137,21 +140,30 @@ class ReplyAddressServiceTest extends TestCase
         $this->assertNotNull($off->resolve([$minted]));
     }
 
-    public function testTheBoxDedicatedToTheConsumerIsPreferred(): void
+    public function testTheBoxReservedToTheConsumerIsPreferred(): void
     {
-        $this->mailbox('unite@unite.be', 'Unité');
-        $dedicated = $this->mailbox('locations@unite.be', 'Locations');
-        $this->scopes->saveDedicated($dedicated, 'rental');
+        $this->mailbox('unite@unite.be');
+        $this->reserve($this->mailbox('locations@unite.be'), 'rental');
 
         $this->assertStringStartsWith('locations+rental.', (string) $this->service()->addressFor('rental', 'LOC-K7Q2M4'));
     }
 
-    public function testABoxTheConsumerDoesNotAnalyseIsNeverUsed(): void
+    /** Without a box of its own, the consumer answers from the general box. */
+    public function testWithoutABoxOfItsOwnTheGeneralBoxServes(): void
     {
-        $camps = $this->mailbox('camps@unite.be', 'Camps');
-        $this->scopes->saveDedicated($camps, 'camps');
-        $shared = $this->mailbox('unite@unite.be', 'Unité');
-        $this->scopes->saveSharedScopes($shared, ['camps' => ['analyze' => true, 'read' => 'none']]);
+        $this->reserve($this->mailbox('camps@unite.be'), 'camps');
+        $this->mailbox('unite@unite.be');
+
+        $this->assertStringStartsWith('unite+rental.', (string) $this->service()->addressFor('rental', 'LOC-K7Q2M4'));
+    }
+
+    /**
+     * A box reserved to another module is offered to that module alone: a
+     * reply sent there would reach nobody who reads for this one.
+     */
+    public function testABoxReservedToAnotherModuleIsNeverUsed(): void
+    {
+        $this->reserve($this->mailbox('camps@unite.be'), 'camps');
 
         $this->assertNull($this->service()->addressFor('rental', 'LOC-K7Q2M4'));
     }
@@ -176,13 +188,5 @@ class ReplyAddressServiceTest extends TestCase
 
         $this->assertNull($this->service()->addressFor('rental', 'LOC 2027/0042'));
         $this->assertNull($this->service()->addressFor('Rental!', 'LOC-K7Q2M4'));
-    }
-
-    public function testWithoutAScopeServiceAnyEnabledAddressBoxServes(): void
-    {
-        $this->mailbox('locations');
-        $this->mailbox('unite@unite.be', 'Unité');
-
-        $this->assertStringEndsWith('@unite.be', (string) $this->service(null, false)->addressFor('rental', 'LOC-K7Q2M4'));
     }
 }

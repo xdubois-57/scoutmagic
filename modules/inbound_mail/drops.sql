@@ -24,3 +24,13 @@
 -- which time every installation has run it at least once. The same
 -- expand-then-contract sequencing `rental_assets.calendar_id` needed, and
 -- for the same reason.
+
+-- The per-module settings of a box (« analyse ce courrier », « qui peut
+-- lire »), and the box's own name. A box now has one of two purposes —
+-- the unit's general mail, or reserved to one module — and that answer
+-- alone decides who analyses and who reads it (§8.58); its account address
+-- is its name everywhere. Nothing carries the old rows over, deliberately:
+-- the instance this ships to is a test one, and every box keeps its
+-- `purpose` and `dedicated_to`.
+DROP TABLE inbound_mailbox_consumers;
+ALTER TABLE inbound_mailboxes DROP COLUMN name;

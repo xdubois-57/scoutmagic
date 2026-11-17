@@ -8211,19 +8211,6 @@ if ($isEnabled('inbound_mail')) {
     // view builds none of them — §7.6's mutable-registry pattern.
     $inboundReadConsumers = new \Modules\InboundMail\Service\MessageConsumerRegistry();
 
-    // What each box lets each module do (IT-05). Built HERE rather than
-    // where it is first used further down, because the gateway itself
-    // needs it: `probeAddressesFor()` answers about the boxes a consumer
-    // may actually analyse, and a gateway without it would answer « aucune
-    // boîte » to everything — silently, which is the worst shape that
-    // mistake can take. It reads the SAME registry the file guard uses, so
-    // the answers a superadmin gives on the configuration screen and the
-    // answers every check acts on cannot come apart.
-    $inboundScopeService = new \Modules\InboundMail\Service\MailboxScopeService(
-        $inboundMailboxRepository,
-        $inboundReadConsumers
-    );
-
     // Signed reply addresses (§8.58): what a consumer puts in the
     // Reply-To of what it sends, and what the sync recognises coming
     // back. One instance for both directions, so the box it mints for is
@@ -8231,7 +8218,6 @@ if ($isEnabled('inbound_mail')) {
     $inboundReplyAddresses = new \Modules\InboundMail\Service\ReplyAddressService(
         $inboundMailboxRepository,
         $encryptionService,
-        $inboundScopeService,
         $settingService
     );
 
@@ -8240,7 +8226,6 @@ if ($isEnabled('inbound_mail')) {
         $inboundMailboxRepository,
         new \Core\File\FileRepository($pdo),
         $inboundReadConsumers,
-        $inboundScopeService,
         null,
         $inboundReplyAddresses,
         // Row AND bytes when a message, a box or a retention window takes
@@ -8259,13 +8244,11 @@ if ($isEnabled('inbound_mail')) {
     // says what it says.
     $seedMailboxes->useInboundMail($inboundMailForOthers);
 
-    // The core's own consumer, so that the mailbox configuration screen
-    // lists « Courrier sortant » among the modules a box can be opened to
-    // (roadmap IT-03). It has to be on THIS registry and not only on the
-    // scheduler's: `Service\MailboxScopeService` reads this one to build
-    // the list of consumers the superadmin answers for, and a consumer
-    // absent from it can never be granted the scope its verification
-    // needs — silently, which is the worst shape that mistake can take.
+    // The core's own consumer (roadmap IT-03). It has to be on THIS
+    // registry and not only on the scheduler's: `probeAddressesFor()` and
+    // the gateway's other answers about who reads which box are given this
+    // one, and a consumer absent from it would be told it reads no box at
+    // all — silently, which is the worst shape that mistake can take.
     //
     // A factory like every other entry here: the verification's own
     // graph is built when somebody asks about it, never on a page view.
@@ -8323,9 +8306,9 @@ if ($isEnabled('inbound_mail')) {
     );
 
     // The seed consumer (roadmap IT-07), on the same registry and for the
-    // same reason again — it is what makes « boîtes témoins » appear in
-    // the list of scopes the super-admin answers for, and a box can only
-    // BE a seed box by being granted that scope (D10).
+    // same reason again — it is what makes « boîtes témoins » appear among
+    // the modules a box can be reserved to, and which boxes it reads
+    // follows from their purpose like every other consumer's (§8.58).
     //
     // It is also the one consumer on this site that declares
     // `Api\PruningConsumerInterface`: a box receiving a copy of every
@@ -8490,19 +8473,6 @@ if ($isEnabled('inbound_mail')) {
         $inboundReadConsumers
     );
 
-    // One-time reprise of the Camps module's own list of dedicated boxes
-    // (A8). Unlike the retention, which stays a live read so a unit keeps
-    // the duration it chose, this one is migrated once: it is a structural
-    // answer the new screen now owns, and two places declaring a box
-    // dedicated would disagree the first time somebody used the screen.
-    if ($settingService->get(
-        \Modules\InboundMail\Service\MailboxScopeService::REPRISE_DONE_SETTING,
-        'inbound_mail',
-        ''
-    ) !== '1') {
-        $inboundScopeService->repriseCampsDedicatedBoxes($settingService, $settingRepo);
-    }
-
     // « Rafraîchir maintenant » assembles a synchronisation graph, which
     // is the one thing an ordinary page view must never do — so it goes
     // in as a CLOSURE, resolved only when that button is actually pressed.
@@ -8524,7 +8494,6 @@ if ($isEnabled('inbound_mail')) {
                 new \Core\File\UploadHandler(new \Core\File\FileRepository($pdo), $storagePath, $diskBudget),
                 null,
                 $encryptedFileStorageService,
-                $inboundScopeService,
                 null,
                 $inboundReplyAddresses
             ),
@@ -8544,7 +8513,6 @@ if ($isEnabled('inbound_mail')) {
                 $settingService
             ),
             $journalService,
-            $inboundScopeService,
             $inboundReadConsumers,
             $inboundManualRefresh,
             $settingService

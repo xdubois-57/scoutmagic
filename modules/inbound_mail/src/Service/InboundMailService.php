@@ -52,12 +52,6 @@ class InboundMailService implements InboundMailInterface
          */
         private ?MessageConsumerRegistry $consumerRegistry = null,
         /**
-         * Which consumers a box is open to. Optional like the registry
-         * above and for the same reason: only `probeAddressesFor()` needs
-         * it, and a caller that only reads a thread never builds one.
-         */
-        private ?MailboxScopeService $scopeService = null,
-        /**
          * Where a consumer that throws during a re-run goes. Null writes
          * nothing, which is what a caller that only reads wants.
          */
@@ -162,10 +156,10 @@ class InboundMailService implements InboundMailInterface
     /**
      * The business triage list — see `Api\InboundMailInterface`.
      *
-     * The full-read mailboxes come from the configuration screen, never
-     * from the consumer: `Repository\InboundMailboxRepository::mailboxIdsReadableInFull()`
-     * answers only for boxes a superadmin declared this consumer may read
-     * entirely, so a consumer cannot widen its own scope by calling this.
+     * The full-read mailboxes come from the configuration, never from the
+     * consumer: `Repository\InboundMailboxRepository::mailboxIdsReadableInFull()`
+     * answers with the box reserved to this consumer and nothing else, so a
+     * consumer cannot widen its own scope by calling this.
      *
      * @param string[] $ownReferences
      * @return InboundMessage[]
@@ -327,10 +321,11 @@ class InboundMailService implements InboundMailInterface
     /**
      * The proposition this caller is actually allowed to answer.
      *
-     * Three conditions, all of them: it is on this message, it belongs to
-     * this consumer, and its target is one the requester may reach. The
-     * third is what stops a screen being talked into filing a message
-     * under an object its user has no business touching.
+     * Four conditions, all of them: it is on this message, it belongs to
+     * this consumer, the module is shown it (its own reserved box, D3), and
+     * its target is one the requester may reach. The last is what stops a
+     * screen being talked into filing a message under an object its user
+     * has no business touching.
      *
      * @param string[] $ownReferences
      */
@@ -340,7 +335,11 @@ class InboundMailService implements InboundMailInterface
         int $messageId,
         int $candidateId
     ): ?\Modules\InboundMail\Api\MessageCandidate {
-        foreach ($this->messageRepository->findActiveCandidates($messageId) as $candidate) {
+        // Through the same query the triage screen reads, so a proposition
+        // the module is not shown — one on the general box, which the Staff
+        // d'U settles (D3) — is not one it can answer either.
+        $visible = $this->messageRepository->findCandidatesForConsumer([$messageId], $consumerId);
+        foreach ($visible[$messageId] ?? [] as $candidate) {
             if ($candidate->id === $candidateId
                 && $candidate->consumerId === $consumerId
                 && in_array($candidate->businessReference, $ownReferences, true)
@@ -729,13 +728,9 @@ class InboundMailService implements InboundMailInterface
 
     public function listMailboxSummariesFor(string $consumerId): array
     {
-        if ($this->scopeService === null) {
-            return [];
-        }
-
         $summaries = [];
         foreach ($this->mailboxRepository->findAll() as $mailbox) {
-            if ($this->scopeService->scopeFor($mailbox, $consumerId)->analyzes) {
+            if ($mailbox->isAnalysedBy($consumerId)) {
                 $summaries[$mailbox->id] = $mailbox->publicSummary();
             }
         }
@@ -789,11 +784,8 @@ class InboundMailService implements InboundMailInterface
             // Only the boxes this consumer may actually analyse: probing a
             // box it never reads would produce a message nobody claims and
             // a « jamais reçu » that means nothing.
-            foreach ($this->scopeService?->analyzingConsumers($mailbox) ?? [] as $consumer) {
-                if ($consumer->consumerId() === $consumerId) {
-                    $boxes[] = $mailbox;
-                    break;
-                }
+            if ($mailbox->isAnalysedBy($consumerId)) {
+                $boxes[] = $mailbox;
             }
         }
 
@@ -819,7 +811,11 @@ class InboundMailService implements InboundMailInterface
         foreach ($this->mailboxRepository->findEnabled() as $mailbox) {
             if ($mailbox->isDedicated() && $mailbox->dedicatedTo === $consumerId) {
                 $address = filter_var($mailbox->username, FILTER_VALIDATE_EMAIL) !== false ? $mailbox->username : null;
-                $boxes[] = new \Modules\InboundMail\Api\DedicatedMailbox($mailbox->id, $mailbox->name, $address);
+                $boxes[] = new \Modules\InboundMail\Api\DedicatedMailbox(
+                    $mailbox->id,
+                    $mailbox->displayName(),
+                    $address
+                );
             }
         }
 
@@ -906,12 +902,8 @@ class InboundMailService implements InboundMailInterface
     }
 
     /**
-     * The enabled boxes this consumer may analyse, keyed by id, each with
-     * the consumer its operator declared it dedicated to.
-     *
-     * Without a scope service — a caller that never built one — every
-     * enabled box qualifies, which is what the contract was before the
-     * configuration screen existed.
+     * The enabled boxes this consumer analyses (`Mailbox::isAnalysedBy()`),
+     * keyed by id, each with the consumer its operator reserved it to.
      *
      * @return array<int, string|null>
      */
@@ -919,9 +911,7 @@ class InboundMailService implements InboundMailInterface
     {
         $mailboxes = [];
         foreach ($this->mailboxRepository->findEnabled() as $mailbox) {
-            if ($this->scopeService !== null
-                && !$this->scopeService->scopeFor($mailbox, $consumerId)->analyzes
-            ) {
+            if (!$mailbox->isAnalysedBy($consumerId)) {
                 continue;
             }
 

@@ -15,9 +15,8 @@ use Core\Security\EncryptionService;
 use Core\Security\UserAccountRepository;
 use Modules\InboundMail\Api\AnalysisResult;
 use Modules\InboundMail\Api\LinkOrigin;
-use Modules\InboundMail\Api\MailboxScope;
+use Modules\InboundMail\Api\MailboxPurpose;
 use Modules\InboundMail\Api\MessageLink;
-use Modules\InboundMail\Api\ReadMode;
 use Modules\InboundMail\Mailbox\ProviderType;
 use Modules\InboundMail\Repository\InboundMailboxRepository;
 use Modules\InboundMail\Repository\InboundMessageRepository;
@@ -53,7 +52,6 @@ class AnalyzeStoredMessagesHandlerTest extends TestCase
         $this->messages = new InboundMessageRepository($this->pdo, $this->encryption);
         $mailboxes = new InboundMailboxRepository($this->pdo, $this->encryption);
         $this->mailboxId = $mailboxes->create(
-            'Unité',
             ProviderType::IMAP,
             'imap.test',
             993,
@@ -63,19 +61,17 @@ class AnalyzeStoredMessagesHandlerTest extends TestCase
             ['INBOX'],
             true
         );
-
-        // The box is open to the two consumers these tests register — the
-        // deferred pass narrows the question to what the box allows, as
-        // the arrival pass does, and a consumer with no row is never asked.
-        $mailboxes->saveScope($this->mailboxId, new MailboxScope('rental', true, ReadMode::NONE));
-        $mailboxes->saveScope($this->mailboxId, new MailboxScope('camps', true, ReadMode::NONE));
+        // The unit's general mail: every consumer these tests register is
+        // asked about it (§8.58).
     }
 
-    public function testAConsumerTheBoxIsNotOpenToIsNeverHandedTheStoredMessage(): void
+    public function testAConsumerTheBoxIsNotReservedToIsNeverHandedTheStoredMessage(): void
     {
-        // IT-05 held on arrival and not here: every registered consumer
-        // got the stored content of every message, on a box whose
-        // operator had answered « n'analyse pas » for it.
+        // The narrowing held on arrival and not here: every registered
+        // consumer got the stored content of every message, on a box the
+        // operator had reserved to another module.
+        (new InboundMailboxRepository($this->pdo, $this->encryption))
+            ->setPurpose($this->mailboxId, MailboxPurpose::DEDICATED, 'rental');
         $messageId = $this->storeMessage('scoped@mail');
         $asked = false;
         $consumer = new FakeMessageConsumer(
@@ -90,7 +86,7 @@ class AnalyzeStoredMessagesHandlerTest extends TestCase
 
         $this->runPass($consumer);
 
-        $this->assertFalse($asked, 'a consumer the box was never opened to must not see its mail');
+        $this->assertFalse($asked, 'a consumer the box is not reserved to must not see its mail');
         $this->assertSame([], $this->messages->findLinksForMessage($messageId));
         $this->assertSame(
             [],

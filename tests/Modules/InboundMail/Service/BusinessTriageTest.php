@@ -8,12 +8,13 @@ use Core\File\FileRepository;
 use Core\Security\EncryptionService;
 use Modules\InboundMail\Api\InboundMessage;
 use Modules\InboundMail\Api\LinkOrigin;
+use Modules\InboundMail\Api\MailboxPurpose;
 use Modules\InboundMail\Api\MessageCandidate;
 use Modules\InboundMail\Mailbox\ProviderType;
 use Modules\InboundMail\Repository\InboundMailboxRepository;
 use Modules\InboundMail\Repository\InboundMessageRepository;
+use Modules\InboundMail\Service\GeneralMailboxService;
 use Modules\InboundMail\Service\InboundMailService;
-use Modules\InboundMail\Service\MailboxScopeService;
 use Modules\InboundMail\Service\MessageConsumerRegistry;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
@@ -26,7 +27,13 @@ use Tests\Modules\InboundMail\InboundMailTestHelper;
  * The one method on `Api\InboundMailInterface` that returns messages the
  * caller did not name a reference for — so what this file pins is that it
  * is still not a general read. Everything it adds comes from the mailbox
- * configuration, and a consumer cannot widen its own scope by calling it.
+ * configuration — the box reserved to the consumer, read in full — and a
+ * consumer cannot widen its own scope by calling it.
+ *
+ * **Rule A** (§8.58): on the general box a module's users see what is
+ * attached to something they manage, never a proposition; the Staff d'U
+ * settles those in « Courrier reçu ». On the module's reserved box they see
+ * everything, propositions included.
  *
  * @group database
  */
@@ -36,10 +43,13 @@ class BusinessTriageTest extends TestCase
     private \PDO $pdo;
     private InboundMessageRepository $messages;
     private InboundMailboxRepository $mailboxes;
-    private MailboxScopeService $scopes;
     private InboundMailService $service;
+    private MessageConsumerRegistry $registry;
     private int $sharedBox;
+    /** Reserved to camps. */
     private int $dedicatedBox;
+    /** Reserved to rental. */
+    private int $rentalBox;
 
     protected function setUp(): void
     {
@@ -53,8 +63,8 @@ class BusinessTriageTest extends TestCase
         $registry = new MessageConsumerRegistry();
         $registry->register(new FakeMessageConsumer('rental'));
         $registry->register(new FakeMessageConsumer('camps'));
+        $this->registry = $registry;
 
-        $this->scopes = new MailboxScopeService($this->mailboxes, $registry);
         $this->service = new InboundMailService(
             $this->messages,
             $this->mailboxes,
@@ -62,8 +72,11 @@ class BusinessTriageTest extends TestCase
             $registry
         );
 
-        $this->sharedBox = $this->createMailbox('Unité');
-        $this->dedicatedBox = $this->createMailbox('Camps');
+        $this->sharedBox = $this->createMailbox('unite@unite.be');
+        $this->dedicatedBox = $this->createMailbox('camps@unite.be');
+        $this->mailboxes->setPurpose($this->dedicatedBox, MailboxPurpose::DEDICATED, 'camps');
+        $this->rentalBox = $this->createMailbox('locations@unite.be');
+        $this->mailboxes->setPurpose($this->rentalBox, MailboxPurpose::DEDICATED, 'rental');
     }
 
     // ── What the list contains ──────────────────────────────────────────
@@ -81,28 +94,70 @@ class BusinessTriageTest extends TestCase
         );
     }
 
-    public function testTheListCarriesPropositionsToo(): void
+    public function testTheListCarriesPropositionsOnTheModulesOwnBox(): void
     {
         // A proposition exists to be confirmed or dismissed by somebody who
-        // knows. A list showing only what the module was already sure of
-        // would hide exactly the messages that need a human.
-        $proposed = $this->store('proposed@x', $this->sharedBox);
+        // knows. On the module's own box, that is its users (D4).
+        $proposed = $this->store('proposed@x', $this->rentalBox);
         $this->addCandidate($proposed, 'rental', 'LOC-1');
 
         $this->assertSame(
             [$proposed],
-            $this->ids($this->service->findForTriage('rental', ['LOC-1']))
+            $this->ids($this->service->findForTriage('rental', ['LOC-1'], 50, false, true))
         );
+        $shown = $this->service->findCandidatesFor('rental', [$proposed]);
+        $this->assertSame('LOC-1', $shown[$proposed][0]->businessReference);
+        $this->assertSame(1, $this->service->countCandidatesFor('rental'));
     }
 
-    public function testAPropositionSomebodySetAsideLeavesTheList(): void
+    /**
+     * Rule A (D3). A message of the general box that rental merely
+     * PROPOSED for a booking is not shown to rental's users at all: not in
+     * the triage list, not among the propositions a row renders, not in
+     * the attention counter. It waits in « Courrier reçu » for the Staff
+     * d'U.
+     */
+    public function testAPropositionOnTheGeneralBoxIsNeverShownToTheModule(): void
     {
         $proposed = $this->store('proposed@x', $this->sharedBox);
         $this->addCandidate($proposed, 'rental', 'LOC-1');
 
+        $this->assertSame([], $this->service->findForTriage('rental', ['LOC-1']));
+        $this->assertSame([], $this->service->triageRows('rental', ['LOC-1']));
+        $this->assertSame([], $this->service->findCandidatesFor('rental', [$proposed]));
+        $this->assertSame(0, $this->service->countCandidatesFor('rental'));
+        $this->assertFalse(
+            $this->service->confirmCandidate('rental', ['LOC-1'], $proposed, $this->candidateId($proposed)),
+            'a proposition the module is not shown is not one it can answer'
+        );
+        $this->assertCount(1, $this->messages->findActiveCandidates($proposed), 'it is still standing');
+    }
+
+    /**
+     * And once the Staff d'U confirms it, it is an association like any
+     * other: the message is on the booking, where rental's users see it.
+     */
+    public function testOnceConfirmedTheGeneralBoxMessageIsTheModules(): void
+    {
+        $proposed = $this->store('proposed@x', $this->sharedBox);
+        $this->addCandidate($proposed, 'rental', 'LOC-1');
+
+        $staff = new GeneralMailboxService($this->messages, $this->mailboxes, $this->registry);
+        $this->assertTrue($staff->confirmCandidate($proposed, $this->candidateId($proposed), 7));
+
+        $this->assertSame([$proposed], $this->ids($this->service->findForTriage('rental', ['LOC-1'])));
+        $this->assertCount(1, $this->service->findForReference('rental', 'LOC-1'));
+        $this->assertSame(0, $this->service->countCandidatesFor('rental'));
+    }
+
+    public function testAPropositionSomebodySetAsideLeavesTheList(): void
+    {
+        $proposed = $this->store('proposed@x', $this->rentalBox);
+        $this->addCandidate($proposed, 'rental', 'LOC-1');
+
         $this->assertTrue($this->service->dismissCandidate('rental', ['LOC-1'], $proposed, $this->candidateId($proposed)));
 
-        $this->assertSame([], $this->service->findForTriage('rental', ['LOC-1']));
+        $this->assertSame([], $this->service->findForTriage('rental', ['LOC-1'], 50, false, true));
     }
 
     public function testAnotherModulesBusinessIsNeverInThisModulesList(): void
@@ -126,7 +181,6 @@ class BusinessTriageTest extends TestCase
 
     public function testADedicatedBoxContributesEverythingItHolds(): void
     {
-        $this->scopes->saveDedicated($this->dedicatedBox, 'camps');
         $unattached = $this->store('anything@x', $this->dedicatedBox);
 
         $this->assertSame([$unattached], $this->ids($this->service->findForTriage('camps', [])));
@@ -139,11 +193,10 @@ class BusinessTriageTest extends TestCase
      */
     public function testOwnReferencesOnlyLeavesTheBoxReadInFullOutBeforeTheLimit(): void
     {
-        $this->scopes->saveDedicated($this->dedicatedBox, 'rental');
-        $mine = $this->store('mine@x', $this->dedicatedBox);
+        $mine = $this->store('mine@x', $this->rentalBox);
         $this->messages->addLink($mine, 'rental', 'LOC-1', LinkOrigin::REFERENCE);
         for ($i = 0; $i < 3; $i++) {
-            $this->store('newer' . $i . '@x', $this->dedicatedBox);
+            $this->store('newer' . $i . '@x', $this->rentalBox);
         }
 
         $this->assertNotContains($mine, $this->ids($this->service->findForTriage('rental', ['LOC-1'], 3)));
@@ -157,25 +210,14 @@ class BusinessTriageTest extends TestCase
         );
     }
 
-    public function testASharedBoxContributesNothingOnItsOwn(): void
+    public function testTheGeneralBoxContributesNothingOnItsOwn(): void
     {
-        // Even to a module that analyses it: « analyser » is not « lire ».
-        $this->scopes->saveSharedScopes($this->sharedBox, [
-            'rental' => ['analyze' => true, 'read' => 'relevant'],
-        ]);
+        // Every module analyses it, and none reads it: « analyser » is not
+        // « lire ».
         $this->store('anything@x', $this->sharedBox);
 
         $this->assertSame([], $this->service->findForTriage('rental', []));
-    }
-
-    public function testASharedBoxOpenedInFullDoesContributeEverything(): void
-    {
-        $this->scopes->saveSharedScopes($this->sharedBox, [
-            'rental' => ['analyze' => true, 'read' => 'all'],
-        ]);
-        $anything = $this->store('anything@x', $this->sharedBox);
-
-        $this->assertSame([$anything], $this->ids($this->service->findForTriage('rental', [])));
+        $this->assertSame([], $this->service->findForTriage('camps', []));
     }
 
     public function testAConsumerCannotWidenItsOwnScopeByAskingForOtherPeoplesReferences(): void
@@ -193,7 +235,7 @@ class BusinessTriageTest extends TestCase
 
     public function testConfirmingAPropositionRecordsAManualAssociation(): void
     {
-        $id = $this->store('m@x', $this->sharedBox);
+        $id = $this->store('m@x', $this->rentalBox);
         $this->addCandidate($id, 'rental', 'LOC-1');
 
         $this->assertTrue($this->service->confirmCandidate('rental', ['LOC-1'], $id, $this->candidateId($id), 7));
@@ -210,7 +252,7 @@ class BusinessTriageTest extends TestCase
         // The screen offering the button is a convenience; this is the
         // guard. Otherwise a forged candidate id would file a message under
         // an object its user has no business touching.
-        $id = $this->store('m@x', $this->sharedBox);
+        $id = $this->store('m@x', $this->rentalBox);
         $this->addCandidate($id, 'rental', 'LOC-9');
 
         $this->assertFalse($this->service->confirmCandidate('rental', ['LOC-1'], $id, $this->candidateId($id)));
@@ -237,7 +279,6 @@ class BusinessTriageTest extends TestCase
      */
     public function testASetAsideMessageLeavesTheList(): void
     {
-        $this->scopes->saveDedicated($this->dedicatedBox, 'camps');
         $noise = $this->store('newsletter@x', $this->dedicatedBox);
         $contract = $this->store('contrat@x', $this->dedicatedBox);
 
@@ -253,7 +294,6 @@ class BusinessTriageTest extends TestCase
      */
     public function testWhatWasSetAsideIsListedAndCanComeBack(): void
     {
-        $this->scopes->saveDedicated($this->dedicatedBox, 'camps');
         $noise = $this->store('newsletter@x', $this->dedicatedBox);
         $this->service->dismissMessage('camps', [], $noise);
 
@@ -274,20 +314,17 @@ class BusinessTriageTest extends TestCase
      */
     public function testSettingAsideIsPerConsumer(): void
     {
-        // One box both modules read in full, and a message neither has
-        // filed: the shape of the mail this feature is about.
-        $this->scopes->saveSharedScopes($this->sharedBox, [
-            'camps' => ['analyze' => true, 'read' => 'all'],
-            'rental' => ['analyze' => true, 'read' => 'all'],
-        ]);
-        $id = $this->store('both@x', $this->sharedBox);
+        // A message on the camps box that rental filed under a booking:
+        // on both lists, and camps has not filed it.
+        $id = $this->store('both@x', $this->dedicatedBox);
+        $this->messages->addLink($id, 'rental', 'LOC-1', LinkOrigin::REFERENCE);
 
         $this->service->dismissMessage('camps', [], $id);
 
         $this->assertSame([], $this->service->findForTriage('camps', []));
         $this->assertSame(
             [$id],
-            $this->ids($this->service->findForTriage('rental', [])),
+            $this->ids($this->service->findForTriage('rental', ['LOC-1'])),
             'camps setting a message aside must not hide it from rental'
         );
     }
@@ -311,7 +348,6 @@ class BusinessTriageTest extends TestCase
 
     public function testSettingAsideTwiceIsSettingAsideOnce(): void
     {
-        $this->scopes->saveDedicated($this->dedicatedBox, 'camps');
         $id = $this->store('twice@x', $this->dedicatedBox);
 
         $this->assertTrue($this->service->dismissMessage('camps', [], $id, 7));
@@ -331,7 +367,6 @@ class BusinessTriageTest extends TestCase
      */
     public function testAMessageOutsideTheRequestersListCannotBeRestored(): void
     {
-        $this->scopes->saveDedicated($this->dedicatedBox, 'camps');
         $theirs = $this->store('theirs@x', $this->dedicatedBox);
         $this->service->dismissMessage('camps', [], $theirs);
 
@@ -381,7 +416,6 @@ class BusinessTriageTest extends TestCase
      */
     public function testADatabaseFailureIsNotReportedAsASuccessfulDismissal(): void
     {
-        $this->scopes->saveDedicated($this->dedicatedBox, 'camps');
         $id = $this->store('noise@x', $this->dedicatedBox);
         $this->pdo->exec('DROP TABLE inbound_message_dismissals');
 
@@ -401,7 +435,6 @@ class BusinessTriageTest extends TestCase
      */
     public function testSettingAsideProtectsNothing(): void
     {
-        $this->scopes->saveDedicated($this->dedicatedBox, 'camps');
         $id = $this->store('noise@x', $this->dedicatedBox);
         $this->service->dismissMessage('camps', [], $id);
 
@@ -453,7 +486,7 @@ class BusinessTriageTest extends TestCase
         // rental triage screen would leak one module's reasoning into
         // another's audience, and that audience is a different set of
         // people.
-        $id = $this->store('deux@x', $this->sharedBox);
+        $id = $this->store('deux@x', $this->rentalBox);
         $this->addCandidate($id, 'rental', 'LOC-1');
         $this->addCandidate($id, 'camps', 'camp-1');
 
@@ -467,8 +500,8 @@ class BusinessTriageTest extends TestCase
     {
         // Grouped here so a triage screen can render a whole page without
         // querying inside its own loop.
-        $first = $this->store('un@x', $this->sharedBox);
-        $second = $this->store('deux@x', $this->sharedBox);
+        $first = $this->store('un@x', $this->rentalBox);
+        $second = $this->store('deux@x', $this->rentalBox);
         $this->addCandidate($first, 'rental', 'LOC-1');
         $this->addCandidate($second, 'rental', 'LOC-2');
 
@@ -483,7 +516,7 @@ class BusinessTriageTest extends TestCase
         // `dismissed_at` is final (A3 / D10): a proposition that reappeared
         // after somebody rejected it would make the screen argue with its
         // own user.
-        $id = $this->store('ecarte@x', $this->sharedBox);
+        $id = $this->store('ecarte@x', $this->rentalBox);
         $this->addCandidate($id, 'rental', 'LOC-1');
         $this->service->dismissCandidate('rental', ['LOC-1'], $id, $this->candidateId($id));
 
@@ -537,8 +570,8 @@ class BusinessTriageTest extends TestCase
         );
     }
 
-    private function createMailbox(string $name): int
+    private function createMailbox(string $address): int
     {
-        return $this->mailboxes->create($name, ProviderType::FAKE, 'h', 993, 'ssl', 'a@b.be', 's', [], true);
+        return $this->mailboxes->create(ProviderType::FAKE, 'h', 993, 'ssl', $address, 's', [], true);
     }
 }

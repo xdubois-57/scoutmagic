@@ -5,19 +5,18 @@ declare(strict_types=1);
 namespace Tests\Modules\InboundMail\Service;
 
 use Core\File\FileRepository;
+use Core\Mail\Feedback\Seed\SeedMailboxes;
 use Core\Security\EncryptionService;
 use Modules\InboundMail\Api\AnalysisResult;
 use Modules\InboundMail\Api\CandidateMessage;
 use Modules\InboundMail\Api\InboundMessage;
-use Modules\InboundMail\Api\MailboxScope;
+use Modules\InboundMail\Api\MailboxPurpose;
 use Modules\InboundMail\Api\MessageConsumerInterface;
 use Modules\InboundMail\Api\MessageLink;
-use Modules\InboundMail\Api\ReadMode;
 use Modules\InboundMail\Mailbox\ProviderType;
 use Modules\InboundMail\Repository\InboundMailboxRepository;
 use Modules\InboundMail\Repository\InboundMessageRepository;
 use Modules\InboundMail\Service\InboundMailService;
-use Modules\InboundMail\Service\MailboxScopeService;
 use Modules\InboundMail\Service\MessageConsumerRegistry;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
@@ -29,8 +28,9 @@ use Tests\Modules\InboundMail\InboundMailTestHelper;
  * summary a manager gets (roadmap IT-27).
  *
  * It is a deliberate exception, and the whole of it is *scope*: a
- * consumer is told about the boxes it may already analyse, and about no
- * others. Everything below pins one edge of that.
+ * consumer is told about the boxes it already analyses — the general box
+ * and the one reserved to it (§8.58) — and about no others. Everything
+ * below pins one edge of that.
  *
  * @group database
  */
@@ -53,12 +53,15 @@ class ProbeAddressesTest extends TestCase
         $this->registry->register(new ProbingConsumer('rental'));
     }
 
-    public function testAConsumerIsToldAboutTheBoxesItMayAnalyse(): void
+    public function testAConsumerIsToldAboutTheGeneralBoxAndItsOwn(): void
     {
-        $open = $this->mailbox('support@unite.be');
-        $this->allow($open, 'support');
+        $this->mailbox('contact@unite.be');
+        $this->reserve($this->mailbox('support@unite.be'), 'support');
 
-        $this->assertSame(['support@unite.be'], $this->service()->probeAddressesFor('support'));
+        $this->assertSame(
+            ['contact@unite.be', 'support@unite.be'],
+            $this->service()->probeAddressesFor('support')
+        );
     }
 
     /**
@@ -66,17 +69,36 @@ class ProbeAddressesTest extends TestCase
      * message would land where nobody claims it and produce a « jamais
      * reçu » that says nothing about the mail path.
      */
-    public function testABoxAnotherConsumerAnalysesIsNotOffered(): void
+    /**
+     * Seed copies of every mailing go to the boxes reserved to the seed
+     * consumer and never to the unit's general address — and several such
+     * boxes are allowed, one measurement spanning several providers.
+     */
+    public function testTheGeneralBoxIsNeverASeedBoxAndSeveralSeedBoxesAreAllowed(): void
     {
-        $this->allow($this->mailbox('locations@unite.be'), 'rental');
+        $seed = SeedMailboxes::CONSUMER_ID;
+        $this->registry->register(new ProbingConsumer($seed));
+        $this->mailbox('contact@unite.be');
+        $this->reserve($this->mailbox('temoin.gmail@unite.be'), $seed);
+        $this->reserve($this->mailbox('temoin.outlook@unite.be'), $seed);
 
-        $this->assertSame([], $this->service()->probeAddressesFor('support'));
+        $this->assertSame(
+            ['temoin.gmail@unite.be', 'temoin.outlook@unite.be'],
+            $this->service()->probeAddressesFor($seed)
+        );
+        $this->assertSame(['contact@unite.be'], $this->service()->probeAddressesFor('support'));
     }
 
-    /** A box with no scope row at all is inert for everybody. */
-    public function testABoxNobodyWasGrantedIsNotOffered(): void
+    /** The rule is keyed on the seed consumer's id; this keeps the two in step. */
+    public function testTheSeedConsumerIsTheOneThatReadsReservedBoxesOnly(): void
     {
-        $this->mailbox('divers@unite.be');
+        $this->assertTrue(MailboxPurpose::readsReservedBoxesOnly(SeedMailboxes::CONSUMER_ID));
+        $this->assertFalse(MailboxPurpose::readsReservedBoxesOnly('rental'));
+    }
+
+    public function testABoxReservedToAnotherConsumerIsNotOffered(): void
+    {
+        $this->reserve($this->mailbox('locations@unite.be'), 'rental');
 
         $this->assertSame([], $this->service()->probeAddressesFor('support'));
     }
@@ -87,8 +109,7 @@ class ProbeAddressesTest extends TestCase
      */
     public function testADisabledBoxIsNotOffered(): void
     {
-        $id = $this->mailbox('support@unite.be', enabled: false);
-        $this->allow($id, 'support');
+        $this->mailbox('support@unite.be', enabled: false);
 
         $this->assertSame([], $this->service()->probeAddressesFor('support'));
     }
@@ -100,29 +121,10 @@ class ProbeAddressesTest extends TestCase
      */
     public function testAUsernameThatIsNotAnAddressIsLeftOut(): void
     {
-        $this->allow($this->mailbox('support'), 'support');
-        $this->allow($this->mailbox('support@unite.be'), 'support');
+        $this->mailbox('support');
+        $this->mailbox('support@unite.be');
 
         $this->assertSame(['support@unite.be'], $this->service()->probeAddressesFor('support'));
-    }
-
-    /**
-     * Without a scope service the gateway can answer nothing about scope,
-     * and the safe answer to « which boxes may I probe » is none —
-     * never « all of them ».
-     */
-    public function testWithoutAScopeServiceNothingIsOffered(): void
-    {
-        $this->allow($this->mailbox('support@unite.be'), 'support');
-
-        $service = new InboundMailService(
-            new InboundMessageRepository($this->pdo, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))),
-            $this->mailboxRepository,
-            new FileRepository($this->pdo),
-            $this->registry
-        );
-
-        $this->assertSame([], $service->probeAddressesFor('support'));
     }
 
     /**
@@ -134,8 +136,8 @@ class ProbeAddressesTest extends TestCase
      */
     public function testTheWatchedFoldersLineUpWithTheAddresses(): void
     {
-        $this->allow($this->mailbox('support@unite.be', folders: ['INBOX', 'Junk']), 'support');
-        $this->allow($this->mailbox('info@unite.be'), 'support');
+        $this->mailbox('support@unite.be', folders: ['INBOX', 'Junk']);
+        $this->mailbox('info@unite.be');
 
         $service = $this->service();
 
@@ -149,7 +151,7 @@ class ProbeAddressesTest extends TestCase
      */
     public function testTheWatchedFoldersOfABoxAnotherConsumerAnalysesAreNotOffered(): void
     {
-        $this->allow($this->mailbox('locations@unite.be', folders: ['INBOX', 'Spam']), 'rental');
+        $this->reserve($this->mailbox('locations@unite.be', folders: ['INBOX', 'Spam']), 'rental');
 
         $this->assertSame([], $this->service()->watchedFoldersFor('support'));
     }
@@ -162,7 +164,7 @@ class ProbeAddressesTest extends TestCase
      */
     public function testABoxLeftOnItsDefaultSaysItWatchesTheInbox(): void
     {
-        $this->allow($this->mailbox('support@unite.be', folders: []), 'support');
+        $this->mailbox('support@unite.be', folders: []);
 
         $this->assertSame([['INBOX']], $this->service()->watchedFoldersFor('support'));
     }
@@ -175,8 +177,7 @@ class ProbeAddressesTest extends TestCase
             new InboundMessageRepository($this->pdo, $encryption),
             $this->mailboxRepository,
             new FileRepository($this->pdo),
-            $this->registry,
-            new MailboxScopeService($this->mailboxRepository, $this->registry)
+            $this->registry
         );
     }
 
@@ -186,7 +187,6 @@ class ProbeAddressesTest extends TestCase
     private function mailbox(string $username, bool $enabled = true, array $folders = ['INBOX']): int
     {
         return $this->mailboxRepository->create(
-            'Boîte ' . $username,
             ProviderType::IMAP,
             'imap.test',
             993,
@@ -198,17 +198,14 @@ class ProbeAddressesTest extends TestCase
         );
     }
 
-    private function allow(int $mailboxId, string $consumerId): void
+    private function reserve(int $mailboxId, string $consumerId): void
     {
-        $this->mailboxRepository->saveScope(
-            $mailboxId,
-            new MailboxScope($consumerId, true, ReadMode::ALL)
-        );
+        $this->mailboxRepository->setPurpose($mailboxId, MailboxPurpose::DEDICATED, $consumerId);
     }
 }
 
 /**
- * A consumer that exists only to have an id the scope rows can name.
+ * A consumer that exists only to have an id a box can be reserved to.
  */
 final class ProbingConsumer implements MessageConsumerInterface
 {

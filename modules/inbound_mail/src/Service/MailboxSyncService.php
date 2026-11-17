@@ -102,13 +102,6 @@ class MailboxSyncService
          */
         private ?EncryptedFileStorageService $fileStorage = null,
         /**
-         * What each box lets each module do (IT-05). Null means "everybody
-         * analyses everything", which is what the contract was before the
-         * configuration screen existed and what a test that does not care
-         * about scoping still wants.
-         */
-        private ?MailboxScopeService $scopeService = null,
-        /**
          * What the pipeline leaves in the event journal (`AnalysisJournal`).
          * Null writes nothing, which is what a test that only cares about
          * storage wants.
@@ -162,18 +155,16 @@ class MailboxSyncService
         }
 
         // Resolved once per box rather than per message: the answer cannot
-        // change mid-synchronisation, and re-deriving it for every message
-        // of a five-year backlog would be a query per message.
-        $consumers = $this->scopeService !== null
-            ? $this->scopeService->analyzingConsumers($mailbox)
-            : $this->consumerRegistry->all();
+        // change mid-synchronisation. A general box is offered to every
+        // active consumer, a reserved one to its module alone (D2).
+        $consumers = $mailbox->analysingConsumersAmong($this->consumerRegistry->all());
 
         if ($consumers === []) {
             // Said once per box per pass, and only when it is true. A box
-            // no module is opened to still collects — the screen says so —
+            // no active module reads still collects —
             // but « rien ne le classe » is the answer to « pourquoi mon
             // courrier ne produit rien », and until now it was nowhere.
-            $this->analysisJournal?->noConsumerAllowed($mailbox->id, $mailbox->name);
+            $this->analysisJournal?->noConsumerAllowed($mailbox->id);
         }
 
         $client = $this->clientFactory->forMailbox($mailbox);
@@ -196,7 +187,7 @@ class MailboxSyncService
             }
 
             // **The box's sent mail, for the consumers that asked for it**
-            // (#720) — and only for them. A box opened to none of them
+            // (#720) — and only for them. A box offered to none of them
             // never has its « Envoyés » listed, let alone read: Camps and
             // Finance see exactly what they always saw.
             $outbound = self::outboundConsumers($consumers);
@@ -314,7 +305,7 @@ class MailboxSyncService
      * at it.
      *
      * @param \Modules\InboundMail\Api\MessageConsumerInterface[] $consumers
-     *   the ones `Service\MailboxScopeService` allows on this box
+     *   the ones this box is offered to (`Mailbox::isAnalysedBy()`)
      * @return bool whether anything was written
      */
     private function store(
@@ -348,7 +339,7 @@ class MailboxSyncService
             bodyHtml: $this->sanitizer->sanitizeHtml($message->bodyHtml),
             attachments: $this->candidateAttachments($message),
             rawHeaders: $message->rawHeaders,
-            // What the operator answered on the scope screen. A consumer
+            // What the operator said the box is for. A consumer
             // may read a signal more strongly on a box the unit declared
             // to be its own than on the unit's public address — and only
             // this says which it is.
@@ -372,7 +363,7 @@ class MailboxSyncService
         // And the message is stored WHATEVER they answer — including
         // nothing at all. That is the reversal this module went through:
         // see the class docblock.
-        // …and only the consumers this box was opened to. Narrowing the
+        // …and only the consumers this box is offered to. Narrowing the
         // question rather than filtering the answers is the difference
         // between a setting and a suggestion: a module never sees a
         // message it may not analyse, so it cannot act on one by accident.
@@ -420,11 +411,10 @@ class MailboxSyncService
         // « no vocabulary for touching somebody's mail » — true for every
         // consumer but the one that asked.
         //
-        // **And what bounds it is the scope**, not a claim. A consumer is
-        // only ever offered messages from the boxes the super-admin opened
-        // to it, so « what may I delete » has the same answer as « what may
-        // I read » — which is the question the scope screen already asks,
-        // in the operator's own words. Requiring a CLAIM instead would
+        // **And what bounds it is the box's purpose**, not a claim. A
+        // consumer is only ever offered messages from the boxes it
+        // analyses, so « what may I delete » has the same answer as « what
+        // may I read ». Requiring a CLAIM instead would
         // have made this inert: a seed consumer claims nothing on purpose,
         // since a claim means an association and an association would keep
         // a full copy of every mailing, one per seed box.
@@ -539,7 +529,6 @@ class MailboxSyncService
         $this->analysisJournal?->analysed(
             $storedId,
             $mailbox->id,
-            $mailbox->name,
             array_map(
                 static fn(MessageConsumerInterface $consumer): string => $consumer->consumerId(),
                 $consumers
@@ -770,8 +759,8 @@ class MailboxSyncService
      * Remove the message from the box, if a consumer that claimed it asked
      * for that and the client can do it (roadmap IT-07).
      *
-     * **A consumer may only ever be asked about a box it was opened to.**
-     * That is the containment, and it is the scope mechanism doing it
+     * **A consumer may only ever be asked about a box it analyses.**
+     * That is the containment, and it is the purpose rule doing it
      * rather than a second rule: this method is reached with the
      * consumers of THIS mailbox, so « what may I delete » has the same
      * answer as « what may I read ». A seed box is a box like any other,

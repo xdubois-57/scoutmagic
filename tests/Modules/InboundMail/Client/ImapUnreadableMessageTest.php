@@ -228,7 +228,6 @@ class ImapUnreadableMessageTest extends TestCase
         $client->connect(
             new Mailbox(
                 1,
-                'Boîte de l\'unité',
                 ProviderType::IMAP,
                 'imap.example.be',
                 993,

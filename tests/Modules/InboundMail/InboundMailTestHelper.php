@@ -17,7 +17,6 @@ class InboundMailTestHelper
     {
         $pdo->exec('CREATE TABLE inbound_mailboxes (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
             provider_type TEXT NOT NULL DEFAULT "imap",
             host TEXT NOT NULL DEFAULT "",
             port INTEGER NOT NULL DEFAULT 993,
@@ -29,6 +28,7 @@ class InboundMailTestHelper
             is_enabled INTEGER NOT NULL DEFAULT 1,
             purpose TEXT NOT NULL DEFAULT "shared",
             dedicated_to TEXT,
+            dedication_key TEXT UNIQUE,
             sync_state TEXT NOT NULL DEFAULT "never",
             last_synced_at TEXT,
             last_error TEXT,
@@ -36,17 +36,6 @@ class InboundMailTestHelper
             failing_since TEXT,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-        )');
-
-        $pdo->exec('CREATE TABLE inbound_mailbox_consumers (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            mailbox_id INTEGER NOT NULL,
-            consumer_id TEXT NOT NULL,
-            analyze_enabled INTEGER NOT NULL DEFAULT 0,
-            read_mode TEXT NOT NULL DEFAULT "none",
-            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE (mailbox_id, consumer_id)
         )');
 
         $pdo->exec('CREATE TABLE inbound_mailbox_cursors (

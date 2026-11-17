@@ -57,8 +57,8 @@ use Modules\InboundMail\Api\ReferenceSuggestion;
  *
  * Beyond that, mail nobody could attribute produces no association at
  * all: the message is stored like every other (§8.58), the chief sees it
- * in the unit's mail, and the module's own users see it too because a
- * dedicated box grants them `ReadMode::ALL`. The reserved `unsorted`
+ * in the unit's mail, and the module's own users see it too because they
+ * read the box reserved to Camps in full (§8.58). The reserved `unsorted`
  * reference this replaced was a business object that was not one — a
  * bucket masquerading as a stay, with its own retention, its own screen
  * and its own purge task, all duplicating what `inbound_mail` now does
@@ -916,15 +916,13 @@ class CampsMessageConsumer implements
      * Whether that box is the one the operator declared to be the camps
      * box — asked of `inbound_mail`, which owns the answer.
      *
-     * **It used to be read from `camps_dedicated_mailbox_ids`, this
-     * module's own list of ids, and that had stopped being true.** The
-     * configuration screen « Portée des modules » took the question over
-     * (`Service\MailboxScopeService`), migrated the old list into the new
-     * model once, and never wrote to it again — so on every installation
-     * that declared its camps box on the new screen, this method answered
-     * « non » and automatic stay creation was silently off. The setting is
-     * kept declared for the one-time reprise of an installation still on
-     * the old model, and is read by nothing else.
+     * **It used to be read from this module's own list of box ids
+     * (a retired setting), and that had stopped being true.** The
+     * mailbox configuration took the question over — a box is the unit's
+     * general mail or reserved to one module (`Api\MailboxPurpose`) — and
+     * never wrote to the old list again, so on every installation that
+     * reserved its camps box there, this method answered « non » and
+     * automatic stay creation was silently off. The setting is gone.
      *
      * No `inbound_mail`, no answer, and therefore no creation: §7.5's
      * degradation, and the safe direction — a stay invented on a box

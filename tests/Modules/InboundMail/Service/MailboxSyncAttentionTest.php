@@ -39,7 +39,7 @@ class MailboxSyncAttentionTest extends TestCase
         $this->messages = new InboundMessageRepository($pdo, $encryption);
         $this->mailboxes = new InboundMailboxRepository($pdo, $encryption);
         $this->settings = new InMemorySettingService();
-        $this->boxId = $this->mailboxes->create('Unité', ProviderType::FAKE, 'imap.example.be', 993, 'ssl', 'unite@example.be', 's', [], true);
+        $this->boxId = $this->mailboxes->create(ProviderType::FAKE, 'imap.example.be', 993, 'ssl', 'unite@example.be', 's', [], true);
     }
 
     /** @return AttentionPoint[] */
@@ -70,7 +70,7 @@ class MailboxSyncAttentionTest extends TestCase
 
         $points = $this->pointsAt('2026-10-18 10:00:00');
         $this->assertCount(1, $points);
-        $this->assertSame('La boîte « Unité » ne se synchronise plus', $points[0]->title);
+        $this->assertSame('La boîte « unite@example.be » ne se synchronise plus', $points[0]->title);
         $this->assertSame(AttentionPoint::SEVERITY_URGENT, $points[0]->severity);
         $this->assertSame('/config/courrier-entrant', $points[0]->actionUrl);
         $this->assertStringContainsString('18/10/2026 à 08:30', $points[0]->why, 'the last success is what the reader needs');
@@ -120,7 +120,7 @@ class MailboxSyncAttentionTest extends TestCase
         $this->mailboxes->recordSuccess($this->boxId, new \DateTimeImmutable('2026-10-18 06:00:00'));
         $this->mailboxes->recordFailure($this->boxId, 'Délai dépassé.', new \DateTimeImmutable('2026-10-18 06:15:00'));
         $this->mailboxes->setEnabled($this->boxId, false);
-        $this->mailboxes->update($this->boxId, 'Unité', 'imap.example.be', 993, 'ssl', 'unite@example.be', [], true);
+        $this->mailboxes->update($this->boxId, 'imap.example.be', 993, 'ssl', 'unite@example.be', [], true);
 
         $this->assertSame([], $this->pointsAt('2026-10-18 13:30:00'));
     }
@@ -130,7 +130,7 @@ class MailboxSyncAttentionTest extends TestCase
     {
         $this->mailboxes->recordSuccess($this->boxId, new \DateTimeImmutable('2026-10-18 06:00:00'));
         $this->mailboxes->recordFailure($this->boxId, 'Délai dépassé.', new \DateTimeImmutable('2026-10-18 09:00:00'));
-        $this->mailboxes->update($this->boxId, 'Unité', 'imap.example.be', 993, 'ssl', 'unite@example.be', [], true);
+        $this->mailboxes->update($this->boxId, 'imap.example.be', 993, 'ssl', 'unite@example.be', [], true);
 
         $this->assertCount(1, $this->pointsAt('2026-10-18 10:30:00'));
     }
@@ -173,7 +173,7 @@ class MailboxSyncAttentionTest extends TestCase
 
     public function testADisabledBoxIsNotReportedAsFailing(): void
     {
-        $this->mailboxes->create('Camps', ProviderType::FAKE, 'h', 993, 'ssl', 'camps@example.be', 's', [], true);
+        $this->mailboxes->create(ProviderType::FAKE, 'h', 993, 'ssl', 'camps@example.be', 's', [], true);
         $this->mailboxes->recordFailure($this->boxId, 'Mot de passe refusé.', new \DateTimeImmutable('2026-10-01 10:00:00'));
         $this->mailboxes->setEnabled($this->boxId, false);
 
@@ -193,23 +193,24 @@ class MailboxSyncAttentionTest extends TestCase
 
     /**
      * The page is also read by roles that may not see the box's settings
-     * (§7.4): its name, never its host, account or the stored error.
+     * (§7.4): its address, which is its only name (D7), never its host or
+     * the stored error.
      */
-    public function testThePointGivesNeitherTheHostNorTheAccountNorTheError(): void
+    public function testThePointGivesNeitherTheHostNorTheError(): void
     {
         $this->mailboxes->recordFailure($this->boxId, 'Mot de passe refusé.', new \DateTimeImmutable('2026-10-18 10:00:00'));
 
         $point = $this->pointsAt('2026-10-18 12:00:00')[0];
         $text = $point->title . ' ' . $point->why;
 
-        $this->assertStringNotContainsString('example.be', $text);
+        $this->assertStringNotContainsString('imap.example.be', $text);
         $this->assertStringNotContainsString('Mot de passe', $text);
     }
 
     /**
-     * The page reads the sync state without decrypting anything: a box
-     * whose stored account cannot be decrypted (a rotated key, a damaged
-     * row) still says it is failing, and takes no other point down with it.
+     * A box whose stored address cannot be decrypted (a rotated key, a
+     * damaged row) still says it is failing, by its number, and takes no
+     * other point down with it.
      */
     public function testAnUndecryptableAccountStillReportsTheBox(): void
     {
@@ -220,7 +221,7 @@ class MailboxSyncAttentionTest extends TestCase
         $points = $this->pointsAt('2026-10-18 12:00:00');
 
         $this->assertCount(1, $points);
-        $this->assertSame('La boîte « Unité » ne se synchronise plus', $points[0]->title);
+        $this->assertSame('La boîte « n° ' . $this->boxId . ' » ne se synchronise plus', $points[0]->title);
     }
 
     /** Without the box repository the provider is what it was: messages only. */

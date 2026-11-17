@@ -81,7 +81,6 @@ class UnreadableDateSyncTest extends TestCase
         );
 
         $this->mailboxId = $this->mailboxRepository->create(
-            'Locations',
             ProviderType::IMAP,
             'imap.example.be',
             993,
