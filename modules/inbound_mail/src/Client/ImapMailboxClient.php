@@ -313,9 +313,12 @@ class ImapMailboxClient implements IncomingMailboxClientInterface, PruningMailbo
      */
     private static function internalDate(string $value): int
     {
-        $parsed = \DateTimeImmutable::createFromFormat('!j-M-Y H:i:s O', trim($value));
+        // Through DateInput, the one place a date is parsed (a NUL byte makes
+        // the date parser throw). Not exact: a server may write the month
+        // in another case than PHP formats it back.
+        $parsed = DateInput::parse('!j-M-Y H:i:s O', trim($value), false);
 
-        return $parsed instanceof \DateTimeImmutable ? $parsed->getTimestamp() : 0;
+        return $parsed?->getTimestamp() ?? 0;
     }
 
     /**
