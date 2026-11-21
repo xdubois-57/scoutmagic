@@ -148,6 +148,19 @@ final class OtherRenterEmailRuleTest extends TestCase
         $this->assertNotNull($rule->refusal($this->booking, 'locations.unite+loc-k7q2m4@gmail.com', true));
     }
 
+    /** mail.com is a public provider too, not a domain the unit owns. */
+    public function testAMailboxOnMailComDoesNotMakeMailComTheUnits(): void
+    {
+        $rule = $this->ruleOver(
+            [$this->received('renter@mail.com', verified: true)],
+            boxes: ['locations.unite@mail.com']
+        );
+
+        $this->assertSame(['renter@mail.com'], $rule->seenAddresses($this->booking));
+        $this->assertNull($rule->refusal($this->booking, 'renter@mail.com', true));
+        $this->assertNotNull($rule->refusal($this->booking, 'locations.unite@mail.com', true));
+    }
+
     /** Staff d'U keeps the free field, a forged sender's address included. */
     public function testTheUnitStaffStillTypesAnyAddressOffTheUnitsDomain(): void
     {

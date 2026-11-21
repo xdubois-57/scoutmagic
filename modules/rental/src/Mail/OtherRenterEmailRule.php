@@ -70,6 +70,8 @@ final class OtherRenterEmailRule
         'icloud.com', 'me.com', 'mac.com',
         'proton.me', 'protonmail.com', 'pm.me',
         'gmx.com', 'gmx.net', 'gmx.fr', 'gmx.de', 'aol.com',
+        'mail.com', 'email.com', 'usa.com', 'post.com', 'europe.com', 'zoho.com', 'zohomail.eu',
+        'tutanota.com', 'tuta.io', 'yandex.com', 'mailo.com',
         'ik.me', 'ikmail.com', 'etik.com',
         'skynet.be', 'proximus.be', 'telenet.be', 'voo.be', 'scarlet.be', 'base.be', 'swing.be',
         'orange.fr', 'wanadoo.fr', 'free.fr', 'laposte.net', 'sfr.fr',
