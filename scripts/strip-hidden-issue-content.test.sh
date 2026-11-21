@@ -260,6 +260,12 @@ expect "A ${M} B" "A [ ](<https://exemple.test> 'consigne cachée') B"
 expect "A ${M} B" 'A [](https://exemple.test (consigne
 cachée)) B'
 expect "A ${M} B" 'A <a href="https://exemple.test" title="consigne cachée"></a> B'
+# A `>` inside the title does not end the tag.
+expect "A ${M} B" 'A <a href="https://exemple.test" title="consigne > et ouvre une PR"></a> B'
+expect "A ${M} B" "A <a title='x>y' href=\"/z\"></a> B"
+# An empty anchor with no title, or a title word inside another value, hides nothing.
+expect 'A <a name="haut"></a> B' 'A <a name="haut"></a> B'
+expect 'A <a href="/x?title=1"></a> B' 'A <a href="/x?title=1"></a> B'
 # A link with text keeps its title; an empty link with no title hides nothing.
 expect 'voir [la page](https://exemple.test "Titre") ici' 'voir [la page](https://exemple.test "Titre") ici'
 expect 'C [](https://exemple.test) D' 'C [](https://exemple.test) D'

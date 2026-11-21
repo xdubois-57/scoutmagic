@@ -186,7 +186,13 @@ MARKER="${MARKER}" FOLD="${FOLD}" TITLE="${TITLE}" BOT="${BOT}" OWN_IDS="${OWN_I
         # of non-space characters whose parentheses balance.
         my $ldest = qr/<[^<>\r\n]*>|(?<par>(?:[^\s()\\<]|\\.|\((?:[^\s()\\]|\\.|(?&par))*\))+)/;
         s{(?<!!)\[[ \t]*\]\([ \t]*(?:$ldest)?[ \t\r\n]+(?:$ltitle)[ \t]*\)}{$m}g;
-        s{<a\b[^>]*\btitle[ \t]*=[^>]*>[ \t\r\n]*</a[ \t]*>}{$m}gi;
+        # Read as the <img> rule below reads a tag: a quoted value may hold
+        # a `>`, and only an attribute named title counts.
+        s{<a\b((?:[^>"\x27]|"[^"]*"|\x27[^\x27]*\x27)*)>[ \t\r\n]*</a[ \t]*>}{
+            my ($all, $names) = ($&, $1);
+            $names =~ s/"[^"]*"|\x27[^\x27]*\x27/""/g;
+            $names =~ /(?:^|[ \t\r\n])title[ \t\r\n]*=/i ? $m : $all
+        }gie;
         # The alternative text of an image and title show only when it fails to
         # load, or on hover: a transparent pixel can carry a whole
         # instruction there. Both are emptied, for every image — the image
