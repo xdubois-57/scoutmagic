@@ -45,14 +45,19 @@ final class OtherRenterEmailRuleTest extends TestCase
         RentalTestHelper::createTables($this->pdo);
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $this->bookingRepository = new RentalBookingRepository($this->pdo, $encryption);
-        $settings = $this->createStub(SettingService::class);
-        $settings->method('get')->willReturnCallback(
-            static fn(string $key): ?string => $key === MailIdentity::SETTING_FROM_ADDRESS ? 'locations@unite.example' : null
-        );
-        $this->settings = $settings;
+        $this->settings = $this->settingsSendingFrom('locations@unite.example');
 
-        $assetId = (new RentalAssetRepository($this->pdo, $encryption))
-            ->create('Local Saint-Georges', 'Local Saint-Georges', 'local-saint-georges', 60, 1, '18:00', '11:00', null, true);
+        $assetId = (new RentalAssetRepository($this->pdo, $encryption))->create(
+            'Local Saint-Georges',
+            'Local Saint-Georges',
+            'local-saint-georges',
+            60,
+            1,
+            '18:00',
+            '11:00',
+            null,
+            true
+        );
         $created = $this->bookingRepository->create(
             $assetId,
             'LOC-K7Q2M4',
@@ -124,12 +129,31 @@ final class OtherRenterEmailRuleTest extends TestCase
         $this->assertNotNull($rule->refusal($this->booking, 'tresorier@unite.example', true));
     }
 
-    /** The domain of a box the module reads is the unit's too. */
-    public function testTheDomainOfABoxTheModuleReadsIsTheUnits(): void
+    /**
+     * A box the module reads proves nothing about its domain: it may sit on
+     * a provider no list knows. Only its own address is refused, and the
+     * renters on that domain stay — for Staff d'U as for a manager.
+     */
+    public function testTheDomainOfABoxTheModuleReadsIsNotTakenAsTheUnits(): void
     {
-        $rule = $this->ruleOver([], boxes: ['courrier@scouts-box.example']);
+        $rule = $this->ruleOver(
+            [$this->received('groupe@petit-fai.example', verified: true)],
+            boxes: ['locations.unite@petit-fai.example']
+        );
 
-        $this->assertNotNull($rule->refusal($this->booking, 'animateur@scouts-box.example', true));
+        $this->assertSame(['groupe@petit-fai.example'], $rule->seenAddresses($this->booking));
+        $this->assertNull($rule->refusal($this->booking, 'groupe@petit-fai.example', true));
+        $this->assertNotNull($rule->refusal($this->booking, 'locations.unite@petit-fai.example', true));
+    }
+
+    /** A site sending from a webmail does not make the webmail the unit's. */
+    public function testASiteSendingFromAWebmailDoesNotOwnTheWebmail(): void
+    {
+        $this->settings = $this->settingsSendingFrom('unite.nulle.part@gmail.com');
+        $rule = $this->ruleOver([], boxes: []);
+
+        $this->assertNull($rule->refusal($this->booking, 'groupe.nulle.part@gmail.com', true));
+        $this->assertNotNull($rule->refusal($this->booking, 'unite.nulle.part@gmail.com', true));
     }
 
     /**
@@ -180,6 +204,17 @@ final class OtherRenterEmailRuleTest extends TestCase
         $inbound->method('probeAddressesFor')->willReturn($boxes);
 
         return new OtherRenterEmailRule($this->bookingRepository, $inbound, $this->settings);
+    }
+
+    /** The settings of a site whose mail goes out from $fromAddress. */
+    private function settingsSendingFrom(string $fromAddress): SettingService
+    {
+        $settings = $this->createStub(SettingService::class);
+        $settings->method('get')->willReturnCallback(
+            static fn(string $key): ?string => $key === MailIdentity::SETTING_FROM_ADDRESS ? $fromAddress : null
+        );
+
+        return $settings;
     }
 
     private function received(string $from, bool $verified): InboundMessage

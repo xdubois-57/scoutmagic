@@ -38,11 +38,13 @@ use Modules\Rental\Repository\RentalBookingRepository;
  *   reply and contact addresses and the boxes this module reads, tag included
  *   (`+…`): matched as « the renter », they would file the unit's whole
  *   correspondence on one booking. **Nor any address on the unit's own
- *   domain** (issue #1253) — the domain the site sends from and those of
- *   the boxes this module reads: `tresorier@<the unit's domain>`, seen in
- *   the `To:` of a message the unit sent, is a colleague, not the renter.
- *   A domain everybody shares (`gmail.com`, `skynet.be`…) is never the
- *   unit's: there only the exact addresses count;
+ *   domain** (issue #1253) — the domain the site sends from, the one it
+ *   signs for: `tresorier@<the unit's domain>`, seen in the `To:` of a
+ *   message the unit sent, is a colleague, not the renter. The domain of a
+ *   box this module reads proves nothing by itself — a box is as often on
+ *   a webmail as on the unit's own domain —, and a domain everybody shares
+ *   (`gmail.com`, `skynet.be`…) is never the unit's even when the site
+ *   sends from it: there only the exact addresses count;
  * - **a received message whose sender nobody vouched for shows nobody**
  *   (issue #1253, after #1121): the booking's signed reply address files
  *   whatever reaches it, so a manager could otherwise send it a message
@@ -185,14 +187,16 @@ final class OtherRenterEmailRule
                     $identity->replyAddress(),
                     (string) ($this->settings->get('contact_email') ?? ''),
                 ];
-                // The domain the site sends from is the one it signs for.
-                // The contact address is not: it is often a webmail, or a
-                // provider too small for the list above.
+                // The domain the site sends from is the one it signs for,
+                // and the only one taken as the unit's. Neither the contact
+                // address nor a box this module reads is: either is often
+                // on a webmail, or on a provider too small for the list
+                // above, and owning its domain would refuse every renter
+                // on it — Staff d'U included.
                 $owned[] = $identity->fromAddress;
             }
             foreach ($this->inboundMail?->probeAddressesFor(RentalMessageConsumer::CONSUMER_ID) ?? [] as $box) {
                 $addresses[] = $box;
-                $owned[] = $box;
             }
             $this->unitAddresses = array_values(array_filter(array_map(
                 static fn(string $unit): string => self::withoutTag(RentalBookingRepository::normalizeEmail($unit)),

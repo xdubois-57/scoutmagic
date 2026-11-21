@@ -424,9 +424,10 @@ message marqué « Expéditeur non vérifié » n'y figure pas : n'importe qui
 peut écrire une autre adresse que la sienne comme expéditeur. Le staff
 d'unité peut en taper une autre. Une adresse de l'unité elle-même (sa
 boîte, son adresse d'envoi ou de contact) est toujours refusée, comme
-toute adresse du domaine de l'unité (`tresorier@` votre domaine, par
-exemple) ; un domaine partagé par tout le monde, comme `gmail.com` ou
-`skynet.be`, n'est jamais considéré comme celui de l'unité. Une adresse
+toute adresse du domaine depuis lequel le site envoie ses e-mails
+(`tresorier@` votre domaine, par exemple) ; un domaine partagé par tout le
+monde, comme `gmail.com` ou `skynet.be`, n'est jamais considéré comme celui
+de l'unité. Une adresse
 tapée à la main ne rattache que les messages datés de la demande à 60 jours
 après le départ, et jamais plus de deux ans après la demande, même si les
 dates du séjour ont été déplacées. Quand quelqu'un
