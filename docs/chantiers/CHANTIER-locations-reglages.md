@@ -12,7 +12,7 @@
 - **Lire d'abord** `AGENTS.md`, `ARCHITECTURE.md`, `SECURITY.md`, `CONTRIBUTING.md`, `design.md`, puis le ticket #1355 en entier.
 - **Enchaîner les lots dans l'ordre des vagues, sans poser de question.** On ne s'arrête que pour un changement de design par rapport à la maquette, ou pour un manque de clarté fonctionnelle. Une décision technique ordinaire se prend et se note dans la PR.
 - **Paralléliser** ce que le §3 désigne comme parallèle : un agent et une branche (ou un worktree) par lot.
-- **Une PR par lot**, en français, avec `Corrige #1355 (lot X)` dans la description, jamais un mot-clé de fermeture.
+- **Une PR par lot**, en français. Sa description dit « Partie de #1355 (lot X) », sauf **la dernière PR du chantier**, celle qui laisse les cinq lots fusionnés, qui dit « Corrige #1355 ». Jamais un mot-clé de fermeture : `issue-fixed-comment.yml` ferme le ticket dès la fusion d'une PR qui porte « Corrige #1355 ».
   - **Fusion automatique dès que tout est vert**, par l'auto-merge, sans demander de confirmation.
   - Pas de poussée directe sur `main`.
 - **Avant chaque commit :**
