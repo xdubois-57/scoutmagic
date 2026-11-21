@@ -81,6 +81,16 @@ function memberRow(page, name) {
 }
 
 /**
+ * Open the actions menu (⋮) of one member's row (#1351): moderation and
+ * removal live in it, one entry per login, not as buttons on the row.
+ *
+ * @param {import('@playwright/test').Locator} row
+ */
+async function openMemberMenu(row) {
+    await row.getByRole('button', { name: /^Actions pour / }).click();
+}
+
+/**
  * Submit one of the moderator's small forms and wait for the reload it
  * causes, rather than for the click. Each posts to its own route and
  * redirects back to the page we are already on, so waiting on the URL
@@ -282,9 +292,11 @@ test('a moderator opens a group, invites somebody, promotes, closes, reopens and
         // named on their own group list.
         // ---------------------------------------------------------------
         await page.goto(`${groupUrl}/members`, { waitUntil: 'domcontentloaded' });
+        await openMemberMenu(kaaRow);
         await submitAndReload(page, kaaRow.getByRole('button', { name: 'Nommer modérateur' }), '/moderator');
 
         await expect(kaaRow.getByText('Modérateur')).toBeVisible();
+        await openMemberMenu(kaaRow);
         await expect(kaaRow.getByRole('button', { name: 'Retirer la modération' })).toBeVisible();
 
         await memberPage.goto('/groups', { waitUntil: 'domcontentloaded' });
@@ -327,10 +339,10 @@ test('a moderator opens a group, invites somebody, promotes, closes, reopens and
         // as before the invitation — and their message stays in it.
         // ---------------------------------------------------------------
         await page.goto(`${groupUrl}/members`, { waitUntil: 'domcontentloaded' });
-        // Scoped to its own form rather than matched by name: this button
-        // carries only an icon plus a visually-hidden "Retirer", and the
-        // promotion button beside it is "Retirer la modération" — the
+        // Scoped to its own form rather than matched by name: the entry
+        // sits beside "Retirer la modération" in the same menu, and the
         // route the form posts to is the unambiguous thing about it.
+        await openMemberMenu(kaaRow);
         await submitAndReload(
             page,
             kaaRow.locator('form[action$="/remove-member"]').getByRole('button'),
