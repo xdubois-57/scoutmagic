@@ -57,6 +57,30 @@ final class PublicationWording
         return self::longDate($date, $now) . ' à ' . (int) $date->format('G') . ' h ' . $date->format('i');
     }
 
+    /**
+     * « 20 octobre à 8 h 00 » — the same date as {@see longDateTime()}
+     * without the day of the week, for the list's scheduling badge, which
+     * sits in a narrow column beside a picture (#1359). A format of its own
+     * rather than a trimmed first word: the long one is shared by the
+     * banners, the status pages and the journal, and keeps naming the day.
+     * Its spaces inside the day and the time are non-breaking.
+     */
+    public static function dateTimeWithoutWeekday(string $value, ?\DateTimeImmutable $now = null): string
+    {
+        $date = self::read($value);
+        if ($date === null) {
+            return '';
+        }
+
+        // Non-breaking spaces inside the day and inside the time: a badge
+        // that must wrap breaks BETWEEN « 22 novembre » and « 8 h 00 », never
+        // through « 8 h / 00 ».
+        $nbsp = "\u{00A0}";
+
+        return str_replace(' ', $nbsp, self::longDate($date, $now, false))
+            . ' à ' . (int) $date->format('G') . $nbsp . 'h' . $nbsp . $date->format('i');
+    }
+
     /** « 20 octobre 2026 ». */
     public static function dayMonthYear(string $value): string
     {

@@ -2,6 +2,8 @@
 
 {% block title %}{{ manage ? 'Rédiger les actualités' : 'Actualités' }} — {{ site_name }}{% endblock %}
 
+{% block stylesheets %}<link rel="stylesheet" href="{{ asset('/assets/css/components.css') }}">{% endblock %}
+
 {% block content %}
     {% if manage %}
         {% include 'partials/page_header.html.twig' with {
@@ -39,18 +41,18 @@
                   preview is not lost — it is the « Aperçu » tab.
                 #}
                 <div class="card">
-                    <div class="card-body d-flex gap-3">
+                    <div class="card-body news-card{{ article.imageFileId or row.is_imported ? '' : ' news-card--no-image' }}">
                         {% if article.imageFileId %}
-                            <img src="{{ file_url(article.imageFileId, 'thumb') }}" alt="" class="rounded flex-shrink-0"
+                            <img src="{{ file_url(article.imageFileId, 'thumb') }}" alt="" class="news-card__image rounded flex-shrink-0"
                                  style="width:100px;height:100px;object-fit:cover;" loading="lazy" decoding="async">
                         {% elseif row.is_imported %}
                             {# D4: an article of the old site may have had no
                                picture, and none is invented — a neutral tile
                                says so, the list keeping its rhythm. #}
-                            <div class="rounded flex-shrink-0 border bg-body-tertiary text-body-secondary small d-flex align-items-center justify-content-center text-center"
+                            <div class="news-card__image rounded flex-shrink-0 border bg-body-tertiary text-body-secondary small d-flex align-items-center justify-content-center text-center"
                                  style="width:100px;height:100px;" aria-hidden="true">Pas d'image</div>
                         {% endif %}
-                        <div class="flex-grow-1" style="min-width:0;">
+                        <div class="news-card__header">
                             <h2 class="h5 mb-1">
                                 {# An imported article has no management page (D11):
                                    even a manager lands on the article itself. #}
@@ -74,7 +76,7 @@
                                         {% include 'partials/status_badge.html.twig' with { solid: 'dark', label: 'Brouillon' } only %}
                                         <span>Créée le {{ row.date|french_date }}</span>
                                     {% elseif row.state == 'scheduled' %}
-                                        {% include 'partials/status_badge.html.twig' with { solid: 'primary', label: 'Programmée le ' ~ row.scheduled_for } only %}
+                                        {% include 'partials/status_badge.html.twig' with { solid: 'primary', label: 'Programmée le ' ~ row.scheduled_for, wrap: true } only %}
                                     {% else %}
                                         {% include 'partials/status_badge.html.twig' with { solid: 'success', label: 'Publiée' } only %}
                                         <span>Publiée le {{ row.date|french_date }}</span>
@@ -99,12 +101,19 @@
                                     {% if row.author_name %}<span>· {{ row.author_name }}</span>{% endif %}
                                 {% endif %}
                             </div>
-                            {# No summary is invented for an imported article
-                               that had none (D4): the line is left out. #}
-                            {% if row.excerpt %}
-                                <p class="mb-0" style="display:-webkit-box;-webkit-line-clamp:2;line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">{{ row.excerpt }}</p>
-                            {% endif %}
                         </div>
+                        {#
+                          The summary is read whole (#1359): under the picture
+                          and the header on a phone, so it has the card's full
+                          width, and beside the picture on a wide screen —
+                          one paragraph, placed by the grid (components.css,
+                          .news-card), never repeated per screen size. No
+                          summary is invented for an imported article that had
+                          none (D4): the paragraph is left out.
+                        #}
+                        {% if row.excerpt %}
+                            <p class="news-card__excerpt mb-0">{{ row.excerpt }}</p>
+                        {% endif %}
                     </div>
                 </div>
             {% endfor %}

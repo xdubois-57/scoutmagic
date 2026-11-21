@@ -39,6 +39,39 @@ final class PublicationWordingTest extends TestCase
     }
 
     /**
+     * The scheduling badge of the list (#1359): the same date, without the
+     * day of the week, so the badge fits a narrow column. The long format
+     * every other page and message uses is untouched.
+     */
+    public function testTheBadgeDateDropsTheWeekdayAndKeepsTheRestOfTheLongFormat(): void
+    {
+        $n = "\u{00A0}";
+        $this->assertSame("22{$n}novembre à 8{$n}h{$n}00", PublicationWording::dateTimeWithoutWeekday('2026-11-22 08:00:00', $this->now));
+        $this->assertSame("1{$n}janvier{$n}2027 à 18{$n}h{$n}30", PublicationWording::dateTimeWithoutWeekday('2027-01-01 18:30:00', $this->now), 'the year when it is another');
+        $this->assertSame("5{$n}mars à 0{$n}h{$n}05", PublicationWording::dateTimeWithoutWeekday('2026-03-05 00:05:00', $this->now), 'hours without padding, minutes with');
+        $this->assertSame('', PublicationWording::dateTimeWithoutWeekday('', $this->now));
+        $this->assertSame('', PublicationWording::dateTimeWithoutWeekday('pas une date', $this->now));
+    }
+
+    /** A wrapping badge breaks between the day and the time, never inside them. */
+    public function testTheBadgeDateOnlyBreaksBetweenItsDayAndItsTime(): void
+    {
+        $text = PublicationWording::dateTimeWithoutWeekday('2026-11-22 08:00:00', $this->now);
+
+        $this->assertSame(['22' . "\u{00A0}" . 'novembre', 'à', '8' . "\u{00A0}" . 'h' . "\u{00A0}" . '00'], explode(' ', $text));
+    }
+
+    public function testNoDayOfTheWeekIsEverNamedInTheBadgeDate(): void
+    {
+        foreach (range(1, 7) as $day) {
+            $text = PublicationWording::dateTimeWithoutWeekday('2026-11-' . str_pad((string) (15 + $day), 2, '0', STR_PAD_LEFT) . ' 09:15:00', $this->now);
+            $this->assertDoesNotMatchRegularExpression('/lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche/u', $text);
+        }
+        // …while the long format keeps naming it, for the pages that rely on it.
+        $this->assertSame('dimanche 22 novembre à 8 h 00', PublicationWording::longDateTime('2026-11-22 08:00:00', $this->now));
+    }
+
+    /**
      * One question per visibility the editor offers, naming whom it is for
      * — the page picks the one matching the radio, and fills the title in.
      */

@@ -886,8 +886,10 @@ class NewsController extends AbstractController
                 // The publication date, or a draft's creation date — the
                 // one the list also sorts on (issue #845).
                 'date' => $article->displayDate(),
+                // No day of the week: this one lives in the list's badge, in
+                // a narrow column (#1359). The long form stays everywhere else.
                 'scheduled_for' => $state === Article::STATE_SCHEDULED && $article->publishedAt !== null
-                    ? PublicationWording::longDateTime($article->publishedAt)
+                    ? PublicationWording::dateTimeWithoutWeekday($article->publishedAt)
                     : '',
                 // Single-line summary (module usability review) — the
                 // mandatory one-sentence Article::$summary, never the old

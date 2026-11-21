@@ -1488,3 +1488,43 @@
     align-items: start;
     overflow-wrap: anywhere;
 }
+
+/* A news card of the lists (modules/news/views/list.html.twig, #1359): the
+   summary is read whole, so it is placed by the grid rather than clamped.
+   Phone: picture and header on the first row, the summary under both on the
+   card's full width. Wide screen: the summary beside the picture, under the
+   header. One paragraph either way, never repeated per screen size. */
+.news-card {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 0.5rem 1rem;
+    align-items: start;
+}
+.news-card--no-image {
+    grid-template-columns: minmax(0, 1fr);
+}
+.news-card__image {
+    grid-column: 1;
+    grid-row: 1;
+}
+.news-card__header {
+    grid-column: 2;
+    grid-row: 1;
+    min-width: 0;
+}
+.news-card--no-image .news-card__header {
+    grid-column: 1;
+}
+.news-card__excerpt {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    overflow-wrap: anywhere;
+}
+@media (min-width: 768px) {
+    .news-card:not(.news-card--no-image) .news-card__image {
+        grid-row: 1 / span 2;
+    }
+    .news-card:not(.news-card--no-image) .news-card__excerpt {
+        grid-column: 2;
+    }
+}
