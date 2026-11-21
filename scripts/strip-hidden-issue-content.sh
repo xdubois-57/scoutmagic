@@ -186,12 +186,31 @@ MARKER="${MARKER}" FOLD="${FOLD}" TITLE="${TITLE}" BOT="${BOT}" OWN_IDS="${OWN_I
         # of non-space characters whose parentheses balance.
         my $ldest = qr/<[^<>\r\n]*>|(?<par>(?:[^\s()\\<]|\\.|\((?:[^\s()\\]|\\.|(?&par))*\))+)/;
         s{(?<!!)\[[ \t]*\]\([ \t]*(?:$ldest)?[ \t\r\n]+(?:$ltitle)[ \t]*\)}{$m}g;
-        # Read as the <img> rule below reads a tag: a quoted value may hold
-        # a `>`, and only an attribute named title counts.
-        s{<a\b((?:[^>"\x27]|"[^"]*"|\x27[^\x27]*\x27)*)>[ \t\r\n]*</a[ \t]*>}{
-            my ($all, $names) = ($&, $1);
-            $names =~ s/"[^"]*"|\x27[^\x27]*\x27/""/g;
-            $names =~ /(?:^|[ \t\r\n"\x27\/])title[ \t\r\n]*=/i ? $m : $all
+        # The attributes of a tag, read as the HTML tokenizer reads them:
+        # a name runs to a space, `/`, `>` or `=` and needs no space before
+        # it after a quoted value; a quoted value may hold a `>`; a quote
+        # inside an unquoted value (`width=10\x27`) is just a character of it.
+        # Atomic, so a tag that never closes cannot make the match backtrack.
+        my $aname  = qr/[^\s\/>][^\s\/>=]*/;
+        my $avalue = qr/"[^"]*"|\x27[^\x27]*\x27|[^\s>]*/;
+        my $attrs  = qr/(?>(?:[ \t\r\n\/]+|$aname(?:[ \t\r\n]*=[ \t\r\n]*(?:$avalue))?)*)/;
+        # attributes_of <the text between the tag name and its `>`> →
+        # a list of [name, value or undef], names as written.
+        my $attributes_of = sub {
+            my ($text) = @_;
+            my @found;
+            while ($text =~ /\G(?:[ \t\r\n\/]+|($aname)(?:[ \t\r\n]*=[ \t\r\n]*($avalue))?)/gc) {
+                push @found, [$1, $2] if defined $1;
+            }
+            return @found;
+        };
+        my $has = sub {
+            my ($text, $wanted) = @_;
+            return scalar grep { lc($_->[0]) eq $wanted } $attributes_of->($text);
+        };
+        s{<a\b($attrs)>[ \t\r\n]*</a[ \t]*>}{
+            my $all = $&;
+            $has->($1, "title") ? $m : $all
         }gie;
         # The alternative text of an image and title show only when it fails to
         # load, or on hover: a transparent pixel can carry a whole
@@ -200,18 +219,13 @@ MARKER="${MARKER}" FOLD="${FOLD}" TITLE="${TITLE}" BOT="${BOT}" OWN_IDS="${OWN_I
         # Its description may nest brackets, as CommonMark allows.
         my $desc = qr/(?<desc>\[(?:[^\[\]\\]|\\.|(?&desc))*\])/;
         s{!$desc\([ \t]*($ldest)(?:[ \t\r\n]+(?:$ltitle))?[ \t]*\)}{![]($2)}g;
-        # A quoted attribute value may hold a `>`: the tag ends outside one.
-        s{(<img\b)((?:[^>"\x27]|"[^"]*"|\x27[^\x27]*\x27)*)>}{
-            my ($tag, $attrs, $all) = ($1, $2, $&);
-            # Attribute by attribute, as HTML reads them: a name needs no
-            # space before it after a quoted value (`src="x"alt="…"`).
-            my (@kept, $dropped);
-            while ($attrs =~ /\G[ \t\r\n\/]*([^\s"\x27>\/=]+)(?:[ \t\r\n]*=[ \t\r\n]*("[^"]*"|\x27[^\x27]*\x27|[^\s"\x27>]+))?/gc) {
-                my ($name, $value) = ($1, $2);
-                if ($name =~ /\A(?:alt|title)\z/i) { $dropped = 1; next; }
-                push @kept, defined $value ? "$name=$value" : $name;
-            }
-            $dropped ? join(" ", $tag, @kept) . ">" : $all
+        s{(<img\b)($attrs)>}{
+            my ($tag, $text, $all) = ($1, $2, $&);
+            my @found = $attributes_of->($text);
+            my @kept = grep { lc($_->[0]) ne "alt" && lc($_->[0]) ne "title" } @found;
+            @kept == @found
+                ? $all
+                : join(" ", $tag, map { defined $_->[1] ? "$_->[0]=$_->[1]" : $_->[0] } @kept) . ">"
         }gie;
         # Mathematics GitHub renders with MathJax: a colour (white on the
         # light theme, the background on the dark one), a phantom, a CSS
@@ -258,12 +272,11 @@ MARKER="${MARKER}" FOLD="${FOLD}" TITLE="${TITLE}" BOT="${BOT}" OWN_IDS="${OWN_I
         # agent reads too. `<details open>` hides nothing and is left alone.
         my $fold = $ENV{FOLD};
         utf8::decode($fold) unless utf8::is_utf8($fold);
-        s{<details\b([^>]*)>}{
-            my ($all, $attrs) = ($&, $1);
+        s{<details\b($attrs)>}{
+            my ($all, $text) = ($&, $1);
             my $before = $`;
-            # An attribute named open, never the word inside a quoted value.
-            (my $names = $attrs) =~ s/"[^"]*"|\x27[^\x27]*\x27/""/g;
-            my $seen = $names =~ /(?:^|[ \t\r\n"\x27\/])open(?:[ \t\r\n=\/]|\z)/i
+            # An attribute named open, never the word inside a value.
+            my $seen = $has->($text, "open")
                 || $before =~ /\Q$fold\E[ \t]*(?:\r?\n(?:[ \t]|>)*)?\z/;
             my ($cont) = $before =~ /(?:\A|\n)((?:[ \t]|>)*)\z/;
             my $eol = $before =~ /\r\n(?:[ \t]|>)*\z/ ? "\r\n" : "\n";

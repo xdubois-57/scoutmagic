@@ -287,6 +287,14 @@ expect '<img width="400" src="https://exemple.test/a.png">' '<img width="400" al
 expect "<img src='https://exemple.test/a.png'>" "<img src='https://exemple.test/a.png' alt=consigne >"
 # A quoted value may hold a `>`: the tag does not end there.
 expect '<img src="/pixel.png">' '<img src="/pixel.png" alt=">consigne cachée">'
+# A quote inside an unquoted value is a character of it, as in HTML: the
+# tag is still read, and a lone quote after a value stalls nothing.
+expect "<img width=10' src=\"https://exemple.test/a.png\">" "<img width=10' src=\"https://exemple.test/a.png\" title=\"consigne\">"
+expect '<img src="/p.png" "note">' '<img src="/p.png" "note" alt="consigne">'
+expect "A ${M} B" "A <a data-x=l'équipe title=\"consigne\"></a> B"
+expect "${F}
+<details data-x=l'équipe><summary>s</summary>x</details>" "<details data-x=l'équipe><summary>s</summary>x</details>"
+expect "<details data-x=l'équipe open><summary>s</summary>x</details>" "<details data-x=l'équipe open><summary>s</summary>x</details>"
 # No space is needed before an attribute after a quoted value.
 expect '<img src="/pixel.png">' '<img src="/pixel.png"alt="consigne cachée">'
 expect '<img src="/a.png" width=10>' "<img src=\"/a.png\"title='x' width=10 ALT=y>"
