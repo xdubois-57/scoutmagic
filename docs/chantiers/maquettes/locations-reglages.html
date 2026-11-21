@@ -440,7 +440,7 @@ $('#screen').addEventListener('change',e=>{state.screen=e.target.value;fillState
 $('#state').addEventListener('change',e=>{state.state=e.target.value;render()});
 $('#w-desk').addEventListener('click',()=>{state.phone=false;$('#w-desk').setAttribute('aria-pressed','true');$('#w-phone').setAttribute('aria-pressed','false');render()});
 $('#w-phone').addEventListener('click',()=>{state.phone=true;$('#w-phone').setAttribute('aria-pressed','true');$('#w-desk').setAttribute('aria-pressed','false');render()});
-const h=location.hash.slice(1); if(R[h]){state.screen=h;$('#screen').value=h}
+const h=location.hash.slice(1); if(Object.prototype.hasOwnProperty.call(R,h)&&typeof R[h]==='function'){state.screen=h;$('#screen').value=h}
 fillStates(); render();
 })();
 </script>
