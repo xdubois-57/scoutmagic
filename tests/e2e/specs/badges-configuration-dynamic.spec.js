@@ -19,6 +19,16 @@ import { loginAsAdmin } from '../support/admin-login.js';
 import { answerCookieBanner } from '../support/cookie-banner.js';
 
 test('a badge is created, renamed, switched and deleted without the page ever reloading', async ({ page }) => {
+    /** @type {string[]} */
+    const pageErrors = [];
+    page.on('pageerror', (error) => pageErrors.push(error.message));
+    /** @type {string[]} */
+    const serverErrors = [];
+    page.on('response', (response) => {
+        if (response.status() >= 500) {
+            serverErrors.push(`HTTP ${response.status()} on ${response.url()}`);
+        }
+    });
     await autoConfirm(page);
     await loginAsAdmin(page);
     await answerCookieBanner(page, { accept: true });
@@ -78,4 +88,6 @@ test('a badge is created, renamed, switched and deleted without the page ever re
     await expect(page.locator(`.badge-row[data-id="${badgeId}"]`)).toHaveCount(0);
     await expect(toast.filter({ hasText: 'Badge supprimé.' })).toBeVisible();
     expect(await stillHere(), 'deleting did not reload the page').toBe('still-here');
+    expect(serverErrors, 'the application returned a server error').toEqual([]);
+    expect(pageErrors, 'uncaught JavaScript error in the browser').toEqual([]);
 });
