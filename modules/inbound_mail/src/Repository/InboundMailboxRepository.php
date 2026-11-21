@@ -313,7 +313,7 @@ class InboundMailboxRepository
         $stmt = $this->pdo->prepare(
             'UPDATE inbound_mailboxes
                 SET sync_state = ?, last_synced_at = ?, last_error = NULL, last_error_at = NULL,
-                    failing_since = NULL, updated_at = ?
+                    failing_since = NULL, last_failure_signature = NULL, updated_at = ?
               WHERE id = ?'
         );
         $stmt->execute([SyncState::OK->value, $at->format('Y-m-d H:i:s'), self::now(), $id]);
@@ -332,7 +332,8 @@ class InboundMailboxRepository
         $stmt = $this->pdo->prepare(
             'UPDATE inbound_mailboxes
                 SET sync_state = CASE WHEN last_synced_at IS NULL THEN ? ELSE ? END,
-                    last_error = NULL, last_error_at = NULL, failing_since = NULL, updated_at = ?
+                    last_error = NULL, last_error_at = NULL, failing_since = NULL,
+                    last_failure_signature = NULL, updated_at = ?
               WHERE id = ? AND sync_state = ?'
         );
         $stmt->execute([SyncState::NEVER->value, SyncState::OK->value, self::now(), $id, SyncState::ERROR->value]);
@@ -343,12 +344,12 @@ class InboundMailboxRepository
      * Service\MailboxErrorFormatter. This method does no formatting of its
      * own precisely so there is one place where that rule lives.
      */
-    public function recordFailure(int $id, string $reason, \DateTimeImmutable $at): void
+    public function recordFailure(int $id, string $reason, \DateTimeImmutable $at, ?string $signature = null): void
     {
         $stmt = $this->pdo->prepare(
             'UPDATE inbound_mailboxes
                 SET sync_state = ?, last_error = ?, last_error_at = ?,
-                    failing_since = COALESCE(failing_since, ?), updated_at = ?
+                    failing_since = COALESCE(failing_since, ?), last_failure_signature = ?, updated_at = ?
               WHERE id = ?'
         );
         $stmt->execute([
@@ -357,6 +358,7 @@ class InboundMailboxRepository
             $at->format('Y-m-d H:i:s'),
             // The first failure of a run dates it; the next ones keep it.
             $at->format('Y-m-d H:i:s'),
+            $signature,
             self::now(),
             $id,
         ]);
@@ -494,7 +496,9 @@ class InboundMailboxRepository
                 : null,
             sentFolder: ($row['sent_folder'] ?? null) !== null && (string) $row['sent_folder'] !== ''
                 ? (string) $row['sent_folder']
-                : null
+                : null,
+            failingSince: DateInput::fromStorage($row['failing_since'] === null ? null : (string) $row['failing_since']),
+            lastFailureSignature: isset($row['last_failure_signature']) ? (string) $row['last_failure_signature'] : null
         );
     }
 

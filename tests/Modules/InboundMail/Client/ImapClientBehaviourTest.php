@@ -310,6 +310,16 @@ class ImapClientBehaviourTest extends TestCase
         return $client;
     }
 
+    public function testLibraryDebuggingIsDisabledEvenWhenTheManagerEnabledIt(): void
+    {
+        $library = new InertImapClient(null);
+        $library->getConfig()->set('options.debug', true);
+        $client = new ImapMailboxClient($this->managerReturning($library));
+        $client->connect($this->mailbox(), $this->credentials());
+
+        self::assertFalse($library->getConfig()->get('options.debug'));
+    }
+
     private function managerReturning(Client $client): ClientManager
     {
         $manager = $this->createStub(ClientManager::class);
@@ -346,6 +356,7 @@ class InertImapClient extends Client
 {
     public function __construct(private ?Folder $folder)
     {
+        parent::__construct(\Webklex\PHPIMAP\Config::make([]));
     }
 
     public function __destruct()

@@ -46,3 +46,18 @@ L'erreur dit à quelle étape la relève s'est arrêtée :
   ouverture d'un dossier, lecture des messages) : les identifiants sont
   bons, c'est le serveur qui a refusé ou coupé. Le nom technique entre
   parenthèses est celui que le support vous demandera.
+
+## Retrouver le diagnostic
+
+Après une relève en échec, consultez **Journal d'événements**, catégorie
+« Courrier entrant ». Chaque échec manuel y figure avec la boîte concernée,
+l'étape, les classes d'erreurs et les codes disponibles. Pour les relèves
+automatiques, seul le premier échec ou un changement de cause produit un
+événement ; un autre indique le rétablissement.
+
+La réponse du serveur, lorsqu'elle est disponible, est limitée à 300
+caractères après masquage des identifiants connus, mots de passe, adresses
+e-mail et commandes d'authentification. Le débogage IMAP reste désactivé.
+Ces diagnostics font aussi partie des archives de support : un secret
+inconnu du site, comme un jeton propre au serveur, peut malgré tout
+échapper au masquage.

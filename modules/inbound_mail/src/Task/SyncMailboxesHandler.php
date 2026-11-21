@@ -142,7 +142,8 @@ class SyncMailboxesHandler implements TaskHandlerInterface
                 $this->quotaService,
                 new EncryptedFileStorageService(new FileRepository($pdo), $context->encryption, $context->storagePath),
                 $this->analysisJournal,
-                $this->replyAddresses
+                $this->replyAddresses,
+                journal: $context->journal
             );
 
             $service->syncAll(new \DateTimeImmutable());

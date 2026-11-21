@@ -92,6 +92,8 @@ class ImapMailboxClient implements IncomingMailboxClientInterface, PruningMailbo
                 // the commands itself.
             ]);
 
+            // Debug mode prints commands, including authentication payloads.
+            $client->getConfig()->set('options.debug', false);
             $client->connect();
         } catch (\Throwable $e) {
             throw MailboxConnectionException::at(MailboxConnectionException::STEP_CONNECT, $e);

@@ -57,7 +57,9 @@ class Mailbox
          * The folder the operator named as the box's sent mail, for a
          * server that marks none `\Sent` (#720). Null: the server's mark.
          */
-        public readonly ?string $sentFolder = null
+        public readonly ?string $sentFolder = null,
+        public readonly ?\DateTimeImmutable $failingSince = null,
+        public readonly ?string $lastFailureSignature = null
     ) {
     }
 

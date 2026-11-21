@@ -1328,6 +1328,10 @@ With the AI connector enabled, a manager can ask for help: read a meter index of
 
 Not a mail client. A gateway that connects one or more of the unit's own mailboxes **in read-only mode** so other modules can attach the replies that belong to them.
 
+### Failure diagnostics
+
+Every failed manual refresh records an `inbound_mailbox_sync_failed` event with its actor, mailbox address, origin, step and safe diagnostic codes. Scheduled refreshes journal the first failure and changes in its nature, then one `inbound_mailbox_sync_recovered` event on recovery. Known credentials and email addresses are masked in server refusal lines, authentication payloads removed, control characters stripped and retained text limited to 300 characters. Debug transcripts and processing-message contents are not retained. An unknown server token may still survive redaction; this residual risk is documented and applies to support archives too. The refresh flash message remains unchanged, and a journal write failure does not interrupt the refresh.
+
 ### 23.1 What it never does
 
 It never marks a message read, never moves one, never deletes one, never creates a folder. The client contract has no vocabulary for any of it: bodies are fetched with `BODY.PEEK[TEXT]` and folders opened with `EXAMINE` — no flag is set and then removed, either (#1231) — so a treasurer who works through an unread inbox does not find it emptied by a background task.
