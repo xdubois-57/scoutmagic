@@ -64,6 +64,13 @@ issue="$(gh api "${repo}/issues/${number}")"
 comments="$(gh api --paginate "${repo}/issues/${number}/comments" --jq '.[] | @json')"
 
 title="$(jq -r '.title // ""' <<<"${issue}" | clean "title of issue #${number}" --title)"
+# GitHub shows a title on one line. A line break in one would let the text
+# after it pass for a header of its own, the nonce appended to the forgery
+# rather than to the real one: folded into a space, and reported.
+if [[ "${title}" == *[$'\r\n']* ]]; then
+  title="${title//[$'\r\n']/ }"
+  printf '%s\n' "title of issue #${number}" >>"${cleaned}"
+fi
 mode="$(mode_of "${issue}")"
 body="$(jq -r '.body // ""' <<<"${issue}" | clean "issue #${number}" ${mode:+"${mode}"})"
 
