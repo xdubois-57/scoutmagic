@@ -52,7 +52,8 @@ clean() {
 
 # mode_of <json> → --bot for a text a bot wrote, nothing otherwise.
 mode_of() {
-  if [[ "$(jq -r '.user.type // ""' <<<"$1")" == "Bot" ]]; then
+  local json="$1"
+  if [[ "$(jq -r '.user.type // ""' <<<"${json}")" == "Bot" ]]; then
     echo --bot
   fi
 }

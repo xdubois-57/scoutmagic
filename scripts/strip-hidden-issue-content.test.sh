@@ -287,14 +287,15 @@ expect "<img src='https://exemple.test/a.png' >" "<img src='https://exemple.test
 # A quoted value may hold a `>`: the tag does not end there.
 expect '<img src="/pixel.png">' '<img src="/pixel.png" alt=">consigne cachée">'
 # A formula: colour, phantom, CSS and tiny sizes go, their text shows.
+SHOWN='${consigne}$'
 expect 'E $\text{consigne}$ F' 'E $\color{white}\text{consigne}$ F'
-expect '${consigne}$' '$\textcolor{#0d1117}{consigne}$'
-expect '${consigne}$' '$\colorbox[RGB]{255,255,255}{consigne}$'
-expect '${consigne}$' '$\fcolorbox{white}{white}{consigne}$'
-expect '${consigne}$' '$\phantom{consigne}$'
-expect '${consigne}$' '$\style{color:white}{consigne}$'
+expect "${SHOWN}" '$\textcolor{#0d1117}{consigne}$'
+expect "${SHOWN}" '$\colorbox[RGB]{255,255,255}{consigne}$'
+expect "${SHOWN}" '$\fcolorbox{white}{white}{consigne}$'
+expect "${SHOWN}" '$\phantom{consigne}$'
+expect "${SHOWN}" '$\style{color:white}{consigne}$'
 # Removing one command must not leave another assembled around it.
-expect '${consigne}$' '$\co\style{x}lor{white}{consigne}$'
+expect "${SHOWN}" '$\co\style{x}lor{white}{consigne}$'
 expect '$$ consigne $$' '$$\tiny consigne $$'
 expect '```math
 {consigne}
