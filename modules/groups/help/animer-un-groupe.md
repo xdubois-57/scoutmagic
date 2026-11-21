@@ -22,8 +22,11 @@ La page « Membres » d'un groupe montre ses deux sources : les sections
 liées (leur composition suit automatiquement les données de la
 fédération — elle ne se modifie pas ici) et les invitations
 individuelles. « Inviter un membre » cherche par nom ou totem ; la
-personne n'est prévenue que si vous cochez la case. Un membre invité
-peut quitter le groupe ; une appartenance de section, non.
+personne n'est prévenue que si vous cochez la case. Chaque membre invité
+tient sur une entrée, avec son adresse de connexion dessous et un menu
+⋮ à droite : nommer ou retirer la modération (une entrée par adresse),
+retirer du groupe. Un membre invité peut quitter le groupe ; une
+appartenance de section, non.
 
 ## La modération
 
