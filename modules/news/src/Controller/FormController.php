@@ -9,6 +9,8 @@ declare(strict_types=1);
 namespace Modules\News\Controller;
 
 use Core\Config\ScoutYearService;
+use Core\Exception\UserFacingException;
+use Core\Exception\UserFacingMessage;
 use Core\Http\Controller\AbstractController;
 use Core\Http\Request;
 use Core\Http\Response;
@@ -638,7 +640,25 @@ class FormController extends AbstractController
                 $this->ticketDraftBody($form)
             );
         } catch (\Throwable $e) {
-            FlashMessage::set('error', $e->getMessage());
+            // A refusal the mass-mail module meant for the screen says so
+            // itself (UserFacingException) and passes as written; anything
+            // else — a SQL error naming a table — becomes our sentence. The
+            // real cause goes to the journal as its class only: a message
+            // may carry personal data (AGENTS.md).
+            if (!$e instanceof UserFacingException) {
+                $this->journalService->log(
+                    'news',
+                    'mail_draft_failed',
+                    'warning',
+                    "Le brouillon de courrier des réponses n'a pas pu être créé.",
+                    ['article_id' => $article->id, 'error' => $e::class],
+                    (int) AuthSession::getUserAccountId()
+                );
+            }
+            FlashMessage::set('error', UserFacingMessage::from(
+                $e,
+                "Le brouillon de courrier n'a pas pu être créé. Réessayez dans un instant."
+            ));
             return $this->redirect('/news/' . $article->id . '/form/responses');
         }
 
