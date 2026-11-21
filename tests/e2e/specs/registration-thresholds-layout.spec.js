@@ -92,6 +92,29 @@ test('the thresholds box has no overlap on a phone or a desktop, waitlists on or
         expectNoOverlap(await measureThresholds(page), `waitlists on, ${width}px`);
     }
 
+    // The « seuils non utilisables » warning: the server renders it between the
+    // title and the slider only when the stored thresholds are unusable, which
+    // the E2E instance does not store. It is put there with the server's own
+    // markup and classes, so the box is measured with it present as well.
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.evaluate(() => {
+        const alert = document.createElement('div');
+        alert.className = 'alert alert-warning small';
+        alert.setAttribute('data-injected-warning', '');
+        alert.textContent = "Les seuils enregistrés ne sont pas utilisables (deux nombres entiers de 1 à 120, « Oui » inférieur à « Peut-être ») : les valeurs ci-dessous, celles par défaut, s'appliquent jusqu'à ce que vous les enregistriez.";
+        document.querySelector('[data-threshold-box] legend').after(alert);
+    });
+    for (const width of WIDTHS) {
+        await page.setViewportSize({ width, height: 900 });
+        await page.locator('[data-threshold-box]').scrollIntoViewIfNeeded();
+        const m = await measureThresholds(page);
+        const warning = await page.locator('[data-injected-warning]').boundingBox();
+        expect(warning.y, `warning shown, ${width}px: the warning is below the title`).toBeGreaterThanOrEqual(m.legend.bottom - TOLERANCE);
+        expect(warning.y + warning.height, `warning shown, ${width}px: the warning ends above the slider`).toBeLessThanOrEqual(m.slider.top + TOLERANCE);
+        expectNoOverlap(m, `warning shown, ${width}px`);
+    }
+    await page.evaluate(() => document.querySelector('[data-injected-warning]').remove());
+
     // Waitlists off: the box stays, greyed out, with its explanatory note shown
     // between the title and the bar — the other half of the conditions.
     await page.setViewportSize({ width: 1280, height: 900 });
