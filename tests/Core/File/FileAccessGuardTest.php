@@ -434,7 +434,49 @@ class FileAccessGuardTest extends TestCase
 
         $this->assertNull($guard->check($id), 'the original of another family\'s child');
         $this->assertNotNull($guard->check($id, 'thumb'));
-        $this->assertNotNull($guard->check($id, 'md'));
+        // #1265: the medium rendition is a sharp, usable photograph — not what a list needs, so
+        // not what a stranger gets, even if one is generated for these photos one day.
+        $this->assertNull($guard->check($id, 'md'));
+    }
+
+    /** A rendition nobody listed is judged like the original, never let through by default. */
+    public function testAnUnlistedRenditionOfAMemberPhotoIsJudgedLikeTheOriginal(): void
+    {
+        $id = $this->memberPhoto(42);
+        $stranger = $this->photoGuard(Role::IDENTIFIED, [7], 3);
+
+        foreach (['md', 'lg', 'xl', 'original', '', 'THUMB'] as $rendition) {
+            $this->assertNull($stranger->check($id, $rendition), "rendition '{$rendition}'");
+        }
+    }
+
+    /** The people the original is for get every rendition, `md` included. */
+    public function testTheMemberTheirParentsTheAccountHolderAndTheStaffGetTheMediumRendition(): void
+    {
+        $memberPhoto = $this->memberPhoto(42);
+        $accountPhoto = $this->accountPhoto(99);
+
+        $this->assertNotNull($this->photoGuard(Role::IDENTIFIED, [7, 42], 3)->check($memberPhoto, 'md'));
+        $this->assertNotNull($this->photoGuard(Role::IDENTIFIED, [], 99)->check($accountPhoto, 'md'));
+        $this->assertNotNull($this->photoGuard(Role::CHIEF, [], 3)->check($memberPhoto, 'md'));
+        $this->assertNotNull($this->photoGuard(Role::ADMIN, [], 3)->check($accountPhoto, 'md'));
+        // …and thumbnails and originals as before.
+        $this->assertNotNull($this->photoGuard(Role::IDENTIFIED, [7, 42], 3)->check($memberPhoto, 'thumb'));
+        $this->assertNotNull($this->photoGuard(Role::IDENTIFIED, [7, 42], 3)->check($memberPhoto));
+    }
+
+    /** The guard says WHICH rendition is being asked: a policy that cannot tell cannot be selective. */
+    public function testTheRequestedRenditionIsPassedToThePolicy(): void
+    {
+        $id = $this->groupFile('a.jpg');
+        $checker = $this->perFileChecker(false, [], true);
+        $guard = new FileAccessGuard($this->repo, Role::IDENTIFIED, [], [$checker]);
+
+        $guard->check($id, 'thumb');
+        $guard->check($id, 'md');
+        $guard->check($id);
+
+        $this->assertSame([[7, 'thumb'], [7, 'md']], $checker->renditionsAsked, 'the original asks no policy');
     }
 
     public function testTheMemberAndTheirLinkedParentsGetTheOriginal(): void
@@ -625,7 +667,7 @@ class FileAccessGuardTest extends TestCase
 
     /**
      * @param list<int> $withheld
-     * @return FileOwnershipCheckerInterface&object{asked: list<array<int, mixed>>}
+     * @return FileOwnershipCheckerInterface&object{asked: list<array<int, mixed>>, renditionsAsked: list<array{int, string}>}
      */
     private function perFileChecker(
         bool $ownerAllows,
@@ -639,6 +681,9 @@ class FileAccessGuardTest extends TestCase
         {
             /** @var list<array<int, mixed>> */
             public array $asked = [];
+
+            /** @var list<array{int, string}> */
+            public array $renditionsAsked = [];
 
             /** @param list<int> $withheld */
             public function __construct(private bool $ownerAllows, private array $withheld, private bool $reduced)
@@ -655,8 +700,10 @@ class FileAccessGuardTest extends TestCase
                 return $this->ownerAllows;
             }
 
-            public function allowsReducedRendition(int $ownerId): bool
+            public function allowsReducedRendition(int $ownerId, string $rendition): bool
             {
+                $this->renditionsAsked[] = [$ownerId, $rendition];
+
                 return $this->reduced;
             }
 

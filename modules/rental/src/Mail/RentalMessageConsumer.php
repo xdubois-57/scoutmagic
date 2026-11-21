@@ -76,6 +76,17 @@ class RentalMessageConsumer implements
      */
     public const DEFAULT_WINDOW_DAYS_AFTER = 60;
 
+    /**
+     * The furthest after the request an address a manager typed in still
+     * files anything (issue #1253). The window follows the stay, and a
+     * manager may move the stay — the public form's horizon binds no
+     * manager —, so without this a typed correspondent of the unit would
+     * keep landing on the booking for as long as its departure was pushed
+     * back. Two years is beyond any stay requested through the form: its
+     * default horizon is 548 days, and the window runs 60 days after.
+     */
+    public const TYPED_ADDRESS_MAX_REACH_DAYS = 730;
+
     public function __construct(
         private RentalBookingRepository $bookingRepository,
         private InboundMailInterface $inboundMail,
@@ -380,7 +391,7 @@ class RentalMessageConsumer implements
         }
         $all = array_values(array_filter(
             $all,
-            fn(RentalBooking $booking): bool => !$typedOnly[$booking->id] || $this->covers($booking, $sentAt)
+            fn(RentalBooking $booking): bool => !$typedOnly[$booking->id] || $this->coversTyped($booking, $sentAt)
         ));
         if ($all === []) {
             return [null, []];
@@ -1024,6 +1035,18 @@ class RentalMessageConsumer implements
      * purpose — most of the correspondence about a stay happens before it,
      * while dates and prices are still being agreed.
      */
+    /**
+     * `covers()`, closing no later than TYPED_ADDRESS_MAX_REACH_DAYS after
+     * the request, whatever the stay was moved to.
+     */
+    private function coversTyped(RentalBooking $booking, \DateTimeImmutable $sentAt): bool
+    {
+        $reach = $booking->receivedAt->setTime(23, 59, 59)
+            ->modify('+' . self::TYPED_ADDRESS_MAX_REACH_DAYS . ' days');
+
+        return $this->covers($booking, $sentAt) && $sentAt <= $reach;
+    }
+
     private function covers(RentalBooking $booking, \DateTimeImmutable $sentAt): bool
     {
         $opensAt = $booking->receivedAt->setTime(0, 0);

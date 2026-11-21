@@ -43,6 +43,9 @@ final class PersonPhotoOwnershipChecker implements FileOwnershipCheckerInterface
     public const OWNER_MEMBER = 'member_photo';
     public const OWNER_ACCOUNT = 'account_photo';
 
+    /** The renditions anybody above the floor may be served; every other one follows the original's rule. */
+    private const RENDITIONS_FOR_ANYONE = ['thumb'];
+
     /** The floor that reads every original: the staff who already see the roster's faces. */
     private const STAFF_ROLE = Role::CHIEF;
 
@@ -69,7 +72,7 @@ final class PersonPhotoOwnershipChecker implements FileOwnershipCheckerInterface
 
     /**
      * The rule for the ORIGINAL — a reduced rendition is let through
-     * before this is asked (allowsReducedRendition()).
+     * before this is asked (allowsReducedRendition(), for the thumbnail only).
      *
      * @param array<int, int> $linkedMemberIds
      */
@@ -84,8 +87,14 @@ final class PersonPhotoOwnershipChecker implements FileOwnershipCheckerInterface
             : $this->currentUserAccountId !== null && $ownerId === $this->currentUserAccountId;
     }
 
-    public function allowsReducedRendition(int $ownerId): bool
+    /**
+     * Only the thumbnail: the small face that lists, avatars and the
+     * trombinoscope draw. A closed list (#1265) — the medium rendition is a
+     * sharp, usable photograph of somebody's child, and a rendition added
+     * later follows the original's rule until somebody decides otherwise.
+     */
+    public function allowsReducedRendition(int $ownerId, string $rendition): bool
     {
-        return true;
+        return in_array($rendition, self::RENDITIONS_FOR_ANYONE, true);
     }
 }

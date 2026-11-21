@@ -38,6 +38,10 @@ d'agenda de votre téléphone ou de votre ordinateur (iPhone, Google
 Agenda, Outlook...) pour recevoir automatiquement les activités de vos
 sections. « Copier » met le lien dans le presse-papiers.
 
+L'agenda affiche l'abonnement sous le **nom de votre unité**, tel qu'il
+est réglé sur le site. Les agendas déjà abonnés gardent l'ancien nom : un agenda ne lit le nom
+qu'à l'abonnement, il faut s'abonner de nouveau pour le voir changer.
+
 > Ce lien est personnel et secret : quiconque le possède voit vos
 > activités, sans mot de passe. Si vous l'avez transmis par erreur,
 > « Régénérer le lien » rend l'ancien inutilisable — il faudra alors
