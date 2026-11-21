@@ -38,7 +38,16 @@ set -euo pipefail
 #   - every footnote definition, `[^1]: text`, with the lines that continue
 #     it: GitHub drops one nothing refers to, and deciding what "refers"
 #     means (a reference in inline code renders nothing) is the same
-#     approximation as above. A real footnote shows the marker instead.
+#     approximation as above. A real footnote shows the marker instead;
+#   - what Markdown and its HTML render as nothing, or only on an action
+#     nobody takes (issue #1254): an entity spelling an invisible character
+#     (the marker), a link whose text is empty and which carries a title
+#     (the marker), the alternative text and title of every image (emptied,
+#     the image still shows), the colour, phantom, CSS and tiny-size
+#     commands of a formula (removed, their text shows), <sub>/<sup>/<small>
+#     nested past one level (the outer level stays). A folded <details> is
+#     kept folded behind a visible « ⚠️ [bloc replié : contenu non relu] »,
+#     the warning an agent reads too; an `open` one hides nothing.
 #
 # `--bot` applies to a text a bot wrote. It keeps the repository's own
 # markers — the exact forms its workflows write on issues, nothing looser:
@@ -60,11 +69,15 @@ set -euo pipefail
 # second pass changes nothing — which is what keeps the `edited` event the
 # rewrite itself triggers from looping (.github/workflows/issue-sanitize.yml).
 #
-# One filter, used in both places that hand an issue to an agent: the
-# sanitizing workflow and the triage job (scripts/sanitize-issue-thread.sh).
+# One filter, used in every place that hands an issue to an agent: the
+# sanitizing workflow and the triage job (scripts/sanitize-issue-thread.sh),
+# and « fixe le backlog » reading a ticket (scripts/read-issue-thread.sh).
 # Tested by scripts/strip-hidden-issue-content.test.sh.
 
 MARKER='⚠️ [contenu caché retiré automatiquement]'
+# Written before a folded <details> (issue #1254): its content is kept, but
+# nobody saw it without unfolding the block.
+FOLD='⚠️ [bloc replié : contenu non relu]'
 
 mode="${1:-}"
 TITLE=0
@@ -122,7 +135,7 @@ SOURCE_IDS='
 # END external-source ids
 OWN_IDS="$(printf '%s' "${SOURCE_IDS}" | tr -s ' \n' '\n' | grep -v '^$' | paste -sd '|' -)"
 
-MARKER="${MARKER}" TITLE="${TITLE}" BOT="${BOT}" OWN_IDS="${OWN_IDS}" exec perl -CSDA -0777 -pe '
+MARKER="${MARKER}" FOLD="${FOLD}" TITLE="${TITLE}" BOT="${BOT}" OWN_IDS="${OWN_IDS}" exec perl -CSDA -0777 -pe '
     my $m = $ENV{MARKER};
     utf8::decode($m) unless utf8::is_utf8($m);
     my $own = qr/<!-- (?:external-source:(?:$ENV{OWN_IDS})|external-source-fingerprint:[0-9a-f]{16}(?::sans-analyse)?|issue-fixed-comment: pull request #[0-9]+) -->/;
@@ -146,6 +159,76 @@ MARKER="${MARKER}" TITLE="${TITLE}" BOT="${BOT}" OWN_IDS="${OWN_IDS}" exec perl 
     my $pict   = qr/\p{Extended_Pictographic}(?:$style|\p{Emoji_Modifier})?/;
     s/($pict(?:\x{200D}$pict)+)|(?:$hidden|$style)*$hidden(?:$hidden|$style)*|$style{2,}/defined $1 ? $1 : $m/ge;
     if (!$ENV{TITLE}) {
+        # Issue #1254: what Markdown and its HTML render as nothing, or only
+        # on an action nobody takes. None of it applies to a title, which
+        # GitHub shows as plain text.
+        #
+        # An HTML entity spelling an invisible character renders exactly as
+        # the character itself, which the rule above removes: `&#x200B;`,
+        # `&#917577;`, `&zwj;`.
+        my $named = qr/zwj|zwnj|shy|lrm|rlm|ZeroWidthSpace|NoBreak|InvisibleTimes|InvisibleComma|ApplyFunction|it|ic|af/;
+        s{(?:&#(?:[xX][0-9A-Fa-f]{1,8}|[0-9]{1,8});|&(?:$named);)+}{
+            my $run = $&;
+            my $hides = 0;
+            while ($run =~ /&#(?:[xX]([0-9A-Fa-f]+)|([0-9]+));|&($named);/g) {
+                if (defined $3) { $hides = 1; next; }
+                my $cp = defined $1 ? hex($1) : $2;
+                $hides = 1 if $cp <= 0x10FFFF && chr($cp) =~ $hidden;
+            }
+            $hides ? $m : $run
+        }ge;
+        # A link whose text is empty shows nothing, and its title only on
+        # hovering that nothing: `[](https://… "an instruction")`. The whole
+        # link goes. A link with text keeps its title — it shows on hover
+        # over words someone sees.
+        my $ltitle = qr/"(?:[^"\\]|\\.)*"|\x27(?:[^\x27\\]|\\.)*\x27|\((?:[^()\\]|\\.)*\)/;
+        s{(?<!!)\[[ \t]*\]\([ \t]*(?:<[^<>\r\n]*>|[^\s()<]\S*?)?[ \t\r\n]+(?:$ltitle)[ \t]*\)}{$m}g;
+        s{<a\b[^>]*\btitle[ \t]*=[^>]*>[ \t\r\n]*</a[ \t]*>}{$m}gi;
+        # The alternative text of an image and title show only when it fails to
+        # load, or on hover: a transparent pixel can carry a whole
+        # instruction there. Both are emptied, for every image — the image
+        # itself still shows, and its original stays in the edit history.
+        s{!\[(?:[^\[\]\\]|\\.)*\]\([ \t]*(<[^<>\r\n]*>|[^\s()<]\S*?)(?:[ \t\r\n]+(?:$ltitle))?[ \t]*\)}{![]($1)}g;
+        s{(<img\b)([^>]*)>}{
+            my ($tag, $attrs) = ($1, $2);
+            $attrs =~ s/[ \t\r\n]+(?:alt|title)[ \t]*=[ \t]*(?:"[^"]*"|\x27[^\x27]*\x27|[^\s"\x27>]+)//gi;
+            "$tag$attrs>"
+        }gie;
+        # Mathematics GitHub renders with MathJax: a colour (white on the
+        # light theme, the background on the dark one), a phantom, a CSS
+        # style or class, a tiny size can each hide text in plain sight.
+        # The command goes and its text shows, in the colour of the formula
+        # and size. Everywhere, not only between `$`: a formula has four
+        # delimiters, and every exemption was a way past the rule.
+        my $arg = qr/\{(?:[^{}]|\{[^{}]*\})*\}/;
+        s{\\fcolorbox[ \t]*(?:\[[^\]]*\])?[ \t]*$arg[ \t]*$arg}{}g;
+        s{\\(?:color|textcolor|colorbox|mathcolor|pagecolor)[ \t]*(?:\[[^\]]*\])?[ \t]*$arg}{}g;
+        s{\\(?:class|cssId|style|htmlStyle|htmlClass|htmlId|htmlData)[ \t]*$arg}{}g;
+        s{\\(?:[hv]?phantom|tiny|Tiny|scriptsize|scriptscriptstyle)(?![A-Za-z])}{}g;
+        # Text nested in <sub>, <sup> or <small> shrinks at every level until
+        # nobody can read it: only the outermost level is kept.
+        my $depth = 0;
+        s{<(/?)(sub|sup|small)\b[^>]*>}{
+            my ($close, $all) = ($1, $&);
+            $close
+                ? (($depth > 0 ? --$depth : 0) ? "" : $all)
+                : (++$depth == 1 ? $all : "")
+        }gie;
+        # A folded <details> shows only its summary until someone opens it:
+        # an agent reads what is inside as if it had been seen. It stays
+        # folded — a log belongs there — behind a visible warning, which the
+        # agent reads too. `<details open>` hides nothing and is left alone.
+        my $fold = $ENV{FOLD};
+        utf8::decode($fold) unless utf8::is_utf8($fold);
+        s{<details\b([^>]*)>}{
+            my ($all, $attrs) = ($&, $1);
+            my $before = $`;
+            my $seen = $attrs =~ /(?:^|[ \t\r\n])open(?:[ \t\r\n=]|\z)/i
+                || $before =~ /\Q$fold\E[ \t]*(?:\r?\n(?:[ \t]|>)*)?\z/;
+            my ($cont) = $before =~ /(?:\A|\n)((?:[ \t]|>)*)\z/;
+            my $eol = $before =~ /\r\n(?:[ \t]|>)*\z/ ? "\r\n" : "\n";
+            $seen ? $all : defined $cont ? "$fold$eol$cont$all" : "$fold $all"
+        }gie;
         # A newline, but never a blank line, may sit inside a label or title.
         my $nl    = qr/\r?\n(?![ \t]*\r?\n)/;
         # Any indentation and any block quote or list markers, nested or

@@ -13,6 +13,12 @@
 #            error and never an empty queue);
 #   status   prints the Project's view of one issue — the way to see that it
 #            was Canceled before arming an auto-merge;
+#   read     prints ONE issue and its comments through the hidden-content
+#            filter (scripts/read-issue-thread.sh, issue #1254) between
+#            THREAD-BEGIN/END — how a session without `gh` reads a ticket.
+#            Its own step, with the repository token: it needs no Project.
+#            A run that goes red with « hidden content removed » means the
+#            GitHub-side rewrite (issue-sanitize.yml) was skipped;
 #   claim | done | release   move Status and the Agent field of ONE issue
 #            (scripts/project-agent.sh). None of these is the lock — the
 #            lock is the branch `claude/issue-<n>` created through the API —
@@ -40,7 +46,7 @@ on:
         description: Operation
         required: true
         type: choice
-        options: [queue, status, claim, done, release]
+        options: [queue, read, status, claim, done, release]
       issue:
         description: Issue number (not for queue)
         required: false
@@ -65,6 +71,7 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: read
+      issues: read
     steps:
       - name: Fetch the scripts from main
         env:
@@ -72,7 +79,8 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "${RUNNER_TEMP}/scripts"
-          for script in project-lib.sh backlog-ready-queue.sh project-agent.sh; do
+          for script in project-lib.sh backlog-ready-queue.sh project-agent.sh \
+            read-issue-thread.sh strip-hidden-issue-content.sh; do
             gh api -H 'Accept: application/vnd.github.raw+json' \
               "repos/${GITHUB_REPOSITORY}/contents/scripts/${script}?ref=main" \
               > "${RUNNER_TEMP}/scripts/${script}"
@@ -82,8 +90,46 @@ jobs:
             }
           done
 
+      # Reading an issue needs no Project, so not the Projects token either:
+      # the repository token, read-only on issues.
+      - name: Read the issue thread
+        if: inputs.action == 'read'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ inputs.issue }}
+        run: |
+          set -euo pipefail
+          scripts="${RUNNER_TEMP}/scripts"
+          out="$(mktemp)"
+          err="$(mktemp)"
+          status=0
+          bash "${scripts}/read-issue-thread.sh" "${ISSUE}" > "${out}" 2> "${err}" || status=$?
+          cat "${err}" >&2
+          echo 'THREAD-BEGIN'
+          cat "${out}"
+          echo 'THREAD-END'
+          # The same escaping as the annotations of the next step: the
+          # thread is readable through the API even where the log is not.
+          annotate() {
+            local title="$1" body
+            body="$(cat)"
+            body="${body//'%'/'%25'}"
+            body="${body//$'\r'/'%0D'}"
+            body="${body//$'\n'/'%0A'}"
+            echo "::notice title=${title}::${body}"
+          }
+          annotate "Issue thread #${ISSUE//[^0-9]/}" < "${out}"
+          if [ "${status}" -eq 3 ]; then
+            # Hidden content reached the read: the rewrite on GitHub was
+            # skipped. Red, so it cannot pass unseen; the thread above is
+            # the filtered one.
+            echo "::error title=Hidden content removed::$(tr '\n' ' ' < "${err}")"
+          fi
+          exit "${status}"
+
       # THE ONLY STEP THAT HOLDS THE PROJECTS TOKEN.
       - name: Run the operation
+        if: inputs.action != 'read'
         env:
           GH_TOKEN: ${{ secrets.PROJECTS_TOKEN }}
           OPERATION: ${{ inputs.action }}
@@ -149,7 +195,7 @@ jobs:
               exit "${status}"
               ;;
             *)
-              echo "::error title=Unknown operation::'${OPERATION}' is not one of queue, status, claim, done, release."
+              echo "::error title=Unknown operation::'${OPERATION}' is not one of queue, read, status, claim, done, release."
               exit 2
               ;;
           esac

@@ -48,6 +48,8 @@ final class BacklogProjectScriptsTest extends TestCase
             // Issue #1117: what every agent-facing issue text goes through.
             'strip-hidden-issue-content',
             'sanitize-issue-thread',
+            // Issue #1254: the guard where « fixe le backlog » reads an issue.
+            'read-issue-thread',
         ] as $name) {
             yield $name => [$name];
         }

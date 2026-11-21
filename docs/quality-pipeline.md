@@ -414,7 +414,14 @@ the soft hyphen, Bidi controls, variation selectors used to smuggle bytes;
 a lone emoji style selector excepted), and Markdown link reference definitions
 (`[x]: # (…)`, rendered as nothing; at any indentation and inside code too,
 never looked for in a title) and footnote definitions (`[^x]: …`, dropped when
-nothing refers to them, so all of them go). It runs on every new or edited issue title, body and
+nothing refers to them, so all of them go) — and, since issue #1254, what
+Markdown renders as nothing or only on an action nobody takes: an entity
+spelling an invisible character, an empty link carrying a title, the
+alternative text and title of an image (emptied, the image still shows),
+the colour, phantom, CSS and tiny-size commands of a formula (removed, their
+text shows), `<sub>`/`<sup>`/`<small>` nested past one level, and a folded
+`<details>`, kept folded behind a visible « ⚠️ [bloc replié : contenu non
+relu] ». It runs on every new or edited issue title, body and
 comment, rewrites the text with a VISIBLE « ⚠️ [contenu caché retiré
 automatiquement] » in place of each hidden run, lets a text written by a bot
 keep only this repository's own markers in their exact form (its workflows
@@ -426,10 +433,15 @@ from `main` (`scripts/strip-hidden-issue-content.sh`, the filter, and
 `scripts/sanitize-issue-thread.sh`), each tested offline by its `.test.sh`
 through `tests/Security/BacklogProjectScriptsTest.php`. The two triage
 workflows run the same script on the whole thread themselves, before their
-agent starts, since nothing makes this workflow finish first. What it does
-not do: detect a malicious instruction that is visible — the maintainer reads
-it before moving an issue to Ready — nor anything rendered misleadingly (text
-folded in `<details>`, a link whose text differs from its target).
+agent starts, since nothing makes this workflow finish first, and so does
+« fixe le backlog » where it reads a ticket: `scripts/read-issue-thread.sh`
+(the `read` action of `backlog-project.yml` for a session without `gh`)
+prints the filtered thread and exits 3, naming each text, when it still had
+something to remove — the sign the rewrite was skipped, on which the session
+gives the ticket up and reports it. What it does not do: detect a malicious
+instruction that is visible — the maintainer reads it before moving an issue
+to Ready — nor anything rendered misleadingly but visibly (a link whose text
+differs from its target).
 
 `.github/workflows/issue-triage.yml` is not CI and gates nothing: it runs
 on `issues: [opened, reopened]` and answers the reporter — and on

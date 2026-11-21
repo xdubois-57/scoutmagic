@@ -130,12 +130,13 @@ Routine, which is why it is not claimed to be installed.
 
 | Workflow / script | Credential | What it writes |
 | --- | --- | --- |
-| `issue-sanitize.yml` (every new or edited issue and comment) | `github.token` (`issues: write`) | the text, rewritten only when it hid something: HTML comments, invisible Unicode and Markdown link reference definitions replaced by a visible « ⚠️ [contenu caché retiré automatiquement] », a bot text keeping only the repository's own markers (`scripts/sanitize-issue-thread.sh`, issue #1117) — so an agent implementing a Ready issue reads what the maintainer saw |
+| `issue-sanitize.yml` (every new or edited issue and comment) | `github.token` (`issues: write`) | the text, rewritten only when it hid something: HTML comments, invisible Unicode, Markdown link reference definitions and, since issue #1254, empty links with a title, image alternative texts, hiding formula commands and nested `<sub>`/`<sup>` replaced or neutralised, a folded `<details>` warned about by a visible « ⚠️ [bloc replié : contenu non relu] », the rest replaced by a visible « ⚠️ [contenu caché retiré automatiquement] », a bot text keeping only the repository's own markers (`scripts/sanitize-issue-thread.sh`, issue #1117) — so an agent implementing a Ready issue reads what the maintainer saw |
 | `issue-triage.yml`, `issue-backlog-scan.yml` | model: read tools only | nothing — it returns JSON: verdict, comment, `effort`, `category`, `blocked_by` |
 | same workflows, *Normalise the title…* step | `github.token` (`issues: write`) | the `[Bug]`/`[Test]`/`[Idée]` title prefix (`scripts/triage-title.sh`) and the native `blocked by` links (`scripts/triage-dependencies.sh`) |
 | same workflows, *Set Effort…* step | `PROJECTS_TOKEN` | `Effort`, only when empty (`scripts/project-effort.sh`) |
 | `project-canceled-sync.yml` (hourly) | `PROJECTS_TOKEN` to list, `github.token` to close | closes issues whose Status is `Canceled` as `not_planned`, with a French note |
 | `backlog-project.yml` (dispatch) | `PROJECTS_TOKEN` | Status / Agent of the one issue given |
+| `backlog-project.yml`, action `read` (dispatch) | `github.token` (`issues: read`) | nothing — it prints the issue and its comments through the hidden-content filter (`scripts/read-issue-thread.sh`, issue #1254), the only way « fixe le backlog » reads a ticket; red when the filter still found something, which means the rewrite above was skipped |
 | `project-backfill.yml` (dispatch, once) | both, one per step | catch-up of `Effort` and of #740 ← #724 from `scripts/project-backfill.json` |
 
 **Canceled takes up to an hour** to close the issue: GitHub sends no event for a

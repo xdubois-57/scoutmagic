@@ -120,11 +120,34 @@ final class ProjectWorkflowsTest extends TestCase
     public function testTheDispatchOperationsAreTheScriptsOperations(): void
     {
         $contents = self::contents('backlog-project.yml');
-        self::assertStringContainsString('options: [queue, status, claim, done, release]', $contents);
+        self::assertStringContainsString('options: [queue, read, status, claim, done, release]', $contents);
         $script = (string) file_get_contents(dirname(__DIR__, 2) . '/scripts/project-agent.sh');
         foreach (['claim', 'done', 'release', 'status'] as $operation) {
             self::assertStringContainsString($operation, $script);
         }
+    }
+
+    /**
+     * `read` hands an issue thread to an agent (issue #1254). It needs no
+     * Project, so it runs in a step of its own with the repository token,
+     * through the filter, and the Projects step never runs for it.
+     */
+    public function testTheThreadIsReadWithoutTheProjectsTokenAndThroughTheFilter(): void
+    {
+        $steps = self::steps('backlog-project.yml');
+        $reading = array_values(array_filter($steps, static fn (string $s): bool => str_contains($s, "inputs.action == 'read'")));
+        self::assertCount(1, $reading, 'One step reads the thread.');
+        self::assertStringContainsString('github.token', $reading[0]);
+        self::assertStringNotContainsString('PROJECTS_TOKEN', $reading[0]);
+        self::assertStringContainsString('read-issue-thread.sh', $reading[0]);
+
+        $projects = array_values(array_filter($steps, static fn (string $s): bool => str_contains($s, 'secrets.PROJECTS_TOKEN')));
+        self::assertCount(1, $projects);
+        self::assertStringContainsString("if: inputs.action != 'read'", $projects[0], 'The Projects step must not run for a read.');
+
+        $contents = self::contents('backlog-project.yml');
+        self::assertMatchesRegularExpression('/permissions:\n\s+contents: read\n\s+issues: read\n/', $contents);
+        self::assertStringContainsString('strip-hidden-issue-content.sh', $contents, 'The filter is fetched from main with the reader.');
     }
 
     /** @return array<int, string> */

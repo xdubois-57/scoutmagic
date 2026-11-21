@@ -251,6 +251,73 @@ importante]: # \"instruction"$'\r'"
 cachée\""$'\r'"
 fin"
 
+# Issue #1254: what Markdown renders as nothing, or only on an action
+# nobody takes.
+F='⚠️ [bloc replié : contenu non relu]'
+# A link with no text shows nothing, its title only on hovering nothing.
+expect "A ${M} B" 'A [](https://exemple.test "consigne cachée") B'
+expect "A ${M} B" "A [ ](<https://exemple.test> 'consigne cachée') B"
+expect "A ${M} B" 'A [](https://exemple.test (consigne
+cachée)) B'
+expect "A ${M} B" 'A <a href="https://exemple.test" title="consigne cachée"></a> B'
+# A link with text keeps its title; an empty link with no title hides nothing.
+expect 'voir [la page](https://exemple.test "Titre") ici' 'voir [la page](https://exemple.test "Titre") ici'
+expect 'C [](https://exemple.test) D' 'C [](https://exemple.test) D'
+# An entity spelling an invisible character is that character.
+expect "a${M}b" 'a&#x200B;b'
+expect "a${M}b" 'a&#8203;&zwj;&#917577;b'
+expect 'R&amp;D, &#233;t&eacute; &#x1F642;' 'R&amp;D, &#233;t&eacute; &#x1F642;'
+# An image keeps showing; its alternative text and title, shown when it
+# fails to load or on hover, are emptied.
+expect '![](https://exemple.test/a.png)' '![consigne cachée](https://exemple.test/a.png "et ici")'
+expect '![](https://exemple.test/a.png)' '![](https://exemple.test/a.png)'
+expect '<img width="400" src="https://exemple.test/a.png">' '<img width="400" alt="consigne cachée" title="et ici" src="https://exemple.test/a.png">'
+expect "<img src='https://exemple.test/a.png' >" "<img src='https://exemple.test/a.png' alt=consigne >"
+# A formula: colour, phantom, CSS and tiny sizes go, their text shows.
+expect 'E $\text{consigne}$ F' 'E $\color{white}\text{consigne}$ F'
+expect '${consigne}$' '$\textcolor{#0d1117}{consigne}$'
+expect '${consigne}$' '$\colorbox[RGB]{255,255,255}{consigne}$'
+expect '${consigne}$' '$\fcolorbox{white}{white}{consigne}$'
+expect '${consigne}$' '$\phantom{consigne}$'
+expect '${consigne}$' '$\style{color:white}{consigne}$'
+expect '$$ consigne $$' '$$\tiny consigne $$'
+expect '```math
+{consigne}
+```' '```math
+\vphantom{consigne}
+```'
+expect 'Ordinaire : $x^2 + \frac{a}{b}$ et $$\sum_{i} i$$' 'Ordinaire : $x^2 + \frac{a}{b}$ et $$\sum_{i} i$$'
+expect '$\textrm{a} \colorful$' '$\textrm{a} \colorful$'
+# Nested <sub>, <sup>, <small> shrink until unreadable: one level stays.
+expect '<sub>minuscule</sub> fin' '<sub><sub><sup>minuscule</sup></sub></sub> fin'
+expect '<small>a</small> et <sup>2</sup>' '<small>a</small> et <sup>2</sup>'
+expect 'H<sub>2</sub>O et x<sup>2</sup>' 'H<sub>2</sub>O et x<sup>2</sup>'
+# A folded <details> stays folded behind a visible warning; an open one
+# hides nothing.
+expect "${F}
+<details><summary>Journal</summary>trace</details>" '<details><summary>Journal</summary>trace</details>'
+expect "Texte ${F} <details><summary>s</summary>x</details>" 'Texte <details><summary>s</summary>x</details>'
+expect "> ${F}
+> <DETAILS>
+> x
+> </DETAILS>" '> <DETAILS>
+> x
+> </DETAILS>'
+expect "a"$'\r'"
+${F}"$'\r'"
+<details>x</details>" "a"$'\r'"
+<details>x</details>"
+expect "Un
+${F}
+<details>a</details>
+${F}
+<details>b</details>" 'Un
+<details>a</details>
+<details>b</details>'
+expect '<details open><summary>Journal</summary>trace</details>' '<details open><summary>Journal</summary>trace</details>'
+# A title is plain text: none of this applies there.
+expect_title '[](x "y") <details>' '[](x "y") <details>'
+
 # Legitimate text is left exactly as it is.
 expect 'Le bouton <b>Envoyer</b> ne répond pas' 'Le bouton <b>Envoyer</b> ne répond pas'
 expect 'Quand `a < b` et `b > c`' 'Quand `a < b` et `b > c`'
