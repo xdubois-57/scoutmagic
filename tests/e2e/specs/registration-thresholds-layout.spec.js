@@ -77,6 +77,16 @@ function expectNoOverlap(m, where) {
 }
 
 test('the thresholds box has no overlap on a phone or a desktop, waitlists on or off', async ({ page }) => {
+    /** @type {string[]} */
+    const pageErrors = [];
+    page.on('pageerror', (error) => pageErrors.push(error.message));
+    /** @type {string[]} */
+    const serverErrors = [];
+    page.on('response', (response) => {
+        if (response.status() >= 500) {
+            serverErrors.push(`HTTP ${response.status()} on ${response.url()}`);
+        }
+    });
     await page.setViewportSize({ width: 1280, height: 900 });
     await loginAsAdmin(page);
     await answerCookieBanner(page, { accept: true });
@@ -135,9 +145,21 @@ test('the thresholds box has no overlap on a phone or a desktop, waitlists on or
         await waitlistSwitch.check();
         expect((await restored).status(), 'the waitlist switch was put back').toBe(200);
     }
+    expect(serverErrors, 'the application returned a server error').toEqual([]);
+    expect(pageErrors, 'uncaught JavaScript error in the browser').toEqual([]);
 });
 
 test('a zone label is shown whole or not at all, even when a zone is a few pixels wide', async ({ page }) => {
+    /** @type {string[]} */
+    const pageErrors = [];
+    page.on('pageerror', (error) => pageErrors.push(error.message));
+    /** @type {string[]} */
+    const serverErrors = [];
+    page.on('response', (response) => {
+        if (response.status() >= 500) {
+            serverErrors.push(`HTTP ${response.status()} on ${response.url()}`);
+        }
+    });
     await page.setViewportSize({ width: 1280, height: 900 });
     await loginAsAdmin(page);
     await answerCookieBanner(page, { accept: true });
@@ -201,4 +223,6 @@ test('a zone label is shown whole or not at all, even when a zone is a few pixel
             expectNoOverlap(await measureThresholds(page), where);
         }
     }
+    expect(serverErrors, 'the application returned a server error').toEqual([]);
+    expect(pageErrors, 'uncaught JavaScript error in the browser').toEqual([]);
 });
