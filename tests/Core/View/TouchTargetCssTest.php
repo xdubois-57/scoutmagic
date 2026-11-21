@@ -46,6 +46,19 @@ class TouchTargetCssTest extends TestCase
         return $m[1];
     }
 
+    /**
+     * The number's own touch target (#1352): the staff phone row's icon is
+     * centred on it, so shrinking it would hide the misalignment instead of
+     * fixing it, at the price of the 44px minimum.
+     */
+    public function testThePhoneLinkKeepsItsTouchTargetOnCoarsePointers(): void
+    {
+        $this->assertMatchesRegularExpression(
+            '/\.phone-link\s*\{[^}]*min-height:\s*44px/s',
+            $this->coarsePointerBlock()
+        );
+    }
+
     public function testFormCheckInputHasNoSizeOverrideOnCoarsePointers(): void
     {
         $block = $this->coarsePointerBlock();

@@ -157,12 +157,12 @@
                                 </div>
                             {% endif %}
                             {% if member.mobile %}
-                                <div class="staff-contact-row">
+                                <div class="staff-contact-row staff-contact-row--phone">
                                     <i class="bi bi-phone text-body-secondary" aria-hidden="true"></i>
                                     <span>{{ phone(member.mobile, 'text-decoration-none') }}</span>
                                 </div>
                             {% elseif member.phone %}
-                                <div class="staff-contact-row">
+                                <div class="staff-contact-row staff-contact-row--phone">
                                     <i class="bi bi-telephone text-body-secondary" aria-hidden="true"></i>
                                     <span>{{ phone(member.phone, 'text-decoration-none') }}</span>
                                 </div>
