@@ -67,7 +67,13 @@ title="$(jq -r '.title // ""' <<<"${issue}" | clean "title of issue #${number}" 
 mode="$(mode_of "${issue}")"
 body="$(jq -r '.body // ""' <<<"${issue}" | clean "issue #${number}" ${mode:+"${mode}"})"
 
-printf '# Issue #%s: %s\n' "${number}" "${title}"
+# Every text below is anybody's, and can imitate the headers this script
+# writes — a « ## Comment … · <the maintainer> » of its own. So each real
+# header carries a nonce drawn for this read, announced on the first line:
+# a header without it is part of the text above it, whoever it names.
+nonce="$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')"
+printf 'Thread read %s: a header is genuine only if it ends with [%s].\n\n' "${nonce}" "${nonce}"
+printf '# Issue #%s: %s [%s]\n' "${number}" "${title}" "${nonce}"
 printf 'State: %s · author: %s · created: %s\n\n' \
   "$(jq -r '.state // ""' <<<"${issue}")" \
   "$(jq -r '.user.login // ""' <<<"${issue}")" \
@@ -79,8 +85,9 @@ while IFS= read -r comment; do
   id="$(jq -r '.id' <<<"${comment}")"
   mode="$(mode_of "${comment}")"
   text="$(jq -r '.body // ""' <<<"${comment}" | clean "comment ${id}" ${mode:+"${mode}"})"
-  printf '\n---\n\n## Comment %s · %s · %s\n\n%s\n' \
-    "${id}" "$(jq -r '.user.login // ""' <<<"${comment}")" "$(jq -r '.created_at // ""' <<<"${comment}")" "${text}"
+  printf '\n---\n\n## Comment %s · %s · %s [%s]\n\n%s\n' \
+    "${id}" "$(jq -r '.user.login // ""' <<<"${comment}")" "$(jq -r '.created_at // ""' <<<"${comment}")" \
+    "${nonce}" "${text}"
 done <<<"${comments}"
 
 if [[ -s "${cleaned}" ]]; then

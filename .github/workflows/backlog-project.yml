@@ -15,7 +15,8 @@
 #            was Canceled before arming an auto-merge;
 #   read     prints ONE issue and its comments through the hidden-content
 #            filter (scripts/read-issue-thread.sh, issue #1254) between
-#            THREAD-BEGIN/END — how a session without `gh` reads a ticket.
+#            THREAD-BEGIN/END <nonce> — how a session without `gh` reads a
+#            ticket.
 #            Its own step, with the repository token: it needs no Project.
 #            A run that goes red with « hidden content removed » means the
 #            GitHub-side rewrite (issue-sanitize.yml) was skipped;
@@ -111,9 +112,12 @@ jobs:
           # guess, and come back on for the annotations below.
           stop="$(openssl rand -hex 16)"
           echo "::stop-commands::${stop}"
-          echo 'THREAD-BEGIN'
+          # The markers carry the nonce the reader drew (its first line), so
+          # a « THREAD-END » typed in a comment is not the end of the thread.
+          nonce="$(head -n 1 "${out}" | sed -n 's/^Thread read \([0-9a-f]\{16\}\):.*/\1/p')"
+          echo "THREAD-BEGIN ${nonce}"
           cat "${out}"
-          echo 'THREAD-END'
+          echo "THREAD-END ${nonce}"
           echo "::${stop}::"
           # The same escaping as the annotations of the next step: the
           # thread is readable through the API even where the log is not.
