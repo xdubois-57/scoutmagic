@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Réglages d'un bien à louer</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;600;700&display=swap">
+<style>
+/* Layout: ScoutMagic Bootstrap-like look, hand-rolled; mockup control bar, then the asset settings page (cards + dialogs) at desktop or phone width. */
+:root{
+  --bg:#f3f4f7; --surface:#fff; --surface-2:#f7f8fb; --fg:#1f2430; --muted:#5d6574; --line:#dde1e8;
+  --primary:#2f5bd3; --primary-fg:#fff; --ok:#1d7745; --ok-bg:#e2f3e9; --warn:#865700; --warn-bg:#fff2d3;
+  --danger:#b3232c; --danger-bg:#fde6e7; --info-bg:#e7edfc; --inherit:#8a91a0;
+  --new:#7a2fd3; --mod:#c05f00; --gone:#b3232c;
+  --font:"Source Sans 3","Segoe UI",system-ui,sans-serif; --mono:ui-monospace,"SFMono-Regular",Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#14161b; --surface:#1d2027; --surface-2:#23262e; --fg:#e7e9ee; --muted:#a3a9b6; --line:#353945;
+  --primary:#7196f3; --primary-fg:#0e1220; --ok:#72d39d; --ok-bg:#173225; --warn:#f1c35f; --warn-bg:#3a2f12;
+  --danger:#ff8b91; --danger-bg:#3d1c20; --info-bg:#1f2a45; --inherit:#7f8697;
+  --new:#bb95f6; --mod:#f2a35f; --gone:#ff8b91; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#14161b; --surface:#1d2027; --surface-2:#23262e; --fg:#e7e9ee; --muted:#a3a9b6; --line:#353945;
+  --primary:#7196f3; --primary-fg:#0e1220; --ok:#72d39d; --ok-bg:#173225; --warn:#f1c35f; --warn-bg:#3a2f12;
+  --danger:#ff8b91; --danger-bg:#3d1c20; --info-bg:#1f2a45; --inherit:#7f8697;
+  --new:#bb95f6; --mod:#f2a35f; --gone:#ff8b91; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font-family:var(--font);font-size:15px;line-height:1.45;margin:0;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:16px}
+h1,h2,h3{text-wrap:balance;margin:0;line-height:1.2}
+h1{font-size:24px}h2{font-size:18px}h3{font-size:15px}
+p{margin:0}
+button,select,input,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:3px solid var(--primary);outline-offset:2px}
+a{color:var(--primary)}
+code{font-family:var(--mono);font-size:13px}
+.mock-bar{max-width:1100px;margin:0 auto 14px;background:var(--surface-2);border:1px dashed var(--line);border-radius:8px;padding:10px 12px;display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;font-size:13px}
+.mock-bar b{font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-size:11px}
+.mock-bar label{display:inline-flex;gap:6px;align-items:center}
+.mock-bar select{padding:3px 6px;border:1px solid var(--line);border-radius:6px;background:var(--surface);max-width:260px}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:6px;overflow:hidden;flex-wrap:wrap}
+.seg button{border:0;background:var(--surface);padding:5px 10px;font-size:13px}
+.seg button[aria-pressed="true"]{background:var(--primary);color:var(--primary-fg)}
+.tag{display:inline-block;font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;padding:1px 6px;border-radius:4px;border:1px solid currentColor;vertical-align:middle;background:var(--surface)}
+.tag.new{color:var(--new)}.tag.mod{color:var(--mod)}.tag.gone{color:var(--gone)}
+.frame{max-width:1100px;margin:0 auto}
+.frame.phone{max-width:400px}
+.site{background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.crumbs{font-size:13px;color:var(--muted);padding:10px 18px;border-bottom:1px solid var(--line);background:var(--surface-2)}
+.page{padding:20px 18px 28px;display:grid;gap:16px}
+.lead{color:var(--muted);max-width:70ch}
+.card{border:1px solid var(--line);border-radius:8px;background:var(--surface)}
+.card-b{padding:14px;display:grid;gap:12px}
+.head{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;flex-wrap:wrap}
+.btn{border:1px solid var(--line);background:var(--surface);border-radius:6px;padding:7px 13px;font-weight:600}
+.btn.sm{padding:4px 10px;font-size:13px}
+.btn.primary{background:var(--primary);border-color:var(--primary);color:var(--primary-fg)}
+.btn.danger{color:var(--danger)}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.muted{color:var(--muted)}.small{font-size:13px}
+.hint{font-size:13px;color:var(--muted)}
+dl.kv{display:grid;grid-template-columns:minmax(140px,220px) 1fr;gap:6px 14px;margin:0}
+dl.kv dt{color:var(--muted)}dl.kv dd{margin:0}
+@media (max-width:560px){dl.kv{grid-template-columns:1fr}dl.kv dd{margin-bottom:6px}}
+.pill{display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:600;padding:2px 8px;border-radius:999px;white-space:nowrap}
+.pill.ok{background:var(--ok-bg);color:var(--ok)}.pill.warn{background:var(--warn-bg);color:var(--warn)}
+.pill.danger{background:var(--danger-bg);color:var(--danger)}.pill.info{background:var(--info-bg);color:var(--primary)}
+.pill.plain{background:var(--surface-2);color:var(--muted);border:1px solid var(--line)}
+.alert{border-radius:8px;padding:10px 12px;display:grid;gap:4px}
+.alert.info{background:var(--info-bg)}.alert.warn{background:var(--warn-bg)}.alert.danger{background:var(--danger-bg)}.alert.ok{background:var(--ok-bg)}
+.field{display:grid;gap:4px}
+.field label,.lbl{font-weight:600}
+.field input,.field select,.field textarea{border:1px solid var(--line);border-radius:6px;padding:7px 9px;background:var(--surface);width:100%}
+.field.invalid input{border-color:var(--danger)}
+.err{font-size:13px;color:var(--danger)}
+.check{display:flex;gap:8px;align-items:flex-start}
+.check input{margin-top:4px}
+.switch{display:flex;gap:10px;align-items:flex-start}
+.switch .knob{width:40px;height:22px;border-radius:999px;background:var(--line);position:relative;flex:none;margin-top:1px;border:0}
+.switch .knob::after{content:"";position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;background:var(--surface);transition:left .15s}
+.switch .knob[aria-checked="true"]{background:var(--primary)}
+.switch .knob[aria-checked="true"]::after{left:21px}
+.switch .knob[disabled]{opacity:.5;cursor:not-allowed}
+.radios{display:grid;gap:8px}
+.choice{border:1px solid var(--line);border-radius:8px;padding:10px 12px;display:grid;grid-template-columns:auto 1fr;gap:2px 10px}
+.choice[data-on="true"]{border-color:var(--primary);background:var(--info-bg)}
+.choice input{margin-top:4px}.choice .sub{grid-column:2}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px}
+.tbl-wrap{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{text-align:left;padding:7px 9px;border-top:1px solid var(--line);vertical-align:middle}
+thead th{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);border-top:0}
+td.n{font-variant-numeric:tabular-nums}
+.inherit{color:var(--inherit);font-style:italic}
+.cell input{width:7.5rem;border:1px solid var(--line);border-radius:6px;padding:5px 7px;background:var(--surface);font-variant-numeric:tabular-nums}
+.cell input::placeholder{color:var(--inherit);font-style:italic}
+.cell .hint{display:block;font-size:12px}
+.backdrop{background:rgba(10,12,18,.45);border-radius:10px;padding:24px 10px;display:grid;place-items:center}
+.dialog{background:var(--surface);border-radius:10px;max-width:640px;width:100%;box-shadow:0 10px 40px rgba(0,0,0,.25);overflow:hidden}
+.dialog-h{padding:12px 14px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;gap:8px}
+.dialog-f{padding:12px 14px;border-top:1px solid var(--line);display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap}
+.x{border:0;background:none;font-size:20px;line-height:1;color:var(--muted)}
+.toast{position:relative;justify-self:end;background:var(--fg);color:var(--bg);border-radius:8px;padding:10px 14px;font-size:14px;box-shadow:0 6px 20px rgba(0,0,0,.2);display:flex;gap:8px;align-items:center}
+.note{font-size:13px;color:var(--muted);border-left:3px solid var(--line);padding-left:10px;max-width:76ch}
+.menu{border:1px solid var(--line);border-radius:8px;padding:8px;display:grid;gap:2px;max-width:320px}
+.menu .grp{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);padding:6px 8px 2px}
+.menu a{padding:6px 8px;border-radius:6px;text-decoration:none;color:var(--fg)}
+.menu a.on{background:var(--info-bg);color:var(--primary);font-weight:600}
+.legend{max-width:1100px;margin:14px auto 0;font-size:13px;color:var(--muted);display:grid;gap:6px}
+.lots{display:grid;gap:8px}
+.lot{display:grid;grid-template-columns:56px 1fr auto;gap:4px 12px;align-items:start;border-top:1px solid var(--line);padding-top:8px}
+.lot:first-child{border-top:0;padding-top:0}
+.lot b.id{font-size:18px}
+ul.tight{margin:0;padding-left:18px;display:grid;gap:3px}
+.visually-hidden{position:absolute!important;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+</style>
+</head>
+<body>
+
+<div class="mock-bar" role="group" aria-label="Commandes de la maquette">
+  <b>Maquette #1355</b>
+  <label for="screen">Écran
+    <select id="screen">
+      <option value="access">1. Accès du superadmin</option>
+      <option value="tarif">2. Tarification et minimum</option>
+      <option value="grid">3. Grille des prix</option>
+      <option value="periods">4. Périodes et chevauchements</option>
+      <option value="fees">5. Frais</option>
+      <option value="payments">6. Paiements (encart)</option>
+      <option value="deposit">7. Dialogue Acompte</option>
+      <option value="caution">8. Dialogue Caution</option>
+      <option value="account">9. Compte des paiements (Biens à louer)</option>
+      <option value="landlord">10. Bailleur</option>
+      <option value="reminders">11. Rappels</option>
+      <option value="analysis">Analyse et estimation</option>
+    </select>
+  </label>
+  <label for="state" id="state-wrap">État <select id="state"></select></label>
+  <span class="seg" role="group" aria-label="Largeur">
+    <button type="button" id="w-desk" aria-pressed="true">Ordinateur</button>
+    <button type="button" id="w-phone" aria-pressed="false">Téléphone</button>
+  </span>
+  <span><span class="tag new">Nouveau</span> <span class="tag mod">Modifié</span> <span class="tag gone">Supprimé</span></span>
+</div>
+
+<div class="frame" id="frame"><div class="site"><div class="crumbs" id="crumbs"></div><div class="page" id="page"></div></div></div>
+
+<div class="legend">
+  <p>Données fictives : le bien, les personnes, le bailleur et les montants sont inventés.</p>
+  <p>La maquette fait foi pour la hiérarchie, les libellés et les états. Le produit reste en Bootstrap 5 : dialogues par <code>partials/modal.html.twig</code>, toast par <code>toast.js</code>.</p>
+</div>
+
+<script>
+(function(){
+const $=(s)=>document.querySelector(s);
+const esc=(s)=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const STATES={
+  access:[['sa','Superadmin lié à deux animés'],['sanomember','Superadmin sans fiche membre']],
+  tarif:[['person','Unité par personne et par nuit'],['night','Unité par nuit']],
+  grid:[['default','Tarif par défaut défini'],['nodefault','Sans tarif par défaut'],['dialog','Dialogue « Modifier la grille »']],
+  periods:[['ok','Liste des périodes'],['conflict','Ajout refusé : chevauchement'],['legacy','Conflit déjà enregistré']],
+  fees:[['list','Encart Frais']],
+  payments:[['on','Suivi activé'],['off','Suivi désactivé'],['toast','Case cochée : toast'],['refused','Activation refusée (compte manquant)'],['nofinance','Module Finances inactif']],
+  deposit:[['fixed','Montant fixe'],['percent','Pourcentage'],['none','Pas d\'acompte']],
+  caution:[['on','Caution demandée'],['off','Pas de caution']],
+  account:[['superadmin','Vu par un superadmin'],['admin','Vu par un chef d\'U (non superadmin)']],
+  landlord:[['default','Bailleur par défaut'],['specific','Bailleur spécifique'],['dialog','Dialogue'],['missing','Défaut incomplet (adresse manquante)']],
+  reminders:[['summary','Encart (résumé)'],['dialog','Dialogue « Modifier les rappels »']],
+  analysis:[['all','Analyse']]
+};
+const state={screen:'access',state:'sa',phone:false};
+function fillStates(){const s=$('#state');s.innerHTML=STATES[state.screen].map(([v,l])=>`<option value="${v}">${esc(l)}</option>`).join('');state.state=STATES[state.screen][0][0];$('#state-wrap').hidden=STATES[state.screen].length<2}
+const crumbs=(p)=>{$('#crumbs').textContent=p.join(' › ')};
+const settingsCrumbs=()=>crumbs(['Espace membres','L\'unité','Gérer mes locations','Chalet des Hêtres','Réglages']);
+const dlg=(title,body,footer)=>`<div class="backdrop"><div class="dialog" role="dialog" aria-modal="true" aria-label="${esc(title)}"><div class="dialog-h"><h2>${esc(title)}</h2><button class="x" type="button" aria-label="Fermer">×</button></div><div class="card-b">${body}</div><div class="dialog-f">${footer}</div></div></div>`;
+const card=(title,btn,body,id)=>`<div class="card"${id?` id="${id}"`:''}><div class="card-b"><div class="head"><h2>${title}</h2>${btn||''}</div>${body}</div></div>`;
+const editBtn=(label='Modifier')=>`<button class="btn sm" type="button">✎ ${esc(label)}</button>`;
+
+/* 1 ─ access */
+function access(){
+  const noMember=state.state==='sanomember';
+  crumbs(['Espace membres','L\'unité','Gérer mes locations']);
+  return `<div class="row" style="align-items:flex-start;gap:24px">
+    <div class="menu" aria-label="Menu de l'Espace membres">
+      <span class="grp">L'unité</span>
+      <a href="#">Trombinoscope</a>
+      <a href="#" class="on">Gérer mes locations <span class="tag mod">Visible</span></a>
+      <a href="#">Calendrier</a>
+    </div>
+    <div style="flex:1;min-width:240px;display:grid;gap:14px">
+      <h1>Gérer mes locations</h1>
+      <p class="lead">En tant que superadministrateur du site, vous gérez tous les biens de l'unité. <span class="tag mod">Modifié</span></p>
+      <div class="card"><div class="card-b">
+        <div class="head"><div><h3>Chalet des Hêtres</h3><p class="hint">Bien public · 2 demandes en attente</p></div><a class="btn sm" href="#">Ouvrir</a></div>
+        <div class="head"><div><h3>Local de la rue Haute</h3><p class="hint">Bien public · aucune réservation</p></div><a class="btn sm" href="#">Ouvrir</a></div>
+      </div></div>
+      <div class="alert info small"><span>Dans <strong>Biens à louer</strong>, le lien « <i>Règles, tarif et acompte dans l'espace de gestion du bien</i> » est inchangé (texte, icône, adresse) et ouvre maintenant les réglages au lieu d'une page introuvable.</span></div>
+      <div class="card"><div class="card-b">
+        <h3>Historique de la réservation LOC-K7Q2M4</h3>
+        <p class="small">Tarif personnalisé enregistré par <strong>${noMember?'Compte admin.site':'Compte Xavier (superadmin)'}</strong>, le 21/11/2026 à 18:04. <span class="tag mod">Modifié</span></p>
+        <p class="hint">L'auteur est le compte, jamais un animé lié à son adresse${noMember?' — même sans aucune fiche membre':''}.</p>
+      </div></div>
+    </div></div>
+  <p class="note">Aucun écran nouveau : l'équivalence superadmin = chef d'U s'applique au menu, à la liste, aux réglages et à leurs enregistrements, aux fichiers, au courrier, au flux ICS et aux créances (indicateur du compte lu à partir de l'adresse, avec ou sans session). L'épinglage du compte et la saisie libre d'une adresse de locataire lui sont ouverts. Il n'est pas ajouté aux destinataires des notifications.</p>`;
+}
+
+/* 2 ─ tarification */
+function tarif(){
+  settingsCrumbs();
+  const person=state.state==='person';
+  const unit=person?'Par personne et par nuit':'Par nuit';
+  const minOpts=`<div class="radios">
+      <label class="check" for="m0"><input type="radio" name="min" id="m0"> Aucun minimum</label>
+      <label class="check" for="m1"><input type="radio" name="min" id="m1" ${person?'':'checked'}> Montant minimum (€)</label>
+      ${person?`<label class="check" for="m2"><input type="radio" name="min" id="m2" checked> Nombre de personnes minimum</label>
+      <div class="field" style="max-width:200px;margin-left:26px"><label for="mp">Personnes</label><input id="mp" value="15" inputmode="numeric"></div>`:
+      `<div class="field" style="max-width:200px;margin-left:26px"><label for="ma">Montant (€)</label><input id="ma" value="180,00" inputmode="decimal"></div>`}
+    </div>`;
+  const summary=card('Tarification',editBtn(),`<dl class="kv">
+      <dt>Unité de facturation</dt><dd>${unit}</dd>
+      <dt>Tarif par défaut</dt><dd>${person?'6,50 €':'95,00 €'}</dd>
+      <dt>Minimum facturable</dt><dd>${person?'15 personnes':'180,00 €'}</dd></dl>`,'tarification');
+  return `<h1>Réglages du bien</h1>${summary}
+  ${dlg('Modifier la tarification',`
+    <div class="field"><label for="bu">Unité de facturation</label><select id="bu"><option>Forfait par séjour</option><option ${person?'':'selected'}>Par nuit</option><option>Par jour</option><option ${person?'selected':''}>Par personne et par nuit</option><option>Par personne et par jour</option><option>Par pièce et par jour</option></select></div>
+    <div class="field"><label for="dp">Tarif par défaut (€)</label><input id="dp" value="${person?'6,50':'95,00'}" inputmode="decimal"><span class="hint">Utilisé dans chaque case de la grille que vous ne personnalisez pas.</span></div>
+    <fieldset class="field" style="border:0;padding:0;margin:0"><legend class="lbl">Minimum facturable <span class="tag mod">Modifié</span></legend>${minOpts}
+    <span class="hint">${person?'Le minimum en personnes n\'existe que pour un tarif par personne.':'« Nombre de personnes minimum » n\'apparaît pas : cette unité ne dépend pas du nombre de personnes. Un minimum en personnes déjà enregistré n\'est plus appliqué ni envoyé.'}</span></fieldset>`,
+    `<button class="btn" type="button">Annuler</button><button class="btn primary" type="button">Enregistrer la tarification</button>`)}
+  <p class="note">Le choix change dès qu'on modifie l'unité de facturation dans le dialogue. Le serveur refuse toujours un minimum en personnes sur une unité qui n'en dépend pas.</p>`;
+}
+
+/* 3 ─ grille */
+function grid(){
+  settingsCrumbs();
+  const def=state.state!=='nodefault';
+  const rows=[['Toute l\'année',[null,'5,50 €']],['Été (1/7 → 31/8, chaque année)',['7,00 €',null]],['Fêtes (20/12 → 5/1, chaque année)',['0,00 €',null]]];
+  const cellView=(v)=>v?`<td class="n"><strong>${v}</strong></td>`:(def?`<td class="n inherit">6,50 € <span class="hint" style="display:inline">par défaut</span></td>`:`<td class="n muted">—</td>`);
+  const table=`<div class="tbl-wrap"><table><caption class="hint" style="caption-side:bottom;text-align:left;padding-top:6px">En gras : un prix personnalisé. ${def?'En gris : le tarif par défaut, appliqué tant que la case n\'est pas personnalisée.':'Sans tarif par défaut, une case vide n\'a pas de prix : la grille doit tout couvrir.'}</caption>
+    <thead><tr><th>Période</th><th>Unités scoutes</th><th>Autres groupes</th></tr></thead>
+    <tbody>${rows.map(r=>`<tr><th scope="row" style="font-weight:400">${r[0]}</th>${r[1].map(cellView).join('')}</tr>`).join('')}</tbody></table></div>`;
+  if(state.state==='dialog'){
+    const cellEdit=(v,i)=>`<td class="cell"><input aria-label="Prix" value="${v?v.replace(' €',''):''}" placeholder="${v?'':'6,50 par défaut'}"></td>`;
+    return `<h1>Réglages du bien</h1>${dlg('Modifier la grille',`
+      <p class="hint">Laissez une case vide pour appliquer le tarif par défaut (6,50 €) : elle suivra ce tarif s'il change. Une case remplie, même à 0, devient un prix personnalisé.</p>
+      <div class="tbl-wrap"><table><thead><tr><th>Période</th><th>Unités scoutes</th><th>Autres groupes</th></tr></thead>
+      <tbody>${rows.map(r=>`<tr><th scope="row" style="font-weight:400">${r[0]}</th>${r[1].map(cellEdit).join('')}</tr>`).join('')}</tbody></table></div>`,
+      `<button class="btn" type="button">Annuler</button><button class="btn primary" type="button">Enregistrer la grille</button>`)}
+      <p class="note">Le tarif par défaut n'est jamais écrit dans la case : enregistrer sans rien changer ne transforme aucune case en prix personnalisé. « 0,00 » est un vrai prix (Fêtes, unités scoutes).</p>`;
+  }
+  return `<h1>Réglages du bien</h1>${card('Grille des prix unitaires <span class="tag mod">Modifié</span>',editBtn('Modifier la grille'),table)}`;
+}
+
+/* 4 ─ périodes */
+function periods(){
+  settingsCrumbs();
+  const list=`<ul class="tight" style="list-style:none;padding:0;gap:8px">
+    <li class="head"><span><strong>Été</strong> <span class="hint">1/7 → 31/8 · chaque année</span></span><button class="btn sm danger" type="button">Supprimer</button></li>
+    <li class="head"><span><strong>Fêtes</strong> <span class="hint">20/12 → 5/1 · chaque année</span></span><button class="btn sm danger" type="button">Supprimer</button></li>
+    ${state.state==='legacy'?'<li class="head"><span><strong>Camps 2027</strong> <span class="hint">15/8/2027 → 25/8/2027</span> <span class="pill danger">Chevauche « Été »</span></span><button class="btn sm danger" type="button">Supprimer</button></li>':''}
+  </ul>`;
+  const legacy=state.state==='legacy'?`<div class="alert danger"><strong>Deux périodes se chevauchent.</strong><span>« Camps 2027 » et « Été » couvrent tous deux du 15/8/2027 au 25/8/2027. Supprimez ou recréez l'une d'elles : en attendant, le devis applique « Été », la première configurée. Rien n'a été modifié automatiquement.</span></div>`:'';
+  const body=`${legacy}<p class="hint">Les dates de début et de fin font partie de la période : deux périodes qui partagent un jour se chevauchent.</p>${list}`;
+  const cardHtml=card('Périodes tarifaires',`<button class="btn sm" type="button">＋ Ajouter une période</button>`,body);
+  if(state.state!=='conflict') return `<h1>Réglages du bien</h1>${cardHtml}`;
+  return `<h1>Réglages du bien</h1>${dlg('Ajouter une période',`
+    <div class="alert danger"><strong>Cette période chevauche « Été » (1/7 → 31/8, chaque année).</strong><span>Elles ont en commun les jours du 25/8 au 31/8. Choisissez des dates sans jour commun ; rien n'a été enregistré.</span></div>
+    <div class="field"><label for="pn">Nom</label><input id="pn" value="Rentrée"></div>
+    <div class="grid2"><div class="field invalid"><label for="pd">Début</label><input id="pd" type="date" value="2027-08-25"></div><div class="field"><label for="pf">Fin</label><input id="pf" type="date" value="2027-09-15"></div></div>
+    <label class="check" for="pr"><input type="checkbox" id="pr" checked> Chaque année</label>`,
+    `<button class="btn" type="button">Annuler</button><button class="btn primary" type="button">Ajouter</button>`)}
+    <p class="note">Contrôle à l'ajout seulement : une période ne se modifie pas (on la supprime puis on la recrée). Couvre ponctuel/ponctuel, annuel/annuel et ponctuel/annuel, y compris une période annuelle qui passe le nouvel an.</p>`;
+}
+
+/* 5 ─ frais */
+function fees(){
+  settingsCrumbs();
+  return `<h1>Réglages du bien</h1>${card('Frais',`<button class="btn sm" type="button">＋ Ajouter un frais</button>`,`
+    <p class="hint">Ajoutez les frais complémentaires à la location, comme le nettoyage ou les consommations. <span class="tag mod">Modifié</span></p>
+    <p class="hint">Un frais au compteur n'entre jamais dans le devis : son montant vient du relevé réel, après le séjour.</p>
+    <ul class="tight" style="list-style:none;padding:0;gap:8px">
+      <li class="head"><span><strong>Nettoyage</strong><span class="hint" style="display:block">Montant fixe · 60,00 €</span></span><button class="btn sm danger" type="button">Supprimer</button></li>
+      <li class="head"><span><strong>Électricité</strong><span class="hint" style="display:block">Relevé de compteur · 0,35 € / kWh</span></span><button class="btn sm danger" type="button">Supprimer</button></li>
+    </ul>`)}
+    <p class="note"><span class="tag gone">Supprimé</span> « Trois natures seulement. »</p>`;
+}
+
+/* 6 ─ paiements */
+function payments(){
+  settingsCrumbs();
+  const s=state.state;
+  const nofin=s==='nofinance';
+  const on=s==='on'||s==='toast';
+  const sw=nofin?'':`<div class="switch"><button class="knob" role="switch" aria-checked="${on}" aria-labelledby="sw-l" type="button"></button>
+    <div><span id="sw-l" class="lbl">Suivre les paiements via le site</span> <span class="tag new">Nouveau</span>
+    <p class="hint">${on?'Une créance est créée pour chaque réservation, avec une communication structurée et un QR code. Le site rapproche les virements reçus.':'Les paiements des locations de ce bien ne sont pas suivis par le site.'}</p></div></div>`;
+  const refused=s==='refused'?`<div class="alert danger"><strong>Le suivi n'a pas été activé.</strong><span>Le site doit savoir sur quel compte les virements arrivent : associez d'abord un compte et une catégorie dans <a href="#">Biens à louer › Chalet des Hêtres › Compte des paiements</a>.</span></div>`:'';
+  const nofinTxt=nofin?`<p class="hint">Le suivi des paiements par le site n'est pas disponible sur cette installation. Vous vérifiez les paiements vous-même ; l'acompte et la caution restent indiqués dans le contrat.</p>`:'';
+  const offHint=(s==='off'||s==='refused')?`<p class="hint">Sans ce suivi, les conditions restent indiquées dans le contrat et vous vérifiez les paiements vous-même.</p>`:'';
+  const account=on?`<dl class="kv"><dt>Compte</dt><dd>Compte des locations (BE·· ···· ···· 4417)<span class="hint" style="display:block">Il s'associe depuis <a href="#">Biens à louer</a>.</span></dd></dl>`:'';
+  const cond=`<dl class="kv">
+    <dt>Acompte</dt><dd>30 % du total · attendu 10 jours après le premier envoi du contrat</dd>
+    <dt>Solde</dt><dd>Attendu 30 jours avant l'arrivée</dd>
+    <dt>Caution</dt><dd>300,00 € · attendue avec le solde</dd></dl>
+    <div class="row"><button class="btn sm" type="button">✎ Acompte</button><button class="btn sm" type="button">✎ Caution</button> <span class="tag new">Nouveau</span></div>`;
+  const toast=s==='toast'?`<div class="toast" role="status">✓ Suivi des paiements activé.</div>`:'';
+  return `<h1>Réglages du bien</h1>${toast}
+  ${card('Paiements','',`${sw}${refused}${nofinTxt}${offHint}${account}<hr style="border:0;border-top:1px solid var(--line);margin:0">${cond}`,'paiements')}
+  <p class="note"><span class="tag gone">Supprimé</span> le bouton « Modifier » et le dialogue global « Paiements ». La case s'enregistre tout de suite, sans recharger, avec le toast habituel ; en cas d'échec, elle revient à l'état réellement enregistré. Acompte et Caution restent réglables quel que soit l'état du suivi, même sans le module Finances ; chaque action n'enregistre que ses propres réglages.</p>`;
+}
+
+/* 7 ─ acompte */
+function deposit(){
+  settingsCrumbs();
+  const s=state.state;
+  const extra=s==='fixed'?`<div class="grid2"><div class="field"><label for="da">Montant (€)</label><input id="da" value="150,00" inputmode="decimal"></div><div class="field"><label for="dd">Attendu (jours après le premier envoi du contrat)</label><input id="dd" value="10" inputmode="numeric"></div></div>`
+    :s==='percent'?`<div class="grid2"><div class="field"><label for="dpc">Pourcentage du total</label><input id="dpc" value="30" inputmode="numeric"></div><div class="field"><label for="dd">Attendu (jours après le premier envoi du contrat)</label><input id="dd" value="10" inputmode="numeric"></div></div>`:'';
+  return `<h1>Réglages du bien</h1>${dlg('Acompte et échéances',`
+    <div class="field"><label for="dm">Acompte</label><select id="dm"><option ${s==='none'?'selected':''}>Pas d'acompte</option><option ${s==='fixed'?'selected':''}>Montant fixe</option><option ${s==='percent'?'selected':''}>Pourcentage du total</option></select></div>
+    ${extra}
+    <div class="field" style="max-width:320px"><label for="bd">Solde attendu (jours avant l'arrivée)</label><input id="bd" value="30" inputmode="numeric"><span class="hint">La caution, quand elle est demandée, est attendue à la même date que le solde.</span></div>`,
+    `<button class="btn" type="button">Annuler</button><button class="btn primary" type="button">Enregistrer l'acompte</button>`)}
+    <p class="note">N'enregistre que l'acompte et les deux échéances : la caution, le suivi, le compte et la catégorie ne changent pas.</p>`;
+}
+
+/* 8 ─ caution */
+function caution(){
+  settingsCrumbs();
+  const on=state.state==='on';
+  return `<h1>Réglages du bien</h1>${dlg('Caution',`
+    <label class="check" for="ce"><input type="checkbox" id="ce" ${on?'checked':''}> Demander une caution</label>
+    ${on?`<div class="field" style="max-width:240px"><label for="ca">Montant (€)</label><input id="ca" value="300,00" inputmode="decimal"></div>`:''}
+    <p class="hint">Elle est attendue à la même date que le solde, réglée dans « Acompte et échéances ». Elle se rend par virement après le séjour.</p>`,
+    `<button class="btn" type="button">Annuler</button><button class="btn primary" type="button">Enregistrer la caution</button>`)}
+    <p class="note">N'enregistre que la caution : l'acompte, les échéances et le suivi ne changent pas.</p>`;
+}
+
+/* 9 ─ compte des paiements */
+function account(){
+  crumbs(['Espace chefs d\'U','Biens à louer','Chalet des Hêtres']);
+  const sa=state.state==='superadmin';
+  return `<h1>Chalet des Hêtres</h1>${dlg('Compte des paiements',`
+    <div class="field"><label for="fa">Compte</label><select id="fa"><option>Compte des locations (BE·· ···· ···· 4417)</option></select>
+    <span class="hint">Sans IBAN sur ce compte, aucun QR code SEPA ne peut être proposé au locataire.</span>
+    <span class="hint">${sa?'Vous pouvez <a href="#" target="_blank" rel="noopener">déclarer un compte de l\'unité<span class="visually-hidden"> (nouvel onglet)</span></a> dans la configuration des Finances. ↗':'Pour déclarer un autre compte de l\'unité, demandez-le au superadministrateur du site.'} <span class="tag new">Nouveau</span></span></div>
+    <div class="field"><label for="fc">Catégorie</label><select id="fc"><option>Locations</option></select>
+    <span class="hint">Les paiements des locations de ce bien, caution comprise, seront classés dans cette catégorie des Finances. Obligatoire dès qu'un compte est choisi.</span>
+    <span class="hint">${sa?'Vous pouvez <a href="#" target="_blank" rel="noopener">créer une nouvelle catégorie de paiement</a> dans la configuration des Finances. ↗':'Pour créer une nouvelle catégorie, demandez-le au superadministrateur du site.'} <span class="tag new">Nouveau</span></span></div>`,
+    `<button class="btn" type="button">Annuler</button><button class="btn primary" type="button">Enregistrer le compte</button>`)}
+    <p class="note">Les liens s'ouvrent dans un nouvel onglet et ne soumettent pas le formulaire. Ils ne sont montrés qu'à qui peut ouvrir ces pages (superadmin) ; les autres lisent qui contacter.</p>`;
+}
+
+/* 10 ─ bailleur */
+function landlord(){
+  settingsCrumbs();
+  const s=state.state;
+  if(s==='dialog'){
+    return `<h1>Réglages du bien</h1>${dlg('Bailleur de ce bien',`
+      <div class="radios">
+        <label class="choice" data-on="false" for="l1"><input type="radio" name="l" id="l1"><span><strong>Utiliser le bailleur par défaut</strong></span><span class="sub hint">Unité scoute Saint-Exemple, rue des Tilleuls 12, 5000 Namur</span></label>
+        <label class="choice" data-on="true" for="l2"><input type="radio" name="l" id="l2" checked><span><strong>Bailleur spécifique à ce bien</strong></span><span class="sub hint">Par exemple une ASBL propriétaire des locaux.</span></label>
+      </div>
+      <div class="field"><label for="ln">Nom</label><input id="ln" value="ASBL Les Amis du Chalet"></div>
+      <div class="field"><label for="la">Adresse</label><textarea id="la" rows="2">Chemin du Bois 3
+6900 Marche-en-Famenne</textarea></div>
+      <div class="field"><label for="le">Numéro d'entreprise (BCE)</label><input id="le" value="0123.456.789"><span class="hint">Facultatif.</span></div>`,
+      `<button class="btn" type="button">Annuler</button><button class="btn primary" type="button">Enregistrer le bailleur</button>`)}
+      <p class="note">Choisir « par défaut » vide les champs du bien. Le bailleur par défaut est calculé sans tenir compte du bailleur propre au bien.</p>`;
+  }
+  const missing=s==='missing';
+  const specific=s==='specific';
+  const body=specific
+    ?`<p class="small"><span class="pill info">Spécifique à ce bien</span></p><dl class="kv"><dt>Nom</dt><dd>ASBL Les Amis du Chalet</dd><dt>Adresse</dt><dd>Chemin du Bois 3, 6900 Marche-en-Famenne</dd><dt>Numéro d'entreprise</dt><dd>0123.456.789</dd></dl><p class="hint">Bailleur par défaut, non utilisé ici : Unité scoute Saint-Exemple, rue des Tilleuls 12, 5000 Namur.</p>`
+    :`<p class="small"><span class="pill plain">Bailleur par défaut</span></p><dl class="kv"><dt>Nom</dt><dd>Unité scoute Saint-Exemple</dd><dt>Adresse</dt><dd>${missing?'<span style="color:var(--danger)">Aucune adresse : les documents impriment « — ». Elle se règle dans Configuration › Réglages › Locations.</span>':'Rue des Tilleuls 12, 5000 Namur'}</dd><dt>Numéro d'entreprise</dt><dd>—</dd></dl>`;
+  return `<h1>Réglages du bien</h1>${card('Bailleur <span class="tag mod">Modifié</span>',editBtn(),`<p class="hint">La partie nommée comme bailleur en tête du contrat et de la facture.</p>${body}`)}
+  <p class="note"><span class="tag gone">Supprimé</span> la ligne « Origine » et « bailleur habituel ».</p>`;
+}
+
+/* 11 ─ rappels */
+const REM=[
+  ['Demande de location sans réponse','g',3,null,true],['Blocage de dates bientôt expiré','g',2,null,true],
+  ['Copie signée attendue avant la fin du blocage','l',3,null,true],['Acompte non reçu','g',7,5,true],
+  ['Solde non reçu','g',7,null,true],['Copie signée du contrat non reçue','g',7,null,true],
+  ['Caution non reçue','g',3,null,true],['Informations pratiques avant le séjour','l',7,10,true],
+  ["État des lieux d'entrée à faire",'g',1,null,true],['État des lieux de sortie à faire','g',0,null,true],
+  ['Décompte final à établir','g',3,null,true],['Caution à restituer','g',14,null,false],['Document de conformité expirant','g',30,null,true]];
+const DEST={g:'Aux gestionnaires du bien',l:'Au locataire'};
+function reminders(){
+  settingsCrumbs();
+  if(state.state==='dialog'){
+    const rows=REM.map(([l,d,def,v,a],i)=>`<tr><td><label for="r${i}">${esc(l)}</label><span class="hint" style="display:block">${DEST[d]}</span></td>
+      <td class="cell"><input id="r${i}" inputmode="numeric" value="${v??''}" placeholder="${def}"><span class="hint">défaut : ${def} j</span></td>
+      <td><input type="checkbox" aria-label="Envoyer « ${esc(l)} »" ${a?'checked':''}></td></tr>`).join('');
+    return `<h1>Réglages du bien</h1>${dlg('Modifier les rappels',`
+      <p class="hint">Un délai vide reprend la valeur par défaut, indiquée sous le champ ; <strong>0</strong> veut dire « le jour même ». Décochez un rappel pour ne pas l'envoyer pour ce bien.</p>
+      <div class="tbl-wrap"><table><thead><tr><th>Rappel et destinataire</th><th>Délai (jours)</th><th>Actif</th></tr></thead><tbody>${rows}</tbody></table></div>`,
+      `<button class="btn" type="button">Annuler</button><button class="btn primary" type="button">Enregistrer les rappels</button>`)}
+      <p class="note">Les destinataires viennent de la définition des rappels (<code>ReminderKind::isInternal()</code>), pas d'une liste du gabarit. Sans gestionnaire joignable, les rappels internes partent au Staff d'U, comme aujourd'hui, sans que l'écran le dise.</p>`;
+  }
+  const custom=REM.filter(r=>r[3]!==null), off=REM.filter(r=>!r[4]);
+  const g=REM.filter(r=>r[1]==='g'&&r[4]).length, l=REM.filter(r=>r[1]==='l'&&r[4]).length;
+  return `<h1>Réglages du bien</h1>${card('Rappels <span class="tag mod">Modifié</span>',editBtn(),`
+    <dl class="kv"><dt>Aux gestionnaires du bien</dt><dd>${g} rappels actifs</dd><dt>Au locataire</dt><dd>${l} rappels actifs</dd>
+    <dt>Délais personnalisés</dt><dd>${custom.map(r=>`${esc(r[0])} : ${r[3]} j (défaut ${r[2]})`).join('<br>')}</dd>
+    <dt>Désactivés</dt><dd>${off.map(r=>esc(r[0])).join('<br>')||'Aucun'}</dd></dl>
+    <p class="hint">Les autres rappels suivent les délais par défaut de l'unité.</p>`)}
+    <p class="note"><span class="tag gone">Supprimé</span> le formulaire déplié dans la page et la phrase « Ce que ce bien change aux rappels de l'unité. »</p>`;
+}
+
+/* analysis */
+function analysis(){
+  crumbs(['Ticket #1355','Analyse technique']);
+  const lots=[
+    ['A','Équivalence superadmin = chef d\'U','<ul class="tight"><li>Indicateur <code>is_super_admin</code> lu par <code>RentalAuthorizationService</code> à partir de l\'adresse (avec ou sans session) : <code>managesAnyAsset</code>, <code>listManageableAssets</code>, <code>canManageAsset(Id)</code>, <code>listManageableAssetsInAnyYear</code>.</li><li>Décisions directes sur <code>isUnitStaff</code> : épinglage du compte (l. 353), sous-titre (l. 790), adresse libre du locataire (l. 1483, 1648).</li><li>Auteur de l\'historique = compte (<code>actorMemberId()</code>, 48 appels).</li><li>Deux constructions du service dans <code>index.php</code> (l. 9185, 12586).</li></ul>','M · 2 à 3 j'],
+    ['B','Petits textes et liens Finances','<ul class="tight"><li>Liens vers comptes et catégories selon le droit superadmin (écran 9).</li><li>Texte des frais (écran 5).</li></ul>','S · ½ j'],
+    ['C','Tarification, grille, périodes','<ul class="tight"><li>Minimum en personnes dynamique (écran 2).</li><li>Grille : défaut en placeholder, jamais écrit (écran 3) ; <code>saveGrid</code> inchangé.</li><li>Refus des chevauchements à l\'ajout, bornes inclusives, périodes annuelles ; signalement des conflits existants (écran 4).</li></ul>','M · 2 à 3 j'],
+    ['D','Paiements','<ul class="tight"><li>Route JSON pour la case, toast, retour à l\'état réel en cas d\'échec.</li><li>Trois enregistrements partiels (suivi, acompte + échéances, caution) au lieu de <code>savePayments()</code> qui reconstruit tout.</li><li>Acompte et caution sans Finances : retirer les conditions <code>finance_available</code> et l\'erreur « service absent ».</li></ul>','M/L · 3 à 4 j'],
+    ['E','Bailleur et rappels','<ul class="tight"><li><code>RentalDocumentService</code> : accès au bailleur par défaut (<code>Landlord::resolve</code>).</li><li>Deux choix explicites, plus de ligne « Origine » (écran 10).</li><li>Rappels : résumé + dialogue, destinataire depuis <code>isInternal()</code> (écran 11).</li></ul>','S/M · 1 à 2 j']];
+  return `<h1>Analyse technique de #1355</h1>
+  <p class="lead">Vérifiée sur <code>main</code> (<code>e41bd2fe2</code>). Le blocage vient de la seule politique d'accès : elle ne lit jamais le rôle, seulement l'appartenance au Staff d'U ou la désignation comme gestionnaire. Le lien « Règles, tarif et acompte… » est bon ; c'est l'autorisation qui répond 404.</p>
+  <div class="card"><div class="card-b"><h2>Lots proposés</h2><div class="lots">
+    ${lots.map(l=>`<div class="lot"><b class="id">${l[0]}</b><div><strong>${l[1]}</strong>${l[2]}</div><span class="pill plain">${l[3]}</span></div>`).join('')}
+  </div>
+  <p class="hint">Total estimé : 9 à 13 jours de développement, tests et documentation compris.</p></div></div>
+  <div class="card"><div class="card-b"><h2>Ordre et parallélisme</h2>
+    <ul class="tight"><li><strong>Vague 1</strong> : A et B en parallèle (fichiers distincts).</li>
+    <li><strong>Vague 2</strong> : C et E en parallèle ; D après C (même <code>RentalPricingController</code> et même <code>module.json</code>) ; D et E touchent tous deux <code>settings()</code> du contrôleur de gestion, conflit de fusion à prévoir.</li></ul></div></div>
+  <div class="card"><div class="card-b"><h2>Points qui restent à trancher</h2>
+    <ul class="tight"><li>Formulation du sous-titre de « Gérer mes locations » pour un superadmin (écran 1).</li>
+    <li>Contenu du résumé des rappels (écran 11) : compteurs + exceptions, ou liste complète.</li>
+    <li>Libellé de la case de suivi : « Suivre les paiements via le site » (ticket) conservé tel quel.</li></ul></div></div>
+  <div class="card"><div class="card-b"><h2>Réutilisé, sans nouveau composant</h2>
+    <ul class="tight"><li>Dialogues : <code>partials/modal.html.twig</code> (<code>section_editor</code>).</li><li>Toast et requête JSON : <code>toast.js</code>, <code>ScoutMagicApi.postJson</code>, modèle <code>notification-preferences.js</code>.</li><li>Héritage par placeholder : déjà utilisé par l'écran des rappels.</li><li><code>BillingUnit::isPersonBased()</code>, <code>PricePeriod::covers()</code>, <code>PaymentSettings::depositFor()</code>, <code>Landlord::resolve()</code>, <code>ReminderKind::isInternal()</code>.</li></ul></div></div>`;
+}
+
+const R={access,tarif,grid,periods,fees,payments,deposit,caution,account,landlord,reminders,analysis};
+function render(){ $('#frame').classList.toggle('phone',state.phone); $('#page').innerHTML=R[state.screen](); }
+$('#screen').addEventListener('change',e=>{state.screen=e.target.value;fillStates();render()});
+$('#state').addEventListener('change',e=>{state.state=e.target.value;render()});
+$('#w-desk').addEventListener('click',()=>{state.phone=false;$('#w-desk').setAttribute('aria-pressed','true');$('#w-phone').setAttribute('aria-pressed','false');render()});
+$('#w-phone').addEventListener('click',()=>{state.phone=true;$('#w-phone').setAttribute('aria-pressed','true');$('#w-desk').setAttribute('aria-pressed','false');render()});
+const h=location.hash.slice(1); if(R[h]){state.screen=h;$('#screen').value=h}
+fillStates(); render();
+})();
+</script>
+</body>
+</html>
