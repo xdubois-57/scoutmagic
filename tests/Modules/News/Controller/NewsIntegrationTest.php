@@ -255,7 +255,8 @@ class NewsIntegrationTest extends TestCase
             $this->pdo,
             $this->articleRepository->create($title, Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId, $summary)
         );
-        $this->pdo->exec("UPDATE news_articles SET status = 'published', published_at = '2026-01-01 10:00:00' WHERE id = {$id}");
+        $this->pdo->prepare("UPDATE news_articles SET status = 'published', published_at = ? WHERE id = ?")
+            ->execute(['2026-01-01 10:00:00', $id]);
 
         return $id;
     }
@@ -301,9 +302,8 @@ class NewsIntegrationTest extends TestCase
         AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
         $id = $this->articleWithSummary('Programmée', self::LONG_SUMMARY);
         $at = (new \DateTimeImmutable('first day of next month'))->setTime(8, 0);
-        $this->pdo->exec(
-            "UPDATE news_articles SET status = 'published', published_at = '" . $at->format('Y-m-d H:i:s') . "' WHERE id = {$id}"
-        );
+        $this->pdo->prepare("UPDATE news_articles SET status = 'published', published_at = ? WHERE id = ?")
+            ->execute([$at->format('Y-m-d H:i:s'), $id]);
 
         $body = $this->newsController->manage(new Request('GET', '/news/manage', [], [], [], []), [])->getBody();
 
