@@ -1062,10 +1062,11 @@ class RentalManagementControllerTest extends TestCase
     /**
      * The rule of « Autres adresses du locataire » (issue #1106) over a
      * box whose address is locations@unite.example, the booking's mail
-     * holding two messages: one from the group's treasurer to the unit
-     * and the renter, and one the unit sent from its public alias
+     * holding three messages: one from the group's treasurer to the unit
+     * and the renter, one the unit sent from its public alias
      * (contact@scouts-alias.example, not the box's own address) to the
-     * group's president.
+     * group's president, and one filed by the signed reply address whose
+     * `From:` (commune@example.org) nobody vouched for.
      */
     private function otherEmailRuleWithMail(): \Modules\Rental\Mail\OtherRenterEmailRule
     {
@@ -1100,10 +1101,29 @@ class RentalManagementControllerTest extends TestCase
             sentAt: new \DateTimeImmutable('2027-06-01 10:00:00'),
             bodyText: 'Bonjour,',
             bodyHtml: '',
-            toEmails: ['locations+loc-k7q2m4@unite.example', 'jeanne@example.be', 'contact@scouts-alias.example']
+            toEmails: ['locations+loc-k7q2m4@unite.example', 'jeanne@example.be', 'contact@scouts-alias.example'],
+            senderVerified: true
+        );
+        // The booking's signed reply address files whatever reaches it: a
+        // `From:` the receiving server did not vouch for (issue #1253).
+        $forged = new \Modules\InboundMail\Api\InboundMessage(
+            id: 11,
+            mailboxId: 3,
+            consumerId: 'rental',
+            businessReference: 'LOC-K7Q2M4',
+            linkOrigin: \Modules\InboundMail\Api\LinkOrigin::REPLY_ADDRESS,
+            subject: 'Assurance',
+            fromEmail: 'commune@example.org',
+            fromName: 'La commune',
+            messageId: '<m11@example.org>',
+            inReplyTo: null,
+            sentAt: new \DateTimeImmutable('2027-06-03 10:00:00'),
+            bodyText: 'Bonjour,',
+            bodyHtml: '',
+            toEmails: ['locations+loc-k7q2m4@unite.example']
         );
         $inbound = $this->createMock(\Modules\InboundMail\Api\InboundMailInterface::class);
-        $inbound->method('findForReference')->willReturn([$message, $sent]);
+        $inbound->method('findForReference')->willReturn([$message, $sent, $forged]);
         $inbound->method('probeAddressesFor')->willReturn(['locations@unite.example']);
 
         return new \Modules\Rental\Mail\OtherRenterEmailRule($this->bookingRepository, $inbound);
@@ -1248,6 +1268,26 @@ class RentalManagementControllerTest extends TestCase
 
         $this->assertSame('error', \Core\Http\FlashMessage::get()['type'] ?? null);
         $this->assertSame([], $this->bookingRepository->otherRenterEmails($booking->id));
+    }
+
+    /**
+     * A manager who mailed the booking's reply address with a forged
+     * `From:` (issue #1253) finds the correspondent on its mail, and still
+     * may not add them: nothing is written.
+     */
+    public function testAManagerCannotAddTheForgedSenderOfAMessageOnTheBookingsMail(): void
+    {
+        $this->loginAsManager();
+        $this->withAuditedBookingService($this->otherEmailRuleWithMail());
+        $booking = $this->createBooking();
+
+        $history = RentalTestHelper::bookingHistory($this->pdo, $this->encryption, $booking->id);
+
+        $this->addressPost('addOtherRenterEmail', $booking, ['email' => 'commune@example.org']);
+
+        $this->assertSame('error', \Core\Http\FlashMessage::get()['type'] ?? null);
+        $this->assertSame([], $this->bookingRepository->otherRenterEmails($booking->id));
+        $this->assertEquals($history, RentalTestHelper::bookingHistory($this->pdo, $this->encryption, $booking->id));
     }
 
     public function testAManagerAddsAnAddressSeenOnTheBookingsMail(): void
