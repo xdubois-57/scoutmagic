@@ -266,6 +266,7 @@ expect "A ${M} B" "A <a title='x>y' href=\"/z\"></a> B"
 # An empty anchor with no title, or a title word inside another value, hides nothing.
 expect 'A <a name="haut"></a> B' 'A <a name="haut"></a> B'
 expect 'A <a href="/x?title=1"></a> B' 'A <a href="/x?title=1"></a> B'
+expect "A ${M} B" 'A <a href="/x"title="consigne cachée"></a> B'
 # A link with text keeps its title; an empty link with no title hides nothing.
 expect 'voir [la page](https://exemple.test "Titre") ici' 'voir [la page](https://exemple.test "Titre") ici'
 expect 'C [](https://exemple.test) D' 'C [](https://exemple.test) D'
@@ -283,9 +284,13 @@ expect '![](/pixel.png)' '![consigne [interne]](/pixel.png "et ici")'
 expect "A ${M} B" 'A [](/page(v1) "consigne") B'
 expect '![](https://exemple.test/a.png)' '![](https://exemple.test/a.png)'
 expect '<img width="400" src="https://exemple.test/a.png">' '<img width="400" alt="consigne cachée" title="et ici" src="https://exemple.test/a.png">'
-expect "<img src='https://exemple.test/a.png' >" "<img src='https://exemple.test/a.png' alt=consigne >"
+expect "<img src='https://exemple.test/a.png'>" "<img src='https://exemple.test/a.png' alt=consigne >"
 # A quoted value may hold a `>`: the tag does not end there.
 expect '<img src="/pixel.png">' '<img src="/pixel.png" alt=">consigne cachée">'
+# No space is needed before an attribute after a quoted value.
+expect '<img src="/pixel.png">' '<img src="/pixel.png"alt="consigne cachée">'
+expect '<img src="/a.png" width=10>' "<img src=\"/a.png\"title='x' width=10 ALT=y>"
+expect '<img width="400" src="/a.png">' '<img width="400" src="/a.png">'
 # A formula: colour, phantom, CSS and tiny sizes go, their text shows.
 SHOWN='${consigne}$'
 expect 'E $\text{consigne}$ F' 'E $\color{white}\text{consigne}$ F'
@@ -308,6 +313,12 @@ expect '$\textrm{a} \colorful$' '$\textrm{a} \colorful$'
 expect '<sub>minuscule</sub> fin' '<sub><sub><sup>minuscule</sup></sub></sub> fin'
 expect '<small>a</small> et <sup>2</sup>' '<small>a</small> et <sup>2</sup>'
 expect 'H<sub>2</sub>O et x<sup>2</sup>' 'H<sub>2</sub>O et x<sup>2</sup>'
+# A stray close tag does not reset the count: HTML ignores it, and keeps
+# the levels open — one level stays, still open as it was.
+expect '<sub>ab' '<sub>a</sup><sub>b</sub>'
+expect '<sub>texte' '<sub></sup><sub></sup><sub></sup><sub>texte</sub>'
+# A close tag closes the levels above the one it matches, as HTML does.
+expect '<sub>ax</sub> et <sup>b</sup>' '<sub>a<sup>x</sub> et <sup>b</sup>'
 # A folded <details> stays folded behind a visible warning; an open one
 # hides nothing.
 expect "${F}
@@ -335,6 +346,7 @@ expect '<details open><summary>Journal</summary>trace</details>' '<details open>
 expect "${F}
 <details title=\" open \"><summary>s</summary>consigne</details>" '<details title=" open "><summary>s</summary>consigne</details>'
 expect '<details class="log" open><summary>s</summary>x</details>' '<details class="log" open><summary>s</summary>x</details>'
+expect '<details class="log"open><summary>s</summary>x</details>' '<details class="log"open><summary>s</summary>x</details>'
 # A title is plain text: none of this applies there.
 expect_title '[](x "y") <details>' '[](x "y") <details>'
 

@@ -191,7 +191,7 @@ MARKER="${MARKER}" FOLD="${FOLD}" TITLE="${TITLE}" BOT="${BOT}" OWN_IDS="${OWN_I
         s{<a\b((?:[^>"\x27]|"[^"]*"|\x27[^\x27]*\x27)*)>[ \t\r\n]*</a[ \t]*>}{
             my ($all, $names) = ($&, $1);
             $names =~ s/"[^"]*"|\x27[^\x27]*\x27/""/g;
-            $names =~ /(?:^|[ \t\r\n])title[ \t\r\n]*=/i ? $m : $all
+            $names =~ /(?:^|[ \t\r\n"\x27\/])title[ \t\r\n]*=/i ? $m : $all
         }gie;
         # The alternative text of an image and title show only when it fails to
         # load, or on hover: a transparent pixel can carry a whole
@@ -202,9 +202,16 @@ MARKER="${MARKER}" FOLD="${FOLD}" TITLE="${TITLE}" BOT="${BOT}" OWN_IDS="${OWN_I
         s{!$desc\([ \t]*($ldest)(?:[ \t\r\n]+(?:$ltitle))?[ \t]*\)}{![]($2)}g;
         # A quoted attribute value may hold a `>`: the tag ends outside one.
         s{(<img\b)((?:[^>"\x27]|"[^"]*"|\x27[^\x27]*\x27)*)>}{
-            my ($tag, $attrs) = ($1, $2);
-            $attrs =~ s/[ \t\r\n]+(?:alt|title)[ \t]*=[ \t]*(?:"[^"]*"|\x27[^\x27]*\x27|[^\s"\x27>]+)//gi;
-            "$tag$attrs>"
+            my ($tag, $attrs, $all) = ($1, $2, $&);
+            # Attribute by attribute, as HTML reads them: a name needs no
+            # space before it after a quoted value (`src="x"alt="…"`).
+            my (@kept, $dropped);
+            while ($attrs =~ /\G[ \t\r\n\/]*([^\s"\x27>\/=]+)(?:[ \t\r\n]*=[ \t\r\n]*("[^"]*"|\x27[^\x27]*\x27|[^\s"\x27>]+))?/gc) {
+                my ($name, $value) = ($1, $2);
+                if ($name =~ /\A(?:alt|title)\z/i) { $dropped = 1; next; }
+                push @kept, defined $value ? "$name=$value" : $name;
+            }
+            $dropped ? join(" ", $tag, @kept) . ">" : $all
         }gie;
         # Mathematics GitHub renders with MathJax: a colour (white on the
         # light theme, the background on the dark one), a phantom, a CSS
@@ -225,12 +232,25 @@ MARKER="${MARKER}" FOLD="${FOLD}" TITLE="${TITLE}" BOT="${BOT}" OWN_IDS="${OWN_I
         } while ($_ ne $was);
         # Text nested in <sub>, <sup> or <small> shrinks at every level until
         # nobody can read it: only the outermost level is kept.
-        my $depth = 0;
+        # Tracked as HTML parses them: a stack of the open names, a close
+        # matching one of them closing it and those above it, and a close
+        # matching none ignored — and removed, so a stray `</sup>` cannot
+        # reset the count while the browser keeps the levels open.
+        my @open;
         s{<(/?)(sub|sup|small)\b[^>]*>}{
-            my ($close, $all) = ($1, $&);
-            $close
-                ? (($depth > 0 ? --$depth : 0) ? "" : $all)
-                : (++$depth == 1 ? $all : "")
+            my ($close, $name, $all) = ($1, lc $2, $&);
+            if (!$close) {
+                push @open, $name;
+                @open == 1 ? $all : "";
+            } else {
+                my ($at) = grep { $open[$_] eq $name } reverse 0 .. $#open;
+                if (!defined $at) {
+                    "";
+                } else {
+                    splice @open, $at;
+                    @open ? "" : $all;
+                }
+            }
         }gie;
         # A folded <details> shows only its summary until someone opens it:
         # an agent reads what is inside as if it had been seen. It stays
@@ -243,7 +263,7 @@ MARKER="${MARKER}" FOLD="${FOLD}" TITLE="${TITLE}" BOT="${BOT}" OWN_IDS="${OWN_I
             my $before = $`;
             # An attribute named open, never the word inside a quoted value.
             (my $names = $attrs) =~ s/"[^"]*"|\x27[^\x27]*\x27/""/g;
-            my $seen = $names =~ /(?:^|[ \t\r\n])open(?:[ \t\r\n=]|\z)/i
+            my $seen = $names =~ /(?:^|[ \t\r\n"\x27\/])open(?:[ \t\r\n=\/]|\z)/i
                 || $before =~ /\Q$fold\E[ \t]*(?:\r?\n(?:[ \t]|>)*)?\z/;
             my ($cont) = $before =~ /(?:\A|\n)((?:[ \t]|>)*)\z/;
             my $eol = $before =~ /\r\n(?:[ \t]|>)*\z/ ? "\r\n" : "\n";
