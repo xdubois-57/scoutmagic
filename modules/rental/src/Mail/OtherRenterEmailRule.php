@@ -199,7 +199,10 @@ final class OtherRenterEmailRule
                 $addresses
             )));
             $this->unitDomains = array_values(array_unique(array_filter(
-                array_map(static fn(string $unit): string => self::domainOf(RentalBookingRepository::normalizeEmail($unit)), $owned),
+                array_map(
+                    static fn(string $unit): string => self::domainOf(RentalBookingRepository::normalizeEmail($unit)),
+                    $owned
+                ),
                 static fn(string $domain): bool => $domain !== '' && !in_array($domain, self::SHARED_DOMAINS, true)
             )));
         }
