@@ -308,11 +308,11 @@ class NewsIntegrationTest extends TestCase
         $body = $this->newsController->manage(new Request('GET', '/news/manage', [], [], [], []), [])->getBody();
 
         $this->assertStringContainsString(
-            'Programmée le ' . \Modules\News\Service\PublicationWording::dateTimeWithoutWeekday($at->format('Y-m-d H:i:s')),
+            \Modules\News\Service\PublicationWording::scheduledBadgeLabel($at->format('Y-m-d H:i:s')),
             $body
         );
         $this->assertDoesNotMatchRegularExpression(
-            '/Programmée le (lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche)/u',
+            '/Programmée le[\s\x{00A0}](lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche)/u',
             $body
         );
         $this->assertMatchesRegularExpression('/<span class="badge[^"]*text-wrap[^"]*">Programmée le/', $body, 'the badge may wrap');

@@ -76,7 +76,7 @@
                                         {% include 'partials/status_badge.html.twig' with { solid: 'dark', label: 'Brouillon' } only %}
                                         <span>Créée le {{ row.date|french_date }}</span>
                                     {% elseif row.state == 'scheduled' %}
-                                        {% include 'partials/status_badge.html.twig' with { solid: 'primary', label: 'Programmée le ' ~ row.scheduled_for, wrap: true } only %}
+                                        {% include 'partials/status_badge.html.twig' with { solid: 'primary', label: row.scheduled_label, wrap: true } only %}
                                     {% else %}
                                         {% include 'partials/status_badge.html.twig' with { solid: 'success', label: 'Publiée' } only %}
                                         <span>Publiée le {{ row.date|french_date }}</span>

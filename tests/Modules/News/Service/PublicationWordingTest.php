@@ -46,19 +46,38 @@ final class PublicationWordingTest extends TestCase
     public function testTheBadgeDateDropsTheWeekdayAndKeepsTheRestOfTheLongFormat(): void
     {
         $n = "\u{00A0}";
-        $this->assertSame("22{$n}novembre à 8{$n}h{$n}00", PublicationWording::dateTimeWithoutWeekday('2026-11-22 08:00:00', $this->now));
-        $this->assertSame("1{$n}janvier{$n}2027 à 18{$n}h{$n}30", PublicationWording::dateTimeWithoutWeekday('2027-01-01 18:30:00', $this->now), 'the year when it is another');
-        $this->assertSame("5{$n}mars à 0{$n}h{$n}05", PublicationWording::dateTimeWithoutWeekday('2026-03-05 00:05:00', $this->now), 'hours without padding, minutes with');
+        $this->assertSame("22{$n}novembre à{$n}8{$n}h{$n}00", PublicationWording::dateTimeWithoutWeekday('2026-11-22 08:00:00', $this->now));
+        $this->assertSame("1{$n}janvier{$n}2027 à{$n}18{$n}h{$n}30", PublicationWording::dateTimeWithoutWeekday('2027-01-01 18:30:00', $this->now), 'the year when it is another');
+        $this->assertSame("5{$n}mars à{$n}0{$n}h{$n}05", PublicationWording::dateTimeWithoutWeekday('2026-03-05 00:05:00', $this->now), 'hours without padding, minutes with');
         $this->assertSame('', PublicationWording::dateTimeWithoutWeekday('', $this->now));
         $this->assertSame('', PublicationWording::dateTimeWithoutWeekday('pas une date', $this->now));
     }
 
-    /** A wrapping badge breaks between the day and the time, never inside them. */
+    /** A wrapping badge breaks between the day and « à 8 h 00 », never inside either. */
     public function testTheBadgeDateOnlyBreaksBetweenItsDayAndItsTime(): void
     {
         $text = PublicationWording::dateTimeWithoutWeekday('2026-11-22 08:00:00', $this->now);
+        $nbsp = "\u{00A0}";
 
-        $this->assertSame(['22' . "\u{00A0}" . 'novembre', 'à', '8' . "\u{00A0}" . 'h' . "\u{00A0}" . '00'], explode(' ', $text));
+        $this->assertSame(
+            ['22' . $nbsp . 'novembre', 'à' . $nbsp . '8' . $nbsp . 'h' . $nbsp . '00'],
+            explode(' ', $text),
+            'one ordinary space only: « à » is glued to the time, so it is never left alone at a line\'s end'
+        );
+    }
+
+    /** The whole label: « le » is glued to the day, so « le » and « à » never end a line. */
+    public function testTheScheduledBadgeLabelHasNoWordThatCanBeLeftAlone(): void
+    {
+        $label = PublicationWording::scheduledBadgeLabel('2026-11-22 08:00:00', $this->now);
+        $nbsp = "\u{00A0}";
+
+        $this->assertSame(
+            ['Programmée', 'le' . $nbsp . '22' . $nbsp . 'novembre', 'à' . $nbsp . '8' . $nbsp . 'h' . $nbsp . '00'],
+            explode(' ', $label)
+        );
+        $this->assertSame('', PublicationWording::scheduledBadgeLabel('', $this->now));
+        $this->assertSame('', PublicationWording::scheduledBadgeLabel('not a date', $this->now));
     }
 
     public function testNoDayOfTheWeekIsEverNamedInTheBadgeDate(): void

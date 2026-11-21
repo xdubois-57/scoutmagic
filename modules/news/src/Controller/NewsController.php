@@ -888,8 +888,8 @@ class NewsController extends AbstractController
                 'date' => $article->displayDate(),
                 // No day of the week: this one lives in the list's badge, in
                 // a narrow column (#1359). The long form stays everywhere else.
-                'scheduled_for' => $state === Article::STATE_SCHEDULED && $article->publishedAt !== null
-                    ? PublicationWording::dateTimeWithoutWeekday($article->publishedAt)
+                'scheduled_label' => $state === Article::STATE_SCHEDULED && $article->publishedAt !== null
+                    ? PublicationWording::scheduledBadgeLabel($article->publishedAt)
                     : '',
                 // Single-line summary (module usability review) — the
                 // mandatory one-sentence Article::$summary, never the old
