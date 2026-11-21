@@ -655,10 +655,11 @@ class FormController extends AbstractController
                     (int) AuthSession::getUserAccountId()
                 );
             }
-            FlashMessage::set('error', UserFacingMessage::from(
+            $message = UserFacingMessage::from(
                 $e,
                 "Le brouillon de courrier n'a pas pu être créé. Réessayez dans un instant."
-            ));
+            );
+            FlashMessage::set('error', $message);
             return $this->redirect('/news/' . $article->id . '/form/responses');
         }
 
