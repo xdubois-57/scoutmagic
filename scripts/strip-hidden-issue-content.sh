@@ -166,7 +166,7 @@ MARKER="${MARKER}" FOLD="${FOLD}" TITLE="${TITLE}" BOT="${BOT}" OWN_IDS="${OWN_I
         # An HTML entity spelling an invisible character renders exactly as
         # the character itself, which the rule above removes: `&#x200B;`,
         # `&#917577;`, `&zwj;`.
-        my $named = qr/zwj|zwnj|shy|lrm|rlm|ZeroWidthSpace|NoBreak|InvisibleTimes|InvisibleComma|ApplyFunction|it|ic|af/;
+        my $named = qr/zwj|zwnj|shy|lrm|rlm|ZeroWidthSpace|NegativeVeryThinSpace|NegativeThinSpace|NegativeMediumSpace|NegativeThickSpace|NoBreak|InvisibleTimes|InvisibleComma|ApplyFunction|it|ic|af/;
         s{(?:&#(?:[xX][0-9A-Fa-f]{1,8}|[0-9]{1,8});|&(?:$named);)+}{
             my $run = $&;
             my $hides = 0;
@@ -182,14 +182,20 @@ MARKER="${MARKER}" FOLD="${FOLD}" TITLE="${TITLE}" BOT="${BOT}" OWN_IDS="${OWN_I
         # link goes. A link with text keeps its title — it shows on hover
         # over words someone sees.
         my $ltitle = qr/"(?:[^"\\]|\\.)*"|\x27(?:[^\x27\\]|\\.)*\x27|\((?:[^()\\]|\\.)*\)/;
-        s{(?<!!)\[[ \t]*\]\([ \t]*(?:<[^<>\r\n]*>|[^\s()<]\S*?)?[ \t\r\n]+(?:$ltitle)[ \t]*\)}{$m}g;
+        # A destination as CommonMark reads it: in angle brackets, or a run
+        # of non-space characters whose parentheses balance.
+        my $ldest = qr/<[^<>\r\n]*>|(?<par>(?:[^\s()\\<]|\\.|\((?:[^\s()\\]|\\.|(?&par))*\))+)/;
+        s{(?<!!)\[[ \t]*\]\([ \t]*(?:$ldest)?[ \t\r\n]+(?:$ltitle)[ \t]*\)}{$m}g;
         s{<a\b[^>]*\btitle[ \t]*=[^>]*>[ \t\r\n]*</a[ \t]*>}{$m}gi;
         # The alternative text of an image and title show only when it fails to
         # load, or on hover: a transparent pixel can carry a whole
         # instruction there. Both are emptied, for every image — the image
         # itself still shows, and its original stays in the edit history.
-        s{!\[(?:[^\[\]\\]|\\.)*\]\([ \t]*(<[^<>\r\n]*>|[^\s()<]\S*?)(?:[ \t\r\n]+(?:$ltitle))?[ \t]*\)}{![]($1)}g;
-        s{(<img\b)([^>]*)>}{
+        # Its description may nest brackets, as CommonMark allows.
+        my $desc = qr/(?<desc>\[(?:[^\[\]\\]|\\.|(?&desc))*\])/;
+        s{!$desc\([ \t]*($ldest)(?:[ \t\r\n]+(?:$ltitle))?[ \t]*\)}{![]($2)}g;
+        # A quoted attribute value may hold a `>`: the tag ends outside one.
+        s{(<img\b)((?:[^>"\x27]|"[^"]*"|\x27[^\x27]*\x27)*)>}{
             my ($tag, $attrs) = ($1, $2);
             $attrs =~ s/[ \t\r\n]+(?:alt|title)[ \t]*=[ \t]*(?:"[^"]*"|\x27[^\x27]*\x27|[^\s"\x27>]+)//gi;
             "$tag$attrs>"
@@ -200,11 +206,17 @@ MARKER="${MARKER}" FOLD="${FOLD}" TITLE="${TITLE}" BOT="${BOT}" OWN_IDS="${OWN_I
         # The command goes and its text shows, in the colour of the formula
         # and size. Everywhere, not only between `$`: a formula has four
         # delimiters, and every exemption was a way past the rule.
+        # Until nothing changes: removing one command can join the halves of
+        # another around it (`\co\style{x}lor{white}`).
         my $arg = qr/\{(?:[^{}]|\{[^{}]*\})*\}/;
-        s{\\fcolorbox[ \t]*(?:\[[^\]]*\])?[ \t]*$arg[ \t]*$arg}{}g;
-        s{\\(?:color|textcolor|colorbox|mathcolor|pagecolor)[ \t]*(?:\[[^\]]*\])?[ \t]*$arg}{}g;
-        s{\\(?:class|cssId|style|htmlStyle|htmlClass|htmlId|htmlData)[ \t]*$arg}{}g;
-        s{\\(?:[hv]?phantom|tiny|Tiny|scriptsize|scriptscriptstyle)(?![A-Za-z])}{}g;
+        my $was;
+        do {
+            $was = $_;
+            s{\\fcolorbox[ \t]*(?:\[[^\]]*\])?[ \t]*$arg[ \t]*$arg}{}g;
+            s{\\(?:color|textcolor|colorbox|mathcolor|pagecolor)[ \t]*(?:\[[^\]]*\])?[ \t]*$arg}{}g;
+            s{\\(?:class|cssId|style|htmlStyle|htmlClass|htmlId|htmlData)[ \t]*$arg}{}g;
+            s{\\(?:[hv]?phantom|tiny|Tiny|scriptsize|scriptscriptstyle)(?![A-Za-z])}{}g;
+        } while ($_ ne $was);
         # Text nested in <sub>, <sup> or <small> shrinks at every level until
         # nobody can read it: only the outermost level is kept.
         my $depth = 0;
@@ -223,7 +235,9 @@ MARKER="${MARKER}" FOLD="${FOLD}" TITLE="${TITLE}" BOT="${BOT}" OWN_IDS="${OWN_I
         s{<details\b([^>]*)>}{
             my ($all, $attrs) = ($&, $1);
             my $before = $`;
-            my $seen = $attrs =~ /(?:^|[ \t\r\n])open(?:[ \t\r\n=]|\z)/i
+            # An attribute named open, never the word inside a quoted value.
+            (my $names = $attrs) =~ s/"[^"]*"|\x27[^\x27]*\x27/""/g;
+            my $seen = $names =~ /(?:^|[ \t\r\n])open(?:[ \t\r\n=]|\z)/i
                 || $before =~ /\Q$fold\E[ \t]*(?:\r?\n(?:[ \t]|>)*)?\z/;
             my ($cont) = $before =~ /(?:\A|\n)((?:[ \t]|>)*)\z/;
             my $eol = $before =~ /\r\n(?:[ \t]|>)*\z/ ? "\r\n" : "\n";

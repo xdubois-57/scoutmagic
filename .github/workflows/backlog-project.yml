@@ -105,9 +105,16 @@ jobs:
           status=0
           bash "${scripts}/read-issue-thread.sh" "${ISSUE}" > "${out}" 2> "${err}" || status=$?
           cat "${err}" >&2
+          # The thread is anybody's text: printed as is, a line such as
+          # `::stop-commands::x` or `::error::…` would be a workflow command.
+          # Commands stay off while it prints, behind a token nobody can
+          # guess, and come back on for the annotations below.
+          stop="$(openssl rand -hex 16)"
+          echo "::stop-commands::${stop}"
           echo 'THREAD-BEGIN'
           cat "${out}"
           echo 'THREAD-END'
+          echo "::${stop}::"
           # The same escaping as the annotations of the next step: the
           # thread is readable through the API even where the log is not.
           annotate() {

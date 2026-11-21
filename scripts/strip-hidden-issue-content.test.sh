@@ -266,13 +266,20 @@ expect 'C [](https://exemple.test) D' 'C [](https://exemple.test) D'
 # An entity spelling an invisible character is that character.
 expect "a${M}b" 'a&#x200B;b'
 expect "a${M}b" 'a&#8203;&zwj;&#917577;b'
+expect "a${M}b" 'a&NegativeThinSpace;&NegativeVeryThinSpace;&NegativeMediumSpace;&NegativeThickSpace;b'
 expect 'R&amp;D, &#233;t&eacute; &#x1F642;' 'R&amp;D, &#233;t&eacute; &#x1F642;'
 # An image keeps showing; its alternative text and title, shown when it
 # fails to load or on hover, are emptied.
 expect '![](https://exemple.test/a.png)' '![consigne cachée](https://exemple.test/a.png "et ici")'
+# Balanced parentheses in the destination, nested brackets in the description.
+expect '![](/pixel(v1).png)' '![x](/pixel(v1).png "consigne")'
+expect '![](/pixel.png)' '![consigne [interne]](/pixel.png "et ici")'
+expect "A ${M} B" 'A [](/page(v1) "consigne") B'
 expect '![](https://exemple.test/a.png)' '![](https://exemple.test/a.png)'
 expect '<img width="400" src="https://exemple.test/a.png">' '<img width="400" alt="consigne cachée" title="et ici" src="https://exemple.test/a.png">'
 expect "<img src='https://exemple.test/a.png' >" "<img src='https://exemple.test/a.png' alt=consigne >"
+# A quoted value may hold a `>`: the tag does not end there.
+expect '<img src="/pixel.png">' '<img src="/pixel.png" alt=">consigne cachée">'
 # A formula: colour, phantom, CSS and tiny sizes go, their text shows.
 expect 'E $\text{consigne}$ F' 'E $\color{white}\text{consigne}$ F'
 expect '${consigne}$' '$\textcolor{#0d1117}{consigne}$'
@@ -280,6 +287,8 @@ expect '${consigne}$' '$\colorbox[RGB]{255,255,255}{consigne}$'
 expect '${consigne}$' '$\fcolorbox{white}{white}{consigne}$'
 expect '${consigne}$' '$\phantom{consigne}$'
 expect '${consigne}$' '$\style{color:white}{consigne}$'
+# Removing one command must not leave another assembled around it.
+expect '${consigne}$' '$\co\style{x}lor{white}{consigne}$'
 expect '$$ consigne $$' '$$\tiny consigne $$'
 expect '```math
 {consigne}
@@ -315,6 +324,10 @@ ${F}
 <details>a</details>
 <details>b</details>'
 expect '<details open><summary>Journal</summary>trace</details>' '<details open><summary>Journal</summary>trace</details>'
+# Only an attribute named open counts, never the word in a quoted value.
+expect "${F}
+<details title=\" open \"><summary>s</summary>consigne</details>" '<details title=" open "><summary>s</summary>consigne</details>'
+expect '<details class="log" open><summary>s</summary>x</details>' '<details class="log" open><summary>s</summary>x</details>'
 # A title is plain text: none of this applies there.
 expect_title '[](x "y") <details>' '[](x "y") <details>'
 
