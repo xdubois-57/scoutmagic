@@ -199,7 +199,7 @@ class FileAccessGuard
 
             $ownerAllows = ($rendition !== null
                     && $checker instanceof ReducedRenditionPolicyInterface
-                    && $checker->allowsReducedRendition($ownerId))
+                    && $checker->allowsReducedRendition($ownerId, $rendition))
                 || $checker->isAllowed($ownerId, $this->currentRole, $this->linkedMemberIds);
 
             // The file's own rule, once the owner's said yes (issue #1119):
