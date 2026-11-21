@@ -122,10 +122,33 @@ test('a zone label is shown whole or not at all, even when a zone is a few pixel
 
     // The extremes: « Oui » stops at 1 %, « Peut-être » at 119 % — two of the
     // three zones are a sliver, nothing is saved.
+    //
+    // EACH FIELD IS COMMITTED ON ITS OWN, in an order its bound allows. A value
+    // is only checked when the field is left, against the OTHER field's last
+    // committed value (« Oui » below « Peut-être »): filling both and leaving
+    // only the last would clamp the first against a stale neighbour and the
+    // matrix would test another pair than the one named. So: when « Peut-être »
+    // goes up (or stays), it goes first; when it goes down, « Oui » does.
+    let current = { yes: 70, maybe: 100 };
+    const commit = async (name, value) => {
+        const field = page.locator(`#threshold_${name}_percent`);
+        await field.fill(String(value));
+        await field.blur();
+        await expect(field, `${name} was committed as typed`).toHaveValue(String(value));
+    };
+
     for (const [yes, maybe] of [[1, 119], [118, 119], [1, 2], [70, 100]]) {
-        await page.locator('#threshold_yes_percent').fill(String(yes));
-        await page.locator('#threshold_maybe_percent').fill(String(maybe));
-        await page.locator('#threshold_maybe_percent').blur();
+        if (maybe >= current.maybe) {
+            await commit('maybe', maybe);
+            await commit('yes', yes);
+        } else {
+            await commit('yes', yes);
+            await commit('maybe', maybe);
+        }
+        current = { yes, maybe };
+        // What the handles say is what the fields say: the pair under test.
+        await expect(page.locator('[data-slider-handle="yes"]')).toHaveValue(String(yes));
+        await expect(page.locator('[data-slider-handle="maybe"]')).toHaveValue(String(maybe));
 
         for (const width of WIDTHS) {
             await page.setViewportSize({ width, height: 900 });
