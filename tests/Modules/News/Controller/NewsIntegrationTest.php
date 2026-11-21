@@ -1270,19 +1270,30 @@ class NewsIntegrationTest extends TestCase
     }
 
     /**
-     * Pins what happens today, not what should: the catch takes every
-     * throwable and shows its message as it is, so a technical failure of
-     * the mass-mail module reaches the chief's screen in its own words.
-     * Reported to be routed through Core\Exception\UserFacingMessage; this
-     * test is meant to change when that is done.
+     * A technical failure of the mass-mail module never reaches the chief's
+     * screen in its own words (AGENTS.md, messages that reach a reader): a
+     * SQL error names a table. The screen gets one French sentence of ours;
+     * the real cause is journaled — as the exception CLASS only, because a
+     * message may carry personal data.
      */
-    public function testAMailDraftThatFailsTechnicallyCurrentlyShowsTheRawMessage(): void
+    public function testAMailDraftThatFailsTechnicallyShowsOurSentenceAndJournalsTheClass(): void
     {
         AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
         $articleId = $this->articleWithOneResponse();
         $draft = $this->createStub(\Modules\MassMail\Api\MassMailDraftInterface::class);
         $draft->method('createMergeDraft')->willThrowException(
             new \PDOException('SQLSTATE[HY000]: General error: 1 no such table: mass_mail_audiences')
+        );
+        $this->journalService->expects($this->once())->method('log')->with(
+            'news',
+            'mail_draft_failed',
+            'warning',
+            $this->isString(),
+            $this->callback(static function (array $context): bool {
+                return ($context['error'] ?? null) === \PDOException::class
+                    && !str_contains((string) json_encode($context), 'mass_mail_audiences');
+            }),
+            $this->anything()
         );
 
         $response = $this->formControllerWithMassMail($draft)->createMailDraft(
@@ -1293,8 +1304,39 @@ class NewsIntegrationTest extends TestCase
         );
 
         $this->assertSame('/news/' . $articleId . '/form/responses', $response->getHeaders()['Location'] ?? null);
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertSame('error', $flash['type'] ?? null);
         $this->assertSame(
-            'SQLSTATE[HY000]: General error: 1 no such table: mass_mail_audiences',
+            "Le brouillon de courrier n'a pas pu être créé. Réessayez dans un instant.",
+            $flash['message'] ?? null
+        );
+        $this->assertStringNotContainsString('SQLSTATE', (string) ($flash['message'] ?? ''));
+        $this->assertStringNotContainsString('mass_mail_audiences', (string) ($flash['message'] ?? ''));
+    }
+
+    /**
+     * The journal shares the connection that just failed: when it cannot be
+     * written either, the chief still gets the sentence and the redirect, not
+     * an error page.
+     */
+    public function testAMailDraftFailureStillAnswersWhenTheJournalCannotBeWritten(): void
+    {
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+        $articleId = $this->articleWithOneResponse();
+        $draft = $this->createStub(\Modules\MassMail\Api\MassMailDraftInterface::class);
+        $draft->method('createMergeDraft')->willThrowException(new \PDOException('MySQL server has gone away'));
+        $this->journalService->method('log')->willThrowException(new \PDOException('MySQL server has gone away'));
+
+        $response = $this->formControllerWithMassMail($draft)->createMailDraft(
+            new Request('POST', '/news/' . $articleId . '/form/responses/mail-draft', [], [
+                '_csrf_token' => CsrfGuard::generateToken(),
+            ], [], []),
+            ['id' => (string) $articleId]
+        );
+
+        $this->assertSame('/news/' . $articleId . '/form/responses', $response->getHeaders()['Location'] ?? null);
+        $this->assertSame(
+            "Le brouillon de courrier n'a pas pu être créé. Réessayez dans un instant.",
             \Core\Http\FlashMessage::get()['message'] ?? null
         );
     }
