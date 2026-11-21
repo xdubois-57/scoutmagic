@@ -38,6 +38,7 @@ code{font-family:var(--mono);font-size:13px}
 .mock-bar{max-width:1100px;margin:0 auto 14px;background:var(--surface-2);border:1px dashed var(--line);border-radius:8px;padding:10px 12px;display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;font-size:13px}
 .mock-bar b{font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-size:11px}
 .mock-bar label{display:inline-flex;gap:6px;align-items:center}
+.mock-bar label[hidden]{display:none}
 .mock-bar select{padding:3px 6px;border:1px solid var(--line);border-radius:6px;background:var(--surface);max-width:260px}
 .seg{display:inline-flex;border:1px solid var(--line);border-radius:6px;overflow:hidden;flex-wrap:wrap}
 .seg button{border:0;background:var(--surface);padding:5px 10px;font-size:13px}
@@ -123,7 +124,7 @@ ul.tight{margin:0;padding-left:18px;display:grid;gap:3px}
   <label for="screen">Écran
     <select id="screen">
       <option value="access">1. Accès du superadmin</option>
-      <option value="tarif">2. Tarification et minimum</option>
+      <option value="pricing">2. Tarification et minimum</option>
       <option value="grid">3. Grille des prix</option>
       <option value="periods">4. Périodes et chevauchements</option>
       <option value="fees">5. Frais</option>
@@ -157,7 +158,7 @@ const $=(s)=>document.querySelector(s);
 const esc=(s)=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const STATES={
   access:[['sa','Superadmin lié à deux animés'],['sanomember','Superadmin sans fiche membre']],
-  tarif:[['person','Unité par personne et par nuit'],['night','Unité par nuit']],
+  pricing:[['person','Unité par personne et par nuit'],['night','Unité par nuit']],
   grid:[['default','Tarif par défaut défini'],['nodefault','Sans tarif par défaut'],['dialog','Dialogue « Modifier la grille »']],
   periods:[['ok','Liste des périodes'],['conflict','Ajout refusé : chevauchement'],['legacy','Conflit déjà enregistré']],
   fees:[['list','Encart Frais']],
@@ -205,8 +206,8 @@ function access(){
   <p class="note">Aucun écran nouveau : l'équivalence superadmin = chef d'U s'applique au menu, à la liste, aux réglages et à leurs enregistrements, aux fichiers, au courrier, au flux ICS et aux créances (indicateur du compte lu à partir de l'adresse, avec ou sans session). L'épinglage du compte et la saisie libre d'une adresse de locataire lui sont ouverts. Il n'est pas ajouté aux destinataires des notifications.</p>`;
 }
 
-/* 2 ─ tarification */
-function tarif(){
+/* 2 ─ pricing */
+function pricing(){
   settingsCrumbs();
   const person=state.state==='person';
   const unit=person?'Par personne et par nuit':'Par nuit';
@@ -231,7 +232,7 @@ function tarif(){
   <p class="note">Le choix change dès qu'on modifie l'unité de facturation dans le dialogue. Le serveur refuse toujours un minimum en personnes sur une unité qui n'en dépend pas.</p>`;
 }
 
-/* 3 ─ grille */
+/* 3 ─ price grid */
 function grid(){
   settingsCrumbs();
   const def=state.state!=='nodefault';
@@ -252,7 +253,7 @@ function grid(){
   return `<h1>Réglages du bien</h1>${card('Grille des prix unitaires <span class="tag mod">Modifié</span>',editBtn('Modifier la grille'),table)}`;
 }
 
-/* 4 ─ périodes */
+/* 4 ─ periods */
 function periods(){
   settingsCrumbs();
   const list=`<ul class="tight" style="list-style:none;padding:0;gap:8px">
@@ -273,7 +274,7 @@ function periods(){
     <p class="note">Contrôle à l'ajout seulement : une période ne se modifie pas (on la supprime puis on la recrée). Couvre ponctuel/ponctuel, annuel/annuel et ponctuel/annuel, y compris une période annuelle qui passe le nouvel an.</p>`;
 }
 
-/* 5 ─ frais */
+/* 5 ─ fees */
 function fees(){
   settingsCrumbs();
   return `<h1>Réglages du bien</h1>${card('Frais',`<button class="btn sm" type="button">＋ Ajouter un frais</button>`,`
@@ -286,7 +287,7 @@ function fees(){
     <p class="note"><span class="tag gone">Supprimé</span> « Trois natures seulement. »</p>`;
 }
 
-/* 6 ─ paiements */
+/* 6 ─ payments */
 function payments(){
   settingsCrumbs();
   const s=state.state;
@@ -310,7 +311,7 @@ function payments(){
   <p class="note"><span class="tag gone">Supprimé</span> le bouton « Modifier » et le dialogue global « Paiements ». La case s'enregistre tout de suite, sans recharger, avec le toast habituel ; en cas d'échec, elle revient à l'état réellement enregistré. Acompte et Caution restent réglables quel que soit l'état du suivi, même sans le module Finances ; chaque action n'enregistre que ses propres réglages.</p>`;
 }
 
-/* 7 ─ acompte */
+/* 7 ─ deposit */
 function deposit(){
   settingsCrumbs();
   const s=state.state;
@@ -324,7 +325,7 @@ function deposit(){
     <p class="note">N'enregistre que l'acompte et les deux échéances : la caution, le suivi, le compte et la catégorie ne changent pas.</p>`;
 }
 
-/* 8 ─ caution */
+/* 8 ─ security deposit */
 function caution(){
   settingsCrumbs();
   const on=state.state==='on';
@@ -336,7 +337,7 @@ function caution(){
     <p class="note">N'enregistre que la caution : l'acompte, les échéances et le suivi ne changent pas.</p>`;
 }
 
-/* 9 ─ compte des paiements */
+/* 9 ─ payment account */
 function account(){
   crumbs(['Espace chefs d\'U','Biens à louer','Chalet des Hêtres']);
   const sa=state.state==='superadmin';
@@ -351,7 +352,7 @@ function account(){
     <p class="note">Les liens s'ouvrent dans un nouvel onglet et ne soumettent pas le formulaire. Ils ne sont montrés qu'à qui peut ouvrir ces pages (superadmin) ; les autres lisent qui contacter.</p>`;
 }
 
-/* 10 ─ bailleur */
+/* 10 ─ landlord */
 function landlord(){
   settingsCrumbs();
   const s=state.state;
@@ -377,7 +378,7 @@ function landlord(){
   <p class="note"><span class="tag gone">Supprimé</span> la ligne « Origine » et « bailleur habituel ».</p>`;
 }
 
-/* 11 ─ rappels */
+/* 11 ─ reminders */
 const REM=[
   ['Demande de location sans réponse','g',3,null,true],['Blocage de dates bientôt expiré','g',2,null,true],
   ['Copie signée attendue avant la fin du blocage','l',3,null,true],['Acompte non reçu','g',7,5,true],
@@ -434,7 +435,7 @@ function analysis(){
     <ul class="tight"><li>Dialogues : <code>partials/modal.html.twig</code> (<code>section_editor</code>).</li><li>Toast et requête JSON : <code>toast.js</code>, <code>ScoutMagicApi.postJson</code>, modèle <code>notification-preferences.js</code>.</li><li>Héritage par placeholder : déjà utilisé par l'écran des rappels.</li><li><code>BillingUnit::isPersonBased()</code>, <code>PricePeriod::covers()</code>, <code>PaymentSettings::depositFor()</code>, <code>Landlord::resolve()</code>, <code>ReminderKind::isInternal()</code>.</li></ul></div></div>`;
 }
 
-const R=new Map(Object.entries({access,tarif,grid,periods,fees,payments,deposit,caution,account,landlord,reminders,analysis}));
+const R=new Map(Object.entries({access,pricing,grid,periods,fees,payments,deposit,caution,account,landlord,reminders,analysis}));
 function render(){ $('#frame').classList.toggle('phone',state.phone); const view=R.get(state.screen)||access; $('#page').innerHTML=view(); }
 $('#screen').addEventListener('change',e=>{state.screen=e.target.value;fillStates();render()});
 $('#state').addEventListener('change',e=>{state.state=e.target.value;render()});
