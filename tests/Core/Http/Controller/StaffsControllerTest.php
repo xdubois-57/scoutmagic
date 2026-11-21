@@ -429,6 +429,53 @@ class StaffsControllerTest extends TestCase
         $this->assertShownInOrder(['Zoé', 'Alice', 'Bob'], $asAdmin);
     }
 
+    // ---- the phone row centres its icon on the number (#1352) ----
+
+    public function testTheMobileRowCentresItsIconOnTheNumber(): void
+    {
+        $branchId = $this->createBranch('BAL', 'Baladins', 1);
+        $sectionId = $this->createSection('BAL01', $branchId, 'Ma section');
+        $this->createMemberInSection($sectionId, 'Alice', 'chief');
+
+        $body = $this->responsablePage($this->controller, $sectionId);
+
+        $this->assertStringContainsString('staff-contact-row staff-contact-row--phone', $body);
+        $this->assertStringContainsString('bi-phone', $body);
+    }
+
+    /** The fallback branch: a landline when there is no mobile. */
+    public function testTheLandlineFallbackRowIsCentredToo(): void
+    {
+        $branchId = $this->createBranch('BAL', 'Baladins', 1);
+        $sectionId = $this->createSection('BAL01', $branchId, 'Ma section');
+        $memberYearId = $this->createMemberInSection($sectionId, 'Alice', 'chief');
+        $this->pdo->prepare('UPDATE member_years SET mobile_encrypted = NULL, phone_encrypted = ? WHERE id = ?')
+            ->execute([$this->encryption->encrypt('02 123 45 67', 'member_years.phone'), $memberYearId]);
+
+        $body = $this->responsablePage($this->controller, $sectionId);
+
+        $this->assertStringContainsString('bi-telephone', $body);
+        $this->assertStringContainsString('staff-contact-row staff-contact-row--phone', $body);
+    }
+
+    /** Only the phone row: a wrapped address or training level keeps its icon on the first line. */
+    public function testOnlyThePhoneRowsAreCentred(): void
+    {
+        $template = (string) file_get_contents(dirname(__DIR__, 4) . '/core/View/templates/chefs/staffs.html.twig');
+        $css = (string) file_get_contents(dirname(__DIR__, 4) . '/public/assets/css/components.css');
+
+        $this->assertSame(2, substr_count($template, 'staff-contact-row staff-contact-row--phone'), 'mobile and landline');
+        $this->assertMatchesRegularExpression('/\.staff-contact-row\s*\{[^}]*align-items:\s*start/s', $css);
+        $this->assertMatchesRegularExpression('/\.staff-contact-row--phone\s*\{[^}]*align-items:\s*center/s', $css);
+        foreach (['bi-mortarboard', 'bi-envelope'] as $icon) {
+            $this->assertMatchesRegularExpression(
+                '/<div class="staff-contact-row">\s*<i class="bi ' . $icon . '/',
+                $template,
+                $icon . ' row keeps the top alignment'
+            );
+        }
+    }
+
     public function testIndexBreadcrumbReflectsTheSelectedSection(): void
     {
         // The section picker changes what this page shows without changing

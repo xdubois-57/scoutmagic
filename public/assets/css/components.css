@@ -1488,3 +1488,12 @@
     align-items: start;
     overflow-wrap: anywhere;
 }
+
+/* The phone row centres its icon on the number (#1352). On a touch pointer
+   the number is a 44px target (app.css, .phone-link) and sits in the middle of
+   it; the icon, aligned to the top of the row like the other rows, floated
+   above it. Only this row: an e-mail address or a training level that wraps
+   keeps its icon on the first line. A number never wraps. */
+.staff-contact-row--phone {
+    align-items: center;
+}
