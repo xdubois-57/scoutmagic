@@ -1220,6 +1220,33 @@ class NewsIntegrationTest extends TestCase
         $this->assertStringNotContainsString('mass_mail_audiences', (string) ($flash['message'] ?? ''));
     }
 
+    /**
+     * The journal shares the connection that just failed: when it cannot be
+     * written either, the chief still gets the sentence and the redirect, not
+     * an error page.
+     */
+    public function testAMailDraftFailureStillAnswersWhenTheJournalCannotBeWritten(): void
+    {
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+        $articleId = $this->articleWithOneResponse();
+        $draft = $this->createStub(\Modules\MassMail\Api\MassMailDraftInterface::class);
+        $draft->method('createMergeDraft')->willThrowException(new \PDOException('MySQL server has gone away'));
+        $this->journalService->method('log')->willThrowException(new \PDOException('MySQL server has gone away'));
+
+        $response = $this->formControllerWithMassMail($draft)->createMailDraft(
+            new Request('POST', '/news/' . $articleId . '/form/responses/mail-draft', [], [
+                '_csrf_token' => CsrfGuard::generateToken(),
+            ], [], []),
+            ['id' => (string) $articleId]
+        );
+
+        $this->assertSame('/news/' . $articleId . '/form/responses', $response->getHeaders()['Location'] ?? null);
+        $this->assertSame(
+            "Le brouillon de courrier n'a pas pu être créé. Réessayez dans un instant.",
+            \Core\Http\FlashMessage::get()['message'] ?? null
+        );
+    }
+
     private function articleWithOneResponse(string $responseRoleMin = 'chief'): int
     {
         $articleId = NewsTestHelper::publish($this->pdo, $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId));

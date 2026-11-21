@@ -646,14 +646,19 @@ class FormController extends AbstractController
             // real cause goes to the journal as its class only: a message
             // may carry personal data (AGENTS.md).
             if (!$e instanceof UserFacingException) {
-                $this->journalService->log(
-                    'news',
-                    'mail_draft_failed',
-                    'warning',
-                    "Le brouillon de courrier des réponses n'a pas pu être créé.",
-                    ['article_id' => $article->id, 'error' => $e::class],
-                    (int) AuthSession::getUserAccountId()
-                );
+                try {
+                    $this->journalService->log(
+                        'news',
+                        'mail_draft_failed',
+                        'warning',
+                        "Le brouillon de courrier des réponses n'a pas pu être créé.",
+                        ['article_id' => $article->id, 'error' => $e::class],
+                        (int) AuthSession::getUserAccountId()
+                    );
+                } catch (\Throwable) {
+                    // The journal shares the connection that just failed: the
+                    // chief still gets the recovery message below.
+                }
             }
             $message = UserFacingMessage::from(
                 $e,
