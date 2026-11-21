@@ -37,15 +37,53 @@ use Modules\Rental\Repository\RentalBookingRepository;
  * - **nobody adds one of the unit's own addresses** — the site's sending,
  *   reply and contact addresses and the boxes this module reads, tag included
  *   (`+…`): matched as « the renter », they would file the unit's whole
- *   correspondence on one booking.
+ *   correspondence on one booking. **Nor any address on the unit's own
+ *   domain** (issue #1253) — the domain the site sends from, the one it
+ *   signs for: `tresorier@<the unit's domain>`, seen in the `To:` of a
+ *   message the unit sent, is a colleague, not the renter. The domain of a
+ *   box this module reads proves nothing by itself — a box is as often on
+ *   a webmail as on the unit's own domain —, and a domain everybody shares
+ *   (`gmail.com`, `skynet.be`…) is never the unit's even when the site
+ *   sends from it: there only the exact addresses count;
+ * - **a received message whose sender nobody vouched for shows nobody**
+ *   (issue #1253, after #1121): the booking's signed reply address files
+ *   whatever reaches it, so a manager could otherwise send it a message
+ *   with a forged `From:` — the federation, a supplier — and then pick that
+ *   correspondent from the list. Staff d'U is not concerned: it may type
+ *   any address anyway.
  *
  * A typed address also counts only inside the booking's window
  * (`RentalMessageConsumer::addressMatch()`).
  */
 final class OtherRenterEmailRule
 {
+    /**
+     * Domains shared by people who have nothing to do with each other — the
+     * public webmails and the Belgian and French access providers a unit's
+     * box or a renter is most likely on. A unit whose box is on one of them
+     * does not own the domain, and excluding it would refuse every renter
+     * who writes from it.
+     */
+    private const SHARED_DOMAINS = [
+        'gmail.com', 'googlemail.com',
+        'outlook.com', 'outlook.be', 'outlook.fr', 'hotmail.com', 'hotmail.be', 'hotmail.fr',
+        'live.com', 'live.be', 'live.fr', 'msn.com',
+        'yahoo.com', 'yahoo.be', 'yahoo.fr', 'ymail.com',
+        'icloud.com', 'me.com', 'mac.com',
+        'proton.me', 'protonmail.com', 'pm.me',
+        'gmx.com', 'gmx.net', 'gmx.fr', 'gmx.de', 'aol.com',
+        'mail.com', 'email.com', 'usa.com', 'post.com', 'europe.com', 'zoho.com', 'zohomail.eu',
+        'tutanota.com', 'tuta.io', 'yandex.com', 'mailo.com',
+        'ik.me', 'ikmail.com', 'etik.com',
+        'skynet.be', 'proximus.be', 'telenet.be', 'voo.be', 'scarlet.be', 'base.be', 'swing.be',
+        'orange.fr', 'wanadoo.fr', 'free.fr', 'laposte.net', 'sfr.fr',
+    ];
+
     /** @var list<string>|null the unit's own addresses, read once */
     private ?array $unitAddresses = null;
+
+    /** @var list<string>|null the unit's own domains, read once */
+    private ?array $unitDomains = null;
 
     public function __construct(
         private RentalBookingRepository $bookingRepository,
@@ -81,7 +119,11 @@ final class OtherRenterEmailRule
         $unitSide = [];
         $messages = $this->inboundMail->findForReference(RentalMessageConsumer::CONSUMER_ID, $booking->reference);
         foreach ($messages as $message) {
-            $theirs = $message->isSent() ? $message->toEmails : [$message->fromEmail];
+            // A forged `From:` is not somebody the booking's mail showed
+            // (issue #1253): the unit's side still counts below, as it is
+            // the box's own `To:` whoever wrote the `From:`.
+            $theirs = $message->isSent() ? $message->toEmails
+                : ($message->senderUnverified() ? [] : [$message->fromEmail]);
             $ours = $message->isSent() ? [$message->fromEmail] : $message->toEmails;
             foreach ($theirs as $address) {
                 $otherSide[RentalBookingRepository::normalizeEmail($address)] = true;
@@ -129,11 +171,15 @@ final class OtherRenterEmailRule
         return null;
     }
 
-    /** Whether $address is one of the unit's own, `+tag` ignored on both sides. */
+    /**
+     * Whether $address is one of the unit's own, `+tag` ignored on both
+     * sides, or on one of the unit's own domains.
+     */
     private function isUnitAddress(string $address): bool
     {
-        if ($this->unitAddresses === null) {
+        if ($this->unitAddresses === null || $this->unitDomains === null) {
             $addresses = [];
+            $owned = [];
             if ($this->settings !== null) {
                 $identity = MailIdentity::fromSettings($this->settings);
                 $addresses = [
@@ -141,6 +187,13 @@ final class OtherRenterEmailRule
                     $identity->replyAddress(),
                     (string) ($this->settings->get('contact_email') ?? ''),
                 ];
+                // The domain the site sends from is the one it signs for,
+                // and the only one taken as the unit's. Neither the contact
+                // address nor a box this module reads is: either is often
+                // on a webmail, or on a provider too small for the list
+                // above, and owning its domain would refuse every renter
+                // on it — Staff d'U included.
+                $owned[] = $identity->fromAddress;
             }
             foreach ($this->inboundMail?->probeAddressesFor(RentalMessageConsumer::CONSUMER_ID) ?? [] as $box) {
                 $addresses[] = $box;
@@ -149,9 +202,25 @@ final class OtherRenterEmailRule
                 static fn(string $unit): string => self::withoutTag(RentalBookingRepository::normalizeEmail($unit)),
                 $addresses
             )));
+            $this->unitDomains = array_values(array_unique(array_filter(
+                array_map(
+                    static fn(string $unit): string => self::domainOf(RentalBookingRepository::normalizeEmail($unit)),
+                    $owned
+                ),
+                static fn(string $domain): bool => $domain !== '' && !in_array($domain, self::SHARED_DOMAINS, true)
+            )));
         }
 
-        return in_array(self::withoutTag($address), $this->unitAddresses, true);
+        return in_array(self::withoutTag($address), $this->unitAddresses, true)
+            || in_array(self::domainOf($address), $this->unitDomains, true);
+    }
+
+    /** `tresorier@unite.be` → `unite.be`; '' when there is no `@`. */
+    private static function domainOf(string $address): string
+    {
+        $at = strrpos($address, '@');
+
+        return $at === false ? '' : substr($address, $at + 1);
     }
 
     /** `location+LOC-K7Q2M4@unite.be` → `location@unite.be`. */
