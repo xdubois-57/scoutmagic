@@ -558,6 +558,29 @@ class PageControllerTest extends TestCase
         $this->assertSame(['public'], $provider->rolesAsked);
     }
 
+    /** #1359: the summary of a news item is read whole on the home page, not cut on one line. */
+    public function testHomePageShowsTheWholeSummaryOfANewsItem(): void
+    {
+        $provider = new class implements HomeNewsProvider {
+            public function getLatestVisibleArticles(int $limit, string $role): array
+            {
+                return [[
+                    'id' => 1,
+                    'title' => 'Camp ete',
+                    'summary' => str_repeat('Inscriptions ouvertes pour tous les enfants de la meute. ', 5) . 'DERNIER-MOT',
+                    'image_url' => '/files/42',
+                    'created_at' => '2026-01-01 00:00:00',
+                ]];
+            }
+        };
+        $controller = new PageController($this->twig, $this->editableService, $this->sectionRepo, $this->settingService, $this->rgpdContentService, $this->sectionService, $this->unitStaffSectionService, $this->scoutYearService, $this->hooksWith(\Core\Module\HomeNewsProvider::class, $provider));
+
+        $body = $controller->home(new Request('GET', '/', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('DERNIER-MOT', $body);
+        $this->assertDoesNotMatchRegularExpression('/<p class="[^"]*text-truncate[^"]*">[^<]*DERNIER-MOT/u', $body);
+    }
+
     public function testHomePageRendersNoNewsColumnWhenProviderReturnsNoArticles(): void
     {
         $provider = new class implements HomeNewsProvider {
