@@ -65,7 +65,10 @@ final class MailboxFailureDiagnostic
             }
             // Only an IMAP response, never a processing exception or a debug transcript.
             if (in_array($class, ['ImapServerErrorException', 'ImapBadRequestException', 'ResponseException'], true)) {
-                foreach (preg_split('/\r\n|\r|\n/', $message) ?: [] as $line) {
+                // A credential containing a line break must be masked before splitting:
+                // otherwise the first response line could retain part of that credential.
+                $serverMessage = str_replace(self::knownSecrets($credentials), '[masqué]', $message);
+                foreach (preg_split('/\r\n|\r|\n/', $serverMessage) ?: [] as $line) {
                     if (strlen($line) > 16384) {
                         continue;
                     }
@@ -101,6 +104,20 @@ final class MailboxFailureDiagnostic
     private static function redact(string $text, MailboxCredentials $credentials): string
     {
         $text = self::withoutControls($text);
+        // Compare credentials in the same normal form as the response.
+        $secrets = array_values(array_filter(array_unique(array_map(self::withoutControls(...), self::knownSecrets($credentials))),
+            static fn(string $secret): bool => $secret !== ''));
+        usort($secrets, static fn(string $a, string $b): int => strlen($b) <=> strlen($a));
+        $text = str_replace($secrets, '[masqué]', $text);
+        $text = preg_replace('/\b(LOGIN|AUTHENTICATE)\b[^\r\n]*/i', '$1 [masqué]', $text) ?? '';
+        $text = preg_replace('/[^\s<>"()\[\],;:]+@[^\s<>"()\[\],;:]+/u', '[masqué]', $text) ?? '';
+
+        return mb_substr($text, 0, 300);
+    }
+
+    /** @return list<string> */
+    private static function knownSecrets(MailboxCredentials $credentials): array
+    {
         $secrets = [];
         foreach ([$credentials->username, $credentials->password,
             "\0" . $credentials->username . "\0" . $credentials->password,
@@ -111,15 +128,9 @@ final class MailboxFailureDiagnostic
                 $secrets[] = base64_encode($secret);
             }
         }
-        // Compare credentials in the same normal form as the response.
-        $secrets = array_values(array_filter(array_unique(array_map(self::withoutControls(...), $secrets)),
-            static fn(string $secret): bool => $secret !== ''));
         usort($secrets, static fn(string $a, string $b): int => strlen($b) <=> strlen($a));
-        $text = str_replace($secrets, '[masqué]', $text);
-        $text = preg_replace('/\b(LOGIN|AUTHENTICATE)\b[^\r\n]*/i', '$1 [masqué]', $text) ?? '';
-        $text = preg_replace('/[^\s<>"()\[\],;:]+@[^\s<>"()\[\],;:]+/u', '[masqué]', $text) ?? '';
 
-        return mb_substr($text, 0, 300);
+        return array_values(array_unique($secrets));
     }
 
     private static function withoutControls(string $text): string

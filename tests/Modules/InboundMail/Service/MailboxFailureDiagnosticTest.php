@@ -80,6 +80,19 @@ final class MailboxFailureDiagnosticTest extends TestCase
         self::assertSame('NO [masqué] [masqué]', $diagnostic->details['server_response']);
     }
 
+    public function testKnownCredentialsAreMaskedBeforeResponseLinesAreSplit(): void
+    {
+        foreach ([['box@example.test', "prefix\nsuffix"], ['box@example.test', "prefix\r\nsuffix"],
+            ["box\r\nlogin", 'password']] as [$username, $password]) {
+            $credentials = new MailboxCredentials($username, $password);
+            $diagnostic = MailboxFailureDiagnostic::from(new ImapServerErrorException(
+                'NO [AUTHENTICATIONFAILED] ' . $username . ' ' . $password . "\nPrivate body"
+            ), $credentials);
+
+            self::assertSame('NO [AUTHENTICATIONFAILED] [masqué] [masqué]', $diagnostic->details['server_response']);
+        }
+    }
+
     public function testNetworkAndOpenSslDiagnosticsAreSafeMetadata(): void
     {
         $credentials = new MailboxCredentials('box@example.test', 'secret');
