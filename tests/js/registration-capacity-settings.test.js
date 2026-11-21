@@ -196,6 +196,66 @@ describe('registration-capacity-settings.js — the thresholds sub-box', () => {
         expect($('[data-slider-label="no"]').style.width).toBe('calc(0.75rem + 0.16807 * (100% - 1.5rem))');
     });
 
+    describe('a zone label too narrow for its word (#1361)', () => {
+        // jsdom lays nothing out: the widths a browser would measure are told to it.
+        function measured(widths) {
+            for (const [zone, [content, box]] of Object.entries(widths)) {
+                const label = $(`[data-slider-label="${zone}"]`);
+                Object.defineProperty(label, 'scrollWidth', { configurable: true, value: content });
+                Object.defineProperty(label, 'clientWidth', { configurable: true, value: box });
+            }
+        }
+        const clipped = (zone) => $(`[data-slider-label="${zone}"]`).classList.contains('registration-dual-slider-label-clipped');
+
+        it('hides a label that would be cut to a stub, and keeps the ones that fit', async () => {
+            document.body.innerHTML = thresholdsBox({ yes: 1, maybe: 119 });
+            measured({ yes: [24, 12], maybe: [60, 6], no: [26, 12] });
+            await boot();
+
+            expect(clipped('yes')).toBe(true);
+            expect(clipped('maybe')).toBe(true);
+            expect(clipped('no')).toBe(true);
+
+        });
+
+        it('keeps every label of the default thresholds, which all fit', async () => {
+            document.body.innerHTML = thresholdsBox();
+            measured({ yes: [24, 140], maybe: [60, 60], no: [26, 51] });
+            await boot();
+
+            expect(clipped('yes')).toBe(false);
+            expect(clipped('maybe')).toBe(false);
+            expect(clipped('no')).toBe(false);
+        });
+
+        it('shows the label again once its zone is wide enough, as a handle moves', async () => {
+            document.body.innerHTML = thresholdsBox({ yes: 1, maybe: 119 });
+            measured({ yes: [24, 12], maybe: [60, 6], no: [26, 12] });
+            await boot();
+            expect(clipped('yes')).toBe(true);
+
+            measured({ yes: [24, 140], maybe: [60, 6], no: [26, 12] });
+            const handle = $('[data-slider-handle="yes"]');
+            handle.value = '60';
+            handle.dispatchEvent(new Event('input'));
+
+            expect(clipped('yes')).toBe(false);
+            expect(clipped('maybe')).toBe(true);
+        });
+
+        it('measures again when the window is resized, since the zones are percentages of it', async () => {
+            document.body.innerHTML = thresholdsBox();
+            measured({ yes: [24, 140], maybe: [60, 60], no: [26, 51] });
+            await boot();
+            expect(clipped('no')).toBe(false);
+
+            measured({ yes: [24, 140], maybe: [60, 60], no: [26, 20] });
+            window.dispatchEvent(new Event('resize'));
+
+            expect(clipped('no')).toBe(true);
+        });
+    });
+
     it('moves the field with its handle, and stops a handle at the other one', async () => {
         document.body.innerHTML = thresholdsBox();
         await boot();
