@@ -295,6 +295,39 @@ class GroupMemberControllerTest extends TestCase
         $this->assertStringContainsString('data-confirm="Retirer la modération à ', $body);
     }
 
+    // ---- the compact member list (#1351) ----
+
+    public function testEachInvitedMemberGetsOneActionsMenuForAModerator(): void
+    {
+        $body = $this->controller([$this->moderatorId])->index(new Request('GET', '/g', [], [], [], []), $this->params())->getBody();
+
+        $this->assertStringContainsString('bi-three-dots-vertical', $body);
+        $this->assertStringContainsString('aria-label="Actions pour ', $body);
+        $this->assertStringContainsString('Retirer du groupe', $body);
+        $this->assertStringNotContainsString('bi-x-lg', $body, 'the separate cross is gone');
+    }
+
+    public function testAnOrdinaryMemberSeesNoMenuAndNoAddress(): void
+    {
+        $body = $this->controller([$this->plainMemberId])->index(new Request('GET', '/g', [], [], [], []), $this->params())->getBody();
+
+        $this->assertStringNotContainsString('aria-label="Actions pour ', $body);
+        $this->assertStringNotContainsString('parent@test.be', $body);
+    }
+
+    /** « Laisse déplié » — the invitation form is on screen on load, behind no accordion. */
+    public function testTheInvitationFormStaysUnfolded(): void
+    {
+        $candidate = $this->candidateProfile($this->outsiderId, 'Léa', 'Durand', null);
+
+        $body = $this->controller([$this->moderatorId], 'identified', null, [$candidate])
+            ->index(new Request('GET', '/g', [], [], [], []), $this->params())->getBody();
+
+        $this->assertStringContainsString('Inviter', $body);
+        $this->assertStringContainsString('Prévenir cette personne', $body);
+        $this->assertStringNotContainsString('data-bs-toggle="collapse"', $body);
+    }
+
     // ---- search ----
 
     private function candidateProfile(int $memberId, string $firstName, string $lastName, ?string $totem): MemberProfile
