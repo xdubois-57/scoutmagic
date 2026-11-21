@@ -7708,7 +7708,8 @@ if ($isEnabled('calendar')) {
             $calendarIcsBuilder,
             $scoutYearResolver,
             $journalService,
-            $calendarVirtualEventRegistry
+            $calendarVirtualEventRegistry,
+            (string) ($settingService->get('site_name') ?: 'Unité scoute')
         )
     );
     $frontController->registerController(
