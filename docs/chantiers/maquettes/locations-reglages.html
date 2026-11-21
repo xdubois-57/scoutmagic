@@ -221,7 +221,7 @@ function pricing(){
   const summary=card('Tarification',editBtn(),`<dl class="kv">
       <dt>Unité de facturation</dt><dd>${unit}</dd>
       <dt>Tarif par défaut</dt><dd>${person?'6,50 €':'95,00 €'}</dd>
-      <dt>Minimum facturable</dt><dd>${person?'15 personnes':'180,00 €'}</dd></dl>`,'tarification');
+      <dt>Minimum facturable</dt><dd>${person?'15 personnes':'180,00 €'}</dd></dl>`,'pricing');
   return `<h1>Réglages du bien</h1>${summary}
   ${dlg('Modifier la tarification',`
     <div class="field"><label for="bu">Unité de facturation</label><select id="bu"><option>Forfait par séjour</option><option ${person?'':'selected'}>Par nuit</option><option>Par jour</option><option ${person?'selected':''}>Par personne et par nuit</option><option>Par personne et par jour</option><option>Par pièce et par jour</option></select></div>
@@ -307,7 +307,7 @@ function payments(){
     <div class="row"><button class="btn sm" type="button">✎ Acompte</button><button class="btn sm" type="button">✎ Caution</button> <span class="tag new">Nouveau</span></div>`;
   const toast=s==='toast'?`<div class="toast" role="status">✓ Suivi des paiements activé.</div>`:'';
   return `<h1>Réglages du bien</h1>${toast}
-  ${card('Paiements','',`${sw}${refused}${nofinTxt}${offHint}${account}<hr style="border:0;border-top:1px solid var(--line);margin:0">${cond}`,'paiements')}
+  ${card('Paiements','',`${sw}${refused}${nofinTxt}${offHint}${account}<hr style="border:0;border-top:1px solid var(--line);margin:0">${cond}`,'payments')}
   <p class="note"><span class="tag gone">Supprimé</span> le bouton « Modifier » et le dialogue global « Paiements ». La case s'enregistre tout de suite, sans recharger, avec le toast habituel ; en cas d'échec, elle revient à l'état réellement enregistré. Acompte et Caution restent réglables quel que soit l'état du suivi, même sans le module Finances ; chaque action n'enregistre que ses propres réglages.</p>`;
 }
 
