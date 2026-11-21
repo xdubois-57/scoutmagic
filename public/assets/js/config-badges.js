@@ -5,7 +5,9 @@
 
 // Badges configuration page (core/View/templates/admin/badges/configuration.html.twig):
 // renaming a custom badge, activating/deactivating any badge, deleting an
-// unassigned custom one, and adding a new one.
+// unassigned custom one, and adding a new one — every one of them without
+// reloading the page, and every one of them confirmed or refused by a toast
+// (#1337).
 // Extracted from the template's inline <script> so the Vitest suite can
 // exercise the production code directly (tests/js/config-badges.test.js).
 //
@@ -17,6 +19,16 @@
 // delete the same two buttons as a harmless question, in the browser's
 // language rather than French.
 //
+// EVENTS ARE DELEGATED, from the document. A badge created here has to behave
+// exactly like one the server rendered, at once, and a listener attached to
+// each row at load would miss it. `blur` does not bubble, so the rename
+// listens to `focusout`, which does.
+//
+// A NEW ROW IS A CLONE of <template id="badge-row-template">, rendered by the
+// server from the same partial as every other row (admin/badges/_row.html.twig),
+// then filled with what the server answered. Nothing is concatenated into
+// markup: the name reaches the DOM as an input value, never as HTML.
+//
 // The « Actif » control is a role="switch" checkbox whose aria-checked
 // nav.js syncs on `change`. A failed toggle reverts `checked` in code,
 // which fires no event, so this file calls
@@ -25,14 +37,13 @@
 (function () {
     var api = window.ScoutMagicApi;
 
-    /** @type {NodeListOf<HTMLElement>} */
-    var badgeRows = document.querySelectorAll('.badge-row');
+    var list = document.getElementById('badge-list');
     var addBtn = /** @type {HTMLButtonElement|null} */ (document.getElementById('badge-add-btn'));
     var newNameInput = /** @type {HTMLInputElement|null} */ (document.getElementById('new-badge-name'));
 
     // A no-op on every other page of the site — #badge-add-btn used to be
     // dereferenced unconditionally and threw wherever it was absent.
-    if (!badgeRows.length && !addBtn) {
+    if (!document.querySelector('.badge-row') && !addBtn) {
         return;
     }
 
@@ -48,91 +59,207 @@
         window.ScoutMagicToast.show(message, { variant: 'error' });
     }
 
+    /** @param {string} message */
+    function toastSuccess(message) {
+        window.ScoutMagicToast.show(message, { variant: 'success' });
+    }
+
     /** @param {{ok: boolean, status: number, data: any}} res */
     function isSuccess(res) {
         return !!(res.data?.success);
     }
 
-    badgeRows.forEach(function (row) {
-        var badgeId = Number.parseInt(row.dataset.id, 10);
-        var isDefault = row.dataset.default === '1';
-        var nameInput = /** @type {HTMLInputElement|null} */ (row.querySelector('.badge-name-input'));
-        var activeInput = /** @type {HTMLInputElement|null} */ (row.querySelector('.badge-active-input'));
-        var deleteBtn = /** @type {HTMLButtonElement|null} */ (row.querySelector('.badge-delete-btn'));
+    /**
+     * @param {Element} element
+     * @returns {HTMLElement|null}
+     */
+    function rowOf(element) {
+        return /** @type {HTMLElement|null} */ (element.closest('.badge-row'));
+    }
 
+    /** @param {HTMLElement} row */
+    function badgeIdOf(row) {
+        return Number.parseInt(row.dataset.id, 10);
+    }
+
+    /**
+     * The name an input last held that the server confirmed. For a row the
+     * server rendered that is the `value` attribute, which `defaultValue`
+     * reads; after a rename it is moved forward to what the server answered.
+     *
+     * @param {HTMLInputElement} input
+     */
+    function savedName(input) {
+        return input.defaultValue;
+    }
+
+    /**
+     * Rename: saved when the field loses focus, only when the name really
+     * changed, and never twice at once (the field is locked for the round
+     * trip, so typing during it is not possible either). The displayed value
+     * is the one the SERVER answered — it trims and may normalise — and a
+     * refusal puts the previous name back, so the page never shows as saved
+     * a name that was refused.
+     *
+     * @param {HTMLInputElement} input
+     */
+    function saveName(input) {
+        var row = rowOf(input);
         // A default badge's name is server-owned: the input is readonly and
         // saving it is not offered at all.
-        if (!isDefault && nameInput) {
-            nameInput.addEventListener('blur', function () {
-                void api.postJson('/admin/badges/update', { badge_id: badgeId, name: nameInput.value })
-                    .then(function (res) {
-                        if (isSuccess(res)) {
-                            // A rename can rewrite the badge everywhere it
-                            // appears — the page re-renders rather than
-                            // patching each occurrence by hand.
-                            window.location.reload();
-                        } else {
-                            toastError(res);
-                        }
-                    });
-            });
+        if (!row || row.dataset.default === '1' || input.readOnly || input.disabled) {
+            return;
+        }
+        var previous = savedName(input);
+        if (input.value.trim() === previous) {
+            input.value = previous;
+            return;
         }
 
+        void api.withDisabled(input, function () {
+            return api.postJson('/admin/badges/update', { badge_id: badgeIdOf(row), name: input.value });
+        }).then(function (res) {
+            if (isSuccess(res)) {
+                var name = typeof res.data?.badge?.name === 'string' ? res.data.badge.name : input.value.trim();
+                input.value = name;
+                input.defaultValue = name;
+                // An autosave confirms itself (design.md §7.13).
+                toastSuccess('Enregistré.');
+                return;
+            }
+            toastError(res);
+            input.value = previous;
+        });
+    }
+
+    /** @param {HTMLInputElement} input */
+    function saveActive(input) {
+        var row = rowOf(input);
+        if (!row) {
+            return;
+        }
+        void api.withDisabled(input, function () {
+            return api.postJson('/admin/badges/toggle-active', {
+                badge_id: badgeIdOf(row),
+                active: input.checked
+            });
+        }).then(function (res) {
+            if (isSuccess(res)) {
+                toastSuccess('Enregistré.');
+                return;
+            }
+            toastError(res);
+            // The server refused: put the switch back where it was,
+            // and tell assistive technology about it (no `change`
+            // event fires for a programmatic revert).
+            input.checked = !input.checked;
+            if (window.ScoutMagicNav?.syncSwitchAriaChecked) {
+                window.ScoutMagicNav.syncSwitchAriaChecked(input);
+            }
+        });
+    }
+
+    /** @param {HTMLButtonElement} button */
+    async function deleteBadge(button) {
+        var row = rowOf(button);
+        if (!row) {
+            return;
+        }
+        var confirmed = await window.ScoutMagicConfirm.ask({
+            message: 'Supprimer définitivement ce badge ?',
+            confirmLabel: 'Supprimer'
+        });
+        if (!confirmed) {
+            return;
+        }
+        var res = await api.withDisabled(button, function () {
+            return api.postJson('/admin/badges/delete', { badge_id: badgeIdOf(row) });
+        });
+        if (isSuccess(res)) {
+            row.remove();
+            toastSuccess('Badge supprimé.');
+        } else {
+            toastError(res);
+        }
+    }
+
+    /**
+     * The row for a badge the server just created: the server's own markup,
+     * from the template, with the id and name it answered.
+     *
+     * @param {{id: number, name: string, is_default?: boolean, is_active?: boolean}} badge
+     * @returns {HTMLElement|null}
+     */
+    function buildRow(badge) {
+        var template = /** @type {HTMLTemplateElement|null} */ (document.getElementById('badge-row-template'));
+        var source = template?.content.firstElementChild;
+        if (!source) {
+            return null;
+        }
+        var row = /** @type {HTMLElement} */ (source.cloneNode(true));
+        row.dataset.id = String(badge.id);
+
+        var nameInput = /** @type {HTMLInputElement|null} */ (row.querySelector('.badge-name-input'));
+        if (nameInput) {
+            nameInput.value = badge.name;
+            nameInput.defaultValue = badge.name;
+        }
+        var activeInput = /** @type {HTMLInputElement|null} */ (row.querySelector('.badge-active-input'));
         if (activeInput) {
-            activeInput.addEventListener('change', function () {
-                void api.withDisabled(activeInput, function () {
-                    return api.postJson('/admin/badges/toggle-active', {
-                        badge_id: badgeId,
-                        active: activeInput.checked
-                    });
-                }).then(function (res) {
-                    if (isSuccess(res)) {
-                        // An autosave confirms itself (design.md §7.13).
-                        window.ScoutMagicToast.show('Enregistré.', { variant: 'success' });
-                        return;
-                    }
-                    toastError(res);
-                    // The server refused: put the switch back where it was,
-                    // and tell assistive technology about it (no `change`
-                    // event fires for a programmatic revert).
-                    activeInput.checked = !activeInput.checked;
-                    if (window.ScoutMagicNav?.syncSwitchAriaChecked) {
-                        window.ScoutMagicNav.syncSwitchAriaChecked(activeInput);
-                    }
-                });
-            });
+            var inputId = 'badge-active-' + String(badge.id);
+            activeInput.id = inputId;
+            activeInput.checked = badge.is_active !== false;
+            activeInput.setAttribute('aria-checked', activeInput.checked ? 'true' : 'false');
+            var label = row.querySelector('label[for]');
+            if (label) {
+                label.setAttribute('for', inputId);
+            }
         }
 
-        if (deleteBtn) {
-            deleteBtn.addEventListener('click', async function () {
-                var confirmed = await window.ScoutMagicConfirm.ask({
-                    message: 'Supprimer définitivement ce badge ?',
-                    confirmLabel: 'Supprimer'
-                });
-                if (!confirmed) {
-                    return;
-                }
-                var res = await api.postJson('/admin/badges/delete', { badge_id: badgeId });
-                if (isSuccess(res)) {
-                    row.remove();
-                } else {
-                    toastError(res);
-                }
-            });
+        return row;
+    }
+
+    function addBadge() {
+        void api.withDisabled(addBtn, function () {
+            return api.postJson('/admin/badges/add', { name: newNameInput.value });
+        }).then(function (res) {
+            var badge = res.data?.badge;
+            var row = isSuccess(res) && badge && Number.isInteger(badge.id) ? buildRow(badge) : null;
+            if (!row) {
+                // A "success" that carries no usable badge is not one: nothing
+                // was inserted, so nothing may be announced as added.
+                toastError(isSuccess(res) ? { ok: res.ok, status: res.status, data: null } : res);
+                return;
+            }
+            list?.appendChild(row);
+            newNameInput.value = '';
+            toastSuccess('Badge ajouté.');
+        });
+    }
+
+    document.addEventListener('focusout', function (event) {
+        var target = event.target;
+        if (target instanceof HTMLInputElement && target.classList.contains('badge-name-input')) {
+            saveName(target);
         }
     });
 
-    if (addBtn && newNameInput) {
-        addBtn.addEventListener('click', function () {
-            void api.withDisabled(addBtn, function () {
-                return api.postJson('/admin/badges/add', { name: newNameInput.value });
-            }).then(function (res) {
-                if (isSuccess(res)) {
-                    window.location.reload();
-                } else {
-                    toastError(res);
-                }
-            });
-        });
-    }
+    document.addEventListener('change', function (event) {
+        var target = event.target;
+        if (target instanceof HTMLInputElement && target.classList.contains('badge-active-input')) {
+            saveActive(target);
+        }
+    });
+
+    document.addEventListener('click', function (event) {
+        var target = event.target instanceof Element ? event.target : null;
+        var button = target?.closest('.badge-delete-btn');
+        if (button instanceof HTMLButtonElement && !button.disabled && rowOf(button)) {
+            void deleteBadge(button);
+            return;
+        }
+        if (addBtn && newNameInput && target?.closest('#badge-add-btn')) {
+            addBadge();
+        }
+    });
 })();

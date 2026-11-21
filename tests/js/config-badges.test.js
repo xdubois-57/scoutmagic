@@ -10,8 +10,11 @@
 //
 // The fixture mirrors what core/View/templates/admin/badges/configuration.html.twig
 // renders: one custom badge (renameable, deletable) and one default badge
-// (readonly name, no delete button), plus the add form.
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+// (readonly name, no delete button), the add form, and the
+// <template id="badge-row-template"> the script clones for a badge created
+// without a reload (#1337). Nothing reloads the page any more: every test
+// below that used to expect location.reload() now expects the DOM to change.
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const CUSTOM_ROW = `
     <div class="badge-row" data-id="4" data-default="0">
@@ -34,14 +37,49 @@ const ADD_FORM = `
         <button type="button" id="badge-add-btn"></button>
     </div>`;
 
-const PAGE = `<div id="badge-list">${CUSTOM_ROW}${DEFAULT_ROW}</div>${ADD_FORM}`;
+// What admin/badges/_row.html.twig renders for a custom, active, unassigned badge.
+const ROW_TEMPLATE = `
+    <template id="badge-row-template">
+        <div class="badge-row" data-id="0" data-default="0">
+            <input type="text" class="badge-name-input" value="">
+            <div class="form-check form-switch">
+                <input type="checkbox" class="badge-active-input" role="switch"
+                       id="badge-active-0" checked aria-checked="true">
+                <label for="badge-active-0">Actif</label>
+            </div>
+            <button type="button" class="badge-delete-btn"></button>
+        </div>
+    </template>`;
+
+const PAGE = `<div id="badge-list">${CUSTOM_ROW}${DEFAULT_ROW}</div>${ROW_TEMPLATE}${ADD_FORM}`;
+
+/** `blur` does not bubble; the script listens to `focusout`, which does. */
+function leave(input) {
+    input.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
+}
+
+/** `change` bubbles in a browser; a bare `new Event('change')` does not. */
+function changed(input) {
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+}
 
 function jsonResponse(body, status = 200) {
     return Promise.resolve({ ok: status < 400, status, json: () => Promise.resolve(body) });
 }
 
 describe('config-badges.js', () => {
+    // The script delegates from `document`, which outlives a test: without
+    // this, every boot() would stack another set of listeners on top of the
+    // previous tests' and one click would be handled several times. In the
+    // browser the module loads once.
+    const documentListeners = [];
+    const realAddEventListener = document.addEventListener.bind(document);
+
     beforeEach(() => {
+        document.addEventListener = (type, listener, options) => {
+            documentListeners.push([type, listener, options]);
+            realAddEventListener(type, listener, options);
+        };
         vi.resetModules();
         document.head.innerHTML = '<meta name="csrf-token" content="tok-123">';
         document.body.innerHTML = PAGE;
@@ -53,6 +91,13 @@ describe('config-badges.js', () => {
             configurable: true,
             value: { href: '/admin/badges/configuration', reload: vi.fn() },
         });
+    });
+
+    afterEach(() => {
+        documentListeners.splice(0).forEach(([type, listener, options]) => {
+            document.removeEventListener(type, listener, options);
+        });
+        document.addEventListener = realAddEventListener;
     });
 
     async function boot() {
@@ -80,7 +125,7 @@ describe('config-badges.js', () => {
         it('wires the rows even when the add form is absent', async () => {
             document.body.innerHTML = CUSTOM_ROW;
             await boot();
-            document.querySelector('.badge-active-input').dispatchEvent(new Event('change'));
+            document.querySelector('.badge-active-input').dispatchEvent(new Event('change', { bubbles: true }));
             await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
             expect(lastRequest().url).toBe('/admin/badges/toggle-active');
         });
@@ -119,6 +164,17 @@ describe('config-badges.js', () => {
             expect(body).toEqual({ badge_id: 4, _csrf_token: 'tok-123' });
             expect(opts.headers['X-CSRF-Token']).toBe('tok-123');
             await vi.waitFor(() => expect(customRow()).toBeNull());
+            expect(window.ScoutMagicToast.show).toHaveBeenCalledWith('Badge supprimé.', { variant: 'success' });
+        });
+
+        it('says nothing at all when the answer to the confirmation is no', async () => {
+            window.ScoutMagicConfirm.ask = vi.fn(() => Promise.resolve(false));
+            await boot();
+            customRow().querySelector('.badge-delete-btn').click();
+
+            await vi.waitFor(() => expect(window.ScoutMagicConfirm.ask).toHaveBeenCalled());
+            await Promise.resolve();
+            expect(window.ScoutMagicToast.show).not.toHaveBeenCalled();
         });
 
         it('toasts the server error and keeps the row when the deletion is refused', async () => {
@@ -154,7 +210,7 @@ describe('config-badges.js', () => {
             await boot();
             const input = customRow().querySelector('.badge-active-input');
             input.checked = false;
-            input.dispatchEvent(new Event('change'));
+            input.dispatchEvent(new Event('change', { bubbles: true }));
 
             await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
             const { url, body } = lastRequest();
@@ -172,7 +228,7 @@ describe('config-badges.js', () => {
             await boot();
             const input = customRow().querySelector('.badge-active-input');
             input.checked = false;
-            input.dispatchEvent(new Event('change'));
+            input.dispatchEvent(new Event('change', { bubbles: true }));
 
             await vi.waitFor(() => expect(input.checked).toBe(true));
             expect(window.ScoutMagicToast.show).toHaveBeenCalledWith('Badge introuvable.', { variant: 'error' });
@@ -183,7 +239,7 @@ describe('config-badges.js', () => {
             await boot();
             const input = customRow().querySelector('.badge-active-input');
             input.checked = false;
-            input.dispatchEvent(new Event('change'));
+            input.dispatchEvent(new Event('change', { bubbles: true }));
 
             await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
             await vi.waitFor(() => expect(input.disabled).toBe(false));
@@ -195,72 +251,257 @@ describe('config-badges.js', () => {
         it('disables the switch for the round trip', async () => {
             await boot();
             const input = customRow().querySelector('.badge-active-input');
-            input.dispatchEvent(new Event('change'));
+            input.dispatchEvent(new Event('change', { bubbles: true }));
             expect(input.disabled).toBe(true);
             await vi.waitFor(() => expect(input.disabled).toBe(false));
         });
     });
 
     describe('rename', () => {
-        it('saves a custom badge name on blur and reloads on success', async () => {
+        function rename(input, name) {
+            input.value = name;
+            leave(input);
+        }
+
+        it('saves a custom badge name when the field loses focus, and stays on the page', async () => {
             await boot();
             const input = customRow().querySelector('.badge-name-input');
-            input.value = 'Infirmière';
-            input.dispatchEvent(new Event('blur'));
+            rename(input, 'Infirmière');
 
             await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
             const { url, body } = lastRequest();
             expect(url).toBe('/admin/badges/update');
             expect(body).toEqual({ badge_id: 4, name: 'Infirmière', _csrf_token: 'tok-123' });
-            await vi.waitFor(() => expect(window.location.reload).toHaveBeenCalled());
+            await vi.waitFor(() => expect(window.ScoutMagicToast.show)
+                .toHaveBeenCalledWith('Enregistré.', { variant: 'success' }));
+            expect(window.location.reload).not.toHaveBeenCalled();
+        });
+
+        it('shows the name the SERVER answered, not the one that was typed', async () => {
+            global.fetch = vi.fn(() => jsonResponse({ success: true, badge: { id: 4, name: 'Infirmière', is_default: false, is_active: true } }));
+            await boot();
+            const input = customRow().querySelector('.badge-name-input');
+            rename(input, '  Infirmière  ');
+
+            await vi.waitFor(() => expect(window.ScoutMagicToast.show).toHaveBeenCalled());
+            expect(input.value).toBe('Infirmière');
+            expect(input.defaultValue).toBe('Infirmière');
+        });
+
+        it('sends nothing when the name did not change, or only by its spaces', async () => {
+            await boot();
+            const input = customRow().querySelector('.badge-name-input');
+            leave(input);
+            rename(input, '  Infirmier ');
+            await Promise.resolve();
+
+            expect(fetch).not.toHaveBeenCalled();
+            expect(input.value).toBe('Infirmier');
+            expect(window.ScoutMagicToast.show).not.toHaveBeenCalled();
+        });
+
+        it('does not save the same name twice after a success', async () => {
+            global.fetch = vi.fn(() => jsonResponse({ success: true, badge: { id: 4, name: 'Infirmière' } }));
+            await boot();
+            const input = customRow().querySelector('.badge-name-input');
+            rename(input, 'Infirmière');
+            await vi.waitFor(() => expect(input.disabled).toBe(false));
+            leave(input);
+            await Promise.resolve();
+
+            expect(fetch).toHaveBeenCalledTimes(1);
+        });
+
+        it('locks the field for the round trip, so a second blur cannot send a second request', async () => {
+            let release;
+            global.fetch = vi.fn(() => new Promise((resolve) => {
+                release = () => resolve({ ok: true, status: 200, json: () => Promise.resolve({ success: true }) });
+            }));
+            await boot();
+            const input = customRow().querySelector('.badge-name-input');
+            rename(input, 'Infirmière');
+            expect(input.disabled).toBe(true);
+            leave(input);
+            leave(input);
+            await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
+            expect(fetch).toHaveBeenCalledTimes(1);
+
+            release();
+            await vi.waitFor(() => expect(input.disabled).toBe(false));
         });
 
         it('never saves a default badge name — the server owns it', async () => {
             await boot();
-            document.querySelector('.badge-row[data-id="1"] .badge-name-input').dispatchEvent(new Event('blur'));
+            const input = document.querySelector('.badge-row[data-id="1"] .badge-name-input');
+            input.removeAttribute('readonly');
+            rename(input, 'Autre');
             await Promise.resolve();
             expect(fetch).not.toHaveBeenCalled();
         });
 
-        it('toasts the error and does not reload when the rename is refused', async () => {
+        it('toasts the error and puts the previous name back when the rename is refused', async () => {
             global.fetch = vi.fn(() => jsonResponse({ success: false, error: 'Nom déjà utilisé.' }));
             await boot();
-            customRow().querySelector('.badge-name-input').dispatchEvent(new Event('blur'));
+            const input = customRow().querySelector('.badge-name-input');
+            rename(input, 'Trésorier');
 
             await vi.waitFor(() => expect(window.ScoutMagicToast.show).toHaveBeenCalledWith('Nom déjà utilisé.', { variant: 'error' }));
+            expect(input.value).toBe('Infirmier');
+            expect(input.defaultValue).toBe('Infirmier');
             expect(window.location.reload).not.toHaveBeenCalled();
+            expect(window.ScoutMagicToast.show).not.toHaveBeenCalledWith('Enregistré.', expect.anything());
+        });
+
+        it('puts the previous name back and unlocks the field on a network failure', async () => {
+            global.fetch = vi.fn(() => Promise.reject(new TypeError('Failed to fetch')));
+            await boot();
+            const input = customRow().querySelector('.badge-name-input');
+            rename(input, 'Infirmière');
+
+            await vi.waitFor(() => expect(window.ScoutMagicToast.show).toHaveBeenCalledWith('Erreur : réponse serveur invalide.', { variant: 'error' }));
+            expect(input.value).toBe('Infirmier');
+            expect(input.disabled).toBe(false);
         });
     });
 
     describe('add', () => {
-        it('POSTs the new name and reloads on success', async () => {
+        const created = { success: true, badge: { id: 9, name: 'Communication', is_default: false, is_active: true } };
+
+        async function addCommunication(response = created) {
+            global.fetch = vi.fn(() => jsonResponse(response));
             await boot();
             document.getElementById('new-badge-name').value = 'Communication';
             document.getElementById('badge-add-btn').click();
+        }
 
-            await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
+        const newRow = () => document.querySelector('.badge-row[data-id="9"]');
+
+        it('POSTs the new name, inserts the row from the server answer and does not reload', async () => {
+            await addCommunication();
+
+            await vi.waitFor(() => expect(newRow()).not.toBeNull());
             const { url, body } = lastRequest();
             expect(url).toBe('/admin/badges/add');
             expect(body).toEqual({ name: 'Communication', _csrf_token: 'tok-123' });
-            await vi.waitFor(() => expect(window.location.reload).toHaveBeenCalled());
+            expect(window.location.reload).not.toHaveBeenCalled();
+            expect(newRow().querySelector('.badge-name-input').value).toBe('Communication');
+            expect(document.getElementById('badge-list').lastElementChild).toBe(newRow());
         });
 
-        it('toasts the error and does not reload when the name is refused', async () => {
-            global.fetch = vi.fn(() => jsonResponse({ success: false, error: 'Nom invalide.' }));
-            await boot();
-            document.getElementById('badge-add-btn').click();
+        it('empties the add field and confirms with a toast', async () => {
+            await addCommunication();
+
+            await vi.waitFor(() => expect(newRow()).not.toBeNull());
+            expect(document.getElementById('new-badge-name').value).toBe('');
+            expect(window.ScoutMagicToast.show).toHaveBeenCalledWith('Badge ajouté.', { variant: 'success' });
+        });
+
+        it('gives the new row its own id, so its switch and its label belong together', async () => {
+            await addCommunication();
+
+            await vi.waitFor(() => expect(newRow()).not.toBeNull());
+            const input = newRow().querySelector('.badge-active-input');
+            expect(input.id).toBe('badge-active-9');
+            expect(newRow().querySelector('label').getAttribute('for')).toBe('badge-active-9');
+            expect(input.getAttribute('aria-checked')).toBe('true');
+            expect(document.getElementById('badge-active-0')).toBeNull();
+        });
+
+        it('shows a name carrying markup as text, never as markup', async () => {
+            await addCommunication({ success: true, badge: { id: 9, name: '<img src=x onerror=alert(1)>', is_active: true } });
+
+            await vi.waitFor(() => expect(newRow()).not.toBeNull());
+            expect(newRow().querySelector('img')).toBeNull();
+            expect(newRow().querySelector('.badge-name-input').value).toBe('<img src=x onerror=alert(1)>');
+        });
+
+        it('lets the new row be renamed at once, without a reload', async () => {
+            await addCommunication();
+            await vi.waitFor(() => expect(newRow()).not.toBeNull());
+
+            global.fetch = vi.fn(() => jsonResponse({ success: true, badge: { id: 9, name: 'Com', is_active: true } }));
+            const input = newRow().querySelector('.badge-name-input');
+            input.value = 'Com';
+            leave(input);
+
+            await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
+            expect(lastRequest().url).toBe('/admin/badges/update');
+            expect(lastRequest().body.badge_id).toBe(9);
+            await vi.waitFor(() => expect(input.defaultValue).toBe('Com'));
+        });
+
+        it('lets the new row be switched off at once', async () => {
+            await addCommunication();
+            await vi.waitFor(() => expect(newRow()).not.toBeNull());
+
+            global.fetch = vi.fn(() => jsonResponse({ success: true }));
+            const input = newRow().querySelector('.badge-active-input');
+            input.checked = false;
+            changed(input);
+
+            await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
+            expect(lastRequest().url).toBe('/admin/badges/toggle-active');
+            expect(lastRequest().body).toEqual({ badge_id: 9, active: false, _csrf_token: 'tok-123' });
+            // nav.js is not loaded here, so the aria-checked sync is the one the
+            // revert test below covers; the request itself is the point.
+        });
+
+        it('lets the new row be deleted at once, with its toast', async () => {
+            await addCommunication();
+            await vi.waitFor(() => expect(newRow()).not.toBeNull());
+
+            global.fetch = vi.fn(() => jsonResponse({ success: true }));
+            newRow().querySelector('.badge-delete-btn').click();
+
+            await vi.waitFor(() => expect(newRow()).toBeNull());
+            expect(lastRequest().url).toBe('/admin/badges/delete');
+            expect(lastRequest().body.badge_id).toBe(9);
+            expect(window.ScoutMagicToast.show).toHaveBeenCalledWith('Badge supprimé.', { variant: 'success' });
+        });
+
+        it('inserts nothing and toasts the error when the name is refused', async () => {
+            await addCommunication({ success: false, error: 'Nom invalide.' });
 
             await vi.waitFor(() => expect(window.ScoutMagicToast.show).toHaveBeenCalledWith('Nom invalide.', { variant: 'error' }));
+            expect(newRow()).toBeNull();
+            expect(document.querySelectorAll('.badge-row')).toHaveLength(2);
+            expect(document.getElementById('new-badge-name').value).toBe('Communication');
             expect(window.location.reload).not.toHaveBeenCalled();
         });
 
-        it('toasts a network failure instead of failing silently', async () => {
+        it('does not call a success without a badge an addition', async () => {
+            await addCommunication({ success: true });
+
+            await vi.waitFor(() => expect(window.ScoutMagicToast.show).toHaveBeenCalledWith('Erreur : réponse serveur invalide.', { variant: 'error' }));
+            expect(document.querySelectorAll('.badge-row')).toHaveLength(2);
+            expect(window.ScoutMagicToast.show).not.toHaveBeenCalledWith('Badge ajouté.', expect.anything());
+        });
+
+        it('toasts a network failure instead of failing silently, and frees the button', async () => {
             global.fetch = vi.fn(() => Promise.reject(new TypeError('Failed to fetch')));
             await boot();
             document.getElementById('badge-add-btn').click();
 
             await vi.waitFor(() => expect(window.ScoutMagicToast.show).toHaveBeenCalledWith('Erreur : réponse serveur invalide.', { variant: 'error' }));
-            expect(window.location.reload).not.toHaveBeenCalled();
+            expect(document.querySelectorAll('.badge-row')).toHaveLength(2);
+            expect(document.getElementById('badge-add-btn').disabled).toBe(false);
+        });
+
+        it('does not insert the badge twice when the button is pressed during the request', async () => {
+            let release;
+            global.fetch = vi.fn(() => new Promise((resolve) => {
+                release = () => resolve({ ok: true, status: 200, json: () => Promise.resolve(created) });
+            }));
+            await boot();
+            const button = document.getElementById('badge-add-btn');
+            button.click();
+            button.click();
+            await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
+            expect(fetch).toHaveBeenCalledTimes(1);
+
+            release();
+            await vi.waitFor(() => expect(newRow()).not.toBeNull());
+            expect(document.querySelectorAll('.badge-row[data-id="9"]')).toHaveLength(1);
         });
     });
 

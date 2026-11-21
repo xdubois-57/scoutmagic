@@ -289,6 +289,49 @@ class SectionServiceTest extends TestCase
         $this->assertSame('Infirmier', $staff[0]->badges[0]->name);
     }
 
+    /**
+     * Issue #1337 (« Les animateurs » shows one tag per badge): what reaches the
+     * tags is the ACTIVE badges of the member's year, one entry each and in
+     * alphabetical order. A deactivated badge is not shown as a tag, whoever
+     * still holds it.
+     */
+    public function testGetSectionStaffListsEveryActiveBadgeAlphabeticallyAndSkipsADeactivatedOne(): void
+    {
+        $stmt = $this->pdo->prepare('SELECT id FROM age_branches WHERE desk_code = ?');
+        $stmt->execute(['BAL']);
+        $balId = (int) $stmt->fetchColumn();
+
+        $sectionId = $this->createSection('BAL01', $balId);
+        $memberYearId = $this->createMemberInSection($sectionId, 'Alice', 'chief');
+
+        $ids = [];
+        foreach (['Trésorier' => 1, 'Infirmier' => 1, 'Secouriste' => 0] as $name => $active) {
+            $this->pdo->prepare('INSERT INTO badges (name, is_active) VALUES (?, ?)')->execute([$name, $active]);
+            $ids[$name] = (int) $this->pdo->lastInsertId();
+            $this->memberBadgeRepository->assign($memberYearId, $ids[$name], null);
+        }
+
+        $staff = $this->service->getSectionStaff($sectionId, $this->scoutYearId);
+
+        $this->assertSame(
+            ['Infirmier', 'Trésorier'],
+            array_map(static fn($badge) => $badge->name, $staff[0]->badges)
+        );
+    }
+
+    public function testGetSectionStaffGivesAnAnimateurWithoutBadgeAnEmptyList(): void
+    {
+        $stmt = $this->pdo->prepare('SELECT id FROM age_branches WHERE desk_code = ?');
+        $stmt->execute(['BAL']);
+        $sectionId = $this->createSection('BAL01', (int) $stmt->fetchColumn());
+        $this->createMemberInSection($sectionId, 'Alice', 'chief');
+
+        $staff = $this->service->getSectionStaff($sectionId, $this->scoutYearId);
+
+        $this->assertCount(1, $staff);
+        $this->assertSame([], $staff[0]->badges);
+    }
+
     public function testGetSectionStaffReturnsDecryptedData(): void
     {
         $stmt = $this->pdo->prepare('SELECT id FROM age_branches WHERE desk_code = ?');

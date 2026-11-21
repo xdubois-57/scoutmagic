@@ -121,6 +121,55 @@ class BadgeConfigurationControllerTest extends TestCase
         $this->assertMatchesRegularExpression('~badge-delete-btn ms-auto ms-md-0"~', $body);
     }
 
+    /**
+     * Issue #1337: a badge created without a reload is a clone of this
+     * <template>, rendered from the same partial as every server row — so a new
+     * row can be renamed, switched and deleted exactly like the others, and the
+     * two cannot drift. The clone is a custom, active, deletable badge.
+     */
+    public function testIndexCarriesTheRowTemplateTheScriptClonesForANewBadge(): void
+    {
+        $this->badgeService->create('Communication');
+
+        $body = $this->controller->index(new Request('GET', BadgeConfigurationController::PATH, [], [], [], []), [])->getBody();
+
+        $this->assertSame(1, preg_match('~<template id="badge-row-template">(.*?)</template>~s', $body, $template), 'the row template is on the page');
+        $this->assertStringContainsString('badge-row', $template[1]);
+        $this->assertStringContainsString('badge-name-input', $template[1]);
+        $this->assertStringContainsString('badge-active-input', $template[1]);
+        $this->assertStringContainsString('role="switch"', $template[1]);
+        $this->assertStringContainsString('badge-delete-btn', $template[1]);
+        $this->assertStringContainsString('data-default="0"', $template[1]);
+        $this->assertStringNotContainsString('readonly', $template[1]);
+        $this->assertStringNotContainsString(' disabled', $template[1], 'a new badge is unassigned, so it can be deleted at once');
+    }
+
+    public function testTheRowTemplateIsTheSameMarkupAsAServerRowOfACustomBadge(): void
+    {
+        $this->badgeService->create('Communication');
+
+        $body = $this->controller->index(new Request('GET', BadgeConfigurationController::PATH, [], [], [], []), [])->getBody();
+
+        $document = new \DOMDocument();
+        @$document->loadHTML('<?xml encoding="UTF-8">' . $body);
+        $xpath = new \DOMXPath($document);
+        $server = $xpath->query("//div[@id='badge-list']//div[contains(@class,'badge-row')][.//input[@value='Communication']]");
+        $clone = $xpath->query("//template[@id='badge-row-template']//div[contains(@class,'badge-row')]");
+        $this->assertSame(1, $server->length, 'a custom badge row is rendered by the server');
+        $this->assertSame(1, $clone->length, 'the template holds one row');
+
+        // The structure of a row — its tags and their classes — is identical;
+        // only the per-badge values (id, name, state) differ.
+        $shape = static function (\DOMNode $row) use ($document): string {
+            $html = (string) $document->saveHTML($row);
+            $html = (string) preg_replace('~(data-id|id|for|value|aria-checked)="[^"]*"~', '$1=""', $html);
+            $html = (string) preg_replace('~\s+(checked|readonly)~', '', $html);
+
+            return (string) preg_replace('~\s+~', ' ', trim($html));
+        };
+        $this->assertSame($shape($server->item(0)), $shape($clone->item(0)));
+    }
+
     public function testTheOldAddressRedirectsPermanentlyToTheNewOne(): void
     {
         $response = $this->controller->legacyRedirect(new Request('GET', '/config/badges', [], [], [], []), []);

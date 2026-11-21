@@ -1,0 +1,44 @@
+{#
+  One row of the badges configuration page (admin/badges/configuration.html.twig).
+
+  Rendered twice from this one file, so the two cannot drift (#1337): once per
+  badge by the server, and once as the <template id="badge-row-template"> that
+  public/assets/js/config-badges.js clones when a badge is created without
+  reloading the page. The script fills the clone with the id and name the
+  server answered; nothing here is built by string concatenation in JavaScript.
+
+  badge: id, name, isDefault, isActive, referentSectionId (an entity or an array).
+  blocked_reason: why the badge cannot be deleted, or null — straight from the
+  service that would refuse it (an assignment, or a module still pointing at
+  it, Core\Module\BadgeUsageProvider).
+#}
+<div class="border rounded-3 p-3 d-flex flex-wrap align-items-center gap-2 gap-md-3 badge-row" data-id="{{ badge.id }}" data-default="{{ badge.isDefault ? '1' : '0' }}">
+    <input type="text" class="form-control form-control-sm badge-name-input badge-config-name {{ badge.isDefault ? 'bg-body-secondary text-body-secondary' : '' }}"
+           value="{{ badge.name }}" {{ badge.isDefault ? 'readonly' : '' }} aria-label="Nom du badge">
+    {% if badge.referentSectionId %}
+        <span class="badge text-bg-info" title="Suit automatiquement le nom de la section">Référent de section</span>
+    {% elseif badge.isDefault %}
+        <span class="badge text-bg-secondary">Par défaut</span>
+    {% endif %}
+    <div class="form-check form-switch ms-md-auto text-nowrap">
+        <input type="checkbox" class="form-check-input badge-active-input" role="switch" id="badge-active-{{ badge.id }}" {{ badge.isActive ? 'checked' : '' }} aria-checked="{{ badge.isActive ? 'true' : 'false' }}">
+        <label class="form-check-label small" for="badge-active-{{ badge.id }}">Actif</label>
+    </div>
+    {% if not badge.isDefault %}
+        {% if blocked_reason %}
+            {# A disabled <button> doesn't fire the hover events browsers
+               need to show its own title tooltip, so the tooltip goes on
+               a plain (non-disabled) wrapping span instead; pointer-events:
+               none on the button lets the span receive the hover. #}
+            <span class="d-inline-block ms-auto ms-md-0" title="{{ blocked_reason }}">
+                <button type="button" class="btn btn-sm btn-outline-danger badge-delete-btn" disabled style="pointer-events:none;" aria-label="Supprimer le badge">
+                    <i class="bi bi-trash" aria-hidden="true"></i>
+                </button>
+            </span>
+        {% else %}
+            <button type="button" class="btn btn-sm btn-outline-danger badge-delete-btn ms-auto ms-md-0" title="Supprimer" aria-label="Supprimer">
+                <i class="bi bi-trash" aria-hidden="true"></i>
+            </button>
+        {% endif %}
+    {% endif %}
+</div>
