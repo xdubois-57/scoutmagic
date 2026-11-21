@@ -1352,6 +1352,12 @@ html:not(.photo-tile-ready) .photo-tile-add,
 .badge-solid-success {
     background-color: #198754;    /* 4.5:1 */
 }
+/* A badge allowed to wrap (status_badge `wrap`, #1359): Bootstrap's `.badge` is
+   `line-height: 1`, which sets two wrapped lines — accents included — against
+   each other. In app.css for the same reason as `.badge-solid`. */
+.badge-wrap {
+    line-height: 1.3;
+}
 
 /* ---------------------------------------------------------------------
    « Importé » — history brought over from the unit's previous site by the

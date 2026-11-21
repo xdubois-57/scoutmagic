@@ -34,6 +34,12 @@
   that must stand out from the light badges beside it — an article's
   publication state is the first (issue #845). It replaces `status`'s
   tone; `label` is unchanged.
+
+  `wrap: true` lets a long label run onto several lines (Bootstrap's `.badge` is
+  `white-space: nowrap`, which overflows a narrow card): for one badge whose
+  words are a sentence, never a global change (#1359). `badge-wrap`
+  (app.css) restores a line height: `.badge` is `line-height: 1`, which
+  sets the lines of a wrapped badge against one another.
 #}
 {% set _tones = {
     'pending': 'warning', 'waiting': 'warning', 'scheduled': 'warning', 'in_progress': 'warning',
@@ -42,8 +48,9 @@
     'closed': 'secondary', 'inactive': 'secondary', 'cancelled': 'secondary', 'withdrawn': 'secondary', 'archived': 'secondary', 'neutral': 'secondary',
     'draft': 'info', 'info': 'info',
 } %}
+{% set _wrap = wrap|default(false) ? ' badge-wrap text-wrap text-start' : '' %}
 {% if solid|default('') in ['dark', 'primary', 'success'] %}
-<span class="badge badge-solid badge-solid-{{ solid }}">{{ label }}</span>
+<span class="badge badge-solid badge-solid-{{ solid }}{{ _wrap }}">{{ label }}</span>
 {% else %}
-<span class="badge text-bg-{{ _tones[status|default('neutral')]|default('secondary') }}">{{ label }}</span>
+<span class="badge text-bg-{{ _tones[status|default('neutral')]|default('secondary') }}{{ _wrap }}">{{ label }}</span>
 {% endif %}

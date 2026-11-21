@@ -243,6 +243,100 @@ class NewsIntegrationTest extends TestCase
         $this->assertStringContainsString('Article', $response->getBody());
     }
 
+    // --- #1359: the summary is read whole; the scheduling badge fits ---
+
+    private const LONG_SUMMARY = 'Le week-end de rentrée réunit toutes les sections autour d\'un grand jeu de piste dans la forêt, '
+        . 'avec veillée, repas partagé et nuit sous tente : prévoyez des vêtements chauds, une lampe de poche, '
+        . 'un sac de couchage, vos gourdes remplies, et apportez les autorisations signées avant vendredi soir DERNIER-MOT';
+
+    private function articleWithSummary(string $title, ?string $summary): int
+    {
+        $id = NewsTestHelper::publish(
+            $this->pdo,
+            $this->articleRepository->create($title, Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId, $summary)
+        );
+        $this->pdo->prepare("UPDATE news_articles SET status = 'published', published_at = ? WHERE id = ?")
+            ->execute(['2026-01-01 10:00:00', $id]);
+
+        return $id;
+    }
+
+    public function testTheSummaryIsShownWholeOnThePublicList(): void
+    {
+        $this->articleWithSummary('Week-end de rentrée', self::LONG_SUMMARY);
+
+        $body = $this->newsController->index(new Request('GET', '/news', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('DERNIER-MOT', $body, 'the last word of a 300-character summary');
+        $this->assertStringNotContainsString('line-clamp', $body);
+        $this->assertDoesNotMatchRegularExpression('/<p class="[^"]*text-truncate[^"]*">[^<]*DERNIER-MOT/u', $body);
+        $this->assertSame(1, substr_count($body, 'DERNIER-MOT'), 'one summary, never duplicated per screen size');
+        $this->assertStringContainsString('news-card__excerpt', $body);
+    }
+
+    public function testTheSummaryIsShownWholeOnTheManagersListToo(): void
+    {
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+        $this->articleWithSummary('Week-end de rentrée', self::LONG_SUMMARY);
+
+        $body = $this->newsController->manage(new Request('GET', '/news/manage', [], [], [], []), [])->getBody();
+
+        $this->assertSame(1, substr_count($body, 'DERNIER-MOT'));
+        $this->assertStringNotContainsString('line-clamp', $body);
+    }
+
+    /** No summary, no paragraph: nothing is invented, and the card still renders and links. */
+    public function testAnArticleWithoutASummaryHasNoSummaryParagraph(): void
+    {
+        $id = $this->articleWithSummary('Sans résumé', null);
+
+        $body = $this->newsController->index(new Request('GET', '/news', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('Sans résumé', $body);
+        $this->assertStringContainsString('href="/news/' . $id . '"', $body);
+        $this->assertStringNotContainsString('news-card__excerpt', $body);
+    }
+
+    public function testAScheduledArticleBadgeDropsTheWeekdayAndMayWrap(): void
+    {
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+        $id = $this->articleWithSummary('Programmée', self::LONG_SUMMARY);
+        $at = (new \DateTimeImmutable('first day of next month'))->setTime(8, 0);
+        $this->pdo->prepare("UPDATE news_articles SET status = 'published', published_at = ? WHERE id = ?")
+            ->execute([$at->format('Y-m-d H:i:s'), $id]);
+
+        $body = $this->newsController->manage(new Request('GET', '/news/manage', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString(
+            \Modules\News\Service\PublicationWording::scheduledBadgeLabel($at->format('Y-m-d H:i:s')),
+            $body
+        );
+        $this->assertDoesNotMatchRegularExpression(
+            '/Programmée le[\s\x{00A0}](lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche)/u',
+            $body
+        );
+        $this->assertMatchesRegularExpression('/<span class="badge[^"]*text-wrap[^"]*">Programmée le/', $body, 'the badge may wrap');
+        $this->assertMatchesRegularExpression(
+            '/<span class="badge[^"]*badge-wrap[^"]*">Programmée le/',
+            $body,
+            'a wrapping badge takes the class that restores its line height'
+        );
+
+        // Bootstrap's `.badge` is `line-height: 1`: two wrapped lines would touch.
+        $css = (string) file_get_contents(dirname(__DIR__, 4) . '/public/assets/css/app.css');
+        $this->assertSame(1, preg_match('/\.badge-wrap\s*\{[^}]*line-height:\s*(\d+(?:\.\d+)?)\s*;/', $css, $rule));
+        $this->assertGreaterThan(1.0, (float) $rule[1]);
+    }
+
+    /** The detail page and the not-online page still name the day: only the list badge changed. */
+    public function testTheLongFormatStaysWhereItWas(): void
+    {
+        $this->assertStringContainsString(
+            'dimanche',
+            \Modules\News\Service\PublicationWording::longDateTime('2026-11-22 08:00:00')
+        );
+    }
+
     // --- IT-01: one target per row, one component for the sub-navigation ---
 
     public function testAManagedArticleRowLeadsToItsManagementPage(): void
