@@ -148,6 +148,9 @@ function deskExportCarryingTheUnitChief() {
     set('Prenom', 'Unite');
     set('Genre', 'F');
     set('Date de naissance', '01/01/1990');
+    // A real chief's export carries a mobile; the specs that run after this one
+    // (staff-phone-alignment) read the chief's number on the Staffs page.
+    set('GSM', '+32 470 00 00 01');
     set('Email Tiers', process.env.E2E_ADMIN_EMAIL ?? 'admin@example.invalid');
     set('Rue', 'Rue du Staff');
     set('No', '1');

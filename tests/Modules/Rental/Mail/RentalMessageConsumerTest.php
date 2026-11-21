@@ -651,6 +651,42 @@ class RentalMessageConsumerTest extends TestCase
         $this->assertSame([], $this->communicationService->timeline($booking));
     }
 
+    /**
+     * A manager may move the stay, and the window follows it (issue #1253):
+     * pushing the departure back years must not keep a typed correspondent
+     * of the unit landing on the booking. Past two years after the request
+     * the typed address files nothing, whatever the dates now say.
+     */
+    public function testATypedAddressStopsFilingTwoYearsAfterTheRequestHoweverFarTheStayWasMoved(): void
+    {
+        $booking = $this->createBooking(
+            arrival: '2029-07-01',
+            departure: '2029-07-04',
+            receivedAt: new \DateTimeImmutable('2027-01-01 10:00:00')
+        );
+        $this->bookingRepository->addRenterEmail($booking->id, 'federation@example.org');
+        $this->deliver(10, 'Assurance des camps', from: 'federation@example.org', date: 'Mon, 2 Jul 2029 09:30:00 +0200');
+
+        $this->sync();
+
+        $this->assertSame([], $this->communicationService->timeline($booking));
+    }
+
+    public function testATypedAddressStillFilesInsideTheTwoYearsOfAMovedStay(): void
+    {
+        $booking = $this->createBooking(
+            arrival: '2028-07-01',
+            departure: '2028-07-04',
+            receivedAt: new \DateTimeImmutable('2027-01-01 10:00:00')
+        );
+        $this->bookingRepository->addRenterEmail($booking->id, 'tresorier@groupe.example');
+        $this->deliver(10, 'Question sur la caution', from: 'tresorier@groupe.example', date: 'Mon, 3 Jul 2028 09:30:00 +0200');
+
+        $this->sync();
+
+        $this->assertCount(1, $this->communicationService->timeline($booking));
+    }
+
     /** An address a filing taught was vouched for by that filing: the old rule holds. */
     public function testALearnedAddressStillReachesTheOnlyBookingWhateverTheDate(): void
     {

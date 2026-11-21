@@ -55,7 +55,15 @@ class CalendarPublicController extends AbstractController
          * rental block appends to further down — see
          * Service\VirtualEventRegistry for why that ordering works.
          */
-        private ?VirtualEventRegistry $virtualEventRegistry = null
+        private ?VirtualEventRegistry $virtualEventRegistry = null,
+        /**
+         * The unit's name as the site configures it (`site_name`, with the
+         * fallback every page uses): what a calendar app lists the
+         * subscription under (`X-WR-CALNAME`, #1344), so one among several
+         * calendars on a phone says whose it is. Optional, after the
+         * registry, so a construction site that does not pass one is intact.
+         */
+        private string $unitName = 'Unité scoute'
     ) {
     }
 
@@ -232,7 +240,7 @@ class CalendarPublicController extends AbstractController
         }
 
         return $this->icsResponse(
-            'Unité complète',
+            $this->unitName . ' — Unité complète',
             $events,
             $this->virtualEventsFor($allCalendarIds, null)
         );
@@ -258,7 +266,7 @@ class CalendarPublicController extends AbstractController
         // adding a second one is deliberate: two feeds would mean two links
         // to subscribe to and two chances to see the same booking twice.
         return $this->icsResponse(
-            'Mon calendrier',
+            $this->unitName,
             $events,
             $this->personalFeedService->getVirtualEventsForToken(
                 $token,

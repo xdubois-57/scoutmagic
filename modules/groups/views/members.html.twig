@@ -69,84 +69,9 @@
             {% else %}
                 <div class="list-group list-group-flush">
                     {% for row in explicit_members %}
-                        <div class="list-group-item px-0 py-2 d-flex align-items-center justify-content-between gap-2 flex-wrap">
-                            <div class="d-flex align-items-center gap-2 flex-wrap">
-                                {% if row.identity and row.identity.account_name %}
-                                    {% include '@groups/partials/identity.html.twig' with { identity: row.identity } only %}
-                                {% else %}
-                                    {# Nothing left to name them by: no account, and no
-                                       member_year for this group's year either. #}
-                                    <span class="fw-semibold">Membre #{{ row.member_id }}</span>
-                                {% endif %}
-                                {% if row.is_moderator %}
-                                    <span class="badge text-bg-primary">Modérateur</span>
-                                {% endif %}
-                                {% if row.moderation_unbound|default(false) %}
-                                    {% include 'partials/status_badge.html.twig' with { status: 'pending', label: 'Modération à réattribuer' } only %}
-                                {% endif %}
-                            </div>
-                            {% if can_moderate %}
-                                <div class="d-flex gap-2 align-items-start flex-wrap">
-                                    {#
-                                      One control per LOGIN, never one per member:
-                                      the flag is a power one identified address
-                                      holds, and a member can be reachable by
-                                      several (Service\GroupAccessService::
-                                      canModerate()). The address is spelled out
-                                      because two addresses of the same human
-                                      carry the same name — it is the only thing
-                                      that says which one is being empowered, and
-                                      it is shown to a moderator of this group and
-                                      nowhere else.
-                                    #}
-                                    {% if row.logins is empty %}
-                                        <span class="small text-body-secondary" style="max-width:22rem;">
-                                            Aucun compte ne peut se connecter en tant que ce membre : la modération se
-                                            confie à une adresse email, pas à une fiche.
-                                        </span>
-                                    {% else %}
-                                        <div class="d-flex flex-column gap-1">
-                                            {#
-                                              How the confirmation below names the person: the account when
-                                              one is known (the same name the row itself shows), the member
-                                              number otherwise — never nothing.
-                                            #}
-                                            {% set member_display_name = row.identity and row.identity.account_name
-                                                ? row.identity.account_name
-                                                : 'Membre #' ~ row.member_id %}
-                                            {% for login in row.logins %}
-                                                {#
-                                                  data-confirm on the revoke only (base.html.twig's site-wide
-                                                  handler): granting is reversible in the same click it took,
-                                                  while revoking strips a power — and on the last moderator the
-                                                  server refuses it outright (GroupService::setModerator).
-                                                #}
-                                                <form method="post" action="/groups/{{ group.id }}/moderator"
-                                                      class="d-flex align-items-center gap-2"
-                                                      {% if login.is_moderator %}data-confirm="Retirer la modération à {{ member_display_name }} ?"{% endif %}>
-                                                    {{ csrf_field()|raw }}
-                                                    <input type="hidden" name="member_id" value="{{ row.member_id }}">
-                                                    <input type="hidden" name="user_account_id" value="{{ login.id }}">
-                                                    <input type="hidden" name="is_moderator" value="{{ login.is_moderator ? '0' : '1' }}">
-                                                    <button type="submit" class="btn btn-sm {{ login.is_moderator ? 'btn-outline-primary' : 'btn-outline-secondary' }} d-flex align-items-center">
-                                                        {{ login.is_moderator ? 'Retirer la modération' : 'Nommer modérateur' }}
-                                                    </button>
-                                                    <span class="small text-body-secondary text-break">{{ login.email }}</span>
-                                                </form>
-                                            {% endfor %}
-                                        </div>
-                                    {% endif %}
-                                    <form method="post" action="/groups/{{ group.id }}/remove-member"
-                                          data-confirm="Retirer ce membre du groupe ?">
-                                        {{ csrf_field()|raw }}
-                                        <input type="hidden" name="member_id" value="{{ row.member_id }}">
-                                        <button type="submit" class="btn btn-sm btn-outline-danger d-flex align-items-center">
-                                            <i class="bi bi-x-lg" aria-hidden="true"></i><span class="visually-hidden">Retirer</span>
-                                        </button>
-                                    </form>
-                                </div>
-                            {% endif %}
-                        </div>
+                        {% include '@groups/partials/member_row.html.twig' with {
+                            row: row, group: group, can_moderate: can_moderate,
+                        } only %}
                     {% endfor %}
                 </div>
             {% endif %}

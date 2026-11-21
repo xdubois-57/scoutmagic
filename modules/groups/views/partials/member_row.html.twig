@@ -1,0 +1,109 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{#
+  One invited member of a group, on the « Membres » page (#1351).
+
+  One compact entry per person — identity, the badge, the login address
+  underneath — and ONE actions menu on the right (the same three-dots menu
+  as a message's: partials/post_card.html.twig) instead of a big button and
+  a cross on lines of their own, which made the list very tall on a phone.
+
+  Moderation belongs to a LOGIN, not to a member sheet
+  (Service\GroupAccessService::canModerate()): a member can be reachable by
+  several addresses, so the menu carries one entry per address and says which
+  one — an address is the only thing telling two logins of the same human
+  apart. Addresses and every control are for somebody who may moderate this
+  group, and nobody else (`can_moderate`).
+
+  Usage:
+  {% include '@groups/partials/member_row.html.twig' with {
+      row: row, group: group, can_moderate: can_moderate,
+  } only %}
+#}
+{% set display_name = row.identity and row.identity.account_name
+    ? row.identity.account_name
+    : 'Membre #' ~ row.member_id %}
+{% set several_logins = row.logins|length > 1 %}
+{# Which login holds the flag is only worth saying next to an address when
+   there are several; with one (or none), the badge sits on the identity. #}
+{% set badge_on_address = several_logins and (row.logins|filter(l => l.is_moderator)|length > 0) %}
+<div class="list-group-item px-0 py-2 d-flex align-items-start justify-content-between gap-2">
+    <div class="flex-grow-1 min-w-0">
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+            {% if row.identity and row.identity.account_name %}
+                {% include '@groups/partials/identity.html.twig' with { identity: row.identity } only %}
+            {% else %}
+                {# Nothing left to name them by: no account, and no
+                   member_year for this group's year either. #}
+                <span class="fw-semibold">Membre #{{ row.member_id }}</span>
+            {% endif %}
+            {% if row.is_moderator and not badge_on_address %}
+                <span class="badge text-bg-primary">Modérateur</span>
+            {% endif %}
+            {% if row.moderation_unbound|default(false) %}
+                {% include 'partials/status_badge.html.twig' with { status: 'pending', label: 'Modération à réattribuer' } only %}
+            {% endif %}
+        </div>
+        {% if can_moderate %}
+            {% if row.logins is empty %}
+                <div class="small text-body-secondary">
+                    Aucun compte ne peut se connecter en tant que ce membre : la modération se confie à une adresse
+                    email, pas à une fiche.
+                </div>
+            {% else %}
+                {% for login in row.logins %}
+                    <div class="small text-body-secondary text-break">
+                        {{ login.email }}
+                        {% if badge_on_address and login.is_moderator %}<span class="badge text-bg-primary">Modérateur</span>{% endif %}
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endif %}
+    </div>
+
+    {% if can_moderate %}
+        <div class="dropdown flex-shrink-0">
+            <button class="btn btn-sm btn-link text-body-secondary d-flex align-items-center justify-content-center tap-target"
+                    type="button" data-bs-toggle="dropdown"
+                    aria-expanded="false" aria-label="Actions pour {{ display_name }}">
+                <i class="bi bi-three-dots-vertical" aria-hidden="true"></i>
+            </button>
+            <ul class="dropdown-menu dropdown-menu-end">
+                {% for login in row.logins %}
+                    <li>
+                        {#
+                          data-confirm on the revoke only (base.html.twig's site-wide handler): granting is
+                          reversible in the same click it took, while revoking strips a power — and on the last
+                          moderator the server refuses it outright (GroupService::setModerator).
+                        #}
+                        <form method="post" action="/groups/{{ group.id }}/moderator"
+                              {% if login.is_moderator %}data-confirm="Retirer la modération à {{ display_name }} ?"{% endif %}>
+                            {{ csrf_field()|raw }}
+                            <input type="hidden" name="member_id" value="{{ row.member_id }}">
+                            <input type="hidden" name="user_account_id" value="{{ login.id }}">
+                            <input type="hidden" name="is_moderator" value="{{ login.is_moderator ? '0' : '1' }}">
+                            <button type="submit" class="dropdown-item d-flex align-items-center tap-target text-break">
+                                {{ login.is_moderator ? 'Retirer la modération' : 'Nommer modérateur' }}{% if several_logins %} — {{ login.email }}{% endif %}
+                            </button>
+                        </form>
+                    </li>
+                {% endfor %}
+                {% if row.logins is not empty %}
+                    <li><hr class="dropdown-divider"></li>
+                {% endif %}
+                <li>
+                    <form method="post" action="/groups/{{ group.id }}/remove-member"
+                          data-confirm="Retirer ce membre du groupe ?">
+                        {{ csrf_field()|raw }}
+                        <input type="hidden" name="member_id" value="{{ row.member_id }}">
+                        <button type="submit" class="dropdown-item text-danger d-flex align-items-center tap-target">
+                            Retirer du groupe
+                        </button>
+                    </form>
+                </li>
+            </ul>
+        </div>
+    {% endif %}
+</div>

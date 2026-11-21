@@ -656,6 +656,134 @@ class CalendarPublicControllerTest extends TestCase
         $this->assertStringNotContainsString('BEGIN:VEVENT', $response->getBody());
     }
 
+    // ---- the name a calendar app shows for the subscription (#1344) ----
+
+    private const LONG_UNIT_NAME = 'Unité Saint-Georges, Les Aigles de la Vallée — Compagnie du Haut-Pays et de la Rivière';
+
+    /** The controller a site with a configured unit name builds (public/index.php). */
+    private function controllerForUnit(string $unitName): CalendarPublicController
+    {
+        $reflection = new \ReflectionClass(CalendarPublicController::class);
+        $twig = (new \ReflectionProperty(CalendarPublicController::class, 'twig'))->getValue($this->controller);
+
+        return $reflection->newInstance(
+            $twig,
+            $this->calendarService,
+            new CalendarPickerService($this->calendarService, $this->personalFeedService),
+            new MonthGridBuilder(),
+            $this->personalFeedService,
+            new IcsBuilder(),
+            (new \ReflectionProperty(CalendarPublicController::class, 'scoutYearResolver'))->getValue($this->controller),
+            (new \ReflectionProperty(CalendarPublicController::class, 'journalService'))->getValue($this->controller),
+            null,
+            $unitName
+        );
+    }
+
+    /** The ICS content lines, with RFC 5545's folding (CRLF + one space) undone. */
+    private static function unfolded(string $ics): string
+    {
+        return str_replace("\r\n ", '', $ics);
+    }
+
+    public function testThePersonalFeedIsNamedAfterTheUnit(): void
+    {
+        $response = $this->controllerForUnit(self::LONG_UNIT_NAME)->personalFeed(
+            new Request('GET', '/calendar/feed/personal/nope.ics', [], [], [], []),
+            ['token' => 'nope']
+        );
+
+        $ics = self::unfolded($response->getBody());
+        // The comma is escaped by IcsBuilder, as in any ICS text value.
+        $this->assertStringContainsString(
+            'X-WR-CALNAME:Unité Saint-Georges\\, Les Aigles de la Vallée — Compagnie du Haut-Pays et de la Rivière',
+            $ics
+        );
+        $this->assertStringNotContainsString('Mon calendrier', $ics);
+    }
+
+    /** More than 75 octets, accents included: the line is folded and still reads back whole. */
+    public function testALongAccentedUnitNameIsFoldedAndReadsBackWhole(): void
+    {
+        $this->assertGreaterThan(75, strlen(self::LONG_UNIT_NAME));
+
+        $ics = $this->controllerForUnit(self::LONG_UNIT_NAME)->personalFeed(
+            new Request('GET', '/calendar/feed/personal/nope.ics', [], [], [], []),
+            ['token' => 'nope']
+        )->getBody();
+
+        $this->assertStringContainsString("\r\n ", $ics, 'the long line is folded');
+        foreach (explode("\r\n", $ics) as $line) {
+            $this->assertLessThanOrEqual(75, strlen($line), 'no physical line past 75 octets: ' . $line);
+        }
+    }
+
+    public function testTheUnitFeedSaysItIsTheWholeUnit(): void
+    {
+        $this->calendarService->addCalendar('A', 'public');
+        $token = $this->calendarService->getOrCreateUnitFeedToken();
+
+        $ics = self::unfolded($this->controllerForUnit('Unité Saint-Georges')->unitFeed(
+            new Request('GET', "/calendar/feed/unit/{$token}.ics", [], [], [], []),
+            ['token' => $token]
+        )->getBody());
+
+        $this->assertStringContainsString('X-WR-CALNAME:Unité Saint-Georges — Unité complète', $ics);
+    }
+
+    /** One specific calendar keeps its own name. */
+    public function testASpecificCalendarFeedKeepsTheCalendarsName(): void
+    {
+        $calendar = $this->calendarService->addCalendar('Calendrier des camps', 'public');
+
+        $ics = self::unfolded($this->controllerForUnit('Unité Saint-Georges')->calendarFeed(
+            new Request('GET', "/calendar/feed/{$calendar->icsToken}.ics", [], [], [], []),
+            ['token' => $calendar->icsToken]
+        )->getBody());
+
+        $this->assertStringContainsString('X-WR-CALNAME:Calendrier des camps', $ics);
+        $this->assertStringNotContainsString('Unité Saint-Georges', $ics);
+    }
+
+    /** A site that has configured no name still has one: the fallback every page uses. */
+    public function testWithoutAConfiguredNameTheFeedsUseTheUsualFallback(): void
+    {
+        $ics = self::unfolded($this->controller->personalFeed(
+            new Request('GET', '/calendar/feed/personal/nope.ics', [], [], [], []),
+            ['token' => 'nope']
+        )->getBody());
+
+        $this->assertStringContainsString('X-WR-CALNAME:Unité scoute', $ics);
+    }
+
+    /** The subscription's address, token and events are what they were. */
+    public function testTheNameDoesNotChangeWhatTheFeedCarries(): void
+    {
+        $calendar = $this->calendarService->addCalendar('Test', 'public');
+        $this->eventRepository->create($calendar->id, 'Réunion', '2026-03-15', null, null, null, null, null, null);
+        $token = $this->calendarService->getOrCreateUnitFeedToken();
+
+        $named = $this->controllerForUnit('Unité Saint-Georges')->unitFeed(
+            new Request('GET', "/calendar/feed/unit/{$token}.ics", [], [], [], []),
+            ['token' => $token]
+        );
+
+        $this->assertSame(200, $named->getStatusCode());
+        $this->assertSame('text/calendar; charset=utf-8', $named->getHeaders()['Content-Type']);
+        $this->assertStringContainsString('SUMMARY:Réunion', self::unfolded($named->getBody()));
+    }
+
+    /** The composition root hands the controller the configured name — without it the feeds would all say « Unité scoute ». */
+    public function testTheCompositionRootPassesTheConfiguredUnitName(): void
+    {
+        $source = (string) file_get_contents(dirname(__DIR__, 4) . '/public/index.php');
+
+        $this->assertMatchesRegularExpression(
+            "/new \\\\Modules\\\\Calendar\\\\Controller\\\\CalendarPublicController\\((?:(?!\\n        \\)).)*\\\$settingService->get\\('site_name'\\)/s",
+            $source
+        );
+    }
+
     public function testRegeneratePersonalTokenRequiresAuthentication(): void
     {
         if (session_status() === PHP_SESSION_NONE) {
