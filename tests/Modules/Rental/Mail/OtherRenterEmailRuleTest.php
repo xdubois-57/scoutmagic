@@ -19,6 +19,7 @@ use Modules\Rental\Booking\RentalBooking;
 use Modules\Rental\Mail\OtherRenterEmailRule;
 use Modules\Rental\Repository\RentalAssetRepository;
 use Modules\Rental\Repository\RentalBookingRepository;
+use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Rental\RentalTestHelper;
@@ -29,9 +30,8 @@ use Tests\Modules\Rental\RentalTestHelper;
  *
  * The site sends from `locations@unite.example`, and the module reads the
  * box `locations@unite.example`.
- *
- * @group database
  */
+#[Group('database')]
 final class OtherRenterEmailRuleTest extends TestCase
 {
     private \PDO $pdo;
