@@ -316,6 +316,16 @@ class NewsIntegrationTest extends TestCase
             $body
         );
         $this->assertMatchesRegularExpression('/<span class="badge[^"]*text-wrap[^"]*">Programmée le/', $body, 'the badge may wrap');
+        $this->assertMatchesRegularExpression(
+            '/<span class="badge[^"]*badge-wrap[^"]*">Programmée le/',
+            $body,
+            'a wrapping badge takes the class that restores its line height'
+        );
+
+        // Bootstrap's `.badge` is `line-height: 1`: two wrapped lines would touch.
+        $css = (string) file_get_contents(dirname(__DIR__, 4) . '/public/assets/css/components.css');
+        $this->assertSame(1, preg_match('/\.badge-wrap\s*\{[^}]*line-height:\s*(\d+(?:\.\d+)?)\s*;/', $css, $rule));
+        $this->assertGreaterThan(1.0, (float) $rule[1]);
     }
 
     /** The detail page and the not-online page still name the day: only the list badge changed. */

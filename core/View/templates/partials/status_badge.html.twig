@@ -37,7 +37,9 @@
 
   `wrap: true` lets a long label run onto several lines (Bootstrap's `.badge` is
   `white-space: nowrap`, which overflows a narrow card): for one badge whose
-  words are a sentence, never a global change (#1359).
+  words are a sentence, never a global change (#1359). `badge-wrap`
+  (components.css) restores a line height: `.badge` is `line-height: 1`, which
+  sets the lines of a wrapped badge against one another.
 #}
 {% set _tones = {
     'pending': 'warning', 'waiting': 'warning', 'scheduled': 'warning', 'in_progress': 'warning',
@@ -46,7 +48,7 @@
     'closed': 'secondary', 'inactive': 'secondary', 'cancelled': 'secondary', 'withdrawn': 'secondary', 'archived': 'secondary', 'neutral': 'secondary',
     'draft': 'info', 'info': 'info',
 } %}
-{% set _wrap = wrap|default(false) ? ' text-wrap text-start' : '' %}
+{% set _wrap = wrap|default(false) ? ' badge-wrap text-wrap text-start' : '' %}
 {% if solid|default('') in ['dark', 'primary', 'success'] %}
 <span class="badge badge-solid badge-solid-{{ solid }}{{ _wrap }}">{{ label }}</span>
 {% else %}

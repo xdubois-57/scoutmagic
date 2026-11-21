@@ -1494,6 +1494,12 @@
    Phone: picture and header on the first row, the summary under both on the
    card's full width. Wide screen: the summary beside the picture, under the
    header. One paragraph either way, never repeated per screen size. */
+/* A badge allowed to wrap (status_badge `wrap`): Bootstrap's `.badge` is
+   `line-height: 1`, which sets two wrapped lines — accents included — against
+   each other. */
+.badge-wrap {
+    line-height: 1.3;
+}
 .news-card {
     display: grid;
     grid-template-columns: auto minmax(0, 1fr);
