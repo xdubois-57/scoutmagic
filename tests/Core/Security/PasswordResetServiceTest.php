@@ -206,6 +206,50 @@ class PasswordResetServiceTest extends TestCase
         $this->assertSame($ahead, $reloaded?->sessionsValidFrom?->format('Y-m-d H:i:s'));
     }
 
+    /**
+     * Review of #1374, the three steps in one sequence with the real services:
+     * a session open for the account, a « Déconnecter partout » whose stamp is
+     * dated one second ahead of it, a reset link used right after, and the old
+     * session revalidated — which must still be revoked. The instants are fixed
+     * (the session and the stamp are in the future, so the reset's « now » is
+     * always earlier than the sign-out's stamp), not read from the clock.
+     */
+    public function testASessionRevokedByASignOutEverywhereStaysRevokedAfterAReset(): void
+    {
+        $account = $this->userRepo->create('sequence@test.com', true);
+        $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES ('2025-2026', '2025-09-01', '2026-08-31', 1)");
+        $yearId = (int) $this->pdo->lastInsertId();
+        $revalidator = new \Core\Security\SessionRevalidator(
+            $this->userRepo,
+            new \Core\Security\RoleResolver(new \Core\Import\MemberYearRepository($this->pdo), $this->encryption, $this->pdo),
+            \Tests\SessionGenerationFixture::forPdo($this->pdo)
+        );
+        $_SESSION = [];
+        \Core\Security\AuthSession::login(
+            $account->id,
+            $account->email,
+            'superadmin',
+            \Tests\SessionGenerationFixture::forPdo($this->pdo)->current()
+        );
+        $issuedAt = time() + 1000;
+        $_SESSION['_auth']['issued_at'] = $issuedAt;
+
+        // « Déconnecter partout », whose stamp is the second after the session's.
+        $signOutStamp = date('Y-m-d H:i:s', $issuedAt + 1);
+        $set = $this->pdo->prepare('UPDATE user_accounts SET sessions_valid_from = ? WHERE id = ?');
+        $set->execute([$signOutStamp, $account->id]);
+
+        // The reset link, used right after.
+        [$id, $rawToken] = $this->createRawToken('sequence@test.com');
+        $this->assertTrue($this->service->resetPassword($id, $rawToken, 'MyNewSecureP@ss1'));
+
+        $this->assertSame($signOutStamp, $this->userRepo->findById($account->id)?->sessionsValidFrom?->format('Y-m-d H:i:s'));
+        $this->assertFalse($revalidator->revalidate(
+            fn(): \Core\ScoutYear\AuthorizationYears => new \Core\ScoutYear\AuthorizationYears($yearId, [$yearId])
+        ));
+        $this->assertFalse(\Core\Security\AuthSession::isAuthenticated(), 'the old session stays revoked');
+    }
+
     public function testResetPasswordConsumesTokenSoItCannotBeReused(): void
     {
         $this->userRepo->create('onceonly@test.com');
