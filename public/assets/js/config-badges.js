@@ -116,7 +116,7 @@
         });
         if (next) {
             if (row.nextElementSibling !== next) {
-                list.insertBefore(row, next);
+                next.before(row);
             }
         } else if (row !== list.lastElementChild) {
             list.appendChild(row);
