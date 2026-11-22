@@ -136,6 +136,13 @@ SOURCE_IDS='
 OWN_IDS="$(printf '%s' "${SOURCE_IDS}" | tr -s ' \n' '\n' | grep -v '^$' | paste -sd '|' -)"
 
 MARKER="${MARKER}" FOLD="${FOLD}" TITLE="${TITLE}" BOT="${BOT}" OWN_IDS="${OWN_IDS}" exec perl -CSDA -0777 -pe '
+  # Every rule, again and again until the text stops changing: removing one
+  # construct can join the halves of another around it — `<!\\phantom--`
+  # becomes a comment once the formula rule has run, `&#x2\\phantom00B;` an
+  # entity — after the rule that would have caught it. Each pass only ever
+  # removes or marks, so the passes converge; the bound is a safeguard.
+  for my $pass (1 .. 20) {
+    my $was_pass = $_;
     my $m = $ENV{MARKER};
     utf8::decode($m) unless utf8::is_utf8($m);
     my $own = qr/<!-- (?:external-source:(?:$ENV{OWN_IDS})|external-source-fingerprint:[0-9a-f]{16}(?::sans-analyse)?|issue-fixed-comment: pull request #[0-9]+) -->/;
@@ -185,9 +192,10 @@ MARKER="${MARKER}" FOLD="${FOLD}" TITLE="${TITLE}" BOT="${BOT}" OWN_IDS="${OWN_I
         # A destination as CommonMark reads it: in angle brackets, or a run
         # of non-space characters whose parentheses balance.
         my $ldest = qr/<[^<>\r\n]*>|(?<par>(?:[^\s()\\<]|\\.|\((?:[^\s()\\]|\\.|(?&par))*\))+)/;
-        # What shows as nothing: spaces, line endings, and the entities that
-        # render as a space (`&nbsp;`, `&#32;`, the typographic spaces).
-        my $blank = qr/[ \t\r\n]|&(?:nbsp|ensp|emsp|emsp13|emsp14|numsp|puncsp|thinsp|ThinSpace|hairsp|VeryThinSpace|MediumSpace|ThickSpace|NonBreakingSpace);|&#(?:[xX]0*(?:20|[aA]0|200[0-9aA]|202[fF]|205[fF]|3000)|0*(?:32|160|819[2-9]|820[0-2]|8239|8287|12288));/;
+        # What shows as nothing: spaces and line endings, every Unicode space
+        # character written as itself (a no-break space, the typographic
+        # spaces), and the entities that render as one (`&nbsp;`, `&#32;`).
+        my $blank = qr/[ \t\r\n]|\p{Zs}|&(?:nbsp|ensp|emsp|emsp13|emsp14|numsp|puncsp|thinsp|ThinSpace|hairsp|VeryThinSpace|MediumSpace|ThickSpace|NonBreakingSpace);|&#(?:[xX]0*(?:20|[aA]0|200[0-9aA]|202[fF]|205[fF]|3000)|0*(?:32|160|819[2-9]|820[0-2]|8239|8287|12288));/;
         # CommonMark lets a line ending stand wherever a link allows a space,
         # before the closing parenthesis too.
         s{(?<!!)\[(?:$blank)*\]\((?:$blank)*(?:$ldest)?[ \t\r\n]+(?:$ltitle)[ \t\r\n]*\)}{$m}g;
@@ -306,4 +314,6 @@ MARKER="${MARKER}" FOLD="${FOLD}" TITLE="${TITLE}" BOT="${BOT}" OWN_IDS="${OWN_I
         s/^($cont)\[\^[^\]\r\n]+\]:$line$more(?:(?:\r?\n[ \t]*)*\r?\n(?:[ ]{4}|\t)$line$more)*/$1$m/gm;
         s/^($cont)$label:[ \t]*(?:\r?\n)?[ \t]*(?:$dest)(?:(?:[ \t]+|[ \t]*\r?\n[ \t]*)(?:$title))?[ \t]*(?=\r?$)/$1$m/gm;
     }
+    last if $_ eq $was_pass;
+  }
 '

@@ -276,6 +276,13 @@ expect "A ${M} B" 'A <a href="https://exemple.test" title="consigne">&#32;</a> B
 expect "A ${M} B" 'A <a title="consigne">&#xA0;&ensp;
 </a> B'
 expect 'A <a href="/x">&#233;</a> B' 'A <a href="/x">&#233;</a> B'
+# A Unicode space written as itself is as blank as its entity.
+expect "A ${M} B" "A [$(codepoints a0)](https://exemple.test \"consigne\") B"
+expect "A ${M} B" "A <a title=\"consigne\">$(codepoints 2003 3000)</a> B"
+# A construct reassembled by removing another inside it is caught too, in
+# the same pass of the whole filter.
+expect "${M}" '<!\phantom-- consigne cachée -->'
+expect "a${M}b" 'a&#x2\phantom00B;b'
 # A link with text keeps its title; an empty link with no title hides nothing.
 expect 'voir [la page](https://exemple.test "Titre") ici' 'voir [la page](https://exemple.test "Titre") ici'
 expect 'C [](https://exemple.test) D' 'C [](https://exemple.test) D'
