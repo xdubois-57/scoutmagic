@@ -171,7 +171,7 @@ class RedirectService
         $this->logOutcome('success', 'Redirection modifiée.', $newMemberId);
         // Only once the operator confirmed the line really moved: a failed or
         // unchanged redirection is no fallback transition (review of #1194).
-        $this->journalIgnoredDefaultNumber($newMemberId, $scoutYearId);
+        $this->journalIgnoredDefaultNumber($newMemberId, $unreachableMemberId, $scoutYearId);
         $this->settingsService->recordRedirectOutcome(false, AppClock::now());
         // The member whose GSM is no number is not told the line points to
         // their phone: it points to the default number (issue #1260).
@@ -314,9 +314,16 @@ class RedirectService
      * moved to the fallback, confirmed by the operator — the attention
      * point says it on the page.
      */
-    private function journalIgnoredDefaultNumber(?int $memberId, int $scoutYearId): void
+    private function journalIgnoredDefaultNumber(?int $memberId, ?int $unreachableMemberId, int $scoutYearId): void
     {
-        if ($memberId !== null && $this->memberService->findProfileByMemberAndYear($memberId, $scoutYearId)?->mobile) {
+        // The line used the member's OWN number only when they have one the
+        // site can read: a mobile that is there but is no phone number sent
+        // the line to the default number all the same (issue #1260, review
+        // of #1375), so « has a mobile » is not the test it used to be.
+        $usedOwnNumber = $memberId !== null
+            && $unreachableMemberId === null
+            && $this->memberService->findProfileByMemberAndYear($memberId, $scoutYearId)?->mobile;
+        if ($usedOwnNumber) {
             return;
         }
 

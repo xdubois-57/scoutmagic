@@ -409,6 +409,33 @@ class RedirectServiceTest extends TestCase
     }
 
     /**
+     * Review of #1375: a person whose Desk GSM is there but is no phone number
+     * sends the line to the default number too, so a stale default choice is
+     * journaled for them as it is for nobody on duty — having a mobile string
+     * does not mean the line used it.
+     */
+    public function testMovingTheLineToTheFallbackForAnUnusableGsmJournalsAStaleDefault(): void
+    {
+        $provider = $this->createStub(PhoneProviderInterface::class);
+        $provider->method('readForwardingState')->willReturnOnConsecutiveCalls(
+            new ForwardingState(true, '+32470000001'),
+            new ForwardingState(true, '+32470000002')
+        );
+        $this->providerConfigService->method('getActiveProvider')->willReturn($provider);
+        $this->memberService->method('findProfileByMemberAndYear')
+            ->willReturn($this->profile(1, 'Akela', '0470 12 34', 'akela@test.be'));
+        $this->settingsService->method('getDefaultNumber')->willReturn('+32470000002');
+        $this->settingsService->method('staleDefaultNumberMemberId')->willReturn(7);
+        $this->settingsService->method('resolveDefaultNumberMemberId')->willReturn(8);
+        $this->settingsService->method('isEmailNotificationsEnabled')->willReturn(false);
+
+        $logged = $this->recordJournal();
+        $this->service()->apply(1, null, 100);
+
+        self::assertSame('warning', $logged['default_number_ignored'] ?? null);
+    }
+
+    /**
      * Review of #1194: the fallback is journaled only once the line really
      * moved — not when it was already there, not when the operator refused.
      */
