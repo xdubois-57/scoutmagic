@@ -59,6 +59,7 @@ class Mailbox
          */
         public readonly ?string $sentFolder = null,
         public readonly ?\DateTimeImmutable $failingSince = null,
+        /** The nature of the last failure accepted by the event journal. */
         public readonly ?string $lastFailureSignature = null
     ) {
     }

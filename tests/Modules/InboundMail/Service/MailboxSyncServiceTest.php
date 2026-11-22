@@ -246,6 +246,50 @@ class MailboxSyncServiceTest extends TestCase
         self::assertTrue($this->sync()->isFailure());
     }
 
+    public function testScheduledDiagnosticsRetryAfterARejectedJournalWrite(): void
+    {
+        $storedJournal = new JournalService(new JournalRepository($this->pdo));
+        $writes = 0;
+        $journal = $this->createMock(JournalService::class);
+        $journal->expects(self::exactly(4))->method('log')->willReturnCallback(
+            static function (...$arguments) use (&$writes, $storedJournal): void {
+                $writes++;
+                if (in_array($writes, [1, 3], true)) {
+                    throw new \RuntimeException('Journal temporarily unavailable');
+                }
+                $storedJournal->log(...$arguments);
+            }
+        );
+        $this->service = $this->createSyncService(journal: $journal);
+        $firstSignature = null;
+        $nextSignature = null;
+
+        foreach (['UNAVAILABLE', 'UNAVAILABLE', 'UNAVAILABLE',
+            'AUTHENTICATIONFAILED', 'AUTHENTICATIONFAILED', 'AUTHENTICATIONFAILED'] as $index => $code) {
+            $this->client->failNextConnect(\Modules\InboundMail\Client\MailboxConnectionException::at('connect',
+                new \Webklex\PHPIMAP\Exceptions\ImapServerErrorException('NO [' . $code . '] Retry')));
+            self::assertTrue($this->sync()->isFailure());
+            $signature = $this->mailboxRepository->findById($this->mailboxId)?->lastFailureSignature;
+            if ($index === 0) {
+                self::assertNull($signature, 'A rejected diagnostic must remain pending.');
+            } elseif ($index === 1) {
+                self::assertNotNull($signature);
+                $firstSignature = $signature;
+            } elseif ($index < 4) {
+                self::assertSame($firstSignature, $signature, 'A changed failure is acknowledged only after journal acceptance.');
+            } elseif ($index === 4) {
+                self::assertNotNull($signature);
+                self::assertNotSame($firstSignature, $signature);
+                $nextSignature = $signature;
+            } else {
+                self::assertSame($nextSignature, $signature);
+            }
+            $expectedEvents = [0, 1, 1, 1, 2, 2][$index];
+            self::assertSame($expectedEvents,
+                (int) $this->pdo->query("SELECT COUNT(*) FROM event_log WHERE event_type = 'inbound_mailbox_sync_failed'")->fetchColumn());
+        }
+    }
+
     // ── What a consumer learns about the attachments while deciding ─────
 
     public function testAConsumerSeesTheAttachmentsMetadataButNeverItsBytes(): void

@@ -78,7 +78,7 @@ CREATE TABLE IF NOT EXISTS inbound_mailboxes (
     -- What the attention point measures its grace from (#718 § C point 8);
     -- `last_synced_at` would count the time a box spent switched off.
     failing_since DATETIME NULL,
-    -- Failure nature only, for transition-based scheduled diagnostics; no server text.
+    -- Last failure accepted by the journal, for retry-safe deduplication; no server text.
     last_failure_signature VARCHAR(64) NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,

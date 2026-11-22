@@ -20,6 +20,10 @@ final class MailboxFailureDiagnostic
         'failed to write - connection closed?', 'connection closed', 'authentication failed',
     ];
 
+    private const EMAIL_PATTERN = <<<'REGEX'
+/(?:"(?:[^"\\\r\n]|\\.)*"|[^\s<>"()\[\],;:]+)@(?:\[[^\]\r\n]+\]|[^\s<>"()\[\],;:]+)/u
+REGEX;
+
     /** @param array<string, mixed> $details */
     private function __construct(public readonly string $step, public readonly array $details)
     {
@@ -110,7 +114,7 @@ final class MailboxFailureDiagnostic
         usort($secrets, static fn(string $a, string $b): int => strlen($b) <=> strlen($a));
         $text = str_replace($secrets, '[masqué]', $text);
         $text = preg_replace('/\b(LOGIN|AUTHENTICATE)\b[^\r\n]*/i', '$1 [masqué]', $text) ?? '';
-        $text = preg_replace('/[^\s<>"()\[\],;:]+@[^\s<>"()\[\],;:]+/u', '[masqué]', $text) ?? '';
+        $text = preg_replace(self::EMAIL_PATTERN, '[masqué]', $text) ?? '';
 
         return mb_substr($text, 0, 300);
     }

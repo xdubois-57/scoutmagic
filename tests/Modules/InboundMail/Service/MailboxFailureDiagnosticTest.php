@@ -70,6 +70,19 @@ final class MailboxFailureDiagnosticTest extends TestCase
         self::assertArrayNotHasKey('server_response', $processing->details);
     }
 
+    public function testQuotedEmailLocalPartsAndAddressLiteralsAreFullyMasked(): void
+    {
+        $credentials = new MailboxCredentials('box@example.test', 'credential');
+        foreach (['"first last"@example.org', '"first \\"last"@example.org',
+            'person@[IPv6:2001:db8::1]', '"quoted local"@[127.0.0.1]'] as $address) {
+            $diagnostic = MailboxFailureDiagnostic::from(
+                new ImapServerErrorException('NO [UNAVAILABLE] ' . $address),
+                $credentials
+            );
+            self::assertSame('NO [UNAVAILABLE] [masqué]', $diagnostic->details['server_response']);
+        }
+    }
+
     public function testControlCharactersInsideKnownCredentialsCannotBypassRedaction(): void
     {
         $credentials = new MailboxCredentials("box\tlogin", "control\0secret");

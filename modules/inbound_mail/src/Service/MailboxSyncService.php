@@ -243,11 +243,11 @@ class MailboxSyncService
             $reason = $this->errorFormatter->format($e);
             $diagnostic = MailboxFailureDiagnostic::from($e, $credentials);
             $signature = $diagnostic->signature();
-            $this->mailboxRepository->recordFailure($mailbox->id, $reason, $now, $signature);
+            $this->mailboxRepository->recordFailure($mailbox->id, $reason, $now);
             if ($origin === self::ORIGIN_MANUAL || $mailbox->failingSince === null || $mailbox->lastFailureSignature !== $signature) {
                 $this->logSyncEvent($mailbox, 'inbound_mailbox_sync_failed', 'error',
                     'Échec de la relève de la boîte n° ' . $mailbox->id . '.',
-                    ['origin' => $origin, 'step' => $diagnostic->step] + $diagnostic->details, $userId);
+                    ['origin' => $origin, 'step' => $diagnostic->step] + $diagnostic->details, $userId, $signature);
             }
             $client->disconnect();
             // The step and the classes, for the support: what the sentence
@@ -272,11 +272,25 @@ class MailboxSyncService
     }
 
     /** @param array<string, mixed> $context */
-    private function logSyncEvent(Mailbox $mailbox, string $type, string $level, string $description, array $context, ?int $userId): void
+    private function logSyncEvent(
+        Mailbox $mailbox,
+        string $type,
+        string $level,
+        string $description,
+        array $context,
+        ?int $userId,
+        ?string $failureSignature = null
+    ): void
     {
+        if ($this->journal === null) {
+            return;
+        }
         try {
-            $this->journal?->log('inbound_mail', $type, $level, $description,
+            $this->journal->log('inbound_mail', $type, $level, $description,
                 ['mailbox_id' => $mailbox->id, 'mailbox_address' => $mailbox->username] + $context, $userId);
+            if ($failureSignature !== null) {
+                $this->mailboxRepository->acknowledgeFailure($mailbox->id, $failureSignature);
+            }
         } catch (\Throwable $error) {
             // Never let a broken journal hide the original failure or print its payload.
             error_log('ScoutMagic: mailbox sync journal failed (' . $error::class . ').');

@@ -54,6 +54,8 @@ Après une relève en échec, consultez **Journal d'événements**, catégorie
 l'étape, les classes d'erreurs et les codes disponibles. Pour les relèves
 automatiques, seul le premier échec ou un changement de cause produit un
 événement ; un autre indique le rétablissement.
+Si le journal refuse un diagnostic automatique, son écriture est retentée
+à la relève suivante si la même panne persiste.
 
 La réponse du serveur, lorsqu'elle est disponible, est limitée à 300
 caractères après masquage des identifiants connus, mots de passe, adresses

@@ -344,12 +344,12 @@ class InboundMailboxRepository
      * Service\MailboxErrorFormatter. This method does no formatting of its
      * own precisely so there is one place where that rule lives.
      */
-    public function recordFailure(int $id, string $reason, \DateTimeImmutable $at, ?string $signature = null): void
+    public function recordFailure(int $id, string $reason, \DateTimeImmutable $at): void
     {
         $stmt = $this->pdo->prepare(
             'UPDATE inbound_mailboxes
                 SET sync_state = ?, last_error = ?, last_error_at = ?,
-                    failing_since = COALESCE(failing_since, ?), last_failure_signature = ?, updated_at = ?
+                    failing_since = COALESCE(failing_since, ?), updated_at = ?
               WHERE id = ?'
         );
         $stmt->execute([
@@ -358,10 +358,18 @@ class InboundMailboxRepository
             $at->format('Y-m-d H:i:s'),
             // The first failure of a run dates it; the next ones keep it.
             $at->format('Y-m-d H:i:s'),
-            $signature,
             self::now(),
             $id,
         ]);
+    }
+
+    /** A failed journal write must leave the diagnostic eligible for retry. */
+    public function acknowledgeFailure(int $id, string $signature): void
+    {
+        $stmt = $this->pdo->prepare(
+            'UPDATE inbound_mailboxes SET last_failure_signature = ? WHERE id = ? AND sync_state = ?'
+        );
+        $stmt->execute([$signature, $id, SyncState::ERROR->value]);
     }
 
     public function delete(int $id): void

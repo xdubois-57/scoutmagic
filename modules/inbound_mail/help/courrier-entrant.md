@@ -45,8 +45,8 @@ certificat invalide bloque toujours.
 
 ## Deux usages
 
-**Courrier général de l'unité** — l'adresse où l'on trouve de tout.
-Chaque module actif y reconnaît ses messages. Le Staff d'U voit tout
+**Courrier général de l'unité** — chaque module actif y reconnaît ses
+messages. Le Staff d'U voit tout
 dans « Courrier reçu ». Les responsables d'un module ne voient que les
 messages rattachés à un dossier qu'ils gèrent : quand un module hésite,
 sa proposition reste dans « Courrier reçu », où le Staff d'U la
@@ -58,7 +58,8 @@ comme le Staff d'U. Un module n'a qu'une adresse réservée, et un module
 qui a déjà la sienne n'est pas proposé — sauf « Courrier sortant —
 boîtes témoins », qui peut en avoir plusieurs.
 
-Par défaut, la première adresse est générale, les suivantes réservées.
+Le courrier général est proposé tant qu'aucune adresse générale
+n'existe, puis une adresse réservée si un module est disponible.
 
 ## Dossiers lus
 
