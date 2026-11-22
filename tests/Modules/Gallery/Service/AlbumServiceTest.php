@@ -1003,7 +1003,9 @@ class AlbumServiceTest extends TestCase
 
     private function newSection(string $code, string $name): int
     {
-        $branchId = (int) $this->pdo->query('SELECT id FROM age_branches LIMIT 1')->fetchColumn();
+        $branch = $this->pdo->prepare('SELECT id FROM age_branches LIMIT 1');
+        $branch->execute();
+        $branchId = (int) $branch->fetchColumn();
         $this->pdo->prepare('INSERT INTO sections (age_branch_id, desk_code, name) VALUES (?, ?, ?)')->execute([$branchId, $code, $name]);
 
         return (int) $this->pdo->lastInsertId();
@@ -1013,7 +1015,7 @@ class AlbumServiceTest extends TestCase
     private function memberHolding(string $email, int $sectionId, string $role = 'identified', ?int $yearId = null): int
     {
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
-        $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('T" . uniqid() . "')");
+        $this->pdo->prepare('INSERT INTO members (desk_id) VALUES (?)')->execute(['T' . uniqid()]);
         $memberId = (int) $this->pdo->lastInsertId();
         $this->pdo->prepare(
             'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted,
@@ -1026,8 +1028,11 @@ class AlbumServiceTest extends TestCase
             $encryption->blindIndex(strtolower($email), 'email'),
         ]);
         $memberYearId = (int) $this->pdo->lastInsertId();
-        $this->pdo->exec("INSERT OR IGNORE INTO functions (desk_code, label, role, confirmed) VALUES ('R_{$role}', '{$role}', '{$role}', 1)");
-        $functionId = (int) $this->pdo->query("SELECT id FROM functions WHERE desk_code = 'R_{$role}'")->fetchColumn();
+        $this->pdo->prepare('INSERT OR IGNORE INTO functions (desk_code, label, role, confirmed) VALUES (?, ?, ?, 1)')
+            ->execute(['R_' . $role, $role, $role]);
+        $function = $this->pdo->prepare('SELECT id FROM functions WHERE desk_code = ?');
+        $function->execute(['R_' . $role]);
+        $functionId = (int) $function->fetchColumn();
         $this->pdo->prepare('INSERT INTO member_functions (member_year_id, function_id, section_id) VALUES (?, ?, ?)')
             ->execute([$memberYearId, $functionId, $sectionId]);
 
@@ -1153,6 +1158,31 @@ class AlbumServiceTest extends TestCase
         $this->assertCount(1, $notifications->findByUserAccountId($chief));
     }
 
+    /**
+     * Review of #1379: the album's age window says WHICH albums are old, not
+     * who may open them. A chef of the PREVIOUS year only is a parent today —
+     * the page would answer 403 — so is not told; a chef of the current year is.
+     */
+    public function testAnOldAlbumIsNotAnnouncedToAFormerChiefOfThePreviousYear(): void
+    {
+        [$service, $notifications, $accounts] = $this->publishingService();
+        $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date) VALUES ('2019-2020', '2019-09-01', '2020-08-31')");
+        $oldYear = (int) $this->pdo->lastInsertId();
+        $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date) VALUES ('2024-2025', '2024-09-01', '2025-08-31')");
+        $previousYear = (int) $this->pdo->lastInsertId();
+        $former = $accounts->create('former@test.com')->id;
+        $this->memberHolding('former@test.com', $this->sectionId, 'identified', $oldYear);
+        $this->memberHolding('former@test.com', $this->sectionId, 'chief', $previousYear);
+        $current = $accounts->create('current@test.com')->id;
+        $this->memberHolding('current@test.com', $this->sectionId, 'identified', $oldYear);
+        $this->memberHolding('current@test.com', $this->sectionId, 'chief');
+
+        $this->publish($service, $this->sectionId, '2019-11-15');
+
+        $this->assertSame([], $notifications->findByUserAccountId($former), 'a chef of last year is a parent today');
+        $this->assertCount(1, $notifications->findByUserAccountId($current));
+    }
+
     /** A unit-wide album keeps its audience: every account. */
     public function testAnAlbumWithoutASectionIsStillAnnouncedToTheWholeUnit(): void
     {
@@ -1251,7 +1281,7 @@ class AlbumServiceTest extends TestCase
     private function memberOfTheSectionByBlindIndex(string $blindIndex): void
     {
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
-        $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('T" . uniqid() . "')");
+        $this->pdo->prepare('INSERT INTO members (desk_id) VALUES (?)')->execute(['T' . uniqid()]);
         $memberId = (int) $this->pdo->lastInsertId();
 
         $stmt = $this->pdo->prepare(

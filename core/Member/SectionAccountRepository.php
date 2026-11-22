@@ -17,7 +17,11 @@ namespace Core\Member;
  * function in it. Both ways an address reaches a member count, exactly as
  * login itself resolves them (SECURITY.md §2, Core\Security\RoleResolver):
  *
- *  - the member's **Desk address** (`member_years.email_blind_index`);
+ *  - the member's **Desk address** (`member_years.email_blind_index`) — unless
+ *    that exact (member, address) pair carries an explicitly `inactive`
+ *    override, which RoleResolver refuses too: such an account is not this
+ *    member's, and a restricted calendar's title must not reach it (review
+ *    of #1379);
  *  - every **confirmed secondary address** they added themselves — a
  *    `member_emails` row that is `valid` and `manual`. A `pending` or
  *    `inactive` row grants nothing anywhere, and a `desk` row only restates
@@ -76,6 +80,11 @@ class SectionAccountRepository
               WHERE mf.section_id IN ({$sections})
                 AND my.scout_year_id IN ({$years})
                 AND my.is_active = 1
+                AND NOT EXISTS (
+                    SELECT 1 FROM member_emails mo
+                     WHERE mo.member_id = my.member_id
+                       AND mo.email_blind_index = ua.email_blind_index
+                       AND mo.status = 'inactive')
              UNION
              SELECT ua.id
                FROM user_accounts ua
@@ -126,6 +135,11 @@ class SectionAccountRepository
                    JOIN member_functions mf ON mf.member_year_id = my.id
                    JOIN functions f ON f.id = mf.function_id
                   WHERE my.scout_year_id IN ({$years}) AND my.is_active = 1 AND f.role IN ({$rolePlaceholders})
+                    AND NOT EXISTS (
+                        SELECT 1 FROM member_emails mo
+                         WHERE mo.member_id = my.member_id
+                           AND mo.email_blind_index = ua.email_blind_index
+                           AND mo.status = 'inactive')
                  UNION
                  SELECT ua.id
                    FROM user_accounts ua

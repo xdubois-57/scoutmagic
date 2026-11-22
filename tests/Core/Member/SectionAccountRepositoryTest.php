@@ -270,4 +270,45 @@ final class SectionAccountRepositoryTest extends TestCase
         sort($admins);
         $this->assertSame([$admin, $super], $admins);
     }
+
+    /**
+     * An explicitly `inactive` override of a Desk address excludes that exact
+     * (member, address) pair, as RoleResolver does at login: the account is not
+     * linked — nor a cadre — through that member. Links through ANOTHER member
+     * who has the same Desk address, and valid secondary addresses, survive
+     * (review of #1379).
+     */
+    public function testAnInactiveDeskOverrideExcludesOnlyThatMemberAndAddressPair(): void
+    {
+        $this->pdo->exec("INSERT INTO functions (desk_code, label, role, confirmed) VALUES ('CHE', 'Chef', 'chief', 1)");
+        $chiefFunction = (int) $this->pdo->lastInsertId();
+
+        // The chef's own Desk address was switched off for this member.
+        $blocked = $this->account('blocked@test.be');
+        $chief = $this->member('blocked@test.be', $this->goelands, function: $chiefFunction);
+        $this->secondary->create($chief['member'], 'blocked@test.be', MemberEmail::SOURCE_DESK, MemberEmail::STATUS_INACTIVE, null, null);
+
+        // Same address, ANOTHER member of the section: still a valid link.
+        $sibling = $this->account('shared@test.be');
+        $this->member('shared@test.be', $this->goelands);
+        $overridden = $this->member('shared@test.be', $this->pionniers, function: $chiefFunction);
+        $this->secondary->create($overridden['member'], 'shared@test.be', MemberEmail::SOURCE_DESK, MemberEmail::STATUS_INACTIVE, null, null);
+
+        // A valid secondary address of a member whose Desk address is switched off.
+        $viaSecondary = $this->account('secondary@test.be');
+        $other = $this->member('off@test.be', $this->goelands);
+        $this->secondary->create($other['member'], 'off@test.be', MemberEmail::SOURCE_DESK, MemberEmail::STATUS_INACTIVE, null, null);
+        $this->secondary->create($other['member'], 'secondary@test.be', MemberEmail::SOURCE_MANUAL, MemberEmail::STATUS_VALID, null, null);
+        $off = $this->account('off@test.be');
+
+        $linked = $this->linked([$this->goelands]);
+        $this->assertNotContains($blocked, $linked, 'the switched-off Desk address links nobody');
+        $this->assertNotContains($off, $linked);
+        $this->assertContains($sibling, $linked, 'the same address through another member still links');
+        $this->assertContains($viaSecondary, $linked, 'a valid secondary address survives');
+
+        $cadres = $this->resolver->cadreAccountIds([$this->year]);
+        $this->assertNotContains($blocked, $cadres, 'and it is no cadre either');
+        $this->assertNotContains($sibling, $cadres, 'a chef of ANOTHER section whose address is switched off for him');
+    }
 }

@@ -316,9 +316,14 @@ class AlbumService
             );
             $periodYears = $this->scoutYearService->currentAndPreviousYearIds();
             if (!in_array($album->scoutYearId, $periodYears, true)) {
+                // The age window decides WHICH albums are old; who may still
+                // open them is a role held NOW. A chef of the previous year
+                // only is a parent today and would get the title and a 403,
+                // so the cadres are those of the current year (review of
+                // #1379).
                 $recipientIds = array_values(array_intersect(
                     $recipientIds,
-                    $this->sectionAccounts->cadreAccountIds($periodYears)
+                    $this->sectionAccounts->cadreAccountIds([(int) $this->scoutYearService->getCurrentYear()['id']])
                 ));
             }
         }

@@ -139,6 +139,12 @@ class EventReminderHandlerTest extends TestCase
 
     private function remind(int $eventId): void
     {
+        $this->scheduleReminder($eventId);
+        $this->runner->processOverdue();
+    }
+
+    private function scheduleReminder(int $eventId): void
+    {
         $this->schedulerRepository->create(
             'calendar',
             'event_reminder',
@@ -146,7 +152,6 @@ class EventReminderHandlerTest extends TestCase
             json_encode(['event_id' => $eventId]),
             'event-reminder-' . $eventId
         );
-        $this->runner->processOverdue();
     }
 
     /** @return list<array{typeId: string, body: string}> */
@@ -250,12 +255,16 @@ class EventReminderHandlerTest extends TestCase
     {
         $stayed = $this->linkedAccount('stayed@example.test', $this->sectionId);
         $left = $this->linkedAccount('left@example.test', $this->sectionId);
+        $eventId = $this->createEvent((new \DateTimeImmutable('+1 day'))->format('Y-m-d'));
+        // Scheduled while both are linked; the link goes AFTER, and only the
+        // run that sends decides — the test fails if recipients were captured
+        // when the task was scheduled.
+        $this->scheduleReminder($eventId);
         $this->pdo->prepare('DELETE FROM member_functions WHERE member_year_id IN
             (SELECT id FROM member_years WHERE email_blind_index = ?)')
             ->execute([$this->encryption->blindIndex('left@example.test', 'email')]);
-        $eventId = $this->createEvent((new \DateTimeImmutable('+1 day'))->format('Y-m-d'));
 
-        $this->remind($eventId);
+        $this->runner->processOverdue();
 
         $this->assertCount(1, $this->remindersOf($stayed));
         $this->assertSame([], $this->remindersOf($left));
@@ -283,7 +292,9 @@ class EventReminderHandlerTest extends TestCase
 
         $this->remind($eventId);
 
-        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM notifications')->fetchColumn());
+        $count = $this->pdo->prepare('SELECT COUNT(*) FROM notifications');
+        $count->execute();
+        $this->assertSame(0, (int) $count->fetchColumn());
         $stmt = $this->pdo->prepare('SELECT status FROM scheduled_actions WHERE reference = ?');
         $stmt->execute(['event-reminder-' . $eventId]);
         $this->assertSame('done', $stmt->fetchColumn());

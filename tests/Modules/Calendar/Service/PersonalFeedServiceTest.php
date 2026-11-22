@@ -574,7 +574,9 @@ class PersonalFeedServiceTest extends TestCase
     public function testASectionCalendarReservedToTheChefsIsNotInAParentsPersonalScope(): void
     {
         $sectionId = $this->createSection('BAL01', 'Renards');
-        $branchId = (int) $this->pdo->query("SELECT age_branch_id FROM sections WHERE id = {$sectionId}")->fetchColumn();
+        $branch = $this->pdo->prepare('SELECT age_branch_id FROM sections WHERE id = ?');
+        $branch->execute([$sectionId]);
+        $branchId = (int) $branch->fetchColumn();
         $this->createMemberWithFunction('parent@test.be', $sectionId, $branchId, 'identified');
         $this->createMemberWithFunction('chief@test.be', $sectionId, $branchId, 'chief');
         $this->calendarService->ensureSectionCalendars();
@@ -590,7 +592,9 @@ class PersonalFeedServiceTest extends TestCase
     public function testAPublicSectionCalendarStaysInTheParentsPersonalScope(): void
     {
         $sectionId = $this->createSection('BAL01', 'Renards');
-        $branchId = (int) $this->pdo->query("SELECT age_branch_id FROM sections WHERE id = {$sectionId}")->fetchColumn();
+        $branch = $this->pdo->prepare('SELECT age_branch_id FROM sections WHERE id = ?');
+        $branch->execute([$sectionId]);
+        $branchId = (int) $branch->fetchColumn();
         $this->createMemberWithFunction('parent@test.be', $sectionId, $branchId, 'identified');
         $this->calendarService->ensureSectionCalendars();
         $calendar = (new CalendarRepository($this->pdo, $this->encryption))->findBySectionId($sectionId);

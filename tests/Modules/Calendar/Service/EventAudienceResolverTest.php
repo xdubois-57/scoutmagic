@@ -315,7 +315,14 @@ final class EventAudienceResolverTest extends TestCase
         $calendar = $this->sectionCalendar($this->goelands);
 
         $this->assertSame([$parent], $this->audience($calendar, '+5 days'));
-        // A date in a year nobody imported yet falls back to the current year.
+        // A date in a year nobody imported yet falls back to the CURRENT year —
+        // today's, which is not the year of « +5 days » during the last days
+        // of August. The parent is a member of it too, separately, so the
+        // assertion does not depend on the day the suite runs (review of #1379).
+        $currentYear = (int) (new ScoutYearService($this->pdo))->getCurrentYear()['id'];
+        if ($currentYear !== $this->year) {
+            $this->member('parent@test.be', $this->goelands, null, $currentYear);
+        }
         $this->assertSame([$parent], $this->audience($calendar, '+4 years'));
     }
 
