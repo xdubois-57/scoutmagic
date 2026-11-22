@@ -76,6 +76,31 @@ class PurgeExpiredPasswordResetTokensHandlerTest extends TestCase
         $this->assertSame('pending', $scheduled['status']);
     }
 
+    /**
+     * Review of #1374: a purge that fails must still leave its successor, or the
+     * chain dies until a later web request re-seeds it and the table grows again.
+     * The failure itself still propagates, so the scheduler records it.
+     */
+    public function testAFailingPurgeStillLeavesItsSuccessor(): void
+    {
+        $this->pdo->exec('DROP TABLE password_reset_tokens');
+
+        try {
+            (new PurgeExpiredPasswordResetTokensHandler())->handle([], $this->context);
+            $this->fail('The failure must propagate.');
+        } catch (\PDOException) {
+            // expected
+        }
+
+        $scheduled = (new SchedulerService(new SchedulerRepository($this->pdo)))->find(
+            'core',
+            PurgeExpiredPasswordResetTokensHandler::TASK_KEY,
+            PurgeExpiredPasswordResetTokensHandler::REFERENCE
+        );
+        $this->assertNotNull($scheduled);
+        $this->assertSame('pending', $scheduled['status']);
+    }
+
     /** Registered where the scheduler looks tasks up, or it would never run. */
     public function testTheTaskIsRegisteredWithTheCoreHandlers(): void
     {

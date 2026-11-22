@@ -288,7 +288,7 @@
                 pas fait. Vous pourrez toujours vous reconnecter avec le lien envoyé par e-mail.
             </p>
             <form method="post" action="/account/sign-out-everywhere"
-                  data-confirm="Déconnecter partout ? Toutes vos sessions seront fermées, y compris celle-ci, vos clés numériques retirées{% if has_password %}, votre mot de passe supprimé{% endif %} et vos appareils synchronisés déconnectés. Vous vous reconnecterez avec le lien envoyé par e-mail.">
+                  data-confirm="Déconnecter partout ? Toutes vos sessions seront fermées, y compris celle-ci, vos clés numériques retirées{% if has_password %}, votre mot de passe supprimé, sauf si vous avez coché « Conserver mon mot de passe »,{% endif %} et vos appareils synchronisés déconnectés. Vous vous reconnecterez avec le lien envoyé par e-mail.">
                 {{ csrf_field()|raw }}
                 {% if has_password %}
                     <div class="form-check mb-3">

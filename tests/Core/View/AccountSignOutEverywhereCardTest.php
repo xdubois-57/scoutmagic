@@ -53,7 +53,9 @@ final class AccountSignOutEverywhereCardTest extends TestCase
         $card = $this->card(true);
 
         $this->assertStringContainsString('votre mot de passe', $card);
-        $this->assertStringContainsString('votre mot de passe supprimé', $card);
+        // The confirmation states BOTH outcomes, since the box is ticked after it was written:
+        // the password goes unless the holder keeps it.
+        $this->assertStringContainsString('votre mot de passe supprimé, sauf si vous avez coché', $card);
         $this->assertMatchesRegularExpression('#<input type="checkbox"[^>]*name="keep_password"[^>]*value="1"#', $card);
         $this->assertStringNotContainsString('checked', $card, 'Keeping it is the exception: the box starts unticked.');
     }

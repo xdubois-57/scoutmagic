@@ -35,9 +35,15 @@ class PurgeExpiredPasswordResetTokensHandler implements TaskHandlerInterface
     public function handle(array $payload, TaskContext $context): void
     {
         $pdo = $context->connection->getPdo();
-        (new PasswordResetRepository($pdo))->deleteExpired();
-
-        (new SchedulerService(new SchedulerRepository($pdo)))
-            ->rearmAfter('core', self::TASK_KEY, self::REFERENCE, self::INTERVAL_SECONDS);
+        try {
+            (new PasswordResetRepository($pdo))->deleteExpired();
+        } finally {
+            // Armed whether the purge worked or threw: a failed occurrence is
+            // marked `failed` and never claimed again, so without a successor the
+            // chain would stay dead until a later web request re-seeded it. The
+            // failure itself still propagates for the scheduler to record.
+            (new SchedulerService(new SchedulerRepository($pdo)))
+                ->rearmAfter('core', self::TASK_KEY, self::REFERENCE, self::INTERVAL_SECONDS);
+        }
     }
 }
