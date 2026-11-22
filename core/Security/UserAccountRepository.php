@@ -12,6 +12,19 @@ use Core\Service\DateInput;
 
 class UserAccountRepository
 {
+
+    /**
+     * The value every write of `sessions_valid_from` stores — a SQL
+     * expression taking the new stamp twice. **A revocation stamp never moves
+     * back**: an account's stamp is the latest of every revocation written for
+     * it, so a write dated « now » cannot lower a stamp that a « Déconnecter
+     * partout » dated a second ahead (see signOutStamp()), and with it let a
+     * session that stamp had revoked read as valid again (review of #1374).
+     * Portable CASE, not GREATEST(): SQLite has no such function.
+     */
+    private const LATEST_STAMP =
+        'CASE WHEN sessions_valid_from IS NOT NULL AND sessions_valid_from > ? THEN sessions_valid_from ELSE ? END';
+
     public function __construct(
         private \PDO $pdo,
         private EncryptionService $encryption
@@ -545,9 +558,10 @@ class UserAccountRepository
     {
         $now = (new \DateTimeImmutable())->format('Y-m-d H:i:s');
         $stmt = $this->pdo->prepare(
-            'UPDATE user_accounts SET password_hash = ?, password_changed_at = ?, sessions_valid_from = ? WHERE id = ?'
+            'UPDATE user_accounts SET password_hash = ?, password_changed_at = ?, sessions_valid_from = '
+                . self::LATEST_STAMP . ' WHERE id = ?'
         );
-        $stmt->execute([$passwordHash, $now, $now, $id]);
+        $stmt->execute([$passwordHash, $now, $now, $now, $id]);
     }
 
     /**
@@ -585,10 +599,10 @@ class UserAccountRepository
             ->format('Y-m-d H:i:s');
         $stmt = $this->pdo->prepare(
             'UPDATE user_accounts
-                SET password_hash = ?, password_changed_at = ?, sessions_valid_from = ?
+                SET password_hash = ?, password_changed_at = ?, sessions_valid_from = ' . self::LATEST_STAMP . '
               WHERE id = ? AND (sessions_valid_from IS NULL OR sessions_valid_from <= ?)'
         );
-        $stmt->execute([$passwordHash, $now, $now, $id, $issuedAt]);
+        $stmt->execute([$passwordHash, $now, $now, $now, $id, $issuedAt]);
 
         return $stmt->rowCount() > 0 ? $stampedAt->getTimestamp() : null;
     }
@@ -617,9 +631,9 @@ class UserAccountRepository
     {
         $now = (new \DateTimeImmutable())->format('Y-m-d H:i:s');
         $stmt = $this->pdo->prepare(
-            'UPDATE user_accounts SET is_active = 0, sessions_valid_from = ? WHERE id = ?'
+            'UPDATE user_accounts SET is_active = 0, sessions_valid_from = ' . self::LATEST_STAMP . ' WHERE id = ?'
         );
-        $stmt->execute([$now, $id]);
+        $stmt->execute([$now, $now, $id]);
     }
 
     /**
@@ -631,8 +645,11 @@ class UserAccountRepository
      */
     public function revokeSessions(int $id): void
     {
-        $stmt = $this->pdo->prepare('UPDATE user_accounts SET sessions_valid_from = ? WHERE id = ?');
-        $stmt->execute([self::signOutStamp(), $id]);
+        $stamp = self::signOutStamp();
+        $stmt = $this->pdo->prepare(
+            'UPDATE user_accounts SET sessions_valid_from = ' . self::LATEST_STAMP . ' WHERE id = ?'
+        );
+        $stmt->execute([$stamp, $stamp, $id]);
     }
 
     /**
@@ -676,10 +693,10 @@ class UserAccountRepository
         // another request cannot slip in between the two (review of #1374).
         $stmt = $this->pdo->prepare(
             'UPDATE user_accounts
-                SET password_hash = NULL, password_changed_at = NULL, sessions_valid_from = ?
+                SET password_hash = NULL, password_changed_at = NULL, sessions_valid_from = ' . self::LATEST_STAMP . '
               WHERE id = ? AND password_hash IS NOT NULL'
         );
-        $stmt->execute([$now, $id]);
+        $stmt->execute([$now, $now, $id]);
 
         return $stmt->rowCount() > 0;
     }

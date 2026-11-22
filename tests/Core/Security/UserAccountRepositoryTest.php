@@ -423,6 +423,49 @@ class UserAccountRepositoryTest extends TestCase
         $this->assertSame($stampedAt, $this->repo->findById($account->id)?->sessionsValidFrom?->getTimestamp());
     }
 
+    /**
+     * Review of #1374: a revocation stamp never moves back. Whichever write
+     * comes later — a reset, a deactivation, another sign-out, a password
+     * change — it leaves the LATEST stamp, so a stamp dated ahead by a sign-out
+     * everywhere cannot be lowered by a write dated « now ».
+     *
+     * @return iterable<string, array{callable(UserAccountRepository, int): mixed}>
+     */
+    public static function writesOfTheStamp(): iterable
+    {
+        yield 'a reset or change of password' => [
+            static fn(UserAccountRepository $repo, int $id) => $repo->updatePasswordHash($id, password_hash('x', PASSWORD_DEFAULT)),
+        ];
+        yield 'a password written from a session' => [
+            static fn(UserAccountRepository $repo, int $id) => $repo->updatePasswordHashFromSession(
+                $id,
+                password_hash('x', PASSWORD_DEFAULT),
+                time() + 7200
+            ),
+        ];
+        yield 'a deactivation' => [static fn(UserAccountRepository $repo, int $id) => $repo->deactivate($id)];
+        yield 'another sign-out everywhere' => [static fn(UserAccountRepository $repo, int $id) => $repo->revokeSessions($id)];
+        yield 'a password removal' => [
+            static function (UserAccountRepository $repo, int $id): void {
+                $repo->updatePasswordHash($id, password_hash('y', PASSWORD_DEFAULT));
+                $repo->clearPassword($id);
+            },
+        ];
+    }
+
+    /** @param callable(UserAccountRepository, int): mixed $write */
+    #[\PHPUnit\Framework\Attributes\DataProvider('writesOfTheStamp')]
+    public function testNoWriteOfTheStampMovesItBack(callable $write): void
+    {
+        $account = $this->repo->create('monotonic@test.com');
+        $ahead = date('Y-m-d H:i:s', time() + 3600);
+        $this->pdo->prepare('UPDATE user_accounts SET sessions_valid_from = ? WHERE id = ?')->execute([$ahead, $account->id]);
+
+        $write($this->repo, $account->id);
+
+        $this->assertSame($ahead, $this->repo->findById($account->id)?->sessionsValidFrom?->format('Y-m-d H:i:s'));
+    }
+
     public function testAPasswordIsWrittenFromASessionWhenNothingWasEverRevoked(): void
     {
         $account = $this->repo->create('never@test.com');
