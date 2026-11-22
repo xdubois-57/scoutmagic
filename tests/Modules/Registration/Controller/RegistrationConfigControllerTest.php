@@ -1270,6 +1270,38 @@ class RegistrationConfigControllerTest extends TestCase
     }
 
     /**
+     * Issue #1361: the layout itself is measured in a browser
+     * (registration-thresholds-layout.spec.js); what the markup must keep is
+     * what that layout hangs on. The title is out of Bootstrap's float, so what
+     * follows it starts below it whatever the hidden paragraph or the warning
+     * does; « 100 % » alone sits on the scale, and what it means has a line of
+     * its own under the scale, with the tick's own mark.
+     */
+    public function testTheThresholdsTitleIsOutOfTheFloatAndTheFullMarkHasItsOwnLine(): void
+    {
+        $body = $this->renderPage('settings');
+
+        $this->assertMatchesRegularExpression(
+            '/<legend class="[^"]*registration-threshold-title[^"]*">Seuils de la recommandation et du niveau public<\/legend>/',
+            $body
+        );
+        $this->assertMatchesRegularExpression(
+            '/<span class="registration-dual-slider-scale-full"\s+style="left: [^"]+">100 %<\/span>/',
+            $body,
+            'the scale carries « 100 % » alone: the long text no longer competes for the width of the scale'
+        );
+        $this->assertMatchesRegularExpression(
+            '/<div class="registration-dual-slider-key[^"]*">\s*<span class="registration-dual-slider-key-mark" aria-hidden="true"><\/span>\s*<span>100 % · toutes les places<\/span>/',
+            $body
+        );
+        $this->assertGreaterThan(
+            strpos($body, 'registration-dual-slider-scale'),
+            strpos($body, 'class="registration-dual-slider-key '),
+            'the note about 100 % comes after the scale, on its own line'
+        );
+    }
+
+    /**
      * The sentence about going beyond 100 % is there only when the
      * « Peut-être » threshold goes beyond it.
      */

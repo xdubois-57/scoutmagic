@@ -24,42 +24,16 @@
 
     <div class="d-flex flex-column gap-2 mb-3" id="badge-list">
         {% for badge in badges %}
-            <div class="border rounded-3 p-3 d-flex flex-wrap align-items-center gap-2 gap-md-3 badge-row" data-id="{{ badge.id }}" data-default="{{ badge.isDefault ? '1' : '0' }}">
-                <input type="text" class="form-control form-control-sm badge-name-input badge-config-name {{ badge.isDefault ? 'bg-body-secondary text-body-secondary' : '' }}"
-                       value="{{ badge.name }}" {{ badge.isDefault ? 'readonly' : '' }} aria-label="Nom du badge">
-                {% if badge.referentSectionId %}
-                    <span class="badge text-bg-info" title="Suit automatiquement le nom de la section">Référent de section</span>
-                {% elseif badge.isDefault %}
-                    <span class="badge text-bg-secondary">Par défaut</span>
-                {% endif %}
-                <div class="form-check form-switch ms-md-auto text-nowrap">
-                    <input type="checkbox" class="form-check-input badge-active-input" role="switch" id="badge-active-{{ badge.id }}" {{ badge.isActive ? 'checked' : '' }} aria-checked="{{ badge.isActive ? 'true' : 'false' }}">
-                    <label class="form-check-label small" for="badge-active-{{ badge.id }}">Actif</label>
-                </div>
-                {% if not badge.isDefault %}
-                    {# Why it cannot be deleted, straight from the service that
-                       would refuse — an assignment, or a module still pointing
-                       at it (Core\Module\BadgeUsageProvider). #}
-                    {% set badgeBlockedReason = undeletable_badge_reasons[badge.id] ?? null %}
-                    {% if badgeBlockedReason %}
-                        {# A disabled <button> doesn't fire the hover events browsers
-                           need to show its own title tooltip, so the tooltip goes on
-                           a plain (non-disabled) wrapping span instead; pointer-events:
-                           none on the button lets the span receive the hover. #}
-                        <span class="d-inline-block ms-auto ms-md-0" title="{{ badgeBlockedReason }}">
-                            <button type="button" class="btn btn-sm btn-outline-danger badge-delete-btn" disabled style="pointer-events:none;" aria-label="Supprimer le badge">
-                                <i class="bi bi-trash" aria-hidden="true"></i>
-                            </button>
-                        </span>
-                    {% else %}
-                        <button type="button" class="btn btn-sm btn-outline-danger badge-delete-btn ms-auto ms-md-0" title="Supprimer" aria-label="Supprimer">
-                            <i class="bi bi-trash" aria-hidden="true"></i>
-                        </button>
-                    {% endif %}
-                {% endif %}
-            </div>
+            {% include 'admin/badges/_row.html.twig' with { badge: badge, blocked_reason: undeletable_badge_reasons[badge.id] ?? null } only %}
         {% endfor %}
     </div>
+
+    {# What config-badges.js clones for a badge created without a reload: the
+       same row, from the same partial. A new badge is custom and unassigned,
+       so it can be renamed, switched and deleted at once. #}
+    <template id="badge-row-template">
+        {% include 'admin/badges/_row.html.twig' with { badge: { id: 0, name: '', isDefault: false, isActive: true, referentSectionId: null }, blocked_reason: null } only %}
+    </template>
 
     <div class="border rounded-3 p-3 d-flex flex-wrap align-items-center gap-2 mb-4" id="badge-add-form">
         <input type="text" class="form-control form-control-sm flex-grow-1" id="new-badge-name" placeholder="Communication" style="max-width:220px;min-width:120px;" aria-label="Nom du nouveau badge">

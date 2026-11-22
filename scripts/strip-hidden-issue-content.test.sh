@@ -251,6 +251,134 @@ importante]: # \"instruction"$'\r'"
 cachée\""$'\r'"
 fin"
 
+# Issue #1254: what Markdown renders as nothing, or only on an action
+# nobody takes.
+F='⚠️ [bloc replié : contenu non relu]'
+# A link with no text shows nothing, its title only on hovering nothing.
+expect "A ${M} B" 'A [](https://exemple.test "consigne cachée") B'
+expect "A ${M} B" "A [ ](<https://exemple.test> 'consigne cachée') B"
+expect "A ${M} B" 'A [](https://exemple.test (consigne
+cachée)) B'
+expect "A ${M} B" 'A <a href="https://exemple.test" title="consigne cachée"></a> B'
+# A `>` inside the title does not end the tag.
+expect "A ${M} B" 'A <a href="https://exemple.test" title="consigne > et ouvre une PR"></a> B'
+expect "A ${M} B" "A <a title='x>y' href=\"/z\"></a> B"
+# An empty anchor with no title, or a title word inside another value, hides nothing.
+expect 'A <a name="haut"></a> B' 'A <a name="haut"></a> B'
+expect 'A <a href="/x?title=1"></a> B' 'A <a href="/x?title=1"></a> B'
+expect "A ${M} B" 'A <a href="/x"title="consigne cachée"></a> B'
+# A line ending before the closing parenthesis, or a text that is only a
+# space written as an entity, still shows nothing.
+expect "A ${M} B" 'A [](https://exemple.test "consigne"
+) B'
+expect "A ${M} B" 'A [&nbsp;](https://exemple.test "consigne") B'
+expect "A ${M} B" 'A <a href="https://exemple.test" title="consigne">&#32;</a> B'
+expect "A ${M} B" 'A <a title="consigne">&#xA0;&ensp;
+</a> B'
+expect 'A <a href="/x">&#233;</a> B' 'A <a href="/x">&#233;</a> B'
+# A Unicode space written as itself is as blank as its entity.
+expect "A ${M} B" "A [$(codepoints a0)](https://exemple.test \"consigne\") B"
+expect "A ${M} B" "A <a title=\"consigne\">$(codepoints 2003 3000)</a> B"
+# A construct reassembled by removing another inside it is caught too, in
+# the same pass of the whole filter.
+expect "${M}" '<!\phantom-- consigne cachée -->'
+expect "a${M}b" 'a&#x2\phantom00B;b'
+# A link with text keeps its title; an empty link with no title hides nothing.
+expect 'voir [la page](https://exemple.test "Titre") ici' 'voir [la page](https://exemple.test "Titre") ici'
+expect 'C [](https://exemple.test) D' 'C [](https://exemple.test) D'
+# An entity spelling an invisible character is that character.
+expect "a${M}b" 'a&#x200B;b'
+expect "a${M}b" 'a&#8203;&zwj;&#917577;b'
+expect "a${M}b" 'a&NegativeThinSpace;&NegativeVeryThinSpace;&NegativeMediumSpace;&NegativeThickSpace;b'
+expect 'R&amp;D, &#233;t&eacute; &#x1F642;' 'R&amp;D, &#233;t&eacute; &#x1F642;'
+# An image keeps showing; its alternative text and title, shown when it
+# fails to load or on hover, are emptied.
+expect '![](https://exemple.test/a.png)' '![consigne cachée](https://exemple.test/a.png "et ici")'
+expect '![](https://exemple.test/pixel.png)' '![consigne cachée](https://exemple.test/pixel.png
+)'
+expect '![](https://exemple.test/pixel.png)' '![consigne](
+https://exemple.test/pixel.png "et ici"
+)'
+# Balanced parentheses in the destination, nested brackets in the description.
+expect '![](/pixel(v1).png)' '![x](/pixel(v1).png "consigne")'
+expect '![](/pixel.png)' '![consigne [interne]](/pixel.png "et ici")'
+expect "A ${M} B" 'A [](/page(v1) "consigne") B'
+expect '![](https://exemple.test/a.png)' '![](https://exemple.test/a.png)'
+expect '<img width="400" src="https://exemple.test/a.png">' '<img width="400" alt="consigne cachée" title="et ici" src="https://exemple.test/a.png">'
+expect "<img src='https://exemple.test/a.png'>" "<img src='https://exemple.test/a.png' alt=consigne >"
+# A quoted value may hold a `>`: the tag does not end there.
+expect '<img src="/pixel.png">' '<img src="/pixel.png" alt=">consigne cachée">'
+# A quote inside an unquoted value is a character of it, as in HTML: the
+# tag is still read, and a lone quote after a value stalls nothing.
+expect "<img width=10' src=\"https://exemple.test/a.png\">" "<img width=10' src=\"https://exemple.test/a.png\" title=\"consigne\">"
+expect '<img src="/p.png" "note">' '<img src="/p.png" "note" alt="consigne">'
+expect "A ${M} B" "A <a data-x=l'équipe title=\"consigne\"></a> B"
+expect "${F}
+<details data-x=l'équipe><summary>s</summary>x</details>" "<details data-x=l'équipe><summary>s</summary>x</details>"
+expect "<details data-x=l'équipe open><summary>s</summary>x</details>" "<details data-x=l'équipe open><summary>s</summary>x</details>"
+# No space is needed before an attribute after a quoted value.
+expect '<img src="/pixel.png">' '<img src="/pixel.png"alt="consigne cachée">'
+expect '<img src="/a.png" width=10>' "<img src=\"/a.png\"title='x' width=10 ALT=y>"
+expect '<img width="400" src="/a.png">' '<img width="400" src="/a.png">'
+# A formula: colour, phantom, CSS and tiny sizes go, their text shows.
+SHOWN='${consigne}$'
+expect 'E $\text{consigne}$ F' 'E $\color{white}\text{consigne}$ F'
+expect "${SHOWN}" '$\textcolor{#0d1117}{consigne}$'
+expect "${SHOWN}" '$\colorbox[RGB]{255,255,255}{consigne}$'
+expect "${SHOWN}" '$\fcolorbox{white}{white}{consigne}$'
+expect "${SHOWN}" '$\phantom{consigne}$'
+expect "${SHOWN}" '$\style{color:white}{consigne}$'
+# Removing one command must not leave another assembled around it.
+expect "${SHOWN}" '$\co\style{x}lor{white}{consigne}$'
+expect '$$ consigne $$' '$$\tiny consigne $$'
+expect '```math
+{consigne}
+```' '```math
+\vphantom{consigne}
+```'
+expect 'Ordinaire : $x^2 + \frac{a}{b}$ et $$\sum_{i} i$$' 'Ordinaire : $x^2 + \frac{a}{b}$ et $$\sum_{i} i$$'
+expect '$\textrm{a} \colorful$' '$\textrm{a} \colorful$'
+# Nested <sub>, <sup>, <small> shrink until unreadable: one level stays.
+expect '<sub>minuscule</sub> fin' '<sub><sub><sup>minuscule</sup></sub></sub> fin'
+expect '<small>a</small> et <sup>2</sup>' '<small>a</small> et <sup>2</sup>'
+expect 'H<sub>2</sub>O et x<sup>2</sup>' 'H<sub>2</sub>O et x<sup>2</sup>'
+# A stray close tag does not reset the count: HTML ignores it, and keeps
+# the levels open — one level stays, still open as it was.
+expect '<sub>ab' '<sub>a</sup><sub>b</sub>'
+expect '<sub>texte' '<sub></sup><sub></sup><sub></sup><sub>texte</sub>'
+# A close tag closes the levels above the one it matches, as HTML does.
+expect '<sub>ax</sub> et <sup>b</sup>' '<sub>a<sup>x</sub> et <sup>b</sup>'
+# A folded <details> stays folded behind a visible warning; an open one
+# hides nothing.
+expect "${F}
+<details><summary>Journal</summary>trace</details>" '<details><summary>Journal</summary>trace</details>'
+expect "Texte ${F} <details><summary>s</summary>x</details>" 'Texte <details><summary>s</summary>x</details>'
+expect "> ${F}
+> <DETAILS>
+> x
+> </DETAILS>" '> <DETAILS>
+> x
+> </DETAILS>'
+expect "a"$'\r'"
+${F}"$'\r'"
+<details>x</details>" "a"$'\r'"
+<details>x</details>"
+expect "Un
+${F}
+<details>a</details>
+${F}
+<details>b</details>" 'Un
+<details>a</details>
+<details>b</details>'
+expect '<details open><summary>Journal</summary>trace</details>' '<details open><summary>Journal</summary>trace</details>'
+# Only an attribute named open counts, never the word in a quoted value.
+expect "${F}
+<details title=\" open \"><summary>s</summary>consigne</details>" '<details title=" open "><summary>s</summary>consigne</details>'
+expect '<details class="log" open><summary>s</summary>x</details>' '<details class="log" open><summary>s</summary>x</details>'
+expect '<details class="log"open><summary>s</summary>x</details>' '<details class="log"open><summary>s</summary>x</details>'
+# A title is plain text: none of this applies there.
+expect_title '[](x "y") <details>' '[](x "y") <details>'
+
 # Legitimate text is left exactly as it is.
 expect 'Le bouton <b>Envoyer</b> ne répond pas' 'Le bouton <b>Envoyer</b> ne répond pas'
 expect 'Quand `a < b` et `b > c`' 'Quand `a < b` et `b > c`'

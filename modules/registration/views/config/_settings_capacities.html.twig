@@ -54,7 +54,12 @@
               data-threshold-box>
             {{ csrf_field()|raw }}
             <fieldset class="{{ waitlist_enabled ? '' : 'opacity-50' }}" {{ waitlist_enabled ? '' : 'disabled' }}>
-                <legend class="h6 mb-2">Seuils de la recommandation et du niveau public</legend>
+                {# Out of Bootstrap's float: a floated legend clears only the
+                   element right after it, and here that one is often hidden
+                   (`d-none`) — the slider would slide up under the title (#1361).
+                   No angle bracket in this comment: a static HTML analyser reads it
+                   as markup, and an opening tag here nests the real legend. #}
+                <legend class="h6 mb-2 registration-threshold-title">Seuils de la recommandation et du niveau public</legend>
                 {% if level_thresholds_unusable %}
                     <div class="alert alert-warning small">
                         Les seuils enregistrés ne sont pas utilisables (deux nombres entiers de
@@ -100,11 +105,19 @@
                     <span class="text-danger-emphasis text-truncate" data-slider-label="no"
                           style="width: {{ width_no }}">Non</span>
                 </div>
+                {# « 100 % » alone on the scale, its right edge on its tick — where
+                   it has room even on a phone, clear of the maximum. What the tick
+                   means is said on a line of its own just under, behind the same
+                   tick (#1361). #}
                 <div class="registration-dual-slider-scale small text-body-secondary" aria-hidden="true">
                     <span>0 %</span>
                     <span class="registration-dual-slider-scale-full"
-                          style="left: {{ left_full }}">100 % · toutes les places</span>
+                          style="left: {{ left_full }}">100 %</span>
                     <span>{{ threshold_max_percent }} %</span>
+                </div>
+                <div class="registration-dual-slider-key small text-body-secondary">
+                    <span class="registration-dual-slider-key-mark" aria-hidden="true"></span>
+                    <span>100 % · toutes les places</span>
                 </div>
                 <p class="form-text mt-1 mb-3">
                     La barre est l'ensemble des places d'une année de parcours : elles se remplissent dans l'ordre de
