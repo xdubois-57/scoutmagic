@@ -1146,8 +1146,7 @@ class AlbumServiceTest extends TestCase
         $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date) VALUES ('2024-2025', '2024-09-01', '2025-08-31')");
         $chief = $accounts->create('chief-login@test.com')->id;
         $oldMember = $this->memberHolding('family@test.com', $this->sectionId, 'chief', $oldYear);
-        $this->memberHolding('family@test.com', $this->sectionId, 'chief');
-        $currentMember = (int) $this->pdo->query('SELECT MAX(id) FROM members')->fetchColumn();
+        $currentMember = $this->memberHolding('family@test.com', $this->sectionId, 'chief');
         $emails = new \Core\Member\MemberEmailRepository($this->pdo, $encryption);
         foreach ([$oldMember, $currentMember] as $memberId) {
             $emails->create($memberId, 'chief-login@test.com', \Core\Member\MemberEmail::SOURCE_MANUAL, \Core\Member\MemberEmail::STATUS_VALID, null, null);
