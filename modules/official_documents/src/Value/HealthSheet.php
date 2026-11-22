@@ -131,8 +131,10 @@ final class HealthSheet
         'participation' => 'La personne peut-elle participer aux activités proposées ?',
         'participation_details' => 'Participation aux activités — Précisez',
         'swimming_level' => 'La personne sait-elle nager ?',
-        'conditions_details' => 'Si une case est cochée, précisez la fréquence, la gravité et les mesures à prévoir',
-        'illnesses_and_operations' => 'Indiquez les maladies importantes ou opérations subies (appendicite, rougeole…) avec l\'année',
+        'conditions_details' => 'Si une case est cochée, précisez la fréquence, la gravité '
+            . 'et les mesures à prévoir',
+        'illnesses_and_operations' => 'Indiquez les maladies importantes ou opérations subies '
+            . '(appendicite, rougeole…) avec l\'année',
         'useful_information' => 'Mentionnez toute information utile au bon déroulement des activités ou du camp',
         'tetanus_vaccinated' => 'Vaccination contre le tétanos — La personne est-elle en ordre ?',
         'tetanus_last_booster' => 'Date du dernier rappel',
@@ -142,7 +144,8 @@ final class HealthSheet
         'follows_diet' => 'La personne suit-elle un régime alimentaire particulier ?',
         'diet' => 'Régime alimentaire — Si oui, lequel ?',
         'takes_treatment' => 'La personne prend-elle un traitement ?',
-        'treatment' => 'Médicaments — Si oui, précisez : nom, dosage, fréquence, indication, mode d\'administration et durée.',
+        'treatment' => 'Médicaments — Si oui, précisez : nom, dosage, fréquence, indication, '
+            . 'mode d\'administration et durée.',
         'treatment_autonomy' => 'Est-elle autonome dans la prise de ces médicaments ?',
     ];
 
