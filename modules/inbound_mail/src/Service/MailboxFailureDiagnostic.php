@@ -93,6 +93,8 @@ final class MailboxFailureDiagnostic
                         $details['imap_status'] = strtoupper($response[1]);
                         if (preg_match('/^\s*\[([A-Z][A-Z0-9-]{0,63})\]/i', $response[2], $code) === 1) {
                             $details['imap_code'] = strtoupper($code[1]);
+                        } else {
+                            unset($details['imap_code']);
                         }
                         $responses[] = MailboxResponseRedactor::redact($response[1] . $response[2], $credentials);
                     }

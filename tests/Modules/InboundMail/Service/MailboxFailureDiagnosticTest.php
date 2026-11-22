@@ -206,4 +206,30 @@ final class MailboxFailureDiagnosticTest extends TestCase
         self::assertSame($first->signature(), $same->signature());
         self::assertNotSame($first->signature(), $different->signature());
     }
+
+    public function testARefusalWithoutACodeCannotInheritOneFromAnEarlierResponse(): void
+    {
+        foreach (['causes', 'chain'] as $source) {
+            $diagnostics = [];
+            foreach (['UNAVAILABLE', 'NOPERM'] as $code) {
+                $first = 'NO [' . $code . '] Temporary refusal';
+                $last = 'BAD Command syntax error';
+                $error = $source === 'causes'
+                    ? \Webklex\PHPIMAP\Exceptions\ResponseException::make(
+                        \Webklex\PHPIMAP\Connection\Protocols\Response::empty()->addError($first)->addError($last)
+                    )
+                    : new ImapServerErrorException($first, 0,
+                        new \Webklex\PHPIMAP\Exceptions\ImapBadRequestException($last));
+                $diagnostics[] = MailboxFailureDiagnostic::from($error,
+                    new MailboxCredentials('box@example.test', 'credential-value'));
+            }
+
+            self::assertSame([['BAD', null], ['BAD', null]], array_map(
+                static fn(MailboxFailureDiagnostic $diagnostic): array => [
+                    $diagnostic->details['imap_status'], $diagnostic->details['imap_code'] ?? null,
+                ], $diagnostics
+            ));
+            self::assertSame($diagnostics[0]->signature(), $diagnostics[1]->signature());
+        }
+    }
 }
