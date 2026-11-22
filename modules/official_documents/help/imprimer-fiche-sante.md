@@ -36,17 +36,29 @@ imprimiez, en nommant les réponses concernées. Rien n'est coupé en silence : 
 qui tient est écrit, et vous choisissez de raccourcir votre texte ou de joindre
 une feuille séparée à la fiche.
 
-## Les cases que le site ne coche pas à votre place
+## Les cases que le site coche, et celles qu'il ne coche pas
 
-Trois questions sont des cases à cocher sur le papier : « Peut participer à
-toutes les activités proposées », « En ordre de vaccination contre le tétanos »
-et « Votre enfant prend-il ce traitement seul ? ».
+Pour l'allergie, le traitement et le régime alimentaire, vous répondez
+vous-même **Oui**, **Non** ou « Non précisé », puis vous détaillez si c'est Oui.
+Le site ne devine jamais la réponse d'après ce que vous avez écrit : « Aucune »
+tapé sous les allergies n'est pas un Non.
 
-Si vous les laissez sur « Non précisé », **aucune des deux cases n'est cochée**
-sur le document. C'est voulu : le site ne répond jamais à votre place à une
-question de santé, et deux cases vides se lisent correctement comme « on ne sait
-pas ».
+- **Oui** : la case est cochée et vos précisions sont imprimées.
+- **Non** : la case est cochée et « Sans objet » est imprimé dans chaque
+  zone de précision. Ce que vous aviez écrit reste enregistré, mais n'est pas
+  imprimé.
+- **Non précisé** : aucune case, aucun texte.
 
-De la même façon, la case du formulaire qui demande si la personne est
-allergique n'est cochée « oui » que si vous avez listé une allergie — jamais
-« non » parce que vous avez laissé le champ vide.
+Il en va de même pour la participation aux activités, la vaccination contre le
+tétanos et « Est-elle autonome dans la prise de ces médicaments ? » (posée
+seulement si un traitement est déclaré). Deux cases vides se lisent correctement comme
+« on ne sait pas » : le site ne répond jamais à votre place à une question de
+santé. Le régime alimentaire n'a pas de case sur le papier : vos précisions sont
+imprimées sur sa ligne.
+
+## Sur le papier
+
+Le formulaire prévoit deux emplacements pour une vignette de mutuelle, et deux
+signatures à la main, dont celle de la personne concernée dès 13 ans. Tout
+médicament fourni doit être accompagné d'une prescription médicale. Ces
+explications sont rappelées sous le bouton de téléchargement.

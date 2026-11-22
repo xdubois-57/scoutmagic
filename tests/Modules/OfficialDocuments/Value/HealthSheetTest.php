@@ -49,6 +49,10 @@ final class HealthSheetTest extends TestCase
         $data['participation'] = 'yes';
         $data['tetanus_vaccinated'] = 'no';
         $data['treatment_autonomy'] = 'yes';
+        // The three OUI / NON / non précisé questions of issue #1346.
+        $data['allergic'] = 'yes';
+        $data['follows_diet'] = 'no';
+        $data['takes_treatment'] = 'yes';
 
         return $data;
     }
@@ -186,6 +190,53 @@ final class HealthSheetTest extends TestCase
             HealthSheet::CONDITIONS,
             'the order is the one the form prints: three rows of four'
         );
+    }
+
+    /**
+     * Issue #1346: whether there are allergies, a treatment, a diet is an
+     * ANSWER of its own — OUI, NON, or not said — and never deduced from
+     * whether a text box holds something. « Aucune » typed in the box is
+     * still not a NON, and a NON with a forgotten box is still a NON.
+     */
+    public function testTheThreeChoicesAreIndependentOfTheirDetails(): void
+    {
+        $sheet = HealthSheet::fromArray([
+            'allergic' => 'no', 'allergies' => 'Arachides',
+            'follows_diet' => '', 'diet' => 'Aucun',
+            'takes_treatment' => 'yes',
+        ]);
+
+        $this->assertSame('no', $sheet->allergic);
+        $this->assertSame('Arachides', $sheet->allergies, 'the text typed before is kept, not erased by the NON');
+        $this->assertSame('', $sheet->followsDiet);
+        $this->assertSame('Aucun', $sheet->diet);
+        $this->assertSame('yes', $sheet->takesTreatment);
+        $this->assertSame('', $sheet->treatment);
+    }
+
+    public function testAnUnknownChoiceReadsAsUnanswered(): void
+    {
+        $sheet = HealthSheet::fromArray(['allergic' => 'peut-être', 'follows_diet' => 'oui', 'takes_treatment' => 'YES']);
+
+        $this->assertSame('', $sheet->allergic);
+        $this->assertSame('', $sheet->followsDiet);
+        $this->assertSame('', $sheet->takesTreatment);
+    }
+
+    /** A form that answers only « allergique : non » is a sheet that was begun. */
+    public function testAnAnswerAloneMakesASheetNonEmpty(): void
+    {
+        $this->assertFalse(HealthSheet::fromArray(['allergic' => 'no'])->isEmpty());
+        $this->assertFalse(HealthSheet::fromArray(['follows_diet' => 'yes'])->isEmpty());
+        $this->assertFalse(HealthSheet::fromArray(['takes_treatment' => 'no'])->isEmpty());
+    }
+
+    /** The form posts the three choices under their stored names. */
+    public function testTheChoicesComeFromTheForm(): void
+    {
+        $sheet = HealthSheet::fromBody(['allergic' => 'yes', 'follows_diet' => 'no', 'takes_treatment' => 'no']);
+
+        $this->assertSame(['yes', 'no', 'no'], [$sheet->allergic, $sheet->followsDiet, $sheet->takesTreatment]);
     }
 
     public function testAnUnknownSwimmingLevelReadsAsUnanswered(): void
