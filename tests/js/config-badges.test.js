@@ -450,6 +450,27 @@ describe('config-badges.js', () => {
             expect(window.ScoutMagicToast.show).not.toHaveBeenCalledWith('Enregistré.', expect.anything());
         });
 
+        it('gives the focus back to the control that held it when a rename moves the row', async () => {
+            let release;
+            global.fetch = vi.fn(() => new Promise((resolve) => {
+                release = () => resolve({ ok: true, status: 200, json: () => Promise.resolve({ success: true, badge: { id: 4, name: 'Zèbre', is_active: true } }) });
+            }));
+            await boot();
+            const input = customRow().querySelector('.badge-name-input');
+            input.value = 'Zèbre';
+            leave(input);
+            await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
+
+            // The keyboard user has moved on to the row's switch while the save is in flight.
+            const toggle = customRow().querySelector('.badge-active-input');
+            toggle.focus();
+            expect(document.activeElement).toBe(toggle);
+
+            release();
+            await vi.waitFor(() => expect(names()).toEqual(['Trésorier', 'Zèbre']));
+            expect(document.activeElement).toBe(toggle);
+        });
+
         it('keeps a row in place when it is renamed to a name sorting around the same spot', async () => {
             global.fetch = vi.fn(() => jsonResponse({ success: true, badge: { id: 4, name: 'Infirmière', is_active: true } }));
             await boot();

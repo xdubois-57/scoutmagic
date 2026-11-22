@@ -109,6 +109,12 @@
             return;
         }
         var name = input.defaultValue;
+        // Moving a node takes it out of the document for a moment, and a browser
+        // drops the focus of whatever it held: after a rename the keyboard user
+        // is often on the row's switch, so the focus is given back.
+        var focused = document.activeElement instanceof HTMLElement && row.contains(document.activeElement)
+            ? document.activeElement
+            : null;
         var next = Array.from(list.querySelectorAll('.badge-row')).find(function (other) {
             var otherInput = /** @type {HTMLInputElement|null} */ (other.querySelector('.badge-name-input'));
             return other !== row && !!otherInput
@@ -120,6 +126,9 @@
             }
         } else if (row !== list.lastElementChild) {
             list.appendChild(row);
+        }
+        if (focused && document.activeElement !== focused) {
+            focused.focus({ preventScroll: true });
         }
     }
 

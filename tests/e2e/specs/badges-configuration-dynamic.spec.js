@@ -60,11 +60,18 @@ test('a badge is created, renamed, switched and deleted without the page ever re
     await expect(row.locator('.badge-delete-btn')).toBeEnabled();
 
     // --- rename (the new row, without a reload) ----------------------------
+    // « Zzz… » sorts after every other badge, so the row has to MOVE; and the
+    // keyboard user leaves the field with Tab, so the focus is on the row's
+    // switch while the save is in flight: a move that drops it would be a bug
+    // no synthetic event can show.
     const nameInput = row.locator('.badge-name-input');
-    await nameInput.fill('Communication E2E 2');
-    await nameInput.blur();
+    await nameInput.fill('Zzz Communication E2E');
+    await nameInput.press('Tab');
+    await expect(row.locator('.badge-active-input')).toBeFocused();
     await expect(toast.filter({ hasText: 'Enregistré.' }).first()).toBeVisible();
-    await expect(nameInput).toHaveValue('Communication E2E 2');
+    await expect(nameInput).toHaveValue('Zzz Communication E2E');
+    await expect(page.locator('#badge-list .badge-row').last(), 'the renamed row moved to its place').toHaveAttribute('data-id', badgeId);
+    await expect(row.locator('.badge-active-input'), 'the focus survived the move').toBeFocused();
     expect(await stillHere(), 'renaming did not reload the page').toBe('still-here');
 
     // --- switch off (the new row, without a reload) -------------------------
@@ -85,7 +92,7 @@ test('a badge is created, renamed, switched and deleted without the page ever re
     await page.reload({ waitUntil: 'domcontentloaded' });
     expect(await listedNames(), 'the order shown without a reload is the server order').toEqual(orderShown);
     const stored = page.locator(`.badge-row[data-id="${badgeId}"]`);
-    await expect(stored.locator('.badge-name-input')).toHaveValue('Communication E2E 2');
+    await expect(stored.locator('.badge-name-input')).toHaveValue('Zzz Communication E2E');
     await expect(stored.locator('.badge-active-input')).not.toBeChecked();
     await page.evaluate(() => { window.__badgesPageMarker = 'still-here'; });
 
