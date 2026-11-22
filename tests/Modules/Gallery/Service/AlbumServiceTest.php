@@ -1237,6 +1237,44 @@ class AlbumServiceTest extends TestCase
         $this->assertCount(1, $notifications->findByUserAccountId($publicYearChief));
     }
 
+    /**
+     * Review of #1379: the age rule is the gallery's, not the section's. A
+     * unit-wide album outside the current and the previous scout year is
+     * refused to a parent just the same, so its title is not announced to
+     * every account — only to the cadres, who see every year.
+     */
+    public function testAnOldAlbumWithoutASectionIsAnnouncedOnlyToTheCadres(): void
+    {
+        [$service, $notifications, $accounts] = $this->publishingService();
+        $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date) VALUES ('2019-2020', '2019-09-01', '2020-08-31')");
+        // A year in between, so that 2019-2020 is not « the previous year ».
+        $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date) VALUES ('2024-2025', '2024-09-01', '2025-08-31')");
+        $parent = $accounts->create('parent@test.com')->id;
+        $this->memberHolding('parent@test.com', $this->sectionId);
+        $unlinked = $accounts->create('unlinked@test.com')->id;
+        $chief = $accounts->create('chief-now@test.com')->id;
+        $this->memberHolding('chief-now@test.com', $this->sectionId, 'chief');
+
+        $this->publish($service, null, '2019-11-15');
+
+        $this->assertSame([], $notifications->findByUserAccountId($parent), 'the page would answer 403');
+        $this->assertSame([], $notifications->findByUserAccountId($unlinked));
+        $this->assertCount(1, $notifications->findByUserAccountId($chief));
+    }
+
+    /** Without the resolver the cadres cannot be named: an old unit-wide album tells nobody, never everybody. */
+    public function testAnOldAlbumWithoutASectionTellsNobodyWithoutTheResolver(): void
+    {
+        [$service, $notifications, $accounts] = $this->publishingService(false);
+        $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date) VALUES ('2019-2020', '2019-09-01', '2020-08-31')");
+        $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date) VALUES ('2024-2025', '2024-09-01', '2025-08-31')");
+        $parent = $accounts->create('parent@test.com')->id;
+
+        $this->publish($service, null, '2019-11-15');
+
+        $this->assertSame([], $notifications->findByUserAccountId($parent));
+    }
+
     /** A unit-wide album keeps its audience: every account. */
     public function testAnAlbumWithoutASectionIsStillAnnouncedToTheWholeUnit(): void
     {

@@ -326,6 +326,29 @@ final class EventAudienceResolverTest extends TestCase
         $this->assertSame([$parent], $this->audience($calendar, '+4 years'));
     }
 
+    /**
+     * Review of #1379: the next scout year's row is created ahead of time, well
+     * before its roster is imported. An event dated in it finds the row but no
+     * link, and used to tell nobody. An empty answer in a year other than the
+     * current one is read as « not imported yet » and asked of the current year.
+     */
+    public function testAnEventInAYearWhoseRosterIsNotImportedYetFallsBackToTheCurrentYear(): void
+    {
+        $parent = $this->account('parent@test.be');
+        $this->member('parent@test.be', $this->goelands);
+        $currentYear = (int) (new ScoutYearService($this->pdo))->getCurrentYear()['id'];
+        if ($currentYear !== $this->year) {
+            $this->member('parent@test.be', $this->goelands, null, $currentYear);
+        }
+        $calendar = $this->sectionCalendar($this->goelands);
+        // The year of an event three years ahead exists — and is empty.
+        $label = ScoutYearService::labelForDate(new \DateTimeImmutable('+3 years'));
+        $stmt = $this->pdo->prepare('INSERT INTO scout_years (label, start_date, end_date) VALUES (?, ?, ?)');
+        $stmt->execute([$label, substr($label, 0, 4) . '-09-01', substr($label, 5, 4) . '-08-31']);
+
+        $this->assertSame([$parent], $this->audience($calendar, '+3 years'));
+    }
+
     public function testNothingIsToldWhenNobodyIsLinked(): void
     {
         $this->account('lonely@test.be');

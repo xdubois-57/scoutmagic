@@ -63,7 +63,30 @@ class EventAudienceResolver
         }
 
         $years = $this->scoutYearIdsFor($event);
+        $audience = $this->audienceInYears($calendar, $years);
 
+        // The event's own year may exist — the next one is created ahead so it
+        // can be previewed — before the Desk roster has been imported into it:
+        // no link yet, so nobody to tell, which would drop the notification
+        // silently. An empty answer in a year other than the current one is
+        // read as « not imported yet » and asked again of the current year
+        // (review of #1379).
+        if ($audience === []) {
+            $current = [(int) $this->scoutYears->getCurrentYear()['id']];
+            if ($current !== $years) {
+                $audience = $this->audienceInYears($calendar, $current);
+            }
+        }
+
+        return $audience;
+    }
+
+    /**
+     * @param int[] $years
+     * @return list<int>
+     */
+    private function audienceInYears(Calendar $calendar, array $years): array
+    {
         if ($calendar->sectionId === null) {
             return array_values(array_unique(match ($calendar->visibility) {
                 Calendar::VISIBILITY_ADMIN => $this->sectionAccounts->cadreAccountIds($years, ['admin']),

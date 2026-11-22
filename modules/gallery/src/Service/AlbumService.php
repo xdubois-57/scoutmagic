@@ -322,20 +322,28 @@ class AlbumService
                 [$album->sectionId],
                 [$album->scoutYearId]
             );
-            $periodYears = $this->scoutYearService->currentAndPreviousYearIds();
-            if (!in_array($album->scoutYearId, $periodYears, true)) {
-                // The age window decides WHICH albums are old; who may still
-                // open them is the role the person holds NOW, resolved over the
-                // authorization years — the set the page resolves it over. A
-                // chef of the previous year only is a parent today and would
-                // get the title and a 403; neither is a chef of the
-                // date-computed year when the public year was advanced early
-                // (review of #1379).
-                $recipientIds = array_values(array_intersect(
-                    $recipientIds,
-                    $this->sectionAccounts->cadreAccountIds($this->cadreYearIds())
-                ));
+        }
+
+        // The age rule is the gallery's, and it does not depend on the section:
+        // an album outside the current and the previous scout year is refused
+        // to a parent whether it is the unit's or their own child's section's
+        // (AlbumVisibility). So the rule narrows the audience of BOTH kinds.
+        $periodYears = $this->scoutYearService->currentAndPreviousYearIds();
+        if (!in_array($album->scoutYearId, $periodYears, true)) {
+            if ($this->sectionAccounts === null) {
+                // The cadres cannot be named: tell nobody, never everybody.
+                return;
             }
+            // The age window decides WHICH albums are old; who may still open
+            // them is the role the person holds NOW, resolved over the
+            // authorization years — the set the page resolves it over. A chef
+            // of the previous year only is a parent today and would get the
+            // title and a 403; neither is a chef of the date-computed year when
+            // the public year was advanced early (review of #1379).
+            $recipientIds = array_values(array_intersect(
+                $recipientIds,
+                $this->sectionAccounts->cadreAccountIds($this->cadreYearIds())
+            ));
         }
 
         $recipients = array_map(
