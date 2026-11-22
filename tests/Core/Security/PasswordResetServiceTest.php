@@ -184,6 +184,28 @@ class PasswordResetServiceTest extends TestCase
         $this->assertNotNull($updated->passwordChangedAt);
     }
 
+    /**
+     * Review of #1374, through the service a reset link goes through: a
+     * « Déconnecter partout » stamped the account's sessions, dated ahead; the
+     * reset that follows — in the same second, whatever the clock says — must not
+     * bring that stamp back to « now », or a session it had revoked would read as
+     * valid again. The stamp is fixed in the future, so « now » is always earlier.
+     */
+    public function testResetPasswordLeavesALaterRevocationStampWhereItIs(): void
+    {
+        $account = $this->userRepo->create('stamped@test.com');
+        $ahead = date('Y-m-d H:i:s', time() + 3600);
+        $set = $this->pdo->prepare('UPDATE user_accounts SET sessions_valid_from = ? WHERE id = ?');
+        $set->execute([$ahead, $account->id]);
+        [$id, $rawToken] = $this->createRawToken('stamped@test.com');
+
+        $this->assertTrue($this->service->resetPassword($id, $rawToken, 'MyNewSecureP@ss1'));
+
+        $reloaded = $this->userRepo->findById($account->id);
+        $this->assertTrue(password_verify('MyNewSecureP@ss1', (string) $reloaded?->passwordHash));
+        $this->assertSame($ahead, $reloaded?->sessionsValidFrom?->format('Y-m-d H:i:s'));
+    }
+
     public function testResetPasswordConsumesTokenSoItCannotBeReused(): void
     {
         $this->userRepo->create('onceonly@test.com');

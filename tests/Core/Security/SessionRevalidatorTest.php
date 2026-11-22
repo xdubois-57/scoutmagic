@@ -201,29 +201,30 @@ class SessionRevalidatorTest extends TestCase
     }
 
     /**
-     * Review of #1374, the whole sequence in the one second where it mattered:
-     * a session issued at T, a « Déconnecter partout » at T (its stamp is dated
-     * T + 1), then a reset link used in that same second T — which writes « now »
-     * as its own stamp. The stamp must stay at T + 1, so the session issued at T
-     * is still revoked when it is revalidated; were the reset to lower the stamp
-     * to T, the session would read as valid again.
+     * Review of #1374, the sequence of the one second where it mattered, with
+     * FIXED instants instead of the clock: a session issued at T, a « Déconnecter
+     * partout » whose stamp is dated T + 1, then a write that stamps an instant
+     * BEFORE that — what a reset link used in the same second does with « now ».
+     * The stamp must stay at T + 1, so the session issued at T is still revoked
+     * when it is revalidated. T is put in the future so that « now » is always
+     * earlier than the sign-out's stamp, whatever second the suite runs in.
      */
-    public function testAReuseOfAResetLinkInTheSecondOfASignOutEverywhereDoesNotReviveTheSession(): void
+    public function testAWriteDatedBeforeASignOutStampDoesNotReviveTheSession(): void
     {
         $account = $this->userRepo->create('sequence@test.com', true);
         AuthSession::login($account->id, $account->email, 'superadmin', \Tests\SessionGenerationFixture::forPdo($this->pdo)->current());
-        $_SESSION['_auth']['issued_at'] = time();
+        $issuedAt = time() + 1000;
+        $_SESSION['_auth']['issued_at'] = $issuedAt;
+        $signOutStamp = date('Y-m-d H:i:s', $issuedAt + 1);
+        $set = $this->pdo->prepare('UPDATE user_accounts SET sessions_valid_from = ? WHERE id = ?');
+        $set->execute([$signOutStamp, $account->id]);
 
-        $this->userRepo->revokeSessions($account->id);
-        $afterSignOut = $this->userRepo->findById($account->id)?->sessionsValidFrom?->getTimestamp();
-
-        // The reset link, used in the same second: it stamps « now », which is
-        // BEFORE the sign-out's stamp.
+        // The reset's own stamp is « now », well before the sign-out's.
         $this->userRepo->updatePasswordHash($account->id, password_hash('BrandNewPassword1!', PASSWORD_DEFAULT));
 
         $this->assertSame(
-            $afterSignOut,
-            $this->userRepo->findById($account->id)?->sessionsValidFrom?->getTimestamp(),
+            $signOutStamp,
+            $this->userRepo->findById($account->id)?->sessionsValidFrom?->format('Y-m-d H:i:s'),
             'the stamp did not move back'
         );
         $this->assertFalse($this->revalidator->revalidate(fn(): AuthorizationYears => $this->authorizationYears()));
