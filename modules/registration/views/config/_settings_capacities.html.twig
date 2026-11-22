@@ -54,9 +54,11 @@
               data-threshold-box>
             {{ csrf_field()|raw }}
             <fieldset class="{{ waitlist_enabled ? '' : 'opacity-50' }}" {{ waitlist_enabled ? '' : 'disabled' }}>
-                {# Out of Bootstrap's float: a floated <legend> clears only the
+                {# Out of Bootstrap's float: a floated legend clears only the
                    element right after it, and here that one is often hidden
-                   (`d-none`) — the slider would slide up under the title (#1361). #}
+                   (`d-none`) — the slider would slide up under the title (#1361).
+                   No angle bracket in this comment: a static HTML analyser reads it
+                   as markup, and an opening tag here nests the real legend. #}
                 <legend class="h6 mb-2 registration-threshold-title">Seuils de la recommandation et du niveau public</legend>
                 {% if level_thresholds_unusable %}
                     <div class="alert alert-warning small">
