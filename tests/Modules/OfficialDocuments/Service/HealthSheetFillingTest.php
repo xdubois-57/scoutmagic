@@ -193,6 +193,46 @@ final class HealthSheetFillingTest extends TestCase
         ];
     }
 
+    /**
+     * Issue #1346: the screen shows the identity the PDF will print — built
+     * from values(), so the two can never disagree — in the form's own
+     * words and order, and the legal name rather than the totem.
+     */
+    public function testTheIdentityRecapIsBuiltFromWhatThePdfPrints(): void
+    {
+        $member = self::member(addresses: [
+            new MemberAddress('home', null, null, null, null, '1000', 'Bruxelles', 'Belgique'),
+            self::address(),
+        ]);
+
+        $identity = HealthSheetFilling::identity($member, HealthSheet::empty());
+        $values = HealthSheetFilling::values($member, HealthSheet::empty());
+
+        $this->assertSame(
+            ['Nom :', 'Prénom :', 'Date de naissance :', 'Rue :', 'N° :', 'Bte :', 'Code postal :', 'Localité :', 'Tél. / GSM :', 'Email :'],
+            array_column($identity, 'label')
+        );
+        $this->assertSame(
+            [
+                $values['member_last_name'], $values['member_first_name'], $values['member_birth_date'],
+                $values['member_street'], $values['member_street_number'], $values['member_box'],
+                $values['member_postal_code'], $values['member_city'], $values['member_phone'], $values['member_email'],
+            ],
+            array_column($identity, 'value')
+        );
+        $this->assertSame('Dubois', $identity[0]['value']);
+        $this->assertSame('Rue de la Station', $identity[3]['value'], 'the first address that carries a street');
+    }
+
+    public function testTheIdentityRecapLeavesTheBlanksThePdfLeaves(): void
+    {
+        $identity = HealthSheetFilling::identity(self::member(birthDate: null, mobile: null, phone: null, email: null), HealthSheet::empty());
+
+        $this->assertSame(['', '', '', '', ''], [
+            $identity[2]['value'], $identity[3]['value'], $identity[8]['value'], $identity[9]['value'], $identity[7]['value'],
+        ]);
+    }
+
     // ---------------------------------------------------------------
     // The family's half
     // ---------------------------------------------------------------
@@ -224,7 +264,10 @@ final class HealthSheetFillingTest extends TestCase
      */
     public function testTheFreeTextAnswersAreNotAlsoSingleLineValues(): void
     {
-        $sheet = HealthSheet::fromArray(['treatment' => 'Ventoline', 'allergies' => 'Arachides']);
+        $sheet = HealthSheet::fromArray([
+            'treatment' => 'Ventoline', 'takes_treatment' => 'yes',
+            'allergies' => 'Arachides', 'allergic' => 'yes',
+        ]);
 
         $values = HealthSheetFilling::values(self::member(), $sheet);
 
@@ -266,8 +309,8 @@ final class HealthSheetFillingTest extends TestCase
             'participation' => ['participation', 'participation_yes', 'participation_no'],
             'tétanos' => ['tetanus_vaccinated', 'tetanus_yes', 'tetanus_no'],
             'autonomie' => ['treatment_autonomy', 'autonomy_yes', 'autonomy_no'],
-            'allergies' => ['allergies', 'allergic_yes', 'allergic_no'],
-            'traitement' => ['treatment', 'treatment_yes', 'treatment_no'],
+            'allergies' => ['allergic', 'allergic_yes', 'allergic_no'],
+            'traitement' => ['takes_treatment', 'treatment_yes', 'treatment_no'],
         ];
     }
 
@@ -290,30 +333,189 @@ final class HealthSheetFillingTest extends TestCase
             'participation non' => ['participation', 'no', 'participation_no'],
             'tétanos oui' => ['tetanus_vaccinated', 'yes', 'tetanus_yes'],
             'tétanos non' => ['tetanus_vaccinated', 'no', 'tetanus_no'],
-            'autonomie oui' => ['treatment_autonomy', 'yes', 'autonomy_yes'],
-            'autonomie non' => ['treatment_autonomy', 'no', 'autonomy_no'],
+            // The autonomy question is only asked, and only printed, once a
+            // treatment is declared (issue #1346) — see the dedicated tests.
+            'allergique oui' => ['allergic', 'yes', 'allergic_yes'],
+            'allergique non' => ['allergic', 'no', 'allergic_no'],
+            'traitement oui' => ['takes_treatment', 'yes', 'treatment_yes'],
+            'traitement non' => ['takes_treatment', 'no', 'treatment_no'],
         ];
     }
 
     /**
-     * The two derived answers: writing an allergy down IS saying yes. And
-     * never NON, because « the parent wrote nothing » is not « the child has
-     * no allergies ».
+     * Issue #1346: the two squares are the family's ANSWER, never deduced from
+     * a text. « Aucune » typed in the allergies box used to cross OUI — the
+     * site telling a first-aider the opposite of what the parent meant.
      */
-    public function testListingAnAllergyAnswersTheAllergyQuestion(): void
+    #[DataProvider('noneTextProvider')]
+    public function testATextNeverDecidesTheSquare(string $text): void
     {
-        $ticks = HealthSheetFilling::ticks(HealthSheet::fromArray(['allergies' => 'Arachides']));
+        $ticks = HealthSheetFilling::ticks(HealthSheet::fromArray([
+            'allergies' => $text, 'treatment' => $text, 'diet' => $text,
+        ]));
 
-        $this->assertContains('allergic_yes', $ticks);
-        $this->assertNotContains('allergic_no', $ticks);
+        $this->assertSame([], $ticks, 'no choice was made: no square is crossed, whatever the boxes say');
     }
 
-    public function testDescribingATreatmentAnswersTheTreatmentQuestion(): void
+    /**
+     * @return array<string, array{string}>
+     */
+    public static function noneTextProvider(): array
     {
-        $ticks = HealthSheetFilling::ticks(HealthSheet::fromArray(['treatment' => 'Ventoline 100 µg']));
+        return ['Aucune' => ['Aucune'], 'Aucun' => ['Aucun'], 'Non' => ['Non'], 'un vrai texte' => ['Arachides']];
+    }
 
-        $this->assertContains('treatment_yes', $ticks);
-        $this->assertNotContains('treatment_no', $ticks);
+    public function testNoCrossesTheNoSquaresAndOnlyThose(): void
+    {
+        $ticks = HealthSheetFilling::ticks(HealthSheet::fromArray([
+            'allergic' => 'no', 'takes_treatment' => 'no', 'follows_diet' => 'no',
+        ]));
+
+        $this->assertEqualsCanonicalizing(['allergic_no', 'treatment_no'], $ticks);
+    }
+
+    /** The diet has NO squares on the federation's form, and none is added to it. */
+    public function testTheDietCrossesNoSquareWhateverItsAnswer(): void
+    {
+        foreach (['yes', 'no', ''] as $answer) {
+            $this->assertSame([], HealthSheetFilling::ticks(HealthSheet::fromArray(['follows_diet' => $answer])));
+        }
+    }
+
+    /**
+     * « Est-elle autonome… » is asked, and printed, only when a treatment is
+     * declared. A reply kept from an earlier answer is not carried to the
+     * paper, and NON is never ticked on the family's behalf.
+     */
+    public function testTheAutonomyIsPrintedOnlyWhenATreatmentIsDeclared(): void
+    {
+        $with = HealthSheetFilling::ticks(HealthSheet::fromArray(
+            ['takes_treatment' => 'yes', 'treatment_autonomy' => 'yes']
+        ));
+        $this->assertContains('autonomy_yes', $with);
+
+        foreach (['no', ''] as $treatment) {
+            $ticks = HealthSheetFilling::ticks(HealthSheet::fromArray(
+                ['takes_treatment' => $treatment, 'treatment_autonomy' => 'yes']
+            ));
+            $this->assertNotContains('autonomy_yes', $ticks, "treatment « {$treatment} »");
+            $this->assertNotContains('autonomy_no', $ticks);
+        }
+
+        $this->assertNotContains('autonomy_no', HealthSheetFilling::ticks(HealthSheet::fromArray(['takes_treatment' => 'no'])));
+        $this->assertSame([], array_intersect(
+            ['autonomy_yes', 'autonomy_no'],
+            HealthSheetFilling::ticks(HealthSheet::fromArray(['takes_treatment' => 'yes']))
+        ));
+    }
+
+    // ---------------------------------------------------------------
+    // What is printed in the dependent boxes (issue #1346)
+    // ---------------------------------------------------------------
+
+    /**
+     * The three rubrics: the choice's key, the two keys written under it (the
+     * same one twice where there is a single box), and the paragraphs it governs.
+     *
+     * @return array<string, array{string, string, string, list<string>}>
+     */
+    public static function rubricProvider(): array
+    {
+        return [
+            'allergies' => ['allergic', 'allergies', 'allergy_consequences', ['allergies', 'allergy_consequences']],
+            'médicaments' => ['takes_treatment', 'treatment', 'treatment', ['treatment']],
+            'régime' => ['follows_diet', 'diet', 'diet', ['diet']],
+        ];
+    }
+
+    /**
+     * @param list<string> $paragraphs
+     */
+    #[DataProvider('rubricProvider')]
+    public function testYesPrintsWhatTheFamilyWrote(string $choice, string $first, string $second, array $paragraphs): void
+    {
+        $written = [$first => 'Texte un', $second => 'Texte deux'];
+        $printed = HealthSheetFilling::paragraphs(HealthSheet::fromArray([$choice => 'yes'] + $written));
+
+        foreach ($paragraphs as $key) {
+            $this->assertSame($written[$key], $printed[$key], $key);
+        }
+    }
+
+    /**
+     * @param list<string> $paragraphs
+     */
+    #[DataProvider('rubricProvider')]
+    public function testNoPrintsSansObjetInEveryDependentBoxAndKeepsTheStoredText(
+        string $choice,
+        string $first,
+        string $second,
+        array $paragraphs
+    ): void {
+        $sheet = HealthSheet::fromArray([$choice => 'no', $first => 'Texte un', $second => 'Texte deux']);
+
+        $printed = HealthSheetFilling::paragraphs($sheet);
+
+        foreach ($paragraphs as $key) {
+            $this->assertSame('Sans objet', $printed[$key], $key);
+        }
+        // Computed for the document only: the sheet itself still carries
+        // what the family typed, and nothing synthetic is ever stored.
+        $this->assertSame('Texte deux', $sheet->toArray()[$second]);
+        $this->assertNotContains('Sans objet', $sheet->toArray());
+    }
+
+    /**
+     * @param list<string> $paragraphs
+     */
+    #[DataProvider('rubricProvider')]
+    public function testAnUnansweredChoicePrintsNothingEvenWhenTheBoxesAreFilled(
+        string $choice,
+        string $first,
+        string $second,
+        array $paragraphs
+    ): void {
+        $printed = HealthSheetFilling::paragraphs(HealthSheet::fromArray([$first => 'Texte un', $second => 'Texte deux']));
+
+        foreach ($paragraphs as $key) {
+            $this->assertSame('', $printed[$key], $key);
+        }
+    }
+
+    /** OUI with nothing written invents nothing, and a draft stays possible. */
+    #[DataProvider('rubricProvider')]
+    public function testYesWithoutADetailPrintsNothing(string $choice, string $first, string $second, array $paragraphs): void
+    {
+        $printed = HealthSheetFilling::paragraphs(HealthSheet::fromArray([$choice => 'yes']));
+
+        foreach ($paragraphs as $key) {
+            $this->assertSame('', $printed[$key], $key);
+        }
+    }
+
+    /**
+     * The exceptions: what follows an answer that is not part of the
+     * OUI / NON mechanism is printed whatever was answered before it.
+     */
+    public function testTheParticipationDetailAndTheBoosterDateStayPrintedAfterNo(): void
+    {
+        $sheet = HealthSheet::fromArray([
+            'participation' => 'no', 'participation_details' => 'Pas de natation',
+            'tetanus_vaccinated' => 'no', 'tetanus_last_booster' => '12/09/2019',
+        ]);
+
+        $this->assertSame('Pas de natation', HealthSheetFilling::paragraphs($sheet)['participation_details']);
+        $this->assertSame('12/09/2019', HealthSheetFilling::values(self::member(), $sheet)['tetanus_last_booster']);
+    }
+
+    /** An empty list of conditions is not NON to every question: nothing is derived. */
+    public function testEmptyConditionsPrintNothing(): void
+    {
+        $printed = HealthSheetFilling::paragraphs(HealthSheet::fromArray([]));
+
+        $this->assertSame('', $printed['conditions_details']);
+        $this->assertSame('', $printed['illnesses_and_operations']);
+        $this->assertNotContains('Sans objet', $printed);
     }
 
     #[DataProvider('swimmingLevelProvider')]
@@ -384,8 +586,8 @@ final class HealthSheetFillingTest extends TestCase
             'treatment_autonomy' => 'yes',
             'swimming_level' => 'good',
             'conditions' => array_fill_keys(HealthSheet::CONDITIONS, true),
-            'allergies' => 'Arachides',
-            'treatment' => 'Ventoline',
+            'allergic' => 'yes',
+            'takes_treatment' => 'yes',
         ]);
 
         $ticks = HealthSheetFilling::ticks($sheet);

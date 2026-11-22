@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\SosStaff\Task;
 
 use Core\Badge\MemberBadgeRepository;
+use Core\Config\ScoutYearService;
 use Core\Import\MemberYearRepository;
 use Core\Member\MemberAccountResolver;
 use Core\Member\MemberEmailRepository;
@@ -19,6 +20,7 @@ use Core\Member\SectionService;
 use Core\Member\UnitStaffSectionService;
 use Core\Scheduler\SchedulerService;
 use Core\Scheduler\TaskContext;
+use Core\ScoutYear\ScoutYearResolver;
 use Core\View\TwigFactory;
 use Modules\SosStaff\Api\PhoneProviderInterface;
 use Modules\SosStaff\Repository\ExcludedSectionRepository;
@@ -45,6 +47,25 @@ final class SosTaskServices
         public readonly RedirectService $redirectService,
         public readonly RedirectReconciler $reconciler
     ) {
+    }
+
+    /**
+     * The year the SOS line is judged in: the public year, the one the SOS
+     * pages work in too (SosAdminController::operationalYear()). One answer
+     * for the hourly check and for a scheduled transition, so a save, the
+     * check and the transition can never compare the line with two different
+     * rosters — and a transition never trusts the year written in its payload
+     * (issue #1260).
+     */
+    public static function operationalYearId(TaskContext $context): int
+    {
+        $pdo = $context->connection->getPdo();
+
+        return (new ScoutYearResolver(
+            new ScoutYearService($pdo),
+            $context->settings,
+            new MemberYearRepository($pdo)
+        ))->getCurrentPublicYear()['id'];
     }
 
     public static function build(TaskContext $context): self

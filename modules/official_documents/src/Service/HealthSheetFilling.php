@@ -26,22 +26,54 @@ use Modules\OfficialDocuments\Value\HealthSheet;
  * THE ONE RULE WORTH STATING OUT LOUD
  * ---------------------------------------------------------------------
  *
- * **Nothing here answers a question the family left alone.** The form has
- * eight pairs of OUI/NON squares; this class crosses one only where the
- * sheet carries an actual answer, and leaves both blank otherwise. That is
- * not caution for its own sake — an empty « allergique ? » crossed NON is
- * the site telling a first-aider that a child has no allergies, on the
- * strength of a parent not having filled in a web form. The two squares
- * left blank say « we do not know », which is true and which a human reads
- * correctly.
+ * **Nothing here answers a question the family left alone, and no text
+ * decides an answer.** A square is crossed only where the sheet carries an
+ * actual choice, and both are left blank otherwise. That is not caution for
+ * its own sake — an empty « allergique ? » crossed NON is the site telling a
+ * first-aider that a child has no allergies, on the strength of a parent not
+ * having filled in a web form. The two squares left blank say « we do not
+ * know », which is true and which a human reads correctly.
  *
- * The two derived pairs follow the same rule from the other side:
- * « allergique ? » is crossed OUI when the family listed an allergy and
- * « prend-elle un traitement ? » OUI when they described one, because
- * writing one down IS the answer. Neither is ever crossed NON.
+ * Since issue #1346 that holds from the other side too: « allergique ? »,
+ * « prend-elle un traitement ? » and the diet question have a choice of
+ * their own (OUI / NON / non précisé), and a text written in the box under
+ * it — « Aucune », « Aucun », « Non », or a real allergy — never turns it
+ * into one. The choice is crossed as the family made it, NON included.
+ *
+ * **What the dependent boxes print follows the choice**, here and nowhere
+ * else (`paragraphs()`), so the overflow warning, which reads what is
+ * exported, and the download cannot disagree: OUI prints what was written,
+ * NON prints « Sans objet » once in each box, and an unanswered choice
+ * prints nothing at all — whatever the boxes still hold. What the family
+ * typed is kept on the sheet in every case; « Sans objet » is computed for
+ * the document and never stored.
  */
 final class HealthSheetFilling
 {
+    /**
+     * What a box prints when its question was answered NON (issue #1346).
+     * Written by the document only — never a stored answer, so it cannot be
+     * mistaken for something a parent said about a child's health.
+     */
+    public const NOT_APPLICABLE = 'Sans objet';
+
+    /**
+     * The identity lines the screen recaps, in the form's own words and order,
+     * keyed by the `values()` entry each one reads.
+     */
+    public const IDENTITY_LABELS = [
+        'member_last_name' => 'Nom :',
+        'member_first_name' => 'Prénom :',
+        'member_birth_date' => 'Date de naissance :',
+        'member_street' => 'Rue :',
+        'member_street_number' => 'N° :',
+        'member_box' => 'Bte :',
+        'member_postal_code' => 'Code postal :',
+        'member_city' => 'Localité :',
+        'member_phone' => 'Tél. / GSM :',
+        'member_email' => 'Email :',
+    ];
+
     /**
      * The swimming answers, keyed by the vocabulary
      * `Value\HealthSheet::SWIMMING_LEVELS` uses and valued by the square
@@ -108,9 +140,39 @@ final class HealthSheetFilling
     }
 
     /**
-     * The free-text answers, keyed by the name the screen and the storage
-     * give them — which is also the key `Pdf\HealthSheetLayout::
-     * paragraphLines()` resolves to the form's printed lines.
+     * The identity as the document WILL print it, for the screen to recap in
+     * read-only (issue #1346): the ten lines the site fills in itself, built
+     * from `values()` so the recap and the paper cannot disagree — the legal
+     * name rather than the totem, the first address that carries a street,
+     * the mobile before the landline.
+     *
+     * @return list<array{label: string, value: string}>
+     */
+    public static function identity(MemberProfile $member, HealthSheet $sheet): array
+    {
+        $values = self::values($member, $sheet);
+
+        $lines = [];
+        foreach (self::IDENTITY_LABELS as $key => $label) {
+            $lines[] = ['label' => $label, 'value' => $values[$key]];
+        }
+
+        return $lines;
+    }
+
+    /**
+     * The free-text answers as they are EXPORTED, keyed by the name the
+     * screen and the storage give them — which is also the key
+     * `Pdf\HealthSheetLayout::paragraphLines()` resolves to the form's
+     * printed lines.
+     *
+     * « As exported » is the point (issue #1346): the allergies, their
+     * consequences, the treatment and the diet follow the choice made above
+     * them — OUI prints what was written, NON prints « Sans objet », an
+     * unanswered choice prints nothing — so that the overflow warning, which
+     * reads this, never complains about a text the paper will not carry. The
+     * wrapping puts « Sans objet » on the first printed line of a box and
+     * leaves the others empty.
      *
      * @return array<string, string>
      */
@@ -122,14 +184,17 @@ final class HealthSheetFilling
             // single-line value. See `Pdf\HealthSheetLayout`.
             'contact1_note' => $sheet->contact1Note,
             'contact2_note' => $sheet->contact2Note,
+            // The restrictions explain a NON to the activities, so they are
+            // printed whatever was answered. The same goes for the list of
+            // conditions below: an empty one is not « non » to each of them.
             'participation_details' => $sheet->participationDetails,
             'conditions_details' => $sheet->conditionsDetails,
             'illnesses_and_operations' => $sheet->illnessesAndOperations,
             'useful_information' => $sheet->usefulInformation,
-            'allergies' => $sheet->allergies,
-            'allergy_consequences' => $sheet->allergyConsequences,
-            'diet' => $sheet->diet,
-            'treatment' => $sheet->treatment,
+            'allergies' => self::dependent($sheet->allergic, $sheet->allergies),
+            'allergy_consequences' => self::dependent($sheet->allergic, $sheet->allergyConsequences),
+            'diet' => self::dependent($sheet->followsDiet, $sheet->diet),
+            'treatment' => self::dependent($sheet->takesTreatment, $sheet->treatment),
         ];
     }
 
@@ -144,7 +209,16 @@ final class HealthSheetFilling
 
         self::appendYesNo($ticks, $sheet->participation, 'participation_yes', 'participation_no');
         self::appendYesNo($ticks, $sheet->tetanusVaccinated, 'tetanus_yes', 'tetanus_no');
-        self::appendYesNo($ticks, $sheet->treatmentAutonomy, 'autonomy_yes', 'autonomy_no');
+        // The two questions that have squares of their own (issue #1346):
+        // crossed as the family answered, NON included, and never from a text.
+        self::appendYesNo($ticks, $sheet->allergic, 'allergic_yes', 'allergic_no');
+        self::appendYesNo($ticks, $sheet->takesTreatment, 'treatment_yes', 'treatment_no');
+        // « Est-elle autonome… » only means something when a treatment is
+        // declared: an answer kept from earlier is not carried to the paper
+        // without one, and NON is never crossed on the family's behalf.
+        if ($sheet->takesTreatment === 'yes') {
+            self::appendYesNo($ticks, $sheet->treatmentAutonomy, 'autonomy_yes', 'autonomy_no');
+        }
 
         if (isset(self::SWIMMING_TICKS[$sheet->swimmingLevel])) {
             $ticks[] = self::SWIMMING_TICKS[$sheet->swimmingLevel];
@@ -154,15 +228,6 @@ final class HealthSheetFilling
             if ($sheet->conditions[$condition] ?? false) {
                 $ticks[] = 'condition_' . $condition;
             }
-        }
-
-        // The two derived answers. OUI when the family wrote something,
-        // nothing at all otherwise — never NON, see the class docblock.
-        if ($sheet->allergies !== '') {
-            $ticks[] = 'allergic_yes';
-        }
-        if ($sheet->treatment !== '') {
-            $ticks[] = 'treatment_yes';
         }
 
         return $ticks;
@@ -199,6 +264,20 @@ final class HealthSheetFilling
     private static function date(?string $stored): string
     {
         return DateInput::fromStorage($stored)?->format('d/m/Y') ?? '';
+    }
+
+    /**
+     * What a box under an OUI / NON question prints: the family's text after
+     * OUI, « Sans objet » after NON, nothing while the question is
+     * unanswered — whatever the box still holds.
+     */
+    private static function dependent(string $answer, string $text): string
+    {
+        return match ($answer) {
+            'yes' => $text,
+            'no' => self::NOT_APPLICABLE,
+            default => '',
+        };
     }
 
     /**
