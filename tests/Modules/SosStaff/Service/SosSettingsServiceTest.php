@@ -497,6 +497,28 @@ class SosSettingsServiceTest extends TestCase
         $this->assertNull($this->service->lastRedirectFailureAt());
     }
 
+    /** Issue #1260: who is on duty but cannot be reached, kept until it is no longer true. */
+    public function testTheUnreachablePersonOnDutyIsKeptUntilCleared(): void
+    {
+        $this->settingService->register(
+            'redirect_unreachable_member_id', '', 'text', 'GSM', 'desc', 'sos_staff', null, null, false
+        );
+        $this->assertNull($this->service->unreachablePlannedMemberId());
+
+        $this->service->recordUnreachablePlannedMember(42);
+        $this->assertSame(42, $this->service->unreachablePlannedMemberId());
+
+        $this->service->recordUnreachablePlannedMember(null);
+        $this->assertNull($this->service->unreachablePlannedMemberId());
+    }
+
+    public function testAMissingUnreachableSettingRowDoesNotThrow(): void
+    {
+        $this->service->recordUnreachablePlannedMember(42);
+
+        $this->assertNull($this->service->unreachablePlannedMemberId());
+    }
+
     /** The bookkeeping never masks the failure it records. */
     public function testAMissingSettingRowDoesNotThrow(): void
     {

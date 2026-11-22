@@ -202,6 +202,14 @@ class SosAdminController extends AbstractController
 
         $selectedMemberId = $this->settingsService->resolveDefaultNumberMemberId($effectiveYear->id);
         $staleMemberId = $this->settingsService->staleDefaultNumberMemberId($effectiveYear->id);
+        // Who the line rings today if nothing is saved: nobody planned, or a
+        // person planned whose Desk GSM is no phone number (issue #1260) —
+        // either way the default number governs, so saving a new one moves it.
+        $todayMemberId = $this->onCallService
+            ->resolveExpectedTargetAt($this->currentTime(), $orderedStaffMemberIds)['member_id'];
+        $todayUsesDefaultNumber = $todayMemberId === null
+            || $this->redirectService->resolveDestination($todayMemberId, $effectiveYear->id)['unreachable_member_id']
+                !== null;
 
         return $this->render('@sos_staff/settings.html.twig', [
             'sos_page' => self::PAGE_SETTINGS,
@@ -222,8 +230,7 @@ class SosAdminController extends AbstractController
             // — exactly when the reconciliation after saving moves the line
             // acts on. A permanent warning that is wrong half the time
             // ends up ignored.
-            'today_uses_default_number' => $this->onCallService
-                ->resolveExpectedTargetAt($this->currentTime(), $orderedStaffMemberIds)['member_id'] === null,
+            'today_uses_default_number' => $todayUsesDefaultNumber,
             'transition_hour' => $this->settingsService->getTransitionHour(),
             'email_notifications_enabled' => $this->settingsService->isEmailNotificationsEnabled(),
         ]);
@@ -274,13 +281,16 @@ class SosAdminController extends AbstractController
         if ($status['expected_number'] === null) {
             return $this->json([
                 'success' => false,
-                'error' => "Aucun destinataire valide : ni garde aujourd'hui, ni numéro par défaut utilisable.",
+                'error' => $status['unreachable_member_id'] !== null
+                    ? 'Aucun destinataire valide : '
+                        . $this->unreachableWithoutDefault($status['unreachable_member_id'], $scoutYearId)
+                    : "Aucun destinataire valide : ni garde aujourd'hui, ni numéro par défaut utilisable.",
             ], 409);
         }
         if (PhoneNumber::normalize($status['expected_number']) === null) {
             return $this->json([
                 'success' => false,
-                'error' => 'Le GSM de ' . $this->destinationLabel($status['expected_member_id'], $scoutYearId)
+                'error' => 'Le GSM de ' . $this->destinationLabel($this->displayedMemberId($status), $scoutYearId)
                     . " dans Desk n'est pas un numéro de téléphone valide : la redirection ne peut pas être "
                     . 'corrigée depuis cette page. Corrigez le GSM dans Desk, puis réimportez.',
             ], 409);
@@ -362,6 +372,7 @@ class SosAdminController extends AbstractController
      * @return array{
      *   live_state: array{active: bool, number: ?string, label: ?string, member_id: ?int, error: ?string},
      *   expected_member_id: ?int,
+     *   unreachable_member_id: ?int,
      *   expected_number: ?string,
      *   expected_label: ?string,
      *   action: ?string
@@ -402,6 +413,9 @@ class SosAdminController extends AbstractController
         return [
             'live_state' => $live,
             'expected_member_id' => $expectedMemberId,
+            // The planned member whose Desk GSM is no phone number, when the
+            // calls therefore go to the default number (issue #1260).
+            'unreachable_member_id' => $expected['unreachable_member_id'],
             'expected_number' => $expectedNumber,
             'expected_label' => $expectedLabel,
             'action' => $action,
@@ -412,6 +426,7 @@ class SosAdminController extends AbstractController
      * @param array{
      *   live_state: array{active: bool, number: ?string, label: ?string, member_id: ?int, error: ?string},
      *   expected_member_id: ?int,
+     *   unreachable_member_id: ?int,
      *   expected_number: ?string,
      *   expected_label: ?string,
      *   action: ?string
@@ -431,7 +446,13 @@ class SosAdminController extends AbstractController
             // must say why rather than fall silent.
             'redirect_unusable_label' => $status['expected_number'] !== null
                     && PhoneNumber::normalize($status['expected_number']) === null
-                ? $this->destinationLabel($status['expected_member_id'], $this->operationalYear()->id)
+                ? $this->destinationLabel($this->displayedMemberId($status), $this->operationalYear()->id)
+                : null,
+            // Issue #1260: the person on duty whose Desk GSM is no phone
+            // number — the calls go to the default number, and the block says
+            // so rather than present the default number as the plan.
+            'redirect_unreachable_label' => $status['unreachable_member_id'] !== null
+                ? $this->destinationLabel($status['unreachable_member_id'], $this->operationalYear()->id)
                 : null,
         ];
     }
@@ -443,6 +464,7 @@ class SosAdminController extends AbstractController
      * @param array{
      *   live_state: array{active: bool, number: ?string, label: ?string, member_id: ?int, error: ?string},
      *   expected_member_id: ?int,
+     *   unreachable_member_id: ?int,
      *   expected_number: ?string,
      *   expected_label: ?string,
      *   action: ?string
@@ -1026,24 +1048,32 @@ class SosAdminController extends AbstractController
      * change (issue #1102) — « Enregistré » alone was also what the page
      * said while the line rang for somebody taken off duty.
      *
-     * @param array{status: string, expected_member_id: ?int, expected_number: ?string} $reconciled
+     * @param array{
+     *   status: string,
+     *   expected_member_id: ?int,
+     *   expected_number: ?string,
+     *   unreachable_member_id: ?int
+     * } $reconciled
      */
     private function destinationMessage(array $reconciled, int $scoutYearId): string
     {
         $now = match ($reconciled['status']) {
             RedirectReconciler::ALIGNED, RedirectReconciler::CORRECTED => 'Les appels arrivent maintenant chez '
-                . $this->destinationLabel($reconciled['expected_member_id'], $scoutYearId)
-                . ($reconciled['status'] === RedirectReconciler::CORRECTED ? ' (redirection modifiée).' : '.'),
+                . $this->destinationLabel($this->displayedMemberId($reconciled), $scoutYearId)
+                . ($reconciled['status'] === RedirectReconciler::CORRECTED ? ' (redirection modifiée).' : '.')
+                . $this->unreachableSentence($reconciled, $scoutYearId),
             RedirectReconciler::FAILED => "Attention : la redirection n'a pas pu être modifiée chez l'opérateur — "
                 . "les appels arrivent peut-être encore chez la personne précédente. Le site réessaie "
                 . "automatiquement ; les chefs d'unité sont alertés une fois par panne.",
             RedirectReconciler::UNREADABLE => "Attention : l'état de la redirection n'a pas pu être lu chez "
                 . "l'opérateur. Le site vérifie à nouveau automatiquement ; les chefs d'unité sont alertés une "
                 . 'fois par panne.',
-            RedirectReconciler::NO_DESTINATION => "Attention : personne n'est de garde et aucun numéro par "
-                . "défaut n'est utilisable — choisissez un numéro par défaut dans les réglages.",
+            RedirectReconciler::NO_DESTINATION => $reconciled['unreachable_member_id'] !== null
+                ? 'Attention : ' . $this->unreachableWithoutDefault($reconciled['unreachable_member_id'], $scoutYearId)
+                : "Attention : personne n'est de garde et aucun numéro par "
+                    . "défaut n'est utilisable — choisissez un numéro par défaut dans les réglages.",
             RedirectReconciler::UNUSABLE_NUMBER => 'Attention : le GSM de '
-                . $this->destinationLabel($reconciled['expected_member_id'], $scoutYearId)
+                . $this->destinationLabel($this->displayedMemberId($reconciled), $scoutYearId)
                 . " dans Desk n'est pas un numéro de téléphone valide, la redirection n'a pas été modifiée. "
                 . 'Corrigez le GSM dans Desk, puis réimportez.',
             default => "La téléphonie n'est pas configurée : la redirection ne suit pas le planning.",
@@ -1054,8 +1084,62 @@ class SosAdminController extends AbstractController
             return $now . ' Aucune bascule n\'est planifiée.';
         }
 
+        // The same rule as « les appels arrivent maintenant chez »: a person
+        // whose Desk GSM is no phone number is not where the calls will go.
+        $nextMemberId = $next['member_id'];
+        if (
+            $nextMemberId !== null
+            && $this->redirectService->resolveDestination($nextMemberId, $scoutYearId)['unreachable_member_id'] !== null
+        ) {
+            $nextMemberId = null;
+        }
+
         return $now . ' Prochaine bascule le ' . $next['run_at']->format('d/m/Y à H:i') . ' vers '
-            . $this->destinationLabel($next['member_id'], $scoutYearId) . '.';
+            . $this->destinationLabel($nextMemberId, $scoutYearId) . '.';
+    }
+
+    /**
+     * The member a message says the calls go to: nobody — the default
+     * number — when the planned person's Desk GSM is no phone number
+     * (issue #1260), because the calls do not follow them.
+     *
+     * @param array{expected_member_id: ?int, unreachable_member_id: ?int} $destination
+     */
+    private function displayedMemberId(array $destination): ?int
+    {
+        return $destination['unreachable_member_id'] !== null ? null : $destination['expected_member_id'];
+    }
+
+    /**
+     * What a save says on top of « les appels arrivent chez le numéro par
+     * défaut » when the person planned on duty cannot be reached: whose GSM
+     * to correct. The name only, never the number.
+     *
+     * @param array{unreachable_member_id: ?int} $reconciled
+     */
+    private function unreachableSentence(array $reconciled, int $scoutYearId): string
+    {
+        if ($reconciled['unreachable_member_id'] === null) {
+            return '';
+        }
+
+        return ' Attention : le GSM de ' . $this->destinationLabel($reconciled['unreachable_member_id'], $scoutYearId)
+            . " dans Desk n'est pas un numéro de téléphone valide, la personne de garde n'est donc pas jointe. "
+            . 'Corrigez le GSM dans Desk, puis réimportez.';
+    }
+
+    /**
+     * Someone IS on duty, but their Desk GSM is no phone number and there is no
+     * default number to fall back on: nothing was moved, and the fix is the
+     * GSM (or a default number) — not « personne n'est de garde » (review of
+     * #1375). The name only, never the number.
+     */
+    private function unreachableWithoutDefault(int $memberId, int $scoutYearId): string
+    {
+        return 'le GSM de ' . $this->destinationLabel($memberId, $scoutYearId)
+            . " dans Desk n'est pas un numéro de téléphone valide et aucun numéro par défaut n'est utilisable : "
+            . "la redirection n'a pas été modifiée. Corrigez le GSM dans Desk, puis réimportez, "
+            . 'ou choisissez un numéro par défaut dans les réglages.';
     }
 
     private function destinationLabel(?int $memberId, int $scoutYearId): string
@@ -1073,7 +1157,12 @@ class SosAdminController extends AbstractController
      * or hourly check arms. Without them a failure on save waited for the
      * next hourly pass.
      *
-     * @return array{status: string, expected_member_id: ?int, expected_number: ?string}
+     * @return array{
+     *   status: string,
+     *   expected_member_id: ?int,
+     *   expected_number: ?string,
+     *   unreachable_member_id: ?int
+     * }
      */
     private function reconcileAndRetry(int $scoutYearId, string $trigger): array
     {

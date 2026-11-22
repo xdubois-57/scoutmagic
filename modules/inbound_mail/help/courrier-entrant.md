@@ -77,7 +77,7 @@ faire. « Désactiver » suspend une adresse sans la supprimer ;
 
 ## Comprendre une relève en échec
 
-Le Journal d'événements, catégorie « Courrier entrant », indique les
+Le Journal d'événements, catégorie « inbound_mail », indique les
 échecs manuels et changements automatiques. La réponse IMAP est masquée,
 le débogage désactivé. Un jeton du serveur inconnu peut échapper au
 masquage, y compris dans les archives de support. Voir « Lire une erreur
