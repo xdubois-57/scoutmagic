@@ -2061,6 +2061,51 @@ class SosAdminControllerTest extends TestCase
         $this->assertSame([], $this->applyCalls);
     }
 
+    /**
+     * Someone IS on duty, their Desk GSM is no phone number and no member can
+     * stand in as the default number: the answer names whose GSM to correct
+     * instead of claiming nobody is on duty (issue #1260, review of #1375).
+     */
+    public function testAnUnusableGsmWithNoDefaultNumberNamesWhoseGsmToCorrectInsteadOfSayingNobodyIsOnDuty(): void
+    {
+        $baloo = $this->createStaffduMember('Baloo', '0470 12 34', 'Paul', 'Martin');
+        $this->putOnDuty($baloo);
+        $this->forwarding = new \Modules\SosStaff\Api\ForwardingState(false, null);
+
+        $answer = $this->resynchronize();
+
+        $this->assertSame(409, $answer['_status']);
+        $this->assertStringContainsString('Baloo (Paul Martin)', $answer['error']);
+        $this->assertStringContainsString('Corrigez le GSM dans Desk', $answer['error']);
+        $this->assertStringNotContainsString("ni garde aujourd'hui", $answer['error']);
+        $this->assertStringNotContainsString('0470 12 34', $answer['error']);
+        $this->assertSame([], $this->applyCalls);
+    }
+
+    public function testTheSaveAnswerNamesWhoseGsmToCorrectWhenNobodyCanTakeTheCalls(): void
+    {
+        $this->now = new \DateTimeImmutable('2026-08-12 12:00:00');
+        $baloo = $this->createStaffduMember('Baloo', '0470 12 34', 'Paul', 'Martin');
+        $this->forwarding = new \Modules\SosStaff\Api\ForwardingState(false, null);
+
+        $response = $this->controller->saveOnCall(
+            $this->jsonRequest([
+                'year' => 2026,
+                'month' => 8,
+                'cells' => [['member_id' => $baloo, 'date' => '2026-08-12', 'state' => OnCallAssignment::STATE_ONCALL]],
+                '_csrf_token' => $this->csrfToken(),
+            ]),
+            []
+        );
+        $decoded = json_decode($response->getBody(), true);
+
+        self::assertTrue($decoded['success'], 'the planning itself is saved');
+        self::assertStringContainsString('Baloo (Paul Martin)', $decoded['message']);
+        self::assertStringContainsString('aucun numéro par défaut', $decoded['message']);
+        self::assertStringNotContainsString("personne n'est de garde", $decoded['message']);
+        self::assertStringNotContainsString('0470 12 34', $decoded['message']);
+    }
+
     public function testNoProviderRefusesTheCorrection(): void
     {
         $this->activeProvider = null;

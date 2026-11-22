@@ -281,7 +281,10 @@ class SosAdminController extends AbstractController
         if ($status['expected_number'] === null) {
             return $this->json([
                 'success' => false,
-                'error' => "Aucun destinataire valide : ni garde aujourd'hui, ni numéro par défaut utilisable.",
+                'error' => $status['unreachable_member_id'] !== null
+                    ? 'Aucun destinataire valide : '
+                        . $this->unreachableWithoutDefault($status['unreachable_member_id'], $scoutYearId)
+                    : "Aucun destinataire valide : ni garde aujourd'hui, ni numéro par défaut utilisable.",
             ], 409);
         }
         if (PhoneNumber::normalize($status['expected_number']) === null) {
@@ -1065,8 +1068,10 @@ class SosAdminController extends AbstractController
             RedirectReconciler::UNREADABLE => "Attention : l'état de la redirection n'a pas pu être lu chez "
                 . "l'opérateur. Le site vérifie à nouveau automatiquement ; les chefs d'unité sont alertés une "
                 . 'fois par panne.',
-            RedirectReconciler::NO_DESTINATION => "Attention : personne n'est de garde et aucun numéro par "
-                . "défaut n'est utilisable — choisissez un numéro par défaut dans les réglages.",
+            RedirectReconciler::NO_DESTINATION => $reconciled['unreachable_member_id'] !== null
+                ? 'Attention : ' . $this->unreachableWithoutDefault($reconciled['unreachable_member_id'], $scoutYearId)
+                : "Attention : personne n'est de garde et aucun numéro par "
+                    . "défaut n'est utilisable — choisissez un numéro par défaut dans les réglages.",
             RedirectReconciler::UNUSABLE_NUMBER => 'Attention : le GSM de '
                 . $this->destinationLabel($this->displayedMemberId($reconciled), $scoutYearId)
                 . " dans Desk n'est pas un numéro de téléphone valide, la redirection n'a pas été modifiée. "
@@ -1121,6 +1126,20 @@ class SosAdminController extends AbstractController
         return ' Attention : le GSM de ' . $this->destinationLabel($reconciled['unreachable_member_id'], $scoutYearId)
             . " dans Desk n'est pas un numéro de téléphone valide, la personne de garde n'est donc pas jointe. "
             . 'Corrigez le GSM dans Desk, puis réimportez.';
+    }
+
+    /**
+     * Someone IS on duty, but their Desk GSM is no phone number and there is no
+     * default number to fall back on: nothing was moved, and the fix is the
+     * GSM (or a default number) — not « personne n'est de garde » (review of
+     * #1375). The name only, never the number.
+     */
+    private function unreachableWithoutDefault(int $memberId, int $scoutYearId): string
+    {
+        return 'le GSM de ' . $this->destinationLabel($memberId, $scoutYearId)
+            . " dans Desk n'est pas un numéro de téléphone valide et aucun numéro par défaut n'est utilisable : "
+            . "la redirection n'a pas été modifiée. Corrigez le GSM dans Desk, puis réimportez, "
+            . 'ou choisissez un numéro par défaut dans les réglages.';
     }
 
     private function destinationLabel(?int $memberId, int $scoutYearId): string
