@@ -1471,10 +1471,40 @@
     justify-content: space-between;
     height: 1.25rem;
 }
+/* « 100 % » ends on its tick instead of being centred on it: centred, it
+   reaches the maximum label on a phone (#1361). It is the only label positioned
+   by hand, so it is the only one that needs room made for it. */
 .registration-dual-slider-scale-full {
     position: absolute;
-    transform: translateX(-50%);
+    transform: translateX(-100%);
+    padding-right: 0.25rem;
     white-space: nowrap;
+}
+/* What the 100 % tick means, under the scale — its own line, so the text never
+   competes with the graduations for width. The mark is the tick's own line. */
+.registration-dual-slider-key {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+}
+.registration-dual-slider-key-mark {
+    display: inline-block;
+    flex: none;
+    height: 1rem;
+    border-left: 2px solid var(--bs-emphasis-color);
+}
+/* A <legend> is floated by Bootstrap and clears only the next element: take it
+   out of the float so what follows always starts below it, whether that is an
+   alert, a note or — as is usual — a hidden paragraph and the slider. */
+.registration-threshold-title {
+    float: none;
+    width: 100%;
+}
+/* A zone label too narrow for its word is hidden by the script rather than
+   cut to a stub (registration-capacity-settings.js, fitZoneLabels()). Hidden,
+   not removed: the zone keeps the width it was given. */
+.registration-dual-slider-label-clipped {
+    visibility: hidden;
 }
 .registration-capacity-input {
     max-width: 8rem;

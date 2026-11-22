@@ -242,6 +242,26 @@
     }
 
     /**
+     * Hides the zone label that does not fit its zone (#1361). The labels
+     * under the bar are as wide as the zone they name and truncate to an
+     * ellipsis — which on a narrow zone leaves a stub (« O », « N. ») that
+     * reads as a mistake. A label that is cut is hidden instead; what the
+     * zone means is said by the sentence under the bar and by the worked
+     * example, which are always complete. Measured, not computed: the width
+     * is a percentage of a bar whose length the page decides.
+     *
+     * @param {HTMLElement} box
+     */
+    function fitZoneLabels(box) {
+        box.querySelectorAll('[data-slider-label]').forEach(
+            /** @param {HTMLElement} label */
+            function (label) {
+                label.classList.toggle('registration-dual-slider-label-clipped', label.scrollWidth > label.clientWidth);
+            }
+        );
+    }
+
+    /**
      * The thresholds sub-box: slider, fields and example kept in step.
      *
      * @param {HTMLElement} box
@@ -291,6 +311,7 @@
             });
             if (overFull) overFull.classList.toggle('d-none', pair.maybe <= 100);
             if (example) renderExample(example, capacity, pair);
+            fitZoneLabels(box);
         }
 
         /**
@@ -325,6 +346,10 @@
             pair = movePair('maybe', commitNumber(maybeField.value, pair.maybe, pair.yes + 1, bounds.max), pair, bounds);
             render();
         });
+
+        // The zones are percentages of the bar: a rotated phone or a resized
+        // window changes which labels fit.
+        window.addEventListener('resize', function () { fitZoneLabels(box); });
 
         render();
     }
