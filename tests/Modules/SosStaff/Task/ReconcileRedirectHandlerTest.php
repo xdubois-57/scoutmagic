@@ -78,6 +78,9 @@ final class ReconcileRedirectHandlerTest extends TestCase
         // Where the outage is remembered, as module.json declares it: the
         // attention point reads it, and it is what makes one alert per outage.
         $this->settings->register('redirect_last_failure_at', '', 'text', 'Échec', 'desc', 'sos_staff');
+        // Who is on duty but unreachable (issue #1260): what keeps the urgent
+        // attention point up, and what makes one alert per episode.
+        $this->settings->register('redirect_unreachable_member_id', '', 'text', 'GSM', 'desc', 'sos_staff');
         $this->year = (new ScoutYearService($this->pdo))->getCurrentYear()['id'];
         $journal = new JournalService(new JournalRepository($this->pdo));
         $this->tasks = new SchedulerRepository($this->pdo);
@@ -175,34 +178,153 @@ final class ReconcileRedirectHandlerTest extends TestCase
     }
 
     /**
-     * Issue #1125, review of #1194: the member on duty has a Desk GSM that is
-     * no phone number. The hourly check leaves the line alone and alerts
-     * nobody — but it still reads the operator first, so a failure recorded
-     * for an earlier outage does not stay up, nor mute the next one's alert,
-     * for as long as Desk holds the wrong GSM.
+     * Issue #1260 (which replaces the #1125 rule that left the line alone):
+     * the member on duty has a Desk GSM that is no phone number. The hourly
+     * check puts the line on the DEFAULT number instead of leaving it with
+     * the previous holder, alerts the chefs d'unité once, and — it read the
+     * operator first — still clears a failure recorded for an earlier outage.
      */
-    public function testAnUnusableGsmOnDutyStillClearsAFailureTheOperatorGotOver(): void
+    public function testAnUnusableGsmOnDutySendsTheLineToTheDefaultNumber(): void
     {
-        $baloo = $this->member('baloo', '0470 12 34', 'baloo@example.test');
-        $repository = new OnCallRepository($this->pdo);
-        foreach (['yesterday', 'today'] as $day) {
-            $date = (new \DateTimeImmutable($day))->format('Y-m-d');
-            $repository->replaceRange($date, $date, [
-                new OnCallAssignment($baloo, $date, OnCallAssignment::STATE_ONCALL),
-            ]);
-        }
+        $baloo = $this->onDuty('baloo', '0470 12 34');
         $this->settings->setInternal('redirect_last_failure_at', '2026-01-01 10:00:00', 'sos_staff');
         $this->queueNow(ReconcileRedirectHandler::REFERENCE_HOURLY, []);
 
         $this->runner->processOverdue();
 
-        self::assertSame([], $this->changes);
-        self::assertSame([], $this->mailedTo);
+        self::assertSame([self::DEFAULT_NUMBER], $this->changes, 'never left with the previous holder');
+        self::assertSame(['chef@example.test'], $this->mailedTo);
         self::assertSame(
-            ['redirect_reconcile_unusable_number' => 'warning'],
-            $this->journal('redirect_reconcile_unusable_number')
+            ['redirect_planned_gsm_unusable' => 'warning'],
+            $this->journal('redirect_planned_gsm_unusable')
         );
+        self::assertSame((string) $baloo, $this->settings->get('redirect_unreachable_member_id', 'sos_staff', ''));
         self::assertSame('', $this->settings->get('redirect_last_failure_at', 'sos_staff', ''));
+    }
+
+    /** One alert per episode, and the signal stays up while the GSM is wrong. */
+    public function testTheUnusableGsmIsAlertedOnceAndTheSignalStaysUp(): void
+    {
+        $baloo = $this->onDuty('baloo', '0470 12 34');
+        $this->queueNow(ReconcileRedirectHandler::REFERENCE_HOURLY, []);
+        $this->runner->processOverdue();
+
+        // An hour later: the line is on the default number, the plan says the
+        // default number — aligned — and Desk still holds the wrong GSM.
+        $next = $this->pending(ReconcileRedirectHandler::REFERENCE_HOURLY);
+        $this->makeDue((int) $next[0]['id']);
+        $this->runner->processOverdue();
+
+        self::assertSame([self::DEFAULT_NUMBER], $this->changes);
+        self::assertSame(['chef@example.test'], $this->mailedTo);
+        self::assertSame((string) $baloo, $this->settings->get('redirect_unreachable_member_id', 'sos_staff', ''));
+    }
+
+    /**
+     * The line was already on the default number (nobody had the duty
+     * yesterday): no change is made, so apply() never runs — and the chefs
+     * d'unité must still be told, once, and the signal raised.
+     */
+    public function testAnUnusableGsmIsAlertedEvenWhenTheLineAlreadySitsOnTheDefaultNumber(): void
+    {
+        $baloo = $this->onDuty('baloo', '0470 12 34');
+        $this->forwarding = new ForwardingState(true, self::DEFAULT_NUMBER);
+        $this->queueNow(ReconcileRedirectHandler::REFERENCE_HOURLY, []);
+
+        $this->runner->processOverdue();
+
+        self::assertSame([], $this->changes);
+        self::assertSame(['chef@example.test'], $this->mailedTo);
+        self::assertSame((string) $baloo, $this->settings->get('redirect_unreachable_member_id', 'sos_staff', ''));
+    }
+
+    /** Desk corrected and re-imported: the next pass puts the line on the person, and the signal goes. */
+    public function testTheSignalClearsOnceTheGsmIsCorrected(): void
+    {
+        $baloo = $this->onDuty('baloo', '0470 12 34');
+        $this->queueNow(ReconcileRedirectHandler::REFERENCE_HOURLY, []);
+        $this->runner->processOverdue();
+        self::assertSame((string) $baloo, $this->settings->get('redirect_unreachable_member_id', 'sos_staff', ''));
+
+        $this->pdo->prepare('UPDATE member_years SET mobile_encrypted = ? WHERE member_id = ?')
+            ->execute([$this->encryption->encrypt('+32470000055', 'member_years.mobile'), $baloo]);
+        $next = $this->pending(ReconcileRedirectHandler::REFERENCE_HOURLY);
+        $this->makeDue((int) $next[0]['id']);
+        $this->runner->processOverdue();
+
+        self::assertSame([self::DEFAULT_NUMBER, '+32470000055'], $this->changes);
+        self::assertSame('', $this->settings->get('redirect_unreachable_member_id', 'sos_staff', ''));
+    }
+
+    /**
+     * Issue #1260, the point on the destination frozen at planning time: a
+     * scheduled transition applies the planning AS IT IS when it runs, not the
+     * member written in its payload when the month was saved.
+     */
+    public function testAScheduledTransitionAppliesTheCurrentPlanningNotThePayload(): void
+    {
+        $akela = $this->member('akela', '+32470000077', 'akela@example.test');
+        // Nobody is on duty any more, whatever the payload still says.
+        $this->tasks->create(
+            'sos_staff',
+            'apply_redirect',
+            (new \DateTimeImmutable('-1 minute'))->format('Y-m-d H:i:s'),
+            json_encode([
+                'date' => date('Y-m-d'), 'member_id' => $akela, 'previous_member_id' => null,
+                'scout_year_id' => $this->year,
+            ]),
+            date('Y-m-d')
+        );
+
+        $this->runner->processOverdue();
+
+        self::assertSame([self::DEFAULT_NUMBER], $this->changes);
+    }
+
+    /** The planning changed to somebody else since the month was saved. */
+    public function testAScheduledTransitionFollowsAPlanningThatChangedSinceItWasSaved(): void
+    {
+        $akela = $this->member('akela', '+32470000077', 'akela@example.test');
+        $baloo = $this->onDuty('baloo', '+32470000088');
+        $this->tasks->create(
+            'sos_staff',
+            'apply_redirect',
+            (new \DateTimeImmutable('-1 minute'))->format('Y-m-d H:i:s'),
+            json_encode([
+                'date' => date('Y-m-d'), 'member_id' => $akela, 'previous_member_id' => null,
+                'scout_year_id' => $this->year,
+            ]),
+            date('Y-m-d')
+        );
+
+        $this->runner->processOverdue();
+
+        self::assertSame(['+32470000088'], $this->changes);
+        self::assertGreaterThan(0, $baloo);
+    }
+
+    /**
+     * The payload's year is never trusted: a payload written before #1102 can
+     * carry a preview year, and the roster must be the one the SOS pages and
+     * the hourly check work in.
+     */
+    public function testAScheduledTransitionIgnoresTheYearOfItsPayload(): void
+    {
+        $baloo = $this->onDuty('baloo', '+32470000088');
+        $this->tasks->create(
+            'sos_staff',
+            'apply_redirect',
+            (new \DateTimeImmutable('-1 minute'))->format('Y-m-d H:i:s'),
+            json_encode([
+                'date' => date('Y-m-d'), 'member_id' => $baloo, 'previous_member_id' => null,
+                'scout_year_id' => $this->year + 500,
+            ]),
+            date('Y-m-d')
+        );
+
+        $this->runner->processOverdue();
+
+        self::assertSame(['+32470000088'], $this->changes);
     }
 
     /**
@@ -347,6 +469,21 @@ final class ReconcileRedirectHandlerTest extends TestCase
         $stmt->execute([$type]);
 
         return $stmt->fetchAll(\PDO::FETCH_KEY_PAIR);
+    }
+
+    /** A member of the Staff d'U planned on duty yesterday and today, so the duty is current. */
+    private function onDuty(string $code, string $mobile): int
+    {
+        $member = $this->member($code, $mobile, $code . '@example.test');
+        $repository = new OnCallRepository($this->pdo);
+        foreach (['yesterday', 'today'] as $day) {
+            $date = (new \DateTimeImmutable($day))->format('Y-m-d');
+            $repository->replaceRange($date, $date, [
+                new OnCallAssignment($member, $date, OnCallAssignment::STATE_ONCALL),
+            ]);
+        }
+
+        return $member;
     }
 
     private function member(string $code, string $mobile, string $email): int

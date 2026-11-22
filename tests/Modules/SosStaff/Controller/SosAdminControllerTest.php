@@ -141,6 +141,11 @@ class SosAdminControllerTest extends TestCase
         $this->redirectService->method('resolveNumber')->willReturnCallback(
             fn(?int $memberId, int $scoutYearId): ?string => $this->stubbedNumber($memberId, $scoutYearId)
         );
+        // The one the reconciler asks since #1260: the number, and who the
+        // calls could not follow — resolved as the real service does.
+        $this->redirectService->method('resolveDestination')->willReturnCallback(
+            fn(?int $memberId, int $scoutYearId): array => $this->stubbedDestination($memberId, $scoutYearId)
+        );
         $this->redirectService->method('apply')->willReturnCallback(
             function (?int $newMemberId, ?int $previousMemberId, int $scoutYearId): void {
                 $this->applyCalls[] = [$newMemberId, $previousMemberId, $scoutYearId];
@@ -212,18 +217,34 @@ class SosAdminControllerTest extends TestCase
 
     private function stubbedNumber(?int $memberId, int $scoutYearId): ?string
     {
+        return $this->stubbedDestination($memberId, $scoutYearId)['number'];
+    }
+
+    /**
+     * What RedirectService::resolveDestination() answers: the member's mobile
+     * when it is a phone number, else the default number — and, for a mobile
+     * that is there but no number, the member the calls could not follow.
+     *
+     * @return array{number: ?string, unreachable_member_id: ?int}
+     */
+    private function stubbedDestination(?int $memberId, int $scoutYearId): array
+    {
         if ($this->noDestination) {
-            return null;
+            return ['number' => null, 'unreachable_member_id' => null];
         }
+        $unreachable = null;
         if ($memberId !== null) {
             foreach ($this->settingsService->getStaffOptions($scoutYearId) as $option) {
                 if ((int) $option['member_id'] === $memberId) {
-                    return $option['mobile'];
+                    if (\Modules\SosStaff\Service\PhoneNumber::normalize($option['mobile']) !== null) {
+                        return ['number' => $option['mobile'], 'unreachable_member_id' => null];
+                    }
+                    $unreachable = $memberId;
                 }
             }
         }
 
-        return $this->settingsService->getDefaultNumber($scoutYearId);
+        return ['number' => $this->settingsService->getDefaultNumber($scoutYearId), 'unreachable_member_id' => $unreachable];
     }
 
     /**
@@ -1958,12 +1979,31 @@ class SosAdminControllerTest extends TestCase
     }
 
     /**
-     * Review of #1194: the member on duty has a Desk GSM that is no phone
-     * number. The dashboard offers no correction, and the endpoint refuses
-     * one without calling apply() — which would alert every chef d'unité
-     * once per click.
+     * Issue #1260 (which replaces the #1194 rule that offered no correction):
+     * the member on duty has a Desk GSM that is no phone number. The calls
+     * are due on the DEFAULT number, so the dashboard offers to put the line
+     * there — and says whose GSM to correct, never the number.
      */
-    public function testAnUnusableGsmOnDutyOffersNoCorrectionAndAlertsNobody(): void
+    public function testAnUnusableGsmOnDutyPutsTheCallsOnTheDefaultNumberAndNamesWhoseGsmToCorrect(): void
+    {
+        $this->createStaffduMember('Akela', '+32470000001');
+        $baloo = $this->createStaffduMember('Baloo', '0470 12 34', 'Paul', 'Martin');
+        $this->putOnDuty($baloo);
+        $this->forwarding = new \Modules\SosStaff\Api\ForwardingState(true, '+32470000009');
+
+        $body = $this->dashboard();
+        $answer = $this->resynchronize();
+
+        $this->assertStringContainsString('data-redirect-action="resync"', $body);
+        $this->assertMatchesRegularExpression('/id="sos-redirect-unreachable"[^>]*>.*Baloo \(Paul Martin\)/s', $body);
+        $this->assertDoesNotMatchRegularExpression('/id="sos-redirect-expected"[^>]*>.*Baloo/s', $body);
+        $this->assertStringNotContainsString('0470 12 34', $body);
+        $this->assertTrue($answer['success']);
+        $this->assertCount(1, $this->applyCalls, 'The line is put on the number the planning means, not left alone.');
+    }
+
+    /** Nothing to correct, and the page still says why the duty phone is not ringing. */
+    public function testAnUnusableGsmOnDutyIsStillNamedWhenTheLineAlreadySitsOnTheDefaultNumber(): void
     {
         $this->createStaffduMember('Akela', '+32470000001');
         $baloo = $this->createStaffduMember('Baloo', '0470 12 34', 'Paul', 'Martin');
@@ -1971,16 +2011,10 @@ class SosAdminControllerTest extends TestCase
         $this->forwarding = new \Modules\SosStaff\Api\ForwardingState(true, '+32470000001');
 
         $body = $this->dashboard();
-        $answer = $this->resynchronize();
 
         $this->assertStringNotContainsString('data-redirect-action=', $body);
-        // Not silent either (review of #1194): the block names who and why.
-        $this->assertMatchesRegularExpression('/id="sos-redirect-unusable"[^>]*>.*Baloo \(Paul Martin\)/s', $body);
+        $this->assertMatchesRegularExpression('/id="sos-redirect-unreachable"[^>]*>.*Baloo \(Paul Martin\)/s', $body);
         $this->assertStringNotContainsString('0470 12 34', $body);
-        $this->assertSame(409, $answer['_status']);
-        $this->assertFalse($answer['success']);
-        $this->assertStringContainsString("n'est pas un numéro de téléphone valide", $answer['error']);
-        $this->assertSame([], $this->applyCalls);
     }
 
     public function testAnUnreadableProviderRefusesTheCorrectionRatherThanGuessing(): void

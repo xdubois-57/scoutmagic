@@ -32,6 +32,7 @@ class SosSettingsService
     private const TRANSITION_HOUR_KEY = 'transition_hour';
     private const EMAIL_NOTIFICATIONS_KEY = 'email_notifications_enabled';
     private const REDIRECT_LAST_FAILURE_KEY = 'redirect_last_failure_at';
+    private const UNREACHABLE_MEMBER_KEY = 'redirect_unreachable_member_id';
 
     /**
      * age_branches.sort_order values for Baladins/Louveteaux/Éclaireurs/
@@ -354,6 +355,37 @@ class SosSettingsService
         return DateInput::fromStorage(
             (string) $this->coreSettingService->get(self::REDIRECT_LAST_FAILURE_KEY, 'sos_staff', '')
         );
+    }
+
+    /**
+     * The member planned on duty whose Desk GSM is no phone number, while
+     * that is still true (issue #1260): the calls go to the default number
+     * instead, and this is what keeps the urgent attention point up — and
+     * what makes the chefs d'unité's alert go out once per episode, not
+     * once per hourly pass. Null when whoever is on duty can be reached.
+     * An identifier only, never the GSM (SECURITY.md §11).
+     */
+    public function unreachablePlannedMemberId(): ?int
+    {
+        $value = trim((string) $this->coreSettingService->get(self::UNREACHABLE_MEMBER_KEY, 'sos_staff', ''));
+
+        return ctype_digit($value) && (int) $value > 0 ? (int) $value : null;
+    }
+
+    /**
+     * Best-effort, like recordRedirectOutcome(): the bookkeeping must never
+     * mask what it records. Null clears it.
+     */
+    public function recordUnreachablePlannedMember(?int $memberId): void
+    {
+        try {
+            $value = $memberId === null ? '' : (string) $memberId;
+            if ((string) $this->coreSettingService->get(self::UNREACHABLE_MEMBER_KEY, 'sos_staff', '') !== $value) {
+                $this->coreSettingService->setInternal(self::UNREACHABLE_MEMBER_KEY, $value, 'sos_staff');
+            }
+        } catch (\Throwable) {
+            // See above.
+        }
     }
 
     /**

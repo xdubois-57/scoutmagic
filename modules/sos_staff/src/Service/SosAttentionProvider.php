@@ -22,6 +22,12 @@ use Core\Attention\AttentionPointProvider;
  *   since (SosSettingsService::lastRedirectFailureAt()). Urgent: calls may
  *   still ring for whoever held the duty before.
  *
+ * - **The person on duty cannot be reached** (issue #1260): their Desk GSM
+ *   is no phone number, so the calls go to the default number instead
+ *   (SosSettingsService::unreachablePlannedMemberId()). Urgent, for as long
+ *   as it is true — the line may be right, and nobody has the duty phone the
+ *   planning promised. Names the member, never the number.
+ *
  * - **A default number that no longer holds**, or **Staff d'U GSMs that
  *   are no phone number** (issue #1125): read from the roster of the year,
  *   so a Desk import or a new scout year is taken into account at once.
@@ -71,6 +77,11 @@ class SosAttentionProvider implements AttentionPointProvider
             );
         }
 
+        $unreachable = $this->unreachableOnDutyPoint($scoutYearId);
+        if ($unreachable !== null) {
+            $points[] = $unreachable;
+        }
+
         $stale = $this->staleDefaultNumberPoint($scoutYearId);
         if ($stale !== null) {
             $points[] = $stale;
@@ -83,8 +94,9 @@ class SosAttentionProvider implements AttentionPointProvider
                     ? "Un GSM du Staff d'U n'est pas un numéro de téléphone valide"
                     : count($unusable) . " GSM du Staff d'U ne sont pas des numéros de téléphone valides",
                 why: 'Dans Desk : ' . implode(', ', array_column($unusable, 'label')) . '. Le numéro SOS ne '
-                    . 'peut pas être redirigé vers ces personnes : une garde qui leur est confiée est refusée, et '
-                    . "elles ne peuvent pas être le numéro par défaut. Corrigez le GSM dans Desk, puis réimportez.",
+                    . 'peut pas être redirigé vers ces personnes : une garde qui leur est confiée est reportée sur '
+                    . "le numéro par défaut, et elles ne peuvent pas être le numéro par défaut. Corrigez le GSM "
+                    . 'dans Desk, puis réimportez.',
                 actionLabel: "Voir le téléphone d'urgence",
                 actionUrl: '/admin/sos',
                 severity: AttentionPoint::SEVERITY_ATTENTION
@@ -92,6 +104,33 @@ class SosAttentionProvider implements AttentionPointProvider
         }
 
         return $points;
+    }
+
+    /**
+     * The person planned on duty has a Desk GSM that is no phone number
+     * (issue #1260): the calls go to the default number, which is the right
+     * thing for the line and the wrong one for whoever was promised the
+     * duty phone. Urgent for as long as it holds, and it holds until Desk is
+     * corrected and the next hourly pass reads the new GSM.
+     */
+    private function unreachableOnDutyPoint(int $scoutYearId): ?AttentionPoint
+    {
+        $memberId = $this->settings->unreachablePlannedMemberId();
+        if ($memberId === null) {
+            return null;
+        }
+
+        $who = $this->settings->labelForMember($memberId, $scoutYearId) ?? 'La personne de garde';
+
+        return new AttentionPoint(
+            title: "Le GSM de la personne de garde n'est pas valide",
+            why: $who . " est de garde, mais son GSM dans Desk n'est pas un numéro de téléphone valide : les "
+                . 'appels du numéro SOS vont au numéro par défaut, pas à son téléphone. Corrigez le GSM dans Desk, '
+                . 'puis réimportez.',
+            actionLabel: "Voir le téléphone d'urgence",
+            actionUrl: '/admin/sos',
+            severity: AttentionPoint::SEVERITY_URGENT
+        );
     }
 
     /**

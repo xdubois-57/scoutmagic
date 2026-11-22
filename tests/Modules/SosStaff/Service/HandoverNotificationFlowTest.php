@@ -246,7 +246,11 @@ final class HandoverNotificationFlowTest extends TestCase
         $function = (int) $this->pdo->lastInsertId();
         $stmt = $this->pdo->prepare('UPDATE member_functions SET function_id = ? WHERE member_year_id IN (SELECT id FROM member_years WHERE member_id = ?)');
         $stmt->execute([$function, $incoming]);
-        $this->runHandover(true, $incoming, $outgoing);
+        // Through apply() itself: a member below the Staff d'U's role is no
+        // longer on its roster, so a scheduled transition — which since #1260
+        // follows the planning among that roster — would not hand the duty to
+        // them at all. What is tested here is the notification's role gate.
+        $this->runHandover(false, $incoming, $outgoing);
         $this->runner->processOverdue();
 
         self::assertSame([1, [['outgoing@example.test', 'Fin de votre garde SOS', true, true]]], [
@@ -364,8 +368,12 @@ final class HandoverNotificationFlowTest extends TestCase
         $memberYear = (int) $this->pdo->lastInsertId();
         $this->pdo->exec("INSERT OR IGNORE INTO functions (desk_code, label, role, confirmed) VALUES ('CU', 'Fonction de test', 'admin', 1)");
         $function = (int) $this->pdo->query("SELECT id FROM functions WHERE desk_code = 'CU'")->fetchColumn();
-        $stmt = $this->pdo->prepare('INSERT INTO member_functions (member_year_id, function_id, is_main_function) VALUES (?, ?, 1)');
-        $stmt->execute([$memberYear, $function]);
+        // On the Staff d'U roster: the line follows the planning among THAT
+        // roster only, and a scheduled transition reads it as it is when it
+        // runs (issue #1260).
+        $staffdu = (new \Core\Member\UnitStaffSectionService(new \Core\Member\Repository\UnitStaffSectionRepository($this->pdo)))->ensureSection();
+        $stmt = $this->pdo->prepare('INSERT INTO member_functions (member_year_id, function_id, section_id, is_main_function) VALUES (?, ?, ?, 1)');
+        $stmt->execute([$memberYear, $function, $staffdu]);
 
         return $id;
     }
@@ -376,11 +384,26 @@ final class HandoverNotificationFlowTest extends TestCase
             $this->redirect->apply($incoming, $outgoing, $this->year);
             return;
         }
+        // A scheduled transition applies the planning as it is when it runs
+        // (issue #1260), not the member in its payload: the incoming member is
+        // on duty yesterday and today, so the answer holds on either side of
+        // the changeover hour.
+        $repository = new \Modules\SosStaff\Repository\OnCallRepository($this->pdo);
+        foreach (['yesterday', 'today'] as $day) {
+            $date = (new \DateTimeImmutable($day))->format('Y-m-d');
+            $repository->replaceRange($date, $date, [
+                new \Modules\SosStaff\Repository\OnCallAssignment(
+                    $incoming,
+                    $date,
+                    \Modules\SosStaff\Repository\OnCallAssignment::STATE_ONCALL
+                ),
+            ]);
+        }
         $id = $this->tasks->create('sos_staff', 'apply_redirect', (new \DateTimeImmutable('-1 minute'))->format('Y-m-d H:i:s'),
             json_encode(['date' => date('Y-m-d'), 'member_id' => $incoming, 'previous_member_id' => $outgoing, 'scout_year_id' => $this->year]),
             date('Y-m-d'));
         $this->runner->processOverdue();
-        self::assertSame('done', $this->tasks->findById($id)['status']);
+        self::assertSame('done', $this->tasks->findById($id)['status'], (string) ($this->tasks->findById($id)['last_error'] ?? ''));
     }
 
     private function noticeCount(): int

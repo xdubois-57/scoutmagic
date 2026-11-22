@@ -214,6 +214,14 @@
       "label": "Dernier changement de redirection en échec",
       "description": "Horodatage interne : le dernier changement de redirection du numéro SOS a échoué à ce moment, et aucun n'a réussi depuis. Vide après un changement réussi. Non modifiable.",
       "editable": false
+    },
+    {
+      "key": "redirect_unreachable_member_id",
+      "default_value": "",
+      "type": "text",
+      "label": "Personne de garde injoignable",
+      "description": "Identifiant interne : la personne prévue de garde a un GSM invalide dans Desk, et les appels vont au numéro par défaut. Vide quand la personne de garde est joignable. Non modifiable.",
+      "editable": false
     }
   ],
   "notifications": [

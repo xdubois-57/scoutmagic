@@ -208,17 +208,101 @@ class RedirectServiceTest extends TestCase
     }
 
     /**
-     * Issue #1125: a GSM that is no phone number is refused before the
-     * operator is asked anything, and the alert names whose it is — never
-     * the number itself.
+     * Issue #1260: the person planned for today has a Desk GSM that is no
+     * phone number. The line used to stay with the previous holder; it now
+     * goes to the default number, the one chosen for exactly this. The chefs
+     * d'unité are told who — never the number — and the signal is kept for
+     * the attention page.
      */
-    public function testAGsmThatIsNoNumberIsRefusedAndNamed(): void
+    public function testAnUnusableGsmOnDutySendsTheCallsToTheDefaultNumberAndNamesTheMember(): void
+    {
+        // Expectations on what is recorded: a mock, not the setUp() stub.
+        $this->settingsService = $this->createMock(SosSettingsService::class);
+        $provider = $this->createMock(PhoneProviderInterface::class);
+        $provider->method('readForwardingState')->willReturnOnConsecutiveCalls(
+            new ForwardingState(true, '+32470000555'),
+            new ForwardingState(true, '+32470999999')
+        );
+        $provider->expects($this->once())->method('setForwarding')->with('+32470999999');
+        $this->providerConfigService->method('getActiveProvider')->willReturn($provider);
+        $this->memberService->method('findProfileByMemberAndYear')
+            ->willReturn($this->profile(1, 'Akela', '0470 12 34', 'akela@test.be'));
+        $this->settingsService->method('getDefaultNumber')->willReturn('+32470999999');
+        $this->settingsService->method('isEmailNotificationsEnabled')->willReturn(false);
+        $this->settingsService->method('labelForMember')->willReturn('Akela (Jean Test)');
+        $this->settingsService->expects($this->once())->method('recordUnreachablePlannedMember')->with(1);
+
+        $entries = [];
+        $this->journalService->method('log')->willReturnCallback(
+            static function (string $c, string $type, string $level, string $d, array $context = []) use (&$entries): void {
+                $entries[$type] = ['level' => $level, 'description' => $d, 'context' => $context];
+            }
+        );
+        $alerted = $this->captureAlerts();
+
+        $this->service()->apply(1, null, 100);
+
+        self::assertSame('info', $entries['redirect_success']['level'] ?? null);
+        self::assertArrayNotHasKey('redirect_failure', $entries);
+        self::assertSame('warning', $entries['redirect_planned_gsm_unusable']['level'] ?? null);
+        self::assertSame(['member_id' => 1], $entries['redirect_planned_gsm_unusable']['context']);
+        // No personal data in the journal (SECURITY.md §11) …
+        self::assertStringNotContainsString('Akela', $entries['redirect_planned_gsm_unusable']['description']);
+        self::assertStringNotContainsString('0470', implode(' ', array_column($entries, 'description')));
+        // … while the chefs d'unité are told whose GSM it is, and where the calls go.
+        $mail = implode("\n", $alerted->getArrayCopy());
+        self::assertStringContainsString('Akela (Jean Test)', $mail);
+        self::assertStringContainsString('numéro par défaut', $mail);
+        self::assertStringNotContainsString('0470', $mail);
+    }
+
+    /** One alert per episode: the same member still unreachable says nothing more. */
+    public function testTheSameUnusableGsmDoesNotAlertTwice(): void
+    {
+        $provider = $this->createStub(PhoneProviderInterface::class);
+        $provider->method('readForwardingState')->willReturn(new ForwardingState(true, '+32470999999'));
+        $this->providerConfigService->method('getActiveProvider')->willReturn($provider);
+        $this->memberService->method('findProfileByMemberAndYear')
+            ->willReturn($this->profile(1, 'Akela', '0470 12 34', 'akela@test.be'));
+        $this->settingsService->method('getDefaultNumber')->willReturn('+32470999999');
+        $this->settingsService->method('unreachablePlannedMemberId')->willReturn(1);
+        $this->mailService->expects($this->never())->method('send');
+        $this->notificationService->expects($this->never())->method('dispatch');
+
+        $logged = $this->recordJournal();
+        $this->service()->apply(1, null, 100);
+
+        self::assertArrayNotHasKey('redirect_planned_gsm_unusable', $logged->getArrayCopy());
+    }
+
+    /** A reachable person clears what an unreachable one had raised. */
+    public function testAReachablePersonOnDutyClearsTheSignal(): void
+    {
+        // Expectations on what is recorded: a mock, not the setUp() stub.
+        $this->settingsService = $this->createMock(SosSettingsService::class);
+        $provider = $this->createStub(PhoneProviderInterface::class);
+        $provider->method('readForwardingState')->willReturn(new ForwardingState(true, '+32470000001'));
+        $this->providerConfigService->method('getActiveProvider')->willReturn($provider);
+        $this->memberService->method('findProfileByMemberAndYear')
+            ->willReturn($this->profile(1, 'Akela', '+32470000001', 'akela@test.be'));
+        $this->settingsService->method('unreachablePlannedMemberId')->willReturn(7);
+        $this->settingsService->expects($this->once())->method('recordUnreachablePlannedMember')->with(null);
+
+        $this->service()->apply(1, null, 100);
+    }
+
+    /**
+     * Issue #1125 still holds for the one number nothing can replace: a
+     * default number that is no phone number is refused before the operator
+     * is asked anything, and the alert names whose it is — never the number.
+     */
+    public function testADefaultNumberThatIsNoNumberIsStillRefusedAndNamed(): void
     {
         $provider = $this->createMock(PhoneProviderInterface::class);
         $provider->expects($this->never())->method('setForwarding');
         $this->providerConfigService->method('getActiveProvider')->willReturn($provider);
-        $this->memberService->method('findProfileByMemberAndYear')
-            ->willReturn($this->profile(1, 'Akela', '0470 12 34', 'akela@test.be'));
+        $this->settingsService->method('getDefaultNumber')->willReturn('0470 12 34');
+        $this->settingsService->method('resolveDefaultNumberMemberId')->willReturn(4);
         $this->settingsService->method('labelForMember')->willReturn('Akela (Jean Test)');
 
         $messages = new \ArrayObject();
@@ -227,7 +311,30 @@ class RedirectServiceTest extends TestCase
                 $messages[$type] = $description;
             }
         );
+        $alerted = $this->captureAlerts();
 
+        try {
+            $this->service()->apply(null, null, 100);
+            self::fail('Expected a SosException.');
+        } catch (SosException $e) {
+            // No personal data in an exception or the journal (review of #1194).
+            self::assertStringNotContainsString('Akela', $e->getMessage());
+        }
+        self::assertStringContainsString("n'est pas un numéro de téléphone valide", $messages['redirect_failure'] ?? '');
+        self::assertStringNotContainsString('Akela', $messages['redirect_failure'] ?? '');
+        self::assertStringNotContainsString('0470', $messages['redirect_failure'] ?? '');
+        // The chefs d'unité are told who.
+        self::assertStringContainsString('Akela (Jean Test)', implode("\n", $alerted->getArrayCopy()));
+        self::assertStringNotContainsString('0470', implode("\n", $alerted->getArrayCopy()));
+    }
+
+    /**
+     * One chef d'unité whose alert body lands in the returned collection.
+     *
+     * @return \ArrayObject<int, string>
+     */
+    private function captureAlerts(): \ArrayObject
+    {
         $alerted = new \ArrayObject();
         $this->userAccountRepository = $this->createStub(UserAccountRepository::class);
         $this->userAccountRepository->method('findStaffAndSuperAdminIds')->willReturn([9]);
@@ -240,19 +347,7 @@ class RedirectServiceTest extends TestCase
             }
         );
 
-        try {
-            $this->service()->apply(1, null, 100);
-            self::fail('Expected a SosException.');
-        } catch (SosException $e) {
-            // No personal data in an exception or the journal (review of #1194).
-            self::assertStringNotContainsString('Akela', $e->getMessage());
-        }
-        self::assertStringContainsString("n'est pas un numéro de téléphone valide", $messages['redirect_failure'] ?? '');
-        self::assertStringNotContainsString('Akela', $messages['redirect_failure'] ?? '');
-        self::assertStringNotContainsString('0470', $messages['redirect_failure'] ?? '');
-        // The chefs d'unité are told who.
-        self::assertStringContainsString('Akela (Jean Test)', implode("\n", $alerted->getArrayCopy()));
-        self::assertStringNotContainsString('0470', implode("\n", $alerted->getArrayCopy()));
+        return $alerted;
     }
 
     /**
@@ -755,6 +850,42 @@ class RedirectServiceTest extends TestCase
         self::assertSame('+32470999999', $service->resolveNumber(2, 100), 'a member without a mobile');
         self::assertSame('+32470999999', $service->resolveNumber(3, 100), 'a member not on the roster that year');
         self::assertSame('+32470999999', $service->resolveNumber(null, 100), 'nobody on duty');
+    }
+
+    /**
+     * Issue #1260: the rule for an ABSENT GSM is the rule for an invalid one —
+     * a person whose GSM is no phone number is not reachable, and the calls
+     * go to the default number rather than stay where they were. One
+     * function decides, for the planning, the reconciliation and the
+     * dashboard.
+     */
+    public function testResolveNumberFallsBackToTheDefaultNumberForAnUnusableGsmToo(): void
+    {
+        $this->memberService->method('findProfileByMemberAndYear')->willReturnMap([
+            [1, 100, $this->profile(1, 'Akela', '0470/12.34.56', null)],
+            [2, 100, $this->profile(2, 'Baloo', '0470 12 34', null)],
+            [3, 100, $this->profile(3, 'Bagheera', 'pas un numéro', null)],
+        ]);
+        $this->settingsService->method('getDefaultNumber')->willReturn('+32470999999');
+
+        $service = $this->service();
+
+        self::assertSame('0470/12.34.56', $service->resolveNumber(1, 100), 'a usable GSM, in Desk\'s spelling');
+        self::assertSame('+32470999999', $service->resolveNumber(2, 100), 'an incomplete number');
+        self::assertSame('+32470999999', $service->resolveNumber(3, 100), 'text');
+        self::assertSame(
+            ['number' => '+32470999999', 'unreachable_member_id' => 2],
+            $service->resolveDestination(2, 100)
+        );
+        self::assertSame(
+            ['number' => '0470/12.34.56', 'unreachable_member_id' => null],
+            $service->resolveDestination(1, 100)
+        );
+        self::assertSame(
+            ['number' => '+32470999999', 'unreachable_member_id' => null],
+            $service->resolveDestination(null, 100),
+            'nobody on duty is nobody unreachable'
+        );
     }
 
     public function testResolveNumberIsNullWhenNoDestinationExistsAtAll(): void

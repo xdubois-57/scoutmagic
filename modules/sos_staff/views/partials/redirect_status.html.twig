@@ -44,6 +44,18 @@
                 </p>
             {% endif %}
 
+            {# Issue #1260: whoever is on duty has a Desk GSM that is no phone
+               number; the calls go to the default number, and the block says
+               so — the plan below is that number, not the person. #}
+            {% if redirect_unreachable_label|default(null) and not live_state.error %}
+                <p class="small text-warning-emphasis mb-0 mt-2" id="sos-redirect-unreachable">
+                    <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
+                    <strong>{{ redirect_unreachable_label }}</strong> est de garde, mais son GSM dans Desk n'est pas un
+                    numéro de téléphone valide : les appels vont au numéro par défaut. Corrigez le GSM dans Desk, puis
+                    réimportez.
+                </p>
+            {% endif %}
+
             {% if redirect_action %}
                 <p class="small mb-2 mt-2" id="sos-redirect-expected">
                     D'après les gardes, les appels devraient être redirigés vers

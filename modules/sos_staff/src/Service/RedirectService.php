@@ -87,7 +87,12 @@ class RedirectService
             throw new SosException($message);
         }
 
-        $rawNumber = $this->resolveNumber($newMemberId, $scoutYearId);
+        $destination = $this->resolveDestination($newMemberId, $scoutYearId);
+        $rawNumber = $destination['number'];
+        $unreachableMemberId = $destination['unreachable_member_id'];
+        // The Desk fact first, before the operator is asked anything: it is
+        // true whether or not the line can be moved (issue #1260).
+        $this->noteUnreachablePlannedMember($unreachableMemberId, $scoutYearId);
         if ($rawNumber === null) {
             $message = 'Numéro de redirection introuvable (ni garde ni numéro par défaut configuré).';
             $this->logOutcome('failure', $message, $newMemberId);
@@ -95,17 +100,24 @@ class RedirectService
             throw new SosException($message);
         }
 
-        // Sent normalised, never as Desk holds it (issue #1125). A GSM that
-        // is no phone number is refused here rather than handed to the
-        // operator to guess at. The person is named in the alert to the
-        // chefs d'unité only: the journal and the exception carry no
-        // personal data (SECURITY.md §11), the member id is in the context.
+        // Sent normalised, never as Desk holds it (issue #1125). A number
+        // that is no phone number is refused here rather than handed to the
+        // operator to guess at. Since #1260 a PERSON's GSM can no longer
+        // reach this point — resolveDestination() already set it aside for
+        // the default number — so what is refused is the one number nothing
+        // can replace: a default number that is itself no number. The
+        // holder is named in the alert to the chefs d'unité only: the
+        // journal and the exception carry no personal data (SECURITY.md
+        // §11), the member id is in the context.
         $targetNumber = PhoneNumber::normalize($rawNumber);
         if ($targetNumber === null) {
             $message = "Le GSM du destinataire prévu dans Desk n'est pas un numéro de téléphone valide : la "
                 . "redirection du numéro SOS n'a pas été modifiée. Corrigez le GSM dans Desk, puis réimportez.";
             $this->logOutcome('failure', $message, $newMemberId);
-            $this->sendAdminAlert($this->unusableNumberMessage($newMemberId, $scoutYearId), $scoutYearId);
+            $this->sendAdminAlert(
+                $this->unusableNumberMessage($unreachableMemberId === null ? $newMemberId : null, $scoutYearId),
+                $scoutYearId
+            );
             throw new SosException($message);
         }
 
@@ -186,8 +198,9 @@ class RedirectService
     }
 
     /**
-     * The number a redirection to $memberId means — the member's mobile, or
-     * the default number when the member is null or has none. apply() takes
+     * The number a redirection to $memberId means — the member's mobile when
+     * it is a phone number, else the default number (the member is null, has
+     * no mobile, or a mobile that is no number: issue #1260). apply() takes
      * its target from here, and so does the dashboard when it decides
      * whether the provider's real state is the expected one (issue #1026):
      * two readings of « where should the calls go » would be two rules.
@@ -195,12 +208,79 @@ class RedirectService
      */
     public function resolveNumber(?int $memberId, int $scoutYearId): ?string
     {
+        return $this->resolveDestination($memberId, $scoutYearId)['number'];
+    }
+
+    /**
+     * resolveNumber(), and WHO the calls could not follow: the planned
+     * member whose Desk GSM is there but is no phone number (issue #1260).
+     * An absent GSM falls back to the default number as it always did, and
+     * says nothing more — nobody typed a wrong number — which is also why
+     * the one case that is a Desk mistake is the one the chefs d'unité hear
+     * about.
+     *
+     * The default number is only ever a Staff d'U GSM PhoneNumber can
+     * normalise, else the first such member's (SosSettingsService::
+     * getDefaultNumber()), so what a person's invalid GSM falls back to is
+     * a number the operator can be given.
+     *
+     * @return array{number: ?string, unreachable_member_id: ?int}
+     */
+    public function resolveDestination(?int $memberId, int $scoutYearId): array
+    {
         if ($memberId === null) {
-            return $this->settingsService->getDefaultNumber($scoutYearId);
+            return ['number' => $this->settingsService->getDefaultNumber($scoutYearId), 'unreachable_member_id' => null];
         }
 
-        $profile = $this->memberService->findProfileByMemberAndYear($memberId, $scoutYearId);
-        return $profile->mobile ?? $this->settingsService->getDefaultNumber($scoutYearId);
+        $mobile = $this->memberService->findProfileByMemberAndYear($memberId, $scoutYearId)?->mobile;
+        if ($mobile !== null && PhoneNumber::normalize($mobile) !== null) {
+            return ['number' => $mobile, 'unreachable_member_id' => null];
+        }
+
+        return [
+            'number' => $this->settingsService->getDefaultNumber($scoutYearId),
+            'unreachable_member_id' => $mobile !== null && trim($mobile) !== '' ? $memberId : null,
+        ];
+    }
+
+    /**
+     * Keeps what resolveDestination() found about the person on duty (issue
+     * #1260): the urgent attention point reads it, and the chefs d'unité are
+     * alerted the first time a given member is found unreachable — not on
+     * every hourly pass while Desk still holds the wrong GSM, and not again
+     * after a redirection that only restated it. Called from apply() and from
+     * every reconciliation, because the line can already sit on the default
+     * number, in which case no change is made and apply() never runs.
+     *
+     * A reachable person on duty clears it: the next pass after Desk was
+     * corrected and re-imported.
+     */
+    public function noteUnreachablePlannedMember(?int $unreachableMemberId, int $scoutYearId): void
+    {
+        if ($this->settingsService->unreachablePlannedMemberId() === $unreachableMemberId) {
+            return;
+        }
+
+        $this->settingsService->recordUnreachablePlannedMember($unreachableMemberId);
+        if ($unreachableMemberId === null) {
+            return;
+        }
+
+        // The member's id only: no name, no number (SECURITY.md §11).
+        $this->journalService->log(
+            'sos_staff',
+            'redirect_planned_gsm_unusable',
+            'warning',
+            "Le GSM de la personne de garde n'est pas un numéro valide : les appels vont au numéro par défaut.",
+            ['member_id' => $unreachableMemberId]
+        );
+        $label = $this->settingsService->labelForMember($unreachableMemberId, $scoutYearId);
+        $this->sendAdminAlert(
+            'Le GSM de ' . ($label ?? 'la personne de garde') . " dans Desk n'est pas un numéro de téléphone "
+                . 'valide : cette personne est de garde, mais les appels du numéro SOS vont au numéro par défaut. '
+                . 'Corrigez le GSM dans Desk, puis réimportez.',
+            $scoutYearId
+        );
     }
 
     /**

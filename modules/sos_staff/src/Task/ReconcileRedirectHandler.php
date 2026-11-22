@@ -8,12 +8,9 @@ declare(strict_types=1);
 
 namespace Modules\SosStaff\Task;
 
-use Core\Config\ScoutYearService;
-use Core\Import\MemberYearRepository;
 use Core\Scheduler\SchedulerService;
 use Core\Scheduler\TaskContext;
 use Core\Scheduler\TaskHandlerInterface;
-use Core\ScoutYear\ScoutYearResolver;
 use Modules\SosStaff\Service\RedirectReconciler;
 
 /**
@@ -57,14 +54,7 @@ final class ReconcileRedirectHandler implements TaskHandlerInterface
         $attempt = isset($payload['attempt']) ? (int) $payload['attempt'] : 0;
 
         try {
-            // The public year — the one the SOS pages work in too
-            // (SosAdminController::operationalYear()), so a save and this
-            // check can never compare the line with two different rosters.
-            $scoutYearId = (new ScoutYearResolver(
-                new ScoutYearService($pdo),
-                $context->settings,
-                new MemberYearRepository($pdo)
-            ))->getCurrentPublicYear()['id'];
+            $scoutYearId = SosTaskServices::operationalYearId($context);
 
             $result = SosTaskServices::build($context)->reconciler->reconcile(
                 $scoutYearId,
