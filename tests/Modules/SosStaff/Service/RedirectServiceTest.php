@@ -256,6 +256,40 @@ class RedirectServiceTest extends TestCase
         self::assertStringNotContainsString('0470', $mail);
     }
 
+    /**
+     * Review of #1375: the person whose GSM could not be used is NOT told that
+     * the line points to their phone — it went to the default number — while
+     * the previous holder is still told their duty ended.
+     */
+    public function testTheUnreachablePersonIsNotToldTheLinePointsToThem(): void
+    {
+        $provider = $this->createStub(PhoneProviderInterface::class);
+        $provider->method('readForwardingState')->willReturnOnConsecutiveCalls(
+            new ForwardingState(true, '+32470000555'),
+            new ForwardingState(true, '+32470999999')
+        );
+        $this->providerConfigService->method('getActiveProvider')->willReturn($provider);
+        $this->memberService->method('findProfileByMemberAndYear')->willReturnMap([
+            [1, 100, $this->profile(1, 'Akela', '0470 12 34', 'akela@test.be')],
+            [2, 100, $this->profile(2, 'Baloo', '+32470000555', 'baloo@test.be')],
+        ]);
+        $this->settingsService->method('getDefaultNumber')->willReturn('+32470999999');
+        $this->settingsService->method('isEmailNotificationsEnabled')->willReturn(true);
+        $this->memberAccounts->method('accountIdsForMember')->willReturn([7]);
+
+        $types = [];
+        $this->notificationService->method('dispatch')->willReturnCallback(
+            static function (string $type) use (&$types): void {
+                $types[] = $type;
+            }
+        );
+
+        // Akela is planned (unreachable GSM); Baloo held the line until now.
+        $this->service()->apply(1, 2, 100);
+
+        $this->assertSame(['sos_staff.oncall_ended'], $types);
+    }
+
     /** One alert per episode: the same member still unreachable says nothing more. */
     public function testTheSameUnusableGsmDoesNotAlertTwice(): void
     {

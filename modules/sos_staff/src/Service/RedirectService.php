@@ -173,7 +173,9 @@ class RedirectService
         // unchanged redirection is no fallback transition (review of #1194).
         $this->journalIgnoredDefaultNumber($newMemberId, $scoutYearId);
         $this->settingsService->recordRedirectOutcome(false, AppClock::now());
-        $this->notifyHandover($newMemberId, $previousMemberId, $scoutYearId);
+        // The member whose GSM is no number is not told the line points to
+        // their phone: it points to the default number (issue #1260).
+        $this->notifyHandover($newMemberId, $previousMemberId, $scoutYearId, $unreachableMemberId);
     }
 
     /**
@@ -335,13 +337,21 @@ class RedirectService
      * told when the two are the same person, and a null side is nobody at
      * all (the default number governs that day, and a number has no inbox).
      */
-    private function notifyHandover(?int $newMemberId, ?int $previousMemberId, int $scoutYearId): void
-    {
+    private function notifyHandover(
+        ?int $newMemberId,
+        ?int $previousMemberId,
+        int $scoutYearId,
+        ?int $unreachableMemberId = null
+    ): void {
         if (!$this->settingsService->isEmailNotificationsEnabled()) {
             return;
         }
 
-        if ($newMemberId !== null && $newMemberId !== $previousMemberId) {
+        // « Vous êtes de garde » is skipped for the person planned on duty whose
+        // GSM could not be used: the line went to the default number, and saying
+        // it points to them would be false. The previous holder is still told
+        // their duty ended.
+        if ($newMemberId !== null && $newMemberId !== $previousMemberId && $newMemberId !== $unreachableMemberId) {
             $this->dispatchHandover(
                 self::TYPE_ONCALL_STARTED,
                 $this->memberService->findProfileByMemberAndYear($newMemberId, $scoutYearId),
