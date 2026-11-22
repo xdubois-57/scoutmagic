@@ -130,7 +130,7 @@ ul.tight{margin:0;padding-left:18px;display:grid;gap:3px}
       <option value="fees">5. Frais</option>
       <option value="payments">6. Paiements (encart)</option>
       <option value="deposit">7. Dialogue Acompte</option>
-      <option value="caution">8. Dialogue Caution</option>
+      <option value="securityDeposit">8. Dialogue Caution</option>
       <option value="account">9. Compte des paiements (Biens à louer)</option>
       <option value="landlord">10. Bailleur</option>
       <option value="reminders">11. Rappels</option>
@@ -164,7 +164,7 @@ const STATES={
   fees:[['list','Encart Frais']],
   payments:[['on','Suivi activé'],['off','Suivi désactivé'],['toast','Case cochée : toast'],['refused','Activation refusée (compte manquant)'],['nofinance','Module Finances inactif']],
   deposit:[['fixed','Montant fixe'],['percent','Pourcentage'],['none','Pas d\'acompte']],
-  caution:[['on','Caution demandée'],['off','Pas de caution']],
+  securityDeposit:[['on','Caution demandée'],['off','Pas de caution']],
   account:[['superadmin','Vu par un superadmin'],['admin','Vu par un chef d\'U (non superadmin)']],
   landlord:[['default','Bailleur par défaut'],['specific','Bailleur spécifique'],['dialog','Dialogue'],['missing','Défaut incomplet (adresse manquante)']],
   reminders:[['summary','Encart (résumé)'],['dialog','Dialogue « Modifier les rappels »']],
@@ -326,7 +326,7 @@ function deposit(){
 }
 
 /* 8 ─ security deposit */
-function caution(){
+function securityDeposit(){
   settingsCrumbs();
   const on=state.state==='on';
   return `<h1>Réglages du bien</h1>${dlg('Caution',`
@@ -435,7 +435,7 @@ function analysis(){
     <ul class="tight"><li>Dialogues : <code>partials/modal.html.twig</code> (<code>section_editor</code>).</li><li>Toast et requête JSON : <code>toast.js</code>, <code>ScoutMagicApi.postJson</code>, modèle <code>notification-preferences.js</code>.</li><li>Héritage par placeholder : déjà utilisé par l'écran des rappels.</li><li><code>BillingUnit::isPersonBased()</code>, <code>PricePeriod::covers()</code>, <code>PaymentSettings::depositFor()</code>, <code>Landlord::resolve()</code>, <code>ReminderKind::isInternal()</code>.</li></ul></div></div>`;
 }
 
-const R=new Map(Object.entries({access,pricing,grid,periods,fees,payments,deposit,caution,account,landlord,reminders,analysis}));
+const R=new Map(Object.entries({access,pricing,grid,periods,fees,payments,deposit,securityDeposit,account,landlord,reminders,analysis}));
 function render(){ $('#frame').classList.toggle('phone',state.phone); const view=R.get(state.screen)||access; $('#page').innerHTML=view(); }
 $('#screen').addEventListener('change',e=>{state.screen=e.target.value;fillStates();render()});
 $('#state').addEventListener('change',e=>{state.state=e.target.value;render()});
