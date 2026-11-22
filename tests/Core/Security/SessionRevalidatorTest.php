@@ -201,6 +201,36 @@ class SessionRevalidatorTest extends TestCase
     }
 
     /**
+     * Review of #1374, the whole sequence in the one second where it mattered:
+     * a session issued at T, a « Déconnecter partout » at T (its stamp is dated
+     * T + 1), then a reset link used in that same second T — which writes « now »
+     * as its own stamp. The stamp must stay at T + 1, so the session issued at T
+     * is still revoked when it is revalidated; were the reset to lower the stamp
+     * to T, the session would read as valid again.
+     */
+    public function testAReuseOfAResetLinkInTheSecondOfASignOutEverywhereDoesNotReviveTheSession(): void
+    {
+        $account = $this->userRepo->create('sequence@test.com', true);
+        AuthSession::login($account->id, $account->email, 'superadmin', \Tests\SessionGenerationFixture::forPdo($this->pdo)->current());
+        $_SESSION['_auth']['issued_at'] = time();
+
+        $this->userRepo->revokeSessions($account->id);
+        $afterSignOut = $this->userRepo->findById($account->id)?->sessionsValidFrom?->getTimestamp();
+
+        // The reset link, used in the same second: it stamps « now », which is
+        // BEFORE the sign-out's stamp.
+        $this->userRepo->updatePasswordHash($account->id, password_hash('BrandNewPassword1!', PASSWORD_DEFAULT));
+
+        $this->assertSame(
+            $afterSignOut,
+            $this->userRepo->findById($account->id)?->sessionsValidFrom?->getTimestamp(),
+            'the stamp did not move back'
+        );
+        $this->assertFalse($this->revalidator->revalidate(fn(): AuthorizationYears => $this->authorizationYears()));
+        $this->assertFalse(AuthSession::isAuthenticated(), 'the session issued before the stamp stays revoked');
+    }
+
+    /**
      * A session predating the revocation mechanism can't prove it is newer
      * than the stamp, so it loses the benefit of the doubt — but only once
      * the account actually carries a stamp.
