@@ -88,7 +88,10 @@ REGEX;
         $masked = '';
         $offset = 0;
         foreach ($merged as [$start, $end]) {
-            $masked .= substr($text, $offset, $start - $offset) . '[masqué]';
+            // Masking must not join protocol records or move later message
+            // content into the first response line retained by diagnostics.
+            $lineBreaks = preg_replace('/[^\r\n]/', '', substr($text, $start, $end - $start)) ?? '';
+            $masked .= substr($text, $offset, $start - $offset) . '[masqué]' . $lineBreaks;
             $offset = $end;
         }
 

@@ -114,6 +114,36 @@ final class MailboxFailureDiagnosticTest extends TestCase
         self::assertSame('NO [NOPERM]', $diagnostic->details['server_response']);
     }
 
+    public function testCredentialsMatchingTheLibraryFrameCannotHideARefusal(): void
+    {
+        $responses = [];
+        foreach (['Command', 'Causes', 'failed', 'process'] as $username) {
+            $response = \Webklex\PHPIMAP\Connection\Protocols\Response::empty()
+                ->addError('request failed')->addError('NO [UNAVAILABLE] Try later');
+            $diagnostic = MailboxFailureDiagnostic::from(
+                \Webklex\PHPIMAP\Exceptions\ResponseException::make($response),
+                new MailboxCredentials($username, 'credential-value')
+            );
+            $responses[] = $diagnostic->details['server_response'] ?? null;
+        }
+
+        self::assertSame(array_fill(0, 4, 'NO [UNAVAILABLE] Try later'), $responses);
+    }
+
+    public function testMaskingMultilineCredentialsCannotPromoteLaterContentIntoTheResponse(): void
+    {
+        $responses = [];
+        foreach (["\n", "\r\n", "\r"] as $lineBreak) {
+            $credentials = new MailboxCredentials('box@example.test', 'prefix' . $lineBreak . 'suffix');
+            $diagnostic = MailboxFailureDiagnostic::from(new ImapServerErrorException(
+                'NO [UNAVAILABLE] ' . $credentials->password . ' Private body'
+            ), $credentials);
+            $responses[] = $diagnostic->details['server_response'] ?? null;
+        }
+
+        self::assertSame(array_fill(0, 3, 'NO [UNAVAILABLE] [masqué]'), $responses);
+    }
+
     public function testOrdinaryProseIsNotAnImapStatus(): void
     {
         foreach (['No problem, call me on 0478 12 34 56', 'say no more', 'Bad news', 'Bye for now'] as $prose) {
@@ -135,14 +165,15 @@ final class MailboxFailureDiagnosticTest extends TestCase
 
     public function testKnownCredentialsAreMaskedBeforeResponseLinesAreSplit(): void
     {
-        foreach ([['box@example.test', "prefix\nsuffix"], ['box@example.test', "prefix\r\nsuffix"],
-            ["box\r\nlogin", 'password']] as [$username, $password]) {
+        foreach ([['box@example.test', "prefix\nsuffix", '[masqué] [masqué]'],
+            ['box@example.test', "prefix\r\nsuffix", '[masqué] [masqué]'],
+            ["box\r\nlogin", 'password', '[masqué]']] as [$username, $password, $expected]) {
             $credentials = new MailboxCredentials($username, $password);
             $diagnostic = MailboxFailureDiagnostic::from(new ImapServerErrorException(
                 'NO [AUTHENTICATIONFAILED] ' . $username . ' ' . $password . "\nPrivate body"
             ), $credentials);
 
-            self::assertSame('NO [AUTHENTICATIONFAILED] [masqué] [masqué]', $diagnostic->details['server_response']);
+            self::assertSame('NO [AUTHENTICATIONFAILED] ' . $expected, $diagnostic->details['server_response']);
         }
     }
 

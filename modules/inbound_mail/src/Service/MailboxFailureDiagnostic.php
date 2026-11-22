@@ -71,8 +71,10 @@ final class MailboxFailureDiagnostic
                 $serverMessage = MailboxResponseRedactor::maskKnownSecrets($message, $credentials);
                 $lines = preg_split('/\r\n|\r|\n/', $serverMessage) ?: [];
                 $candidates = [$lines[0] ?? ''];
-                if ($class === 'ResponseException' && ($lines[0] ?? '') === 'Command failed to process:'
-                    && ($lines[1] ?? '') === 'Causes:') {
+                // Recognize the fixed library frame before masking: a username
+                // such as "Command" can also occur in that frame.
+                if ($class === 'ResponseException'
+                    && preg_match('/\ACommand failed to process:\r?\nCauses:\r?\n/', $message) === 1) {
                     $candidates = [];
                     // Validation reports causes as bullets. Stop before its debug
                     // transcript; never search arbitrary later lines for a status.

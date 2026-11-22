@@ -112,4 +112,18 @@ final class MailboxResponseRedactorTest extends TestCase
 
         self::assertSame(['BAD [masqué]IN [masqué]', 'BAD [masqué]GIN [masqué]'], $responses);
     }
+
+    public function testRawMaskingPreservesLineBoundariesInsideCredentials(): void
+    {
+        $responses = [];
+        foreach (["\n", "\r\n", "\r"] as $lineBreak) {
+            $credentials = new MailboxCredentials('box@example.test', 'prefix' . $lineBreak . 'suffix');
+            $responses[] = MailboxResponseRedactor::maskKnownSecrets(
+                'NO ' . $credentials->password . ' Later content', $credentials
+            );
+        }
+
+        self::assertSame(["NO [masqué]\n Later content", "NO [masqué]\r\n Later content",
+            "NO [masqué]\r Later content"], $responses);
+    }
 }
