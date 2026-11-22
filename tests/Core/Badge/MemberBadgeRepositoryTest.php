@@ -52,6 +52,30 @@ class MemberBadgeRepositoryTest extends TestCase
         $this->assertTrue($this->repository->isAssigned($memberYearId, $badgeId));
     }
 
+    /**
+     * What keeps a badge from showing twice on a card (« Les animateurs »): a
+     * member year holds a given badge once, by a unique index of the schema —
+     * not by anything the page does. A second assignment is refused, and the
+     * loading gives one badge.
+     */
+    public function testTheSameBadgeCannotBeAssignedTwiceToAMemberYear(): void
+    {
+        $memberYearId = $this->createMemberYear('D1');
+        $badgeId = $this->badgeRepository->create('Infirmier', false);
+        $this->repository->assign($memberYearId, $badgeId, null);
+
+        try {
+            $this->repository->assign($memberYearId, $badgeId, null);
+            $this->fail('A second assignment of the same badge to the same member year must be refused.');
+        } catch (\PDOException) {
+            // Expected: the unique index idx_member_badge.
+        }
+
+        $badges = $this->repository->getActiveBadgesForMemberYear($memberYearId);
+        $this->assertCount(1, $badges);
+        $this->assertSame('Infirmier', $badges[0]->name);
+    }
+
     public function testIsAssignedReturnsFalseWithoutAssignment(): void
     {
         $memberYearId = $this->createMemberYear('D1');

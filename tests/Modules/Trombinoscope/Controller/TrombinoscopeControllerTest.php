@@ -330,8 +330,9 @@ class TrombinoscopeControllerTest extends TestCase
 
     /**
      * One badge, one tag. That a member never holds the same badge twice is not
-     * this page's to guarantee — it is the loading's (SectionServiceTest) — so
-     * this only holds that the card shows what it was given, once.
+     * this page's to guarantee: a unique index of the schema does
+     * (MemberBadgeRepositoryTest). This only holds that the card shows what it
+     * was given, once.
      */
     public function testOneBadgeIsOneTagBesideResponsable(): void
     {
