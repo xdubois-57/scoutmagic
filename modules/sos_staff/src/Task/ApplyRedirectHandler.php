@@ -37,11 +37,14 @@ class ApplyRedirectHandler implements TaskHandlerInterface
     {
         $services = SosTaskServices::build($context);
 
-        $previousMemberId = isset($payload['previous_member_id'])
-            ? (int) $payload['previous_member_id']
-            : null;
         $scoutYearId = SosTaskServices::operationalYearId($context);
-        $memberId = $services->reconciler->expectedDestination($scoutYearId)['member_id'];
+        // The pair comes from one snapshot: a fresh member paired with the
+        // payload's frozen previous one could be the same person after a
+        // roster change, which silences both handover notices (review of
+        // #1375).
+        $expected = $services->reconciler->expectedDestination($scoutYearId);
+        $memberId = $expected['member_id'];
+        $previousMemberId = $expected['previous_member_id'];
 
         try {
             $services->redirectService->apply($memberId, $previousMemberId, $scoutYearId);

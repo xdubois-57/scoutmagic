@@ -64,18 +64,30 @@ class RedirectReconciler
      * number instead — who it is (issue #1260). One function for the
      * scheduled transition, the hourly check and the dashboard.
      *
-     * @return array{member_id: ?int, number: ?string, unreachable_member_id: ?int}
+     * `previous_member_id` is the holder before that one, from the same
+     * planning and roster snapshot as `member_id`: a scheduled transition
+     * needs the PAIR to be consistent, since the handover notices are gated
+     * on the two being different people (review of #1375).
+     *
+     * @return array{
+     *   member_id: ?int,
+     *   previous_member_id: ?int,
+     *   number: ?string,
+     *   unreachable_member_id: ?int
+     * }
      */
     public function expectedDestination(int $scoutYearId): array
     {
-        $memberId = $this->onCallService->resolveExpectedTargetAt(
+        $target = $this->onCallService->resolveExpectedTargetAt(
             $this->now(),
             array_column($this->settingsService->getStaffOptions($scoutYearId), 'member_id')
-        )['member_id'];
+        );
+        $memberId = $target['member_id'];
         $destination = $this->redirectService->resolveDestination($memberId, $scoutYearId);
 
         return [
             'member_id' => $memberId,
+            'previous_member_id' => $target['previous_member_id'],
             'number' => $destination['number'],
             'unreachable_member_id' => $destination['unreachable_member_id'],
         ];
