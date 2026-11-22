@@ -202,6 +202,14 @@ class SosAdminController extends AbstractController
 
         $selectedMemberId = $this->settingsService->resolveDefaultNumberMemberId($effectiveYear->id);
         $staleMemberId = $this->settingsService->staleDefaultNumberMemberId($effectiveYear->id);
+        // Who the line rings today if nothing is saved: nobody planned, or a
+        // person planned whose Desk GSM is no phone number (issue #1260) —
+        // either way the default number governs, so saving a new one moves it.
+        $todayMemberId = $this->onCallService
+            ->resolveExpectedTargetAt($this->currentTime(), $orderedStaffMemberIds)['member_id'];
+        $todayUsesDefaultNumber = $todayMemberId === null
+            || $this->redirectService->resolveDestination($todayMemberId, $effectiveYear->id)['unreachable_member_id']
+                !== null;
 
         return $this->render('@sos_staff/settings.html.twig', [
             'sos_page' => self::PAGE_SETTINGS,
@@ -222,8 +230,7 @@ class SosAdminController extends AbstractController
             // — exactly when the reconciliation after saving moves the line
             // acts on. A permanent warning that is wrong half the time
             // ends up ignored.
-            'today_uses_default_number' => $this->onCallService
-                ->resolveExpectedTargetAt($this->currentTime(), $orderedStaffMemberIds)['member_id'] === null,
+            'today_uses_default_number' => $todayUsesDefaultNumber,
             'transition_hour' => $this->settingsService->getTransitionHour(),
             'email_notifications_enabled' => $this->settingsService->isEmailNotificationsEnabled(),
         ]);
@@ -1072,8 +1079,18 @@ class SosAdminController extends AbstractController
             return $now . ' Aucune bascule n\'est planifiée.';
         }
 
+        // The same rule as « les appels arrivent maintenant chez »: a person
+        // whose Desk GSM is no phone number is not where the calls will go.
+        $nextMemberId = $next['member_id'];
+        if (
+            $nextMemberId !== null
+            && $this->redirectService->resolveDestination($nextMemberId, $scoutYearId)['unreachable_member_id'] !== null
+        ) {
+            $nextMemberId = null;
+        }
+
         return $now . ' Prochaine bascule le ' . $next['run_at']->format('d/m/Y à H:i') . ' vers '
-            . $this->destinationLabel($next['member_id'], $scoutYearId) . '.';
+            . $this->destinationLabel($nextMemberId, $scoutYearId) . '.';
     }
 
     /**

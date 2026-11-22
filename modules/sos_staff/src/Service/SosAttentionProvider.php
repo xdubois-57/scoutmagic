@@ -108,9 +108,11 @@ class SosAttentionProvider implements AttentionPointProvider
 
     /**
      * The person planned on duty has a Desk GSM that is no phone number
-     * (issue #1260): the calls go to the default number, which is the right
-     * thing for the line and the wrong one for whoever was promised the
-     * duty phone. Urgent for as long as it holds, and it holds until Desk is
+     * (issue #1260): the line is meant to fall back on the default number —
+     * the right thing for the line, the wrong one for whoever was promised
+     * the duty phone — and the point says no more than that it cannot be
+     * redirected to them, since what the operator accepted is another page's
+     * business. Urgent for as long as it holds, and it holds until Desk is
      * corrected and the next hourly pass reads the new GSM.
      */
     private function unreachableOnDutyPoint(int $scoutYearId): ?AttentionPoint
@@ -125,8 +127,8 @@ class SosAttentionProvider implements AttentionPointProvider
         return new AttentionPoint(
             title: "Le GSM de la personne de garde n'est pas valide",
             why: $who . " est de garde, mais son GSM dans Desk n'est pas un numéro de téléphone valide : "
-                . 'les appels du numéro SOS vont au numéro par défaut, pas à son téléphone. '
-                . 'Corrigez le GSM dans Desk, puis réimportez.',
+                . 'le numéro SOS ne peut pas lui être redirigé (il reste sur le numéro par défaut, ou sur '
+                . 'son précédent destinataire à défaut). Corrigez le GSM dans Desk, puis réimportez.',
             actionLabel: "Voir le téléphone d'urgence",
             actionUrl: '/admin/sos',
             severity: AttentionPoint::SEVERITY_URGENT

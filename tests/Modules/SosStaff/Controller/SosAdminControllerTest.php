@@ -1636,6 +1636,24 @@ class SosAdminControllerTest extends TestCase
         $this->assertStringContainsString("Aujourd'hui n'a pas de garde attribuée", $body);
     }
 
+    /**
+     * The person on duty today has a Desk GSM that is no phone number: the
+     * default number governs, so saving a new one moves the line at once and
+     * the warning must say so — « personne de garde » is not enough to hide it
+     * (issue #1260, review of #1375).
+     */
+    public function testDefaultNumberWarningIsShownWhenTheOnCallHasAnUnusableGsm(): void
+    {
+        $this->now = new \DateTimeImmutable('today 12:00');
+        $this->createStaffduMember('Akela', '+32470000001');
+        $baloo = $this->createStaffduMember('Baloo', '0470 12 34');
+        $this->putOnDuty($baloo);
+
+        $body = $this->settingsPage();
+
+        $this->assertStringContainsString('default-number-immediate-warning', $body);
+    }
+
     public function testDefaultNumberWarningIsHiddenWhenTodayHasAnOnCall(): void
     {
         // After the changeover hour, so today's duty is the one in force
@@ -2234,6 +2252,35 @@ class SosAdminControllerTest extends TestCase
             'Les appels arrivent maintenant chez le numéro par défaut (redirection modifiée).',
             $decoded['message']
         );
+    }
+
+    /**
+     * The next handover is named by the rule that routes the calls: a person
+     * whose Desk GSM is no phone number is not where they will go, so the
+     * answer does not promise them (issue #1260, review of #1375).
+     */
+    public function testTheSaveAnswerDoesNotNameANextHandoverToAnUnreachablePerson(): void
+    {
+        $this->now = new \DateTimeImmutable('2026-08-12 12:00:00');
+        $alice = $this->createStaffduMember('Alice', '0470 12 34', 'Alice', 'Martin');
+        $default = $this->createStaffduMember('Chil', '+32470000039');
+        $this->settingsService->setDefaultNumberFromMember($default);
+        $this->forwarding = new \Modules\SosStaff\Api\ForwardingState(true, '+32470000039');
+
+        $response = $this->controller->saveOnCall(
+            $this->jsonRequest([
+                'year' => 2026,
+                'month' => 8,
+                'cells' => [['member_id' => $alice, 'date' => '2026-08-20', 'state' => OnCallAssignment::STATE_ONCALL]],
+                '_csrf_token' => $this->csrfToken(),
+            ]),
+            []
+        );
+        $decoded = json_decode($response->getBody(), true);
+
+        self::assertTrue($decoded['success']);
+        self::assertStringContainsString('Prochaine bascule le 20/08/2026 à 10:00 vers', $decoded['message']);
+        self::assertStringNotContainsString('Alice', $decoded['message']);
     }
 
     /**

@@ -276,13 +276,15 @@ class RedirectService
             'sos_staff',
             'redirect_planned_gsm_unusable',
             'warning',
-            "Le GSM de la personne de garde n'est pas un numéro valide : les appels vont au numéro par défaut.",
+            "Le GSM de la personne de garde n'est pas un numéro valide : "
+                . 'le numéro SOS ne peut pas lui être redirigé.',
             ['member_id' => $unreachableMemberId]
         );
         $label = $this->settingsService->labelForMember($unreachableMemberId, $scoutYearId);
         $this->sendAdminAlert(
             'Le GSM de ' . ($label ?? 'la personne de garde') . " dans Desk n'est pas un numéro de téléphone "
-                . 'valide : cette personne est de garde, mais les appels du numéro SOS vont au numéro par défaut. '
+                . 'valide : cette personne est de garde, mais le numéro SOS ne peut pas lui être redirigé (il '
+                . 'reste sur le numéro par défaut, ou sur son précédent destinataire à défaut). '
                 . 'Corrigez le GSM dans Desk, puis réimportez.',
             $scoutYearId
         );

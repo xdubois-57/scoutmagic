@@ -220,7 +220,7 @@
       "default_value": "",
       "type": "text",
       "label": "Personne de garde injoignable",
-      "description": "Identifiant interne : la personne prévue de garde a un GSM invalide dans Desk, et les appels vont au numéro par défaut. Vide quand la personne de garde est joignable. Non modifiable.",
+      "description": "Identifiant interne : la personne prévue de garde a un GSM invalide dans Desk, et la redirection prévue est le numéro par défaut. Vide quand la personne de garde est joignable. Non modifiable.",
       "editable": false
     }
   ],

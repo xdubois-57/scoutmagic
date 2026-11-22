@@ -238,6 +238,33 @@ final class ReconcileRedirectHandlerTest extends TestCase
         self::assertSame((string) $baloo, $this->settings->get('redirect_unreachable_member_id', 'sos_staff', ''));
     }
 
+    /**
+     * Nobody can take the calls: the person on duty has an unusable GSM AND
+     * no Staff d'U member holds a usable one, so there is no default number
+     * to fall back on. Nothing below can fix that, but the Desk fact is still
+     * a fact — the signal is raised and the chefs d'unité told once, instead
+     * of the pass returning before it ever looked (review of #1375).
+     */
+    public function testAnUnusableGsmIsRecordedEvenWhenThereIsNoDefaultNumberToFallBackOn(): void
+    {
+        $baloo = $this->onDuty('baloo', '0470 12 34');
+        $this->pdo->prepare(
+            'UPDATE member_years SET mobile_encrypted = ?
+              WHERE member_id = (SELECT id FROM members WHERE desk_id = ?)'
+        )->execute([$this->encryption->encrypt('0470', 'member_years.mobile'), 'default']);
+        $this->queueNow(ReconcileRedirectHandler::REFERENCE_HOURLY, []);
+
+        $this->runner->processOverdue();
+
+        self::assertSame([], $this->changes, 'nowhere to move the line to');
+        self::assertSame((string) $baloo, $this->settings->get('redirect_unreachable_member_id', 'sos_staff', ''));
+        self::assertSame(['chef@example.test'], $this->mailedTo);
+        self::assertSame(
+            ['redirect_reconcile_no_destination' => 'warning'],
+            $this->journal('redirect_reconcile_no_destination')
+        );
+    }
+
     /** Desk corrected and re-imported: the next pass puts the line on the person, and the signal goes. */
     public function testTheSignalClearsOnceTheGsmIsCorrected(): void
     {

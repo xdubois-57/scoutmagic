@@ -111,6 +111,15 @@ class RedirectReconciler
             'unreachable_member_id' => $expected['unreachable_member_id'],
         ];
 
+        // The Desk fact about whoever is on duty, whether or not the line has
+        // to move and whether or not there is anywhere to move it to (issue
+        // #1260): the line may already sit on the default number, in which
+        // case apply() never runs, or there may be no default number at all,
+        // in which case nothing below can fix it — and the chefs d'unité
+        // still have to be told once and the attention point raised. It
+        // reads nothing from the operator, so an outage does not delay it.
+        $this->redirectService->noteUnreachablePlannedMember($expected['unreachable_member_id'], $scoutYearId);
+
         if ($expected['number'] === null) {
             // Nobody on duty and no usable default number: a configuration
             // gap, not something a provider call can fix. apply() would
@@ -142,12 +151,6 @@ class RedirectReconciler
             $this->redirectService->reportUnreadableLine($scoutYearId);
             return $outcome(self::UNREADABLE);
         }
-
-        // The Desk fact about whoever is on duty, whether or not the line has
-        // to move (issue #1260): the line may already sit on the default
-        // number, in which case apply() never runs, and the chefs d'unité
-        // still have to be told once and the attention point raised.
-        $this->redirectService->noteUnreachablePlannedMember($expected['unreachable_member_id'], $scoutYearId);
 
         if (PhoneNumber::normalize($expected['number']) === null) {
             // The destination number — since #1260 only ever the default

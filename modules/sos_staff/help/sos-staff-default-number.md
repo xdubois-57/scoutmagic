@@ -32,8 +32,8 @@ même numéro, et le site l'envoie toujours sous la même forme à
 l'opérateur. Un numéro sans indicatif, sans le 0 initial ou avec un
 chiffre en trop ou en moins n'est pas un numéro valide. La personne
 reste dans le planning, avec ses gardes, mais le numéro SOS ne peut pas
-lui être redirigé : pendant sa garde, les appels vont **au numéro par
-défaut**, et elle ne peut pas être ce numéro par défaut. Un avertissement
+lui être redirigé : pendant sa garde, la redirection prévue est **le numéro par
+défaut** (sans numéro par défaut, la ligne reste où elle est), et elle ne peut pas être ce numéro par défaut. Un avertissement
 la nomme dans les onglets **Planning** et **Réglages**, et un point
 d'attention urgent reste affiché tant que son GSM n'est pas corrigé ; les
 chefs d'unité reçoivent un e-mail, une seule fois. Corrigez le GSM dans

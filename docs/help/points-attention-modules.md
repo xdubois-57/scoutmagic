@@ -68,5 +68,5 @@ Le module Téléphone d'urgence signale :
   ni comme numéro par défaut. Le point
   disparaît après correction dans Desk et réimport ;
 - **la personne de garde injoignable** (urgent) : son GSM dans Desk n'est
-  pas un numéro valide, donc les appels vont au numéro par défaut. Le
-  point la nomme et disparaît après correction et réimport.
+  pas un numéro valide : le numéro SOS ne peut pas lui être redirigé (il
+  reste sur le numéro par défaut). Le point la nomme et disparaît après correction et réimport.
