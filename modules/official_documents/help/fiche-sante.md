@@ -48,7 +48,14 @@ n'est envoyé à personne tant que vous ne l'avez pas fait vous-même.
 
 ## Les informations d'identité ne se modifient pas ici
 
-La première section rappelle le prénom, le nom et la date de naissance de
-votre enfant, sans permettre de les changer : ils viennent de votre
-inscription à la fédération. Si l'un d'eux est faux, prévenez votre
-animateur, qui fera corriger à la source.
+La première section montre l'identité de la personne **telle qu'elle sera
+imprimée** (nom, prénom, date de naissance, adresse, téléphone, e-mail), sans
+permettre de la changer : elle vient de votre inscription à la fédération. Si
+une ligne est fausse, prévenez votre animateur, qui fera corriger à la source.
+
+## Oui, Non, ou pas précisé
+
+Pour les allergies, les médicaments et le régime alimentaire, répondez d'abord
+**Oui**, **Non** ou « Non précisé » : les précisions ne s'affichent que pour
+Oui. Passer à Non les masque sans rien effacer — si vous revenez à Oui, ce que
+vous aviez écrit est toujours là.

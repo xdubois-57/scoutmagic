@@ -56,9 +56,12 @@ final class HealthSheetPdfServiceTest extends TestCase
             'useful_information' => 'Porte des lunettes.',
             'tetanus_vaccinated' => 'yes',
             'tetanus_last_booster' => '12/09/2023',
+            'allergic' => 'yes',
             'allergies' => 'Arachides.',
             'allergy_consequences' => 'Œdème : EpiPen dans son sac.',
+            'follows_diet' => 'yes',
             'diet' => 'Sans porc.',
+            'takes_treatment' => 'yes',
             'treatment' => 'Ventoline 100 µg au besoin.',
             'treatment_autonomy' => 'yes',
         ]);
@@ -100,6 +103,7 @@ final class HealthSheetPdfServiceTest extends TestCase
     {
         $sheet = HealthSheet::fromArray([
             'tetanus_last_booster' => '12/09/2023',
+            'follows_diet' => 'yes',
             'diet' => 'Aucun produit laitier.',
         ]);
 
@@ -161,6 +165,7 @@ final class HealthSheetPdfServiceTest extends TestCase
         $result = self::service()->render(
             HealthSheetFillingTest::member(),
             HealthSheet::fromArray([
+                'allergic' => 'yes',
                 'allergies' => str_repeat('Arachides, fruits à coque, pollen de graminées, acariens, ', 10),
             ])
         );
@@ -169,6 +174,82 @@ final class HealthSheetPdfServiceTest extends TestCase
         // And the document is still produced: what fits is written, so a
         // family whose list runs long still gets their form.
         $this->assertStringStartsWith('%PDF-', $result['pdf']);
+    }
+
+    /**
+     * Issue #1346. NON prints « Sans objet » in EACH dependent zone — the two
+     * of the allergies — and the stored answers are not what reaches the
+     * paper: what was written is kept on the sheet and left off the form.
+     */
+    public function testNoWritesSansObjetInEachDependentZoneAndOmitsTheStoredText(): void
+    {
+        $sheet = HealthSheet::fromArray([
+            'allergic' => 'no', 'allergies' => 'Arachides', 'allergy_consequences' => 'Œdème de Quincke',
+            'takes_treatment' => 'no', 'treatment' => 'Ventoline 100 µg',
+            'follows_diet' => 'no', 'diet' => 'Sans porc',
+        ]);
+
+        $pages = (new Parser())
+            ->parseContent(self::service()->render(HealthSheetFillingTest::member(), $sheet)['pdf'])
+            ->getPages();
+        $text = $pages[0]->getText() . "\n" . $pages[1]->getText();
+
+        // Allergies (two zones), treatment, diet: four zones, once each.
+        $this->assertSame(4, substr_count($text, 'Sans objet'));
+        foreach (['Arachides', 'Quincke', 'Ventoline', 'Sans porc'] as $hidden) {
+            $this->assertStringNotContainsString($hidden, $text, 'NON keeps the stored text off the paper');
+        }
+    }
+
+    /** « Sans objet » once per zone, the rest of a multi-line paragraph left empty. */
+    public function testSansObjetIsWrittenOnceForAMultiLineZone(): void
+    {
+        $text = $this->textOf(HealthSheet::fromArray(['takes_treatment' => 'no', 'treatment' => 'x']));
+
+        $this->assertSame(1, substr_count($text, 'Sans objet'));
+    }
+
+    /** An unanswered choice prints no text at all, even over a full box. */
+    public function testAnUnansweredChoicePrintsNoMedicalText(): void
+    {
+        $text = $this->textOf(HealthSheet::fromArray([
+            'allergies' => 'Arachides', 'treatment' => 'Ventoline', 'diet' => 'Sans porc',
+        ]));
+
+        foreach (['Arachides', 'Ventoline', 'Sans porc', 'Sans objet'] as $absent) {
+            $this->assertStringNotContainsString($absent, $text);
+        }
+    }
+
+    /**
+     * The overflow warning is about what is really exported: a long text kept
+     * behind a NON is « Sans objet » on paper, so it warns nobody — while the
+     * same text behind a OUI does.
+     */
+    public function testALongTextKeptBehindNoRaisesNoOverflowWarning(): void
+    {
+        $long = str_repeat('Arachides, fruits à coque, pollen de graminées, acariens, ', 10);
+
+        $hidden = self::service()->render(
+            HealthSheetFillingTest::member(),
+            HealthSheet::fromArray(['allergic' => 'no', 'allergies' => $long])
+        );
+        $shown = self::service()->render(
+            HealthSheetFillingTest::member(),
+            HealthSheet::fromArray(['allergic' => 'yes', 'allergies' => $long])
+        );
+
+        $this->assertSame([], $hidden['overflowing']);
+        $this->assertSame(['allergies'], $shown['overflowing']);
+    }
+
+    private function textOf(HealthSheet $sheet): string
+    {
+        $pages = (new Parser())
+            ->parseContent(self::service()->render(HealthSheetFillingTest::member(), $sheet)['pdf'])
+            ->getPages();
+
+        return $pages[0]->getText() . "\n" . $pages[1]->getText();
     }
 
     /**
@@ -224,7 +305,9 @@ final class HealthSheetPdfServiceTest extends TestCase
         $result = self::service()->render(
             HealthSheetFillingTest::member(),
             HealthSheet::fromArray([
+                'takes_treatment' => 'yes',
                 'treatment' => str_repeat('Ventoline 100 µg, deux bouffées, quatre fois par jour. ', 15),
+                'follows_diet' => 'yes',
                 'diet' => str_repeat('Sans lactose, sans gluten, sans fruits à coque. ', 15),
             ])
         );

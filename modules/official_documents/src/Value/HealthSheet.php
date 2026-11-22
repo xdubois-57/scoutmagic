@@ -42,20 +42,26 @@ final class HealthSheet
     public const SWIMMING_LEVELS = ['', 'very_good', 'good', 'fair', 'poor', 'not_at_all'];
 
     /**
-     * The three answers to a printed OUI/NON question, the third being
-     * « the family did not say ».
+     * The three answers to an OUI/NON question, the third being « the family
+     * did not say ».
      *
-     * Three questions on the form are a pair of squares and nothing else —
-     * « peut-elle participer aux activités proposées ? », « est-elle en
-     * ordre de vaccination contre le tétanos ? » and « est-elle autonome
-     * dans la prise de ces médicaments ? ». They were free text when this
-     * class was first written, which meant a parent could answer « oui
-     * sauf la natation » and the PDF would cross neither square.
+     * Five questions are a pair of squares on the form — « peut-elle
+     * participer… ? », « est-elle en ordre de vaccination contre le
+     * tétanos ? », « est-elle allergique ? », « prend-elle un traitement ? »
+     * and « est-elle autonome… ? » — and one more, « suit-elle un régime
+     * particulier ? », has no square but asks the same question on screen
+     * (issue #1346). They were free text, or deduced from a text box, when
+     * this class was first written: a parent could answer « oui sauf la
+     * natation » and the PDF would cross neither square, and « Aucune » typed
+     * under the allergies crossed OUI.
      *
      * **The empty string is never « non ».** A question left alone leaves
      * both squares blank, exactly as a paper form handed back half-filled
      * does. Crossing NON for a family who said nothing would be the site
      * making a medical statement on their behalf.
+     *
+     * **And a text never decides the answer**: « Aucune », « Aucun » or
+     * « Non » written in a box is a text, the choice is the choice.
      */
     public const YES_NO = ['', 'yes', 'no'];
 
@@ -109,32 +115,38 @@ final class HealthSheet
     public const LABELS = [
         'contact1_name' => 'Personne à contacter 1 — Nom et prénom',
         'contact1_relationship' => 'Personne à contacter 1 — Lien de parenté',
-        'contact1_phone' => 'Personne à contacter 1 — Téléphone',
-        'contact1_email' => 'Personne à contacter 1 — Adresse e-mail',
+        'contact1_phone' => 'Personne à contacter 1 — Tél. / GSM',
+        'contact1_email' => 'Personne à contacter 1 — Email',
         'contact1_note' => 'Personne à contacter 1 — Remarque',
         'contact2_name' => 'Personne à contacter 2 — Nom et prénom',
         'contact2_relationship' => 'Personne à contacter 2 — Lien de parenté',
-        'contact2_phone' => 'Personne à contacter 2 — Téléphone',
-        'contact2_email' => 'Personne à contacter 2 — Adresse e-mail',
+        'contact2_phone' => 'Personne à contacter 2 — Tél. / GSM',
+        'contact2_email' => 'Personne à contacter 2 — Email',
         'contact2_note' => 'Personne à contacter 2 — Remarque',
         'doctor_first_name' => 'Médecin traitant — Prénom',
         'doctor_last_name' => 'Médecin traitant — Nom',
-        'doctor_phone' => 'Médecin traitant — Téléphone',
+        'doctor_phone' => 'Médecin traitant — Tél. / GSM',
         'height' => 'Taille',
         'weight' => 'Poids',
-        'participation' => 'Peut participer à toutes les activités proposées',
-        'participation_details' => 'Précisions sur la participation aux activités',
-        'swimming_level' => 'Niveau de natation',
-        'conditions_details' => 'Fréquence, gravité, mesures à prendre',
-        'illnesses_and_operations' => 'Maladies et opérations',
-        'useful_information' => 'Autres informations utiles',
-        'tetanus_vaccinated' => 'En ordre de vaccination contre le tétanos',
+        'participation' => 'La personne peut-elle participer aux activités proposées ?',
+        'participation_details' => 'Participation aux activités — Précisez',
+        'swimming_level' => 'La personne sait-elle nager ?',
+        'conditions_details' => 'Si une case est cochée, précisez la fréquence, la gravité '
+            . 'et les mesures à prévoir',
+        'illnesses_and_operations' => 'Indiquez les maladies importantes ou opérations subies '
+            . '(appendicite, rougeole…) avec l\'année',
+        'useful_information' => 'Mentionnez toute information utile au bon déroulement des activités ou du camp',
+        'tetanus_vaccinated' => 'Vaccination contre le tétanos — La personne est-elle en ordre ?',
         'tetanus_last_booster' => 'Date du dernier rappel',
-        'allergies' => 'Allergies',
-        'allergy_consequences' => 'Conséquences et mesures à prendre',
-        'diet' => 'Régime alimentaire',
-        'treatment' => 'Traitement en cours',
-        'treatment_autonomy' => 'Votre enfant prend-il ce traitement seul ?',
+        'allergic' => 'La personne est-elle allergique (aliments, médicaments, etc.) ?',
+        'allergies' => 'Allergies — Si oui, lesquels ?',
+        'allergy_consequences' => 'Allergies — Quelles sont les conséquences ?',
+        'follows_diet' => 'La personne suit-elle un régime alimentaire particulier ?',
+        'diet' => 'Régime alimentaire — Si oui, lequel ?',
+        'takes_treatment' => 'La personne prend-elle un traitement ?',
+        'treatment' => 'Médicaments — Si oui, précisez : nom, dosage, fréquence, indication, '
+            . 'mode d\'administration et durée.',
+        'treatment_autonomy' => 'Est-elle autonome dans la prise de ces médicaments ?',
     ];
 
     /**
@@ -170,9 +182,12 @@ final class HealthSheet
         public readonly string $usefulInformation,
         public readonly string $tetanusVaccinated,
         public readonly string $tetanusLastBooster,
+        public readonly string $allergic,
         public readonly string $allergies,
         public readonly string $allergyConsequences,
+        public readonly string $followsDiet,
         public readonly string $diet,
+        public readonly string $takesTreatment,
         public readonly string $treatment,
         public readonly string $treatmentAutonomy
     ) {
@@ -211,9 +226,10 @@ final class HealthSheet
         $level = $text('swimming_level');
 
         // Same closed-vocabulary rule as the swimming level, and same
-        // reason: these three are squares on the printed form, so a value
-        // none of them matches reads as unanswered rather than being kept
-        // and silently crossing nothing.
+        // reason: these are squares on the printed form (or, for the diet,
+        // the same question on screen), so a value none of them matches reads
+        // as unanswered rather than being kept and silently crossing
+        // nothing.
         $choice = static function (string $key) use ($text): string {
             $value = $text($key);
 
@@ -248,9 +264,12 @@ final class HealthSheet
             usefulInformation: $text('useful_information'),
             tetanusVaccinated: $choice('tetanus_vaccinated'),
             tetanusLastBooster: $text('tetanus_last_booster'),
+            allergic: $choice('allergic'),
             allergies: $text('allergies'),
             allergyConsequences: $text('allergy_consequences'),
+            followsDiet: $choice('follows_diet'),
             diet: $text('diet'),
+            takesTreatment: $choice('takes_treatment'),
             treatment: $text('treatment'),
             treatmentAutonomy: $choice('treatment_autonomy')
         );
@@ -308,9 +327,12 @@ final class HealthSheet
             'useful_information' => $this->usefulInformation,
             'tetanus_vaccinated' => $this->tetanusVaccinated,
             'tetanus_last_booster' => $this->tetanusLastBooster,
+            'allergic' => $this->allergic,
             'allergies' => $this->allergies,
             'allergy_consequences' => $this->allergyConsequences,
+            'follows_diet' => $this->followsDiet,
             'diet' => $this->diet,
+            'takes_treatment' => $this->takesTreatment,
             'treatment' => $this->treatment,
             'treatment_autonomy' => $this->treatmentAutonomy,
         ];

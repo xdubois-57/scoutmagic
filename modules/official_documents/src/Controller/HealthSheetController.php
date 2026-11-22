@@ -17,6 +17,7 @@ use Core\Security\AuthSession;
 use Modules\OfficialDocuments\Api\OfficialDocumentsException;
 use Modules\OfficialDocuments\Pdf\HealthSheetLayout;
 use Modules\OfficialDocuments\Security\OwnMemberOnly;
+use Modules\OfficialDocuments\Service\HealthSheetFilling;
 use Modules\OfficialDocuments\Service\HealthSheetPdfService;
 use Modules\OfficialDocuments\Service\HealthSheetService;
 use Modules\OfficialDocuments\Value\HealthSheet;
@@ -244,6 +245,10 @@ class HealthSheetController extends AbstractController
         return $this->render('@official_documents/health_sheet.html.twig', [
             'member' => $member,
             'sheet' => $sheet->toArray(),
+            // What the document will print for the member, from the same
+            // source as the PDF (issue #1346): the identity is checked here,
+            // never edited.
+            'identity' => HealthSheetFilling::identity($member, $sheet),
             'conditions' => HealthSheet::CONDITIONS,
             'last_used_at' => $this->sheets->lastUsedAt($member->memberId),
             'overflowing' => $overflowing,

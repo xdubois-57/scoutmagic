@@ -565,4 +565,57 @@ final class HealthSheetControllerTest extends TestCase
 
         $this->assertSame([], $context['overflowing']);
     }
+
+    /**
+     * Issue #1346: the screen is handed the identity as the document will
+     * print it — from `HealthSheetFilling`, the PDF's own source — so the
+     * recap and the paper cannot disagree.
+     */
+    public function testTheScreenIsHandedTheIdentityTheDocumentPrints(): void
+    {
+        $this->signIn();
+        $this->memberService->method('canAccess')->willReturn(true);
+        $profile = self::profile();
+        $this->memberService->method('getMemberProfile')->willReturn($profile);
+        $this->repository->method('findForMember')->willReturn(HealthSheet::empty());
+
+        $context = null;
+        $this->twig->method('render')->willReturnCallback(
+            static function (string $template, array $given) use (&$context): string {
+                $context = $given;
+
+                return '<html></html>';
+            }
+        );
+
+        $this->controller->show(new Request('GET', '/members/7/fiche-sante', [], [], [], []), ['id' => '7']);
+
+        $this->assertIsArray($context);
+        $this->assertSame(
+            \Modules\OfficialDocuments\Service\HealthSheetFilling::identity($profile, HealthSheet::empty()),
+            $context['identity']
+        );
+        $this->assertSame('Dubois', $context['identity'][0]['value']);
+    }
+
+    /** What the form posts for the three choices is what gets saved, text kept behind a NON. */
+    public function testTheThreeChoicesAreSavedWithTheirTexts(): void
+    {
+        $token = $this->signIn();
+        $this->memberService->method('canAccess')->willReturn(true);
+        $this->memberService->method('getMemberProfile')->willReturn(self::profile());
+        $this->repository->expects($this->once())->method('save')->with(
+            42,
+            $this->callback(static fn(HealthSheet $s): bool => $s->allergic === 'no'
+                && $s->allergies === 'Arachides'
+                && $s->followsDiet === 'yes'
+                && $s->takesTreatment === ''),
+            $this->anything()
+        );
+
+        $this->controller->save(new Request('POST', '/members/7/fiche-sante', [], [
+            '_csrf_token' => $token,
+            'allergic' => 'no', 'allergies' => 'Arachides', 'follows_diet' => 'yes', 'diet' => 'Sans porc',
+        ], [], []), ['id' => '7']);
+    }
 }
