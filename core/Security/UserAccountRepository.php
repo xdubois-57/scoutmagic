@@ -608,7 +608,9 @@ class UserAccountRepository
     {
         $now = (new \DateTimeImmutable())->format('Y-m-d H:i:s');
         $stmt = $this->pdo->prepare(
-            'UPDATE user_accounts SET password_hash = NULL, password_changed_at = NULL, sessions_valid_from = ? WHERE id = ?'
+            'UPDATE user_accounts
+                SET password_hash = NULL, password_changed_at = NULL, sessions_valid_from = ?
+              WHERE id = ?'
         );
         $stmt->execute([$now, $id]);
     }

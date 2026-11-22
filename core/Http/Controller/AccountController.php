@@ -435,7 +435,8 @@ class AccountController extends AbstractController
             return $guard;
         }
 
-        $removePassword = (string) $request->getBody('keep_password', '') !== '1' && $this->userAccountRepo->hasPassword($userId);
+        $keepPassword = (string) $request->getBody('keep_password', '') === '1';
+        $removePassword = !$keepPassword && $this->userAccountRepo->hasPassword($userId);
         if ($removePassword) {
             $this->userAccountRepo->clearPassword($userId);
         }
