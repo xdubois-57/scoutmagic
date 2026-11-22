@@ -14,6 +14,7 @@ use Core\Http\Request;
 use Core\Http\Response;
 use Core\Journal\JournalService;
 use Core\Member\MemberService;
+use Core\Member\SectionContactAccess;
 use Core\Member\SectionService;
 use Core\Security\AuthSession;
 use Core\Security\Role;
@@ -792,16 +793,15 @@ class GalleryController extends AbstractController
         $ids = [];
         $allSections = $this->sectionService->getAllWithBranches();
         foreach ($this->relevantScoutYearIds() as $scoutYearId) {
-            foreach ($this->memberService->getLinkedMembers($email, $scoutYearId) as $member) {
-                foreach ($member->functions as $function) {
-                    if ($function->sectionCode === null) {
-                        continue;
-                    }
-                    foreach ($allSections as $section) {
-                        if ($section['desk_code'] === $function->sectionCode) {
-                            $ids[] = (int) $section['id'];
-                        }
-                    }
+            // The one reading of « which sections concern this account » —
+            // shared with the calendar's personal scope and the staffs page
+            // (issue #1348) instead of a third hand-written loop.
+            $codes = SectionContactAccess::linkedSectionCodes(
+                $this->memberService->getLinkedMembers($email, $scoutYearId)
+            );
+            foreach ($allSections as $section) {
+                if (in_array($section['desk_code'], $codes, true)) {
+                    $ids[] = (int) $section['id'];
                 }
             }
         }

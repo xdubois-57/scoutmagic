@@ -7629,8 +7629,13 @@ if ($isEnabled('calendar')) {
         $calendarService,
         $calendarEventRepo,
         $notificationService,
-        $userAccountRepo,
-        $scoutYearService
+        // Who an activity is announced to — personally linked accounts, the
+        // same answer the evening-before reminder resolves (#1348).
+        new \Modules\Calendar\Service\EventAudienceResolver(
+            $userAccountRepo,
+            new \Core\Member\SectionAccountRepository($pdo),
+            $scoutYearService
+        )
     );
     $calendarRetroAutoCreateService = new \Modules\Calendar\Service\CalendarRetroAutoCreateService(
         $schedulerService,
@@ -10060,7 +10065,9 @@ if ($isEnabled('gallery')) {
         $userAccountRepo,
         $galleryStoredFileCleaner,
         // The album folder's LISEZMOI.txt (#474), on every kind of storage.
-        new \Modules\Gallery\Service\AlbumReadme($settingService, $journalService)
+        new \Modules\Gallery\Service\AlbumReadme($settingService, $journalService),
+        // Who a section album is announced to: its personally linked accounts (#1348).
+        new \Core\Member\SectionAccountRepository($pdo)
     );
     $galleryMediaService = new \Modules\Gallery\Service\MediaService(
         $galleryMediaRepo,

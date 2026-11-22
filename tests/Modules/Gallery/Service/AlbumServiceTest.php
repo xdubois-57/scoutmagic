@@ -944,7 +944,8 @@ class AlbumServiceTest extends TestCase
             $this->storageBackendFactory, $this->storageLocationRepository, $this->storageLocationService,
             $this->galleryLocationService,
             new ScoutYearService($this->pdo), $this->settingServiceAllowingEverything(), $this->schedulerService, $this->uploadHandler,
-            $notificationService, $userAccountRepository
+            $notificationService, $userAccountRepository, null, null,
+            new \Core\Member\SectionAccountRepository($this->pdo)
         );
 
         $album = $service->create(
@@ -962,6 +963,197 @@ class AlbumServiceTest extends TestCase
             $notificationRepository->findByUserAccountId($outsider),
             "an account outside the section was told about an album it cannot open",
         );
+    }
+
+    /**
+     * @return array{0: AlbumService, 1: NotificationRepository, 2: UserAccountRepository}
+     */
+    private function publishingService(bool $withSectionResolver = true): array
+    {
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $accounts = new UserAccountRepository($this->pdo, $encryption);
+        $notifications = new NotificationRepository($this->pdo, $encryption);
+        $notificationService = new NotificationService(
+            $notifications,
+            new PushSubscriptionRepository($this->pdo, $encryption),
+            new NotificationPreferenceRepository($this->pdo),
+            $this->createStub(WebPush::class),
+            new SettingService(new SettingRepository($this->pdo)),
+            new JournalService(new JournalRepository($this->pdo)),
+            new SchedulerService(new SchedulerRepository($this->pdo)),
+            $accounts
+        );
+        $notificationService->registerModuleTypes('gallery', [[
+            'id' => 'gallery.album_published', 'label' => 'Nouvel album', 'description' => 'd',
+            'group' => 'Galerie', 'role_min' => 'identified',
+            'channels' => ['in_app' => 'default_on', 'push' => 'default_on', 'email' => 'default_off'],
+        ]]);
+
+        $service = new AlbumService(
+            $this->albumRepository, new MediaRepository($this->pdo), $this->accessService, $this->createStub(UrlMetadataFetcher::class),
+            $this->storageBackendFactory, $this->storageLocationRepository, $this->storageLocationService,
+            $this->galleryLocationService,
+            new ScoutYearService($this->pdo), $this->settingServiceAllowingEverything(), $this->schedulerService, $this->uploadHandler,
+            $notificationService, $accounts, null, null,
+            $withSectionResolver ? new \Core\Member\SectionAccountRepository($this->pdo) : null
+        );
+
+        return [$service, $notifications, $accounts];
+    }
+
+    private function newSection(string $code, string $name): int
+    {
+        $branchId = (int) $this->pdo->query('SELECT id FROM age_branches LIMIT 1')->fetchColumn();
+        $this->pdo->prepare('INSERT INTO sections (age_branch_id, desk_code, name) VALUES (?, ?, ?)')->execute([$branchId, $code, $name]);
+
+        return (int) $this->pdo->lastInsertId();
+    }
+
+    /** A member of $sectionId holding $role, whose Desk address is $email. */
+    private function memberHolding(string $email, int $sectionId, string $role = 'identified', ?int $yearId = null): int
+    {
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('T" . uniqid() . "')");
+        $memberId = (int) $this->pdo->lastInsertId();
+        $this->pdo->prepare(
+            'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted,
+             email_encrypted, email_blind_index) VALUES (?, ?, ?, ?, ?, ?)'
+        )->execute([
+            $memberId, $yearId ?? $this->scoutYearId,
+            $encryption->encrypt('Prénom', 'member_years.first_name'),
+            $encryption->encrypt('Nom', 'member_years.last_name'),
+            $encryption->encrypt($email, 'member_years.email'),
+            $encryption->blindIndex(strtolower($email), 'email'),
+        ]);
+        $memberYearId = (int) $this->pdo->lastInsertId();
+        $this->pdo->exec("INSERT OR IGNORE INTO functions (desk_code, label, role, confirmed) VALUES ('R_{$role}', '{$role}', '{$role}', 1)");
+        $functionId = (int) $this->pdo->query("SELECT id FROM functions WHERE desk_code = 'R_{$role}'")->fetchColumn();
+        $this->pdo->prepare('INSERT INTO member_functions (member_year_id, function_id, section_id) VALUES (?, ?, ?)')
+            ->execute([$memberYearId, $functionId, $sectionId]);
+
+        return $memberId;
+    }
+
+    private function publish(AlbumService $service, ?int $sectionId, string $date = '2026-07-01'): void
+    {
+        $service->create(Album::TYPE_LOCAL, 'Camp', null, $date, $sectionId, null, $this->authorId, Role::CHIEF, 'chief@test.com');
+    }
+
+    /**
+     * Issue #1348. A section's album is announced to the accounts personally
+     * linked to the section — not to the cadres and super-administrators the
+     * old audience added to EVERY section, which put « Nouvel album » in the
+     * notification centre of an administrator who is the parent of children
+     * in other sections.
+     */
+    public function testASectionAlbumIsAnnouncedToTheLinkedAccountsAndNotToTheRolesOfOtherSections(): void
+    {
+        [$service, $notifications, $accounts] = $this->publishingService();
+        $seeonee = $this->newSection('SEE', 'Seeonee');
+        $parent = $accounts->create('parent@test.com')->id;
+        $this->memberHolding('parent@test.com', $this->sectionId);
+        // The reported account: an administrator, parent in ANOTHER section.
+        $adminParent = $accounts->create('admin-parent@test.com')->id;
+        $this->memberHolding('admin-parent@test.com', $seeonee);
+        $this->memberHolding('admin-parent@test.com', $seeonee, 'admin');
+        $chiefElsewhere = $accounts->create('chief-elsewhere@test.com')->id;
+        $this->memberHolding('chief-elsewhere@test.com', $seeonee, 'chief');
+        $super = $accounts->create('super@test.com')->id;
+        $this->pdo->prepare('UPDATE user_accounts SET is_super_admin = 1 WHERE id = ?')->execute([$super]);
+
+        $this->publish($service, $this->sectionId);
+
+        $this->assertCount(1, $notifications->findByUserAccountId($parent));
+        foreach ([$adminParent, $chiefElsewhere, $super] as $notTold) {
+            $this->assertSame([], $notifications->findByUserAccountId($notTold), "account {$notTold}");
+        }
+    }
+
+    /** A chef of the section is linked like anybody else: they hold a function in it. */
+    public function testALinkedChiefIsTold(): void
+    {
+        [$service, $notifications, $accounts] = $this->publishingService();
+        $chief = $accounts->create('chief@test.com')->id;
+        $this->memberHolding('chief@test.com', $this->sectionId, 'chief');
+
+        $this->publish($service, $this->sectionId);
+
+        $this->assertCount(1, $notifications->findByUserAccountId($chief));
+    }
+
+    public function testAConfirmedSecondaryAddressIsToldAndSeveralChildrenGiveOneNotification(): void
+    {
+        [$service, $notifications, $accounts] = $this->publishingService();
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $teen = $accounts->create('teen@test.com')->id;
+        $pending = $accounts->create('pending@test.com')->id;
+        $child = $this->memberHolding('family@test.com', $this->sectionId);
+        $emails = new \Core\Member\MemberEmailRepository($this->pdo, $encryption);
+        $emails->create($child, 'teen@test.com', \Core\Member\MemberEmail::SOURCE_MANUAL, \Core\Member\MemberEmail::STATUS_VALID, null, null);
+        $emails->create($child, 'pending@test.com', \Core\Member\MemberEmail::SOURCE_MANUAL, \Core\Member\MemberEmail::STATUS_PENDING, null, null);
+        $twins = $accounts->create('twins@test.com')->id;
+        $this->memberHolding('twins@test.com', $this->sectionId);
+        $this->memberHolding('twins@test.com', $this->sectionId);
+
+        $this->publish($service, $this->sectionId);
+
+        $this->assertCount(1, $notifications->findByUserAccountId($teen));
+        $this->assertSame([], $notifications->findByUserAccountId($pending), 'a pending address links nobody');
+        $this->assertCount(1, $notifications->findByUserAccountId($twins));
+    }
+
+    /**
+     * Access control stays the gallery's: a member opens only the albums of the
+     * current and the previous year (AlbumVisibility), so a parent is not
+     * announced an album the page would refuse them — while a linked chef,
+     * who sees every year, is.
+     */
+    public function testAnAlbumOlderThanThePreviousYearIsNotAnnouncedToParents(): void
+    {
+        [$service, $notifications, $accounts] = $this->publishingService();
+        $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date) VALUES ('2019-2020', '2019-09-01', '2020-08-31')");
+        $oldYear = (int) $this->pdo->lastInsertId();
+        // The previous year is the one just before the current in the list: a
+        // year in between keeps 2019-2020 out of the period a member may open.
+        $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date) VALUES ('2024-2025', '2024-09-01', '2025-08-31')");
+        // Linked in the album's own year, as the audience is resolved for it.
+        $parent = $accounts->create('parent@test.com')->id;
+        $this->memberHolding('parent@test.com', $this->sectionId, 'identified', $oldYear);
+        $chief = $accounts->create('chief@test.com')->id;
+        $this->memberHolding('chief@test.com', $this->sectionId, 'chief', $oldYear);
+        // …and still a chef today, which is what lets them open every year.
+        $this->memberHolding('chief@test.com', $this->sectionId, 'chief');
+
+        // Filed in 2019-2020 — long before the previous year.
+        $this->publish($service, $this->sectionId, '2019-11-15');
+
+        $this->assertSame([], $notifications->findByUserAccountId($parent), 'the page would answer 403');
+        $this->assertCount(1, $notifications->findByUserAccountId($chief));
+    }
+
+    /** A unit-wide album keeps its audience: every account. */
+    public function testAnAlbumWithoutASectionIsStillAnnouncedToTheWholeUnit(): void
+    {
+        [$service, $notifications, $accounts] = $this->publishingService();
+        $parent = $accounts->create('parent@test.com')->id;
+        $unlinked = $accounts->create('unlinked@test.com')->id;
+
+        $this->publish($service, null);
+
+        $this->assertCount(1, $notifications->findByUserAccountId($parent));
+        $this->assertCount(1, $notifications->findByUserAccountId($unlinked));
+    }
+
+    /** Without the resolver a section album tells nobody, never a wider audience. */
+    public function testASectionAlbumWithoutTheResolverTellsNobody(): void
+    {
+        [$service, $notifications, $accounts] = $this->publishingService(false);
+        $parent = $accounts->create('parent@test.com')->id;
+        $this->memberHolding('parent@test.com', $this->sectionId);
+
+        $this->publish($service, $this->sectionId);
+
+        $this->assertSame([], $notifications->findByUserAccountId($parent));
     }
 
     /**

@@ -71,5 +71,5 @@ activez-le si vos week-ends et camps méritent une piqûre de rappel
 d'intendance.
 
 Le **rappel de veille** (« votre activité a lieu demain ») part tout
-seul à 18 h et n'a rien à régler ici : chaque membre choisit s'il le
-reçoit dans ses préférences de notification.
+seul à 18 h aux personnes liées à la section, sans rien à régler ici :
+chacune choisit s'il lui parvient dans ses préférences de notification.

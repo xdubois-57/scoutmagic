@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\Calendar\Service;
 
 use Core\Member\MemberService;
+use Core\Member\SectionContactAccess;
 use Core\Member\SectionService;
 use Core\ScoutYear\AuthorizationYearService;
 use Core\Security\Role;
@@ -277,7 +278,8 @@ class PersonalFeedService
      * scope, just reached via a token there and via the logged-in
      * session's own email here) — every supplementary calendar visible to
      * the viewer's effective role, plus the calendar(s) of any section
-     * where they have a linked member (by email). A chef d'unité's "Staff
+     * where they have a linked member (by email) AND whose visibility their
+     * effective role satisfies (issue #1348). A chef d'unité's "Staff
      * d'U" events fall out automatically here with no special-casing:
      * once their function is synced into the real "Staff d'U" section
      * (see Core\Member\UnitStaffSectionService), its desk_code is just
@@ -291,15 +293,9 @@ class PersonalFeedService
         $role = Role::fromString($this->roleResolver->resolve($email, $scoutYearId));
         $linkedMembers = $this->memberService->getLinkedMembers($email, $scoutYearId);
 
-        $linkedSectionCodes = [];
-        foreach ($linkedMembers as $member) {
-            foreach ($member->functions as $fn) {
-                if ($fn->sectionCode !== null) {
-                    $linkedSectionCodes[] = $fn->sectionCode;
-                }
-            }
-        }
-        $linkedSectionCodes = array_unique($linkedSectionCodes);
+        // The one reading of « which sections concern this account »: the same
+        // as the staffs page and the gallery (issue #1348).
+        $linkedSectionCodes = SectionContactAccess::linkedSectionCodes($linkedMembers);
 
         $sectionsById = [];
         foreach ($this->sectionService->getAllWithBranches() as $section) {
@@ -309,7 +305,14 @@ class PersonalFeedService
         $calendarIds = [];
         foreach ($this->calendarService->getSectionCalendars() as $calendar) {
             $section = $calendar->sectionId !== null ? ($sectionsById[$calendar->sectionId] ?? null) : null;
-            if ($section !== null && in_array($section['desk_code'], $linkedSectionCodes, true)) {
+            // Linked AND allowed (issue #1348): a section calendar reserved to
+            // the chefs or to the administrators is not in the personal scope
+            // of the section's parents — the rule the notifications follow.
+            if (
+                $section !== null
+                && in_array($section['desk_code'], $linkedSectionCodes, true)
+                && $this->calendarService->isVisibleToRole($calendar, $role)
+            ) {
                 $calendarIds[] = $calendar->id;
             }
         }
