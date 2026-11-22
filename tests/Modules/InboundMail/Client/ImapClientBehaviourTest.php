@@ -225,10 +225,16 @@ class ImapClientBehaviourTest extends TestCase
         $client = new ImapMailboxClient($this->managerReturning(new InertImapClient(null)));
         $client->connect($this->mailbox(), $this->credentials());
 
-        $this->expectException(MailboxConnectionException::class);
-        $this->expectExceptionMessage('Le dossier demandé est introuvable sur le serveur.');
-
-        $client->folderState('Archives 2019');
+        try {
+            $client->folderState('Archives 2019');
+            $this->fail('A folder the server does not know must not open.');
+        } catch (MailboxConnectionException $e) {
+            $this->assertSame('Le dossier demandé est introuvable sur le serveur.', $e->getMessage());
+            $this->assertSame(MailboxConnectionException::STEP_OPEN_FOLDER, $e->step);
+            // The folder travels with the failure, for the sentence the
+            // operator reads (#1343).
+            $this->assertSame('Archives 2019', $e->folder);
+        }
     }
 
     /**

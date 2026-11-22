@@ -43,7 +43,14 @@ class MailboxConnectionException extends \RuntimeException implements UserFacing
         string $message = '',
         int $code = 0,
         ?\Throwable $previous = null,
-        public readonly ?string $step = null
+        public readonly ?string $step = null,
+        /**
+         * The watched folder the step was about, as the box's
+         * configuration names it (#1343): the operator typed or chose it,
+         * so saying it back tells them which one to fix. Null for a step
+         * that concerns no single folder.
+         */
+        public readonly ?string $folder = null
     ) {
         parent::__construct($message, $code, $previous);
     }
@@ -53,9 +60,9 @@ class MailboxConnectionException extends \RuntimeException implements UserFacing
      * short class name and nothing it wrote, as before: it reaches no
      * page, only the formatter that turns it into a sentence.
      */
-    public static function at(string $step, \Throwable $cause): self
+    public static function at(string $step, \Throwable $cause, ?string $folder = null): self
     {
-        return new self(self::shortClass($cause), 0, $cause, $step);
+        return new self(self::shortClass($cause), 0, $cause, $step, $folder);
     }
 
     /**

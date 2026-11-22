@@ -129,17 +129,29 @@ l'ordre :
 | **Serveur IMAP**, **Port**, **Chiffrement** | Remplis pour un fournisseur reconnu. `993` en SSL, `143` en STARTTLS ; il n'existe pas d'option « aucun ». |
 | **Usage** | **Courrier général de l'unité** ou **Réservée à un module** (voir §2). |
 | **Module** | Pour une adresse réservée. Seuls les modules actifs qui lisent le courrier et n'ont pas encore d'adresse réservée sont proposés. |
-| **Dossiers lus (facultatif)** | Replié. Voir ci-dessous. |
+| **Dossiers lus** | Affiché une fois la connexion vérifiée. Voir ci-dessous. |
 
-**Les dossiers lus.** Par défaut, la boîte de réception, plus les messages
-envoyés quand un module en a besoin (aujourd'hui les Locations). En
-ouvrant « Dossiers lus (facultatif) », le formulaire liste les autres
-dossiers du serveur à cocher, **sans jamais proposer les dossiers
+**Les dossiers lus** (#1343). La boîte de réception est **toujours lue**,
+sans qu'il faille connaître son nom sur le serveur, plus les messages
+envoyés quand un module en a besoin (aujourd'hui les Locations). Dès que
+la connexion que le formulaire contient a répondu — à la fin de la
+saisie, ou avec « Vérifier la connexion et choisir les dossiers » —,
+« Dossiers lus » affiche la boîte de réception cochée d'office et les
+autres dossiers du serveur à cocher, **sans jamais proposer les dossiers
 spéciaux** que le serveur désigne : indésirables, corbeille, brouillons,
 « Tous les messages », « Suivis », « Important ». Seule une boîte témoin
 du courrier sortant se voit proposer son dossier d'indésirables, qu'elle
-doit lire. Le dossier des envoyés est **trouvé automatiquement** quand le
-serveur le désigne ; sinon, indiquez son nom.
+doit lire. Un serveur qui ne désigne pas ses dossiers spéciaux (LWS,
+Courier, Dovecot avec un préfixe `INBOX.`) les propose comme les autres,
+décochés. Le dossier des envoyés est **trouvé automatiquement** quand le
+serveur le désigne ; sinon, il se **choisit dans la liste des dossiers du
+serveur**. Aucun nom de dossier ne se tape : à l'enregistrement, le
+serveur vérifie que les dossiers choisis figurent dans la liste qu'il
+vient de lire. Sans JavaScript, la liste ne s'affiche pas : une nouvelle
+adresse lit sa seule boîte de réception, une adresse modifiée garde ses
+dossiers. Une adresse enregistrée avant cette règle lit sa boîte de
+réception même si sa liste ne la nommait pas ; un dossier qu'elle nomme
+et que le serveur n'a plus fait échouer la relève, en le nommant.
 
 **« Vérifier et enregistrer » se connecte avant d'enregistrer.** Une
 adresse qui ne répond pas **n'est pas enregistrée** — ni ajoutée, ni

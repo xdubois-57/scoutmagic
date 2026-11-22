@@ -186,7 +186,8 @@ class InboundMailConfigController extends AbstractController
         $dedicatedTo = $purpose === MailboxPurpose::DEDICATED ? $input['dedicated_to'] : null;
 
         // The connection first: an address that does not answer is not
-        // saved, and the box as stored is left exactly as it was.
+        // saved, and the box as stored is left exactly as it was. Its
+        // listing is also what the folders chosen are checked against.
         $verified = $this->adminService->testConnectionFromParams(
             $input['host'],
             (int) $input['port'],
@@ -194,7 +195,8 @@ class InboundMailConfigController extends AbstractController
             $input['username'],
             $password,
             $existing?->id,
-            new \DateTimeImmutable()
+            new \DateTimeImmutable(),
+            MailboxPurpose::readsReservedBoxesOnly((string) $dedicatedTo)
         );
         if (!$verified['ok']) {
             return $this->renderForm($existing, $input, [
@@ -203,7 +205,25 @@ class InboundMailConfigController extends AbstractController
             ]);
         }
 
-        $folders = MailboxAdminService::foldersWithInbox(MailboxAdminService::parseFolders($input['folders']));
+        // The folders (#1343). The form offers them only once the
+        // connection it shows has answered, and says so with
+        // `folders_verified`; without it — no script, or settings changed
+        // since — a new box reads its inbox alone and an edit keeps the
+        // folders it had. A choice is never taken from a stale screen.
+        if ($input['folders_verified']) {
+            $choice = MailboxAdminService::folderChoice($input['folders'], $input['sent_folder'], $verified);
+            if (is_string($choice)) {
+                return $this->renderForm($existing, $input, [
+                    'title' => "Rien n'est enregistré.",
+                    'message' => $choice,
+                ]);
+            }
+            $folders = $choice['folders'];
+            $sentFolder = $choice['sent_folder'];
+        } else {
+            $folders = $existing !== null ? $existing->folders : [];
+            $sentFolder = $existing !== null ? (string) $existing->sentFolder : '';
+        }
 
         if ($existing !== null) {
             // No « Synchroniser cette boîte » any more (D10): a box is
@@ -218,7 +238,7 @@ class InboundMailConfigController extends AbstractController
                 $input['username'],
                 $password,
                 $folders,
-                $input['sent_folder']
+                $sentFolder
             );
             // Verified just above: the list's red « Échec » was about the
             // settings this edit replaced.
@@ -238,7 +258,7 @@ class InboundMailConfigController extends AbstractController
                 $password,
                 $folders,
                 true,
-                $input['sent_folder'],
+                $sentFolder,
                 $purpose,
                 $dedicatedTo
             );
@@ -252,7 +272,8 @@ class InboundMailConfigController extends AbstractController
     /**
      * Why the posted form cannot be verified as it stands, or null.
      *
-     * @param array<string, string> $input
+     * @param array{username: string, host: string, port: string, encryption: string, purpose: string,
+     *   dedicated_to: string, folders: list<string>, sent_folder: string, folders_verified: bool} $input
      */
     private function refusal(?Mailbox $existing, array $input, string $password): ?string
     {
@@ -301,10 +322,18 @@ class InboundMailConfigController extends AbstractController
      * never rendered back.
      *
      * @return array{username: string, host: string, port: string, encryption: string, purpose: string,
-     *   dedicated_to: string, folders: string, sent_folder: string}
+     *   dedicated_to: string, folders: list<string>, sent_folder: string, folders_verified: bool}
      */
     private static function readForm(Request $request): array
     {
+        $posted = $request->getBody('folders', []);
+        $folders = [];
+        foreach (is_array($posted) ? $posted : [] as $folder) {
+            if (is_string($folder) && $folder !== '') {
+                $folders[] = $folder;
+            }
+        }
+
         return [
             'username' => trim((string) $request->getBody('username', '')),
             'host' => trim((string) $request->getBody('host', '')),
@@ -312,8 +341,11 @@ class InboundMailConfigController extends AbstractController
             'encryption' => trim((string) $request->getBody('encryption', '')),
             'purpose' => (string) $request->getBody('purpose', ''),
             'dedicated_to' => trim((string) $request->getBody('dedicated_to', '')),
-            'folders' => (string) $request->getBody('folders', ''),
-            'sent_folder' => trim((string) $request->getBody('sent_folder', '')),
+            // Paths exactly as the server spells them: never trimmed, a
+            // leading space can be part of a folder's name.
+            'folders' => $folders,
+            'sent_folder' => is_string($sent = $request->getBody('sent_folder', '')) ? $sent : '',
+            'folders_verified' => $request->getBody('folders_verified', '') === '1',
         ];
     }
 
@@ -360,7 +392,7 @@ class InboundMailConfigController extends AbstractController
 
     /**
      * POST /config/courrier-entrant/test-connexion — JSON, for « Dossiers
-     * lus (facultatif) ».
+     * lus », which the form shows only once this has answered (#1343).
      *
      * Accepts the connection parameters as JSON, tries them without saving
      * anything, and returns the folders the form may offer — the special
@@ -416,6 +448,9 @@ class InboundMailConfigController extends AbstractController
             'message' => $result['ok'] ? $result['message'] : null,
             'folders' => $result['offered_folders'] ?? [],
             'sent_folder' => $result['sent_folder'] ?? null,
+            // The server's own folders, for a sent mail it does not mark:
+            // chosen from a list, never typed (#1343).
+            'sent_candidates' => $result['sent_candidates'] ?? [],
         ]);
     }
 
@@ -507,7 +542,9 @@ class InboundMailConfigController extends AbstractController
      * or blank — with the outcome of a refused « Vérifier et enregistrer »
      * on top.
      *
-     * @param array<string, string>|null $input what was posted, null on a GET
+     * @param array{username: string, host: string, port: string, encryption: string, purpose: string,
+     *   dedicated_to: string, folders: list<string>, sent_folder: string, folders_verified: bool}|null $input
+     *   what was posted, null on a GET
      * @param array{title: ?string, message: string}|null $failure
      */
     private function renderForm(?Mailbox $mailbox, ?array $input, ?array $failure = null): Response
@@ -529,8 +566,9 @@ class InboundMailConfigController extends AbstractController
                 ? ($mailbox->isDedicated() ? MailboxPurpose::DEDICATED->value : MailboxPurpose::SHARED->value)
                 : $this->adminService->suggestedPurpose($modules !== [])->value,
             'dedicated_to' => $mailbox?->isDedicated() === true ? (string) $mailbox->dedicatedTo : '',
-            'folders' => implode("\n", $mailbox->folders ?? []),
+            'folders' => $mailbox->folders ?? [],
             'sent_folder' => $mailbox->sentFolder ?? '',
+            'folders_verified' => false,
         ];
 
         // Prefill only what is empty: a server the operator typed is
@@ -549,7 +587,7 @@ class InboundMailConfigController extends AbstractController
 
         // The inbox is always read and is not one of the « autres dossiers ».
         $others = array_values(array_filter(
-            MailboxAdminService::parseFolders($form['folders']),
+            $form['folders'],
             static fn(string $folder): bool => strcasecmp($folder, 'INBOX') !== 0
         ));
 

@@ -142,7 +142,7 @@ class ImapMailboxClient implements IncomingMailboxClientInterface, PruningMailbo
                 ? (int) $status['uidnext'] - 1
                 : $this->searchHighestUid($imapFolder);
         } catch (\Throwable $e) {
-            throw MailboxConnectionException::at(MailboxConnectionException::STEP_OPEN_FOLDER, $e);
+            throw MailboxConnectionException::at(MailboxConnectionException::STEP_OPEN_FOLDER, $e, $folder);
         }
 
         return new FolderState(
@@ -586,7 +586,7 @@ class ImapMailboxClient implements IncomingMailboxClientInterface, PruningMailbo
         } catch (MailboxConnectionException $e) {
             throw $e;
         } catch (\Throwable $e) {
-            throw MailboxConnectionException::at(MailboxConnectionException::STEP_OPEN_FOLDER, $e);
+            throw MailboxConnectionException::at(MailboxConnectionException::STEP_OPEN_FOLDER, $e, $folder);
         }
 
         if ($imapFolder === null) {
@@ -594,7 +594,8 @@ class ImapMailboxClient implements IncomingMailboxClientInterface, PruningMailbo
                 'Le dossier demandé est introuvable sur le serveur.',
                 0,
                 null,
-                MailboxConnectionException::STEP_OPEN_FOLDER
+                MailboxConnectionException::STEP_OPEN_FOLDER,
+                $folder
             );
         }
 

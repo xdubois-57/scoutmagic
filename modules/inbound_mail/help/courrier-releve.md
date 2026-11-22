@@ -40,8 +40,9 @@ L'erreur dit à quelle étape la relève s'est arrêtée :
   pas un mot de passe d'application ;
 - **certificat non vérifié** : vérifiez le nom du serveur et le
   chiffrement ; il n'existe pas d'option pour passer outre ;
-- **dossier introuvable** : un des dossiers lus n'existe plus sous ce
-  nom exact ;
+- **dossier introuvable** : le dossier nommé n'existe plus sous ce nom
+  exact. Ouvrez l'adresse avec « Modifier » : la liste des dossiers le
+  signale, et l'enregistrement le retire ;
 - **une étape après une connexion réussie** (liste des dossiers,
   ouverture d'un dossier, lecture des messages) : les identifiants sont
   bons, c'est le serveur qui a refusé ou coupé. Le nom technique entre

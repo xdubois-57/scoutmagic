@@ -446,15 +446,7 @@ class MailboxAdminServiceTest extends TestCase
         $this->assertNull($this->repository->findById($id));
     }
 
-    // ── Folder parsing ──────────────────────────────────────────────────
-
-    public function testFoldersAreParsedOnePerLine(): void
-    {
-        $this->assertSame(
-            ['INBOX', 'INBOX/Locations'],
-            MailboxAdminService::parseFolders("INBOX\r\n  INBOX/Locations  \n\n")
-        );
-    }
+    // ── Folders read ────────────────────────────────────────────────────
 
     public function testAnEmptyFolderListMeansInboxRatherThanNothing(): void
     {
@@ -467,9 +459,45 @@ class MailboxAdminServiceTest extends TestCase
         $this->assertSame(['INBOX'], $mailbox->watchedFolders());
     }
 
-    public function testADuplicateFolderIsListedOnce(): void
+    /**
+     * A box saved before the inbox was always read can name only other
+     * folders: its inbox is read all the same (#1343), and the others are
+     * kept as configured — none invented, none dropped.
+     */
+    public function testAnOldListWithoutTheInboxStillReadsTheInbox(): void
     {
-        $this->assertSame(['INBOX'], MailboxAdminService::parseFolders("INBOX\nINBOX"));
+        $id = $this->service->create('imap.test', 993, 'ssl', 'x@unite.be', 'mdp', ['Locations', 'Archives'], true);
+
+        $mailbox = $this->repository->findById($id);
+        $this->assertNotNull($mailbox);
+        $this->assertSame(['INBOX', 'Locations', 'Archives'], $mailbox->watchedFolders());
+    }
+
+    public function testAnInboxAlreadyListedIsNotReadTwice(): void
+    {
+        $id = $this->service->create('imap.test', 993, 'ssl', 'x@unite.be', 'mdp', ['Locations', 'inbox'], true);
+
+        $mailbox = $this->repository->findById($id);
+        $this->assertNotNull($mailbox);
+        $this->assertSame(['Locations', 'inbox'], $mailbox->watchedFolders());
+    }
+
+    /** The choice posted is checked against the listing of the same save (#1343). */
+    public function testTheFolderChoiceIsTheServersOwn(): void
+    {
+        $listing = ['offered_folders' => ['Factures', 'Devis'], 'sent_candidates' => ['Factures', 'Devis', 'Envoyés']];
+
+        $this->assertSame(
+            ['folders' => ['INBOX', 'Factures'], 'sent_folder' => 'Envoyés'],
+            MailboxAdminService::folderChoice(['Factures', 'INBOX', 'Factures'], 'Envoyés', $listing)
+        );
+        $this->assertSame(
+            ['folders' => [], 'sent_folder' => ''],
+            MailboxAdminService::folderChoice([], '', $listing)
+        );
+        $this->assertIsString(MailboxAdminService::folderChoice(['Inventé'], '', $listing));
+        $this->assertIsString(MailboxAdminService::folderChoice([], 'Inventé', $listing));
+        $this->assertIsString(MailboxAdminService::folderChoice(['Devis'], 'Devis', $listing));
     }
 
     // ── Test from form parameters (pre-save) ────────────────────────────

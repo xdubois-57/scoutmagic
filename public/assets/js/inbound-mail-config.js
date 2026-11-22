@@ -9,12 +9,15 @@
 //     address is typed, which prefills an EMPTY server, port and
 //     encryption and shows the app-password help that applies (D8);
 //   - the module field, shown only for an address reserved to a module;
-//   - « Dossiers lus (facultatif) »: opened, it lists the server's folders
-//     — the special ones already filtered out server-side — as checkboxes
-//     backed by the no-script textarea, and says which folder holds the
-//     sent mail when the server marks one (D9).
+//   - « Dossiers lus » (#1343): shown only once the connection the form
+//     holds has answered — the inbox ticked for good, the server's other
+//     folders to tick (its special ones already filtered out server-side),
+//     and the sent mail found from the server's mark or chosen in the
+//     server's own list. A change of server, port, encryption, address,
+//     password or usage hides it again until the new settings answer.
 //
-// The page works without any of it: the form posts as typed, and the
+// The page works without any of it: the form posts as typed, a new address
+// then reads its inbox alone and an edited one keeps its folders, and the
 // server verifies the connection before saving (D10).
 //
 // Same conventions as sos-config.js: fetches ride ScoutMagicApi, every
@@ -39,16 +42,14 @@
     var providerKnown = document.getElementById('mailbox-provider-known');
     var providerUnknown = document.getElementById('mailbox-provider-unknown');
     var moduleField = document.getElementById('mailbox-module-field');
-    var foldersDetails = /** @type {HTMLDetailsElement|null} */ (document.getElementById('mailbox-folders-details'));
-    var foldersTextarea = /** @type {HTMLTextAreaElement|null} */ (document.getElementById('mailbox-folders'));
-    var foldersWrapper = document.getElementById('mailbox-folders-wrapper');
-    var foldersPicker = document.getElementById('mailbox-folders-picker');
+    var foldersSection = document.getElementById('mailbox-folders');
+    var foldersCheck = /** @type {HTMLButtonElement|null} */ (document.getElementById('mailbox-folders-check'));
     var foldersList = document.getElementById('mailbox-folders-list');
+    var foldersMissing = document.getElementById('mailbox-folders-missing');
     var foldersStatus = document.getElementById('mailbox-folders-status');
-    var sentInput = /** @type {HTMLInputElement|null} */ (document.getElementById('mailbox-sent-folder'));
-    var sentField = document.getElementById('mailbox-sent-field');
-    var sentFound = document.getElementById('mailbox-sent-found');
-    var sentFoundName = document.getElementById('mailbox-sent-found-name');
+    var foldersVerified = /** @type {HTMLInputElement|null} */ (document.getElementById('mailbox-folders-verified'));
+    var sentSelect = /** @type {HTMLSelectElement|null} */ (document.getElementById('mailbox-sent-folder'));
+    var sentHelp = document.getElementById('mailbox-sent-help');
 
     // ── Provider recognition (D8) ──────────────────────────────────────
 
@@ -211,7 +212,7 @@
     });
     syncModuleField();
 
-    // ── Folders read (D9) ──────────────────────────────────────────────
+    // ── Folders read (#1343) ───────────────────────────────────────────
 
     /** @param {string} message */
     function setFoldersStatus(message) {
@@ -220,24 +221,45 @@
         }
     }
 
-    /** The other folders the operator had chosen before the listing. */
-    function currentSelectedFolders() {
-        if (!foldersTextarea) {
+    /**
+     * The other folders the box reads, as stored or as last posted — read
+     * once from the page, then from the boxes ticked on screen.
+     *
+     * @type {string[]}
+     */
+    var chosenFolders = (function () {
+        try {
+            var parsed = JSON.parse(foldersSection?.dataset.chosen || '[]');
+            return Array.isArray(parsed) ? parsed.filter(function (f) { return typeof f === 'string'; }) : [];
+        } catch (e) {
             return [];
         }
-        return foldersTextarea.value
-            .split('\n')
-            .map(function (f) { return f.trim(); })
-            .filter(function (f) { return f !== ''; });
+    })();
+
+    /** The sent folder the box names, or '' for the server's mark. */
+    var chosenSent = foldersSection?.dataset.sent ?? '';
+
+    /** The other folders ticked on screen, when a listing is shown. */
+    function tickedFolders() {
+        if (!foldersList) {
+            return [];
+        }
+        /** @type {string[]} */
+        var ticked = [];
+        foldersList.querySelectorAll('input.folder-checkbox:checked:not(:disabled)').forEach(function (cb) {
+            ticked.push(/** @type {HTMLInputElement} */ (cb).value);
+        });
+        return ticked;
     }
 
     /**
-     * @param {string} folderName
+     * @param {string} folderName the path, exactly as the server spells it
+     * @param {string} label
      * @param {number} index
-     * @param {boolean} checked
+     * @param {{checked: boolean, locked?: boolean}} state
      * @returns {HTMLDivElement}
      */
-    function buildFolderCheckbox(folderName, index, checked) {
+    function buildFolderCheckbox(folderName, label, index, state) {
         var id = 'folder-cb-' + index;
 
         var wrapper = document.createElement('div');
@@ -248,77 +270,113 @@
         input.className = 'form-check-input folder-checkbox';
         input.id = id;
         input.value = folderName;
-        input.checked = checked;
+        input.checked = state.checked;
+        if (state.locked) {
+            // Always read: shown ticked, never posted, never untickable.
+            input.disabled = true;
+        } else {
+            input.name = 'folders[]';
+        }
 
-        var label = document.createElement('label');
-        label.className = 'form-check-label';
-        label.htmlFor = id;
-        label.textContent = folderName;
+        var text = document.createElement('label');
+        text.className = 'form-check-label';
+        text.htmlFor = id;
+        text.textContent = label;
 
         wrapper.appendChild(input);
-        wrapper.appendChild(label);
+        wrapper.appendChild(text);
 
         return wrapper;
     }
 
-    function syncFoldersToTextarea() {
-        if (!foldersTextarea || !foldersList) {
+    /**
+     * The sent-mail choice: the server's mark when it has one, otherwise
+     * none or one of its own folders.
+     *
+     * @param {string|null} marked
+     * @param {string[]} candidates
+     */
+    function showSentChoice(marked, candidates) {
+        if (!sentSelect) {
+            return;
+        }
+        sentSelect.textContent = '';
+        var automatic = document.createElement('option');
+        automatic.value = '';
+        automatic.textContent = marked !== null ? 'Trouvé automatiquement : ' + marked : 'Aucun';
+        sentSelect.appendChild(automatic);
+        candidates.forEach(function (folder) {
+            var option = document.createElement('option');
+            option.value = folder;
+            option.textContent = folder;
+            sentSelect.appendChild(option);
+        });
+        sentSelect.value = candidates.includes(chosenSent) ? chosenSent : '';
+        sentSelect.disabled = false;
+        if (sentHelp) {
+            sentHelp.textContent = marked !== null
+                ? 'Le serveur indique lui-même son dossier des messages envoyés.'
+                : "Le serveur n'indique pas son dossier des messages envoyés : choisissez-le, ou laissez « Aucun ».";
+        }
+    }
+
+    /**
+     * Show a successful listing: the inbox ticked for good, the folders
+     * offered, the sent-mail choice — and, when the box names folders the
+     * server no longer has, say so rather than drop them unseen.
+     *
+     * @param {{folders?: unknown, sent_folder?: unknown, sent_candidates?: unknown}} data
+     */
+    function showFolderListing(data) {
+        if (!foldersList || !foldersSection) {
             return;
         }
         /** @type {string[]} */
-        var checked = [];
-        foldersList.querySelectorAll('.folder-checkbox:checked').forEach(function (cb) {
-            checked.push(/** @type {HTMLInputElement} */ (cb).value);
-        });
-        foldersTextarea.value = checked.join('\n');
-    }
-
-    /**
-     * @param {string[]} folders
-     * @param {string[]} selected
-     */
-    function showFolderPicker(folders, selected) {
-        if (!foldersList || !foldersPicker || !foldersWrapper) {
-            return;
-        }
+        var offered = Array.isArray(data.folders) ? data.folders : [];
+        /** @type {string[]} */
+        var candidates = Array.isArray(data.sent_candidates) ? data.sent_candidates : [];
 
         foldersList.textContent = '';
-        folders.forEach(function (folder, index) {
-            foldersList.appendChild(buildFolderCheckbox(folder, index, selected.includes(folder)));
+        foldersList.appendChild(buildFolderCheckbox('INBOX', 'Boîte de réception (INBOX) — toujours lue', 0, {
+            checked: true,
+            locked: true
+        }));
+        offered.forEach(function (folder, index) {
+            foldersList.appendChild(buildFolderCheckbox(folder, folder, index + 1, {
+                checked: chosenFolders.includes(folder)
+            }));
         });
 
-        syncFoldersToTextarea();
+        var missing = chosenFolders.filter(function (f) { return !offered.includes(f); });
+        if (foldersMissing) {
+            foldersMissing.textContent = missing.length > 0
+                ? 'Introuvable sur ce serveur, donc plus lu après l’enregistrement : ' + missing.join(', ') + '.'
+                : '';
+            foldersMissing.hidden = missing.length === 0;
+        }
 
-        foldersWrapper.classList.add('d-none');
-        foldersPicker.classList.remove('d-none');
-    }
-
-    /** @param {string|null} sentFolder */
-    function showSentFolder(sentFolder) {
-        // Found by the server and not overridden: said, not asked. An
-        // operator's own entry stays editable.
-        if (!sentFolder || (sentInput?.value.trim() ?? '') !== '') {
-            return;
+        showSentChoice(typeof data.sent_folder === 'string' ? data.sent_folder : null, candidates);
+        if (foldersVerified) {
+            foldersVerified.disabled = false;
         }
-        if (sentFoundName) {
-            sentFoundName.textContent = sentFolder;
-        }
-        if (sentFound) {
-            sentFound.hidden = false;
-        }
-        if (sentField) {
-            sentField.hidden = true;
-        }
+        foldersSection.hidden = false;
     }
 
     if (foldersList) {
-        foldersList.addEventListener('change', syncFoldersToTextarea);
+        foldersList.addEventListener('change', function () {
+            chosenFolders = tickedFolders();
+        });
+    }
+    if (sentSelect) {
+        sentSelect.addEventListener('change', function () {
+            chosenSent = sentSelect.value;
+        });
     }
 
     /**
-     * What the folder listing on screen was read for — the connection and
-     * the usage, since a seed box is offered its junk folder — or null.
-     * A listing is only good for the settings it was asked with.
+     * What the listing on screen was read for — the whole connection,
+     * password included, and the usage, since a seed box is offered its
+     * junk folder — or null. A listing is only good for those settings.
      *
      * @type {string|null}
      */
@@ -340,32 +398,36 @@
             portInput ? portInput.value.trim() : '',
             encryptionSelect ? encryptionSelect.value : '',
             usernameInput ? usernameInput.value.trim() : '',
+            // Another password is another connection: a listing read
+            // with the old one proves nothing about the new.
+            passwordInput ? passwordInput.value : '',
             reservedModule()
         ]);
     }
 
     /**
-     * Put the folder section back as the page rendered it: the textarea
-     * (which holds the current choice) instead of a picker read for other
-     * settings, and the sent-folder field instead of a « trouvé
-     * automatiquement » that may name another server's folder.
+     * Hide the section until the settings on screen have answered: no
+     * listing read for other settings stays visible, and nothing of it is
+     * posted — the boxes leave with the list, the sent choice and the
+     * « verified » flag are disabled.
      */
     function resetFolderListing() {
         loadedKey = null;
         if (foldersList) {
             foldersList.textContent = '';
         }
-        if (foldersPicker) {
-            foldersPicker.classList.add('d-none');
+        if (foldersMissing) {
+            foldersMissing.hidden = true;
         }
-        if (foldersWrapper) {
-            foldersWrapper.classList.remove('d-none');
+        if (sentSelect) {
+            sentSelect.textContent = '';
+            sentSelect.disabled = true;
         }
-        if (sentFound) {
-            sentFound.hidden = true;
+        if (foldersVerified) {
+            foldersVerified.disabled = true;
         }
-        if (sentField) {
-            sentField.hidden = false;
+        if (foldersSection) {
+            foldersSection.hidden = true;
         }
         setFoldersStatus('');
     }
@@ -391,31 +453,8 @@
         };
     }
 
-    /**
-     * Show a successful listing.
-     *
-     * @param {{folders?: unknown, sent_folder?: unknown}} data
-     */
-    function showFolderListing(data) {
-        // The choice as it stands NOW: a folder typed while the server was
-        // answering is kept, not the snapshot taken before the request.
-        var selected = currentSelectedFolders();
-        /** @type {string[]} */
-        var offered = Array.isArray(data.folders) ? data.folders : [];
-        // A folder already chosen stays listed, checked, even when the
-        // server no longer offers it: a listing never unticks it silently.
-        var folders = offered.concat(selected.filter(function (f) { return !offered.includes(f); }));
-        setFoldersStatus(folders.length > 0 ? '' : "Le serveur n'a pas d'autre dossier à proposer.");
-        if (folders.length > 0) {
-            showFolderPicker(folders, selected);
-        }
-        showSentFolder(typeof data.sent_folder === 'string' ? data.sent_folder : null);
-    }
-
-    async function listFolders() {
-        if (!foldersDetails?.open) {
-            return;
-        }
+    /** @param {boolean} [quiet] say nothing when a field is missing */
+    async function listFolders(quiet) {
         var key = connectionKey();
         if (key === loadedKey || key === pendingKey) {
             return;
@@ -424,11 +463,13 @@
             resetFolderListing();
         }
         if (!canListFolders()) {
-            setFoldersStatus("Renseignez l'adresse, le mot de passe et le serveur pour voir les dossiers de la boîte.");
+            if (!quiet) {
+                setFoldersStatus("Renseignez l'adresse, le mot de passe et le serveur pour vérifier la connexion.");
+            }
             return;
         }
 
-        setFoldersStatus('Lecture des dossiers du serveur…');
+        setFoldersStatus('Vérification de la connexion…');
         pendingKey = key;
         var res = await api.postJson('/config/courrier-entrant/test-connexion', folderRequest());
 
@@ -445,31 +486,28 @@
         }
 
         loadedKey = key;
+        setFoldersStatus(typeof res.data.message === 'string' ? res.data.message : '');
         showFolderListing(res.data);
     }
 
-    if (foldersDetails) {
-        foldersDetails.addEventListener('toggle', listFolders);
-        // Rendered already open (an edited box with folders chosen), the
-        // section fires no toggle: list its folders now.
-        void listFolders();
+    if (foldersCheck) {
+        foldersCheck.hidden = false;
+        foldersCheck.addEventListener('click', function () {
+            void listFolders(false);
+        });
     }
+    // An edited box can answer at once, with its stored password.
+    void listFolders(true);
 
-    // A change of server, port, encryption, address or usage makes the
-    // listing on screen another box's: drop it, and read again if open.
+    // A change of server, port, encryption, address, password or usage
+    // makes the listing on screen another box's: hide it, and verify again.
     function connectionChanged() {
-        // Nothing listed yet, or the last attempt failed or lacked a
-        // field: try again, since the change may be the missing piece.
-        if (loadedKey === null && pendingKey === null) {
-            void listFolders();
-            return;
-        }
         if (connectionKey() === loadedKey) {
             return;
         }
         pendingKey = null;
         resetFolderListing();
-        void listFolders();
+        void listFolders(true);
     }
 
     [hostInput, portInput, encryptionSelect, usernameInput, passwordInput,

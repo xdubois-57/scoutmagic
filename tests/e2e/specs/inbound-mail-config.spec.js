@@ -56,14 +56,16 @@ async function fillConnection(page, address, password) {
 }
 
 /**
- * The server's folders, listed in « Dossiers lus ». On failure the status
- * line is what says why — an IMAP error, a missing field — so it goes into
- * the message rather than leaving a bare « element not found ».
+ * The server's folders, listed in « Dossiers lus » once the connection has
+ * answered (#1343). On failure the status line is what says why — an IMAP
+ * error, a missing field — so it goes into the message rather than leaving
+ * a bare « element not found ».
  *
  * @param {import('@playwright/test').Page} page
  */
 async function expectListing(page) {
     try {
+        await expect(page.locator('#mailbox-folders')).toBeVisible();
         await expect(page.locator('#mailbox-folders-list').getByLabel('Factures')).toBeVisible();
     } catch (error) {
         const status = await page.locator('#mailbox-folders-status').textContent();
@@ -106,13 +108,19 @@ test('a first general address, then one reserved to the Locations, verified befo
     await expect(page.getByLabel('Serveur IMAP')).toHaveValue('localhost');
     await expect(page.getByLabel("Mot de passe d'application")).toHaveValue('');
 
-    // « Dossiers lus » lists what the server has, without its junk folder,
-    // and names the sent folder it marks.
+    // « Dossiers lus » shows nothing before the connection has answered
+    // (#1343), then lists what the server has: the inbox ticked for good,
+    // no junk folder, and the sent folder it marks.
+    await expect(page.locator('#mailbox-folders')).toBeHidden();
     await page.getByLabel("Mot de passe d'application").fill('bon-mot-de-passe');
-    await page.getByText('Dossiers lus (facultatif)').click();
+    await page.getByRole('button', { name: 'Vérifier la connexion et choisir les dossiers' }).click();
     await expectListing(page);
+    const inbox = page.locator('#mailbox-folders-list').getByLabel('Boîte de réception (INBOX) — toujours lue');
+    await expect(inbox).toBeChecked();
+    await expect(inbox).toBeDisabled();
     await expect(page.locator('#mailbox-folders-list')).not.toContainText('Indesirables');
-    await expect(page.locator('#mailbox-sent-found')).toContainText('Trouvé automatiquement : Envoyes');
+    await expect(page.locator('#mailbox-sent-folder option').first()).toHaveText('Trouvé automatiquement : Envoyes');
+    await page.locator('#mailbox-folders-list').getByLabel('Factures').check();
 
     await page.getByRole('button', { name: 'Vérifier et enregistrer' }).click();
     await expect(page).toHaveURL(/\/config\/courrier-entrant$/);
@@ -120,6 +128,13 @@ test('a first general address, then one reserved to the Locations, verified befo
     const general = page.locator('.list-group-item').filter({ hasText: GENERAL });
     await expect(general).toContainText("Courrier général de l'unité");
     await expect(general).toContainText('Pas encore relevée');
+
+    // Edited, the box shows its choice again once its stored password has
+    // answered — no field to retype a folder name into.
+    await general.getByRole('link', { name: 'Modifier' }).click();
+    await expect(page.locator('#mailbox-folders-list').getByLabel('Factures')).toBeChecked();
+    await expect(page.locator('textarea')).toHaveCount(0);
+    await page.goto('/config/courrier-entrant');
 
     // ── The second: proposed as reserved, to a module that has none (D5, D6)
     await page.getByRole('link', { name: 'Ajouter une adresse' }).first().click();

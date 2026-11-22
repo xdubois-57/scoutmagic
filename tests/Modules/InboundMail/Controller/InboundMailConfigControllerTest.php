@@ -501,7 +501,8 @@ class InboundMailConfigControllerTest extends TestCase
             'encryption' => 'starttls',
             'purpose' => MailboxPurpose::DEDICATED->value,
             'dedicated_to' => 'camps',
-            'folders' => "Factures",
+            'folders' => ['Factures'],
+            'folders_verified' => '1',
         ]);
         $body = $response->getBody();
 
@@ -645,11 +646,119 @@ class InboundMailConfigControllerTest extends TestCase
     /** Other folders are read in addition to the inbox, never instead of it (D9). */
     public function testOtherFoldersAreReadAlongsideTheInbox(): void
     {
-        $this->save(['username' => 'unite@unite.be', 'password' => 'mdp', 'folders' => "Factures\nINBOX"]);
-        $this->save(['username' => 'seule@unite.be', 'password' => 'mdp', 'folders' => '']);
+        $this->client->markAttributes('Factures');
+        $this->save([
+            'username' => 'unite@unite.be', 'password' => 'mdp',
+            'folders' => ['Factures', 'INBOX'], 'folders_verified' => '1',
+        ]);
+        $this->save(['username' => 'seule@unite.be', 'password' => 'mdp', 'folders_verified' => '1']);
 
         $this->assertSame(['INBOX', 'Factures'], $this->findByAddress('unite@unite.be')->folders);
         $this->assertSame([], $this->findByAddress('seule@unite.be')->folders);
+    }
+
+    // ── The folders chosen are the server's own (#1343) ─────────────────
+
+    /**
+     * An edited request cannot bring back a path the server does not
+     * have: the choice is checked against the listing of the same save,
+     * and nothing is written.
+     */
+    public function testAFolderTheServerDoesNotOfferIsRefusedAndNothingIsSaved(): void
+    {
+        $this->client->markAttributes('Factures');
+        $body = $this->save([
+            'username' => 'unite@unite.be', 'password' => 'mdp',
+            'folders' => ['Factures', 'Archives 2019'], 'folders_verified' => '1',
+        ])->getBody();
+
+        $this->assertStringContainsString('Le dossier « Archives 2019 » ne fait pas partie des dossiers', $body);
+        $this->assertCount(1, $this->mailboxes->findAll(), 'nothing was created');
+    }
+
+    /** A special folder the form never offers (D9) cannot be posted either. */
+    public function testASpecialFolderCannotBePostedAsReceived(): void
+    {
+        $this->client->markAttributes('Corbeille', '\\Trash');
+        $this->save([
+            'username' => 'unite@unite.be', 'password' => 'mdp',
+            'folders' => ['Corbeille'], 'folders_verified' => '1',
+        ]);
+
+        $this->assertCount(1, $this->mailboxes->findAll());
+    }
+
+    /** The sent mail is one of the server's folders, chosen from its list. */
+    public function testTheSentFolderIsTakenFromTheServersListOnly(): void
+    {
+        $this->client->markAttributes('INBOX.Envoyés');
+        $this->save([
+            'username' => 'faux@unite.be', 'password' => 'mdp',
+            'sent_folder' => 'Envoyés inventés', 'folders_verified' => '1',
+        ]);
+        $this->assertCount(1, $this->mailboxes->findAll(), 'a sent folder the server lacks is refused');
+
+        $this->save([
+            'username' => 'unite@unite.be', 'password' => 'mdp',
+            'sent_folder' => 'INBOX.Envoyés', 'folders_verified' => '1',
+        ]);
+        $this->assertSame('INBOX.Envoyés', $this->findByAddress('unite@unite.be')->sentFolder);
+    }
+
+    public function testAFolderIsNeverReadBothAsReceivedAndAsSent(): void
+    {
+        $this->client->markAttributes('Envoyés');
+        $body = $this->save([
+            'username' => 'unite@unite.be', 'password' => 'mdp',
+            'folders' => ['Envoyés'], 'sent_folder' => 'Envoyés', 'folders_verified' => '1',
+        ])->getBody();
+
+        $this->assertStringContainsString('à la fois comme dossier reçu', $body);
+        $this->assertCount(1, $this->mailboxes->findAll());
+    }
+
+    /**
+     * Without a listing on screen — no script, or settings changed since —
+     * nothing posted about folders is taken: a new box reads its inbox
+     * alone, and an edit keeps the folders and the sent mail it had.
+     */
+    public function testWithoutAVerifiedListingANewBoxReadsItsInboxAlone(): void
+    {
+        $this->client->markAttributes('Factures');
+        $this->save([
+            'username' => 'unite@unite.be', 'password' => 'mdp', 'folders' => ['Factures'], 'sent_folder' => 'Factures',
+        ]);
+
+        $this->assertSame([], $this->findByAddress('unite@unite.be')->folders);
+        $this->assertNull($this->findByAddress('unite@unite.be')->sentFolder);
+    }
+
+    public function testWithoutAVerifiedListingAnEditKeepsItsFolders(): void
+    {
+        $this->mailboxes->update(
+            $this->mailboxId, 'imap.test', 993, 'ssl', 'contact@unite.be', ['INBOX', 'Ancien dossier'], true
+        );
+        $this->mailboxes->setSentFolder($this->mailboxId, 'Mes envoyés');
+
+        $this->save(['id' => (string) $this->mailboxId, 'username' => 'contact@unite.be']);
+
+        $this->assertSame(['INBOX', 'Ancien dossier'], $this->mailbox()->folders);
+        $this->assertSame('Mes envoyés', $this->mailbox()->sentFolder);
+    }
+
+    /** The edit form hands the script the folders stored, none typed into a field. */
+    public function testTheEditFormCarriesTheStoredChoiceForTheScript(): void
+    {
+        $this->mailboxes->update(
+            $this->mailboxId, 'imap.test', 993, 'ssl', 'contact@unite.be', ['INBOX', 'Factures'], true
+        );
+
+        $body = $this->controller->editMailbox($this->get('/x'), ['id' => (string) $this->mailboxId])->getBody();
+
+        $this->assertStringContainsString('data-chosen="[&quot;Factures&quot;]"', $body);
+        $this->assertStringNotContainsString('<textarea', $body);
+        $this->assertMatchesRegularExpression('/<fieldset[^>]*id="mailbox-folders"[^>]*hidden/s', $body);
+        $this->assertMatchesRegularExpression('/<select[^>]*id="mailbox-sent-folder"[^>]*disabled/s', $body);
     }
 
     // ── The usage proposed, the modules offered (D5, D6) ────────────────
@@ -699,7 +808,7 @@ class InboundMailConfigControllerTest extends TestCase
             'id="mailbox-encryption"',
             'name="purpose"',
             'id="mailbox-dedicated-to"',
-            'Dossiers lus (facultatif)',
+            'id="mailbox-folders"',
             'Vérifier et enregistrer',
         ]);
         $this->assertNotContains(false, $positions);

@@ -11,10 +11,14 @@
 //   - a server the operator typed is never overwritten, and an unknown
 //     provider empties only what the script itself had prefilled;
 //   - the module field shows only for an address reserved to a module;
-//   - opening « Dossiers lus » lists the server's folders as checkboxes
-//     backed by the textarea, keeps what was chosen, and names the sent
-//     folder found by the server (D9); a failure says why and touches
-//     nothing;
+//   - « Dossiers lus » shows only once the connection the form holds has
+//     answered (#1343): the inbox ticked for good and never posted, the
+//     server's other folders as boxes named folders[], the box's stored
+//     choice kept, the folders it names that the server lacks said, and
+//     the sent mail found from the server's mark or chosen in its list;
+//     a failure says why and shows nothing; a change of server, address,
+//     password or usage hides it until the new settings answer, and a
+//     late answer for old settings is dropped;
 //   - no credential is ever put into a URL.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -39,18 +43,15 @@ const PAGE_DOM = `
         <input type="radio" name="purpose" value="dedicated" id="mailbox-purpose-dedicated">
         <div id="mailbox-module-field"><select id="mailbox-dedicated-to" name="dedicated_to"></select></div>
 
-        <details id="mailbox-folders-details">
-            <summary>Dossiers lus (facultatif)</summary>
-            <div id="mailbox-folders-wrapper">
-                <textarea id="mailbox-folders" name="folders"></textarea>
-            </div>
-            <div id="mailbox-folders-picker" class="d-none">
-                <div id="mailbox-folders-list"></div>
-            </div>
-            <output id="mailbox-folders-status" aria-live="polite"></output>
-            <p id="mailbox-sent-found" hidden>Trouvé automatiquement : <span id="mailbox-sent-found-name"></span></p>
-            <div id="mailbox-sent-field"><input id="mailbox-sent-folder" name="sent_folder" value=""></div>
-        </details>
+        <button type="button" id="mailbox-folders-check" hidden>Vérifier la connexion et choisir les dossiers</button>
+        <output id="mailbox-folders-status" aria-live="polite"></output>
+        <fieldset id="mailbox-folders" hidden data-chosen="[]" data-sent="">
+            <div id="mailbox-folders-list"></div>
+            <p id="mailbox-folders-missing" hidden></p>
+            <select id="mailbox-sent-folder" name="sent_folder" disabled></select>
+            <div id="mailbox-sent-help"></div>
+            <input type="hidden" name="folders_verified" id="mailbox-folders-verified" value="1" disabled>
+        </fieldset>
     </form>
 `;
 
@@ -74,9 +75,18 @@ function type(id, value) {
     $(id).dispatchEvent(new Event('change', { bubbles: true }));
 }
 
-function openFolders() {
-    $('mailbox-folders-details').open = true;
-    $('mailbox-folders-details').dispatchEvent(new Event('toggle'));
+function checkConnection() {
+    $('mailbox-folders-check').click();
+}
+
+function boxes() {
+    return [...document.querySelectorAll('.folder-checkbox')];
+}
+
+/** What the form would post about folders, as FormData builds it. */
+function posted() {
+    const data = new FormData($('mailbox-form'));
+    return { folders: data.getAll('folders[]'), sent: data.get('sent_folder'), verified: data.get('folders_verified') };
 }
 
 function lastRequest() {
@@ -221,116 +231,188 @@ describe('inbound-mail-config.js', () => {
             $('mailbox-password').value = 'secret';
         }
 
-        it('asks for the connection first rather than calling the server', async () => {
+        const LWS = {
+            success: true,
+            message: 'Connexion réussie. 4 dossier(s) visible(s).',
+            folders: ['INBOX.Sent', 'INBOX.Trash', 'Factures'],
+            sent_folder: null,
+            sent_candidates: ['INBOX.Sent', 'INBOX.Trash', 'Factures'],
+        };
+
+        it('stays hidden, posting nothing, until the connection has answered', async () => {
             await boot();
-            openFolders();
+            expect($('mailbox-folders').hidden).toBe(true);
+            expect($('mailbox-folders-check').hidden).toBe(false);
+            expect(posted()).toEqual({ folders: [], sent: null, verified: null });
+
+            checkConnection();
             expect($('mailbox-folders-status').textContent).toContain('Renseignez');
             expect(fetch).not.toHaveBeenCalled();
         });
 
-        it('lists the offered folders, keeps the chosen ones, and names the sent folder', async () => {
-            global.fetch = mockFetch({
-                'test-connexion': { success: true, folders: ['Factures', 'Locations'], sent_folder: '[Gmail]/Messages envoyés' },
-            });
+        it('shows the inbox ticked for good and the server folders unticked, without attributes', async () => {
+            global.fetch = mockFetch({ 'test-connexion': LWS });
             await boot();
             fillConnection();
-            $('mailbox-folders').value = 'Locations';
-            openFolders();
+            checkConnection();
 
-            await vi.waitFor(() => expect(document.querySelectorAll('.folder-checkbox').length).toBe(2));
+            await vi.waitFor(() => expect($('mailbox-folders').hidden).toBe(false));
             const { url, body } = lastRequest();
             expect(url).toBe('/config/courrier-entrant/test-connexion');
             expect(url).not.toContain('secret');
             expect(body.password).toBe('secret');
 
-            const boxes = document.querySelectorAll('.folder-checkbox');
-            expect(boxes[0].checked).toBe(false);
-            expect(boxes[1].checked).toBe(true);
-            expect($('mailbox-folders-wrapper').classList.contains('d-none')).toBe(true);
-            expect($('mailbox-sent-found').hidden).toBe(false);
-            expect($('mailbox-sent-found-name').textContent).toBe('[Gmail]/Messages envoyés');
-            expect($('mailbox-sent-field').hidden).toBe(true);
+            expect(boxes().map((cb) => [cb.value, cb.checked, cb.disabled])).toEqual([
+                ['INBOX', true, true],
+                ['INBOX.Sent', false, false],
+                ['INBOX.Trash', false, false],
+                ['Factures', false, false],
+            ]);
+            expect($('mailbox-folders-status').textContent).toContain('Connexion réussie');
+            // The inbox is read whatever is posted: it is never posted.
+            expect(posted()).toEqual({ folders: [], sent: '', verified: '1' });
 
-            boxes[0].checked = true;
-            boxes[0].dispatchEvent(new Event('change', { bubbles: true }));
-            expect($('mailbox-folders').value).toBe('Factures\nLocations');
+            boxes()[3].checked = true;
+            boxes()[3].dispatchEvent(new Event('change', { bubbles: true }));
+            expect(posted().folders).toEqual(['Factures']);
         });
 
-        it('keeps a chosen folder the server no longer offers, and says which module the box is for', async () => {
-            global.fetch = mockFetch({ 'test-connexion': { success: true, folders: ['Factures'], sent_folder: null } });
+        it('offers the server folders as the sent mail when the server marks none', async () => {
+            global.fetch = mockFetch({ 'test-connexion': LWS });
             await boot();
             fillConnection();
-            $('mailbox-folders').value = 'Spam';
+            checkConnection();
+            await vi.waitFor(() => expect($('mailbox-sent-folder').disabled).toBe(false));
+
+            const options = [...$('mailbox-sent-folder').options].map((o) => [o.value, o.textContent]);
+            expect(options).toEqual([
+                ['', 'Aucun'],
+                ['INBOX.Sent', 'INBOX.Sent'],
+                ['INBOX.Trash', 'INBOX.Trash'],
+                ['Factures', 'Factures'],
+            ]);
+            expect($('mailbox-sent-help').textContent).toContain("n'indique pas");
+
+            $('mailbox-sent-folder').value = 'INBOX.Sent';
+            $('mailbox-sent-folder').dispatchEvent(new Event('change', { bubbles: true }));
+            expect(posted().sent).toBe('INBOX.Sent');
+        });
+
+        it('says which folder the server marks as sent, and keeps the stored choice', async () => {
+            global.fetch = mockFetch({
+                'test-connexion': {
+                    success: true,
+                    folders: ['Factures', 'Locations'],
+                    sent_folder: '[Gmail]/Messages envoyés',
+                    sent_candidates: ['Factures', 'Locations', '[Gmail]/Messages envoyés'],
+                },
+            });
+            $('mailbox-folders').dataset.chosen = JSON.stringify(['Locations']);
+            await boot();
+            fillConnection();
+            checkConnection();
+
+            await vi.waitFor(() => expect($('mailbox-folders').hidden).toBe(false));
+            expect(boxes().map((cb) => [cb.value, cb.checked])).toEqual([
+                ['INBOX', true], ['Factures', false], ['Locations', true],
+            ]);
+            expect($('mailbox-sent-folder').options[0].textContent)
+                .toBe('Trouvé automatiquement : [Gmail]/Messages envoyés');
+            expect($('mailbox-sent-folder').value).toBe('');
+            expect(posted().folders).toEqual(['Locations']);
+        });
+
+        it('keeps a stored sent folder selected when the server still has it', async () => {
+            global.fetch = mockFetch({ 'test-connexion': LWS });
+            $('mailbox-folders').dataset.sent = 'INBOX.Sent';
+            await boot();
+            fillConnection();
+            checkConnection();
+
+            await vi.waitFor(() => expect($('mailbox-sent-folder').disabled).toBe(false));
+            expect(posted().sent).toBe('INBOX.Sent');
+        });
+
+        it('says which stored folders the server no longer has, rather than dropping them unseen', async () => {
+            global.fetch = mockFetch({ 'test-connexion': LWS });
+            $('mailbox-folders').dataset.chosen = JSON.stringify(['Factures', 'Archives 2019']);
+            await boot();
+            fillConnection();
+            checkConnection();
+
+            await vi.waitFor(() => expect($('mailbox-folders').hidden).toBe(false));
+            expect($('mailbox-folders-missing').hidden).toBe(false);
+            expect($('mailbox-folders-missing').textContent).toContain('Archives 2019');
+            expect(boxes().map((cb) => cb.value)).not.toContain('Archives 2019');
+            expect(posted().folders).toEqual(['Factures']);
+        });
+
+        it('says which module the box is for, since a seed box is offered its junk folder', async () => {
+            global.fetch = mockFetch({ 'test-connexion': LWS });
+            await boot();
+            fillConnection();
             $('mailbox-dedicated-to').innerHTML = '<option value="core_mail_seed" selected>Témoins</option>';
             $('mailbox-purpose-dedicated').checked = true;
-            openFolders();
+            checkConnection();
 
-            await vi.waitFor(() => expect(document.querySelectorAll('.folder-checkbox').length).toBe(2));
+            await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
             expect(lastRequest().body.dedicated_to).toBe('core_mail_seed');
-            const boxes = document.querySelectorAll('.folder-checkbox');
-            expect(boxes[1].value).toBe('Spam');
-            expect(boxes[1].checked).toBe(true);
-            expect($('mailbox-folders').value).toBe('Spam');
         });
 
-        it('keeps an operator-named sent folder editable', async () => {
-            global.fetch = mockFetch({ 'test-connexion': { success: true, folders: [], sent_folder: 'Sent' } });
-            await boot();
-            fillConnection();
-            $('mailbox-sent-folder').value = 'Éléments envoyés';
-            openFolders();
-
-            await vi.waitFor(() => expect($('mailbox-folders-status').textContent).toContain("pas d'autre dossier"));
-            expect($('mailbox-sent-field').hidden).toBe(false);
-            expect($('mailbox-sent-found').hidden).toBe(true);
-        });
-
-        it('says why on failure and touches nothing', async () => {
+        it('says why on failure and shows nothing', async () => {
             global.fetch = mockFetch({ 'test-connexion': { success: false, error: 'Connexion refusée.' } });
             await boot();
             fillConnection();
-            openFolders();
+            checkConnection();
 
             await vi.waitFor(() => expect($('mailbox-folders-status').textContent).toBe('Connexion refusée.'));
-            expect($('mailbox-folders-picker').classList.contains('d-none')).toBe(true);
+            expect($('mailbox-folders').hidden).toBe(true);
+            expect(posted().verified).toBeNull();
         });
 
-        it('reads the folders again for other settings, and drops what it showed for the old ones', async () => {
-            global.fetch = mockFetch({
-                'test-connexion': { success: true, folders: ['Factures'], sent_folder: 'Envoyés' },
-            });
+        it('hides the listing for other settings, and verifies them again', async () => {
+            global.fetch = mockFetch({ 'test-connexion': LWS });
             await boot();
             fillConnection();
-            openFolders();
-            await vi.waitFor(() => expect(document.querySelectorAll('.folder-checkbox').length).toBe(1));
-            expect($('mailbox-sent-found').hidden).toBe(false);
+            checkConnection();
+            await vi.waitFor(() => expect($('mailbox-folders').hidden).toBe(false));
 
-            // Reopening with the same settings asks nothing again.
-            openFolders();
+            // The same settings again ask nothing.
+            checkConnection();
             expect(fetch).toHaveBeenCalledTimes(1);
 
-            global.fetch = mockFetch({ 'test-connexion': { success: true, folders: ['Archives'], sent_folder: null } });
+            let answer = () => {};
+            global.fetch = vi.fn(() => new Promise((resolve) => {
+                answer = () => resolve({
+                    ok: true, status: 200,
+                    json: () => Promise.resolve({
+                        success: true, folders: ['Archives'], sent_folder: null, sent_candidates: ['Archives'],
+                    }),
+                });
+            }));
             type('mailbox-host', 'imap.ailleurs.be');
 
-            await vi.waitFor(() => expect(document.querySelector('.folder-checkbox')?.value).toBe('Archives'));
+            // Hidden at once, nothing of the old listing posted meanwhile.
+            expect($('mailbox-folders').hidden).toBe(true);
+            expect(posted()).toEqual({ folders: [], sent: null, verified: null });
+
+            await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+            answer();
+            await vi.waitFor(() => expect(boxes().map((cb) => cb.value)).toEqual(['INBOX', 'Archives']));
             expect(lastRequest().body.host).toBe('imap.ailleurs.be');
-            expect($('mailbox-sent-found').hidden).toBe(true);
-            expect($('mailbox-sent-field').hidden).toBe(false);
         });
 
-        it('lists again when the usage changes, since a seed box is offered its junk folder', async () => {
-            global.fetch = mockFetch({ 'test-connexion': { success: true, folders: [], sent_folder: null } });
+        it('takes another password for another connection', async () => {
+            global.fetch = mockFetch({ 'test-connexion': LWS });
             await boot();
             fillConnection();
-            $('mailbox-dedicated-to').innerHTML = '<option value="core_mail_seed" selected>Témoins</option>';
-            openFolders();
-            await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+            checkConnection();
+            await vi.waitFor(() => expect($('mailbox-folders').hidden).toBe(false));
 
-            $('mailbox-purpose-dedicated').checked = true;
-            $('mailbox-purpose-dedicated').dispatchEvent(new Event('change', { bubbles: true }));
+            type('mailbox-password', 'autre-secret');
 
             await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
-            expect(lastRequest().body.dedicated_to).toBe('core_mail_seed');
+            expect(lastRequest().body.password).toBe('autre-secret');
         });
 
         it('ignores a late answer for settings changed since', async () => {
@@ -343,106 +425,69 @@ describe('inbound-mail-config.js', () => {
                         answerOld = () => resolve({
                             ok: true,
                             status: 200,
-                            json: () => Promise.resolve({ success: true, folders: ['Ancien'], sent_folder: 'Vieux' }),
+                            json: () => Promise.resolve({
+                                success: true, folders: ['Ancien'], sent_folder: 'Vieux', sent_candidates: ['Ancien'],
+                            }),
                         });
                     });
                 }
-                return jsonResponse({ success: true, folders: ['Nouveau'], sent_folder: null });
+                return jsonResponse({
+                    success: true, folders: ['Nouveau'], sent_folder: null, sent_candidates: ['Nouveau'],
+                });
             });
             await boot();
             fillConnection();
-            openFolders();
+            checkConnection();
             await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
 
             type('mailbox-host', 'imap.nouveau.be');
-            await vi.waitFor(() => expect(document.querySelector('.folder-checkbox')?.value).toBe('Nouveau'));
+            await vi.waitFor(() => expect(boxes().map((cb) => cb.value)).toEqual(['INBOX', 'Nouveau']));
 
             answerOld();
             await new Promise((resolve) => setTimeout(resolve, 0));
-            expect([...document.querySelectorAll('.folder-checkbox')].map((cb) => cb.value)).toEqual(['Nouveau']);
-            expect($('mailbox-sent-found').hidden).toBe(true);
+            expect(boxes().map((cb) => cb.value)).toEqual(['INBOX', 'Nouveau']);
+            expect($('mailbox-sent-folder').options[0].textContent).toBe('Aucun');
         });
 
-        it('keeps a folder typed while the server was answering', async () => {
-            /** @type {(value: unknown) => void} */
-            let answer = () => {};
-            global.fetch = vi.fn(() => new Promise((resolve) => {
-                answer = () => resolve({
-                    ok: true,
-                    status: 200,
-                    json: () => Promise.resolve({ success: true, folders: ['Factures'], sent_folder: null }),
-                });
-            }));
-            await boot();
-            fillConnection();
-            openFolders();
-            await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
-
-            $('mailbox-folders').value = 'Locations';
-            answer();
-
-            await vi.waitFor(() => expect(document.querySelectorAll('.folder-checkbox').length).toBe(2));
-            const boxes = [...document.querySelectorAll('.folder-checkbox')];
-            expect(boxes.map((cb) => [cb.value, cb.checked])).toEqual([['Factures', false], ['Locations', true]]);
-            expect($('mailbox-folders').value).toBe('Locations');
-        });
-
-        it('lists once the missing password is typed, after asking for it', async () => {
-            global.fetch = mockFetch({ 'test-connexion': { success: true, folders: ['Factures'], sent_folder: null } });
+        it('verifies once the missing password is typed', async () => {
+            global.fetch = mockFetch({ 'test-connexion': LWS });
             await boot();
             fillConnection();
             $('mailbox-password').value = '';
-            openFolders();
-            // Let the section's own queued toggle pass first: only typing the
-            // password may trigger the listing.
+            type('mailbox-host', 'imap.unite.be');
             await new Promise((resolve) => setTimeout(resolve, 0));
-            expect($('mailbox-folders-status').textContent).toContain('Renseignez');
             expect(fetch).not.toHaveBeenCalled();
 
             type('mailbox-password', 'secret');
 
-            await vi.waitFor(() => expect(document.querySelectorAll('.folder-checkbox').length).toBe(1));
+            await vi.waitFor(() => expect($('mailbox-folders').hidden).toBe(false));
         });
 
-        it('tries again after a failed listing once a setting is corrected', async () => {
+        it('tries again after a failed verification once a setting is corrected', async () => {
             let answer = { success: false, error: 'Identifiants refusés.' };
             global.fetch = vi.fn(() => jsonResponse(answer));
             await boot();
             fillConnection();
-            openFolders();
+            checkConnection();
             await vi.waitFor(() => expect($('mailbox-folders-status').textContent).toContain('Identifiants refusés'));
 
-            answer = { success: true, folders: ['Factures'], sent_folder: null };
+            answer = LWS;
             type('mailbox-host', 'imap.autre.be');
 
-            await vi.waitFor(() => expect(document.querySelectorAll('.folder-checkbox').length).toBe(1));
+            await vi.waitFor(() => expect($('mailbox-folders').hidden).toBe(false));
         });
 
-        it('lists the folders of a section rendered already open, which fires no toggle', async () => {
-            global.fetch = mockFetch({ 'test-connexion': { success: true, folders: ['Factures'], sent_folder: null } });
+        it('verifies a saved box on load, with its stored password', async () => {
+            global.fetch = mockFetch({ 'test-connexion': LWS });
             fillConnection();
             $('mailbox-id').value = '42';
             $('mailbox-password').value = '';
-            $('mailbox-folders').value = 'Factures';
-            $('mailbox-folders-details').open = true;
-            // The section's own toggle is spent before the script listens,
-            // as when the page parses an already open <details>.
-            await new Promise((resolve) => setTimeout(resolve, 0));
+            $('mailbox-folders').dataset.chosen = JSON.stringify(['Factures']);
             await boot();
 
-            await vi.waitFor(() => expect(document.querySelectorAll('.folder-checkbox').length).toBe(1));
-            expect(document.querySelector('.folder-checkbox').checked).toBe(true);
-        });
-
-        it('lists the folders of a saved box without retyping its password', async () => {
-            await boot();
-            fillConnection();
-            $('mailbox-id').value = '42';
-            $('mailbox-password').value = '';
-            openFolders();
-
-            await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
+            await vi.waitFor(() => expect($('mailbox-folders').hidden).toBe(false));
             expect(lastRequest().body.mailbox_id).toBe(42);
+            expect(posted().folders).toEqual(['Factures']);
         });
     });
 });

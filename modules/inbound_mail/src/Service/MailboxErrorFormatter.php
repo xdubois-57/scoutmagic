@@ -132,7 +132,13 @@ class MailboxErrorFormatter
             $step === MailboxConnectionException::STEP_OPEN_FOLDER
             && ($classes === [] || self::mentions($messages, ["doesn't exist", 'nonexistent', 'not found']))
         ) {
-            return self::FOLDER_NOT_FOUND;
+            // The folder by its name when the client said which (#1343):
+            // the operator chose it, and is told which one to fix.
+            return $error->folder !== null && $error->folder !== ''
+                ? 'Le dossier « ' . $error->folder . ' » est introuvable sur le serveur. Vérifiez son nom '
+                    . 'exact — il est sensible à la casse et à la hiérarchie — ou retirez-le des dossiers lus '
+                    . 'de la boîte.'
+                : self::FOLDER_NOT_FOUND;
         }
 
         // After a successful login: the session was cut, which is not the
