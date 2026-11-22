@@ -4101,6 +4101,15 @@ $schedulerService->seed(
     new DateTimeImmutable()
 );
 
+// Same bootstrap for the purge of spent password-reset tokens (Core\Security\
+// Task\PurgeExpiredPasswordResetTokensHandler, issue #1257).
+$schedulerService->seed(
+    'core',
+    \Core\Security\Task\PurgeExpiredPasswordResetTokensHandler::TASK_KEY,
+    \Core\Security\Task\PurgeExpiredPasswordResetTokensHandler::REFERENCE,
+    new DateTimeImmutable()
+);
+
 // Same bootstrap for the purge of the documents the installed
 // application put aside (Core\File\Held\Task\PurgeHeldDocumentsHandler):
 // a member's own files, gone within the hour of their expiry.

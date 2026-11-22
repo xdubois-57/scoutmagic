@@ -400,16 +400,27 @@ class AccountController extends AbstractController
     }
 
     /**
-     * POST /account/sign-out-everywhere — « Déconnecter partout » (issue
-     * #1115): every session of the account ends, this one included, every
-     * passkey is removed and every device credential revoked, in one
-     * gesture. What a holder does on an alert about an access they did not
-     * add.
+     * POST /account/sign-out-everywhere — « Déconnecter partout » (issues
+     * #1115 and #1257): every session of the account ends, this one
+     * included, every passkey is removed, every device credential revoked
+     * **and the password taken away**, in one gesture. What a holder does
+     * on an alert about an access they did not add.
+     *
+     * The password goes because it is one of those accesses: the alert
+     * « un mot de passe a été défini sur votre compte » is exactly the case
+     * where an attacker chose it, and a gesture that kept it let him sign
+     * straight back in. Nobody is locked out — the e-mail login link always
+     * works, and the holder can set a new password once back in.
+     *
+     * **What is kept is named, never what is removed** — the rule of
+     * Core\Security\AccountAccessRevoker. The form's `keep_password` box,
+     * unticked by default, is the one way to keep it; a request that names
+     * nothing (no JavaScript, a tampered form) removes it, the safe answer.
      *
      * Deliberately not gated on a recent login
      * (Core\Security\RecentAuthentication): it only ever takes access
      * away, and an attacker running it achieves nothing the holder cannot
-     * undo by signing back in.
+     * undo by signing back in with the e-mail link.
      *
      * @param array<string, string> $params
      */
@@ -424,14 +435,29 @@ class AccountController extends AbstractController
             return $guard;
         }
 
-        $this->accessRevoker?->revoke($userId, [], [], AccountAccessRevoker::REASON_SIGN_OUT_EVERYWHERE, $userId);
+        $removePassword = (string) $request->getBody('keep_password', '') !== '1' && $this->userAccountRepo->hasPassword($userId);
+        if ($removePassword) {
+            $this->userAccountRepo->clearPassword($userId);
+        }
+
+        $this->accessRevoker?->revoke(
+            $userId,
+            [],
+            [],
+            AccountAccessRevoker::REASON_SIGN_OUT_EVERYWHERE,
+            $userId,
+            $removePassword
+        );
         $this->userAccountRepo->revokeSessions($userId);
         AuthSession::logout();
 
         FlashMessage::set(
             'success',
-            'Déconnexion partout effectuée : sessions fermées, clés numériques retirées et appareils'
-                . ' synchronisés déconnectés. Reconnectez-vous pour continuer.'
+            'Déconnexion partout effectuée : sessions fermées, clés numériques retirées'
+                . ($removePassword ? ', mot de passe retiré' : '')
+                . ' et appareils synchronisés déconnectés. Reconnectez-vous avec le lien envoyé par e-mail'
+                . ($removePassword ? ' (vous pourrez ensuite définir un nouveau mot de passe)' : '')
+                . '.'
         );
 
         return $this->redirect('/login');

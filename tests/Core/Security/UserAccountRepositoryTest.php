@@ -301,6 +301,33 @@ class UserAccountRepositoryTest extends TestCase
         $this->assertNull($this->repo->findById($other->id)?->sessionsValidFrom);
     }
 
+    /**
+     * Issue #1257: « Déconnecter partout » takes the password back too. The
+     * account keeps its row and its magic-link login; only the secret goes,
+     * and every session already issued ends with it.
+     */
+    public function testClearPasswordRemovesTheSecretAndEndsTheSessionsOfThatAccountOnly(): void
+    {
+        $account = $this->repo->create('holder@test.com');
+        $other = $this->repo->create('other@test.com');
+        $this->repo->updatePasswordHash($account->id, password_hash('x', PASSWORD_DEFAULT));
+        $this->repo->updatePasswordHash($other->id, password_hash('y', PASSWORD_DEFAULT));
+        $this->pdo->prepare('UPDATE user_accounts SET sessions_valid_from = NULL WHERE id = ?')
+            ->execute([$account->id]);
+
+        $this->repo->clearPassword($account->id);
+
+        $reloaded = $this->repo->findById($account->id);
+        $this->assertNotNull($reloaded);
+        $this->assertNull($reloaded->passwordHash);
+        $this->assertNull($reloaded->passwordChangedAt);
+        $this->assertFalse($this->repo->hasPassword($account->id));
+        $this->assertTrue($reloaded->isActive);
+        $this->assertNotNull($reloaded->sessionsValidFrom);
+        $this->assertEqualsWithDelta(time(), $reloaded->sessionsValidFrom->getTimestamp(), 5);
+        $this->assertTrue($this->repo->hasPassword($other->id), 'Another account keeps its password.');
+    }
+
     public function testDeactivateNeverRemovesTheRow(): void
     {
         $account = $this->repo->create('admin@test.com', true);

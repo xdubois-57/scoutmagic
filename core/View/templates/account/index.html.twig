@@ -269,21 +269,35 @@
     </div>
     {% endif %}
 
-    {# « Déconnecter partout » (issue #1115): the one gesture that takes back
-       every way into the account at once — what to do on an alert about a
-       passkey or a device you did not add. Not gated on a recent login:
-       it only ever removes access. #}
+    {# « Déconnecter partout » (issues #1115, #1257): the one gesture that
+       takes back every way into the account at once — what to do on an
+       alert about a passkey, a device or a password you did not add. Not
+       gated on a recent login: it only ever removes access.
+
+       The password goes with the rest, unless the box is ticked: what is
+       kept is named, never what is removed, so a form that arrives without
+       the box removes it. The e-mail login link always lets the holder back
+       in. The box only exists when there is a password to keep. #}
     <div class="card mb-3">
         <div class="card-body">
             <h2 class="h5 mb-3">Déconnecter partout</h2>
             <p class="text-body-secondary small mb-3">
                 Ferme toutes vos sessions ouvertes, sur tous vos appareils, retire toutes vos clés
-                numériques et coupe la synchronisation de vos contacts. À utiliser si vous avez reçu
-                une alerte pour un ajout que vous n'avez pas fait.
+                numériques{% if has_password %}, votre mot de passe{% endif %} et coupe la synchronisation
+                de vos contacts. À utiliser si vous avez reçu une alerte pour un ajout que vous n'avez
+                pas fait. Vous pourrez toujours vous reconnecter avec le lien envoyé par e-mail.
             </p>
             <form method="post" action="/account/sign-out-everywhere"
-                  data-confirm="Déconnecter partout ? Toutes vos sessions seront fermées, y compris celle-ci, vos clés numériques retirées et vos appareils synchronisés déconnectés. Vous devrez vous reconnecter.">
+                  data-confirm="Déconnecter partout ? Toutes vos sessions seront fermées, y compris celle-ci, vos clés numériques retirées{% if has_password %}, votre mot de passe supprimé{% endif %} et vos appareils synchronisés déconnectés. Vous vous reconnecterez avec le lien envoyé par e-mail.">
                 {{ csrf_field()|raw }}
+                {% if has_password %}
+                    <div class="form-check mb-3">
+                        <input type="checkbox" class="form-check-input" name="keep_password" id="sign-out-keep-password" value="1">
+                        <label class="form-check-label small" for="sign-out-keep-password">
+                            Conserver mon mot de passe (à ne cocher que si l'alerte ne le concerne pas)
+                        </label>
+                    </div>
+                {% endif %}
                 <button type="submit" class="btn btn-outline-danger">Déconnecter partout</button>
             </form>
         </div>

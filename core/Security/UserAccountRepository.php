@@ -594,6 +594,26 @@ class UserAccountRepository
     }
 
     /**
+     * Take the password away — « Déconnecter partout » on « Mon compte »
+     * (issue #1257). The account keeps its row and its e-mail login link;
+     * only the secret goes, so a password somebody else chose stops opening
+     * the account while the holder is never locked out.
+     *
+     * Also stamps sessions_valid_from, like every write that changes the
+     * credentials behind existing sessions (see updatePasswordHash()), and
+     * clears password_changed_at, which only describes a password that
+     * exists.
+     */
+    public function clearPassword(int $id): void
+    {
+        $now = (new \DateTimeImmutable())->format('Y-m-d H:i:s');
+        $stmt = $this->pdo->prepare(
+            'UPDATE user_accounts SET password_hash = NULL, password_changed_at = NULL, sessions_valid_from = ? WHERE id = ?'
+        );
+        $stmt->execute([$now, $id]);
+    }
+
+    /**
      * Give the access back. Deliberately does NOT touch
      * sessions_valid_from: the sessions that stamp revoked are gone for
      * good, and re-stamping it on the way back in would revoke sessions

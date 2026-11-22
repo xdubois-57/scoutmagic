@@ -214,6 +214,90 @@ class PasswordResetServiceTest extends TestCase
     }
 
     /**
+     * Issue #1257: checking a token and consuming it were two steps, so two
+     * requests holding the same link could both pass the check and each set
+     * a password. The loser of the claim changes nothing: no password, no
+     * journal line, no passkey taken back.
+     */
+    public function testTheLoserOfTheClaimChangesNothing(): void
+    {
+        $account = $this->userRepo->create('race@test.com');
+        $this->userRepo->updatePasswordHash($account->id, password_hash('Original-Pass-1', PASSWORD_DEFAULT));
+        [$id, $rawToken] = $this->createRawToken('race@test.com');
+        $connection = $this->createStub(Connection::class);
+        $connection->method('getPdo')->willReturn($this->pdo);
+        $loser = new PasswordResetService(
+            $connection,
+            $this->encryption,
+            $this->createStub(MailService::class),
+            EmailTemplateRendererFactory::overTestDatabase($this->pdo, new Environment(new ArrayLoader([]))),
+            'https://example.com',
+            'Test Unit',
+            new class ($this->pdo) extends \Core\Security\PasswordResetRepository {
+                public function markUsed(int $id): bool
+                {
+                    // The other request got there first, after our check.
+                    parent::markUsed($id);
+
+                    return false;
+                }
+            }
+        );
+        $loser->setJournalService(new JournalService(new JournalRepository($this->pdo)));
+
+        $this->assertFalse($loser->resetPassword($id, $rawToken, 'Attacker-Choice-1'));
+
+        $reloaded = $this->userRepo->findById($account->id);
+        $this->assertTrue(password_verify('Original-Pass-1', (string) $reloaded?->passwordHash));
+        $this->assertSame(
+            0,
+            (int) $this->pdo->query("SELECT COUNT(*) FROM event_log WHERE event_type = 'password_reset_completed'")
+                ->fetchColumn()
+        );
+    }
+
+    /**
+     * Consuming the token and writing the password are one transaction: a
+     * password that cannot be written must not leave the link spent, or the
+     * holder is told to start again for nothing.
+     */
+    public function testAPasswordThatCannotBeWrittenLeavesTheTokenUsable(): void
+    {
+        $this->userRepo->create('atomic@test.com');
+        [$id, $rawToken] = $this->createRawToken('atomic@test.com');
+        $this->pdo->exec(
+            "CREATE TRIGGER refuse_password BEFORE UPDATE ON user_accounts
+             BEGIN SELECT RAISE(ABORT, 'refused'); END"
+        );
+
+        try {
+            $this->service->resetPassword($id, $rawToken, 'MyNewSecureP@ss1');
+            $this->fail('The refused write must surface.');
+        } catch (\PDOException) {
+            // expected
+        }
+
+        $this->assertFalse($this->pdo->inTransaction());
+        $this->pdo->exec('DROP TRIGGER refuse_password');
+        $this->assertTrue($this->service->checkToken($id, $rawToken));
+        $this->assertTrue($this->service->resetPassword($id, $rawToken, 'MyNewSecureP@ss1'));
+    }
+
+    public function testResetPasswordRefusesAnAlreadyConsumedTokenWithoutTouchingThePassword(): void
+    {
+        $account = $this->userRepo->create('consumed@test.com');
+        $this->userRepo->updatePasswordHash($account->id, password_hash('Original-Pass-1', PASSWORD_DEFAULT));
+        [$id, $rawToken] = $this->createRawToken('consumed@test.com');
+        $this->pdo->prepare('UPDATE password_reset_tokens SET used = 1 WHERE id = ?')->execute([$id]);
+
+        $this->assertFalse($this->service->resetPassword($id, $rawToken, 'Attacker-Choice-1'));
+        $this->assertTrue(password_verify(
+            'Original-Pass-1',
+            (string) $this->userRepo->findById($account->id)?->passwordHash
+        ));
+    }
+
+    /**
      * @return array{0: int, 1: string} [token id, raw token]
      */
     private function createRawToken(string $email, bool $expired = false): array

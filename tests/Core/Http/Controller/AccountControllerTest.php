@@ -1052,6 +1052,68 @@ class AccountControllerTest extends TestCase
         $this->assertContains('account_accesses_revoked', $this->journaledEvents());
     }
 
+    /**
+     * Issue #1257: the button used to keep the password, so one an attacker
+     * had set himself survived the gesture meant to throw him out. The
+     * password goes by default — a request that names nothing (no
+     * JavaScript, a tampered form) takes it too — and the e-mail login
+     * link still lets the holder back in.
+     */
+    public function testSignOutEverywhereRemovesThePasswordUnlessTheHolderKeepsIt(): void
+    {
+        $this->userRepo->updatePasswordHash($this->userId, password_hash('Chosen-by-attacker-1', PASSWORD_DEFAULT));
+
+        $this->controllerWithRevoker(new \Core\Contact\Device\DeviceCredentialRepository($this->pdo))
+            ->signOutEverywhere($this->signOutRequest(), []);
+
+        $this->assertFalse($this->userRepo->hasPassword($this->userId));
+        $this->assertTrue($this->userRepo->findById($this->userId)?->isActive);
+        $this->assertTrue($this->journaledAccessRevocation()['password_removed']);
+        $this->assertStringContainsString('mot de passe retiré', $this->flashedMessage());
+    }
+
+    public function testSignOutEverywhereKeepsThePasswordWhenAskedTo(): void
+    {
+        $this->userRepo->updatePasswordHash($this->userId, password_hash('Mine-and-only-1', PASSWORD_DEFAULT));
+
+        $this->controllerWithRevoker(new \Core\Contact\Device\DeviceCredentialRepository($this->pdo))
+            ->signOutEverywhere($this->signOutRequest(['keep_password' => '1']), []);
+
+        $this->assertTrue($this->userRepo->hasPassword($this->userId));
+        $this->assertFalse($this->journaledAccessRevocation()['password_removed']);
+        $this->assertFalse(AuthSession::isAuthenticated(), 'The sessions end either way.');
+        $this->assertStringNotContainsString('mot de passe retiré', $this->flashedMessage());
+    }
+
+    public function testSignOutEverywhereRemovesThePasswordEvenWithoutARevoker(): void
+    {
+        $this->userRepo->updatePasswordHash($this->userId, password_hash('Mine-and-only-1', PASSWORD_DEFAULT));
+
+        $this->controller->signOutEverywhere($this->signOutRequest(), []);
+
+        $this->assertFalse($this->userRepo->hasPassword($this->userId));
+    }
+
+    public function testSignOutEverywhereOnAnAccountWithoutPasswordSaysNothingWasRemoved(): void
+    {
+        $this->controllerWithRevoker(new \Core\Contact\Device\DeviceCredentialRepository($this->pdo))
+            ->signOutEverywhere($this->signOutRequest(), []);
+
+        $this->assertFalse($this->journaledAccessRevocation()['password_removed']);
+        $this->assertStringNotContainsString('mot de passe retiré', $this->flashedMessage());
+    }
+
+    public function testARefusedSignOutEverywhereLeavesThePasswordAlone(): void
+    {
+        $this->userRepo->updatePasswordHash($this->userId, password_hash('Mine-and-only-1', PASSWORD_DEFAULT));
+        CsrfGuard::generateToken();
+
+        $this->controllerWithRevoker(new \Core\Contact\Device\DeviceCredentialRepository($this->pdo))
+            ->signOutEverywhere(new Request('POST', '/x', [], ['_csrf_token' => 'wrong'], [], []), []);
+
+        $this->assertTrue($this->userRepo->hasPassword($this->userId));
+    }
+
     public function testSignOutEverywhereRefusesAMissingCsrfTokenAndChangesNothing(): void
     {
         $devices = new \Core\Contact\Device\DeviceCredentialRepository($this->pdo);
@@ -1106,6 +1168,41 @@ class AccountControllerTest extends TestCase
         $response = $this->controller->signOutEverywhere(new Request('POST', '/x', [], [], [], []), []);
 
         $this->assertSame('/login', $response->getHeaders()['Location']);
+    }
+
+    /**
+     * @param array<string, string> $extra
+     */
+    private function signOutRequest(array $extra = []): Request
+    {
+        return new Request(
+            'POST',
+            '/account/sign-out-everywhere',
+            [],
+            ['_csrf_token' => CsrfGuard::generateToken()] + $extra,
+            [],
+            []
+        );
+    }
+
+    private function flashedMessage(): string
+    {
+        return \Core\Http\FlashMessage::get()['message'] ?? '';
+    }
+
+    /**
+     * The context of the `account_accesses_revoked` journal entry.
+     *
+     * @return array<string, mixed>
+     */
+    private function journaledAccessRevocation(): array
+    {
+        $row = $this->pdo->query(
+            "SELECT context FROM event_log WHERE event_type = 'account_accesses_revoked' ORDER BY id DESC LIMIT 1"
+        )->fetchColumn();
+        $this->assertIsString($row, 'The revocation must be journaled.');
+
+        return json_decode($row, true, 512, JSON_THROW_ON_ERROR);
     }
 
     private function controllerWithRevoker(\Core\Contact\Device\DeviceCredentialRepository $devices): AccountController
