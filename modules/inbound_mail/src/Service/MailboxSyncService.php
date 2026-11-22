@@ -143,8 +143,11 @@ class MailboxSyncService
      *
      * @return SyncReport one entry per mailbox, whatever happened to it
      */
-    public function syncAll(\DateTimeImmutable $now, string $origin = self::ORIGIN_SCHEDULED, ?int $userId = null): SyncReport
-    {
+    public function syncAll(
+        \DateTimeImmutable $now,
+        string $origin = self::ORIGIN_SCHEDULED,
+        ?int $userId = null
+    ): SyncReport {
         $report = new SyncReport();
 
         foreach ($this->mailboxRepository->findEnabled() as $mailbox) {
@@ -244,10 +247,17 @@ class MailboxSyncService
             $diagnostic = MailboxFailureDiagnostic::from($e, $credentials);
             $signature = $diagnostic->signature();
             $this->mailboxRepository->recordFailure($mailbox->id, $reason, $now);
-            if ($origin === self::ORIGIN_MANUAL || $mailbox->failingSince === null || $mailbox->lastFailureSignature !== $signature) {
-                $this->logSyncEvent($mailbox, 'inbound_mailbox_sync_failed', 'error',
+            if ($origin === self::ORIGIN_MANUAL || $mailbox->failingSince === null
+                || $mailbox->lastFailureSignature !== $signature) {
+                $this->logSyncEvent(
+                    $mailbox,
+                    'inbound_mailbox_sync_failed',
+                    'error',
                     'Échec de la relève de la boîte n° ' . $mailbox->id . '.',
-                    ['origin' => $origin, 'step' => $diagnostic->step] + $diagnostic->details, $userId, $signature);
+                    ['origin' => $origin, 'step' => $diagnostic->step] + $diagnostic->details,
+                    $userId,
+                    $signature
+                );
             }
             $client->disconnect();
             // The step and the classes, for the support: what the sentence
@@ -264,8 +274,14 @@ class MailboxSyncService
         $client->disconnect();
         $this->mailboxRepository->recordSuccess($mailbox->id, $now);
         if ($mailbox->failingSince !== null) {
-            $this->logSyncEvent($mailbox, 'inbound_mailbox_sync_recovered', 'info',
-                'La relève de la boîte n° ' . $mailbox->id . ' est rétablie.', ['origin' => $origin], $userId);
+            $this->logSyncEvent(
+                $mailbox,
+                'inbound_mailbox_sync_recovered',
+                'info',
+                'La relève de la boîte n° ' . $mailbox->id . ' est rétablie.',
+                ['origin' => $origin],
+                $userId
+            );
         }
 
         return SyncOutcome::succeeded($seen, $stored);
@@ -286,8 +302,14 @@ class MailboxSyncService
             return;
         }
         try {
-            $this->journal->log('inbound_mail', $type, $level, $description,
-                ['mailbox_id' => $mailbox->id, 'mailbox_address' => $mailbox->username] + $context, $userId);
+            $this->journal->log(
+                'inbound_mail',
+                $type,
+                $level,
+                $description,
+                ['mailbox_id' => $mailbox->id, 'mailbox_address' => $mailbox->username] + $context,
+                $userId
+            );
             if ($failureSignature !== null) {
                 $this->mailboxRepository->acknowledgeFailure($mailbox->id, $failureSignature);
             }

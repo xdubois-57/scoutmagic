@@ -23,7 +23,8 @@ final class ImapFolderReader
             // its exception loses the refusal. Mask known secrets before splitting
             // protocol lines, then preserve only refusals, never sent commands.
             $text = MailboxResponseRedactor::maskKnownSecrets(
-                implode('', array_filter($response->getResponse(), 'is_string')), $credentials
+                implode('', array_filter($response->getResponse(), 'is_string')),
+                $credentials
             );
             foreach (preg_split('/\r\n|\r|\n/', $text) ?: [] as $line) {
                 if (preg_match(

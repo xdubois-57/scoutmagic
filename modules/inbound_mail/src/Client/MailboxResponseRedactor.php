@@ -17,8 +17,10 @@ final class MailboxResponseRedactor
 /(?:"(?:[^"\\\r\n]|\\.)*"|[^\s<>"()\[\],;:]+)@(?:\[[^\]\r\n]+\]|[^\s<>"()\[\],;:]+)/u
 REGEX;
 
-    public static function maskKnownSecrets(string $text, #[\SensitiveParameter] MailboxCredentials $credentials): string
-    {
+    public static function maskKnownSecrets(
+        string $text,
+        #[\SensitiveParameter] MailboxCredentials $credentials
+    ): string {
         return self::maskOverlappingIdentifiers($text, self::knownSecrets($credentials));
     }
 
@@ -26,8 +28,10 @@ REGEX;
     {
         $text = self::withoutControls($text);
         // Compare credentials in the same normal form as the response.
-        $secrets = array_values(array_filter(array_unique(array_map(self::withoutControls(...), self::knownSecrets($credentials))),
-            static fn(string $secret): bool => $secret !== ''));
+        $secrets = array_values(array_filter(
+            array_unique(array_map(self::withoutControls(...), self::knownSecrets($credentials))),
+            static fn(string $secret): bool => $secret !== ''
+        ));
         usort($secrets, static fn(string $a, string $b): int => strlen($b) <=> strlen($a));
         $text = self::maskOverlappingIdentifiers($text, $secrets);
         return mb_substr($text, 0, 300);
@@ -58,10 +62,13 @@ REGEX;
         // Locate command payloads in that same original text: a credential
         // matching part of LOGIN must not prevent its payload from being hidden.
         $gap = '(?:(?![\r\n])[\p{Cc}\p{Cf}])*';
-        $verbs = '(?:' . implode('|', array_map(
-            static fn(string $verb): string => implode($gap, str_split($verb)),
-            ['LOGIN', 'AUTHENTICATE']
-        )) . ')';
+        $verbs = '(?:' . implode(
+            '|',
+            array_map(
+                static fn(string $verb): string => implode($gap, str_split($verb)),
+                ['LOGIN', 'AUTHENTICATE']
+            )
+        ) . ')';
         $commands = [
             // Uppercase commands are hidden even when echoed inside prose.
             '/\b' . $verbs . '\b[ \t]+([^\r\n]+)/' . $unicode,

@@ -505,7 +505,9 @@ class InboundMailboxRepository
             sentFolder: ($row['sent_folder'] ?? null) !== null && (string) $row['sent_folder'] !== ''
                 ? (string) $row['sent_folder']
                 : null,
-            failingSince: DateInput::fromStorage($row['failing_since'] === null ? null : (string) $row['failing_since']),
+            failingSince: DateInput::fromStorage(
+                $row['failing_since'] === null ? null : (string) $row['failing_since']
+            ),
             lastFailureSignature: isset($row['last_failure_signature']) ? (string) $row['last_failure_signature'] : null
         );
     }
