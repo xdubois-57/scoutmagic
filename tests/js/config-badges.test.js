@@ -385,7 +385,59 @@ describe('config-badges.js', () => {
             expect(body).toEqual({ name: 'Communication', _csrf_token: 'tok-123' });
             expect(window.location.reload).not.toHaveBeenCalled();
             expect(newRow().querySelector('.badge-name-input').value).toBe('Communication');
-            expect(document.getElementById('badge-list').lastElementChild).toBe(newRow());
+        });
+
+        const names = () => [...document.querySelectorAll('#badge-list .badge-name-input')].map((input) => input.value);
+
+        it('puts the new row where the server lists it — by name, not at the end', async () => {
+            await addCommunication();
+
+            await vi.waitFor(() => expect(newRow()).not.toBeNull());
+            // « Communication » sorts before « Infirmier » and « Trésorier ».
+            expect(names()).toEqual(['Communication', 'Infirmier', 'Trésorier']);
+        });
+
+        it('compares names without regard to case or accents, the way the database does', async () => {
+            await addCommunication({ success: true, badge: { id: 9, name: 'tresorier adjoint', is_active: true } });
+
+            await vi.waitFor(() => expect(newRow()).not.toBeNull());
+            // After « Trésorier » (accent and case ignored), at the end of the list.
+            expect(names()).toEqual(['Infirmier', 'Trésorier', 'tresorier adjoint']);
+        });
+
+        it('puts a row in the middle between its neighbours', async () => {
+            await addCommunication({ success: true, badge: { id: 9, name: 'Jardinage', is_active: true } });
+
+            await vi.waitFor(() => expect(newRow()).not.toBeNull());
+            expect(names()).toEqual(['Infirmier', 'Jardinage', 'Trésorier']);
+        });
+
+        it('moves a renamed row to its new place, and leaves it where it is when the order does not change', async () => {
+            global.fetch = vi.fn(() => jsonResponse({ success: true, badge: { id: 4, name: 'Zèbre', is_active: true } }));
+            await boot();
+            const input = customRow().querySelector('.badge-name-input');
+            input.value = 'Zèbre';
+            leave(input);
+
+            await vi.waitFor(() => expect(names()).toEqual(['Trésorier', 'Zèbre']));
+            expect(customRow().querySelector('.badge-name-input').value).toBe('Zèbre');
+
+            global.fetch = vi.fn(() => jsonResponse({ success: true, badge: { id: 4, name: 'Zèbre 2', is_active: true } }));
+            input.value = 'Zèbre 2';
+            leave(input);
+            await vi.waitFor(() => expect(input.defaultValue).toBe('Zèbre 2'));
+            expect(names()).toEqual(['Trésorier', 'Zèbre 2']);
+        });
+
+        it('keeps a row in place when it is renamed to a name sorting around the same spot', async () => {
+            global.fetch = vi.fn(() => jsonResponse({ success: true, badge: { id: 4, name: 'Infirmière', is_active: true } }));
+            await boot();
+            const input = customRow().querySelector('.badge-name-input');
+            input.value = 'Infirmière';
+            leave(input);
+
+            await vi.waitFor(() => expect(input.defaultValue).toBe('Infirmière'));
+            expect(names()).toEqual(['Infirmière', 'Trésorier']);
         });
 
         it('empties the add field and confirms with a toast', async () => {

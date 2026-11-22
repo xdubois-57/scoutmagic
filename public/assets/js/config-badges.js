@@ -94,6 +94,36 @@
     }
 
     /**
+     * Puts a row where the server would have listed it. The page is ordered by
+     * name (BadgeRepository::findAll() — ORDER BY name) and a reload used to be
+     * what kept it so; without one, an added or renamed badge has to find its
+     * own place. Compared the way the database compares: letters without regard
+     * to case or accents. The saved names are the reference (`defaultValue`): a
+     * neighbour's field may hold an edit not yet saved.
+     *
+     * @param {HTMLElement} row
+     */
+    function placeRow(row) {
+        var input = /** @type {HTMLInputElement|null} */ (row.querySelector('.badge-name-input'));
+        if (!list || !input) {
+            return;
+        }
+        var name = input.defaultValue;
+        var next = Array.from(list.querySelectorAll('.badge-row')).find(function (other) {
+            var otherInput = /** @type {HTMLInputElement|null} */ (other.querySelector('.badge-name-input'));
+            return other !== row && !!otherInput
+                && otherInput.defaultValue.localeCompare(name, 'fr', { sensitivity: 'base' }) > 0;
+        });
+        if (next) {
+            if (row.nextElementSibling !== next) {
+                list.insertBefore(row, next);
+            }
+        } else if (row !== list.lastElementChild) {
+            list.appendChild(row);
+        }
+    }
+
+    /**
      * Rename: saved when the field loses focus, only when the name really
      * changed, and never twice at once (the field is locked for the round
      * trip, so typing during it is not possible either). The displayed value
@@ -123,6 +153,7 @@
                 var name = typeof res.data?.badge?.name === 'string' ? res.data.badge.name : input.value.trim();
                 input.value = name;
                 input.defaultValue = name;
+                placeRow(row);
                 // An autosave confirms itself (design.md §7.13).
                 toastSuccess('Enregistré.');
                 return;
@@ -232,6 +263,7 @@
                 return;
             }
             list?.appendChild(row);
+            placeRow(row);
             newNameInput.value = '';
             toastSuccess('Badge ajouté.');
         });

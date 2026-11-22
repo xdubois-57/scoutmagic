@@ -77,7 +77,13 @@ test('a badge is created, renamed, switched and deleted without the page ever re
     expect(await stillHere(), 'switching did not reload the page').toBe('still-here');
 
     // --- what the server stored is what the page showed ---------------------
+    // The page is ordered by name by the server; without a reload the script has
+    // to put a created or renamed row where the server would — so the order on
+    // screen before the reload is the order the server gives after it.
+    const listedNames = () => page.locator('#badge-list .badge-name-input').evaluateAll((inputs) => inputs.map((input) => input.value));
+    const orderShown = await listedNames();
     await page.reload({ waitUntil: 'domcontentloaded' });
+    expect(await listedNames(), 'the order shown without a reload is the server order').toEqual(orderShown);
     const stored = page.locator(`.badge-row[data-id="${badgeId}"]`);
     await expect(stored.locator('.badge-name-input')).toHaveValue('Communication E2E 2');
     await expect(stored.locator('.badge-active-input')).not.toBeChecked();
