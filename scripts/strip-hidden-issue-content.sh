@@ -185,7 +185,12 @@ MARKER="${MARKER}" FOLD="${FOLD}" TITLE="${TITLE}" BOT="${BOT}" OWN_IDS="${OWN_I
         # A destination as CommonMark reads it: in angle brackets, or a run
         # of non-space characters whose parentheses balance.
         my $ldest = qr/<[^<>\r\n]*>|(?<par>(?:[^\s()\\<]|\\.|\((?:[^\s()\\]|\\.|(?&par))*\))+)/;
-        s{(?<!!)\[[ \t]*\]\([ \t]*(?:$ldest)?[ \t\r\n]+(?:$ltitle)[ \t]*\)}{$m}g;
+        # What shows as nothing: spaces, line endings, and the entities that
+        # render as a space (`&nbsp;`, `&#32;`, the typographic spaces).
+        my $blank = qr/[ \t\r\n]|&(?:nbsp|ensp|emsp|emsp13|emsp14|numsp|puncsp|thinsp|ThinSpace|hairsp|VeryThinSpace|MediumSpace|ThickSpace|NonBreakingSpace);|&#(?:[xX]0*(?:20|[aA]0|200[0-9aA]|202[fF]|205[fF]|3000)|0*(?:32|160|819[2-9]|820[0-2]|8239|8287|12288));/;
+        # CommonMark lets a line ending stand wherever a link allows a space,
+        # before the closing parenthesis too.
+        s{(?<!!)\[(?:$blank)*\]\((?:$blank)*(?:$ldest)?[ \t\r\n]+(?:$ltitle)[ \t\r\n]*\)}{$m}g;
         # The attributes of a tag, read as the HTML tokenizer reads them:
         # a name runs to a space, `/`, `>` or `=` and needs no space before
         # it after a quoted value; a quoted value may hold a `>`; a quote
@@ -208,7 +213,7 @@ MARKER="${MARKER}" FOLD="${FOLD}" TITLE="${TITLE}" BOT="${BOT}" OWN_IDS="${OWN_I
             my ($text, $wanted) = @_;
             return scalar grep { lc($_->[0]) eq $wanted } $attributes_of->($text);
         };
-        s{<a\b($attrs)>[ \t\r\n]*</a[ \t]*>}{
+        s{<a\b($attrs)>(?:$blank)*</a[ \t]*>}{
             my $all = $&;
             $has->($1, "title") ? $m : $all
         }gie;
@@ -218,7 +223,7 @@ MARKER="${MARKER}" FOLD="${FOLD}" TITLE="${TITLE}" BOT="${BOT}" OWN_IDS="${OWN_I
         # itself still shows, and its original stays in the edit history.
         # Its description may nest brackets, as CommonMark allows.
         my $desc = qr/(?<desc>\[(?:[^\[\]\\]|\\.|(?&desc))*\])/;
-        s{!$desc\([ \t]*($ldest)(?:[ \t\r\n]+(?:$ltitle))?[ \t]*\)}{![]($2)}g;
+        s{!$desc\([ \t\r\n]*($ldest)(?:[ \t\r\n]+(?:$ltitle))?[ \t\r\n]*\)}{![]($2)}g;
         s{(<img\b)($attrs)>}{
             my ($tag, $text, $all) = ($1, $2, $&);
             my @found = $attributes_of->($text);

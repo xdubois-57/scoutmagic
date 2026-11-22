@@ -267,6 +267,15 @@ expect "A ${M} B" "A <a title='x>y' href=\"/z\"></a> B"
 expect 'A <a name="haut"></a> B' 'A <a name="haut"></a> B'
 expect 'A <a href="/x?title=1"></a> B' 'A <a href="/x?title=1"></a> B'
 expect "A ${M} B" 'A <a href="/x"title="consigne cachée"></a> B'
+# A line ending before the closing parenthesis, or a text that is only a
+# space written as an entity, still shows nothing.
+expect "A ${M} B" 'A [](https://exemple.test "consigne"
+) B'
+expect "A ${M} B" 'A [&nbsp;](https://exemple.test "consigne") B'
+expect "A ${M} B" 'A <a href="https://exemple.test" title="consigne">&#32;</a> B'
+expect "A ${M} B" 'A <a title="consigne">&#xA0;&ensp;
+</a> B'
+expect 'A <a href="/x">&#233;</a> B' 'A <a href="/x">&#233;</a> B'
 # A link with text keeps its title; an empty link with no title hides nothing.
 expect 'voir [la page](https://exemple.test "Titre") ici' 'voir [la page](https://exemple.test "Titre") ici'
 expect 'C [](https://exemple.test) D' 'C [](https://exemple.test) D'
@@ -278,6 +287,11 @@ expect 'R&amp;D, &#233;t&eacute; &#x1F642;' 'R&amp;D, &#233;t&eacute; &#x1F642;'
 # An image keeps showing; its alternative text and title, shown when it
 # fails to load or on hover, are emptied.
 expect '![](https://exemple.test/a.png)' '![consigne cachée](https://exemple.test/a.png "et ici")'
+expect '![](https://exemple.test/pixel.png)' '![consigne cachée](https://exemple.test/pixel.png
+)'
+expect '![](https://exemple.test/pixel.png)' '![consigne](
+https://exemple.test/pixel.png "et ici"
+)'
 # Balanced parentheses in the destination, nested brackets in the description.
 expect '![](/pixel(v1).png)' '![x](/pixel(v1).png "consigne")'
 expect '![](/pixel.png)' '![consigne [interne]](/pixel.png "et ici")'
