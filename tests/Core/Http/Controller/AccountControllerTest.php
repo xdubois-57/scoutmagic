@@ -1148,6 +1148,32 @@ class AccountControllerTest extends TestCase
         $this->assertFalse($this->userRepo->hasPassword($this->userId));
     }
 
+    /**
+     * Review of #1374: the writing tab is re-issued at the write's own stamp,
+     * not at the time the refresh runs. Were it re-issued « now » — after a
+     * sign-out everywhere that slipped in between the write and the refresh —
+     * the session would be dated after that revocation and revived.
+     */
+    public function testThePasswordWritingTabIsReissuedAtTheStampOfItsWriteAndSoSurvivesNoLaterSignOut(): void
+    {
+        $_SESSION['_auth']['issued_at'] = time() - 600;
+        $request = new Request('POST', '/account/password', [], [
+            '_csrf_token' => CsrfGuard::generateToken(),
+            'new_password' => 'MySecureP@ss1',
+            'confirm_password' => 'MySecureP@ss1',
+        ], [], []);
+        $this->controller->updatePassword($request, []);
+
+        $stamp = $this->userRepo->findById($this->userId)?->sessionsValidFrom?->getTimestamp();
+        $this->assertNotNull($stamp);
+        $this->assertSame($stamp, AuthSession::getIssuedAt(), 'dated by the write, not by the refresh');
+
+        // A sign-out everywhere that came after the write — whenever the refresh ran.
+        $this->userRepo->revokeSessions($this->userId);
+        $after = $this->userRepo->findById($this->userId)?->sessionsValidFrom?->getTimestamp();
+        $this->assertLessThan($after, AuthSession::getIssuedAt(), 'the tab is revoked by it');
+    }
+
     /** The other interleaving: the password was written first, the sign-out finds and removes it. */
     public function testAFirstPasswordWrittenJustBeforeASignOutEverywhereIsRemovedByIt(): void
     {

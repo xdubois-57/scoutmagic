@@ -354,7 +354,7 @@ class UserAccountRepositoryTest extends TestCase
 
         $this->repo->revokeSessions($account->id);
 
-        $this->assertFalse($this->repo->updatePasswordHashFromSession(
+        $this->assertNull($this->repo->updatePasswordHashFromSession(
             $account->id,
             password_hash('Late-write-1', PASSWORD_DEFAULT),
             $issuedAt
@@ -378,14 +378,14 @@ class UserAccountRepositoryTest extends TestCase
         $this->repo->revokeSessions($account->id);
         $this->assertTrue($this->repo->clearPassword($account->id));
 
-        $this->assertFalse($this->repo->updatePasswordHashFromSession(
+        $this->assertNull($this->repo->updatePasswordHashFromSession(
             $account->id,
             password_hash('Late-write-1', PASSWORD_DEFAULT),
             $issuedAt
         ));
         $this->assertFalse($this->repo->hasPassword($account->id));
         // A session opened the second after is a new sign-in, and writes.
-        $this->assertTrue($this->repo->updatePasswordHashFromSession(
+        $this->assertNotNull($this->repo->updatePasswordHashFromSession(
             $account->id,
             password_hash('New-sign-in-1', PASSWORD_DEFAULT),
             $issuedAt + 1
@@ -399,7 +399,7 @@ class UserAccountRepositoryTest extends TestCase
             ->execute([date('Y-m-d H:i:s', time() - 30), $account->id]);
 
         // Issued exactly at the stamp: not revoked, as SessionRevalidator reads it.
-        $this->assertTrue($this->repo->updatePasswordHashFromSession(
+        $this->assertNotNull($this->repo->updatePasswordHashFromSession(
             $account->id,
             password_hash('Written-1', PASSWORD_DEFAULT),
             time() - 30
@@ -408,12 +408,27 @@ class UserAccountRepositoryTest extends TestCase
         $this->assertNotNull($this->repo->findById($account->id)?->passwordChangedAt);
     }
 
+    /** The value is the stamp the write stored: the time the writing session is to be re-issued at. */
+    public function testTheWriteReturnsTheStampItStored(): void
+    {
+        $account = $this->repo->create('stamp@test.com');
+
+        $stampedAt = $this->repo->updatePasswordHashFromSession(
+            $account->id,
+            password_hash('Written-1', PASSWORD_DEFAULT),
+            time() - 600
+        );
+
+        $this->assertNotNull($stampedAt);
+        $this->assertSame($stampedAt, $this->repo->findById($account->id)?->sessionsValidFrom?->getTimestamp());
+    }
+
     public function testAPasswordIsWrittenFromASessionWhenNothingWasEverRevoked(): void
     {
         $account = $this->repo->create('never@test.com');
         $this->pdo->prepare('UPDATE user_accounts SET sessions_valid_from = NULL WHERE id = ?')->execute([$account->id]);
 
-        $this->assertTrue($this->repo->updatePasswordHashFromSession(
+        $this->assertNotNull($this->repo->updatePasswordHashFromSession(
             $account->id,
             password_hash('Written-1', PASSWORD_DEFAULT),
             time() - 3600
@@ -425,7 +440,7 @@ class UserAccountRepositoryTest extends TestCase
     {
         $account = $this->repo->create('legacy@test.com');
 
-        $this->assertFalse($this->repo->updatePasswordHashFromSession(
+        $this->assertNull($this->repo->updatePasswordHashFromSession(
             $account->id,
             password_hash('x', PASSWORD_DEFAULT),
             null

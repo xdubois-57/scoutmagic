@@ -567,15 +567,19 @@ class UserAccountRepository
      * write is refused.
      *
      * @param int|null $sessionIssuedAt AuthSession::getIssuedAt()
-     * @return bool whether the password was written
+     * @return int|null the time stamped by the write — the one the writing
+     *         session must be re-issued AT, never later (see
+     *         AuthSession::refreshIssuedAt()) — or null when the password was
+     *         not written
      */
-    public function updatePasswordHashFromSession(int $id, string $passwordHash, ?int $sessionIssuedAt): bool
+    public function updatePasswordHashFromSession(int $id, string $passwordHash, ?int $sessionIssuedAt): ?int
     {
         if ($sessionIssuedAt === null) {
-            return false;
+            return null;
         }
 
-        $now = (new \DateTimeImmutable())->format('Y-m-d H:i:s');
+        $stampedAt = new \DateTimeImmutable();
+        $now = $stampedAt->format('Y-m-d H:i:s');
         $issuedAt = (new \DateTimeImmutable('@' . $sessionIssuedAt))
             ->setTimezone(new \DateTimeZone(date_default_timezone_get()))
             ->format('Y-m-d H:i:s');
@@ -586,7 +590,7 @@ class UserAccountRepository
         );
         $stmt->execute([$passwordHash, $now, $now, $id, $issuedAt]);
 
-        return $stmt->rowCount() > 0;
+        return $stmt->rowCount() > 0 ? $stampedAt->getTimestamp() : null;
     }
 
     /**

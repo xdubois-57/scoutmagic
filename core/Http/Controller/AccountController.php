@@ -300,7 +300,8 @@ class AccountController extends AbstractController
         // « Déconnecter partout » from another tab — in which case the write
         // is refused: a password must not survive a sign-out everywhere that
         // ran first (review of #1374).
-        if (!$this->userAccountRepo->updatePasswordHashFromSession($userId, $hash, AuthSession::getIssuedAt())) {
+        $stampedAt = $this->userAccountRepo->updatePasswordHashFromSession($userId, $hash, AuthSession::getIssuedAt());
+        if ($stampedAt === null) {
             AuthSession::logout();
             FlashMessage::set(
                 'error',
@@ -311,7 +312,9 @@ class AccountController extends AbstractController
         }
         // ...including this one, so re-stamp the tab the member is actually
         // using: they stay signed in here, everywhere else is signed out.
-        AuthSession::refreshIssuedAt();
+        // At the write's own stamp, not at « now »: a sign-out everywhere that
+        // ran in between must still revoke this tab (review of #1374).
+        AuthSession::refreshIssuedAt($stampedAt);
         // Typing the current password is as good a proof as a login; setting
         // a first one is not, and leaves the last login's time where it was.
         if ($hasPassword) {
