@@ -362,6 +362,36 @@ class UserAccountRepositoryTest extends TestCase
         $this->assertFalse($this->repo->hasPassword($account->id));
     }
 
+    /**
+     * Review of #1374: the stamp has the resolution of a second, and
+     * SessionRevalidator reads a session issued in the stamp's own second as
+     * valid. The sign-out's stamp is dated one second ahead so that a session
+     * issued in the second of the sign-out — an in-flight password write
+     * included — is revoked too.
+     */
+    public function testASessionIssuedInTheSecondOfASignOutEverywhereCannotWriteAPasswordAfterIt(): void
+    {
+        $account = $this->repo->create('same-second@test.com');
+        $this->repo->updatePasswordHash($account->id, password_hash('Chosen-1', PASSWORD_DEFAULT));
+        $issuedAt = time();
+
+        $this->repo->revokeSessions($account->id);
+        $this->assertTrue($this->repo->clearPassword($account->id));
+
+        $this->assertFalse($this->repo->updatePasswordHashFromSession(
+            $account->id,
+            password_hash('Late-write-1', PASSWORD_DEFAULT),
+            $issuedAt
+        ));
+        $this->assertFalse($this->repo->hasPassword($account->id));
+        // A session opened the second after is a new sign-in, and writes.
+        $this->assertTrue($this->repo->updatePasswordHashFromSession(
+            $account->id,
+            password_hash('New-sign-in-1', PASSWORD_DEFAULT),
+            $issuedAt + 1
+        ));
+    }
+
     public function testAPasswordIsWrittenFromASessionIssuedAtOrAfterTheStamp(): void
     {
         $account = $this->repo->create('fresh@test.com');

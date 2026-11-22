@@ -1123,6 +1123,31 @@ class AccountControllerTest extends TestCase
         $this->assertStringContainsString('session a été fermée', $this->flashedMessage());
     }
 
+    /**
+     * Review of #1374, the same second: the other tab's session was issued in
+     * the very second of the sign-out — as the stamp, whose resolution is a
+     * second. Its late write is refused too.
+     */
+    public function testAFirstPasswordFromASessionIssuedInTheSecondOfTheSignOutIsRefused(): void
+    {
+        $otherTab = $_SESSION['_auth'];
+        $otherTab['issued_at'] = time();
+
+        $this->controllerWithRevoker(new \Core\Contact\Device\DeviceCredentialRepository($this->pdo))
+            ->signOutEverywhere($this->signOutRequest(), []);
+
+        $_SESSION['_auth'] = $otherTab;
+        $request = new Request('POST', '/account/password', [], [
+            '_csrf_token' => CsrfGuard::generateToken(),
+            'new_password' => 'MySecureP@ss1',
+            'confirm_password' => 'MySecureP@ss1',
+        ], [], []);
+        $response = $this->controller->updatePassword($request, []);
+
+        $this->assertSame('/login', $response->getHeaders()['Location'] ?? null);
+        $this->assertFalse($this->userRepo->hasPassword($this->userId));
+    }
+
     /** The other interleaving: the password was written first, the sign-out finds and removes it. */
     public function testAFirstPasswordWrittenJustBeforeASignOutEverywhereIsRemovedByIt(): void
     {

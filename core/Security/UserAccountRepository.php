@@ -627,9 +627,26 @@ class UserAccountRepository
      */
     public function revokeSessions(int $id): void
     {
-        $now = (new \DateTimeImmutable())->format('Y-m-d H:i:s');
         $stmt = $this->pdo->prepare('UPDATE user_accounts SET sessions_valid_from = ? WHERE id = ?');
-        $stmt->execute([$now, $id]);
+        $stmt->execute([self::signOutStamp(), $id]);
+    }
+
+    /**
+     * The stamp of a « Déconnecter partout »: the NEXT second, not this one.
+     *
+     * SessionRevalidator reads a session as revoked only when it was issued
+     * strictly BEFORE the stamp, and the stamp has the resolution of a second:
+     * a session issued in the very second of the sign-out would read as valid
+     * and its in-flight password write would be accepted after the removal
+     * (review of #1374). Dating the stamp one second ahead revokes every
+     * session issued up to and including that second. The only sessions it
+     * can catch beyond are those opened within the following second, which
+     * after a sign-out everywhere means nobody: signing back in goes through a
+     * link sent by e-mail.
+     */
+    private static function signOutStamp(): string
+    {
+        return (new \DateTimeImmutable('+1 second'))->format('Y-m-d H:i:s');
     }
 
     /**
@@ -648,7 +665,7 @@ class UserAccountRepository
      */
     public function clearPassword(int $id): bool
     {
-        $now = (new \DateTimeImmutable())->format('Y-m-d H:i:s');
+        $now = self::signOutStamp();
         // One conditional statement rather than « read hasPassword(), then
         // clear »: whether a password was there, and its removal, are decided
         // by the same write under the same row lock, so a password written by
