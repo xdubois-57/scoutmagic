@@ -83,6 +83,46 @@ final class MailboxFailureDiagnosticTest extends TestCase
         }
     }
 
+    public function testMessageLiteralsAndDebugTranscriptsCannotBecomeRefusalLines(): void
+    {
+        $credentials = new MailboxCredentials('box@example.test', 'secret');
+        foreach ([ImapServerErrorException::class,
+            \Webklex\PHPIMAP\Exceptions\ImapBadRequestException::class,
+            \Webklex\PHPIMAP\Exceptions\ResponseException::class] as $class) {
+            $diagnostic = MailboxFailureDiagnostic::from(new $class(
+                "* 1 FETCH (BODY[TEXT] {80}\nNo problem, call me on 0478 12 34 56\n"
+                . "NO private message body\nsay no more\n)\nA3 NO Server error"
+            ), $credentials);
+            self::assertSame([null, null], [
+                $diagnostic->details['server_response'] ?? null, $diagnostic->details['imap_status'] ?? null,
+            ]);
+
+            $diagnostic = MailboxFailureDiagnostic::from(new $class(
+                "A3 NO [UNAVAILABLE] Try later\nNO private message body\nBad news\nBye for now"
+            ), $credentials);
+            self::assertSame('NO [UNAVAILABLE] Try later', $diagnostic->details['server_response']);
+        }
+    }
+
+    public function testValidationErrorsDoNotReadPastTheLibrarysCausesBlock(): void
+    {
+        $diagnostic = MailboxFailureDiagnostic::from(new \Webklex\PHPIMAP\Exceptions\ResponseException(
+            "Command failed to process:\nCauses:\n\t- request failed\n\t- NO [NOPERM]\n"
+            . "Commands send:\nA1 LOGIN password\nResponses received:\nNO private message body\nError occurred"
+        ), new MailboxCredentials('box@example.test', 'secret'));
+
+        self::assertSame('NO [NOPERM]', $diagnostic->details['server_response']);
+    }
+
+    public function testOrdinaryProseIsNotAnImapStatus(): void
+    {
+        foreach (['No problem, call me on 0478 12 34 56', 'say no more', 'Bad news', 'Bye for now'] as $prose) {
+            $diagnostic = MailboxFailureDiagnostic::from(new ImapServerErrorException($prose),
+                new MailboxCredentials('box@example.test', 'secret'));
+            self::assertArrayNotHasKey('server_response', $diagnostic->details);
+        }
+    }
+
     public function testControlCharactersInsideKnownCredentialsCannotBypassRedaction(): void
     {
         $credentials = new MailboxCredentials("box\tlogin", "control\0secret");

@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\InboundMail\Service;
 
 use Modules\InboundMail\Client\MailboxConnectionException;
+use Modules\InboundMail\Client\MailboxResponseRedactor;
 use Modules\InboundMail\Mailbox\MailboxCredentials;
 
 /** Safe diagnostic metadata, kept separate from the operator-facing error. */
@@ -19,10 +20,6 @@ final class MailboxFailureDiagnostic
         'certificate verify failed', 'empty response', "folder doesn't exist",
         'failed to write - connection closed?', 'connection closed', 'authentication failed',
     ];
-
-    private const EMAIL_PATTERN = <<<'REGEX'
-/(?:"(?:[^"\\\r\n]|\\.)*"|[^\s<>"()\[\],;:]+)@(?:\[[^\]\r\n]+\]|[^\s<>"()\[\],;:]+)/u
-REGEX;
 
     /** @param array<string, mixed> $details */
     private function __construct(public readonly string $step, public readonly array $details)
@@ -71,17 +68,31 @@ REGEX;
             if (in_array($class, ['ImapServerErrorException', 'ImapBadRequestException', 'ResponseException'], true)) {
                 // A credential containing a line break must be masked before splitting:
                 // otherwise the first response line could retain part of that credential.
-                $serverMessage = str_replace(self::knownSecrets($credentials), '[masqué]', $message);
-                foreach (preg_split('/\r\n|\r|\n/', $serverMessage) ?: [] as $line) {
+                $serverMessage = MailboxResponseRedactor::maskKnownSecrets($message, $credentials);
+                $lines = preg_split('/\r\n|\r|\n/', $serverMessage) ?: [];
+                $candidates = [$lines[0] ?? ''];
+                if ($class === 'ResponseException' && ($lines[0] ?? '') === 'Command failed to process:'
+                    && ($lines[1] ?? '') === 'Causes:') {
+                    $candidates = [];
+                    // Validation reports causes as bullets. Stop before its debug
+                    // transcript; never search arbitrary later lines for a status.
+                    foreach (array_slice($lines, 2) as $line) {
+                        if (!str_starts_with($line, "\t- ")) {
+                            break;
+                        }
+                        $candidates[] = substr($line, 3);
+                    }
+                }
+                foreach ($candidates as $line) {
                     if (strlen($line) > 16384) {
                         continue;
                     }
-                    if (preg_match('/^\s*(?:-\s*)?(?:(?:\*|[A-Za-z0-9]+)\s+)?(NO|BAD|BYE)\b(.*)$/i', $line, $response) === 1) {
+                    if (preg_match('/^\s*(?:(?:\*|[A-Za-z0-9]+)\s+)?(NO|BAD|BYE)\b(.*)$/', $line, $response) === 1) {
                         $details['imap_status'] = strtoupper($response[1]);
                         if (preg_match('/^\s*\[([A-Z][A-Z0-9-]{0,63})\]/i', $response[2], $code) === 1) {
                             $details['imap_code'] = strtoupper($code[1]);
                         }
-                        $responses[] = self::redact($response[1] . $response[2], $credentials);
+                        $responses[] = MailboxResponseRedactor::redact($response[1] . $response[2], $credentials);
                     }
                 }
             }
@@ -103,42 +114,5 @@ REGEX;
         ksort($codes);
 
         return hash('sha256', $this->step . (string) json_encode($codes));
-    }
-
-    private static function redact(string $text, MailboxCredentials $credentials): string
-    {
-        $text = self::withoutControls($text);
-        // Compare credentials in the same normal form as the response.
-        $secrets = array_values(array_filter(array_unique(array_map(self::withoutControls(...), self::knownSecrets($credentials))),
-            static fn(string $secret): bool => $secret !== ''));
-        usort($secrets, static fn(string $a, string $b): int => strlen($b) <=> strlen($a));
-        $text = str_replace($secrets, '[masqué]', $text);
-        $text = preg_replace('/\b(LOGIN|AUTHENTICATE)\b[^\r\n]*/i', '$1 [masqué]', $text) ?? '';
-        $text = preg_replace(self::EMAIL_PATTERN, '[masqué]', $text) ?? '';
-
-        return mb_substr($text, 0, 300);
-    }
-
-    /** @return list<string> */
-    private static function knownSecrets(MailboxCredentials $credentials): array
-    {
-        $secrets = [];
-        foreach ([$credentials->username, $credentials->password,
-            "\0" . $credentials->username . "\0" . $credentials->password,
-            $credentials->username . "\0" . $credentials->username . "\0" . $credentials->password] as $secret) {
-            if ($secret !== '') {
-                $secrets[] = $secret;
-                $secrets[] = addcslashes($secret, '\\"');
-                $secrets[] = base64_encode($secret);
-            }
-        }
-        usort($secrets, static fn(string $a, string $b): int => strlen($b) <=> strlen($a));
-
-        return array_values(array_unique($secrets));
-    }
-
-    private static function withoutControls(string $text): string
-    {
-        return preg_replace('/[\p{Cc}\p{Cf}]/u', '', mb_scrub($text, 'UTF-8')) ?? '';
     }
 }

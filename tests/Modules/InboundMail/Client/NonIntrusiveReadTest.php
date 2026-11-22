@@ -100,7 +100,7 @@ class NonIntrusiveReadTest extends TestCase
             dirname(__DIR__, 4) . '/modules/inbound_mail/src/Client/TolerantMessageQuery.php'
         );
         $this->assertStringContainsString("'BODY.PEEK[TEXT]'", $query);
-        $this->assertStringContainsString('->examineFolder(', $query);
+        $this->assertStringContainsString('ImapFolderReader::examine(', $query);
         $this->assertStringNotContainsString('->openFolder(', $query);
     }
 
@@ -108,7 +108,10 @@ class NonIntrusiveReadTest extends TestCase
     {
         // EXAMINE is the read-only open; SELECT sets \Recent on some
         // servers, which is already a modification.
-        $this->assertStringContainsString('->examine()', self::imapClientSource());
+        $this->assertStringContainsString('ImapFolderReader::examine(', self::imapClientSource());
+        $reader = file_get_contents(dirname(__DIR__, 4) . '/modules/inbound_mail/src/Client/ImapFolderReader.php');
+        $this->assertNotFalse($reader);
+        $this->assertStringContainsString('->examineFolder(', $reader);
         $this->assertStringNotContainsString('->select()', self::readingSource() . self::otherClientSources());
     }
 
