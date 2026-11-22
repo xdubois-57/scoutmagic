@@ -142,7 +142,11 @@ class SectionAccountRepository
 
         $superAdmins = $this->pdo->query('SELECT id FROM user_accounts WHERE is_super_admin = 1');
         \assert($superAdmins !== false);
-        $ids = [...$ids, ...array_map(static fn (array $row): int => (int) $row['id'], $superAdmins->fetchAll(\PDO::FETCH_ASSOC))];
+        $superAdminIds = array_map(
+            static fn (array $row): int => (int) $row['id'],
+            $superAdmins->fetchAll(\PDO::FETCH_ASSOC)
+        );
+        $ids = [...$ids, ...$superAdminIds];
         $ids = array_values(array_unique($ids));
         sort($ids);
 
