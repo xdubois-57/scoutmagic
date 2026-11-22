@@ -2,8 +2,8 @@
   One row of the badges configuration page (admin/badges/configuration.html.twig).
 
   Rendered twice from this one file, so the two cannot drift (#1337): once per
-  badge by the server, and once as the <template id="badge-row-template"> that
-  public/assets/js/config-badges.js clones when a badge is created without
+  badge by the server, and once inside the template element (id badge-row-template)
+  that public/assets/js/config-badges.js clones when a badge is created without
   reloading the page. The script fills the clone with the id and name the
   server answered; nothing here is built by string concatenation in JavaScript.
 
