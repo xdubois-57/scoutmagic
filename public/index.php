@@ -10067,7 +10067,9 @@ if ($isEnabled('gallery')) {
         // The album folder's LISEZMOI.txt (#474), on every kind of storage.
         new \Modules\Gallery\Service\AlbumReadme($settingService, $journalService),
         // Who a section album is announced to: its personally linked accounts (#1348).
-        new \Core\Member\SectionAccountRepository($pdo)
+        new \Core\Member\SectionAccountRepository($pdo),
+        // The years a role counts in today: who may still open an old album.
+        $authorizationYearService
     );
     $galleryMediaService = new \Modules\Gallery\Service\MediaService(
         $galleryMediaRepo,

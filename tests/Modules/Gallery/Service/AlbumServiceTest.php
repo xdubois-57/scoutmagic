@@ -968,7 +968,7 @@ class AlbumServiceTest extends TestCase
     /**
      * @return array{0: AlbumService, 1: NotificationRepository, 2: UserAccountRepository}
      */
-    private function publishingService(bool $withSectionResolver = true): array
+    private function publishingService(bool $withSectionResolver = true, ?int $publicYearId = null): array
     {
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $accounts = new UserAccountRepository($this->pdo, $encryption);
@@ -995,10 +995,33 @@ class AlbumServiceTest extends TestCase
             $this->galleryLocationService,
             new ScoutYearService($this->pdo), $this->settingServiceAllowingEverything(), $this->schedulerService, $this->uploadHandler,
             $notificationService, $accounts, null, null,
-            $withSectionResolver ? new \Core\Member\SectionAccountRepository($this->pdo) : null
+            $withSectionResolver ? new \Core\Member\SectionAccountRepository($this->pdo) : null,
+            $this->authorizationYears($publicYearId)
         );
 
         return [$service, $notifications, $accounts];
+    }
+
+    /** The authorization years as the site resolves them, the public year optionally set by an administrator. */
+    private function authorizationYears(?int $publicYearId): \Core\ScoutYear\AuthorizationYearService
+    {
+        $settings = new SettingService(new SettingRepository($this->pdo));
+        $settings->register(
+            \Core\ScoutYear\ScoutYearResolver::SETTING_PUBLIC_YEAR,
+            '0',
+            'number',
+            'Public',
+            'Public year id',
+            null,
+            '^[0-9]+$',
+            null,
+            false
+        );
+        if ($publicYearId !== null) {
+            $settings->setInternal(\Core\ScoutYear\ScoutYearResolver::SETTING_PUBLIC_YEAR, (string) $publicYearId);
+        }
+
+        return new \Core\ScoutYear\AuthorizationYearService(new ScoutYearService($this->pdo), $settings);
     }
 
     private function newSection(string $code, string $name): int
@@ -1180,6 +1203,38 @@ class AlbumServiceTest extends TestCase
 
         $this->assertSame([], $notifications->findByUserAccountId($former), 'a chef of last year is a parent today');
         $this->assertCount(1, $notifications->findByUserAccountId($current));
+    }
+
+    /**
+     * Review of #1379, the narrow case: an administrator advanced the public
+     * year before 1 September, so the date-computed year is no longer one the
+     * roles are resolved over. A chef of THAT year only is a parent as far as
+     * the gallery page goes — it would answer 403 — so is not told; a chef of
+     * the public year is.
+     */
+    public function testAnOldAlbumFollowsTheAuthorizationYearsWhenThePublicYearWasAdvancedEarly(): void
+    {
+        $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date) VALUES ('2019-2020', '2019-09-01', '2020-08-31')");
+        $oldYear = (int) $this->pdo->lastInsertId();
+        // A year in between, so that 2019-2020 is not « the previous year ».
+        $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date) VALUES ('2024-2025', '2024-09-01', '2025-08-31')");
+        $nextLabel = ScoutYearService::labelForDate(new \DateTimeImmutable('+1 year'));
+        $stmt = $this->pdo->prepare('INSERT INTO scout_years (label, start_date, end_date) VALUES (?, ?, ?)');
+        $stmt->execute([$nextLabel, substr($nextLabel, 0, 4) . '-09-01', substr($nextLabel, 5, 4) . '-08-31']);
+        $publicYear = (int) $this->pdo->lastInsertId();
+        [$service, $notifications, $accounts] = $this->publishingService(true, $publicYear);
+
+        $dateYearChief = $accounts->create('date-year@test.com')->id;
+        $this->memberHolding('date-year@test.com', $this->sectionId, 'identified', $oldYear);
+        $this->memberHolding('date-year@test.com', $this->sectionId, 'chief');
+        $publicYearChief = $accounts->create('public-year@test.com')->id;
+        $this->memberHolding('public-year@test.com', $this->sectionId, 'identified', $oldYear);
+        $this->memberHolding('public-year@test.com', $this->sectionId, 'chief', $publicYear);
+
+        $this->publish($service, $this->sectionId, '2019-11-15');
+
+        $this->assertSame([], $notifications->findByUserAccountId($dateYearChief));
+        $this->assertCount(1, $notifications->findByUserAccountId($publicYearChief));
     }
 
     /** A unit-wide album keeps its audience: every account. */

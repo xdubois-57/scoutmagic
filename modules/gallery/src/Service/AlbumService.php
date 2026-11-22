@@ -16,6 +16,7 @@ use Core\Member\SectionAccountRepository;
 use Core\Notification\NotificationService;
 use Core\Scheduler\SchedulerService;
 use Core\Security\Role;
+use Core\ScoutYear\AuthorizationYearService;
 use Core\Security\UserAccountRepository;
 use Core\Service\DateInput;
 use Core\Storage\Location\Backend\StorageBackendFactory;
@@ -68,7 +69,14 @@ class AlbumService
          * collaborators; without it a section album tells nobody — never a
          * wider audience than the page allows.
          */
-        private ?SectionAccountRepository $sectionAccounts = null
+        private ?SectionAccountRepository $sectionAccounts = null,
+        /**
+         * The years a role may be held in to count today
+         * (Core\ScoutYear\AuthorizationYearService): what decides who may
+         * still open an old album, and so who is told of it. Optional; without
+         * it, the cadres of the date-computed current year.
+         */
+        private ?AuthorizationYearService $authorizationYears = null
     ) {
     }
 
@@ -317,13 +325,15 @@ class AlbumService
             $periodYears = $this->scoutYearService->currentAndPreviousYearIds();
             if (!in_array($album->scoutYearId, $periodYears, true)) {
                 // The age window decides WHICH albums are old; who may still
-                // open them is a role held NOW. A chef of the previous year
-                // only is a parent today and would get the title and a 403,
-                // so the cadres are those of the current year (review of
-                // #1379).
+                // open them is the role the person holds NOW, resolved over the
+                // authorization years — the set the page resolves it over. A
+                // chef of the previous year only is a parent today and would
+                // get the title and a 403; neither is a chef of the
+                // date-computed year when the public year was advanced early
+                // (review of #1379).
                 $recipientIds = array_values(array_intersect(
                     $recipientIds,
-                    $this->sectionAccounts->cadreAccountIds([(int) $this->scoutYearService->getCurrentYear()['id']])
+                    $this->sectionAccounts->cadreAccountIds($this->cadreYearIds())
                 ));
             }
         }
@@ -341,6 +351,21 @@ class AlbumService
             'body' => $album->title,
             'url' => '/gallery',
         ], $createdBy);
+    }
+
+    /**
+     * The scout years in which holding a chef or administrator function counts
+     * for opening any album today.
+     *
+     * @return int[]
+     */
+    private function cadreYearIds(): array
+    {
+        if ($this->authorizationYears !== null) {
+            return $this->authorizationYears->resolve()->ids();
+        }
+
+        return [(int) $this->scoutYearService->getCurrentYear()['id']];
     }
 
     /**
