@@ -27,8 +27,10 @@ Staffs, par les animateurs.
 
 ## Créer, renommer, désactiver
 
-« Ajouter » crée un badge ; son nom se corrige directement dans son
-champ. Un badge devenu inutile se **désactive** : il disparaît des
+« Ajouter » crée un badge, aussitôt visible dans la liste. Son nom
+se corrige directement dans son champ ; chaque changement s'enregistre
+sans recharger la page ; une notification le confirme ou dit
+pourquoi il est refusé. Un badge devenu inutile se **désactive** : il disparaît des
 choix proposés sur la page Staffs, mais l'historique de ses
 attributions passées reste lisible.
 Les badges fournis d'office et ceux déjà attribués ne se suppriment
@@ -71,6 +73,5 @@ voit donc que les comptes de l'unité.
 Les attributions valent pour l'année scoute en cours : après le
 passage à la nouvelle année, les animateurs réattribuent les badges
 depuis la page Staffs — c'est une étape du parcours guidé de la page
-Année scoute. Cela vaut aussi pour « Trésorier » : tant qu'il n'est
-pas réattribué pour la nouvelle année, les comptes de section ne sont
-ouverts qu'aux chefs d'unité. Réattribuez-le dès le passage d'année.
+Année scoute. Pensez d'abord à « Trésorier » : sans lui, les
+comptes de section restent fermés aux animateurs.

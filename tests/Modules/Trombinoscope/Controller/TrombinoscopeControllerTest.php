@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Modules\Trombinoscope\Controller;
 
+use Core\Badge\Badge;
 use Core\Config\AppConfig;
 use Core\Config\SettingService;
 use Core\Http\FrontController;
@@ -36,6 +37,12 @@ class TrombinoscopeControllerTest extends TestCase
 
     /** @var array<int, string> the lead's section totems (#722) */
     private array $leadSectionTotems = [];
+
+    /** @var Badge[] the active badges of the section's lead (#1337) */
+    private array $leadBadges = [];
+
+    /** @var MemberProfile[] the section's other animateurs (#1337) */
+    private array $otherStaff = [];
 
     /** @var array<int, array{id: int, desk_code: string, name: ?string, email: ?string, age_branch_id: int, branch_name: string, branch_sort_order: int}> */
     private array $sections = [];
@@ -100,14 +107,15 @@ class TrombinoscopeControllerTest extends TestCase
             }
         };
 
-        $trombinoscopeService = new class($this->staffProfile()) extends TrombinoscopeService {
-            public function __construct(private MemberProfile $lead)
+        $trombinoscopeService = new class($this->staffProfile($this->leadBadges), $this->otherStaff) extends TrombinoscopeService {
+            /** @param MemberProfile[] $staff */
+            public function __construct(private MemberProfile $lead, private array $staff)
             {
             }
 
             public function getSectionStaff(int $sectionId, int $scoutYearId): array
             {
-                return ['lead' => $this->lead, 'staff' => []];
+                return ['lead' => $this->lead, 'staff' => $this->staff];
             }
 
             public function getSectionStaffForSections(array $sectionIds, int $scoutYearId): array
@@ -190,15 +198,15 @@ class TrombinoscopeControllerTest extends TestCase
      * One animateur carrying both a mobile number and a personal e-mail
      * address — the two fields the module's single setting governs.
      */
-    private function staffProfile(): MemberProfile
+    private function staffProfile(array $badges = [], int $memberId = 100, string $firstName = 'Antonin', string $lastName = 'Grandjean', string $totem = 'Chacal'): MemberProfile
     {
         return new MemberProfile(
-            memberYearId: 10,
-            memberId: 100,
-            deskId: 'D100',
-            firstName: 'Antonin',
-            lastName: 'Grandjean',
-            totem: 'Chacal',
+            memberYearId: $memberId - 90,
+            memberId: $memberId,
+            deskId: 'D' . $memberId,
+            firstName: $firstName,
+            lastName: $lastName,
+            totem: $totem,
             quali: null,
             gender: null,
             birthDate: null,
@@ -212,8 +220,40 @@ class TrombinoscopeControllerTest extends TestCase
             addresses: [],
             functions: [],
             scoutYearLabel: '2025-2026',
-            sectionTotems: $this->leadSectionTotems
+            sectionTotems: $this->leadSectionTotems,
+            badges: $badges
         );
+    }
+
+    private static function badge(int $id, string $name): Badge
+    {
+        return new Badge($id, $name, false, true);
+    }
+
+    /** The page as an identified member sees it. */
+    private function renderIndex(): string
+    {
+        $this->startTestSession();
+        AuthSession::login(1, 'member@test.be', 'identified');
+
+        return $this->buildFrontController()->handle(new Request('GET', '/trombinoscope', [], [], [], []))->getBody();
+    }
+
+    /**
+     * The tags of one person's card, in order: the text of every
+     * `.badge` inside the block that starts at the person's own name.
+     *
+     * @return string[]
+     */
+    private static function tagsOf(string $body, string $civilName): array
+    {
+        $start = strpos($body, $civilName);
+        self::assertNotFalse($start, "{$civilName} is not on the page");
+        $end = strpos($body, 'class="col"', $start);
+        $card = substr($body, $start, $end === false ? null : $end - $start);
+        preg_match_all('/<span class="badge[^"]*"[^>]*>\s*([^<]*?)\s*<\/span>/u', $card, $matches);
+
+        return $matches[1];
     }
 
     private function startTestSession(): void
@@ -252,6 +292,65 @@ class TrombinoscopeControllerTest extends TestCase
         $this->leadSectionTotems = [1 => 'Akela'];
         $body = $this->buildFrontController()->handle(new Request('GET', '/trombinoscope', [], [], [], []))->getBody();
         $this->assertMatchesRegularExpression('/>\s*Chacal \(Akela\)\s*<\/div>\s*<div[^>]*>\s*Antonin Grandjean\s*</', $body);
+    }
+
+    /**
+     * Issue #1337: the page already shows one tag per active badge, in the same
+     * place as « Responsable » — this holds that behaviour, it does not add it.
+     * The responsable keeps its own tag, and the badges come after it.
+     */
+    public function testTheLeadKeepsTheResponsableTagAndGetsOneTagPerBadge(): void
+    {
+        $this->leadBadges = [self::badge(1, 'Infirmier'), self::badge(2, 'Trésorier')];
+
+        $this->assertSame(
+            ['Responsable', 'Infirmier', 'Trésorier'],
+            self::tagsOf($this->renderIndex(), 'Antonin Grandjean')
+        );
+    }
+
+    public function testALeadWithoutBadgeShowsOnlyTheResponsableTag(): void
+    {
+        $this->assertSame(['Responsable'], self::tagsOf($this->renderIndex(), 'Antonin Grandjean'));
+    }
+
+    public function testAnOrdinaryAnimateurGetsOneTagPerBadgeAndNoneWithoutBadge(): void
+    {
+        $this->otherStaff = [
+            $this->staffProfile([self::badge(1, 'Infirmier'), self::badge(3, 'Secouriste')], 101, 'Basile', 'Dumont', 'Loutre'),
+            $this->staffProfile([], 102, 'Camille', 'Evrard', 'Faucon'),
+            $this->staffProfile([self::badge(2, 'Trésorier')], 103, 'Damien', 'Fontaine', 'Gazelle'),
+        ];
+        $body = $this->renderIndex();
+
+        $this->assertSame(['Infirmier', 'Secouriste'], self::tagsOf($body, 'Basile Dumont'));
+        $this->assertSame([], self::tagsOf($body, 'Camille Evrard'));
+        $this->assertSame(['Trésorier'], self::tagsOf($body, 'Damien Fontaine'));
+    }
+
+    /**
+     * One badge, one tag. That a member never holds the same badge twice is not
+     * this page's to guarantee: a unique index of the schema does
+     * (MemberBadgeRepositoryTest). This only holds that the card shows what it
+     * was given, once.
+     */
+    public function testOneBadgeIsOneTagBesideResponsable(): void
+    {
+        $this->leadBadges = [self::badge(1, 'Infirmier')];
+
+        $this->assertSame(
+            ['Responsable', 'Infirmier'],
+            self::tagsOf($this->renderIndex(), 'Antonin Grandjean')
+        );
+    }
+
+    public function testABadgeNameIsShownAsTextNeverAsMarkup(): void
+    {
+        $this->leadBadges = [self::badge(1, '<img src=x onerror=alert(1)>')];
+        $body = $this->renderIndex();
+
+        $this->assertStringNotContainsString('<img src=x', $body);
+        $this->assertStringContainsString('&lt;img src=x onerror=alert(1)&gt;', $body);
     }
 
     public function testBreadcrumbReflectsTheSelectedSection(): void
