@@ -429,6 +429,27 @@ describe('config-badges.js', () => {
             expect(names()).toEqual(['Trésorier', 'Zèbre 2']);
         });
 
+        it('does not put a deleted row back when the rename answer arrives after the deletion', async () => {
+            let release;
+            global.fetch = vi.fn(() => new Promise((resolve) => {
+                release = () => resolve({ ok: true, status: 200, json: () => Promise.resolve({ success: true, badge: { id: 4, name: 'Zèbre', is_active: true } }) });
+            }));
+            await boot();
+            const input = customRow().querySelector('.badge-name-input');
+            input.value = 'Zèbre';
+            leave(input);
+            await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
+
+            // The badge is deleted while the rename is still in flight.
+            customRow().remove();
+            release();
+            await vi.waitFor(() => expect(input.disabled).toBe(false));
+
+            expect(customRow()).toBeNull();
+            expect(names()).toEqual(['Trésorier']);
+            expect(window.ScoutMagicToast.show).not.toHaveBeenCalledWith('Enregistré.', expect.anything());
+        });
+
         it('keeps a row in place when it is renamed to a name sorting around the same spot', async () => {
             global.fetch = vi.fn(() => jsonResponse({ success: true, badge: { id: 4, name: 'Infirmière', is_active: true } }));
             await boot();

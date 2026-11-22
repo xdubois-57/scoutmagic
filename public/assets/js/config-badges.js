@@ -149,6 +149,12 @@
         void api.withDisabled(input, function () {
             return api.postJson('/admin/badges/update', { badge_id: badgeIdOf(row), name: input.value });
         }).then(function (res) {
+            // The row was deleted while the rename was on its way: it is not on
+            // the page any more, and putting it back would show a badge the
+            // server no longer has.
+            if (!row.isConnected) {
+                return;
+            }
             if (isSuccess(res)) {
                 var name = typeof res.data?.badge?.name === 'string' ? res.data.badge.name : input.value.trim();
                 input.value = name;
