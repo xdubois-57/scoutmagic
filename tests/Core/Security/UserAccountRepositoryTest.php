@@ -328,6 +328,81 @@ class UserAccountRepositoryTest extends TestCase
         $this->assertTrue($this->repo->hasPassword($other->id), 'Another account keeps its password.');
     }
 
+    /** Review of #1374: whether a password was there is decided by the removal itself. */
+    public function testClearPasswordReportsWhetherThereWasAPasswordToRemove(): void
+    {
+        $with = $this->repo->create('with@test.com');
+        $without = $this->repo->create('without@test.com');
+        $this->repo->updatePasswordHash($with->id, password_hash('x', PASSWORD_DEFAULT));
+        $this->pdo->prepare('UPDATE user_accounts SET sessions_valid_from = NULL WHERE id = ?')->execute([$without->id]);
+
+        $this->assertTrue($this->repo->clearPassword($with->id));
+        $this->assertFalse($this->repo->clearPassword($with->id), 'nothing left to remove');
+        $this->assertFalse($this->repo->clearPassword($without->id));
+        $this->assertNull($this->repo->findById($without->id)?->sessionsValidFrom, 'an account without one is untouched');
+    }
+
+    /**
+     * Review of #1374: a password written by a session that « Déconnecter
+     * partout » revoked meanwhile is refused — the write itself checks, so the
+     * sign-out and the write cannot both win.
+     */
+    public function testAPasswordWrittenFromARevokedSessionIsRefused(): void
+    {
+        $account = $this->repo->create('race@test.com');
+        $issuedAt = time() - 60;
+
+        $this->repo->revokeSessions($account->id);
+
+        $this->assertFalse($this->repo->updatePasswordHashFromSession(
+            $account->id,
+            password_hash('Late-write-1', PASSWORD_DEFAULT),
+            $issuedAt
+        ));
+        $this->assertFalse($this->repo->hasPassword($account->id));
+    }
+
+    public function testAPasswordIsWrittenFromASessionIssuedAtOrAfterTheStamp(): void
+    {
+        $account = $this->repo->create('fresh@test.com');
+        $this->pdo->prepare('UPDATE user_accounts SET sessions_valid_from = ? WHERE id = ?')
+            ->execute([date('Y-m-d H:i:s', time() - 30), $account->id]);
+
+        // Issued exactly at the stamp: not revoked, as SessionRevalidator reads it.
+        $this->assertTrue($this->repo->updatePasswordHashFromSession(
+            $account->id,
+            password_hash('Written-1', PASSWORD_DEFAULT),
+            time() - 30
+        ));
+        $this->assertTrue($this->repo->hasPassword($account->id));
+        $this->assertNotNull($this->repo->findById($account->id)?->passwordChangedAt);
+    }
+
+    public function testAPasswordIsWrittenFromASessionWhenNothingWasEverRevoked(): void
+    {
+        $account = $this->repo->create('never@test.com');
+        $this->pdo->prepare('UPDATE user_accounts SET sessions_valid_from = NULL WHERE id = ?')->execute([$account->id]);
+
+        $this->assertTrue($this->repo->updatePasswordHashFromSession(
+            $account->id,
+            password_hash('Written-1', PASSWORD_DEFAULT),
+            time() - 3600
+        ));
+    }
+
+    /** A session with no issue time cannot be shown to be newer than any stamp. */
+    public function testASessionWithNoIssueTimeCannotWriteAPassword(): void
+    {
+        $account = $this->repo->create('legacy@test.com');
+
+        $this->assertFalse($this->repo->updatePasswordHashFromSession(
+            $account->id,
+            password_hash('x', PASSWORD_DEFAULT),
+            null
+        ));
+        $this->assertFalse($this->repo->hasPassword($account->id));
+    }
+
     public function testDeactivateNeverRemovesTheRow(): void
     {
         $account = $this->repo->create('admin@test.com', true);

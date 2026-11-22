@@ -296,7 +296,19 @@ class AccountController extends AbstractController
 
         $hash = password_hash($newPassword, PASSWORD_DEFAULT);
         // Revokes every session for this account (see updatePasswordHash())...
-        $this->userAccountRepo->updatePasswordHash($userId, $hash);
+        // unless THIS session was revoked while the request was running —
+        // « Déconnecter partout » from another tab — in which case the write
+        // is refused: a password must not survive a sign-out everywhere that
+        // ran first (review of #1374).
+        if (!$this->userAccountRepo->updatePasswordHashFromSession($userId, $hash, AuthSession::getIssuedAt())) {
+            AuthSession::logout();
+            FlashMessage::set(
+                'error',
+                'Votre session a été fermée pendant cette opération : le mot de passe n\'a pas été modifié. '
+                    . 'Reconnectez-vous avec le lien envoyé par e-mail.'
+            );
+            return $this->redirect('/login');
+        }
         // ...including this one, so re-stamp the tab the member is actually
         // using: they stay signed in here, everywhere else is signed out.
         AuthSession::refreshIssuedAt();
@@ -436,10 +448,14 @@ class AccountController extends AbstractController
         }
 
         $keepPassword = (string) $request->getBody('keep_password', '') === '1';
-        $removePassword = !$keepPassword && $this->userAccountRepo->hasPassword($userId);
-        if ($removePassword) {
-            $this->userAccountRepo->clearPassword($userId);
-        }
+        // Sessions first, password second: another session of the account that
+        // is setting a password right now either wrote it before this stamp —
+        // and the removal below finds it — or is refused by it
+        // (UserAccountRepository::updatePasswordHashFromSession()). Reading
+        // « has a password? » first and removing afterwards left a window in
+        // which a password written in between survived (review of #1374).
+        $this->userAccountRepo->revokeSessions($userId);
+        $removePassword = !$keepPassword && $this->userAccountRepo->clearPassword($userId);
 
         $this->accessRevoker?->revoke(
             $userId,

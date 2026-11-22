@@ -307,6 +307,9 @@ class AccountControllerTest extends TestCase
         // Set initial password
         $hash = password_hash('OldPassword', PASSWORD_DEFAULT);
         $this->userRepo->updatePasswordHash($this->userId, $hash);
+        // The session was issued before this fixture's stamp: re-issue it, as a
+        // real request is revalidated against the stamp on every click.
+        AuthSession::refreshIssuedAt();
 
         $csrfToken = CsrfGuard::generateToken();
 
@@ -331,6 +334,9 @@ class AccountControllerTest extends TestCase
         // Set initial password
         $hash = password_hash('CorrectPassword', PASSWORD_DEFAULT);
         $this->userRepo->updatePasswordHash($this->userId, $hash);
+        // The session was issued before this fixture's stamp: re-issue it, as a
+        // real request is revalidated against the stamp on every click.
+        AuthSession::refreshIssuedAt();
 
         $csrfToken = CsrfGuard::generateToken();
 
@@ -457,6 +463,9 @@ class AccountControllerTest extends TestCase
     public function testAFailedPasswordChangeRevokesNothing(): void
     {
         $this->userRepo->updatePasswordHash($this->userId, password_hash('CurrentP@ss1', PASSWORD_DEFAULT));
+        // The session was issued before this fixture's stamp: re-issue it, as a
+        // real request is revalidated against the stamp on every click.
+        AuthSession::refreshIssuedAt();
         $stampBefore = $this->userRepo->findById($this->userId)->sessionsValidFrom;
         $this->assertNotNull($stampBefore);
 
@@ -618,6 +627,9 @@ class AccountControllerTest extends TestCase
     public function testChangingThePasswordAlertsTheHolder(): void
     {
         $this->userRepo->updatePasswordHash($this->userId, password_hash('OldPassword', PASSWORD_DEFAULT));
+        // The session was issued before this fixture's stamp: re-issue it, as a
+        // real request is revalidated against the stamp on every click.
+        AuthSession::refreshIssuedAt();
         $controller = $this->controllerWithAlerts();
 
         $controller->updatePassword(new Request('POST', '/account/password', [], [
@@ -638,6 +650,9 @@ class AccountControllerTest extends TestCase
     public function testARefusedPasswordChangeAlertsNobody(): void
     {
         $this->userRepo->updatePasswordHash($this->userId, password_hash('OldPassword', PASSWORD_DEFAULT));
+        // The session was issued before this fixture's stamp: re-issue it, as a
+        // real request is revalidated against the stamp on every click.
+        AuthSession::refreshIssuedAt();
         $controller = $this->controllerWithAlerts();
 
         $controller->updatePassword(new Request('POST', '/account/password', [], [
@@ -901,6 +916,9 @@ class AccountControllerTest extends TestCase
     public function testAPasswordChangeWithTheCurrentPasswordWorksHoweverOldTheLogin(): void
     {
         $this->userRepo->updatePasswordHash($this->userId, password_hash('OldPassword', PASSWORD_DEFAULT));
+        // The session was issued before this fixture's stamp: re-issue it, as a
+        // real request is revalidated against the stamp on every click.
+        AuthSession::refreshIssuedAt();
         $this->makeLastLoginStale();
         $controller = $this->controllerWithAlerts();
 
@@ -921,6 +939,9 @@ class AccountControllerTest extends TestCase
     public function testAWrongCurrentPasswordIsNoFreshProof(): void
     {
         $this->userRepo->updatePasswordHash($this->userId, password_hash('OldPassword', PASSWORD_DEFAULT));
+        // The session was issued before this fixture's stamp: re-issue it, as a
+        // real request is revalidated against the stamp on every click.
+        AuthSession::refreshIssuedAt();
         $this->makeLastLoginStale();
 
         $this->controller->updatePassword(new Request('POST', '/account/password', [], [
@@ -1070,6 +1091,54 @@ class AccountControllerTest extends TestCase
         $this->assertTrue($this->userRepo->findById($this->userId)?->isActive);
         $this->assertTrue($this->journaledAccessRevocation()['password_removed']);
         $this->assertStringContainsString('mot de passe retiré', $this->flashedMessage());
+    }
+
+    /**
+     * Review of #1374: « Déconnecter partout » ran in one tab while another
+     * session of the account — authenticated before the stamp — was setting a
+     * FIRST password. Whatever the interleaving, no password may survive: here
+     * the sign-out went first, so the late write is refused.
+     */
+    public function testAFirstPasswordWrittenAfterASignOutEverywhereFromAnOlderSessionIsRefused(): void
+    {
+        $otherTab = $_SESSION['_auth'];
+        $otherTab['issued_at'] = time() - 60;
+
+        $this->controllerWithRevoker(new \Core\Contact\Device\DeviceCredentialRepository($this->pdo))
+            ->signOutEverywhere($this->signOutRequest(), []);
+        $this->assertFalse($this->userRepo->hasPassword($this->userId));
+
+        // The other tab's request, which had already passed its checks.
+        $_SESSION['_auth'] = $otherTab;
+        $request = new Request('POST', '/account/password', [], [
+            '_csrf_token' => CsrfGuard::generateToken(),
+            'new_password' => 'MySecureP@ss1',
+            'confirm_password' => 'MySecureP@ss1',
+        ], [], []);
+        $response = $this->controller->updatePassword($request, []);
+
+        $this->assertSame('/login', $response->getHeaders()['Location'] ?? null);
+        $this->assertFalse($this->userRepo->hasPassword($this->userId), 'no password survives the sign-out');
+        $this->assertFalse(AuthSession::isAuthenticated());
+        $this->assertStringContainsString('session a été fermée', $this->flashedMessage());
+    }
+
+    /** The other interleaving: the password was written first, the sign-out finds and removes it. */
+    public function testAFirstPasswordWrittenJustBeforeASignOutEverywhereIsRemovedByIt(): void
+    {
+        $request = new Request('POST', '/account/password', [], [
+            '_csrf_token' => CsrfGuard::generateToken(),
+            'new_password' => 'MySecureP@ss1',
+            'confirm_password' => 'MySecureP@ss1',
+        ], [], []);
+        $this->controller->updatePassword($request, []);
+        $this->assertTrue($this->userRepo->hasPassword($this->userId));
+
+        $this->controllerWithRevoker(new \Core\Contact\Device\DeviceCredentialRepository($this->pdo))
+            ->signOutEverywhere($this->signOutRequest(), []);
+
+        $this->assertFalse($this->userRepo->hasPassword($this->userId));
+        $this->assertTrue($this->journaledAccessRevocation()['password_removed']);
     }
 
     public function testSignOutEverywhereKeepsThePasswordWhenAskedTo(): void
