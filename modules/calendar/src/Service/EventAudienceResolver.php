@@ -66,17 +66,20 @@ class EventAudienceResolver
 
         if ($calendar->sectionId === null) {
             return array_values(array_unique(match ($calendar->visibility) {
-                Calendar::VISIBILITY_ADMIN => $this->accounts->findStaffAndSuperAdminIds($years, ['admin']),
-                Calendar::VISIBILITY_CHIEF => $this->accounts->findStaffAndSuperAdminIds($years),
+                Calendar::VISIBILITY_ADMIN => $this->sectionAccounts->cadreAccountIds($years, ['admin']),
+                Calendar::VISIBILITY_CHIEF => $this->sectionAccounts->cadreAccountIds($years),
                 default => $this->accounts->findAllIds(),
             }));
         }
 
         $linked = $this->sectionAccounts->accountIdsLinkedToSections([$calendar->sectionId], $years);
 
+        // The role filter follows the same two addresses as the link — Desk and
+        // confirmed secondary — so a chef who signs in by a secondary address is
+        // both linked and allowed (review of #1379).
         $allowed = match ($calendar->visibility) {
-            Calendar::VISIBILITY_ADMIN => $this->accounts->findStaffAndSuperAdminIds($years, ['admin']),
-            Calendar::VISIBILITY_CHIEF => $this->accounts->findStaffAndSuperAdminIds($years),
+            Calendar::VISIBILITY_ADMIN => $this->sectionAccounts->cadreAccountIds($years, ['admin']),
+            Calendar::VISIBILITY_CHIEF => $this->sectionAccounts->cadreAccountIds($years),
             default => null,
         };
 

@@ -1131,6 +1131,28 @@ class AlbumServiceTest extends TestCase
         $this->assertCount(1, $notifications->findByUserAccountId($chief));
     }
 
+    /** Review of #1379: a linked chef reached by a secondary address still opens, and is told of, an old album. */
+    public function testAnOldAlbumIsAnnouncedToALinkedChiefReachedBySecondaryAddress(): void
+    {
+        [$service, $notifications, $accounts] = $this->publishingService();
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date) VALUES ('2019-2020', '2019-09-01', '2020-08-31')");
+        $oldYear = (int) $this->pdo->lastInsertId();
+        $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date) VALUES ('2024-2025', '2024-09-01', '2025-08-31')");
+        $chief = $accounts->create('chief-login@test.com')->id;
+        $oldMember = $this->memberHolding('family@test.com', $this->sectionId, 'chief', $oldYear);
+        $this->memberHolding('family@test.com', $this->sectionId, 'chief');
+        $currentMember = (int) $this->pdo->query('SELECT MAX(id) FROM members')->fetchColumn();
+        $emails = new \Core\Member\MemberEmailRepository($this->pdo, $encryption);
+        foreach ([$oldMember, $currentMember] as $memberId) {
+            $emails->create($memberId, 'chief-login@test.com', \Core\Member\MemberEmail::SOURCE_MANUAL, \Core\Member\MemberEmail::STATUS_VALID, null, null);
+        }
+
+        $this->publish($service, $this->sectionId, '2019-11-15');
+
+        $this->assertCount(1, $notifications->findByUserAccountId($chief));
+    }
+
     /** A unit-wide album keeps its audience: every account. */
     public function testAnAlbumWithoutASectionIsStillAnnouncedToTheWholeUnit(): void
     {

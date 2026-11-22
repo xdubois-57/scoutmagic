@@ -238,6 +238,16 @@ final class EventAudienceResolverTest extends TestCase
         $this->assertNotContains($super, $audience);
     }
 
+    /** Review of #1379: a chef who signs in by a confirmed secondary address is linked AND allowed. */
+    public function testAChiefReachedBySecondaryAddressIsToldOnAChiefOnlyCalendar(): void
+    {
+        $member = $this->member('family@test.be', $this->goelands, $this->chiefFunction);
+        $chief = $this->account('chief-login@test.be');
+        $this->secondary->create($member, 'chief-login@test.be', MemberEmail::SOURCE_MANUAL, MemberEmail::STATUS_VALID, null, null);
+
+        $this->assertSame([$chief], $this->audience($this->sectionCalendar($this->goelands, Calendar::VISIBILITY_CHIEF)));
+    }
+
     public function testAnAdminOnlySectionCalendarTellsLinkedAdministratorsOnly(): void
     {
         $linkedAdmin = $this->account('admin@test.be');
@@ -279,6 +289,17 @@ final class EventAudienceResolverTest extends TestCase
         $this->assertSame([$chief, $admin, $super], $this->audience($chiefs));
         $this->assertSame([$admin, $super], $this->audience($admins));
         $this->assertNotContains($parent, $this->audience($chiefs), 'the title of a staff meeting is not for parents');
+    }
+
+    /** The same two addresses for a supplementary calendar reserved to the cadres. */
+    public function testASupplementaryChiefCalendarReachesAChiefBySecondaryAddress(): void
+    {
+        $member = $this->member('family@test.be', $this->goelands, $this->chiefFunction);
+        $chief = $this->account('chief-login@test.be');
+        $this->secondary->create($member, 'chief-login@test.be', MemberEmail::SOURCE_MANUAL, MemberEmail::STATUS_VALID, null, null);
+        $chiefs = $this->calendars->createSupplementaryCalendar('Animateurs', true, Calendar::VISIBILITY_CHIEF, 't9');
+
+        $this->assertSame([$chief], $this->audience($chiefs));
     }
 
     /**

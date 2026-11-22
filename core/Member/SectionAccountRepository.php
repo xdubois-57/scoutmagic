@@ -94,4 +94,58 @@ class SectionAccountRepository
 
         return array_values(array_unique($ids));
     }
+
+    /**
+     * The cadres of the years, and the super-administrators: the accounts
+     * reached — by the Desk address OR a confirmed secondary address — that
+     * hold a function whose confirmed role is one of `$roles`.
+     *
+     * The role filter of a notification that a link alone does not decide
+     * (a calendar reserved to the chefs, an album older than the previous
+     * year). It follows the same two roads as accountIdsLinkedToSections():
+     * `UserAccountRepository::findStaffAndSuperAdminIds()` joins by the Desk
+     * address only, so intersecting the two dropped a chef who signs in by a
+     * secondary address — linked, and never « allowed » (review of #1379).
+     *
+     * @param int[] $scoutYearIds
+     * @param list<string> $roles the confirmed function roles that count
+     * @return list<int> ascending
+     */
+    public function cadreAccountIds(array $scoutYearIds, array $roles = ['chief', 'admin']): array
+    {
+        $ids = [];
+
+        $scoutYearIds = array_values(array_unique(array_map('intval', $scoutYearIds)));
+        if ($scoutYearIds !== [] && $roles !== []) {
+            $years = implode(',', array_fill(0, count($scoutYearIds), '?'));
+            $rolePlaceholders = implode(',', array_fill(0, count($roles), '?'));
+            $stmt = $this->pdo->prepare(
+                "SELECT ua.id
+                   FROM user_accounts ua
+                   JOIN member_years my ON my.email_blind_index = ua.email_blind_index
+                   JOIN member_functions mf ON mf.member_year_id = my.id
+                   JOIN functions f ON f.id = mf.function_id
+                  WHERE my.scout_year_id IN ({$years}) AND my.is_active = 1 AND f.role IN ({$rolePlaceholders})
+                 UNION
+                 SELECT ua.id
+                   FROM user_accounts ua
+                   JOIN member_emails me ON me.email_blind_index = ua.email_blind_index
+                    AND me.status = 'valid' AND me.source = 'manual'
+                   JOIN member_years my ON my.member_id = me.member_id
+                   JOIN member_functions mf ON mf.member_year_id = my.id
+                   JOIN functions f ON f.id = mf.function_id
+                  WHERE my.scout_year_id IN ({$years}) AND my.is_active = 1 AND f.role IN ({$rolePlaceholders})"
+            );
+            $stmt->execute([...$scoutYearIds, ...$roles, ...$scoutYearIds, ...$roles]);
+            $ids = array_map(static fn (array $row): int => (int) $row['id'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
+        }
+
+        $superAdmins = $this->pdo->query('SELECT id FROM user_accounts WHERE is_super_admin = 1');
+        \assert($superAdmins !== false);
+        $ids = [...$ids, ...array_map(static fn (array $row): int => (int) $row['id'], $superAdmins->fetchAll(\PDO::FETCH_ASSOC))];
+        $ids = array_values(array_unique($ids));
+        sort($ids);
+
+        return $ids;
+    }
 }

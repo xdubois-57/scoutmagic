@@ -318,7 +318,7 @@ class AlbumService
             if (!in_array($album->scoutYearId, $periodYears, true)) {
                 $recipientIds = array_values(array_intersect(
                     $recipientIds,
-                    $this->userAccountRepository->findStaffAndSuperAdminIds($periodYears)
+                    $this->sectionAccounts->cadreAccountIds($periodYears)
                 ));
             }
         }

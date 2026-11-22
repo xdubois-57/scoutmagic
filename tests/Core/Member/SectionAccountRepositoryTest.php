@@ -232,4 +232,42 @@ final class SectionAccountRepositoryTest extends TestCase
 
         $this->assertSame([], $this->linked([$this->goelands]));
     }
+
+    /**
+     * The cadres, reached the way login reaches them: through the Desk address
+     * OR a confirmed secondary address (review of #1379). The role filter used
+     * by the notifications must follow the same two roads as the link, or a
+     * chef who signs in by a secondary address is « linked » yet never
+     * « allowed ».
+     */
+    public function testTheCadresIncludeThoseReachedByAConfirmedSecondaryAddress(): void
+    {
+        $this->pdo->exec("INSERT INTO functions (desk_code, label, role, confirmed) VALUES ('CHE', 'Chef', 'chief', 1)");
+        $chiefFunction = (int) $this->pdo->lastInsertId();
+        $this->pdo->exec("INSERT INTO functions (desk_code, label, role, confirmed) VALUES ('CU', 'Chef d unité', 'admin', 1)");
+        $adminFunction = (int) $this->pdo->lastInsertId();
+        $desk = $this->account('desk-chief@test.be');
+        $this->member('desk-chief@test.be', $this->goelands, function: $chiefFunction);
+        $viaSecondary = $this->account('secondary-chief@test.be');
+        $chiefMember = $this->member('family-chief@test.be', $this->goelands, function: $chiefFunction);
+        $this->secondary->create($chiefMember['member'], 'secondary-chief@test.be', MemberEmail::SOURCE_MANUAL, MemberEmail::STATUS_VALID, null, null);
+        $pending = $this->account('pending-chief@test.be');
+        $this->secondary->create($chiefMember['member'], 'pending-chief@test.be', MemberEmail::SOURCE_MANUAL, MemberEmail::STATUS_PENDING, null, null);
+        $parent = $this->account('parent@test.be');
+        $this->member('parent@test.be', $this->goelands);
+        $admin = $this->account('admin@test.be');
+        $this->member('admin@test.be', $this->pionniers, function: $adminFunction);
+        $super = $this->account('super@test.be');
+        $this->pdo->prepare('UPDATE user_accounts SET is_super_admin = 1 WHERE id = ?')->execute([$super]);
+
+        $cadres = $this->resolver->cadreAccountIds([$this->year]);
+        sort($cadres);
+        $this->assertSame([$desk, $viaSecondary, $admin, $super], $cadres);
+        $this->assertNotContains($pending, $cadres);
+        $this->assertNotContains($parent, $cadres);
+
+        $admins = $this->resolver->cadreAccountIds([$this->year], ['admin']);
+        sort($admins);
+        $this->assertSame([$admin, $super], $admins);
+    }
 }
