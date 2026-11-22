@@ -66,4 +66,7 @@ Le module Téléphone d'urgence signale :
 - **un GSM du Staff d'U qui n'est pas un numéro de téléphone** dans
   Desk : ces personnes ne peuvent pas recevoir les appels, ni de garde
   ni comme numéro par défaut. Le point
-  disparaît après correction dans Desk et réimport.
+  disparaît après correction dans Desk et réimport ;
+- **la personne de garde injoignable** (urgent) : son GSM dans Desk n'est
+  pas un numéro valide : le numéro SOS ne peut pas lui être redirigé (il
+  reste sur le numéro par défaut). Le point la nomme et disparaît après correction et réimport.

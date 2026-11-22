@@ -105,13 +105,14 @@
                         </p>
                         {# Shown ONLY when saving would really change who the
                            line rings today, i.e. when today has no explicit
-                           on-call and the default number governs it. A
+                           on-call, or an on-call whose Desk GSM is no phone number, and the
+                           default number governs it. A
                            permanent warning that is wrong half the time ends
                            up ignored. #}
                         {% if today_uses_default_number %}
                             <p class="text-warning-emphasis small mt-1 mb-0" id="default-number-immediate-warning">
                                 <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
-                                Aujourd'hui n'a pas de garde attribuée : enregistrer ce numéro redirigera les appels immédiatement
+                                Aujourd'hui n'a pas de garde attribuée (ou la personne de garde n'a pas de GSM valide) : enregistrer ce numéro redirigera les appels immédiatement
                                 et préviendra les personnes concernées par e-mail.
                             </p>
                         {% endif %}

@@ -111,6 +111,35 @@ class SosAttentionProviderTest extends TestCase
         $this->assertStringContainsString('La personne choisie', $points[0]->why);
     }
 
+    /**
+     * Issue #1260: the person on duty cannot be reached on their Desk GSM, so
+     * the calls go to the default number. The line itself is right — the
+     * point stays URGENT regardless, because nobody has the duty phone that
+     * was planned, and it names the member and never the number.
+     */
+    public function testAnUnreachablePersonOnDutyIsUrgentAndNamedWithoutTheirNumber(): void
+    {
+        $points = $this->points($this->createStub(PhoneProviderInterface::class), null, function ($settings): void {
+            $settings->method('unreachablePlannedMemberId')->willReturn(3);
+            $settings->method('labelForMember')->willReturn('Baloo (Paul Martin)');
+        });
+
+        $this->assertCount(1, $points);
+        $this->assertSame(AttentionPoint::SEVERITY_URGENT, $points[0]->severity);
+        $this->assertStringContainsString('Baloo (Paul Martin)', $points[0]->why);
+        $this->assertStringContainsString('numéro par défaut', $points[0]->why);
+        $this->assertSame('/admin/sos', $points[0]->actionUrl);
+    }
+
+    public function testNoUnreachablePersonRaisesNothingOfTheKind(): void
+    {
+        $points = $this->points($this->createStub(PhoneProviderInterface::class), null, function ($settings): void {
+            $settings->method('unreachablePlannedMemberId')->willReturn(null);
+        });
+
+        $this->assertSame([], $points);
+    }
+
     public function testUnusableGsmsAreNamed(): void
     {
         $points = $this->points($this->createStub(PhoneProviderInterface::class), null, function ($settings): void {
