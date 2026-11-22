@@ -266,8 +266,12 @@
     }
 
     function addBadge() {
+        // What is posted, so that the field is only emptied if it still holds it:
+        // the field is not locked (the next name may be typed while the answer is
+        // on its way), and wiping that text would lose it.
+        var posted = newNameInput.value;
         void api.withDisabled(addBtn, function () {
-            return api.postJson('/admin/badges/add', { name: newNameInput.value });
+            return api.postJson('/admin/badges/add', { name: posted });
         }).then(function (res) {
             var badge = res.data?.badge;
             var row = isSuccess(res) && badge && Number.isInteger(badge.id) ? buildRow(badge) : null;
@@ -279,7 +283,9 @@
             }
             list?.appendChild(row);
             placeRow(row);
-            newNameInput.value = '';
+            if (newNameInput.value === posted) {
+                newNameInput.value = '';
+            }
             toastSuccess('Badge ajouté.');
         });
     }

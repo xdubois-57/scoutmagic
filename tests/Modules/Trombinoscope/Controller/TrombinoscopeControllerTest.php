@@ -328,7 +328,12 @@ class TrombinoscopeControllerTest extends TestCase
         $this->assertSame(['Trésorier'], self::tagsOf($body, 'Damien Fontaine'));
     }
 
-    public function testTheSameBadgeIsNeverShownTwiceOnACard(): void
+    /**
+     * One badge, one tag. That a member never holds the same badge twice is not
+     * this page's to guarantee — it is the loading's (SectionServiceTest) — so
+     * this only holds that the card shows what it was given, once.
+     */
+    public function testOneBadgeIsOneTagBesideResponsable(): void
     {
         $this->leadBadges = [self::badge(1, 'Infirmier')];
 

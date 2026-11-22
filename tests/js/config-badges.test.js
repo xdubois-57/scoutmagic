@@ -553,6 +553,25 @@ describe('config-badges.js', () => {
             expect(window.ScoutMagicToast.show).toHaveBeenCalledWith('Badge supprimé.', { variant: 'success' });
         });
 
+        it('keeps what was typed for the next badge while the answer to the previous one was on its way', async () => {
+            let release;
+            global.fetch = vi.fn(() => new Promise((resolve) => {
+                release = () => resolve({ ok: true, status: 200, json: () => Promise.resolve(created) });
+            }));
+            await boot();
+            const field = document.getElementById('new-badge-name');
+            field.value = 'Communication';
+            document.getElementById('badge-add-btn').click();
+            await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
+
+            field.value = 'Jardinage'; // the next name, typed while the request is in flight
+            release();
+
+            await vi.waitFor(() => expect(newRow()).not.toBeNull());
+            expect(field.value).toBe('Jardinage');
+            expect(lastRequest().body.name).toBe('Communication');
+        });
+
         it('inserts nothing and toasts the error when the name is refused', async () => {
             await addCommunication({ success: false, error: 'Nom invalide.' });
 
