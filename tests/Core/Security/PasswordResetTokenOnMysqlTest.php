@@ -36,6 +36,77 @@ final class PasswordResetTokenOnMysqlTest extends TestCase
         $this->assertTrue($second->findById($id)?->used);
     }
 
+    /**
+     * Review of #1374, in two processes: another request holds the token's row
+     * and rolls back AFTER the link has lapsed. The claim that waited on that
+     * lock must be judged by the time it gets the row, not by the time it
+     * started waiting — or it consumes an expired link and the password it
+     * guards is set after expiry.
+     */
+    public function testAClaimThatWaitedOnTheRowIsJudgedAtTheTimeItGetsIt(): void
+    {
+        $pdo = $this->productionEngine();
+        $repository = new PasswordResetRepository($pdo);
+        $id = $repository->create(str_repeat('f', 64), 'hash', new \DateTimeImmutable('+2 seconds'));
+
+        $other = $this->processHoldingTheRowPastExpiry($pdo, $id);
+        try {
+            $this->assertFalse(
+                $repository->markUsed($id),
+                'the link lapsed while this claim waited for the row: it must not be consumed'
+            );
+        } finally {
+            $this->assertSame("ROLLED BACK\n", stream_get_contents($other['out']));
+            proc_close($other['process']);
+        }
+        $this->assertFalse($repository->findById($id)?->used);
+    }
+
+    /**
+     * A second PHP process locking the token's row, keeping it for four
+     * seconds — past the token's two-second life — then rolling back.
+     * Returned once it holds the lock, so the caller's next gesture is the one
+     * that waits.
+     *
+     * @return array{process: resource, out: resource}
+     */
+    private function processHoldingTheRowPastExpiry(\PDO $pdo, int $id): array
+    {
+        $credentials = self::productionEngineCredentials();
+        $code = <<<'PHP'
+            require 'vendor/autoload.php';
+            [, $host, $port, $database, $user, $password, $id] = $argv;
+            $pdo = (new Core\Database\Connection($host, (int) $port, $database, $user, $password))->getPdo();
+            $pdo->beginTransaction();
+            $pdo->prepare('SELECT id FROM password_reset_tokens WHERE id = ? FOR UPDATE')->execute([(int) $id]);
+            fwrite(STDOUT, "LOCKED\n");
+            fflush(STDOUT);
+            sleep(4);
+            $pdo->rollBack();
+            fwrite(STDOUT, "ROLLED BACK\n");
+            PHP;
+
+        $process = proc_open(
+            [
+                PHP_BINARY, '-r', $code, '--',
+                $credentials['host'], (string) $credentials['port'],
+                (string) $pdo->query('SELECT DATABASE()')->fetchColumn(),
+                $credentials['user'], $credentials['password'], (string) $id,
+            ],
+            [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+            $pipes,
+            dirname(__DIR__, 3)
+        );
+        $this->assertIsResource($process);
+
+        $line = fgets($pipes[1]);
+        if ($line !== "LOCKED\n") {
+            $this->fail('the second process did not take the row: ' . $line . stream_get_contents($pipes[2]));
+        }
+
+        return ['process' => $process, 'out' => $pipes[1]];
+    }
+
     public function testAnExpiredTokenCannotBeClaimedAndAnUnknownOneNeither(): void
     {
         $repository = new PasswordResetRepository($this->productionEngine());

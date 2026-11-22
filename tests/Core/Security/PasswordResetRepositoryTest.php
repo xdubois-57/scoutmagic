@@ -98,6 +98,38 @@ class PasswordResetRepositoryTest extends TestCase
         $this->assertFalse($this->repo->findById($id)?->used);
     }
 
+    /**
+     * Review of #1374: the time the claim is judged against is taken once the
+     * row is locked — in the transaction that holds the lock — not before the
+     * statement that may have to wait for it.
+     */
+    public function testMarkUsedReadsTheClockOnceTheRowIsLocked(): void
+    {
+        $inTransactionWhenRead = [];
+        $repo = new PasswordResetRepository($this->pdo, function () use (&$inTransactionWhenRead): \DateTimeImmutable {
+            $inTransactionWhenRead[] = $this->pdo->inTransaction();
+
+            return new \DateTimeImmutable();
+        });
+        $id = $repo->create(str_repeat('c', 64), 'hash', new \DateTimeImmutable('+60 minutes'));
+
+        $this->assertTrue($repo->markUsed($id));
+        $this->assertSame([true], $inTransactionWhenRead);
+        $this->assertFalse($this->pdo->inTransaction(), 'and the transaction it opened is closed');
+    }
+
+    /** The expiry is compared with the time read at the write, however long ago the request began. */
+    public function testMarkUsedJudgesTheExpiryAtTheTimeOfTheWrite(): void
+    {
+        $at = new \DateTimeImmutable('2030-01-01 12:00:00');
+        $repo = new PasswordResetRepository($this->pdo, static fn(): \DateTimeImmutable => $at->modify('+2 minutes'));
+        $stillLive = $repo->create(str_repeat('c', 64), 'a', $at->modify('+3 minutes'));
+        $lapsed = $repo->create(str_repeat('d', 64), 'b', $at->modify('+1 minute'));
+
+        $this->assertTrue($repo->markUsed($stillLive));
+        $this->assertFalse($repo->markUsed($lapsed), 'lapsed before the write: not consumed');
+    }
+
     public function testCountRecentByEmail(): void
     {
         $blindIndex = str_repeat('d', 64);
