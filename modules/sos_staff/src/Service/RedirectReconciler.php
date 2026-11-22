@@ -84,7 +84,12 @@ class RedirectReconciler
     /**
      * @param string $trigger what asked, for the journal (« planning »,
      *        « default_number », « hourly », « retry »)
-     * @return array{status: string, expected_member_id: ?int, expected_number: ?string, unreachable_member_id: ?int}
+     * @return array{
+     *   status: string,
+     *   expected_member_id: ?int,
+     *   expected_number: ?string,
+     *   unreachable_member_id: ?int
+     * }
      */
     public function reconcile(int $scoutYearId, string $trigger): array
     {

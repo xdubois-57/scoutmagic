@@ -1038,7 +1038,12 @@ class SosAdminController extends AbstractController
      * change (issue #1102) — « Enregistré » alone was also what the page
      * said while the line rang for somebody taken off duty.
      *
-     * @param array{status: string, expected_member_id: ?int, expected_number: ?string, unreachable_member_id: ?int} $reconciled
+     * @param array{
+     *   status: string,
+     *   expected_member_id: ?int,
+     *   expected_number: ?string,
+     *   unreachable_member_id: ?int
+     * } $reconciled
      */
     private function destinationMessage(array $reconciled, int $scoutYearId): string
     {
@@ -1116,7 +1121,12 @@ class SosAdminController extends AbstractController
      * or hourly check arms. Without them a failure on save waited for the
      * next hourly pass.
      *
-     * @return array{status: string, expected_member_id: ?int, expected_number: ?string, unreachable_member_id: ?int}
+     * @return array{
+     *   status: string,
+     *   expected_member_id: ?int,
+     *   expected_number: ?string,
+     *   unreachable_member_id: ?int
+     * }
      */
     private function reconcileAndRetry(int $scoutYearId, string $trigger): array
     {

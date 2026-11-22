@@ -124,9 +124,9 @@ class SosAttentionProvider implements AttentionPointProvider
 
         return new AttentionPoint(
             title: "Le GSM de la personne de garde n'est pas valide",
-            why: $who . " est de garde, mais son GSM dans Desk n'est pas un numéro de téléphone valide : les "
-                . 'appels du numéro SOS vont au numéro par défaut, pas à son téléphone. Corrigez le GSM dans Desk, '
-                . 'puis réimportez.',
+            why: $who . " est de garde, mais son GSM dans Desk n'est pas un numéro de téléphone valide : "
+                . 'les appels du numéro SOS vont au numéro par défaut, pas à son téléphone. '
+                . 'Corrigez le GSM dans Desk, puis réimportez.',
             actionLabel: "Voir le téléphone d'urgence",
             actionUrl: '/admin/sos',
             severity: AttentionPoint::SEVERITY_URGENT

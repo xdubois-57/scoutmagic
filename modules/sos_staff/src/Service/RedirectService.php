@@ -231,7 +231,10 @@ class RedirectService
     public function resolveDestination(?int $memberId, int $scoutYearId): array
     {
         if ($memberId === null) {
-            return ['number' => $this->settingsService->getDefaultNumber($scoutYearId), 'unreachable_member_id' => null];
+            return [
+                'number' => $this->settingsService->getDefaultNumber($scoutYearId),
+                'unreachable_member_id' => null,
+            ];
         }
 
         $mobile = $this->memberService->findProfileByMemberAndYear($memberId, $scoutYearId)?->mobile;
