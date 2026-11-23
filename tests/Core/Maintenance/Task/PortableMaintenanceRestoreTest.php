@@ -495,10 +495,17 @@ final class PortableMaintenanceRestoreTest extends TestCase
 
         $this->assertNotSame([], $this->journalEntries('backup_restore_rolled_back'));
         $this->assertSame([], $this->journalEntries('backup_restore_rollback_failed'));
-        // Pinned, not endorsed: the line that carried the error is written
-        // before the rollback restores the safety dump, which predates it,
-        // so a rollback that succeeds also erases why it was needed.
+        // The line that carried the error is written before the rollback
+        // restores the safety dump, which predates it, so it goes with the
+        // rolled-back database (#1229): the cause lives in the rolled-back
+        // entry, written after.
         $this->assertSame([], $this->journalEntries('backup_restore_failed'));
+        $rolledBack = $this->journalEntries('backup_restore_rolled_back');
+        $this->assertNotSame(
+            '',
+            (string) (json_decode((string) $rolledBack[0]['context'], true)['error'] ?? ''),
+            'a rollback that succeeds must still say why it was needed'
+        );
 
         $this->assertSame($keyBefore, file_get_contents($this->siteBase . '/storage/keys/master.key'));
         $restored = (new SecretManager(
