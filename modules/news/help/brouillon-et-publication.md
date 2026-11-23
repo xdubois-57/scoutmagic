@@ -19,6 +19,11 @@ adresse — celle du code QR d'une affiche imprimée à l'avance — affiche
 « Cette actualité n'est pas encore en ligne ». Ouvert par un animateur,
 il s'affiche tel qu'il sera, sous un bandeau qui le rappelle.
 
+**On enregistre d'abord.** Tant que l'article n'a jamais été enregistré,
+seul « Enregistrer le brouillon » est proposé, avec la phrase « Enregistrez
+le brouillon pour pouvoir publier ». Une fois enregistré, « Publier » et
+« Programmer… » apparaissent sur sa page.
+
 « Publier » demande d'abord pour qui l'article sera publié, selon la
 visibilité choisie, puis le met en ligne : sa date de publication est
 celle du jour, et c'est elle que montrent la liste et l'article.
@@ -27,7 +32,8 @@ celle du jour, et c'est elle que montrent la liste et l'article.
 près : l'article apparaît de lui-même à ce moment, et vous recevez une
 notification « Actualité en ligne ». Jusque-là, un bandeau indique
 l'heure prévue ; « Modifier l'heure » la change, « Publier maintenant »
-le met en ligne tout de suite.
+le met en ligne tout de suite, et « Repasser en brouillon » — sous
+« Modifier l'heure », comme en bas du formulaire — annule la programmation.
 
 « Repasser en brouillon » retire un article publié du site jusqu'à sa
 republication. Les réponses déjà reçues sont conservées, avec leurs

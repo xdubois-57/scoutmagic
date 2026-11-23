@@ -307,11 +307,91 @@
     // landscape — never portrait: a portrait source is center-cropped to
     // a square; a square or landscape source keeps its natural ratio
     // untouched, only downscaled if it's larger than the cap below. Then
-    // re-encoded as PNG in a canvas before it ever leaves the browser —
-    // the original File in the <input> is replaced with the processed
-    // one via DataTransfer, so the multipart POST always uploads the
-    // processed version, never the original.
+    // re-encoded in a canvas before it ever leaves the browser — the
+    // original File in the <input> is replaced with the processed one via
+    // DataTransfer, so the multipart POST always uploads the processed
+    // version, never the original.
+    //
+    // **As a JPEG, not a PNG** (issue #1357): a photograph written as a PNG
+    // came out several times larger than the JPEG it started as (a 3 MB
+    // photo became 14 MB) and was refused by the server at the very end of
+    // the form, after the preview had shown no problem. A JPEG of quality
+    // 0.85 is the encoding of a photograph; a PNG is kept only for an image
+    // that HAS transparency, which a JPEG would paint black.
+    //
+    // **What is sent is what is checked**: the size and the type of the
+    // processed file are controlled right here against the limit the server
+    // wrote into the page (`data-max-bytes`), and a refusal is said at once,
+    // next to the field and as a toast, without touching what else was
+    // typed. The POST's own refusal stays the defensive net.
     var FEATURED_IMAGE_MAX_DIMENSION = 2048;
+    var FEATURED_IMAGE_JPEG_QUALITY = 0.85;
+    // The server's own default, for a page that does not carry the value:
+    // NewsController::IMAGE_MAX_SIZE_BYTES, which the page normally reports.
+    var FEATURED_IMAGE_DEFAULT_MAX_BYTES = 10 * 1024 * 1024;
+    // What the server accepts and a canvas can produce, with the extension
+    // that goes with each: the file is named after the bytes it holds.
+    var FEATURED_IMAGE_TYPES = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
+
+    /**
+     * Whether any pixel of an RGBA buffer is not fully opaque.
+     *
+     * @param {ArrayLike<number>} pixels
+     * @returns {boolean}
+     */
+    function hasTransparency(pixels) {
+        for (var i = 3; i < pixels.length; i += 4) {
+            if (pixels[i] < 255) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * The encoding asked of the canvas.
+     *
+     * @param {boolean} transparent
+     * @returns {{type: string, quality: number|undefined}}
+     */
+    function featuredImageEncoding(transparent) {
+        return transparent
+            ? { type: 'image/png', quality: undefined }
+            : { type: 'image/jpeg', quality: FEATURED_IMAGE_JPEG_QUALITY };
+    }
+
+    /**
+     * « 10 Mo », « 2,5 Mo »: a size in the site's French.
+     *
+     * @param {number} bytes
+     * @returns {string}
+     */
+    function formatMegabytes(bytes) {
+        var mb = Math.round((bytes / (1024 * 1024)) * 10) / 10;
+        return String(mb).replace('.', ',') + ' Mo';
+    }
+
+    /**
+     * What is wrong with the processed file, in words — or null when
+     * nothing is.
+     *
+     * @param {Blob|null} blob
+     * @param {number} maxBytes
+     * @returns {string|null}
+     */
+    function featuredImageProblem(blob, maxBytes) {
+        if (!blob) {
+            return 'Impossible de traiter cette image.';
+        }
+        if (!Object.prototype.hasOwnProperty.call(FEATURED_IMAGE_TYPES, blob.type)) {
+            return 'Ce navigateur n\'a pas pu préparer cette image. Essayez avec une photo JPEG ou PNG.';
+        }
+        if (blob.size > maxBytes) {
+            return 'Cette image est encore trop lourde après réduction (' + formatMegabytes(blob.size)
+                + ', ' + formatMegabytes(maxBytes) + ' au plus). Choisissez-en une plus légère.';
+        }
+        return null;
+    }
 
     /**
      * @param {File} file
@@ -344,11 +424,22 @@
             var canvas = document.createElement('canvas');
             canvas.width = targetWidth;
             canvas.height = targetHeight;
-            canvas.getContext('2d').drawImage(img, sx, sy, cropWidth, cropHeight, 0, 0, targetWidth, targetHeight);
+            var context = canvas.getContext('2d');
+            context.drawImage(img, sx, sy, cropWidth, cropHeight, 0, 0, targetWidth, targetHeight);
 
+            // A canvas that cannot be read back keeps the lossless format:
+            // the size control below still catches an image that is too big.
+            var transparent = true;
+            try {
+                transparent = hasTransparency(context.getImageData(0, 0, targetWidth, targetHeight).data);
+            } catch (e) {
+                transparent = true;
+            }
+
+            var encoding = featuredImageEncoding(transparent);
             canvas.toBlob(function (blob) {
                 callback(blob);
-            }, 'image/png');
+            }, encoding.type, encoding.quality);
         };
         img.onerror = function () {
             URL.revokeObjectURL(url);
@@ -361,19 +452,55 @@
     var featuredImagePreview = /** @type {HTMLImageElement} */ (document.getElementById('news-image-preview'));
     var featuredImagePlaceholder = document.getElementById('news-image-placeholder');
     var featuredImageLabel = document.getElementById('news-image-label');
+    var featuredImageError = document.getElementById('news-image-error');
+    // The file last accepted: what the form still sends when a later choice
+    // is refused, so the preview never shows a picture that is not sent.
+    var acceptedFeaturedImage = null;
+
+    /**
+     * @param {string} message
+     */
+    function refuseFeaturedImage(message) {
+        window.ScoutMagicToast.show(message, { variant: 'error' });
+        if (featuredImageError) {
+            featuredImageError.textContent = message;
+            featuredImageError.hidden = false;
+        }
+        if (acceptedFeaturedImage) {
+            var kept = new DataTransfer();
+            kept.items.add(acceptedFeaturedImage);
+            featuredImageInput.files = kept.files;
+        } else {
+            featuredImageInput.value = '';
+        }
+    }
+
     if (featuredImageInput) {
         featuredImageInput.addEventListener('change', function () {
             var file = featuredImageInput.files[0];
             if (!file) return;
 
+            var maxBytes = Number.parseInt(featuredImageInput.dataset.maxBytes || '', 10);
+            if (!(maxBytes > 0)) {
+                maxBytes = FEATURED_IMAGE_DEFAULT_MAX_BYTES;
+            }
+
             processFeaturedImage(file, FEATURED_IMAGE_MAX_DIMENSION, function (blob) {
-                if (!blob) {
-                    window.ScoutMagicToast.show("Impossible de traiter cette image.", { variant: 'error' });
-                    featuredImageInput.value = '';
+                var problem = featuredImageProblem(blob, maxBytes);
+                if (problem !== null) {
+                    refuseFeaturedImage(problem);
                     return;
                 }
 
-                var processedFile = new File([blob], 'image.png', { type: 'image/png' });
+                if (featuredImageError) {
+                    featuredImageError.hidden = true;
+                    featuredImageError.textContent = '';
+                }
+
+                // Named after the bytes it holds: the type the canvas
+                // actually produced, which is not always the one asked for.
+                var processedFile = new File([blob], 'image.' + FEATURED_IMAGE_TYPES[blob.type], { type: blob.type });
+                acceptedFeaturedImage = processedFile;
                 var dataTransfer = new DataTransfer();
                 dataTransfer.items.add(processedFile);
                 featuredImageInput.files = dataTransfer.files;
@@ -1439,6 +1566,9 @@
         visibilityUiState: visibilityUiState,
         hasTitleOrContent: hasTitleOrContent,
         setAiButtonBusy: setAiButtonBusy,
+        hasTransparency: hasTransparency,
+        featuredImageEncoding: featuredImageEncoding,
+        featuredImageProblem: featuredImageProblem,
         HTML_SANITIZER_ALLOWED_TAGS: HTML_SANITIZER_ALLOWED_TAGS,
         HTML_SANITIZER_STRIP_WITH_CONTENT: HTML_SANITIZER_STRIP_WITH_CONTENT,
         URL_SCHEME_ALLOWLIST: URL_SCHEME_ALLOWLIST,

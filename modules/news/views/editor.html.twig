@@ -41,8 +41,20 @@
             {% if not (preview is defined and preview) %}
                 {% set publish_question = publish_questions[article.visibility] ?? publish_questions['public'] %}
                 <div class="d-flex flex-column flex-sm-row gap-2 flex-shrink-0">
-                    <button type="button" class="btn btn-outline-primary" data-news-schedule>Modifier l'heure</button>
-                    <button type="submit" form="news-editor-form" class="btn btn-primary" name="intent" value="publish" id="news-publish-btn"
+                    {# « Repasser en brouillon » under « Modifier l'heure »
+                       (issue #1357): the SAME action as the button at the
+                       bottom of the form — same intent, same confirmation —
+                       so the two cannot diverge. Its own id: the bottom one
+                       has none, and `news-publish-btn` below is the
+                       publish button's. #}
+                    <div class="d-flex flex-column gap-2">
+                        <button type="button" class="btn btn-outline-primary" data-news-schedule>Modifier l'heure</button>
+                        <button type="submit" form="news-editor-form" class="btn btn-outline-secondary" name="intent" value="unpublish"
+                                id="news-unpublish-banner-btn"
+                                data-confirm="{{ unpublish_question }}" data-confirm-title="Repasser en brouillon ?"
+                                data-confirm-label="Repasser en brouillon">Repasser en brouillon</button>
+                    </div>
+                    <button type="submit" form="news-editor-form" class="btn btn-primary align-self-sm-center" name="intent" value="publish" id="news-publish-btn"
                             data-confirm="{{ publish_question.message|replace({'{titre}': article.title}) }}"
                             data-confirm-title="{{ publish_question.title }}" data-confirm-label="Publier" data-confirm-variant="primary">Publier maintenant</button>
                 </div>
@@ -104,11 +116,17 @@
                                 </label>
                                 <span id="news-image-label" class="fw-medium {{ (article and article.imageFileId) ? 'd-none' : '' }}">Image <span class="text-danger">*</span></span>
                             </div>
-                            <input type="file" class="visually-hidden" name="image" id="image" accept="image/jpeg,image/png,image/webp,image/gif" {{ (article and article.imageFileId) ? '' : 'required' }}>
+                            {# `data-max-bytes`: the server's limit, which
+                               news-form-builder.js checks the processed file
+                               against before anything is posted (issue #1357). #}
+                            <input type="file" class="visually-hidden" name="image" id="image" accept="image/jpeg,image/png,image/webp,image/gif"
+                                   data-max-bytes="{{ image_max_bytes }}" {{ (article and article.imageFileId) ? '' : 'required' }}>
                             <div class="form-text">
                                 {% if article and article.imageFileId %}Cliquez sur l'image pour la remplacer.{% endif %}
                                 Format carré ou paysage, en haute résolution pour le partage sur les réseaux sociaux.
+                                JPEG, PNG, WebP ou GIF, {{ (image_max_bytes / 1048576)|round }} Mo au plus : l'image est réduite avant l'envoi.
                             </div>
+                            <div id="news-image-error" class="text-danger small mt-1" role="alert" hidden></div>
                         </div>
                         <div class="col-12 col-md-9">
                             {# Visually hidden rather than aria-label: a real, linked label
@@ -301,19 +319,28 @@
             {% if state == 'draft' %}
                 <div class="d-flex flex-column flex-sm-row gap-2 justify-content-between">
                     <div class="d-flex flex-column flex-sm-row gap-2">
-                        {# The question for the visibility saved, already in
-                           the page: news-publication.js only follows the
-                           radio and the title as they change. #}
-                        {% set publish_question = publish_questions[article ? article.visibility : 'public'] ?? publish_questions['public'] %}
-                        <button type="submit" class="btn btn-primary" name="intent" value="publish" id="news-publish-btn"
-                                data-confirm="{{ publish_question.message|replace({'{titre}': article ? article.title : 'Cette actualité'}) }}"
-                                data-confirm-title="{{ publish_question.title }}" data-confirm-label="Publier" data-confirm-variant="primary">Publier</button>
-                        {% if can_schedule %}
-                            <button type="button" class="btn btn-outline-primary" data-news-schedule>
-                                <i class="bi bi-clock" aria-hidden="true"></i> Programmer…
-                            </button>
+                        {# Before the first save there is nothing to publish or to
+                           schedule (issue #1357): the draft is saved first, the
+                           actions come with the saved article — and the server
+                           refuses to publish a creation anyway. #}
+                        {% if article %}
+                            {# The question for the visibility saved, already in
+                               the page: news-publication.js only follows the
+                               radio and the title as they change. #}
+                            {% set publish_question = publish_questions[article.visibility] ?? publish_questions['public'] %}
+                            <button type="submit" class="btn btn-primary" name="intent" value="publish" id="news-publish-btn"
+                                    data-confirm="{{ publish_question.message|replace({'{titre}': article.title}) }}"
+                                    data-confirm-title="{{ publish_question.title }}" data-confirm-label="Publier" data-confirm-variant="primary">Publier</button>
+                            {% if can_schedule %}
+                                <button type="button" class="btn btn-outline-primary" data-news-schedule>
+                                    <i class="bi bi-clock" aria-hidden="true"></i> Programmer…
+                                </button>
+                            {% endif %}
+                            <button type="submit" class="btn btn-outline-primary" name="intent" value="save">Enregistrer le brouillon</button>
+                        {% else %}
+                            <button type="submit" class="btn btn-primary" name="intent" value="save">Enregistrer le brouillon</button>
+                            <p class="form-text mb-0 align-self-sm-center" data-news-save-first>Enregistrez le brouillon pour pouvoir publier.</p>
                         {% endif %}
-                        <button type="submit" class="btn btn-outline-primary" name="intent" value="save">Enregistrer le brouillon</button>
                     </div>
                     {% if article %}
                         <button type="button" class="btn btn-outline-danger" data-bs-toggle="modal" data-bs-target="#news-delete-modal">Supprimer</button>

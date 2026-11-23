@@ -3467,6 +3467,308 @@ class NewsIntegrationTest extends TestCase
         $this->assertNull($this->schedulerService->find('news', 'publish_scheduled_articles', 'article-' . $id));
     }
 
+    // ── Create first, publish after (issue #1357) ───────────────────────
+
+    /** @return array<string, string> a valid creation POST, with the intent given */
+    private function creationBody(string $intent, array $more = []): array
+    {
+        return $more + [
+            '_csrf_token' => CsrfGuard::generateToken(),
+            'title' => 'Nouveau camp',
+            'summary' => 'Un résumé en une phrase.',
+            'body_html' => '<p>Bienvenue</p>',
+            'visibility' => 'public',
+            'intent' => $intent,
+        ];
+    }
+
+    /** A field list the server refuses (issue #1120): a label carrying markup. */
+    private function refusedFieldJson(): string
+    {
+        return (string) json_encode([
+            ['field_type' => 'number', 'label' => 'Repas <b>x</b>', 'price_per_unit' => 8],
+        ]);
+    }
+
+    /** The editor of an article never saved: save the draft, nothing to publish yet. */
+    public function testTheCreationPageOffersNoPublishNorScheduleBeforeTheFirstSave(): void
+    {
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+
+        $body = $this->newsController->create(new Request('GET', '/news/create', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('Enregistrer le brouillon', $body);
+        $this->assertStringContainsString('Enregistrez le brouillon pour pouvoir publier', $body);
+        $this->assertStringNotContainsString('value="publish"', $body);
+        $this->assertStringNotContainsString('Programmer…', $body);
+        $this->assertStringNotContainsString('news-schedule-submit', $body);
+        $this->assertStringNotContainsString('id="news-publish-btn"', $body);
+    }
+
+    /** A creation refused by validation is still an article never saved: same page, same absence. */
+    public function testTheCreationPageAfterARefusedSaveStillOffersNoPublish(): void
+    {
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+        $_FILES['image'] = $this->fakeUploadedImage();
+
+        $response = $this->newsController->store(new Request('POST', '/news', [], $this->creationBody('save', [
+            'fields_json' => $this->refusedFieldJson(),
+        ]), [], []), []);
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertSame([], $this->articleRepository->findAll());
+        $this->assertStringContainsString('Enregistrez le brouillon pour pouvoir publier', $response->getBody());
+        $this->assertStringNotContainsString('value="publish"', $response->getBody());
+        $this->assertStringNotContainsString('Programmer…', $response->getBody());
+    }
+
+    /** « Enregistrer » still creates the draft and sends nothing, as before. */
+    public function testASaveAtCreationMakesADraftAndSaysNothingMore(): void
+    {
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+        $_FILES['image'] = $this->fakeUploadedImage();
+
+        $response = $this->newsController->store(new Request('POST', '/news', [], $this->creationBody('save'), [], []), []);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $article = $this->articleRepository->findAll()[0];
+        $this->assertSame(Article::STATE_DRAFT, $this->articleService->state($article));
+        $this->assertNull(\Core\Http\FlashMessage::get());
+    }
+
+    /**
+     * A request that asks to publish at creation — without JavaScript, or
+     * forged — saves the draft and says to publish afterwards: nothing goes
+     * online, no notice is armed, no « publié » in the journal.
+     */
+    public function testAPublishIntentAtCreationSavesADraftAndSaysSaveFirst(): void
+    {
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+        $events = $this->recordJournal();
+        $_FILES['image'] = $this->fakeUploadedImage();
+
+        $response = $this->newsController->store(new Request('POST', '/news', [], $this->creationBody('publish'), [], []), []);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $article = $this->articleRepository->findAll()[0];
+        $this->assertSame(Article::STATE_DRAFT, $this->articleService->state($article));
+        $this->assertFalse($this->articleService->isLive($article));
+        $this->assertSame(['article_created'], $events->getArrayCopy());
+        $this->assertSame(
+            ['type' => 'warning', 'message' => 'Enregistrez d\'abord, puis publiez.'],
+            \Core\Http\FlashMessage::get()
+        );
+    }
+
+    public function testAScheduleIntentAtCreationSavesADraftWithNothingScheduled(): void
+    {
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+        $events = $this->recordJournal();
+        $_FILES['image'] = $this->fakeUploadedImage();
+
+        $response = $this->newsController->store(new Request('POST', '/news', [], $this->creationBody('schedule', [
+            'schedule_date' => '2999-10-20',
+            'schedule_time' => '08:00',
+        ]), [], []), []);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $article = $this->articleRepository->findAll()[0];
+        $this->assertSame(Article::STATE_DRAFT, $this->articleService->state($article));
+        $this->assertNull($article->publishedAt);
+        $this->assertNull($this->schedulerService->find('news', 'publish_scheduled_articles', 'article-' . $article->id));
+        $this->assertSame(['article_created'], $events->getArrayCopy());
+        $this->assertSame('Enregistrez d\'abord, puis publiez.', \Core\Http\FlashMessage::get()['message'] ?? null);
+    }
+
+    /** The time asked for is not even judged: the article is not being scheduled, only saved. */
+    public function testAScheduleIntentAtCreationWithAPastTimeStillSavesTheDraft(): void
+    {
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+        $_FILES['image'] = $this->fakeUploadedImage();
+
+        $response = $this->newsController->store(new Request('POST', '/news', [], $this->creationBody('schedule', [
+            'schedule_date' => '2000-01-01',
+            'schedule_time' => '08:00',
+        ]), [], []), []);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertCount(1, $this->articleRepository->findAll());
+    }
+
+    /** A premature intent does not get a refused creation through: nothing is written, nothing sent. */
+    public function testAPrematureIntentWithARefusedSaveWritesNothing(): void
+    {
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+        $events = $this->recordJournal();
+        $_FILES['image'] = $this->fakeUploadedImage();
+
+        $response = $this->newsController->store(new Request('POST', '/news', [], $this->creationBody('publish', [
+            'fields_json' => $this->refusedFieldJson(),
+        ]), [], []), []);
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertSame([], $this->articleRepository->findAll());
+        $this->assertSame([], $events->getArrayCopy());
+        $this->assertNull(\Core\Http\FlashMessage::get());
+    }
+
+    /** What stays: a saved draft publishes and schedules through update(), as ever. */
+    public function testASavedDraftStillOffersPublishAndSchedule(): void
+    {
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+        $id = $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId, 'Résumé.', null);
+
+        $body = $this->newsController->edit(
+            new Request('GET', '/news/' . $id . '/gerer', [], [], [], []),
+            ['id' => (string) $id]
+        )->getBody();
+
+        $this->assertStringContainsString('value="publish"', $body);
+        $this->assertStringContainsString('Programmer…', $body);
+        $this->assertStringNotContainsString('Enregistrez le brouillon pour pouvoir publier', $body);
+    }
+
+    // ── « Repasser en brouillon » in the banner of a scheduled article (#1357) ──
+
+    /** @return string the editor of an article scheduled for later */
+    private function scheduledEditor(): string
+    {
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+        $id = $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId, 'Résumé.', null);
+        $this->articleService->schedule($id, new \DateTimeImmutable('2999-10-20 08:00'));
+
+        return $this->newsController->edit(
+            new Request('GET', '/news/' . $id . '/gerer', [], [], [], []),
+            ['id' => (string) $id]
+        )->getBody();
+    }
+
+    public function testTheScheduledBannerOffersBackToDraftBesideTheOtherTwoActions(): void
+    {
+        $body = $this->scheduledEditor();
+
+        $banner = (string) substr($body, (int) strpos($body, 'data-news-scheduled'), 3500);
+        $this->assertStringContainsString('Modifier l\'heure', $banner);
+        $this->assertStringContainsString('Publier maintenant', $banner);
+        $this->assertMatchesRegularExpression(
+            '#<button type="submit" form="news-editor-form"[^>]*name="intent" value="unpublish"[^>]*>Repasser en brouillon</button>#s',
+            $banner
+        );
+        // Under « Modifier l'heure », in the order of the page.
+        $this->assertLessThan(
+            (int) strpos($banner, 'Repasser en brouillon'),
+            (int) strpos($banner, 'Modifier l\'heure')
+        );
+    }
+
+    /** The bottom one stays where it was: two buttons, one action. */
+    public function testTheBackToDraftButtonAtTheBottomStaysAndBothDoTheSame(): void
+    {
+        $body = $this->scheduledEditor();
+
+        $this->assertSame(2, substr_count($body, 'value="unpublish"'));
+        preg_match_all('#<button[^>]*value="unpublish"[^>]*>#s', $body, $matches);
+        $this->assertCount(2, $matches[0]);
+        foreach (['data-confirm', 'data-confirm-title', 'data-confirm-label'] as $attribute) {
+            $values = array_map(
+                static fn(string $tag): string => preg_match('#\s' . preg_quote($attribute, '#') . '="([^"]*)"#', $tag, $m) === 1 ? $m[1] : '',
+                $matches[0]
+            );
+            $this->assertNotSame('', $values[0], $attribute . ' missing on a button');
+            $this->assertSame($values[0], $values[1], 'both buttons ask the same confirmation: ' . $attribute);
+        }
+        $this->assertStringContainsString('Repasser en brouillon ?', $matches[0][0]);
+    }
+
+    public function testNoHtmlIdIsRepeatedInTheScheduledEditor(): void
+    {
+        $body = $this->scheduledEditor();
+
+        preg_match_all('#\sid="([^"]+)"#', $body, $matches);
+        $repeated = array_keys(array_filter(array_count_values($matches[1]), static fn(int $n): bool => $n > 1));
+        $this->assertSame([], $repeated, 'duplicated ids: ' . implode(', ', $repeated));
+    }
+
+    public function testTheBannerBackToDraftHasNoIdOfItsOwnThatCollides(): void
+    {
+        $body = $this->scheduledEditor();
+
+        $this->assertSame(1, substr_count($body, 'id="news-publish-btn"'));
+    }
+
+    /** « Repasser en brouillon » from the banner: the same update(), the same result. */
+    public function testBackToDraftFromAScheduledArticleWithdrawsItsNotice(): void
+    {
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+        $id = $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId, 'Résumé.', null);
+        $this->postSchedule($id, '2999-10-20', '08:00');
+        $this->assertNotNull($this->schedulerService->find('news', 'publish_scheduled_articles', 'article-' . $id));
+
+        $_FILES['image'] = $this->fakeUploadedImage();
+        $response = $this->newsController->update(new Request('POST', '/news/' . $id, [], [
+            '_csrf_token' => CsrfGuard::generateToken(),
+            'title' => 'Camp',
+            'summary' => 'Un résumé en une phrase.',
+            'body_html' => '<p>Bienvenue</p>',
+            'visibility' => 'public',
+            'intent' => 'unpublish',
+        ], [], []), ['id' => (string) $id]);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $article = $this->articleRepository->findById($id);
+        $this->assertSame(Article::STATE_DRAFT, $this->articleService->state($article));
+        $this->assertNull($this->schedulerService->find('news', 'publish_scheduled_articles', 'article-' . $id));
+    }
+
+    // ── The cover image: a limit the server states and the page repeats (#1357) ──
+
+    public function testTheServerLimitForAnImageIsTenMegabytes(): void
+    {
+        $limit = (new \ReflectionClass(NewsController::class))->getReflectionConstant('IMAGE_MAX_SIZE_BYTES');
+
+        $this->assertSame(10 * 1024 * 1024, $limit?->getValue());
+    }
+
+    public function testTheEditorTellsTheBrowserTheLimitAndTheHelpSaysIt(): void
+    {
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+
+        $body = $this->newsController->create(new Request('GET', '/news/create', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('data-max-bytes="10485760"', $body);
+        $this->assertStringContainsString('10 Mo au plus', $body);
+        $this->assertStringContainsString('id="news-image-error"', $body);
+    }
+
+    /** A file the page would have refused is refused anyway: the POST is the net. */
+    public function testThePostStillRefusesAFileOverTheLimitWithoutAnyScript(): void
+    {
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+        $oversized = $this->fakeUploadedImage();
+        $oversized['size'] = 10 * 1024 * 1024 + 1;
+        $_FILES['image'] = $oversized;
+
+        $response = $this->newsController->store(new Request('POST', '/news', [], $this->creationBody('save'), [], []), []);
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertSame([], $this->articleRepository->findAll());
+        $this->assertStringContainsString('10 Mo', $response->getBody());
+    }
+
+    /** The old 5 Mo is no longer the ceiling: what the browser now produces is admitted. */
+    public function testAFileBetweenFiveAndTenMegabytesIsAccepted(): void
+    {
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+        $large = $this->fakeUploadedImage();
+        $large['size'] = 6 * 1024 * 1024;
+        $_FILES['image'] = $large;
+
+        $response = $this->newsController->store(new Request('POST', '/news', [], $this->creationBody('save'), [], []), []);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertCount(1, $this->articleRepository->findAll());
+    }
+
     /**
      * A draft never online offers « Programmer… »; a scheduled article
      * says when, with « Modifier l'heure » and « Publier maintenant »; a
