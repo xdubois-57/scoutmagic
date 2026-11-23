@@ -88,7 +88,7 @@ class SenderStaffAccountResolverTest extends TestCase
         );
     }
 
-    // ── L'intendant, et l'année du mail (#1342) ───────────────────────────
+    // ── The steward, and the mail's year (#1342) ───────────────────────────
 
     public function testTheStewardOfOneStaffResolvesToThatStaffsAccount(): void
     {
@@ -176,7 +176,7 @@ class SenderStaffAccountResolverTest extends TestCase
         $this->assertNull($this->resolver->resolve('pas-encore@example.be'));
     }
 
-    // ── Tout ce qui est ambigu répond null ───────────────────────────────
+    // ── Everything ambiguous resolves to null ─────────────────────────────
 
     public function testAnAnimateurOfTwoStaffsResolvesToNothing(): void
     {
