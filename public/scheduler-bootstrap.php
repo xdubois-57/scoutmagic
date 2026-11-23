@@ -724,7 +724,9 @@ function scoutmagicBootstrapScheduler(
                                 )
 ),
                             $financeAccountRepository,
-                            $financeScoutYearId
+                            $financeScoutYearId,
+                            // The staff of the year the mail was sent (#1342).
+                            new \Core\Config\ScoutYearService($pdo)
                         ),
                         new \Modules\Finance\Mail\ForwardedSenderExtractor(),
                         // The treasurers are told from here, where the

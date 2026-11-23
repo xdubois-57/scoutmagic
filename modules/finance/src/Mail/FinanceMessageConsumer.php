@@ -381,14 +381,16 @@ class FinanceMessageConsumer implements
             return null;
         }
 
-        $account = $this->senderStaff->resolve($message->fromEmail);
+        // In the year the mail was sent (#1342): an old mail read late
+        // belongs to the staff its sender animated then.
+        $account = $this->senderStaff->resolve($message->fromEmail, $message->sentAt);
         if ($account !== null) {
             return $account;
         }
 
         $forwarded = $this->forwardedSender?->extract($message->bodyText, $message->bodyHtml);
 
-        return $forwarded === null ? null : $this->senderStaff->resolve($forwarded);
+        return $forwarded === null ? null : $this->senderStaff->resolve($forwarded, $message->sentAt);
     }
 
     /**

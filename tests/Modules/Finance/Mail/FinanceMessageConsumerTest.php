@@ -360,6 +360,29 @@ class FinanceMessageConsumerTest extends TestCase
         $this->assertSame(LinkOrigin::SENDER, $result->links[0]->origin);
     }
 
+    /**
+     * The sender's staff is looked up in the year the mail was sent
+     * (#1342): read late, a mail from a year the site has no record of
+     * goes to no account rather than to whoever the sender staffs today.
+     */
+    public function testTheSendersStaffIsThatOfTheYearTheMailWasSent(): void
+    {
+        $this->animateurOfOneStaff('anna@example.be');
+
+        $result = $this->consumerWithSenderStaff()->analyze($this->message(
+            'Reçu de mes dépenses',
+            '',
+            [$this->pdfAttachment()],
+            fromEmail: 'anna@example.be',
+            sentAt: '2024-05-02 10:00:00'
+        ));
+
+        $this->assertSame([], array_filter(
+            $result->links,
+            static fn($link): bool => $link->origin === LinkOrigin::SENDER
+        ));
+    }
+
     public function testAnIbanInTheTextBeatsTheSendersStaff(): void
     {
         $this->animateurOfOneStaff('anna@example.be');
@@ -868,7 +891,8 @@ class FinanceMessageConsumerTest extends TestCase
         string $body,
         array $attachments,
         string $fromEmail = 'fournisseur@example.be',
-        ?string $dedicatedTo = null
+        ?string $dedicatedTo = null,
+        string $sentAt = '2027-07-12 09:30:00'
     ): CandidateMessage {
         return new CandidateMessage(
             mailboxId: 1,
@@ -879,7 +903,7 @@ class FinanceMessageConsumerTest extends TestCase
             inReplyTo: null,
             references: [],
             toEmails: [],
-            sentAt: new \DateTimeImmutable('2027-07-12 09:30:00'),
+            sentAt: new \DateTimeImmutable($sentAt),
             bodyText: $body,
             bodyHtml: '',
             attachments: $attachments,
@@ -929,7 +953,9 @@ class FinanceMessageConsumerTest extends TestCase
 )
 ),
             $this->accounts,
-            1
+            1,
+            // As both composition roots build it: the mail's own year.
+            new \Core\Config\ScoutYearService($this->pdo)
         );
     }
 

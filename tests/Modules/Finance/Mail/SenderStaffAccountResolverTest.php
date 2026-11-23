@@ -36,6 +36,7 @@ class SenderStaffAccountResolverTest extends TestCase
     private EncryptionService $encryption;
     private AccountRepository $accounts;
     private SenderStaffAccountResolver $resolver;
+    private SectionStaffAuthorizationService $staffAuthorization;
     private int $scoutYearId = 1;
     private int $louveteauxId = 1;
     private int $eclaireursId = 2;
@@ -52,11 +53,10 @@ class SenderStaffAccountResolverTest extends TestCase
         $this->pdo->exec("INSERT INTO sections (id, age_branch_id, desk_code, name) VALUES (1, 1, 'LOU01', 'Louveteaux'), (2, 2, 'ECL01', 'Éclaireurs')");
         // 'chief' is what makes a member_functions row a STAFF row: an
         // animé carries the same section_id, with an 'identified' function.
-        $this->pdo->exec("INSERT INTO functions (id, desk_code, label, role) VALUES (1, 'ANIM', 'Animateur', 'chief'), (2, 'ANIME', 'Animé', 'identified')");
+        $this->pdo->exec("INSERT INTO functions (id, desk_code, label, role) VALUES (1, 'ANIM', 'Animateur', 'chief'), (2, 'ANIME', 'Animé', 'identified'), (3, 'INT', 'Intendant', 'intendant')");
 
         $connection = Connection::withPdo($this->pdo);
-        $this->resolver = new SenderStaffAccountResolver(
-            new SectionStaffAuthorizationService(
+        $this->staffAuthorization = new SectionStaffAuthorizationService(
                 // The member-email repository is never omitted: without it an
                 // animateur writing from a confirmed secondary address staffs
                 // no section at all.
@@ -73,10 +73,63 @@ class SenderStaffAccountResolverTest extends TestCase
                         new MemberBadgeRepository($this->pdo)
                     )
                 )
-            ),
+            );
+        $this->resolver = new SenderStaffAccountResolver($this->staffAuthorization, $this->accounts, $this->scoutYearId);
+    }
+
+    /** The resolver as both composition roots build it: dated mail resolves in its own year. */
+    private function datedResolver(): SenderStaffAccountResolver
+    {
+        return new SenderStaffAccountResolver(
+            $this->staffAuthorization,
             $this->accounts,
-            $this->scoutYearId
+            $this->scoutYearId,
+            new \Core\Config\ScoutYearService($this->pdo)
         );
+    }
+
+    // ── The steward, and the mail's year (#1342) ───────────────────────────
+
+    public function testTheStewardOfOneStaffResolvesToThatStaffsAccount(): void
+    {
+        $this->animateur('intendant@example.be', $this->louveteauxId, functionId: 3);
+        $accountId = $this->activeAccountFor($this->louveteauxId);
+
+        $this->assertSame($accountId, $this->resolver->resolve('intendant@example.be')?->id);
+    }
+
+    /**
+     * Counting the steward is for this question only: the same lookup,
+     * asked as an access rule, still does not make them staff.
+     */
+    public function testTheStewardIsStillNotStaffForWhatTheyMaySee(): void
+    {
+        $this->animateur('intendant@example.be', $this->louveteauxId, functionId: 3);
+
+        $this->assertSame([], $this->staffAuthorization->ownStaffedSectionIds('intendant@example.be', $this->scoutYearId));
+        $this->assertSame([], $this->staffAuthorization->getStaffedSections('intendant@example.be', 'intendant', $this->scoutYearId));
+    }
+
+    public function testAnOldMailResolvesToTheStaffOfItsYearNotOfToday(): void
+    {
+        $this->pdo->exec("INSERT INTO scout_years (id, label, start_date, end_date, is_current) VALUES (2, '2025-2026', '2025-09-01', '2026-08-31', 0)");
+        $this->animateur('anna@example.be', $this->eclaireursId, scoutYearId: 2);
+        $this->animateur('anna@example.be', $this->louveteauxId);
+        $then = $this->activeAccountFor($this->eclaireursId);
+        $now = $this->activeAccountFor($this->louveteauxId);
+        $resolver = $this->datedResolver();
+
+        $this->assertSame($then, $resolver->resolve('anna@example.be', new \DateTimeImmutable('2026-03-15'))?->id);
+        $this->assertSame($now, $resolver->resolve('anna@example.be', new \DateTimeImmutable('2026-10-15'))?->id);
+    }
+
+    /** No record of the mail's year: the sorting pile, never the current staff by default. */
+    public function testAMailFromAYearWithNoRecordResolvesToNothing(): void
+    {
+        $this->animateur('anna@example.be', $this->louveteauxId);
+        $this->activeAccountFor($this->louveteauxId);
+
+        $this->assertNull($this->datedResolver()->resolve('anna@example.be', new \DateTimeImmutable('2019-05-01')));
     }
 
     public function testAnAnimateurOfOneStaffResolvesToThatStaffsAccount(): void
@@ -123,7 +176,7 @@ class SenderStaffAccountResolverTest extends TestCase
         $this->assertNull($this->resolver->resolve('pas-encore@example.be'));
     }
 
-    // ── Tout ce qui est ambigu répond null ───────────────────────────────
+    // ── Everything ambiguous resolves to null ─────────────────────────────
 
     public function testAnAnimateurOfTwoStaffsResolvesToNothing(): void
     {
