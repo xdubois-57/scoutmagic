@@ -383,7 +383,7 @@
         if (!blob) {
             return 'Impossible de traiter cette image.';
         }
-        if (!Object.prototype.hasOwnProperty.call(FEATURED_IMAGE_TYPES, blob.type)) {
+        if (!Object.hasOwn(FEATURED_IMAGE_TYPES, blob.type)) {
             return 'Ce navigateur n\'a pas pu préparer cette image. Essayez avec une photo JPEG ou PNG.';
         }
         if (blob.size > maxBytes) {
@@ -481,7 +481,7 @@
             if (!file) return;
 
             var maxBytes = Number.parseInt(featuredImageInput.dataset.maxBytes || '', 10);
-            if (!(maxBytes > 0)) {
+            if (Number.isNaN(maxBytes) || maxBytes <= 0) {
                 maxBytes = FEATURED_IMAGE_DEFAULT_MAX_BYTES;
             }
 
