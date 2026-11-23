@@ -1066,7 +1066,8 @@ class SosAdminController extends AbstractController
     private function destinationMessage(array $reconciled, int $scoutYearId): string
     {
         $now = match ($reconciled['status']) {
-            RedirectReconciler::SIMULATED => self::SIMULATION_MESSAGE,
+            RedirectReconciler::SIMULATED => self::SIMULATION_MESSAGE
+                . $this->unreachableSentence($reconciled, $scoutYearId),
             RedirectReconciler::ALIGNED, RedirectReconciler::CORRECTED => 'Les appels arrivent maintenant chez '
                 . $this->destinationLabel($this->displayedMemberId($reconciled), $scoutYearId)
                 . ($reconciled['status'] === RedirectReconciler::CORRECTED ? ' (redirection modifiée).' : '.')

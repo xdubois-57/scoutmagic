@@ -99,7 +99,11 @@ class ModuleVisibilityTest extends TestCase
     #[DataProvider('ordinaryInstallationProvider')]
     public function testTheModuleIsInvisibleOnAnOrdinaryInstallation(string $baseUrl): void
     {
-        $profile = InstallationProfile::resolve($baseUrl, 'https://scoutmagic.be');
+        $profile = InstallationProfile::resolve(
+            $baseUrl,
+            'https://scoutmagic.be',
+            SCOUTMAGIC_TEST_INSTALLATION_PROFILE
+        );
 
         $this->assertFalse($profile->hasAny($this->manifest->visibleWhen), $baseUrl);
     }

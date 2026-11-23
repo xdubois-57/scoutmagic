@@ -345,6 +345,42 @@ class SosAdminControllerTest extends TestCase
         }
     }
 
+    public function testInactiveSimulationScopesTheNoRedirectionMessageToTheSimulation(): void
+    {
+        $this->simulatedProvider = true;
+        $this->forwarding = new \Modules\SosStaff\Api\ForwardingState(false, null);
+
+        self::assertStringContainsString('Dans la simulation, les appels', $this->dashboard());
+    }
+
+    public function testSimulationStillNamesAnOnCallMemberWithAnUnusableNumber(): void
+    {
+        $this->simulatedProvider = true;
+        $this->now = new \DateTimeImmutable('2026-08-12 12:00:00');
+        $member = $this->createStaffduMember('Baloo', '0470 12 34', 'Paul', 'Martin');
+        $default = $this->createStaffduMember('Chil', '+32470000039');
+        $this->settingsService->setDefaultNumberFromMember($default);
+        $this->forwarding = new \Modules\SosStaff\Api\ForwardingState(true, '+32470000039');
+
+        $response = $this->controller->saveOnCall(
+            $this->jsonRequest([
+                'year' => 2026,
+                'month' => 8,
+                'cells' => [
+                    ['member_id' => $member, 'date' => '2026-08-12', 'state' => OnCallAssignment::STATE_ONCALL],
+                ],
+                '_csrf_token' => $this->csrfToken(),
+            ]),
+            []
+        );
+        $decoded = json_decode($response->getBody(), true);
+
+        self::assertStringContainsString(
+            "Opérateur simulé : la vraie ligne n'est pas pilotée. Attention : le GSM de Baloo (Paul Martin)",
+            $decoded['message']
+        );
+    }
+
     public function testIndexRendersPage(): void
     {
         $response = $this->controller->index(new Request('GET', '/admin/sos', [], [], [], []), []);

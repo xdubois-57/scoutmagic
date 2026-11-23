@@ -123,6 +123,11 @@ final class InstallationProfile
         if (!is_array($declaredFlags) || !array_is_list($declaredFlags)) {
             return new self();
         }
+        foreach ($declaredFlags as $declaredFlag) {
+            if (!in_array($declaredFlag, self::KNOWN_FLAGS, true)) {
+                return new self();
+            }
+        }
         $flags = [];
 
         if (in_array(self::FLAG_STATISTICS_RECEIVER, $declaredFlags, true)

@@ -19,16 +19,29 @@ class InstallationProfileTest extends TestCase
         }
     }
 
-    public function testMalformedOrUnknownServerDeclarationsNeverGrantFlags(): void
+    /** @return array<string, array{mixed}> */
+    public static function malformedDeclarations(): array
     {
-        foreach ([null, true, 'reference_installation', ['unknown'], [true, 1], ['reference_installation' => true]]
-            as $declaration) {
-            self::assertSame([], InstallationProfile::resolve(
-                self::DESTINATION,
-                self::DESTINATION,
-                $declaration
-            )->all());
-        }
+        return [
+            'missing' => [null],
+            'boolean' => [true],
+            'string' => ['reference_installation'],
+            'unknown flag' => [['unknown']],
+            'non-string members' => [[true, 1]],
+            'associative declaration' => [['reference_installation' => true]],
+            'known flag and boolean' => [['reference_installation', true]],
+            'known and unknown flags' => [['reference_installation', 'unknown']],
+        ];
+    }
+
+    #[DataProvider('malformedDeclarations')]
+    public function testMalformedOrUnknownServerDeclarationsNeverGrantFlags(mixed $declaration): void
+    {
+        self::assertSame([], InstallationProfile::resolve(
+            self::DESTINATION,
+            self::DESTINATION,
+            $declaration
+        )->all());
     }
 
     public function testADeclarationGrantsOnlyItsOwnMatchingCapabilities(): void

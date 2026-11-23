@@ -49,7 +49,9 @@
                     {% else %}Redirection inactive chez le fournisseur{% endif %}
                 </h2>
                 <p class="small mb-0">
-                    Les appels{% if sos_number %} au {{ sos_number }}{% endif %} ne sont actuellement redirigés vers aucun
+                    {% if simulated_provider|default(false) %}Dans la simulation, les appels
+                    {% else %}Les appels{% endif %}
+                    {% if sos_number %} au {{ sos_number }}{% endif %} ne sont actuellement redirigés vers aucun
                     téléphone.
                 </p>
             {% endif %}
