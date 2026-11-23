@@ -1640,15 +1640,6 @@ class RestoreBackupHandler implements TaskHandlerInterface
             new \Core\Config\SettingRepository($context->connection->getPdo())
         )))->rotate();
 
-        $context->journal->log(
-            'core',
-            'backup_restored',
-            'info',
-            'Sauvegarde restaurée',
-            ['source' => $source, 'restored_from' => $restoredFrom],
-            $requestedBy
-        );
-
         (new \Core\Maintenance\BackupRetention(
             $backupRepository,
             $fileRepository,
@@ -1675,6 +1666,19 @@ class RestoreBackupHandler implements TaskHandlerInterface
                 SendRemoteBackupHandler::REFERENCE
             );
         }
+
+        // Journaled last, once the purge and the off-site send have been
+        // asked for and could not throw to the rollback (issue #1229): written
+        // before them, « Sauvegarde restaurée » stayed in the journal beside a
+        // failure and a failed rollback when one of them refused.
+        $context->journal->log(
+            'core',
+            'backup_restored',
+            'info',
+            'Sauvegarde restaurée',
+            ['source' => $source, 'restored_from' => $restoredFrom],
+            $requestedBy
+        );
 
         RequesterNotice::sendAboutRestore(
             $context,
@@ -1741,7 +1745,12 @@ class RestoreBackupHandler implements TaskHandlerInterface
                 'backup_restore_rolled_back',
                 'warning',
                 'Restauration automatique de l\'état précédent effectuée après échec de restauration',
-                [],
+                // The cause, written here and not only above (issue #1229):
+                // the `backup_restore_failed` line is in the database this
+                // rollback has just replaced by one that predates it, so a
+                // rollback that succeeds would otherwise erase why it was
+                // needed. This entry is written after.
+                ['error' => $error->getMessage()],
                 $requestedBy
             );
             $notifyTitle = 'Échec de la restauration';

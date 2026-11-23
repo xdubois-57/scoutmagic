@@ -263,8 +263,23 @@ class SendRemoteBackupHandler implements TaskHandlerInterface
         // had just written orphaned on the disk.
         try {
             [$archivePath, $remoteName, $fresh] = $this->resolveArchive($payload, $context);
-        } catch (\RuntimeException $e) {
-            $this->recordFailure($payload, $context, $e->getMessage());
+        } catch (\Throwable $e) {
+            // Any failure, not only a RuntimeException (issue #1229): an
+            // \Error or a ValueError escaping here would stop
+            // `recordFailure()`, the one thing that climbs the counter that
+            // abandons the send. And through UserFacingMessage like the
+            // destination just above: a BackupException or an
+            // InsufficientDiskSpaceException speak for themselves, while a
+            // PDOException's message names a host, a table or a statement
+            // and is no sentence for a journal an administrator reads.
+            $this->recordFailure(
+                $payload,
+                $context,
+                UserFacingMessage::from(
+                    $e,
+                    'L\'archive à envoyer n\'a pas pu être construite. L\'envoi sera retenté au prochain passage.'
+                )
+            );
 
             return;
         }
