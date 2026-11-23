@@ -273,7 +273,8 @@ class RentalBookingRepository
                     self::EMAIL_BASE_BLIND_INDEX_PURPOSE
                 )
                 : null,
-            $keepCapKeys ? $this->sourceIndex($sourceAddress) : null,
+            // The source is only ever read for an anonymous request.
+            $keepCapKeys && $requestedByAccountId === null ? $this->sourceIndex($sourceAddress) : null,
             $timestamp,
             $timestamp,
         ]);

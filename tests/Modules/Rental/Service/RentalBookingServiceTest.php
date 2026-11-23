@@ -971,6 +971,20 @@ class RentalBookingServiceTest extends TestCase
         }
     }
 
+    /**
+     * The source count only reads anonymous requests: a signed-in request
+     * that takes a hold keeps its e-mail key and no source it would never be
+     * counted by (#1263).
+     */
+    public function testASignedInRequestStoresNoSourceKey(): void
+    {
+        $booking = $this->submit(['source' => self::SOURCE_V4, 'account' => 7])['booking'];
+
+        $row = $this->bookingRow($booking->id);
+        $this->assertNull($row['request_source_blind_index']);
+        $this->assertNotNull($row['renter_email_base_blind_index']);
+    }
+
     public function testARequestWithoutASourceStoresNone(): void
     {
         $booking = $this->submit()['booking'];
