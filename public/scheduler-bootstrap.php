@@ -424,7 +424,8 @@ function scoutmagicBootstrapScheduler(
             $enabledModuleIds,
             $notificationService,
             $userAccountRepo,
-            $diskBudget
+            $diskBudget,
+            $schedulerService
         ): \Modules\InboundMail\Service\MessageConsumerRegistry {
                 $registry = new \Modules\InboundMail\Service\MessageConsumerRegistry();
                 $inboundMail = $context->getOptional(\Modules\InboundMail\Api\InboundMailInterface::class);
@@ -644,7 +645,17 @@ function scoutmagicBootstrapScheduler(
                             new \Modules\Finance\Repository\TransactionAttachmentRepository($pdo),
                             $financeFileStorage,
                             new \Modules\Finance\Repository\TransactionRepository($pdo, $encryptionService),
-                            $settingService
+                            $settingService,
+                            // The AI reading (#1342 §A). A receipt filed by
+                            // the relève is queued for it exactly as one
+                            // uploaded by hand: ReceiptService::store()
+                            // queues it, and only when it was given this.
+                            // Left out, every receipt arriving by e-mail
+                            // landed with no amount, date or merchant.
+                            new \Modules\Finance\Service\ReceiptExtractionService(
+                                $schedulerService,
+                                $context->getOptional(\Modules\LlmConnector\Api\LlmConnectorInterface::class)
+                            )
                         ),
                         $financeScoutYearId
                     );

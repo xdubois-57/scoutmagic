@@ -19,6 +19,7 @@ use Modules\LlmConnector\Api\LlmConnectorInterface;
 use Modules\LlmConnector\Api\LlmException;
 use Modules\LlmConnector\Api\LlmRequest;
 use Modules\LlmConnector\Api\LlmResponse;
+use Modules\LlmConnector\Api\LlmTier;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Finance\FinanceTestHelper;
@@ -302,6 +303,64 @@ class ReceiptMatchingServiceTest extends TestCase
         $this->assertSame(1, $totalLinks);
     }
 
+    /**
+     * A receipt in « Compte inconnu » that arrived before its movement is
+     * matched, and filed on the movement's account, by the pass an import
+     * triggers (#1342 §B). That pass selected by account, and the sorting
+     * pile has none: such a receipt was never looked at again.
+     */
+    public function testMatchPendingReceiptsAlsoMatchesTheSortingPile(): void
+    {
+        $receipt = $this->createUnattributedReceipt(42.0, '2026-10-01', '2026-10-01 10:00:00');
+        $transaction = $this->createTransaction('2026-10-02', -42.0, 'Arrivé après le reçu');
+
+        $matched = $this->service()->matchPendingReceiptsForAccount($this->accountId);
+
+        $this->assertSame(1, $matched);
+        $this->assertSame([$transaction->id], $this->transactionAttachmentRepository->findTransactionIdsForAttachment($receipt->id));
+        $this->assertSame($this->accountId, $this->attachmentRepository->findById($receipt->id)?->accountId);
+        // And its file follows it, or a download would still answer to
+        // the pile's boundary rather than the account's.
+        $stmt = $this->pdo->prepare('SELECT owner_type, owner_id, role_min FROM files WHERE id = ?');
+        $stmt->execute([$receipt->fileId]);
+        $file = $stmt->fetch(\PDO::FETCH_ASSOC);
+        $this->assertIsArray($file);
+        $this->assertSame(\Modules\Finance\File\FinanceAccountOwnershipChecker::OWNER_TYPE, $file['owner_type']);
+        $this->assertSame($this->accountId, (int) $file['owner_id']);
+        $this->assertSame('intendant', $file['role_min'], "the account's role_min_view, not the pile's floor");
+    }
+
+    /**
+     * The pass an import triggers offers the pile THAT account's movements:
+     * they are the new ones. Every account's would mean reading and
+     * decrypting the whole movement table per pile receipt per account.
+     */
+    public function testThePostImportPassOffersThePileOnlyTheImportedAccountsMovements(): void
+    {
+        $otherAccountId = (new AccountRepository($this->pdo, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))))
+            ->create('Autre', Account::TYPE_BANK, null, null, null, 'intendant');
+        $receipt = $this->createUnattributedReceipt(42.0, '2026-10-01', '2026-10-01 10:00:00');
+        $elsewhere = $this->createTransaction('2026-10-02', -42.0, 'Sur un autre compte', $otherAccountId);
+
+        $this->assertSame(0, $this->service()->matchPendingReceiptsForAccount($this->accountId));
+        $this->assertNull($this->attachmentRepository->findById($receipt->id)?->accountId);
+
+        // …and the other account's own import does offer it.
+        $this->assertSame(1, $this->service()->matchPendingReceiptsForAccount($otherAccountId));
+        $this->assertSame([$elsewhere->id], $this->transactionAttachmentRepository->findTransactionIdsForAttachment($receipt->id));
+        $this->assertSame($otherAccountId, $this->attachmentRepository->findById($receipt->id)?->accountId);
+    }
+
+    /** Nothing to answer it, nothing done: the receipt stays in the pile, unfiled. */
+    public function testASortingPileReceiptWithNoMatchStaysInThePile(): void
+    {
+        $receipt = $this->createUnattributedReceipt(42.0, '2026-10-01', '2026-10-01 10:00:00');
+        $this->createTransaction('2026-10-02', -7.0, 'Autre montant');
+
+        $this->assertSame(0, $this->service()->matchPendingReceiptsForAccount($this->accountId));
+        $this->assertNull($this->attachmentRepository->findById($receipt->id)?->accountId);
+    }
+
     // --- AI fallback ---
 
     public function testDoesNotAttemptAiMatchWhenNoMovementExistsOnOrAfterTheReceiptDate(): void
@@ -324,6 +383,7 @@ class ReceiptMatchingServiceTest extends TestCase
 
         $llmConnector = $this->createMock(LlmConnectorInterface::class);
         $llmConnector->method('isAvailable')->willReturn(true);
+        $llmConnector->method('isTierAvailable')->willReturn(true);
         $llmConnector->expects($this->once())
             ->method('complete')
             ->with($this->callback(fn(LlmRequest $r) => str_contains($r->prompt, 'id=' . $transaction->id)))
@@ -343,6 +403,7 @@ class ReceiptMatchingServiceTest extends TestCase
 
         $llmConnector = $this->createStub(LlmConnectorInterface::class);
         $llmConnector->method('isAvailable')->willReturn(true);
+        $llmConnector->method('isTierAvailable')->willReturn(true);
         $llmConnector->method('complete')->willReturn(new LlmResponse('{"transaction_id":9999}', ['transaction_id' => 9999], 10, 10));
 
         $this->service($llmConnector)->matchReceipt($receipt);
@@ -357,6 +418,7 @@ class ReceiptMatchingServiceTest extends TestCase
 
         $llmConnector = $this->createStub(LlmConnectorInterface::class);
         $llmConnector->method('isAvailable')->willReturn(true);
+        $llmConnector->method('isTierAvailable')->willReturn(true);
         $llmConnector->method('complete')->willReturn(new LlmResponse('{"transaction_id":null}', ['transaction_id' => null], 10, 10));
 
         $this->service($llmConnector)->matchReceipt($receipt);
@@ -381,7 +443,12 @@ class ReceiptMatchingServiceTest extends TestCase
         $this->assertSame([], $this->transactionAttachmentRepository->findTransactionIdsForAttachment($receipt->id));
     }
 
-    public function testMarksAttemptEvenWhenLlmConnectorIsUnavailable(): void
+    /**
+     * A connector down for the moment is not a question put to the model
+     * (#1342 §B): the receipt stays open to the AI pass, and the screen
+     * does not say « IA : aucun mouvement trouvé » about it.
+     */
+    public function testDoesNotMarkAnAttemptWhileTheConnectorIsUnavailable(): void
     {
         $receipt = $this->createReceipt(12.50, '2026-10-01', '2026-10-01 10:00:00');
         $this->createTransaction('2026-10-05', -99.0, 'Montant différent');
@@ -392,19 +459,117 @@ class ReceiptMatchingServiceTest extends TestCase
 
         $this->service($llmConnector)->matchReceipt($receipt);
 
-        $updated = $this->attachmentRepository->findById($receipt->id);
-        $this->assertNotNull($updated->matchingAiAttemptedAt);
+        $this->assertNull($this->attachmentRepository->findById($receipt->id)?->matchingAiAttemptedAt);
     }
 
-    public function testMarksAttemptWhenNoLlmConnectorIsConfiguredAtAll(): void
+    /**
+     * A connector with models, but none for the tier the request asks:
+     * the call would fail before any provider, so nothing is marked.
+     */
+    /**
+     * A pile receipt's one AI attempt, made during the pass of one
+     * account, is offered every account's movements: spent on that
+     * account's alone, it would be gone before an import touching
+     * several reached the account holding the right movement.
+     */
+    public function testThePileReceiptsOneAiAttemptSeesEveryAccount(): void
+    {
+        $otherAccountId = (new AccountRepository($this->pdo, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))))
+            ->create('Autre', Account::TYPE_BANK, null, null, null, 'intendant');
+        $receipt = $this->createUnattributedReceipt(12.50, '2026-10-01', '2026-10-01 10:00:00');
+        $this->createTransaction('2026-10-02', -99.0, 'Sur ce compte, sans rapport');
+        $right = $this->createTransaction('2026-10-03', -12.40, 'Delhaize', $otherAccountId);
+
+        $offered = [];
+        $llmConnector = $this->createMock(LlmConnectorInterface::class);
+        $llmConnector->method('isAvailable')->willReturn(true);
+        $llmConnector->method('isTierAvailable')->willReturn(true);
+        $llmConnector->expects($this->once())->method('complete')->willReturnCallback(
+            static function (LlmRequest $request) use (&$offered, $right): LlmResponse {
+                $offered[] = $request->prompt;
+
+                return new LlmResponse('{}', ['transaction_id' => $right->id], 10, 10);
+            }
+        );
+
+        $this->service($llmConnector)->matchPendingReceiptsForAccount($this->accountId);
+
+        $this->assertStringContainsString('Delhaize', $offered[0] ?? '', "the other account's movement was offered");
+        $this->assertSame([$right->id], $this->transactionAttachmentRepository->findTransactionIdsForAttachment($receipt->id));
+        $this->assertSame($otherAccountId, $this->attachmentRepository->findById($receipt->id)?->accountId);
+    }
+
+    /**
+     * Without a model to ask, the pile receipt's AI candidates — every
+     * account's movements, read and decrypted — are never fetched.
+     */
+    public function testThePassReadsNoOtherAccountWhenNoModelCanBeAsked(): void
+    {
+        $this->createUnattributedReceipt(12.50, '2026-10-01', '2026-10-01 10:00:00');
+        $this->createTransaction('2026-10-02', -99.0, 'Sans rapport');
+
+        $transactions = $this->getMockBuilder(TransactionRepository::class)
+            ->setConstructorArgs([$this->pdo, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))])
+            ->onlyMethods(['findAll'])
+            ->getMock();
+        $transactions->expects($this->never())->method('findAll');
+
+        $noCheapModel = $this->createStub(LlmConnectorInterface::class);
+        $noCheapModel->method('isAvailable')->willReturn(true);
+        $noCheapModel->method('isTierAvailable')->willReturn(false);
+
+        $service = new ReceiptMatchingService(
+            $this->attachmentRepository, $transactions, $this->transactionAttachmentRepository,
+            $this->journalService, $noCheapModel, $this->receiptService()
+        );
+        $this->assertSame(0, $service->matchPendingReceiptsForAccount($this->accountId));
+    }
+
+    public function testDoesNotMarkAnAttemptWithoutACheapModel(): void
+    {
+        $receipt = $this->createReceipt(12.50, '2026-10-01', '2026-10-01 10:00:00');
+        $this->createTransaction('2026-10-05', -99.0, 'Montant différent');
+
+        $llmConnector = $this->createMock(LlmConnectorInterface::class);
+        $llmConnector->method('isAvailable')->willReturn(true);
+        $llmConnector->method('isTierAvailable')->willReturnCallback(static fn(LlmTier $tier): bool => $tier !== LlmTier::CHEAP);
+        $llmConnector->expects($this->never())->method('complete');
+
+        $this->service($llmConnector)->matchReceipt($receipt);
+
+        $this->assertNull($this->attachmentRepository->findById($receipt->id)?->matchingAiAttemptedAt);
+    }
+
+    public function testDoesNotMarkAnAttemptWhenNoConnectorIsConfiguredAtAll(): void
     {
         $receipt = $this->createReceipt(12.50, '2026-10-01', '2026-10-01 10:00:00');
         $this->createTransaction('2026-10-05', -99.0, 'Montant différent');
 
         $this->service(null)->matchReceipt($receipt);
 
-        $updated = $this->attachmentRepository->findById($receipt->id);
-        $this->assertNotNull($updated->matchingAiAttemptedAt);
+        $this->assertNull($this->attachmentRepository->findById($receipt->id)?->matchingAiAttemptedAt);
+    }
+
+    /** …so the model is asked once it is back, on the next pass. */
+    public function testTheModelIsAskedOnceTheConnectorIsBack(): void
+    {
+        $receipt = $this->createReceipt(12.50, '2026-10-01', '2026-10-01 10:00:00');
+        $transaction = $this->createTransaction('2026-10-05', -12.40, 'Delhaize');
+
+        $down = $this->createStub(LlmConnectorInterface::class);
+        $down->method('isAvailable')->willReturn(false);
+        $this->service($down)->matchReceipt($receipt);
+
+        $up = $this->createMock(LlmConnectorInterface::class);
+        $up->method('isAvailable')->willReturn(true);
+        $up->method('isTierAvailable')->willReturn(true);
+        $up->expects($this->once())->method('complete')
+            ->willReturn(new LlmResponse('{}', ['transaction_id' => $transaction->id], 10, 10));
+        $reloaded = $this->attachmentRepository->findById($receipt->id);
+        \assert($reloaded !== null);
+        $this->service($up)->matchReceipt($reloaded);
+
+        $this->assertSame([$transaction->id], $this->transactionAttachmentRepository->findTransactionIdsForAttachment($receipt->id));
     }
 
     public function testMarksAttemptWhenLlmCallFails(): void
@@ -414,6 +579,7 @@ class ReceiptMatchingServiceTest extends TestCase
 
         $llmConnector = $this->createStub(LlmConnectorInterface::class);
         $llmConnector->method('isAvailable')->willReturn(true);
+        $llmConnector->method('isTierAvailable')->willReturn(true);
         $llmConnector->method('complete')->willThrowException(LlmException::apiError('boom'));
 
         $this->service($llmConnector)->matchReceipt($receipt);
@@ -431,6 +597,7 @@ class ReceiptMatchingServiceTest extends TestCase
 
         $llmConnector = $this->createMock(LlmConnectorInterface::class);
         $llmConnector->method('isAvailable')->willReturn(true);
+        $llmConnector->method('isTierAvailable')->willReturn(true);
         $llmConnector->expects($this->once())
             ->method('complete')
             ->with($this->callback(

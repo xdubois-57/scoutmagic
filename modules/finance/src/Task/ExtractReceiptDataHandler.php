@@ -12,6 +12,7 @@ use Core\File\EncryptedFileStorageService;
 use Core\File\FileRepository;
 use Core\File\PdfRasterizer;
 use Core\File\PdfTextExtractor;
+use Core\Scheduler\SchedulerService;
 use Core\Scheduler\TaskContext;
 use Core\Scheduler\TaskHandlerInterface;
 use Modules\Finance\Repository\Attachment;
@@ -20,6 +21,7 @@ use Modules\Finance\Repository\AttachmentRepository;
 use Modules\Finance\Repository\TransactionAttachmentRepository;
 use Modules\Finance\Repository\TransactionRepository;
 use Modules\Finance\Service\ReceiptDateNormalizer;
+use Modules\Finance\Service\ReceiptExtractionService;
 use Modules\Finance\Service\ReceiptMatchingService;
 use Modules\Finance\Service\ReceiptService;
 use Modules\LlmConnector\Api\LlmConnectorInterface;
@@ -229,7 +231,13 @@ class ExtractReceiptDataHandler implements TaskHandlerInterface
                     $accountRepository,
                     $transactionAttachmentRepository,
                     $fileStorage,
-                    $transactionRepository
+                    $transactionRepository,
+                    $context->settings,
+                    // Built like every other ReceiptService (#1342 §A):
+                    // this one only reassigns today, but a ReceiptService
+                    // without its extraction is how receipts lost their
+                    // reading once already.
+                    new ReceiptExtractionService(SchedulerService::forPdo($pdo), $llmConnector)
                 )
             );
             $matchingService->matchReceipt($updatedAttachment);

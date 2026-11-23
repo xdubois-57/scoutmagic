@@ -46,7 +46,7 @@ class RefusingExpenseReceipts implements \Modules\Finance\Api\ExpenseReceiptInte
         string $content,
         string $mimeType,
         string $originalFilename,
-        int $accountId,
+        ?int $accountId,
         ?float $suggestedAmount,
         ?string $suggestedDate,
         string $actorRole,

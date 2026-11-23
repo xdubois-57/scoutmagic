@@ -41,10 +41,12 @@ use Modules\LlmConnector\Api\LlmTier;
  *    receipt whose movement clearly hasn't been imported yet). Shares
  *    the movements within a 3-week window on each side of that
  *    reference date and asks the LLM to pick one, or none. Degrades
- *    silently (attempt is still marked "used") when llm_connector is
- *    disabled or unavailable — matching is a convenience, never a
- *    requirement, per the same principle as Service\
- *    ReceiptExtractionService (ARCHITECTURE.md §7.5).
+ *    silently when llm_connector is disabled, unavailable or has no
+ *    CHEAP model — matching is a convenience, never a requirement, per
+ *    the same principle as Service\ReceiptExtractionService
+ *    (ARCHITECTURE.md §7.5) — and then the attempt is NOT marked used:
+ *    the marker records a question actually put to the model, so the
+ *    receipt is tried again once the connector answers (#1342).
  */
 class ReceiptMatchingService
 {
@@ -116,8 +118,16 @@ class ReceiptMatchingService
             return;
         }
 
-        $candidates = $this->candidateTransactions($unattributed ? null : $receipt->accountId);
+        $this->matchAgainst($receipt, $this->candidateTransactions($unattributed ? null : $receipt->accountId));
+    }
 
+    /**
+     * Both passes of matchReceipt(), against candidates the caller chose.
+     *
+     * @param Transaction[] $candidates
+     */
+    private function matchAgainst(Attachment $receipt, array $candidates, ?\Closure $aiCandidates = null): void
+    {
         $match = $this->findRuleBasedMatch($receipt, $candidates);
         if ($match !== null) {
             $this->associate(
@@ -129,6 +139,13 @@ class ReceiptMatchingService
             return;
         }
 
+        // The AI pass is asked once per receipt, ever: it gets its own
+        // candidate set when the rule pass was narrower (see
+        // matchPendingReceiptsForAccount()), fetched only if it will
+        // actually be asked.
+        if ($aiCandidates !== null && $receipt->matchingAiAttemptedAt === null && $this->canAskTheModel()) {
+            $candidates = $aiCandidates();
+        }
         $this->attemptAiMatch($receipt, $candidates);
     }
 
@@ -139,14 +156,59 @@ class ReceiptMatchingService
      * (and, symmetrically, give an AI-matching attempt something to
      * actually compare against for the first time).
      *
+     * **And for the sorting pile too** (#1342 §B). A receipt arrives by
+     * e-mail long before the statement that carries its movement, and the
+     * one that could not be placed waits in « Compte inconnu »; this pass
+     * selected by account only, so it never looked at that receipt again.
+     * A pile receipt is matched against THIS account's movements only:
+     * they are what the import just added, and the other accounts' were
+     * offered to it at their own import. Against every account, an import
+     * touching several would read and decrypt the whole movement table
+     * once per pile receipt per account.
+     *
+     * The account's movements are read once for the whole pass, not once
+     * per receipt; only what this pass has just associated is filtered
+     * out again, so a movement is never handed to two receipts.
+     *
+     * **Except the AI pass of a pile receipt**, which is asked once ever:
+     * spent on one account's movements, during an import touching
+     * several, it would be gone before the account holding the right
+     * movement came round. A pile receipt not yet put to the model is put
+     * to it against every account's movements — read once per pass, and
+     * only if such a receipt gets that far.
+     *
      * @return int number of receipts newly matched (rule-based or AI)
      */
     public function matchPendingReceiptsForAccount(int $accountId): int
     {
         $matchedBefore = count($this->transactionAttachmentRepository->findAssociatedAttachmentIds());
 
-        foreach ($this->pendingReceiptsForAccount($accountId) as $receipt) {
-            $this->matchReceipt($receipt);
+        $receipts = $this->pendingReceiptsForAccount($accountId);
+        $movements = $receipts === [] ? [] : $this->transactionRepository->findByAccountId($accountId);
+        $everyMovement = null;
+        $unassociated = function (array $transactions): array {
+            $associatedIds = array_flip($this->transactionAttachmentRepository->findAssociatedTransactionIds());
+
+            return array_values(array_filter($transactions, fn(Transaction $t) => !isset($associatedIds[$t->id])));
+        };
+
+        foreach ($receipts as $receipt) {
+            if ($this->isAlreadyAssociated($receipt->id)) {
+                continue;
+            }
+            if ($receipt->accountId === null && $this->receiptService === null) {
+                continue;
+            }
+
+            $aiCandidates = null;
+            if ($receipt->accountId === null) {
+                $aiCandidates = function () use (&$everyMovement, $unassociated): array {
+                    $everyMovement ??= $this->transactionRepository->findAll();
+
+                    return $unassociated($everyMovement);
+                };
+            }
+            $this->matchAgainst($receipt, $unassociated($movements), $aiCandidates);
         }
 
         $matchedAfter = count($this->transactionAttachmentRepository->findAssociatedAttachmentIds());
@@ -213,9 +275,10 @@ class ReceiptMatchingService
             return;
         }
 
-        $this->attachmentRepository->markAiMatchAttempted($receipt->id);
-
-        if ($this->llmConnector === null || !$this->llmConnector->isAvailable()) {
+        // The tier the request below asks for, not « anything configured »:
+        // a site with no CHEAP model has the call fail before any provider
+        // is reached, and the marker must not record that as a question put.
+        if (!$this->canAskTheModel()) {
             return;
         }
 
@@ -226,6 +289,13 @@ class ReceiptMatchingService
         if ($windowCandidates === []) {
             return;
         }
+
+        // Marked only now, when the model is about to be asked (#1342 §B).
+        // It was written before the two checks above, so a connector down
+        // for an afternoon, or a statement not yet imported, closed the
+        // AI pass on that receipt for good — and the screen said « IA :
+        // aucun mouvement trouvé » about a question never put.
+        $this->attachmentRepository->markAiMatchAttempted($receipt->id);
 
         $candidatesById = [];
         foreach ($windowCandidates as $t) {
@@ -364,6 +434,16 @@ class ReceiptMatchingService
         return (int) $reference->diff($other)->format('%r%a');
     }
 
+    /**
+     * Whether the AI pass can put its question at all — asked before its
+     * candidates are fetched, since for a pile receipt those are every
+     * account's movements, read and decrypted.
+     */
+    private function canAskTheModel(): bool
+    {
+        return $this->llmConnector !== null && $this->llmConnector->isTierAvailable(LlmTier::CHEAP);
+    }
+
     private function isAlreadyAssociated(int $attachmentId): bool
     {
         return $this->transactionAttachmentRepository->findTransactionIdsForAttachment($attachmentId) !== [];
@@ -376,7 +456,10 @@ class ReceiptMatchingService
     {
         $associatedIds = array_flip($this->transactionAttachmentRepository->findAssociatedAttachmentIds());
         return array_values(array_filter(
-            $this->attachmentRepository->findActiveByAccountId($accountId),
+            [
+                ...$this->attachmentRepository->findActiveByAccountId($accountId),
+                ...$this->attachmentRepository->findActiveUnassigned(),
+            ],
             fn(Attachment $a) => !isset($associatedIds[$a->id])
         ));
     }
