@@ -263,6 +263,23 @@ class ExpenseReceiptServiceTest extends TestCase
         $this->assertSame(7, (int) $row['uploaded_by']);
     }
 
+    /** A suggestion given with the pile is kept, as it is on an account. */
+    public function testASuggestionFiledIntoTheSortingPileIsKept(): void
+    {
+        $treasurer = $this->createMember($this->louveteauxId, withBadge: true);
+
+        $fileId = $this->service->storeReceipt(
+            self::PDF, 'application/pdf', 'ticket.pdf', null, 12.5, '2026-10-01', 'intendant', [$treasurer], 7
+        );
+
+        $stmt = $this->pdo->prepare('SELECT suggested_amount, suggested_date FROM finance_attachments WHERE file_id = ?');
+        $stmt->execute([$fileId]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+        $this->assertIsArray($row);
+        $this->assertEqualsWithDelta(12.5, (float) $row['suggested_amount'], 0.001);
+        $this->assertSame('2026-10-01', $row['suggested_date']);
+    }
+
     /** Somebody the pile is closed to is refused, as for an account they may not see. */
     public function testTheSortingPileIsRefusedToWhoeverMayNotSeeIt(): void
     {

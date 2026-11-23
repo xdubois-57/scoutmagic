@@ -88,7 +88,9 @@ class ExpenseReceiptService implements ExpenseReceiptInterface
                 $mimeType,
                 $originalFilename,
                 $uploadedBy,
-                true
+                true,
+                $suggestedAmount,
+                $suggestedDate
             )->fileId;
         }
 

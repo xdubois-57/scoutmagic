@@ -321,12 +321,34 @@ class ReceiptMatchingServiceTest extends TestCase
         $this->assertSame($this->accountId, $this->attachmentRepository->findById($receipt->id)?->accountId);
         // And its file follows it, or a download would still answer to
         // the pile's boundary rather than the account's.
-        $stmt = $this->pdo->prepare('SELECT owner_type, owner_id FROM files WHERE id = ?');
+        $stmt = $this->pdo->prepare('SELECT owner_type, owner_id, role_min FROM files WHERE id = ?');
         $stmt->execute([$receipt->fileId]);
         $file = $stmt->fetch(\PDO::FETCH_ASSOC);
         $this->assertIsArray($file);
         $this->assertSame(\Modules\Finance\File\FinanceAccountOwnershipChecker::OWNER_TYPE, $file['owner_type']);
         $this->assertSame($this->accountId, (int) $file['owner_id']);
+        $this->assertSame('intendant', $file['role_min'], "the account's role_min_view, not the pile's floor");
+    }
+
+    /**
+     * The pass an import triggers offers the pile THAT account's movements:
+     * they are the new ones. Every account's would mean reading and
+     * decrypting the whole movement table per pile receipt per account.
+     */
+    public function testThePostImportPassOffersThePileOnlyTheImportedAccountsMovements(): void
+    {
+        $otherAccountId = (new AccountRepository($this->pdo, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))))
+            ->create('Autre', Account::TYPE_BANK, null, null, null, 'intendant');
+        $receipt = $this->createUnattributedReceipt(42.0, '2026-10-01', '2026-10-01 10:00:00');
+        $elsewhere = $this->createTransaction('2026-10-02', -42.0, 'Sur un autre compte', $otherAccountId);
+
+        $this->assertSame(0, $this->service()->matchPendingReceiptsForAccount($this->accountId));
+        $this->assertNull($this->attachmentRepository->findById($receipt->id)?->accountId);
+
+        // …and the other account's own import does offer it.
+        $this->assertSame(1, $this->service()->matchPendingReceiptsForAccount($otherAccountId));
+        $this->assertSame([$elsewhere->id], $this->transactionAttachmentRepository->findTransactionIdsForAttachment($receipt->id));
+        $this->assertSame($otherAccountId, $this->attachmentRepository->findById($receipt->id)?->accountId);
     }
 
     /** Nothing to answer it, nothing done: the receipt stays in the pile, unfiled. */
