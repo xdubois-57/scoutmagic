@@ -158,6 +158,8 @@ class RentalTestHelper
             hold_origin TEXT,
             hold_lapsed_at TEXT,
             requested_by_account_id INTEGER,
+            renter_email_base_blind_index TEXT,
+            request_source_blind_index TEXT,
             estimated_price_snapshot TEXT,
             estimated_total_cents INTEGER,
             agreed_price_snapshot TEXT,

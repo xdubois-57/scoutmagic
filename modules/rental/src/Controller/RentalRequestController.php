@@ -421,6 +421,11 @@ class RentalRequestController extends AbstractController
             )
             : null;
 
+        // The source of the request, for the cap on automatic holds (issue
+        // #1263): counted by the booking service as an IPv4 address or an
+        // IPv6 /64 and stored only as a blind index.
+        $sourceAddress = (string) $request->getServer('REMOTE_ADDR');
+
         try {
             $result = $this->bookingService->createFromPublicRequest(
                 $asset->id,
@@ -463,10 +468,13 @@ class RentalRequestController extends AbstractController
                     (string) $request->getBody('email', ''),
                     AuthSession::getUserAccountId(),
                     $this->automaticHoldDays(),
-                    $now
+                    $now,
+                    $asset->id,
+                    $sourceAddress
                 ),
                 $validate,
-                AuthSession::getUserAccountId()
+                AuthSession::getUserAccountId(),
+                $sourceAddress
             );
         } catch (RentalException $e) {
             return $this->renderForm($asset, $request, [$e->getMessage()]);

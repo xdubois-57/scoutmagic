@@ -64,6 +64,24 @@ class RentalBookingService implements OccupancyProvider
      */
     public const MAX_RUNNING_AUTOMATIC_HOLDS = 2;
 
+    /**
+     * How many automatic holds anonymous requests from ONE source may have
+     * running at once, every asset together (issue #1263). The address a
+     * visitor types and the account they are signed in with are theirs to
+     * change at every request; the source — an IPv4 address or an IPv6 /64,
+     * as for HumanCheck — is not. A little above the per-requester cap, so a
+     * household behind one address is not stopped by a neighbour.
+     */
+    public const MAX_RUNNING_AUTOMATIC_HOLDS_PER_SOURCE = 3;
+
+    /**
+     * How many automatic holds anonymous requests may have running on ONE
+     * asset at once (issue #1263): beyond it, a new anonymous request is
+     * recorded without a hold and waits for a manager, whoever it comes
+     * from. A signed-in requester is left to their own cap.
+     */
+    public const MAX_RUNNING_ANONYMOUS_AUTOMATIC_HOLDS_PER_ASSET = 3;
+
     private BookingReference $references;
 
     public function __construct(
@@ -146,7 +164,8 @@ class RentalBookingService implements OccupancyProvider
         \DateTimeImmutable $now,
         int $automaticHoldDays = self::DEFAULT_AUTOMATIC_HOLD_DAYS,
         ?callable $availableUnderLock = null,
-        ?int $requesterAccountId = null
+        ?int $requesterAccountId = null,
+        ?string $sourceAddress = null
     ): array {
         $name = trim($renter['name']);
         $email = trim($renter['email']);
@@ -234,7 +253,8 @@ class RentalBookingService implements OccupancyProvider
             $acceptances['privacy_version'],
             self::hashAcceptedText($acceptances['privacy_text'] ?? ''),
             $now,
-            $requesterAccountId
+            $requesterAccountId,
+            $sourceAddress
         );
 
         // Checked and written as one: no other request, option or
@@ -564,10 +584,18 @@ class RentalBookingService implements OccupancyProvider
      * - **longer than AUTOMATIC_HOLD_MAX_NIGHTS**: a long stay is answered
      *   by a manager before it blocks anything;
      * - **the requester already has MAX_RUNNING_AUTOMATIC_HOLDS running**,
-     *   on their address or their account: the next one waits.
+     *   on their address (compared without its « +tag ») or their account:
+     *   the next one waits;
+     * - **an anonymous requester's source already has
+     *   MAX_RUNNING_AUTOMATIC_HOLDS_PER_SOURCE running**, or **the asset
+     *   already has MAX_RUNNING_ANONYMOUS_AUTOMATIC_HOLDS_PER_ASSET anonymous
+     *   ones** (issue #1263): the address a visitor types is theirs to
+     *   change at every request, so the cap cannot rest on it alone. A
+     *   signed-in requester answers to their account's cap.
      *
-     * Either way the request is recorded and answered as usual; it simply
-     * does not show its dates as taken. A request overlapping a hold already
+     * Whichever of these applies, the request is recorded and answered as
+     * usual and the visitor is never told which one: it simply does not show
+     * its dates as taken. A request overlapping a hold already
      * running needs no rule here: those dates are occupied, and the
      * availability check refuses it.
      *
@@ -583,7 +611,9 @@ class RentalBookingService implements OccupancyProvider
         string $renterEmail,
         ?int $requesterAccountId,
         int $configuredDays,
-        \DateTimeImmutable $now
+        \DateTimeImmutable $now,
+        ?int $assetId = null,
+        ?string $sourceAddress = null
     ): int {
         if ($configuredDays <= 0) {
             return 0;
@@ -603,7 +633,29 @@ class RentalBookingService implements OccupancyProvider
             $now
         );
 
-        return $running >= self::MAX_RUNNING_AUTOMATIC_HOLDS ? 0 : $configuredDays;
+        if ($running >= self::MAX_RUNNING_AUTOMATIC_HOLDS) {
+            return 0;
+        }
+
+        // Only an anonymous request is counted on its source and on the
+        // asset: a signed-in one is bounded by its account just above.
+        if ($requesterAccountId === null) {
+            if ($sourceAddress !== null
+                && $this->bookingRepository->countRunningAutomaticHoldsFromSource($sourceAddress, $now)
+                    >= self::MAX_RUNNING_AUTOMATIC_HOLDS_PER_SOURCE
+            ) {
+                return 0;
+            }
+
+            if ($assetId !== null
+                && $this->bookingRepository->countRunningAnonymousAutomaticHoldsOnAsset($assetId, $now)
+                    >= self::MAX_RUNNING_ANONYMOUS_AUTOMATIC_HOLDS_PER_ASSET
+            ) {
+                return 0;
+            }
+        }
+
+        return $configuredDays;
     }
 
     /**

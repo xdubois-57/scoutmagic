@@ -180,10 +180,15 @@ class ModuleManifestTest extends TestCase
      * `remark_encrypted`.
      *
      * 1.54.1 keeps Unicode PDF generation working after relocation (#1057).
+     *
+     * 1.55.0 counts the running automatic holds on the source of a public
+     * request and on the address without its « +tag » too (#1263):
+     * `rental_bookings` gains `request_source_blind_index` and
+     * `renter_email_base_blind_index`.
      */
     public function testTheVersionIncludesPortableUnicodePdfs(): void
     {
-        $this->assertSame('1.54.1', $this->manifest->version);
+        $this->assertSame('1.55.0', $this->manifest->version);
     }
 
     /**
