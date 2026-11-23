@@ -81,13 +81,11 @@ class CarpoolController extends AbstractController
         return $this->render('@covoiturage/show.html.twig', [
             'carpool' => $this->board->carpoolPage($carpool, $viewer, null, $shown),
             'direction' => $shown,
-            // The address opens a route from where the reader is, in the
-            // map application of their own device (#703).
-            'directions_url' => MapsLink::directions(
-                $carpool->point,
-                $carpool->address,
-                (string) $request->getServer('HTTP_USER_AGENT', '')
-            ),
+            // One « Itinéraire » button opens a sheet where the reader picks
+            // Plans, Google Maps or Waze, every one to the same destination
+            // (#1345). The button's own link is the no-JavaScript road.
+            'directions_choices' => MapsLink::choices($carpool->point, $carpool->address),
+            'directions_url' => MapsLink::fallback($carpool->point, $carpool->address),
             'prefill' => $this->board->prefill($viewer),
             'breadcrumb_current' => $carpool->title(),
         ]);

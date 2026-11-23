@@ -9,57 +9,171 @@ use Core\Geo\MapsLink;
 use PHPUnit\Framework\TestCase;
 
 /**
- * The route link (#703): the reader's own map application, chosen from
- * their device, to the point when there is one and the address otherwise.
- * {@see MapsLink::url()} — a place on OpenStreetMap — is unchanged.
+ * The route link (#703, #1345): the reader picks Plans, Google Maps or
+ * Waze, and every one of them opens the same destination — the point when
+ * there is one, the address otherwise.
+ *
+ * The three providers are named in three languages that cannot check each
+ * other, like the messaging apps (Tests\Core\Phone\MessagingAppsTest) and
+ * the map tiles (Tests\Core\Geo\MapTilesTest): the links here, the default
+ * RGPD page and the rule the generated policy keeps.
  */
 class MapsLinkTest extends TestCase
 {
-    private const IPHONE = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15';
-    private const MAC = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_6) AppleWebKit/605.1.15 Safari/605.1.15';
-    private const ANDROID = 'Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36 Chrome/130.0 Mobile';
-    private const WINDOWS = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/130.0 Safari/537.36';
+    public function testPlansOpensARouteToThePoint(): void
+    {
+        $this->assertSame(
+            'https://maps.apple.com/?daddr=50.716000%2C4.611000&dirflg=d',
+            MapsLink::directionsFor(MapsLink::APPLE, new GeoPoint(50.716, 4.611), 'Rue du Parc 1, Wavre')
+        );
+    }
 
-    public function testAnAppleDeviceGetsPlansWithARouteFromWhereItIs(): void
+    public function testGoogleMapsOpensARouteToThePoint(): void
+    {
+        $this->assertSame(
+            'https://www.google.com/maps/dir/?api=1&destination=50.716000%2C4.611000',
+            MapsLink::directionsFor(MapsLink::GOOGLE, new GeoPoint(50.716, 4.611), 'Rue du Parc 1, Wavre')
+        );
+    }
+
+    public function testWazeNavigatesToThePointAndIgnoresTheAddressWhenThereIsOne(): void
+    {
+        $this->assertSame(
+            'https://waze.com/ul?ll=50.716000%2C4.611000&navigate=yes',
+            MapsLink::directionsFor(MapsLink::WAZE, new GeoPoint(50.716, 4.611), 'Rue du Parc 1, Wavre')
+        );
+    }
+
+    /**
+     * The address is what the reader sees; the point is what the link
+     * carries. A precise point must never be replaced by a name a
+     * gazetteer may place somewhere else.
+     */
+    public function testEveryProviderUsesThePointAndNeverTheDisplayedAddressWhenThereIsAPoint(): void
     {
         $point = new GeoPoint(50.716, 4.611);
 
-        $this->assertSame(
-            'https://maps.apple.com/?daddr=50.716000%2C4.611000&dirflg=d',
-            MapsLink::directions($point, 'Rue du Parc 1, Wavre', self::IPHONE)
-        );
-        $this->assertStringStartsWith('https://maps.apple.com/', MapsLink::directions($point, '', self::MAC));
+        foreach (array_keys(MapsLink::providers()) as $provider) {
+            $url = MapsLink::directionsFor($provider, $point, 'Une adresse très différente 99');
+            $this->assertStringContainsString('50.716000', $url, $provider);
+            $this->assertStringContainsString('4.611000', $url, $provider);
+            $this->assertStringNotContainsString('adresse', $url, $provider);
+        }
     }
 
-    public function testAndroidGetsAGeoLinkSoThePhoneOffersItsOwnApplication(): void
+    public function testWithoutAPointEveryProviderFallsBackOnTheTrimmedAddressEncodedForAUrl(): void
     {
-        $this->assertSame(
-            'geo:50.716000,4.611000?q=50.716000%2C4.611000',
-            MapsLink::directions(new GeoPoint(50.716, 4.611), 'Rue du Parc 1, Wavre', self::ANDROID)
-        );
-        $this->assertSame(
-            'geo:0,0?q=Rue%20du%20Parc%201%2C%20Wavre',
-            MapsLink::directions(null, ' Rue du Parc 1, Wavre ', self::ANDROID)
-        );
-    }
+        $address = ' Rue de l\'Église 12 & Cie, 5000 Namur ';
+        $encoded = rawurlencode('Rue de l\'Église 12 & Cie, 5000 Namur');
 
-    public function testAnythingElseGetsGoogleMapsInTheBrowser(): void
-    {
         $this->assertSame(
-            'https://www.google.com/maps/dir/?api=1&destination=Rue%20du%20Parc%201%2C%20Wavre',
-            MapsLink::directions(null, 'Rue du Parc 1, Wavre', self::WINDOWS)
+            'https://maps.apple.com/?daddr=' . $encoded . '&dirflg=d',
+            MapsLink::directionsFor(MapsLink::APPLE, null, $address)
         );
         $this->assertSame(
-            'https://www.google.com/maps/dir/?api=1&destination=50.716000%2C4.611000',
-            MapsLink::directions(new GeoPoint(50.716, 4.611), '', '')
+            'https://www.google.com/maps/dir/?api=1&destination=' . $encoded,
+            MapsLink::directionsFor(MapsLink::GOOGLE, null, $address)
+        );
+        $this->assertSame(
+            'https://waze.com/ul?q=' . $encoded . '&navigate=yes',
+            MapsLink::directionsFor(MapsLink::WAZE, null, $address)
         );
     }
 
-    public function testTheShowingLinkStillNamesOpenStreetMap(): void
+    public function testASpecialCharacterOfTheAddressCannotAddAParameterToTheLink(): void
     {
-        $this->assertStringStartsWith(
-            'https://www.openstreetmap.org/',
-            MapsLink::url(new GeoPoint(50.716, 4.611), 'Rue du Parc 1, Wavre')
+        foreach (array_keys(MapsLink::providers()) as $provider) {
+            $url = MapsLink::directionsFor($provider, null, 'Rue 1&navigate=no#x');
+
+            $this->assertStringNotContainsString('&navigate=no', $url, $provider);
+            $this->assertStringNotContainsString('#x', $url, $provider);
+        }
+    }
+
+    public function testTheProvidersAreExactlyThreeAndInTheOrderOfTheSheet(): void
+    {
+        $this->assertSame(
+            [MapsLink::APPLE, MapsLink::GOOGLE, MapsLink::WAZE],
+            array_keys(MapsLink::providers())
         );
+        $this->assertSame(
+            ['Plans', 'Google Maps', 'Waze'],
+            array_values(MapsLink::providers())
+        );
+    }
+
+    public function testAnUnknownProviderIsRefusedRatherThanGuessed(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+
+        MapsLink::directionsFor('geo', null, 'Rue du Parc 1');
+    }
+
+    public function testTheChoicesCarryTheLabelAndTheLinkOfEachProvider(): void
+    {
+        $point = new GeoPoint(50.716, 4.611);
+        $choices = MapsLink::choices($point, 'Rue du Parc 1, Wavre');
+
+        $this->assertSame(['apple', 'google', 'waze'], array_column($choices, 'key'));
+        $this->assertSame(['Plans', 'Google Maps', 'Waze'], array_column($choices, 'label'));
+        foreach ($choices as $choice) {
+            $this->assertSame(
+                MapsLink::directionsFor($choice['key'], $point, 'Rue du Parc 1, Wavre'),
+                $choice['url']
+            );
+        }
+    }
+
+    public function testNothingOpensAnAppSchemeOrGeoLink(): void
+    {
+        // Three providers on every device, no « other application » entry.
+        foreach (MapsLink::choices(null, 'Rue du Parc 1') as $choice) {
+            $this->assertStringStartsWith('https://', $choice['url']);
+        }
+    }
+
+    public function testTheNoJavaScriptLinkIsTheWebLinkOfGoogleMaps(): void
+    {
+        $this->assertSame(
+            MapsLink::directionsFor(MapsLink::GOOGLE, null, 'Rue du Parc 1'),
+            MapsLink::fallback(null, 'Rue du Parc 1')
+        );
+    }
+
+    public function testTheOriginsAreTheOnesTheRgpdPageNames(): void
+    {
+        $rgpd = (string) preg_replace(
+            '/\s+/u',
+            ' ',
+            (string) file_get_contents(dirname(__DIR__, 3) . '/core/View/rgpd_default.html')
+        );
+
+        foreach ([MapsLink::APPLE_HOST, MapsLink::GOOGLE_HOST, MapsLink::WAZE_HOST] as $host) {
+            $this->assertStringContainsString($host, $rgpd, 'The RGPD page does not name ' . $host);
+        }
+    }
+
+    public function testTheGeneratedPolicyKeepsTheRouteProviders(): void
+    {
+        $prompt = (string) preg_replace(
+            '/\s+/u',
+            ' ',
+            (string) file_get_contents(dirname(__DIR__, 3) . '/core/View/RgpdContentService.php')
+        );
+
+        foreach ([MapsLink::APPLE_HOST, MapsLink::GOOGLE_HOST, MapsLink::WAZE_HOST] as $host) {
+            $this->assertStringContainsString($host, $prompt, 'The RGPD prompt does not keep ' . $host);
+        }
+    }
+
+    public function testNoScriptWritesARouteLinkOfItsOwn(): void
+    {
+        foreach (glob(dirname(__DIR__, 3) . '/public/assets/js/*.js') ?: [] as $file) {
+            $code = (string) file_get_contents($file);
+            $name = basename($file);
+            $this->assertStringNotContainsString('maps.apple.com', $code, $name . ' writes a Plans link of its own.');
+            $this->assertStringNotContainsString('google.com/maps', $code, $name . ' writes a Google Maps link of its own.');
+            $this->assertStringNotContainsString('waze.com', $code, $name . ' writes a Waze link of its own.');
+        }
     }
 }

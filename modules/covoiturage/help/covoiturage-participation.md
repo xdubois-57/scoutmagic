@@ -22,9 +22,10 @@ laisse pas de badge.
 ## La bannière du jour
 
 Le jour du trajet, une bannière en haut de la page du covoiturage résume ce
-qu'il vous faut : l'heure, le rendez-vous, la destination, le lien
-d'itinéraire et, selon votre rôle, vos passagers avec leurs numéros ou le
-conducteur avec son numéro.
+qu'il vous faut : l'heure, le rendez-vous, la destination et, selon votre
+rôle, vos passagers avec leurs numéros ou le conducteur avec son numéro.
+Pour l'itinéraire, le bouton **Itinéraire** se trouve sous l'adresse, plus bas
+sur la même page.
 
 Si votre demande est encore en attente, la bannière vous prévient de ne pas
 compter sur cette voiture et n'affiche pas le numéro du conducteur. Les

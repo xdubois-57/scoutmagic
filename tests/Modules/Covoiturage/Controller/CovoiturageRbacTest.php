@@ -292,9 +292,27 @@ final class CovoiturageRbacTest extends TestCase
         // can call before answering (#703). The whole number, not a
         // prefix: four hex digits of the page's CSRF token once read 0495.
         $this->assertStringContainsString('+32 495 88 77 66', $page);
-        // The address says what it is on this trip, and opens a route.
+        // The address says what it is on this trip; ONE « Itinéraire »
+        // button opens the choice of map application (#1345), with no
+        // competing OpenStreetMap link and no remembered choice.
         $this->assertStringContainsString('Destination :', $page);
-        $this->assertStringContainsString('title="Itinéraire depuis votre position"', $page);
+        $this->assertSame(1, substr_count($page, 'data-bs-target="#directions-sheet"'));
+        $this->assertStringNotContainsString('Ouvrir sur une carte', $page);
+        $this->assertStringNotContainsString('openstreetmap.org/?mlat', $page);
+        $this->assertStringNotContainsString('geo:', $page);
+        foreach (['https://maps.apple.com/?daddr=', 'https://waze.com/ul?'] as $link) {
+            $this->assertSame(1, substr_count($page, $link), $link . ' must be offered once, in the sheet');
+        }
+        // Google Maps is also what the button itself links to without
+        // JavaScript: the button's href, and its entry in the sheet.
+        $this->assertSame(2, substr_count($page, 'https://www.google.com/maps/dir/'));
+        $this->assertMatchesRegularExpression(
+            '#<a href="https://www\.google\.com/maps/dir/[^"]*" class="btn btn-sm btn-outline-primary" role="button"#',
+            $page
+        );
+        foreach (['Plans', 'Google Maps', 'Waze'] as $label) {
+            $this->assertStringContainsString('<span>' . $label . '</span>', $page);
+        }
         // Refusing asks for an optional word, 200 characters at most.
         $this->assertStringContainsString('data-confirm-note="Un mot pour la famille (facultatif)"', $page);
         $this->assertStringContainsString('data-confirm-note-maxlength="200"', $page);
@@ -337,8 +355,12 @@ final class CovoiturageRbacTest extends TestCase
         $this->assertStringContainsString('Rendez-vous : Parking des locaux', $page);
         $this->assertStringContainsString('Tom Leroy', $page);
         $this->assertStringContainsString('+32 495 88 77 66', $page);
-        // The banner reuses the page's own route link: one per address, none new.
-        $this->assertStringContainsString('Itinéraire vers Gîte de Han-sur-Lesse', $page);
+        // The banner carries no route link of its own (#1345): the one
+        // « Itinéraire » button under the address is the only way in, so no
+        // path goes round the choice of application.
+        $this->assertStringNotContainsString('Itinéraire vers', $page);
+        $this->assertSame(1, substr_count($page, 'data-bs-target="#directions-sheet"'));
+        $this->assertSame(1, substr_count($page, 'https://waze.com/ul?'));
     }
 
     public function testAnAcceptedFamilySeesTheDriversNumberInTheBannerAndAPendingOneDoesNot(): void
