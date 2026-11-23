@@ -126,7 +126,7 @@ class ReceiptMatchingService
      *
      * @param Transaction[] $candidates
      */
-    private function matchAgainst(Attachment $receipt, array $candidates): void
+    private function matchAgainst(Attachment $receipt, array $candidates, ?\Closure $aiCandidates = null): void
     {
         $match = $this->findRuleBasedMatch($receipt, $candidates);
         if ($match !== null) {
@@ -139,6 +139,13 @@ class ReceiptMatchingService
             return;
         }
 
+        // The AI pass is asked once per receipt, ever: it gets its own
+        // candidate set when the rule pass was narrower (see
+        // matchPendingReceiptsForAccount()), fetched only if it will
+        // actually be asked.
+        if ($aiCandidates !== null && $receipt->matchingAiAttemptedAt === null) {
+            $candidates = $aiCandidates();
+        }
         $this->attemptAiMatch($receipt, $candidates);
     }
 
@@ -163,6 +170,13 @@ class ReceiptMatchingService
      * per receipt; only what this pass has just associated is filtered
      * out again, so a movement is never handed to two receipts.
      *
+     * **Except the AI pass of a pile receipt**, which is asked once ever:
+     * spent on one account's movements, during an import touching
+     * several, it would be gone before the account holding the right
+     * movement came round. A pile receipt not yet put to the model is put
+     * to it against every account's movements — read once per pass, and
+     * only if such a receipt gets that far.
+     *
      * @return int number of receipts newly matched (rule-based or AI)
      */
     public function matchPendingReceiptsForAccount(int $accountId): int
@@ -171,6 +185,12 @@ class ReceiptMatchingService
 
         $receipts = $this->pendingReceiptsForAccount($accountId);
         $movements = $receipts === [] ? [] : $this->transactionRepository->findByAccountId($accountId);
+        $everyMovement = null;
+        $unassociated = function (array $transactions): array {
+            $associatedIds = array_flip($this->transactionAttachmentRepository->findAssociatedTransactionIds());
+
+            return array_values(array_filter($transactions, fn(Transaction $t) => !isset($associatedIds[$t->id])));
+        };
 
         foreach ($receipts as $receipt) {
             if ($this->isAlreadyAssociated($receipt->id)) {
@@ -180,11 +200,15 @@ class ReceiptMatchingService
                 continue;
             }
 
-            $associatedIds = array_flip($this->transactionAttachmentRepository->findAssociatedTransactionIds());
-            $this->matchAgainst($receipt, array_values(array_filter(
-                $movements,
-                fn(Transaction $t) => !isset($associatedIds[$t->id])
-            )));
+            $aiCandidates = null;
+            if ($receipt->accountId === null) {
+                $aiCandidates = function () use (&$everyMovement, $unassociated): array {
+                    $everyMovement ??= $this->transactionRepository->findAll();
+
+                    return $unassociated($everyMovement);
+                };
+            }
+            $this->matchAgainst($receipt, $unassociated($movements), $aiCandidates);
         }
 
         $matchedAfter = count($this->transactionAttachmentRepository->findAssociatedAttachmentIds());

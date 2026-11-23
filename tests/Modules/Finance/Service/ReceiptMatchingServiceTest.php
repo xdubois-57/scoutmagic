@@ -466,6 +466,39 @@ class ReceiptMatchingServiceTest extends TestCase
      * A connector with models, but none for the tier the request asks:
      * the call would fail before any provider, so nothing is marked.
      */
+    /**
+     * A pile receipt's one AI attempt, made during the pass of one
+     * account, is offered every account's movements: spent on that
+     * account's alone, it would be gone before an import touching
+     * several reached the account holding the right movement.
+     */
+    public function testThePileReceiptsOneAiAttemptSeesEveryAccount(): void
+    {
+        $otherAccountId = (new AccountRepository($this->pdo, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))))
+            ->create('Autre', Account::TYPE_BANK, null, null, null, 'intendant');
+        $receipt = $this->createUnattributedReceipt(12.50, '2026-10-01', '2026-10-01 10:00:00');
+        $this->createTransaction('2026-10-02', -99.0, 'Sur ce compte, sans rapport');
+        $right = $this->createTransaction('2026-10-03', -12.40, 'Delhaize', $otherAccountId);
+
+        $offered = [];
+        $llmConnector = $this->createMock(LlmConnectorInterface::class);
+        $llmConnector->method('isAvailable')->willReturn(true);
+        $llmConnector->method('isTierAvailable')->willReturn(true);
+        $llmConnector->expects($this->once())->method('complete')->willReturnCallback(
+            static function (LlmRequest $request) use (&$offered, $right): LlmResponse {
+                $offered[] = $request->prompt;
+
+                return new LlmResponse('{}', ['transaction_id' => $right->id], 10, 10);
+            }
+        );
+
+        $this->service($llmConnector)->matchPendingReceiptsForAccount($this->accountId);
+
+        $this->assertStringContainsString('Delhaize', $offered[0] ?? '', "the other account's movement was offered");
+        $this->assertSame([$right->id], $this->transactionAttachmentRepository->findTransactionIdsForAttachment($receipt->id));
+        $this->assertSame($otherAccountId, $this->attachmentRepository->findById($receipt->id)?->accountId);
+    }
+
     public function testDoesNotMarkAnAttemptWithoutACheapModel(): void
     {
         $receipt = $this->createReceipt(12.50, '2026-10-01', '2026-10-01 10:00:00');
