@@ -456,6 +456,9 @@
     // The file last accepted: what the form still sends when a later choice
     // is refused, so the preview never shows a picture that is not sent.
     var acceptedFeaturedImage = null;
+    // Which choice is the latest: an image is processed asynchronously, and
+    // the answer for an earlier one must not undo what a later one decided.
+    var featuredImageChoice = 0;
 
     /**
      * @param {string} message
@@ -485,7 +488,13 @@
                 maxBytes = FEATURED_IMAGE_DEFAULT_MAX_BYTES;
             }
 
+            var choice = ++featuredImageChoice;
+
             processFeaturedImage(file, FEATURED_IMAGE_MAX_DIMENSION, function (blob) {
+                if (choice !== featuredImageChoice) {
+                    return;
+                }
+
                 var problem = featuredImageProblem(blob, maxBytes);
                 if (problem !== null) {
                     refuseFeaturedImage(problem);

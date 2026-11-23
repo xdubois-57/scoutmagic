@@ -3680,6 +3680,31 @@ class NewsIntegrationTest extends TestCase
         $this->assertStringContainsString('Repasser en brouillon ?', $matches[0][0]);
     }
 
+    /**
+     * What Enter in the title presses is the first submit button of the
+     * form IN DOCUMENT ORDER, the ones attached with form="…" included: it
+     * must be a plain save, never one of the banner's actions (#1357).
+     */
+    public function testEnterInTheTitleSavesWhateverTheBannerOffers(): void
+    {
+        $body = $this->scheduledEditor();
+
+        preg_match_all('#<button\s[^>]*type="submit"[^>]*>#s', $body, $matches, PREG_OFFSET_CAPTURE);
+        $formStart = (int) strpos($body, 'id="news-editor-form"');
+        $formEnd = (int) strpos($body, '</form>', $formStart);
+        $first = null;
+        foreach ($matches[0] as [$tag, $offset]) {
+            $inside = $offset > $formStart && $offset < $formEnd;
+            if ($inside || str_contains($tag, 'form="news-editor-form"')) {
+                $first = $tag;
+                break;
+            }
+        }
+
+        $this->assertNotNull($first);
+        $this->assertStringContainsString('value="save"', (string) $first);
+    }
+
     public function testNoHtmlIdIsRepeatedInTheScheduledEditor(): void
     {
         $body = $this->scheduledEditor();

@@ -39,6 +39,8 @@ let canvasCalls;
 let nextBlob;
 let nextPixels;
 let imageFails;
+/** When an array, the canvas answers are kept here, to be released in any order. */
+let heldAnswers = null;
 
 /** A canvas that records the encoding it is asked for and answers `nextBlob`. */
 function installCanvas() {
@@ -55,7 +57,14 @@ function installCanvas() {
     });
     HTMLCanvasElement.prototype.toBlob = /** @type {any} */ (function (callback, type, quality) {
         canvasCalls.toBlob.push({ type, quality });
-        callback(typeof nextBlob === 'function' ? nextBlob(type) : nextBlob);
+        // What the encoder produced is fixed now, whenever it is handed over.
+        const produced = typeof nextBlob === 'function' ? nextBlob(type) : nextBlob;
+        const answer = () => callback(produced);
+        if (heldAnswers) {
+            heldAnswers.push(answer);
+            return;
+        }
+        answer();
     });
 }
 
@@ -144,6 +153,7 @@ describe('news-form-builder.js: the cover image (#1357)', () => {
     afterEach(() => {
         document.body.innerHTML = '';
         imageFails = false;
+        heldAnswers = null;
         nextPixels = null;
     });
 
@@ -360,6 +370,28 @@ describe('news-form-builder.js: the cover image (#1357)', () => {
 
             expect(document.getElementById('news-image-error').hidden).toBe(true);
             expect(document.getElementById('image').files).toHaveLength(1);
+        });
+
+        it('ignores the answer for an earlier choice once a later one has been decided', async () => {
+            await loadEditor(10 * MB);
+            heldAnswers = [];
+            nextBlob = (type) => blobOf(11 * MB, type);
+            await choose(photo());
+            const [tooHeavy] = heldAnswers;
+            heldAnswers = null;
+
+            // A second, good choice completes first…
+            nextBlob = (type) => blobOf(700 * 1024, type);
+            await choose(photo());
+            const accepted = document.getElementById('image').files[0];
+            expect(document.getElementById('news-image-error').hidden).toBe(true);
+
+            // …then the first one's answer arrives, and changes nothing.
+            tooHeavy();
+
+            expect(document.getElementById('news-image-error').hidden).toBe(true);
+            expect(toast).not.toHaveBeenCalled();
+            expect(document.getElementById('image').files).toEqual([accepted]);
         });
     });
 });
