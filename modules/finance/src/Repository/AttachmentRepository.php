@@ -128,6 +128,20 @@ class AttachmentRepository
     }
 
     /**
+     * The sorting pile (« Compte inconnu »): active receipts with no
+     * account yet.
+     *
+     * @return Attachment[]
+     */
+    public function findActiveUnassigned(): array
+    {
+        $stmt = $this->pdo->query("SELECT * FROM finance_attachments WHERE status = 'active' AND account_id IS NULL "
+            . "ORDER BY uploaded_at DESC");
+
+        return $stmt === false ? [] : array_map([$this, 'hydrate'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
+    /**
      * @return Attachment[]
      */
     public function findActiveByAccountId(int $accountId): array

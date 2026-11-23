@@ -57,15 +57,22 @@ interface ExpenseReceiptInterface
      * {@see receiptAccounts()} filters on: a picker is UI, never the
      * boundary (SECURITY.md §3).
      *
+     * `$accountId` null files it in the sorting pile (« Compte inconnu »),
+     * under the actor's own right to that pile
+     * ({@see \Modules\Finance\Service\AccountVisibility::isUnassignedReceiptVisibleTo()})
+     * — a person associating a message with that pile, not the unattended
+     * route of {@see storeUnattendedReceipt()} (#1342 §E).
+     *
      * @param int[] $actorLinkedMemberIds
      * @throws \Modules\Finance\Api\FinanceException when the actor may not use
-     *         that account, the account is unknown, or the type is refused
+     *         that account or the sorting pile, the account is unknown, or
+     *         the type is refused
      */
     public function storeReceipt(
         string $content,
         string $mimeType,
         string $originalFilename,
-        int $accountId,
+        ?int $accountId,
         ?float $suggestedAmount,
         ?string $suggestedDate,
         string $actorRole,

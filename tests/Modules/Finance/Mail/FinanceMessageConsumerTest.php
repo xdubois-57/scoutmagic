@@ -591,6 +591,29 @@ class FinanceMessageConsumerTest extends TestCase
         $this->assertNull($filed[0]['account_id'], 'the pile is an absent account, never account 0');
     }
 
+    /**
+     * The same pile, linked by a PERSON (#1342 §E): filed with no account,
+     * under their own rights — it used to reach finance as account 0,
+     * refused as unknown, and the message stayed linked with nothing filed.
+     */
+    public function testAPersonLinkingToTheSortingPileFilesItWithNoAccount(): void
+    {
+        $filed = [];
+        $consumer = $this->consumer($filed, actorFor: 7);
+
+        $consumer->onLinked($this->storedMessage(), new MessageLink(
+            FinanceMessageConsumer::CONSUMER_ID,
+            FinanceMessageConsumer::REFERENCE_UNKNOWN,
+            LinkOrigin::MANUAL,
+            0,
+            7
+        ));
+
+        $this->assertCount(1, $filed);
+        $this->assertNull($filed[0]['account_id'], 'the pile is an absent account, never account 0');
+        $this->assertSame('admin', $filed[0]['role'], 'filed under the person, not the unattended route');
+    }
+
     public function testAConfirmedPropositionFilesTheAttachmentAsAReceipt(): void
     {
         $filed = [];
@@ -1007,7 +1030,7 @@ class RecordingExpenseReceipts implements \Modules\Finance\Api\ExpenseReceiptInt
         string $content,
         string $mimeType,
         string $originalFilename,
-        int $accountId,
+        ?int $accountId,
         ?float $suggestedAmount,
         ?string $suggestedDate,
         string $actorRole,

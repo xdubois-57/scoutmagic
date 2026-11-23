@@ -242,6 +242,38 @@ class ExpenseReceiptServiceTest extends TestCase
     }
 
     /**
+     * A person filing into « Compte inconnu » (#1342 §E): null is the
+     * sorting pile, under their own right to it — not account 0, refused
+     * as unknown, which is what a confirmed link to that pile used to
+     * become.
+     */
+    public function testATreasurerFilesIntoTheSortingPile(): void
+    {
+        $treasurer = $this->createMember($this->louveteauxId, withBadge: true);
+
+        $fileId = $this->service->storeReceipt(
+            self::PDF, 'application/pdf', 'ticket.pdf', null, null, null, 'intendant', [$treasurer], 7
+        );
+
+        $row = $this->pdo->query('SELECT account_id, uploaded_by FROM finance_attachments WHERE file_id = ' . $fileId)
+            ->fetch(\PDO::FETCH_ASSOC);
+        $this->assertIsArray($row);
+        $this->assertNull($row['account_id']);
+        $this->assertSame(7, (int) $row['uploaded_by']);
+    }
+
+    /** Somebody the pile is closed to is refused, as for an account they may not see. */
+    public function testTheSortingPileIsRefusedToWhoeverMayNotSeeIt(): void
+    {
+        $notATreasurer = $this->createMember($this->louveteauxId, withBadge: false);
+
+        $this->expectException(FinanceException::class);
+        $this->service->storeReceipt(
+            self::PDF, 'application/pdf', 'ticket.pdf', null, null, null, 'intendant', [$notATreasurer], 7
+        );
+    }
+
+    /**
      * "No such account" and "not yours" answer the same thing, so a
      * consumer never learns which accounts exist (SECURITY.md §3).
      */

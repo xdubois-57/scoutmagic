@@ -139,6 +139,13 @@ class ReceiptMatchingService
      * (and, symmetrically, give an AI-matching attempt something to
      * actually compare against for the first time).
      *
+     * **And for the sorting pile too** (#1342 §B). A receipt arrives by
+     * e-mail long before the statement that carries its movement, and the
+     * one that could not be placed waits in « Compte inconnu »; this pass
+     * selected by account only, so it never looked at that receipt again.
+     * matchReceipt() already knows how to match it against every account
+     * and file it on the movement's — only the selection was missing.
+     *
      * @return int number of receipts newly matched (rule-based or AI)
      */
     public function matchPendingReceiptsForAccount(int $accountId): int
@@ -213,8 +220,6 @@ class ReceiptMatchingService
             return;
         }
 
-        $this->attachmentRepository->markAiMatchAttempted($receipt->id);
-
         if ($this->llmConnector === null || !$this->llmConnector->isAvailable()) {
             return;
         }
@@ -226,6 +231,13 @@ class ReceiptMatchingService
         if ($windowCandidates === []) {
             return;
         }
+
+        // Marked only now, when the model is about to be asked (#1342 §B).
+        // It was written before the two checks above, so a connector down
+        // for an afternoon, or a statement not yet imported, closed the
+        // AI pass on that receipt for good — and the screen said « IA :
+        // aucun mouvement trouvé » about a question never put.
+        $this->attachmentRepository->markAiMatchAttempted($receipt->id);
 
         $candidatesById = [];
         foreach ($windowCandidates as $t) {
@@ -376,7 +388,10 @@ class ReceiptMatchingService
     {
         $associatedIds = array_flip($this->transactionAttachmentRepository->findAssociatedAttachmentIds());
         return array_values(array_filter(
-            $this->attachmentRepository->findActiveByAccountId($accountId),
+            [
+                ...$this->attachmentRepository->findActiveByAccountId($accountId),
+                ...$this->attachmentRepository->findActiveUnassigned(),
+            ],
             fn(Attachment $a) => !isset($associatedIds[$a->id])
         ));
     }

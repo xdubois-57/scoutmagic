@@ -314,6 +314,55 @@ class SchedulerBootstrapTest extends TestCase
         $this->assertInstanceOf(\Modules\Camps\Mail\CampsMessageConsumer::class, $consumers[5]);
     }
 
+    /**
+     * The receipt the relève files is queued for its AI reading (#1342 §A).
+     *
+     * `ReceiptService::store()` queues the reading only when it was given a
+     * `ReceiptExtractionService`, and the scheduler built its own without
+     * one: every receipt arriving by e-mail landed with no amount, date or
+     * merchant, while the same file uploaded by hand was read. The web
+     * root and every test that injects the service by hand passed all the
+     * same, so this walks the graph THIS bootstrap builds.
+     */
+    public function testTheReceiptTheMailboxSyncFilesIsQueuedForItsReading(): void
+    {
+        ['runner' => $runner, 'context' => $context] = $this->bootstrap(['inbound_mail', 'finance', 'llm_connector']);
+
+        $factories = (new \ReflectionProperty(SchedulerRunner::class, 'handlerFactories'))->getValue($runner);
+        $handler = ($factories['inbound_mail::' . \Modules\InboundMail\Task\SyncMailboxesHandler::TASK_KEY])($context);
+        $registry = (new \ReflectionProperty(\Modules\InboundMail\Task\SyncMailboxesHandler::class, 'consumerRegistry'))
+            ->getValue($handler);
+        $consumers = (new \ReflectionProperty(\Modules\InboundMail\Service\MessageConsumerRegistry::class, 'consumers'))
+            ->getValue($registry);
+        $finance = array_values(array_filter(
+            $consumers,
+            static fn(object $consumer): bool => $consumer instanceof \Modules\Finance\Mail\FinanceMessageConsumer
+        ));
+        $this->assertCount(1, $finance, 'the relève registers the Finance consumer');
+
+        $receipts = (new \ReflectionProperty(\Modules\Finance\Mail\FinanceMessageConsumer::class, 'receipts'))
+            ->getValue($finance[0]);
+        $this->assertInstanceOf(\Modules\Finance\Service\ExpenseReceiptService::class, $receipts);
+        $receiptService = (new \ReflectionProperty(\Modules\Finance\Service\ExpenseReceiptService::class, 'receiptService'))
+            ->getValue($receipts);
+        $extraction = (new \ReflectionProperty(\Modules\Finance\Service\ReceiptService::class, 'extractionService'))
+            ->getValue($receiptService);
+
+        $this->assertInstanceOf(
+            \Modules\Finance\Service\ReceiptExtractionService::class,
+            $extraction,
+            'a receipt filed by the relève would never be read'
+        );
+        // And with the connector the context resolves, not a null one that
+        // would make the reading a silent no-op.
+        $connector = (new \ReflectionProperty(\Modules\Finance\Service\ReceiptExtractionService::class, 'llmConnector'))
+            ->getValue($extraction);
+        $this->assertSame(
+            $context->getOptional(\Modules\LlmConnector\Api\LlmConnectorInterface::class),
+            $connector
+        );
+    }
+
     public function testTheSyncFactoryIsNotRegisteredWhenInboundMailIsDisabled(): void
     {
         ['runner' => $runner] = $this->bootstrap(['rental', 'camps']);

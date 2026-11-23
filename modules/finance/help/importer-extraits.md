@@ -51,7 +51,8 @@ d'aide consacré aux lignes écartées et aux refus explique chacun.
 
 Les règles de catégorisation passent automatiquement sur les nouvelles
 lignes, et les justificatifs en attente sont confrontés aux nouveaux
-mouvements. Les virements qui portent la communication structurée d'une
+mouvements, y compris ceux de « Compte inconnu », rangés sur le compte
+du mouvement trouvé. Les virements qui portent la communication structurée d'une
 créance lui sont rattachés : un crédit comme paiement, un débit comme
 remboursement de son trop-perçu, jamais au-delà. Il ne reste qu'à traiter ce que le tableau de bord signale
 encore « À catégoriser ».
