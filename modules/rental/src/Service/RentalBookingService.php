@@ -279,9 +279,12 @@ class RentalBookingService implements OccupancyProvider
                     // never refused. The asset's own ceiling is exact here;
                     // the source's covers every asset, and requests for
                     // two different ones from one source still race each
-                    // other — a miss bounded by HumanCheck's few requests
-                    // per source and ten minutes, acceptable as the cap's
-                    // own (see automaticHoldDaysFor()).
+                    // other. That miss is NOT bounded by HumanCheck, whose
+                    // own count is not atomic either: it is bounded only by
+                    // how many requests one source can make at the same
+                    // instant. Serialising by source — a named lock taken
+                    // before the asset's — would close it, and is left to
+                    // the maintainer's decision (SECURITY.md, #1263).
                     if ($hold['until'] !== null
                         && $requesterAccountId === null
                         && $this->anonymousCeilingReached($assetId, $sourceAddress, $now)
