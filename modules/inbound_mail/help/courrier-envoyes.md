@@ -17,14 +17,15 @@ e-mails.
 
 ## Le dossier des envoyés
 
-Le site trouve ce dossier tout seul quand le serveur le désigne : en
-ouvrant « Dossiers lus (facultatif) », le formulaire l'affiche comme
-« Trouvé automatiquement ». Il ne devine jamais d'après un nom. Si le
-serveur n'en désigne aucun, indiquez son nom dans « Dossier des messages
-envoyés », tel que votre webmail l'affiche. Laissez le champ vide sinon.
+Le site trouve ce dossier tout seul quand le serveur le désigne : une fois
+la connexion vérifiée, la liste « Dossier des messages envoyés » affiche
+« Trouvé automatiquement » et son nom. Il ne devine jamais d'après un nom.
+Si le serveur n'en désigne aucun, la liste vous propose les dossiers du
+serveur : choisissez celui que votre webmail utilise pour les messages
+envoyés, ou laissez « Aucun ». Un nom ne se tape jamais.
 
-Un dossier déjà coché dans « Autres dossiers reçus » reste lu comme du
-courrier reçu, et n'est pas lu une seconde fois.
+Un dossier déjà coché parmi les dossiers lus comme du courrier reçu ne
+peut pas être choisi en plus comme dossier des envoyés.
 
 ## Ce qui est gardé
 

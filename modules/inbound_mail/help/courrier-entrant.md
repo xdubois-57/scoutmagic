@@ -9,7 +9,7 @@ question: Le site peut-il envoyer ou effacer des mails de la boîte ?
 question: Comment réserver une boîte e-mail à un seul usage ?
 question: Qui a le droit de lire le courrier entrant ?
 paths: /config/courrier-entrant, /config/courrier-entrant/boites/nouvelle, /config/courrier-entrant/boites/*/modification
-related: courrier-releve, courrier-reponse, courrier-envoyes, courrier-unite, gerer-les-locations
+related: courrier-releve, courrier-dossiers, courrier-reponse, courrier-envoyes, courrier-unite, gerer-les-locations
 ---
 
 Le site lit une ou plusieurs adresses e-mail de l'unité pour ranger les
@@ -63,11 +63,10 @@ n'existe, puis une adresse réservée si un module est disponible.
 
 ## Dossiers lus
 
-Le site lit la boîte de réception et, pour les Locations, les messages
-envoyés. « Dossiers lus (facultatif) » permet d'ajouter d'autres
-dossiers ; la corbeille, les brouillons et les vues comme « Tous les
-messages » ne sont jamais proposés, ni les indésirables, sauf à une
-boîte témoin, qui doit les cocher.
+Le site lit toujours la boîte de réception et, pour les Locations, les
+messages envoyés. Les autres dossiers se cochent dans « Dossiers lus »,
+qui apparaît une fois la connexion vérifiée : voir
+[les dossiers lus](/aide/courrier-dossiers).
 
 ## Ensuite
 

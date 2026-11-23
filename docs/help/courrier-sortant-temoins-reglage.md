@@ -38,7 +38,8 @@ arrivé ».
 Vous liriez donc le pire verdict de la page pour un message pourtant
 distribué, et c'est la seule différence que cette page existe pour
 mesurer. Ouvrez chaque boîte témoin dans « Courrier entrant » et cochez
-son dossier d'indésirables dans « Dossiers lus (facultatif) » — il s'appelle
+son dossier d'indésirables dans « Dossiers lus », affiché une fois la
+connexion vérifiée — il s'appelle
 « Spam » chez la plupart, « Indésirables » chez d'autres, « Junk » chez
 Google.
 

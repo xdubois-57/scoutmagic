@@ -288,9 +288,11 @@ class InboundMailboxRepository
      */
     public function setSentFolder(int $id, ?string $folder): void
     {
-        $folder = $folder !== null ? trim($folder) : '';
+        // Stored as the server spells it, like the watched folders: only a
+        // blank value clears it.
+        $blank = $folder === null || trim($folder) === '';
         $stmt = $this->pdo->prepare('UPDATE inbound_mailboxes SET sent_folder = ?, updated_at = ? WHERE id = ?');
-        $stmt->execute([$folder === '' ? null : $folder, self::now(), $id]);
+        $stmt->execute([$blank ? null : $folder, self::now(), $id]);
     }
 
     public function setPassword(int $id, string $password): void
@@ -476,9 +478,16 @@ class InboundMailboxRepository
      */
     private function hydrate(array $row): Mailbox
     {
+        // Read back exactly as saved: a folder path is the server's own
+        // spelling, a leading or trailing space included, and
+        // `requireFolder()` matches it exactly. Only a blank line and the
+        // `\r` of a CRLF separator go.
         $folders = array_values(array_filter(
-            array_map('trim', explode("\n", (string) ($row['folders'] ?? ''))),
-            static fn(string $folder) => $folder !== ''
+            array_map(
+                static fn(string $line): string => rtrim($line, "\r"),
+                explode("\n", (string) ($row['folders'] ?? ''))
+            ),
+            static fn(string $folder) => trim($folder) !== ''
         ));
 
         return new Mailbox(

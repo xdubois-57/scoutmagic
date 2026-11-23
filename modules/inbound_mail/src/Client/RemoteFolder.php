@@ -83,6 +83,38 @@ final class RemoteFolder
     }
 
     /**
+     * Whether the folder can be opened at all: not a mere level of the
+     * hierarchy (`\Noselect`), not a name the server says does not exist.
+     */
+    public function isSelectable(): bool
+    {
+        foreach ($this->attributes as $attribute) {
+            if (strcasecmp($attribute, '\\Noselect') === 0 || strcasecmp($attribute, '\\NonExistent') === 0) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * The folders the form may offer as the box's sent mail, for a server
+     * that marks none `\Sent` (#1343): every folder that can be opened but
+     * the inbox, chosen from a list and never typed — the server's own
+     * names, whatever its language or its hierarchy (`INBOX.Sent`).
+     *
+     * @param RemoteFolder[] $folders
+     * @return list<string>
+     */
+    public static function sentCandidatesAmong(array $folders): array
+    {
+        return self::paths(array_values(array_filter(
+            $folders,
+            static fn(RemoteFolder $folder): bool => $folder->isSelectable() && strcasecmp($folder->path, 'INBOX') !== 0
+        )));
+    }
+
+    /**
      * The paths of the folders the form may offer as received mail.
      *
      * `$includingJunk` is for one kind of box only: a seed box, whose whole
