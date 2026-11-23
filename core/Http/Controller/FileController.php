@@ -314,7 +314,7 @@ class FileController extends AbstractController
         // encrypted file is never anonymously reachable anyway (FileAccessGuard
         // gates it to intendant+), so its render cost is bounded by authorised
         // users rather than the public.
-        $cachePath = $this->storagePath . '/' . \Core\File\PdfThumbnailCache::SUBDIRECTORY . '/' . $file->id . '.jpg';
+        $cachePath = \Core\File\PdfThumbnailCache::pathFor($this->storagePath, $file->id);
         if (!$file->encrypted && is_file($cachePath)) {
             $cached = file_get_contents($cachePath);
             if ($cached !== false && $cached !== '') {
