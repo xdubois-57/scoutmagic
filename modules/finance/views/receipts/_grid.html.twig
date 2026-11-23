@@ -27,9 +27,9 @@
                    data-file-image="{{ attachment.mimeType starts with 'image/' ? '1' : '0' }}"
                    download="{{ attachment.originalFilename }}" target="_blank" rel="noopener">
                     {% if attachment.mimeType starts with 'image/' %}
-                        <img src="{{ receipt_url }}" alt="{{ attachment.originalFilename }}" class="img-fluid rounded" style="max-height:160px;object-fit:cover;width:100%;">
+                        <img src="{{ receipt_url }}" alt="{{ attachment.originalFilename }}" class="img-fluid rounded" style="max-height:160px;object-fit:contain;width:100%;">
                     {% elseif attachment.mimeType == 'application/pdf' %}
-                        <img src="{{ file_url(attachment.fileId, 'thumbnail') }}" alt="{{ attachment.originalFilename }}" class="img-fluid rounded pdf-thumbnail" style="max-height:160px;object-fit:cover;width:100%;">
+                        <img src="{{ file_url(attachment.fileId, 'thumbnail') }}" alt="{{ attachment.originalFilename }}" class="img-fluid rounded pdf-thumbnail" style="max-height:160px;object-fit:contain;width:100%;">
                     {% else %}
                         <div class="d-flex align-items-center justify-content-center bg-body-secondary rounded" style="height:160px;">
                             <i class="bi bi-file-earmark-word fs-1" aria-hidden="true"></i>

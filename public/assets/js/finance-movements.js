@@ -46,7 +46,7 @@
      * @returns {string}
      */
     function fileUrl(url) {
-        return typeof url === 'string' && /^\/files\/[A-Za-z0-9_-]{22}(?:\/(?:thumbnail|thumb|md))?$/.test(url)
+        return typeof url === 'string' && /^\/files\/[A-Za-z0-9_-]{22}(?:\/(?:thumbnail(?:\?v=\d+)?|thumb|md))?$/.test(url)
             ? url
             : '';
     }
@@ -252,10 +252,10 @@
                 + '<span class="visually-hidden">Fichier indisponible</span></div>';
         }
         if (a.mime_type.startsWith('image/')) {
-            return '<img src="' + escapeHtml(src) + '" alt="" class="rounded pdf-thumbnail" style="width:64px;height:64px;object-fit:cover;">';
+            return '<img src="' + escapeHtml(src) + '" alt="" class="rounded pdf-thumbnail" style="width:64px;height:64px;object-fit:contain;">';
         }
         if (a.mime_type === 'application/pdf') {
-            return '<img src="' + escapeHtml(src) + '" alt="" class="rounded pdf-thumbnail" style="width:64px;height:64px;object-fit:cover;">';
+            return '<img src="' + escapeHtml(src) + '" alt="" class="rounded pdf-thumbnail" style="width:64px;height:64px;object-fit:contain;">';
         }
         return '<div class="d-flex align-items-center justify-content-center bg-body-secondary rounded" style="width:64px;height:64px;"><i class="bi bi-file-earmark fs-4"></i></div>';
     }

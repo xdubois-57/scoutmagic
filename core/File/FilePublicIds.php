@@ -166,12 +166,22 @@ final class FilePublicIds
         $suffix = $variant !== null ? '/' . $variant : '';
 
         if (self::$repository === null) {
-            return '/files/' . $id . $suffix;
+            return '/files/' . $id . $suffix . self::renderQuery($variant);
         }
 
         $publicId = self::forFileId($id);
 
-        return $publicId === null ? '' : self::addressOf($publicId, $variant);
+        return $publicId === null ? '' : self::addressOf($publicId, $variant) . self::renderQuery($variant);
+    }
+
+    /**
+     * A PDF thumbnail's address names its rendering
+     * (PdfThumbnailCache::RENDER_VERSION): browsers keep one a week, and a
+     * fixed rendering — #1342's black thumbnails — must reach them now.
+     */
+    private static function renderQuery(?string $variant): string
+    {
+        return $variant === 'thumbnail' ? '?v=' . PdfThumbnailCache::RENDER_VERSION : '';
     }
 
     /**

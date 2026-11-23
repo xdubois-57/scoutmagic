@@ -33,15 +33,43 @@ class PdfThumbnailCacheTest extends TestCase
 
     public function testStaleThumbnailsAreDeletedAndFreshOnesKept(): void
     {
-        $dir = $this->storagePath . '/' . PdfThumbnailCache::SUBDIRECTORY;
-        file_put_contents($dir . '/1.jpg', 'x');
-        file_put_contents($dir . '/2.jpg', 'x');
-        touch($dir . '/1.jpg', time() - 31 * 86400);
+        $stale = PdfThumbnailCache::pathFor($this->storagePath, 1);
+        $fresh = PdfThumbnailCache::pathFor($this->storagePath, 2);
+        file_put_contents($stale, 'x');
+        file_put_contents($fresh, 'x');
+        touch($stale, time() - 31 * 86400);
 
         $this->assertSame(1, PdfThumbnailCache::purgeStale($this->storagePath));
 
-        $this->assertFileDoesNotExist($dir . '/1.jpg');
-        $this->assertFileExists($dir . '/2.jpg');
+        $this->assertFileDoesNotExist($stale);
+        $this->assertFileExists($fresh);
+    }
+
+    /**
+     * A thumbnail of an older rendering goes at once, however recent: it
+     * is never served again (#1342 — the renders before the fix could be
+     * black), and it would otherwise sit there for RETENTION_DAYS.
+     */
+    public function testAnOlderRenderingIsDeletedWhateverItsAge(): void
+    {
+        $dir = $this->storagePath . '/' . PdfThumbnailCache::SUBDIRECTORY;
+        file_put_contents($dir . '/3.jpg', 'x');
+        file_put_contents($dir . '/4.v1.jpg', 'x');
+        file_put_contents(PdfThumbnailCache::pathFor($this->storagePath, 5), 'x');
+
+        $this->assertSame(2, PdfThumbnailCache::purgeStale($this->storagePath));
+
+        $this->assertFileDoesNotExist($dir . '/3.jpg');
+        $this->assertFileDoesNotExist($dir . '/4.v1.jpg');
+        $this->assertFileExists(PdfThumbnailCache::pathFor($this->storagePath, 5));
+    }
+
+    public function testTheCachedPathNamesTheRendering(): void
+    {
+        $this->assertSame(
+            '/s/' . PdfThumbnailCache::SUBDIRECTORY . '/7.v' . PdfThumbnailCache::RENDER_VERSION . '.jpg',
+            PdfThumbnailCache::pathFor('/s', 7)
+        );
     }
 
     public function testAMissingDirectoryIsANoOp(): void

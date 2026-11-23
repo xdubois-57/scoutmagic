@@ -98,6 +98,12 @@ class FilePublicIdsTest extends TestCase
 
         $this->assertSame('/files/' . $public, FilePublicIds::urlFor($id));
         $this->assertSame('/files/' . $public . '/md', FilePublicIds::urlFor((string) $id, 'md'));
+        // A PDF thumbnail names its rendering, so a fixed one reaches
+        // browsers that cached the last (#1342).
+        $this->assertSame(
+            '/files/' . $public . '/thumbnail?v=' . \Core\File\PdfThumbnailCache::RENDER_VERSION,
+            FilePublicIds::urlFor($id, 'thumbnail')
+        );
         $this->assertSame('', FilePublicIds::urlFor(null));
         $this->assertSame('', FilePublicIds::urlFor(0));
         $this->assertSame('', FilePublicIds::urlFor(''));

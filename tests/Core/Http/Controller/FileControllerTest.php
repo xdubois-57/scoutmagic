@@ -432,7 +432,7 @@ class FileControllerTest extends TestCase
         $first = $this->controller->thumbnail($this->fileRequest(), ['file' => $this->segmentOf($id)]);
         $this->assertSame(200, $first->getStatusCode());
 
-        $cachePath = $this->storagePath . '/temp/pdf_thumb/' . $id . '.jpg';
+        $cachePath = \Core\File\PdfThumbnailCache::pathFor($this->storagePath, $id);
         $this->assertFileExists($cachePath, 'the rendered thumbnail must be cached to disk');
 
         // Delete the source PDF: a second call must still succeed, proving it

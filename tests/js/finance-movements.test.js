@@ -480,7 +480,7 @@ describe('finance-movements.js: receipts dialog', () => {
         id: 31,
         file_id: 99,
         file_url: '/files/aBcDeFgHiJkLmNoPqRsT99',
-        thumbnail_url: '/files/aBcDeFgHiJkLmNoPqRsT99/thumbnail',
+        thumbnail_url: '/files/aBcDeFgHiJkLmNoPqRsT99/thumbnail?v=2',
         mime_type: 'image/jpeg',
         original_filename: 'ticket.jpg',
         suggested_amount: null,
@@ -559,7 +559,7 @@ describe('finance-movements.js: receipts dialog', () => {
         await openReceipts([attachment({ mime_type: 'application/pdf', original_filename: 'facture.pdf' })]);
 
         const thumbnail = document.querySelector('#attachments-list img.pdf-thumbnail');
-        expect(thumbnail.getAttribute('src')).toBe('/files/aBcDeFgHiJkLmNoPqRsT99/thumbnail');
+        expect(thumbnail.getAttribute('src')).toBe('/files/aBcDeFgHiJkLmNoPqRsT99/thumbnail?v=2');
         thumbnail.dispatchEvent(new Event('error'));
 
         expect(document.querySelector('#attachments-list img.pdf-thumbnail')).toBeNull();
