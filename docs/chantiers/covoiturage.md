@@ -244,7 +244,7 @@ garde-fous à la création (évènement déjà pris → proposition de rejoindre
 lieux divergents → confirmation), le plancher des places sous le nombre
 accordé, le retrait d'une place accordée sous son propre libellé et avec
 confirmation, la suppression refusée dès qu'une voiture existe, le lien
-de carte (`Core\Geo\MapsLink`) qui préfère le point et retombe sur
+d'itinéraire (`Core\Geo\MapsLink`) qui préfère le point et retombe sur
 l'adresse, la purge de D9 et le géocodage en tâches planifiées, la RGPD
 (`rgpd_default.html` §2.4, §3.1, §4.2 et une règle du prompt). Câblage
 dans `public/index.php` ; `ARCHITECTURE.md` §8.120 ; `specifications.md`
@@ -302,10 +302,12 @@ le vrai routeur, chaque page GET réellement rendue) ;
    requête par seconde pour tout le site et un quota par compte
    (`Core\Geo\AddressLocator`, `ARCHITECTURE.md` §8.119). La tâche de fond
    reste en place pour ce que cette recherche n'a pas trouvé.
-5. **Le lien de carte** ouvre OpenStreetMap, le fournisseur déjà nommé
-   par la page RGPD, et s'intitule « Ouvrir sur une carte » plutôt que
-   « Ouvrir dans une application de cartes » : sur un ordinateur, ce n'est
-   pas une application qui s'ouvre.
+5. **Un seul accès « Itinéraire »** (issue #1345, qui remplace le lien
+   « Ouvrir sur une carte » vers OpenStreetMap et l'adresse cliquable) : un
+   bouton sous l'adresse ouvre un choix **Plans / Google Maps / Waze**, le
+   même sur tous les appareils et à chaque clic, sans rien mémoriser. La
+   destination est le point enregistré, à défaut l'adresse ; sans
+   JavaScript, le bouton est un lien vers Google Maps dans le navigateur.
 6. **Le sens se choisit avant le formulaire** (le bouton de la page porte
    `?sens=return`), si bien que chaque libellé — « Lieu de départ » ou
    « Lieu d'arrivée », « Destination » ou « Départ » — est juste sans

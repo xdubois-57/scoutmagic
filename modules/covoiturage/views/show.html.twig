@@ -14,8 +14,10 @@
 
     {# The reader's trip of the day (#835): only when it is today and they
        take part in it. Built by Service\CarpoolBoard::dayBanner(), so a
-       phone they may not see is null here and never printed. The route link
-       is the one below: no second way to open a map. #}
+       phone they may not see is null here and never printed. It carries no
+       route link of its own (#1345): the « Itinéraire » button under the
+       address is the one way to open a map, so no path goes round the
+       choice of application. #}
     {% set _banner = carpool.day_banner %}
     {% if _banner %}
         <section class="alert alert-{{ _banner.tone }} mb-3" aria-label="Votre trajet d'aujourd'hui" data-carpool-day-banner>
@@ -35,9 +37,6 @@
             {% if _banner.role != 'driver' %}
                 <div>Conducteur : {{ _banner.driver }}{% if _banner.driver_phone %} · <strong>{{ phone(_banner.driver_phone) }}</strong>{% endif %}</div>
             {% endif %}
-            <div class="small mt-1">
-                <a href="{{ directions_url }}" target="_blank" rel="noopener noreferrer">Itinéraire vers {{ _banner.place }}</a>
-            </div>
             {% if _banner.role == 'driver' %}
                 <div class="mt-2 fw-semibold">Vos passagers</div>
                 {% if _banner.passengers is empty %}
@@ -59,21 +58,27 @@
 
     {# What the address IS depends on the direction (#703): every car of
        the outbound goes there, every car of the return leaves from there.
-       It opens a route from where the reader is, in their own map
-       application. #}
+       The address stays readable text. The one « Itinéraire » button opens
+       the sheet below, where the reader picks Plans, Google Maps or Waze
+       (#1345); it is shown every time and remembers nothing. Without
+       JavaScript the button is a plain link to Google Maps in the browser.
+       The destination is the saved point, the address when there is none. #}
     <p class="mb-1">
         <span class="text-body-secondary">{{ direction == 'return' ? 'Départ' : 'Destination' }} :</span>
-        <a href="{{ directions_url }}" target="_blank" rel="noopener noreferrer"
-           title="Itinéraire depuis votre position">{{ carpool.address }}</a>
+        {{ carpool.address }}
     </p>
-    <p class="small mb-1">
-        <a href="{{ carpool.maps_url }}" target="_blank" rel="noopener noreferrer">Ouvrir sur une carte</a>
+    <p class="mb-1">
+        <a href="{{ directions_url }}" class="btn btn-sm btn-outline-primary" role="button"
+           data-bs-toggle="offcanvas" data-bs-target="#directions-sheet" aria-controls="directions-sheet"
+           target="_blank" rel="noopener noreferrer">
+            <i class="bi bi-sign-turn-right" aria-hidden="true"></i> Itinéraire
+        </a>
     </p>
     <p class="small text-body-secondary mb-2">
         {% if carpool.point_line %}
             Point précis : {{ carpool.point_line }}
         {% else %}
-            Aucun point enregistré : la carte ouvrira l'adresse.
+            Aucun point enregistré : l'itinéraire ira à l'adresse.
         {% endif %}
     </p>
     {% if carpool.events|length > 1 %}
@@ -130,4 +135,37 @@
         {% include '@covoiturage/_offer_card.html.twig' with { offer: offer, carpool: carpool, prefill: prefill } only %}
     {% endfor %}
 </div>
+
+{# The choice of map application (#1345): the look and the behaviour of the
+   sheet a tapped phone number opens (partials/phone_sheet.html.twig) — an
+   offcanvas-bottom with a list of actions — through the same .action-sheet
+   styles. The three links are rendered here, by Core\Geo\MapsLink, which is
+   the only place their format is written, so the choice works without a
+   line of script of its own; directions-sheet.js only closes the sheet once
+   one was taken. Nothing is stored. #}
+<div class="offcanvas offcanvas-bottom action-sheet" tabindex="-1" id="directions-sheet"
+     aria-labelledby="directions-sheet-title" data-directions-sheet>
+    <div class="offcanvas-header border-bottom">
+        <div>
+            <h5 class="offcanvas-title mb-0" id="directions-sheet-title">Itinéraire</h5>
+            <div class="small text-body-secondary">{{ direction == 'return' ? 'Départ' : 'Destination' }} : {{ carpool.address }}</div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Fermer"></button>
+    </div>
+    <div class="offcanvas-body p-0">
+        <div class="list-group list-group-flush">
+            {% for choice in directions_choices %}
+                <a href="{{ choice.url }}" class="list-group-item list-group-item-action action-sheet-item"
+                   target="_blank" rel="noopener noreferrer" data-directions-choice="{{ choice.key }}"
+                   aria-label="Itinéraire avec {{ choice.label }}">
+                    <i class="bi {{ choice.key == 'apple' ? 'bi-apple' : (choice.key == 'google' ? 'bi-google' : 'bi-signpost-2') }}" aria-hidden="true"></i><span>{{ choice.label }}</span>
+                </a>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ asset('/assets/js/directions-sheet.js') }}" defer></script>
 {% endblock %}

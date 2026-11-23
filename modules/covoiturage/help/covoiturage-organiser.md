@@ -47,7 +47,7 @@ le Staff d'unité et par les animateurs des sections de ses évènements.
 
 L'adresse reprend le lieu des évènements ; c'est la destination de tous les
 allers et le départ de tous les retours. Le point sur la carte est
-facultatif : sans lui, le lien de carte ouvre l'adresse.
+facultatif : sans lui, l'itinéraire mène à l'adresse.
 
 Dès que vous quittez le champ de l'adresse, le site la cherche : la carte
 se centre dessus, un **rond rouge** marque l'adresse et l'épingle du point

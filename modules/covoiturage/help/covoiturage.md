@@ -53,8 +53,11 @@ place accordée comme en retirant votre demande, un mot facultatif (200
 caractères au plus) peut accompagner la décision ; il est transmis avec la
 notification.
 
-L'adresse du covoiturage est un lien : elle ouvre l'application de cartes
-de votre appareil avec l'itinéraire depuis l'endroit où vous êtes.
+Sous l'adresse, le bouton **Itinéraire** ouvre un choix entre **Plans**,
+**Google Maps** et **Waze**. L'application que vous touchez s'ouvre avec
+l'itinéraire vers le point exact du covoiturage, ou vers son adresse quand
+aucun point n'est placé. Le choix vous est proposé à chaque fois : le site
+ne retient rien.
 
 > Votre numéro est montré au conducteur **dès votre demande**, pour qu'il
 > puisse vous appeler avant de répondre. Le sien ne vous est montré que
