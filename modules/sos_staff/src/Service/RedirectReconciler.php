@@ -59,30 +59,60 @@ class RedirectReconciler
 
     /**
      * Where the calls should be going at this moment: the planned member
-     * (null = the default number) and the number that means.
+     * (null = the default number), the number that means, and — when that
+     * member's Desk GSM is no phone number, so the calls go to the default
+     * number instead — who it is (issue #1260). One function for the
+     * scheduled transition, the hourly check and the dashboard.
      *
-     * @return array{member_id: ?int, number: ?string}
+     * `previous_member_id` is the holder before that one, from the same
+     * planning and roster snapshot as `member_id`: a scheduled transition
+     * needs the PAIR to be consistent, since the handover notices are gated
+     * on the two being different people (review of #1375).
+     *
+     * @return array{
+     *   member_id: ?int,
+     *   previous_member_id: ?int,
+     *   number: ?string,
+     *   unreachable_member_id: ?int
+     * }
      */
     public function expectedDestination(int $scoutYearId): array
     {
-        $memberId = $this->onCallService->resolveExpectedTargetAt(
+        $target = $this->onCallService->resolveExpectedTargetAt(
             $this->now(),
             array_column($this->settingsService->getStaffOptions($scoutYearId), 'member_id')
-        )['member_id'];
+        );
+        $memberId = $target['member_id'];
+        $destination = $this->redirectService->resolveDestination($memberId, $scoutYearId);
 
-        return ['member_id' => $memberId, 'number' => $this->redirectService->resolveNumber($memberId, $scoutYearId)];
+        return [
+            'member_id' => $memberId,
+            'previous_member_id' => $target['previous_member_id'],
+            'number' => $destination['number'],
+            'unreachable_member_id' => $destination['unreachable_member_id'],
+        ];
     }
 
     /**
      * @param string $trigger what asked, for the journal (« planning »,
      *        « default_number », « hourly », « retry »)
-     * @return array{status: string, expected_member_id: ?int, expected_number: ?string}
+     * @return array{
+     *   status: string,
+     *   expected_member_id: ?int,
+     *   expected_number: ?string,
+     *   unreachable_member_id: ?int
+     * }
      */
     public function reconcile(int $scoutYearId, string $trigger): array
     {
         $provider = $this->providerConfigService->getActiveProvider();
         if ($provider === null) {
-            return ['status' => self::NOT_CONFIGURED, 'expected_member_id' => null, 'expected_number' => null];
+            return [
+                'status' => self::NOT_CONFIGURED,
+                'expected_member_id' => null,
+                'expected_number' => null,
+                'unreachable_member_id' => null,
+            ];
         }
 
         $expected = $this->expectedDestination($scoutYearId);
@@ -90,7 +120,17 @@ class RedirectReconciler
             'status' => $status,
             'expected_member_id' => $expected['member_id'],
             'expected_number' => $expected['number'],
+            'unreachable_member_id' => $expected['unreachable_member_id'],
         ];
+
+        // The Desk fact about whoever is on duty, whether or not the line has
+        // to move and whether or not there is anywhere to move it to (issue
+        // #1260): the line may already sit on the default number, in which
+        // case apply() never runs, or there may be no default number at all,
+        // in which case nothing below can fix it — and the chefs d'unité
+        // still have to be told once and the attention point raised. It
+        // reads nothing from the operator, so an outage does not delay it.
+        $this->redirectService->noteUnreachablePlannedMember($expected['unreachable_member_id'], $scoutYearId);
 
         if ($expected['number'] === null) {
             // Nobody on duty and no usable default number: a configuration
@@ -125,8 +165,9 @@ class RedirectReconciler
         }
 
         if (PhoneNumber::normalize($expected['number']) === null) {
-            // The planned destination's GSM is no phone number (issue
-            // #1125). apply() would refuse it and alert every chef d'unité
+            // The destination number — since #1260 only ever the default
+            // number, a person's own GSM having been set aside — is no phone
+            // number (issue #1125). apply() would refuse it and alert every chef d'unité
             // on every hourly pass; the attention point names the member
             // until Desk is corrected, and the line stays where it is.
             //

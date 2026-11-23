@@ -14,6 +14,8 @@ use Modules\InboundMail\Mailbox\SyncState;
 use PHPUnit\Framework\TestCase;
 use Webklex\PHPIMAP\Client;
 use Webklex\PHPIMAP\ClientManager;
+use Webklex\PHPIMAP\Connection\Protocols\ImapProtocol;
+use Webklex\PHPIMAP\Connection\Protocols\Response;
 use Webklex\PHPIMAP\Folder;
 
 /**
@@ -302,18 +304,34 @@ class ImapClientBehaviourTest extends TestCase
      * Hand-written doubles rather than createStub(), and the reason is
      * the library: `Webklex\PHPIMAP\Client::__destruct()` calls
      * `disconnect()`, so a generated stub recurses into its own return-
-     * value generator the moment PHP collects it. Two tiny subclasses
-     * with an inert constructor and destructor say exactly what the
-     * server answers and nothing else.
+     * value generator the moment PHP collects it. An inert client and a
+     * stub protocol say exactly what the server answers; Folder and the
+     * response validation still run for real.
      *
      * @param array<string, mixed> $status what the server answers to EXAMINE
      */
     private function connectedTo(array $status): ImapMailboxClient
     {
-        $client = new ImapMailboxClient($this->managerReturning(new InertImapClient(new InertFolder($status))));
+        $protocol = $this->createStub(ImapProtocol::class);
+        $protocol->method('connected')->willReturn(true);
+        $protocol->method('examineFolder')->willReturn(Response::empty()->setResult($status)->setCanBeEmpty(true));
+        $library = new InertImapClient(null);
+        $library->connection = $protocol;
+        $library->folder = new Folder($library, 'INBOX', '/', []);
+        $client = new ImapMailboxClient($this->managerReturning($library));
         $client->connect($this->mailbox(), $this->credentials());
 
         return $client;
+    }
+
+    public function testLibraryDebuggingIsDisabledEvenWhenTheManagerEnabledIt(): void
+    {
+        $library = new InertImapClient(null);
+        $library->getConfig()->set('options.debug', true);
+        $client = new ImapMailboxClient($this->managerReturning($library));
+        $client->connect($this->mailbox(), $this->credentials());
+
+        self::assertFalse($library->getConfig()->get('options.debug'));
     }
 
     private function managerReturning(Client $client): ClientManager
@@ -350,8 +368,9 @@ class ImapClientBehaviourTest extends TestCase
  */
 class InertImapClient extends Client
 {
-    public function __construct(private ?Folder $folder)
+    public function __construct(public ?Folder $folder)
     {
+        parent::__construct(\Webklex\PHPIMAP\Config::make([]));
     }
 
     public function __destruct()
@@ -374,30 +393,5 @@ class InertImapClient extends Client
     public function disconnect(): Client
     {
         return $this;
-    }
-}
-
-/**
- * A folder that answers EXAMINE with whatever the scenario says a server
- * answered, and nothing else.
- */
-class InertFolder extends Folder
-{
-    /**
-     * `$status` is the library's own public property, so the answer is
-     * kept under a name of this class's own.
-     *
-     * @param array<string, mixed> $examineAnswer
-     */
-    public function __construct(private array $examineAnswer)
-    {
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    public function examine(): array
-    {
-        return $this->examineAnswer;
     }
 }

@@ -19,7 +19,7 @@ dans le bon dossier.
 ## Ce que le site fait de la boîte
 
 - **Rien n'y est jamais modifié** : aucun message marqué lu, déplacé ou
-  supprimé. Le trésorier qui y travaille ne voit aucune différence.
+  supprimé.
 - **Le courrier relevé est conservé**, même ce qu'aucun module ne
   reconnaît, puis supprimé au terme du délai de conservation s'il n'est
   rattaché à rien (voir « Le courrier de l'unité »).
@@ -36,9 +36,7 @@ complétez-les d'après l'aide de votre hébergeur, rubrique IMAP.
 Gmail demande un **mot de passe d'application**, pas celui du compte :
 le formulaire indique où le créer, et la validation en deux étapes doit
 être active. Outlook et Microsoft 365 refusent en général toute
-connexion IMAP par mot de passe ; le formulaire le signale. Il n'existe pas de
-connecteur Gmail natif, et c'est voulu : Google imposerait à chaque
-unité une évaluation de sécurité annuelle payante.
+connexion IMAP par mot de passe ; le formulaire le signale.
 
 « Vérifier et enregistrer » se connecte avant d'enregistrer. Une adresse
 qui ne répond pas **n'est pas enregistrée** : une phrase dit quoi
@@ -47,8 +45,8 @@ certificat invalide bloque toujours.
 
 ## Deux usages
 
-**Courrier général de l'unité** — l'adresse où l'on trouve de tout.
-Chaque module actif y reconnaît ses messages. Le Staff d'U voit tout
+**Courrier général de l'unité** — chaque module actif y reconnaît ses
+messages. Le Staff d'U voit tout
 dans « Courrier reçu ». Les responsables d'un module ne voient que les
 messages rattachés à un dossier qu'ils gèrent : quand un module hésite,
 sa proposition reste dans « Courrier reçu », où le Staff d'U la
@@ -60,9 +58,8 @@ comme le Staff d'U. Un module n'a qu'une adresse réservée, et un module
 qui a déjà la sienne n'est pas proposé — sauf « Courrier sortant —
 boîtes témoins », qui peut en avoir plusieurs.
 
-La première adresse est proposée comme courrier général, les suivantes
-comme réservées ; ce n'est qu'une valeur par défaut. Une adresse
-fonctionne dès qu'elle est enregistrée.
+Le courrier général est proposé tant qu'aucune adresse générale
+n'existe, puis une adresse réservée si un module est disponible.
 
 ## Dossiers lus
 
@@ -76,3 +73,11 @@ qui apparaît une fois la connexion vérifiée : voir
 La liste montre l'état de chaque adresse et, en cas d'échec, quoi
 faire. « Désactiver » suspend une adresse sans la supprimer ;
 « Supprimer » conserve les messages déjà rattachés aux dossiers.
+
+## Comprendre une relève en échec
+
+Le Journal d'événements, catégorie « inbound_mail », indique les
+échecs manuels et changements automatiques. La réponse IMAP est masquée,
+le débogage désactivé. Un jeton du serveur inconnu peut échapper au
+masquage, y compris dans les archives de support. Voir « Lire une erreur
+de relève ».

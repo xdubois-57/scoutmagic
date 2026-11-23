@@ -87,6 +87,11 @@ final class AccountAccessRevoker
      * in a keep list that is not the account's own is simply never
      * matched: it can neither keep nor revoke somebody else's access.
      *
+     * `$passwordRemoved` is only what the journal says: « Déconnecter
+     * partout » also takes the password away (issue #1257), and the entry
+     * must record whether it did. The removal itself is the caller's —
+     * this class holds passkeys and device credentials, not the account row.
+     *
      * @param list<int> $keepPasskeyIds
      * @param list<int> $keepDeviceIds
      * @param self::REASON_* $reason
@@ -97,7 +102,8 @@ final class AccountAccessRevoker
         array $keepPasskeyIds,
         array $keepDeviceIds,
         string $reason,
-        ?int $actorAccountId
+        ?int $actorAccountId,
+        bool $passwordRemoved = false
     ): array {
         $live = $this->liveAccesses($userAccountId);
 
@@ -123,9 +129,12 @@ final class AccountAccessRevoker
             'security',
             $reason === self::REASON_PASSWORD_RESET
                 ? 'Clés numériques et appareils retirés lors d\'une réinitialisation du mot de passe'
-                : 'Déconnexion partout : sessions, clés numériques et appareils retirés',
+                : ($passwordRemoved
+                    ? 'Déconnexion partout : sessions, clés numériques, appareils et mot de passe retirés'
+                    : 'Déconnexion partout : sessions, clés numériques et appareils retirés'),
             [
                 'reason' => $reason,
+                'password_removed' => $passwordRemoved,
                 'user_account_id' => $userAccountId,
                 'passkey_ids' => $revokedPasskeys,
                 'device_credential_ids' => $revokedDevices,

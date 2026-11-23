@@ -8,12 +8,10 @@ declare(strict_types=1);
 
 namespace Modules\Calendar\Service;
 
-use Core\Config\ScoutYearService;
 use Core\Config\SettingException;
 use Core\Config\SettingService;
 use Core\Notification\NotificationService;
 use Core\Scheduler\SchedulerService;
-use Core\Security\UserAccountRepository;
 use Core\Service\DateInput;
 use Modules\Calendar\Repository\Calendar;
 use Modules\Calendar\Repository\CalendarEvent;
@@ -25,8 +23,9 @@ use Modules\Calendar\Repository\CalendarEventRepository;
  * — asking them to declare the event in Desk), and (b) the notification-
  * centre/push types declared in module.json ("calendar.event_published",
  * "calendar.event_changed", "calendar.event_reminder"), dispatched via
- * Core\Notification\NotificationService::dispatch() to every identified
- * member. Reuses the generic scheduler mechanism (Core\Scheduler) rather
+ * Core\Notification\NotificationService::dispatch() to the accounts
+ * personally linked to the activity's section (Service\EventAudienceResolver,
+ * issue #1348). Reuses the generic scheduler mechanism (Core\Scheduler) rather
  * than a bespoke cron/queue for both.
  *
  * Only section calendars are eligible for the Desk-declaration email —
@@ -35,7 +34,7 @@ use Modules\Calendar\Repository\CalendarEventRepository;
  * notification-centre types have no such restriction — they fire for
  * every calendar.
  *
- * $notificationService/$userAccountRepository are optional/nullable —
+ * $notificationService/$audience are optional/nullable —
  * without them, the notification-centre dispatch methods are no-ops,
  * matching the codebase's established degrade-gracefully pattern for
  * narrow unit-test construction.
@@ -65,15 +64,13 @@ class CalendarNotificationService
         private CalendarService $calendarService,
         private CalendarEventRepository $eventRepository,
         private ?NotificationService $notificationService = null,
-        private ?UserAccountRepository $userAccountRepository = null,
         /**
-         * Only recipientIdsFor() uses it, and only to name the year the
-         * event belongs to. Optional so the many existing constructions
-         * keep working; without it a section calendar's notification
-         * reaches the cadres and the super-administrators, never a wider
-         * audience than the grid.
+         * Who an activity is announced to (issue #1348) — the same answer
+         * the evening-before reminder resolves. Optional so the many narrow
+         * constructions keep working; without it the announcements are
+         * no-ops, never a wider audience.
          */
-        private ?ScoutYearService $scoutYearService = null
+        private ?EventAudienceResolver $audience = null
     ) {
     }
 
@@ -202,13 +199,13 @@ class CalendarNotificationService
         ?int $actorUserAccountId
     ): void
     {
-        if ($this->notificationService === null || $this->userAccountRepository === null) {
+        if ($this->notificationService === null || $this->audience === null) {
             return;
         }
 
         $recipients = array_map(
             static fn(int $id): array => ['userAccountId' => $id, 'memberId' => null],
-            $this->recipientIdsFor($event)
+            $this->audience->accountIdsFor($this->calendarService->findById($event->calendarId), $event)
         );
         if ($recipients === []) {
             return;
@@ -227,66 +224,6 @@ class CalendarNotificationService
             'body' => $calendarLabel . ' — ' . $event->title,
             'url' => '/calendar',
         ], $actorUserAccountId);
-    }
-
-    /**
-     * Who may be told about this event: exactly who may SEE the calendar
-     * it belongs to.
-     *
-     * `calendar_calendars.visibility` decides "who may SEE" (schema.sql)
-     * and Service\CalendarService::isVisibleTo() applies it to the grid.
-     * The notification did not, so every account of the unit received
-     * « Nouvelle activité — Animateurs — Conseil d'unité » while the
-     * grid, correctly, showed them nothing: the title of a staff meeting
-     * reached 159 notification centres and as many devices.
-     *
-     * The scout year asked about is the one the event's own date falls
-     * in, not "today's": a notification sent on 31 August about an event
-     * in September must not resolve the staff of a year whose roster has
-     * not been imported yet (that is the trap the multi-day reminder fell
-     * into). An unknown year falls back to the current one.
-     *
-     * @return int[]
-     */
-    private function recipientIdsFor(CalendarEvent $event): array
-    {
-        \assert($this->userAccountRepository !== null);
-
-        $calendar = $this->calendarService->findById($event->calendarId);
-        if ($calendar === null) {
-            return [];
-        }
-
-        $yearIds = $this->scoutYearIdsFor($event);
-
-        return match ($calendar->visibility) {
-            Calendar::VISIBILITY_ADMIN => $this->userAccountRepository->findStaffAndSuperAdminIds($yearIds, ['admin']),
-            Calendar::VISIBILITY_CHIEF => $this->userAccountRepository->findStaffAndSuperAdminIds($yearIds),
-            default => $calendar->sectionId !== null
-                ? $this->userAccountRepository->findIdsForSectionAudience([$calendar->sectionId], $yearIds)
-                : $this->userAccountRepository->findAllIds(),
-        };
-    }
-
-    /**
-     * The scout year the event's start date falls in, or the current one
-     * when that year does not exist in this installation.
-     *
-     * @return int[]
-     */
-    private function scoutYearIdsFor(CalendarEvent $event): array
-    {
-        if ($this->scoutYearService === null) {
-            return [];
-        }
-
-        $date = DateInput::iso($event->startDate);
-        $year = $date !== null
-            ? $this->scoutYearService->findByLabel(ScoutYearService::labelForDate($date))
-            : null;
-        $year ??= $this->scoutYearService->getCurrentYear();
-
-        return [(int) $year['id']];
     }
 
     /**

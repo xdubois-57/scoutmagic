@@ -4101,6 +4101,15 @@ $schedulerService->seed(
     new DateTimeImmutable()
 );
 
+// Same bootstrap for the purge of spent password-reset tokens (Core\Security\
+// Task\PurgeExpiredPasswordResetTokensHandler, issue #1257).
+$schedulerService->seed(
+    'core',
+    \Core\Security\Task\PurgeExpiredPasswordResetTokensHandler::TASK_KEY,
+    \Core\Security\Task\PurgeExpiredPasswordResetTokensHandler::REFERENCE,
+    new DateTimeImmutable()
+);
+
 // Same bootstrap for the purge of the documents the installed
 // application put aside (Core\File\Held\Task\PurgeHeldDocumentsHandler):
 // a member's own files, gone within the hour of their expiry.
@@ -7629,8 +7638,13 @@ if ($isEnabled('calendar')) {
         $calendarService,
         $calendarEventRepo,
         $notificationService,
-        $userAccountRepo,
-        $scoutYearService
+        // Who an activity is announced to — personally linked accounts, the
+        // same answer the evening-before reminder resolves (#1348).
+        new \Modules\Calendar\Service\EventAudienceResolver(
+            $userAccountRepo,
+            new \Core\Member\SectionAccountRepository($pdo),
+            $scoutYearService
+        )
     );
     $calendarRetroAutoCreateService = new \Modules\Calendar\Service\CalendarRetroAutoCreateService(
         $schedulerService,
@@ -8495,7 +8509,8 @@ if ($isEnabled('inbound_mail')) {
                 null,
                 $encryptedFileStorageService,
                 null,
-                $inboundReplyAddresses
+                $inboundReplyAddresses,
+                journal: $journalService
             ),
         $settingService,
         $settingRepo
@@ -10060,7 +10075,11 @@ if ($isEnabled('gallery')) {
         $userAccountRepo,
         $galleryStoredFileCleaner,
         // The album folder's LISEZMOI.txt (#474), on every kind of storage.
-        new \Modules\Gallery\Service\AlbumReadme($settingService, $journalService)
+        new \Modules\Gallery\Service\AlbumReadme($settingService, $journalService),
+        // Who a section album is announced to: its personally linked accounts (#1348).
+        new \Core\Member\SectionAccountRepository($pdo),
+        // The years a role counts in today: who may still open an old album.
+        $authorizationYearService
     );
     $galleryMediaService = new \Modules\Gallery\Service\MediaService(
         $galleryMediaRepo,

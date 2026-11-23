@@ -87,6 +87,9 @@ final class HandoverNotificationFlowTest extends TestCase
         $this->settings->register('site_name', 'Unité de test', 'text', 'Nom', 'Nom du site.');
         $this->settings->register('base_url', 'https://unit.example.test', 'text', 'URL', 'URL du site.');
         $this->settings->register('email_notifications_enabled', '1', 'boolean', 'Notifications de garde', 'Activation.', 'sos_staff');
+        // The changeover hour is already behind us whenever the test runs, so
+        // « today's duty » is the one in force and « yesterday's » the previous.
+        $this->settings->register('transition_hour', '00:00', 'text', 'Heure', 'Changement de garde.', 'sos_staff');
         $years = new ScoutYearService($this->pdo);
         $this->year = $years->ensureYear(DatabaseTestHelper::scoutYear()[0]);
         $memberYears = new MemberYearRepository($this->pdo);
@@ -171,6 +174,24 @@ final class HandoverNotificationFlowTest extends TestCase
         ], ['+32470000002']], [$queued, $this->noticeCount(), $this->emailAttempts(), $this->changes]);
     }
 
+    /**
+     * Review of #1375: the transition takes the member AND the holder before
+     * them from the planning as it is when it runs. A payload written before
+     * a roster change can carry, as « previous », the very person now on duty;
+     * paired with the fresh member it would silence both notices.
+     */
+    public function testAStalePayloadPreviousMemberDoesNotSilenceTheHandover(): void
+    {
+        [$incoming, $outgoing] = $this->pair('incoming@example.test');
+        $this->runHandover(true, $incoming, $outgoing, true);
+        $this->runner->processOverdue();
+
+        self::assertSame([
+            ['incoming@example.test', 'Vous êtes de garde SOS', true, true],
+            ['outgoing@example.test', 'Fin de votre garde SOS', true, true],
+        ], $this->emailAttempts());
+    }
+
     #[DataProvider('paths')]
     public function testAValidatedSecondaryAccountReceivesTheHandover(bool $scheduled): void
     {
@@ -246,7 +267,11 @@ final class HandoverNotificationFlowTest extends TestCase
         $function = (int) $this->pdo->lastInsertId();
         $stmt = $this->pdo->prepare('UPDATE member_functions SET function_id = ? WHERE member_year_id IN (SELECT id FROM member_years WHERE member_id = ?)');
         $stmt->execute([$function, $incoming]);
-        $this->runHandover(true, $incoming, $outgoing);
+        // Through apply() itself: a member below the Staff d'U's role is no
+        // longer on its roster, so a scheduled transition — which since #1260
+        // follows the planning among that roster — would not hand the duty to
+        // them at all. What is tested here is the notification's role gate.
+        $this->runHandover(false, $incoming, $outgoing);
         $this->runner->processOverdue();
 
         self::assertSame([1, [['outgoing@example.test', 'Fin de votre garde SOS', true, true]]], [
@@ -364,23 +389,46 @@ final class HandoverNotificationFlowTest extends TestCase
         $memberYear = (int) $this->pdo->lastInsertId();
         $this->pdo->exec("INSERT OR IGNORE INTO functions (desk_code, label, role, confirmed) VALUES ('CU', 'Fonction de test', 'admin', 1)");
         $function = (int) $this->pdo->query("SELECT id FROM functions WHERE desk_code = 'CU'")->fetchColumn();
-        $stmt = $this->pdo->prepare('INSERT INTO member_functions (member_year_id, function_id, is_main_function) VALUES (?, ?, 1)');
-        $stmt->execute([$memberYear, $function]);
+        // On the Staff d'U roster: the line follows the planning among THAT
+        // roster only, and a scheduled transition reads it as it is when it
+        // runs (issue #1260).
+        $staffdu = (new \Core\Member\UnitStaffSectionService(new \Core\Member\Repository\UnitStaffSectionRepository($this->pdo)))->ensureSection();
+        $stmt = $this->pdo->prepare('INSERT INTO member_functions (member_year_id, function_id, section_id, is_main_function) VALUES (?, ?, ?, 1)');
+        $stmt->execute([$memberYear, $function, $staffdu]);
 
         return $id;
     }
 
-    private function runHandover(bool $scheduled, int $incoming, int $outgoing): void
+    private function runHandover(bool $scheduled, int $incoming, int $outgoing, bool $stalePayload = false): void
     {
         if (!$scheduled) {
             $this->redirect->apply($incoming, $outgoing, $this->year);
             return;
         }
+        // A scheduled transition applies the planning as it is when it runs
+        // (issue #1260), the PAIR included, not the members in its payload:
+        // the outgoing member held yesterday, the incoming one holds today.
+        $repository = new \Modules\SosStaff\Repository\OnCallRepository($this->pdo);
+        foreach (['yesterday' => $outgoing, 'today' => $incoming] as $day => $member) {
+            $date = (new \DateTimeImmutable($day))->format('Y-m-d');
+            $repository->replaceRange($date, $date, [
+                new \Modules\SosStaff\Repository\OnCallAssignment(
+                    $member,
+                    $date,
+                    \Modules\SosStaff\Repository\OnCallAssignment::STATE_ONCALL
+                ),
+            ]);
+        }
         $id = $this->tasks->create('sos_staff', 'apply_redirect', (new \DateTimeImmutable('-1 minute'))->format('Y-m-d H:i:s'),
-            json_encode(['date' => date('Y-m-d'), 'member_id' => $incoming, 'previous_member_id' => $outgoing, 'scout_year_id' => $this->year]),
+            json_encode([
+                'date' => date('Y-m-d'),
+                'member_id' => $incoming,
+                'previous_member_id' => $stalePayload ? $incoming : $outgoing,
+                'scout_year_id' => $this->year,
+            ]),
             date('Y-m-d'));
         $this->runner->processOverdue();
-        self::assertSame('done', $this->tasks->findById($id)['status']);
+        self::assertSame('done', $this->tasks->findById($id)['status'], (string) ($this->tasks->findById($id)['last_error'] ?? ''));
     }
 
     private function noticeCount(): int

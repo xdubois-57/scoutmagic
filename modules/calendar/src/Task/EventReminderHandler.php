@@ -8,11 +8,14 @@ declare(strict_types=1);
 
 namespace Modules\Calendar\Task;
 
+use Core\Config\ScoutYearService;
+use Core\Member\SectionAccountRepository;
 use Core\Scheduler\TaskContext;
 use Core\Scheduler\TaskHandlerInterface;
 use Modules\Calendar\Repository\Calendar;
 use Modules\Calendar\Repository\CalendarEventRepository;
 use Modules\Calendar\Repository\CalendarRepository;
+use Modules\Calendar\Service\EventAudienceResolver;
 
 /**
  * Sends the "your activity is tomorrow" notification-centre/push
@@ -42,18 +45,25 @@ class EventReminderHandler implements TaskHandlerInterface
             return; // deleted since scheduling
         }
 
+        // Resolved now, not when the reminder was scheduled — weeks ago, perhaps
+        // (issue #1348): an activity changed, a child moved to another section
+        // or a calendar's visibility tightened since is taken into account.
+        // The audience is the one the publication path tells — the accounts
+        // personally linked to the section, never every account of the unit.
+        $calendar = (new CalendarRepository($pdo, $context->encryption))->findById($event->calendarId);
         $recipients = array_map(
             static fn(int $id): array => ['userAccountId' => $id, 'memberId' => null],
-            $context->userAccounts->findAllIds()
+            (new EventAudienceResolver(
+                $context->userAccounts,
+                new SectionAccountRepository($pdo),
+                new ScoutYearService($pdo)
+            ))->accountIdsFor($calendar, $event)
         );
         if ($recipients === []) {
             return;
         }
 
-        $calendarLabel = $this->resolveCalendarName(
-            (new CalendarRepository($pdo, $context->encryption))->findById($event->calendarId),
-            $pdo
-        );
+        $calendarLabel = $this->resolveCalendarName($calendar, $pdo);
 
         $context->notifications->dispatch('calendar.event_reminder', $recipients, [
             'title' => 'Rappel d\'activité',

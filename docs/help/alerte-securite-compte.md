@@ -23,9 +23,14 @@ Quelqu'un a peut-être utilisé votre compte. Deux gestes, dans cet ordre :
 
 1. **« Déconnecter partout »**, en bas de « Mon compte » : toutes vos
    sessions se ferment, y compris celle où vous êtes, toutes vos clés
-   numériques sont retirées et vos appareils synchronisés déconnectés.
-2. **« Mot de passe oublié ? »** sur la page de connexion, pour choisir
-   un nouveau mot de passe que personne d'autre ne connaît.
+   numériques sont retirées, vos appareils synchronisés déconnectés et
+   **votre mot de passe supprimé**, car c'est peut-être celui que
+   quelqu'un d'autre a défini. Cochez « Conserver mon mot de passe »
+   seulement si l'alerte ne le concerne pas. Vous n'êtes jamais bloqué :
+   le lien envoyé par e-mail vous reconnecte toujours.
+2. **Choisir un nouveau mot de passe**, si vous en voulez un : une fois
+   reconnecté, depuis « Mon compte », ou avec « Mot de passe oublié ? »
+   sur la page de connexion.
 
 Si vous ne pouvez plus ouvrir « Mon compte », la réinitialisation seule
 suffit : elle propose elle-même de tout retirer (ci-dessous).

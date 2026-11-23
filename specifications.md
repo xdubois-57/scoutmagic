@@ -1328,6 +1328,10 @@ With the AI connector enabled, a manager can ask for help: read a meter index of
 
 Not a mail client. A gateway that connects one or more of the unit's own mailboxes **in read-only mode** so other modules can attach the replies that belong to them.
 
+### Failure diagnostics
+
+Every failed manual refresh records an `inbound_mailbox_sync_failed` event with its actor, mailbox address, origin, step and safe diagnostic codes. Scheduled refreshes journal the first failure and changes in its nature, then one `inbound_mailbox_sync_recovered` event on recovery. The deduplication signature is acknowledged only after journal acceptance, so an unreported scheduled diagnostic is retried while the same failure persists. Known credentials and email addresses are masked together in server refusal lines, including overlapping values. Authentication command payloads are removed without hiding ordinary login explanations, control characters stripped and retained text limited to 300 characters. Debug transcripts and processing-message contents are not retained. An unknown server token may still survive redaction; this residual risk is documented and applies to support archives too. The refresh flash message remains unchanged, and a journal write failure does not interrupt the refresh.
+
 ### 23.1 What it never does
 
 It never marks a message read, never moves one, never deletes one, never creates a folder. The client contract has no vocabulary for any of it: bodies are fetched with `BODY.PEEK[TEXT]` and folders opened with `EXAMINE` — no flag is set and then removed, either (#1231) — so a treasurer who works through an unread inbox does not find it emptied by a background task.
@@ -3129,7 +3133,26 @@ fiche est une famille qui s'en sert, donc cela repousse la purge autant que la r
 Les rubriques suivent le formulaire officiel dans son ordre : identité (en lecture seule), deux
 personnes à contacter en cas d'urgence, médecin traitant, puis la santé — taille, poids,
 participation, niveau de natation, les douze cases d'affections, maladies et opérations, tétanos,
-allergies, régime, traitement.
+allergies, régime alimentaire, médicaments. **Les libellés sont ceux du PDF « Fiche santé individuelle,
+Les Scouts ASBL, version 2026 », mot pour mot** (seuls les espaces et retours à la ligne de mise en
+page sont regroupés) : « La personne est-elle allergique (aliments, médicaments, etc.) ? », « Si oui,
+lesquels ? », « Quelles sont les conséquences ? », « La personne prend-elle un traitement ? »… Un
+libellé raccourci retire une explication utile à celui qui remplit.
+
+**Trois questions sont des choix explicites** — Non précisé / Oui / Non — et non plus des textes
+dont la présence déciderait de la réponse : allergies, médicaments et régime alimentaire (§44.15).
+Les précisions qui en dépendent (« Si oui, lesquels ? », les conséquences, le traitement, « Si oui,
+lequel ? ») ne s'affichent que pour OUI, par `public/assets/js/health-sheet.js` ; sans JavaScript tout
+reste visible. **Masquer n'efface jamais** : OUI → NON → OUI retrouve le texte, et un texte masqué est
+tout de même envoyé — c'est le serveur qui décide de l'export d'après les choix enregistrés, jamais le
+navigateur. « Est-elle autonome dans la prise de ces médicaments ? » n'est posée que si le traitement
+vaut OUI. « Précisez : » sous la participation et « Date du dernier rappel : » restent saisissables
+après NON : ils expliquent une restriction ou datent un rappel.
+
+**L'identité est montrée telle que le PDF l'imprimera** : dix lignes (« Nom : », « Prénom : », « Date
+de naissance : », « Rue : », « N° : », « Bte : », « Code postal : », « Localité : », « Tél. / GSM : »,
+« Email : ») lues par `HealthSheetFilling::identity()`, c'est-à-dire de la même source que le document —
+le nom civil et non le totem, la première adresse qui porte une rue, le mobile avant le fixe.
 
 **Un seul formulaire découpé en sections repliables**, jamais plusieurs pages : une famille qui en
 remplit la moitié et enregistre ne doit rien perdre.
@@ -3219,18 +3242,37 @@ où un document produit resterait plausible et faux sur chaque exemplaire imprim
 ### 44.15 Ce que le site répond, et ce qu'il ne répond pas à la place de la famille
 
 Le formulaire imprime huit paires de cases OUI/NON. **Une croix n'est mise que là où la famille a
-répondu.** Une question laissée de côté laisse les deux cases vides — « on ne sait pas », ce qui est
-vrai et qu'un humain lit correctement. Cocher NON sur une question « allergique ? » vide serait le
-site affirmant à un secouriste qu'un enfant n'a pas d'allergie, sur la foi d'un formulaire web que
-personne n'a rempli.
+répondu, et aucun texte ne décide d'une réponse.** Une question laissée de côté laisse les deux cases
+vides — « on ne sait pas », ce qui est vrai et qu'un humain lit correctement. Cocher NON sur une
+question « allergique ? » vide serait le site affirmant à un secouriste qu'un enfant n'a pas d'allergie,
+sur la foi d'un formulaire web que personne n'a rempli.
 
-Deux paires sont déduites, dans ce sens-là seulement : « allergique ? » est cochée OUI quand la
-famille a listé une allergie, « prend-elle un traitement ? » OUI quand elle en a décrit un — écrire
-la réponse EST la réponse. Aucune des deux n'est jamais cochée NON.
+« Allergique ? » et « prend-elle un traitement ? » ont chacune leur choix (`allergic`, `takes_treatment`)
+et sont cochées **comme la famille a répondu, NON compris** : le site a longtemps coché OUI dès qu'une
+zone de texte était non vide, donc « Aucune » ou « Aucun » écrit sous les allergies cochait OUI — le
+contraire de ce que le parent voulait dire. Le régime alimentaire a le même choix (`follows_diet`) à
+l'écran, mais **aucune case n'est ajoutée au document officiel**. Les cases d'autonomie ne sont écrites
+que si le traitement vaut OUI, et jamais cochées NON d'office.
 
-Ce qui suppose des vocabulaires fermés côté saisie : les trois questions OUI/NON directes
-(participation, tétanos, autonomie) et le niveau de natation sont des listes de choix et non du texte
-libre. Une réponse « oui sauf la natation » ne cocherait aucune case imprimée.
+**Ce que les zones qui dépendent d'un choix impriment** est décidé à un seul endroit,
+`HealthSheetFilling::paragraphs()`, pour que l'avertissement de dépassement (§44.16) — qui lit ce qui est
+réellement exporté — et le téléchargement ne puissent pas diverger : OUI imprime ce que la famille a écrit
+(rien si elle n'a rien écrit : on n'invente aucun texte, et un brouillon partiel reste enregistrable),
+**NON imprime « Sans objet » une seule fois dans chaque zone** (les deux des allergies, le traitement, le
+régime), un choix non précisé n'imprime rien, quel que soit le contenu des zones. « Sans objet » est
+calculé à la génération du PDF et **jamais enregistré** : ce que la famille avait saisi reste dans le
+document chiffré, caché derrière le NON. Il n'y a ni migration ni reprise des anciennes fiches : un texte
+d'allergie saisi avec le choix « non précisé » n'est plus exporté, et c'est voulu. Une liste d'affections
+laissée vide n'est pas un NON à chacune : rien n'en est déduit.
+
+Ce qui suppose des vocabulaires fermés côté saisie : les questions OUI/NON (participation, tétanos,
+allergies, médicaments, régime, autonomie) et le niveau de natation sont des listes de choix et non du
+texte libre. Une réponse « oui sauf la natation » ne cocherait aucune case imprimée.
+
+**Une liste déroulante réaffiche toujours la réponse enregistrée.** Le partial `form_field` d'un `<select>`
+ne lit que le `selected` de chaque option et ignore `value` : la fiche rouvrait donc chaque choix sur « Non
+précisé », ce qui ressemblait à une perte de données et effaçait la réponse à l'enregistrement suivant. La
+page marque l'option enregistrée elle-même.
 
 ### 44.16 Le texte libre déborde, et l'écran le dit avant l'impression
 
@@ -3270,7 +3312,15 @@ donc une saisie non enregistrée n'apparaît pas dessus. L'écran le dit sous le
 Le pied de la page 2 porte déjà les mentions RGPD de la fédération, y compris la durée de
 conservation et la destruction après le séjour. **Le site n'écrit rien de plus** : l'avertissement de
 §44.1 vit sur la page web, jamais sur le papier. On ne complète pas un document officiel avec ce qui
-n'en fait pas partie.
+n'en fait pas partie. Les seules écritures du site sont les valeurs que la famille ou l'inscription
+fournissent, les croix de la famille — et « Sans objet », que l'écran ne stocke jamais (§44.15).
+
+Les consignes du papier — les deux emplacements « Insérez ici une vignette de mutuelle », la prescription
+médicale qui doit accompagner tout médicament, la trousse de secours, les deux signatures (dont celle de la
+personne concernée dès 13 ans) et le texte d'accord qui les accompagne — sont **expliquées** dans un court
+bloc sous « Télécharger la fiche à imprimer ». Ce sont des explications du document à compléter et à signer :
+elles ne créent ni case de consentement ni signature électronique, et ne remplacent pas les mentions propres
+au site sur l'accès, le chiffrement et la conservation (§44.11, §44.19).
 
 ### 44.19 La conservation : dix-huit mois sans usage, puis l'oubli
 

@@ -145,15 +145,22 @@ class AuthSession
      * proves nothing about who is at the keyboard. A caller that has just
      * checked a secret — the current password — says so itself with
      * markAuthenticatedNow().
+     *
+     * **$at is the time of the write that authorises the refresh, never the
+     * time the refresh happens to run.** Between the write and this call
+     * another request may have signed everywhere out; re-issuing at « now »
+     * would date the session after that revocation and revive it. Re-issued at
+     * the write's own stamp it stays dated before any later revocation, while
+     * still equal to its own stamp, which is not revoked (review of #1374).
      */
-    public static function refreshIssuedAt(): void
+    public static function refreshIssuedAt(?int $at = null): void
     {
         $auth = SessionStore::get(self::SESSION_KEY, []);
         if (!isset($auth['user_account_id'])) {
             return;
         }
 
-        $auth['issued_at'] = time();
+        $auth['issued_at'] = $at ?? time();
         SessionStore::set(self::SESSION_KEY, $auth);
     }
 

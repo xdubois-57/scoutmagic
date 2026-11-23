@@ -17,23 +17,45 @@
 #}
 {% extends 'base.html.twig' %}
 
-{% block title %}Fiche santé — {{ site_name }}{% endblock %}
+{% block title %}Fiche santé individuelle — {{ site_name }}{% endblock %}
 
 {% block content %}
+{#
+  The select of `partials/form_field.html.twig` selects the option whose own
+  `selected` is true and ignores `value`: an answer saved earlier was never
+  shown again, the page reopened on « Non précisé », and the next save would
+  have overwritten it. Every choice below is therefore handed its options with
+  the saved one marked (`|map`), the same way, in one expression.
+#}
 {% set yes_no_options = [
     { value: '', label: 'Non précisé' },
     { value: 'yes', label: 'Oui' },
     { value: 'no', label: 'Non' },
 ] %}
+{% set swimming_options = [
+    { value: '', label: 'Non précisé' },
+    { value: 'very_good', label: 'Très bien' },
+    { value: 'good', label: 'Bien' },
+    { value: 'fair', label: 'Moyennement bien' },
+    { value: 'poor', label: 'Difficilement' },
+    { value: 'not_at_all', label: 'Pas du tout' },
+] %}
 <div class="page-medium">
     {% include 'partials/page_header.html.twig' with {
-        title: 'Fiche santé',
+        title: 'Fiche santé individuelle',
         subtitle: member|display_name,
     } only %}
 
     <p>
         Ces informations permettent de remplir la fiche santé officielle de la fédération.
         Tout est facultatif : remplissez ce que vous voulez, quand vous voulez.
+        {#
+          The form's own two general instructions, word for word. The second
+          is a reminder about the FINAL document: it does not make any field
+          mandatory here — a partial draft stays saveable.
+        #}
+        À compléter par les parents, représentant légal ou membre majeur au début de chaque année scoute, avant le camp, la formation et le début des activités scoutes.
+        Merci de fournir des informations complètes, exactes et à jour.
         {% if last_used_at %}
             <span class="d-block small text-body-secondary">
                 Dernière mise à jour le {{ last_used_at|date_fr }}.
@@ -85,13 +107,18 @@
 
         <div class="accordion mb-3" id="health-sheet-sections">
 
-            {# --- Identité : read-only, and not stored by this module --- #}
+            {# --- Identité : read-only, and not stored by this module ---
+               The ten lines the document will print, read from the very source
+               the PDF reads (HealthSheetFilling::identity()), so what a parent
+               checks here is what comes out on paper: the legal name, never
+               the totem; the first address that carries a street; the mobile
+               before the landline. #}
             <div class="accordion-item">
                 <h2 class="accordion-header">
                     <button class="accordion-button" type="button" data-bs-toggle="collapse"
                             data-bs-target="#section-identity" aria-expanded="true"
                             aria-controls="section-identity">
-                        Identité
+                        Identité de la personne
                     </button>
                 </h2>
                 <div id="section-identity" class="accordion-collapse collapse show"
@@ -99,15 +126,14 @@
                     <div class="accordion-body">
                         <p class="small text-body-secondary">
                             Non modifiable ici. Ces informations viennent de votre inscription à la
-                            fédération. Pour les corriger, prévenez votre animateur.
+                            fédération et sont reportées telles quelles sur le document imprimé. Pour
+                            les corriger, prévenez votre animateur.
                         </p>
                         <dl class="row mb-0">
-                            <dt class="col-sm-4">Prénom et nom</dt>
-                            <dd class="col-sm-8">{{ member|display_name }}</dd>
-                            {% if member.birthDate %}
-                                <dt class="col-sm-4">Date de naissance</dt>
-                                <dd class="col-sm-8">{{ member.birthDate|date_fr }}</dd>
-                            {% endif %}
+                            {% for line in identity %}
+                                <dt class="col-sm-4">{{ line.label }}</dt>
+                                <dd class="col-sm-8">{% if line.value != '' %}{{ line.value }}{% else %}<span class="text-body-secondary">—</span>{% endif %}</dd>
+                            {% endfor %}
                         </dl>
                     </div>
                 </div>
@@ -120,7 +146,7 @@
                     <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse"
                             data-bs-target="#section-contact{{ n }}" aria-expanded="false"
                             aria-controls="section-contact{{ n }}">
-                        Personne à contacter en cas d'urgence {{ n }}
+                        Personnes à contacter en cas d'urgence ({{ n }})
                     </button>
                 </h2>
                 <div id="section-contact{{ n }}" class="accordion-collapse collapse"
@@ -128,31 +154,31 @@
                     <div class="accordion-body">
                         {% include 'partials/form_field.html.twig' with {
                             field_id: 'contact' ~ n ~ '-name', field_name: 'contact' ~ n ~ '_name',
-                            label: 'Nom et prénom', value: sheet['contact' ~ n ~ '_name'],
+                            label: 'Nom et prénom :', value: sheet['contact' ~ n ~ '_name'],
                             autocomplete: 'off',
                         } only %}
                         {% include 'partials/form_field.html.twig' with {
                             field_id: 'contact' ~ n ~ '-relationship',
                             field_name: 'contact' ~ n ~ '_relationship',
-                            label: 'Lien de parenté', value: sheet['contact' ~ n ~ '_relationship'],
+                            label: 'Lien de parenté :', value: sheet['contact' ~ n ~ '_relationship'],
                         } only %}
                         <div class="row g-3">
                             <div class="col-12 col-sm-6">
                                 {% include 'partials/form_field.html.twig' with {
                                     field_id: 'contact' ~ n ~ '-phone', field_name: 'contact' ~ n ~ '_phone',
-                                    type: 'tel', label: 'Téléphone', value: sheet['contact' ~ n ~ '_phone'],
+                                    type: 'tel', label: 'Tél. / GSM :', value: sheet['contact' ~ n ~ '_phone'],
                                 } only %}
                             </div>
                             <div class="col-12 col-sm-6">
                                 {% include 'partials/form_field.html.twig' with {
                                     field_id: 'contact' ~ n ~ '-email', field_name: 'contact' ~ n ~ '_email',
-                                    type: 'email', label: 'Adresse e-mail', value: sheet['contact' ~ n ~ '_email'],
+                                    type: 'email', label: 'Email :', value: sheet['contact' ~ n ~ '_email'],
                                 } only %}
                             </div>
                         </div>
                         {% include 'partials/form_field.html.twig' with {
                             field_id: 'contact' ~ n ~ '-note', field_name: 'contact' ~ n ~ '_note',
-                            type: 'textarea', rows: 2, label: 'Remarque',
+                            type: 'textarea', rows: 2, label: 'Remarque :',
                             value: sheet['contact' ~ n ~ '_note'],
                         } only %}
                     </div>
@@ -160,13 +186,13 @@
             </div>
             {% endfor %}
 
-            {# --- Family doctor --- #}
+            {# --- Family doctor: Nom, Prénom, Tél. / GSM, the form's own order --- #}
             <div class="accordion-item">
                 <h2 class="accordion-header">
                     <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse"
                             data-bs-target="#section-doctor" aria-expanded="false"
                             aria-controls="section-doctor">
-                        Médecin traitant
+                        Coordonnées du médecin traitant
                     </button>
                 </h2>
                 <div id="section-doctor" class="accordion-collapse collapse"
@@ -175,32 +201,41 @@
                         <div class="row g-3">
                             <div class="col-12 col-sm-6">
                                 {% include 'partials/form_field.html.twig' with {
-                                    field_id: 'doctor-first-name', field_name: 'doctor_first_name',
-                                    label: 'Prénom', value: sheet.doctor_first_name,
+                                    field_id: 'doctor-last-name', field_name: 'doctor_last_name',
+                                    label: 'Nom :', value: sheet.doctor_last_name,
                                 } only %}
                             </div>
                             <div class="col-12 col-sm-6">
                                 {% include 'partials/form_field.html.twig' with {
-                                    field_id: 'doctor-last-name', field_name: 'doctor_last_name',
-                                    label: 'Nom', value: sheet.doctor_last_name,
+                                    field_id: 'doctor-first-name', field_name: 'doctor_first_name',
+                                    label: 'Prénom :', value: sheet.doctor_first_name,
                                 } only %}
                             </div>
                         </div>
                         {% include 'partials/form_field.html.twig' with {
                             field_id: 'doctor-phone', field_name: 'doctor_phone',
-                            type: 'tel', label: 'Téléphone', value: sheet.doctor_phone,
+                            type: 'tel', label: 'Tél. / GSM :', value: sheet.doctor_phone,
                         } only %}
                     </div>
                 </div>
             </div>
 
-            {# --- Health --- #}
+            {# --- Health ---
+               The federation's questions, word for word (2026 version). Three
+               of them are OUI / NON / non précisé on screen — allergies,
+               médicaments, régime alimentaire — and the boxes that depend on
+               them carry `data-reveal-when="name=yes"`: health-sheet.js hides
+               them unless that answer is chosen. WITHOUT the script every box
+               stays visible, and the SERVER decides what is exported from the
+               saved choices, whatever the browser showed (HealthSheetFilling).
+               Hiding never erases: a text typed before a NON is still there
+               when the answer goes back to OUI. #}
             <div class="accordion-item">
                 <h2 class="accordion-header">
                     <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse"
                             data-bs-target="#section-health" aria-expanded="false"
                             aria-controls="section-health">
-                        Santé
+                        Informations confidentielles concernant la santé de la personne
                     </button>
                 </h2>
                 <div id="section-health" class="accordion-collapse collapse"
@@ -210,55 +245,46 @@
                             <div class="col-12 col-sm-6">
                                 {% include 'partials/form_field.html.twig' with {
                                     field_id: 'height', field_name: 'height',
-                                    label: 'Taille', value: sheet.height,
+                                    label: 'Taille :', value: sheet.height,
                                 } only %}
                             </div>
                             <div class="col-12 col-sm-6">
                                 {% include 'partials/form_field.html.twig' with {
                                     field_id: 'weight', field_name: 'weight',
-                                    label: 'Poids', value: sheet.weight,
+                                    label: 'Poids :', value: sheet.weight,
                                 } only %}
                             </div>
                         </div>
 
                         {#
-                          Three questions below are a PAIR OF SQUARES on the
-                          printed form and nothing else, so the screen offers
-                          the same three answers the paper does — including
-                          « Non précisé », which leaves both squares blank.
-                          A free-text box here let a parent answer « oui sauf
-                          la natation » and the document crossed neither.
+                          A pair of squares on the printed form and nothing
+                          else, so the screen offers the same three answers the
+                          paper does — including « Non précisé », which leaves
+                          both squares blank. « Précisez : » stays available
+                          after NON, to explain a restriction, and is printed.
                         #}
                         {% include 'partials/form_field.html.twig' with {
                             field_id: 'participation', field_name: 'participation',
                             type: 'select',
-                            label: 'Peut participer à toutes les activités proposées',
+                            label: 'La personne peut-elle participer aux activités proposées ? (Sport, excursions, jeux, baignade…) ?',
                             value: sheet.participation,
-                            options: yes_no_options,
-                            help: 'Sport, excursions, jeux, baignade… Précisez ci-dessous si besoin.',
+                            options: yes_no_options|map(option => option|merge({ selected: option.value == sheet.participation })),
                         } only %}
                         {% include 'partials/form_field.html.twig' with {
                             field_id: 'participation-details', field_name: 'participation_details',
-                            type: 'textarea', rows: 2, label: 'Précisions',
+                            type: 'textarea', rows: 2, label: 'Précisez :',
                             value: sheet.participation_details,
                         } only %}
 
                         {% include 'partials/form_field.html.twig' with {
                             field_id: 'swimming-level', field_name: 'swimming_level',
-                            type: 'select', label: 'Niveau de natation',
+                            type: 'select', label: 'La personne sait-elle nager ?',
                             value: sheet.swimming_level,
-                            options: [
-                                { value: '', label: 'Non précisé' },
-                                { value: 'very_good', label: 'Très bien' },
-                                { value: 'good', label: 'Bien' },
-                                { value: 'fair', label: 'Moyennement bien' },
-                                { value: 'poor', label: 'Difficilement' },
-                                { value: 'not_at_all', label: 'Pas du tout' },
-                            ],
+                            options: swimming_options|map(option => option|merge({ selected: option.value == sheet.swimming_level })),
                         } only %}
 
                         <fieldset class="mb-3">
-                            <legend class="form-label">Votre enfant souffre-t-il de&nbsp;:</legend>
+                            <legend class="form-label">La personne présente-t-elle, de manière permanente ou régulière&nbsp;:</legend>
                             <div class="row g-2">
                                 {% for condition in conditions %}
                                 <div class="col-12 col-sm-6">
@@ -297,71 +323,111 @@
                         {% include 'partials/form_field.html.twig' with {
                             field_id: 'conditions-details', field_name: 'conditions_details',
                             type: 'textarea', rows: 3,
-                            label: 'Fréquence, gravité, mesures à prendre',
+                            label: 'Si une case est cochée, précisez la fréquence, la gravité et les mesures à prévoir :',
                             value: sheet.conditions_details,
                         } only %}
                         {% include 'partials/form_field.html.twig' with {
                             field_id: 'illnesses', field_name: 'illnesses_and_operations',
-                            type: 'textarea', rows: 3, label: 'Maladies et opérations',
+                            type: 'textarea', rows: 3,
+                            label: 'Indiquez les maladies importantes ou opérations subies (appendicite, rougeole…) avec l\'année :',
                             value: sheet.illnesses_and_operations,
                         } only %}
                         {% include 'partials/form_field.html.twig' with {
                             field_id: 'useful-information', field_name: 'useful_information',
                             type: 'textarea', rows: 3,
-                            label: 'Autres informations utiles',
+                            label: 'Mentionnez toute information utile au bon déroulement des activités ou du camp (sommeil, lunettes, etc.) :',
                             value: sheet.useful_information,
-                            help: 'Port de lunettes ou de lentilles, appareil dentaire, sommeil, alimentation…',
                         } only %}
 
+                        <h3 class="h6 mt-4">Vaccination contre le tétanos</h3>
                         <div class="row g-3">
                             <div class="col-12 col-sm-6">
                                 {% include 'partials/form_field.html.twig' with {
                                     field_id: 'tetanus', field_name: 'tetanus_vaccinated',
                                     type: 'select',
-                                    label: 'En ordre de vaccination contre le tétanos',
+                                    label: 'La personne est-elle en ordre ?',
                                     value: sheet.tetanus_vaccinated,
-                                    options: yes_no_options,
+                                    options: yes_no_options|map(option => option|merge({ selected: option.value == sheet.tetanus_vaccinated })),
                                 } only %}
                             </div>
                             <div class="col-12 col-sm-6">
+                                {# Stays available whatever the answer above: the date is printed as entered. #}
                                 {% include 'partials/form_field.html.twig' with {
                                     field_id: 'tetanus-booster', field_name: 'tetanus_last_booster',
-                                    label: 'Date du dernier rappel',
+                                    label: 'Date du dernier rappel :',
                                     value: sheet.tetanus_last_booster,
                                 } only %}
                             </div>
                         </div>
 
+                        <h3 class="h6 mt-4">Allergies</h3>
                         {% include 'partials/form_field.html.twig' with {
-                            field_id: 'allergies', field_name: 'allergies',
-                            type: 'textarea', rows: 2, label: 'Allergies',
-                            value: sheet.allergies,
-                            help: 'Médicaments, aliments, piqûres, autres.',
-                        } only %}
-                        {% include 'partials/form_field.html.twig' with {
-                            field_id: 'allergy-consequences', field_name: 'allergy_consequences',
-                            type: 'textarea', rows: 2,
-                            label: 'Conséquences et mesures à prendre',
-                            value: sheet.allergy_consequences,
-                        } only %}
-                        {% include 'partials/form_field.html.twig' with {
-                            field_id: 'diet', field_name: 'diet',
-                            type: 'textarea', rows: 2, label: 'Régime alimentaire',
-                            value: sheet.diet,
-                        } only %}
-                        {% include 'partials/form_field.html.twig' with {
-                            field_id: 'treatment', field_name: 'treatment',
-                            type: 'textarea', rows: 3, label: 'Traitement en cours',
-                            value: sheet.treatment,
-                            help: 'Joignez l\'ordonnance à la fiche imprimée.',
-                        } only %}
-                        {% include 'partials/form_field.html.twig' with {
-                            field_id: 'treatment-autonomy', field_name: 'treatment_autonomy',
+                            field_id: 'allergic', field_name: 'allergic',
                             type: 'select',
-                            label: 'Votre enfant prend-il ce traitement seul ?',
-                            value: sheet.treatment_autonomy,
-                            options: yes_no_options,
+                            label: 'La personne est-elle allergique (aliments, médicaments, etc.) ?',
+                            value: sheet.allergic,
+                            options: yes_no_options|map(option => option|merge({ selected: option.value == sheet.allergic })),
                         } only %}
+                        <div data-reveal-when="allergic=yes">
+                            {% include 'partials/form_field.html.twig' with {
+                                field_id: 'allergies', field_name: 'allergies',
+                                type: 'textarea', rows: 2, label: 'Si oui, lesquels ?',
+                                value: sheet.allergies,
+                            } only %}
+                            {% include 'partials/form_field.html.twig' with {
+                                field_id: 'allergy-consequences', field_name: 'allergy_consequences',
+                                type: 'textarea', rows: 2,
+                                label: 'Quelles sont les conséquences ?',
+                                value: sheet.allergy_consequences,
+                            } only %}
+                        </div>
+
+                        <h3 class="h6 mt-4">Régime alimentaire</h3>
+                        {#
+                          No squares on the federation's form for this one, and
+                          none is added to it: the question is the same on
+                          screen, and « Si oui, lequel ? » is printed on the
+                          line that already exists.
+                        #}
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'follows-diet', field_name: 'follows_diet',
+                            type: 'select',
+                            label: 'La personne suit-elle un régime alimentaire particulier ?',
+                            value: sheet.follows_diet,
+                            options: yes_no_options|map(option => option|merge({ selected: option.value == sheet.follows_diet })),
+                        } only %}
+                        <div data-reveal-when="follows_diet=yes">
+                            {% include 'partials/form_field.html.twig' with {
+                                field_id: 'diet', field_name: 'diet',
+                                type: 'textarea', rows: 2, label: 'Si oui, lequel ?',
+                                value: sheet.diet,
+                            } only %}
+                        </div>
+
+                        <h3 class="h6 mt-4">Médicaments</h3>
+                        {% include 'partials/form_field.html.twig' with {
+                            field_id: 'takes-treatment', field_name: 'takes_treatment',
+                            type: 'select',
+                            label: 'La personne prend-elle un traitement ?',
+                            value: sheet.takes_treatment,
+                            options: yes_no_options|map(option => option|merge({ selected: option.value == sheet.takes_treatment })),
+                        } only %}
+                        <div data-reveal-when="takes_treatment=yes">
+                            {% include 'partials/form_field.html.twig' with {
+                                field_id: 'treatment', field_name: 'treatment',
+                                type: 'textarea', rows: 3,
+                                label: 'Si oui, précisez : nom, dosage, fréquence, indication, mode d\'administration et durée.',
+                                value: sheet.treatment,
+                            } only %}
+                            {# Asked, and printed, only when a treatment is declared. #}
+                            {% include 'partials/form_field.html.twig' with {
+                                field_id: 'treatment-autonomy', field_name: 'treatment_autonomy',
+                                type: 'select',
+                                label: 'Est-elle autonome dans la prise de ces médicaments ?',
+                                value: sheet.treatment_autonomy,
+                                options: yes_no_options|map(option => option|merge({ selected: option.value == sheet.treatment_autonomy })),
+                            } only %}
+                        </div>
                     </div>
                 </div>
             </div>
@@ -395,6 +461,31 @@
     </form>
 
     {#
+      What the PAPER asks, said where a parent looks just before printing
+      (issue #1346): these are explanations of the document to complete and
+      sign — they create no consent box and no electronic signature, and they
+      do not replace this site's own notes on access, encryption and
+      retention, which are kept above and in the help.
+    #}
+    <div class="card mt-3" id="health-sheet-paper-instructions">
+        <div class="card-body small">
+            <h2 class="h6">Sur le document imprimé</h2>
+            <ul class="mb-2">
+                <li>Deux emplacements, « Insérez ici une vignette de mutuelle », attendent la vignette de la personne.</li>
+                <li>Tout médicament fourni doit être accompagné d'une prescription médicale. Un modèle est disponible sur lesscouts.be.</li>
+                <li>Les animateurs et animatrices disposent d'une trousse de secours et peuvent administrer, si nécessaire, du paracétamol, un antiseptique ou une pommade apaisante (sur avis médical ou du pharmacien).</li>
+                <li>À signer à la main : « Date et signature du représentant·e légal·e » et « Date et signature de la personne concernée (dès 13 ans) ».</li>
+            </ul>
+            <p class="mb-2">
+                Je marque mon accord pour que toute prise en charge et tout soin jugés nécessaires soient mis en œuvre durant le séjour par le ou la responsable du centre de vacances ou par l'équipe médicale. J'autorise le ou la médecin à prendre toute décision urgente indispensable à la santé de la personne concernée, y compris une intervention chirurgicale, si je ne suis pas joignable et, le cas échéant, dans le respect des dispositions légales applicables en matière de consentement.
+            </p>
+            <p class="mb-0">
+                J'autorise les animateurs et les animatrices à utiliser la carte d'identité ou la carte ISI+ afin de permettre l'identification en cas de nécessité médicale (consultation, prescription, hospitalisation, etc.).
+            </p>
+        </div>
+    </div>
+
+    {#
       A separate form: « Tout effacer » destroys data, so it must not be a
       second button inside the form that saves — a stray Enter key would
       otherwise be one keystroke away from it.
@@ -421,4 +512,9 @@
         </span>
     </form>
 </div>
+{% endblock %}
+
+{% block scripts %}
+{# Shows the boxes that depend on an OUI / NON answer, and only those. #}
+<script src="{{ asset('/assets/js/health-sheet.js') }}" defer nonce="{{ csp_nonce }}"></script>
 {% endblock %}

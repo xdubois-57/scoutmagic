@@ -201,6 +201,37 @@ class SessionRevalidatorTest extends TestCase
     }
 
     /**
+     * Review of #1374, the sequence of the one second where it mattered, with
+     * FIXED instants instead of the clock: a session issued at T, a « Déconnecter
+     * partout » whose stamp is dated T + 1, then a write that stamps an instant
+     * BEFORE that — what a reset link used in the same second does with « now ».
+     * The stamp must stay at T + 1, so the session issued at T is still revoked
+     * when it is revalidated. T is put in the future so that « now » is always
+     * earlier than the sign-out's stamp, whatever second the suite runs in.
+     */
+    public function testAWriteDatedBeforeASignOutStampDoesNotReviveTheSession(): void
+    {
+        $account = $this->userRepo->create('sequence@test.com', true);
+        AuthSession::login($account->id, $account->email, 'superadmin', \Tests\SessionGenerationFixture::forPdo($this->pdo)->current());
+        $issuedAt = time() + 1000;
+        $_SESSION['_auth']['issued_at'] = $issuedAt;
+        $signOutStamp = date('Y-m-d H:i:s', $issuedAt + 1);
+        $set = $this->pdo->prepare('UPDATE user_accounts SET sessions_valid_from = ? WHERE id = ?');
+        $set->execute([$signOutStamp, $account->id]);
+
+        // The reset's own stamp is « now », well before the sign-out's.
+        $this->userRepo->updatePasswordHash($account->id, password_hash('BrandNewPassword1!', PASSWORD_DEFAULT));
+
+        $this->assertSame(
+            $signOutStamp,
+            $this->userRepo->findById($account->id)?->sessionsValidFrom?->format('Y-m-d H:i:s'),
+            'the stamp did not move back'
+        );
+        $this->assertFalse($this->revalidator->revalidate(fn(): AuthorizationYears => $this->authorizationYears()));
+        $this->assertFalse(AuthSession::isAuthenticated(), 'the session issued before the stamp stays revoked');
+    }
+
+    /**
      * A session predating the revocation mechanism can't prove it is newer
      * than the stamp, so it loses the benefit of the doubt — but only once
      * the account actually carries a stamp.

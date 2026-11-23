@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Core\Security;
 
+use Core\Database\TransactionScope;
 use Core\Service\DateInput;
 
 /**
@@ -19,8 +20,14 @@ use Core\Service\DateInput;
  */
 class PasswordResetRepository
 {
-    public function __construct(private \PDO $pdo)
-    {
+    public function __construct(
+        private \PDO $pdo,
+        /**
+         * The clock markUsed() reads once the row is locked. Injected only by
+         * the tests that pin WHEN it is read; production reads the real one.
+         */
+        private ?\Closure $clock = null
+    ) {
     }
 
     public function create(string $emailBlindIndex, string $tokenHash, \DateTimeImmutable $expiresAt): int
@@ -50,10 +57,57 @@ class PasswordResetRepository
         return $row !== false ? $this->hydrate($row) : null;
     }
 
-    public function markUsed(int $id): void
+    /**
+     * Consume a token — only a live, unused one, in one statement. Of two
+     * requests holding the same link, exactly one gets `true` and goes on to
+     * set a password; the other is told the link is gone (issue #1257).
+     *
+     * Checking the token and consuming it used to be two steps, so both
+     * could pass the check. The expiry is part of the claim for the same
+     * reason: a link that lapsed between the check and the write is not
+     * consumed.
+     *
+     * **The expiry is judged when the row is written, not before.** The
+     * UPDATE waits when another transaction holds the row — two submissions of
+     * the same link — and a timestamp taken before that wait can be old by the
+     * time the lock is released: if the first request then rolled back after
+     * the link had lapsed, the second would still consume it and set a
+     * password after expiry (review of #1374). So the row is locked FIRST
+     * (`SELECT … FOR UPDATE`, which waits for the other transaction), and only
+     * then is the time read and the claim made. `NOW()` in the statement would
+     * not do either: MySQL fixes it at the start of the statement.
+     *
+     * rowCount() answers with the rows CHANGED on MySQL and the rows FOUND
+     * on SQLite; here the two agree, because a row that matches the WHERE
+     * always changes (`used` goes from false to true).
+     */
+    public function markUsed(int $id): bool
     {
-        $stmt = $this->pdo->prepare('UPDATE password_reset_tokens SET used = TRUE WHERE id = ?');
-        $stmt->execute([$id]);
+        return TransactionScope::run($this->pdo, function () use ($id): bool {
+            $lock = $this->pdo->prepare('SELECT id FROM password_reset_tokens WHERE id = ?' . $this->forUpdate());
+            $lock->execute([$id]);
+            if ($lock->fetchColumn() === false) {
+                return false;
+            }
+
+            $now = ($this->clock !== null ? ($this->clock)() : new \DateTimeImmutable())->format('Y-m-d H:i:s');
+            $stmt = $this->pdo->prepare(
+                'UPDATE password_reset_tokens SET used = TRUE WHERE id = ? AND used = FALSE AND expires_at > ?'
+            );
+            $stmt->execute([$id, $now]);
+
+            return $stmt->rowCount() > 0;
+        });
+    }
+
+    /**
+     * ` FOR UPDATE`, or nothing on SQLite, which has no such clause and
+     * serialises its writers itself (the convention of
+     * Core\Storage\Location\StorageLocationRepository).
+     */
+    private function forUpdate(): string
+    {
+        return $this->pdo->getAttribute(\PDO::ATTR_DRIVER_NAME) === 'sqlite' ? '' : ' FOR UPDATE';
     }
 
     /**
@@ -70,11 +124,22 @@ class PasswordResetRepository
         return (int) $stmt->fetchColumn();
     }
 
-    public function deleteExpired(): int
+    /**
+     * Delete the tokens that can no longer serve anyone — expired or used —
+     * but only those older than the rate-limit window too.
+     * countRecentByEmail() counts the last hour's rows whatever became of
+     * them; a token spent after five minutes still has to be counted for the
+     * rest of that hour, or every purge would hand an address five fresh
+     * requests (issue #1257). Returns the number deleted.
+     */
+    public function deleteExpired(int $keepWithinSeconds = 3600): int
     {
         $now = (new \DateTimeImmutable())->format('Y-m-d H:i:s');
-        $stmt = $this->pdo->prepare('DELETE FROM password_reset_tokens WHERE expires_at < ?');
-        $stmt->execute([$now]);
+        $cutoff = (new \DateTimeImmutable("-{$keepWithinSeconds} seconds"))->format('Y-m-d H:i:s');
+        $stmt = $this->pdo->prepare(
+            'DELETE FROM password_reset_tokens WHERE created_at < ? AND (expires_at < ? OR used = TRUE)'
+        );
+        $stmt->execute([$cutoff, $now]);
 
         return $stmt->rowCount();
     }

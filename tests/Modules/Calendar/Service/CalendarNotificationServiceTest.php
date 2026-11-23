@@ -118,8 +118,11 @@ class CalendarNotificationServiceTest extends TestCase
             $calendarService,
             $this->eventRepository,
             $this->notificationService,
-            $this->userAccountRepository,
-            new \Core\Config\ScoutYearService($this->pdo)
+            new \Modules\Calendar\Service\EventAudienceResolver(
+                $this->userAccountRepository,
+                new \Core\Member\SectionAccountRepository($this->pdo),
+                new \Core\Config\ScoutYearService($this->pdo)
+            )
         );
 
         $stmt = $this->pdo->prepare('INSERT INTO age_branches (desk_code, label, sort_order) VALUES (?, ?, ?)');
@@ -149,7 +152,7 @@ class CalendarNotificationServiceTest extends TestCase
      * Makes $email a member of the section the section calendar belongs
      * to, which is what puts its account in that calendar's audience.
      */
-    private function memberOfTheSection(string $email): void
+    private function memberOfTheSection(string $email, ?int $sectionId = null, ?int $functionId = null): void
     {
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('T" . uniqid() . "')");
@@ -173,7 +176,7 @@ class CalendarNotificationServiceTest extends TestCase
         $stmt = $this->pdo->prepare(
             'INSERT INTO member_functions (member_year_id, function_id, section_id) VALUES (?, ?, ?)'
         );
-        $stmt->execute([$memberYearId, $this->animeFunctionId, $this->sectionId]);
+        $stmt->execute([$memberYearId, $functionId ?? $this->animeFunctionId, $sectionId ?? $this->sectionId]);
     }
 
     private function createEvent(int $calendarId, string $startDate, ?string $endDate): int
@@ -415,6 +418,97 @@ class CalendarNotificationServiceTest extends TestCase
         $this->serviceWithNotifications->dispatchEventPublished($this->eventRepository->findById($eventId), null);
 
         $this->assertSame([], $this->notificationRepository->findByUserAccountId($anime));
+    }
+
+    /**
+     * Issue #1348. « Nouvelle activité » and « Activité modifiée » added every
+     * chef, admin and super-administrator to EVERY section — so an
+     * administrator, parent of children in the Goélands and the Pionniers,
+     * was told about the Seeonee's activities. Only the personal links count.
+     */
+    public function testARoleAloneNeverSubscribesAnAccountToASection(): void
+    {
+        $this->pdo->exec("INSERT INTO functions (desk_code, label, role, confirmed) VALUES ('CU', 'Chef', 'admin', 1)");
+        $adminFunction = (int) $this->pdo->lastInsertId();
+        $stmt = $this->pdo->prepare('INSERT INTO sections (desk_code, age_branch_id, name) VALUES (?, ?, ?)');
+        $stmt->execute(['SEE01', (int) $this->pdo->query('SELECT id FROM age_branches LIMIT 1')->fetchColumn(), 'Seeonee']);
+        $seeonee = (int) $this->pdo->lastInsertId();
+        $stmt->execute(['PIO01', (int) $this->pdo->query('SELECT id FROM age_branches LIMIT 1')->fetchColumn(), 'Pionniers']);
+        $pionniers = (int) $this->pdo->lastInsertId();
+        $seeoneeCalendar = $this->calendarRepository->createSectionCalendar($seeonee, Calendar::VISIBILITY_PUBLIC);
+
+        // The reported account: a parent in two sections that are not the Seeonee, and an administrator.
+        $admin = $this->userAccountRepository->create('admin-parent@test.com')->id;
+        $this->memberOfTheSection('admin-parent@test.com');
+        $this->memberOfTheSection('admin-parent@test.com', $pionniers, $adminFunction);
+        $super = $this->userAccountRepository->create('super@test.com')->id;
+        $this->pdo->prepare('UPDATE user_accounts SET is_super_admin = 1 WHERE id = ?')->execute([$super]);
+        $parent = $this->userAccountRepository->create('seeonee-parent@test.com')->id;
+        $this->memberOfTheSection('seeonee-parent@test.com', $seeonee);
+
+        $date = (new \DateTimeImmutable('+5 days'))->format('Y-m-d');
+        $event = $this->eventRepository->findById($this->createEvent($seeoneeCalendar, $date, null));
+        $this->serviceWithNotifications->dispatchEventPublished($event, null);
+        $this->serviceWithNotifications->dispatchEventChanged($event, null);
+
+        $this->assertSame([], $this->notificationRepository->findByUserAccountId($admin));
+        $this->assertSame([], $this->notificationRepository->findByUserAccountId($super));
+        $this->assertCount(2, $this->notificationRepository->findByUserAccountId($parent), 'published and changed');
+
+        // And the same administrator IS told about the sections of their children.
+        $own = $this->eventRepository->findById($this->createEvent($this->sectionCalendarId, $date, null));
+        $this->serviceWithNotifications->dispatchEventPublished($own, null);
+        $this->assertCount(1, $this->notificationRepository->findByUserAccountId($admin));
+    }
+
+    /** A section calendar reserved to the chefs: the linked chefs, not the parents, not a foreign chef. */
+    public function testAChiefOnlySectionCalendarIsAnnouncedToTheLinkedChiefsOnly(): void
+    {
+        $this->pdo->exec("INSERT INTO functions (desk_code, label, role, confirmed) VALUES ('CHE', 'Chef', 'chief', 1)");
+        $chiefFunction = (int) $this->pdo->lastInsertId();
+        $stmt = $this->pdo->prepare('INSERT INTO sections (desk_code, age_branch_id, name) VALUES (?, ?, ?)');
+        $stmt->execute(['SEE01', (int) $this->pdo->query('SELECT id FROM age_branches LIMIT 1')->fetchColumn(), 'Seeonee']);
+        $seeonee = (int) $this->pdo->lastInsertId();
+        $linked = $this->userAccountRepository->create('linked-chief@test.com')->id;
+        $this->memberOfTheSection('linked-chief@test.com', null, $chiefFunction);
+        $foreign = $this->userAccountRepository->create('foreign-chief@test.com')->id;
+        $this->memberOfTheSection('foreign-chief@test.com', $seeonee, $chiefFunction);
+        $parent = $this->userAccountRepository->create('parent@test.com')->id;
+        $this->memberOfTheSection('parent@test.com');
+        $this->pdo->prepare('UPDATE calendar_calendars SET visibility = ? WHERE id = ?')
+            ->execute([Calendar::VISIBILITY_CHIEF, $this->sectionCalendarId]);
+        $event = $this->eventRepository->findById(
+            $this->createEvent($this->sectionCalendarId, (new \DateTimeImmutable('+5 days'))->format('Y-m-d'), null)
+        );
+
+        $this->serviceWithNotifications->dispatchEventPublished($event, null);
+
+        $this->assertCount(1, $this->notificationRepository->findByUserAccountId($linked));
+        $this->assertSame([], $this->notificationRepository->findByUserAccountId($foreign));
+        $this->assertSame([], $this->notificationRepository->findByUserAccountId($parent));
+    }
+
+    /** A confirmed secondary address reaches the section; several children give one notification. */
+    public function testASecondaryAddressIsToldAndSeveralChildrenGiveOneNotification(): void
+    {
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $teen = $this->userAccountRepository->create('teen@test.com')->id;
+        $this->memberOfTheSection('family@test.com');
+        $memberId = (int) $this->pdo->query('SELECT MAX(id) FROM members')->fetchColumn();
+        (new \Core\Member\MemberEmailRepository($this->pdo, $encryption))->create(
+            $memberId, 'teen@test.com', \Core\Member\MemberEmail::SOURCE_MANUAL, \Core\Member\MemberEmail::STATUS_VALID, null, null
+        );
+        $parent = $this->userAccountRepository->create('twins@test.com')->id;
+        $this->memberOfTheSection('twins@test.com');
+        $this->memberOfTheSection('twins@test.com');
+        $event = $this->eventRepository->findById(
+            $this->createEvent($this->sectionCalendarId, (new \DateTimeImmutable('+5 days'))->format('Y-m-d'), null)
+        );
+
+        $this->serviceWithNotifications->dispatchEventPublished($event, null);
+
+        $this->assertCount(1, $this->notificationRepository->findByUserAccountId($teen));
+        $this->assertCount(1, $this->notificationRepository->findByUserAccountId($parent));
     }
 
     /** #223, the other half: a section's activity stays in that section. */

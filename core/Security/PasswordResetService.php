@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Core\Security;
 
 use Core\Database\Connection;
+use Core\Database\TransactionScope;
 use Core\Journal\JournalService;
 use Core\Mail\MailService;
 use Core\Mail\Template\EmailTemplateRenderer;
@@ -38,11 +39,14 @@ class PasswordResetService
         private MailService $mailService,
         private EmailTemplateRenderer $emailTemplateRenderer,
         private string $baseUrl,
-        private string $siteName
+        private string $siteName,
+        ?PasswordResetRepository $resetRepo = null
     ) {
         $pdo = $this->connection->getPdo();
         $this->userRepo = new UserAccountRepository($pdo, $this->encryption);
-        $this->resetRepo = new PasswordResetRepository($pdo);
+        // The parameter is a seam for the test that plays the loser of a race
+        // for the same token; production never passes one.
+        $this->resetRepo = $resetRepo ?? new PasswordResetRepository($pdo);
     }
 
     public function setJournalService(JournalService $journalService): void
@@ -144,8 +148,9 @@ class PasswordResetService
     /**
      * Re-validates the token, then atomically consumes it and sets the new
      * password. Returns false (nothing changed) when the token is invalid/
-     * expired/already used, the account no longer exists, or the password
-     * fails Core\Security\PasswordPolicy.
+     * expired/already used — including when a parallel request consumed it
+     * between this one's check and its claim —, the account no longer
+     * exists, or the password fails Core\Security\PasswordPolicy.
      *
      * A reset is also how a holder takes their account back, so it
      * revokes every passkey and every device credential the account holds,
@@ -174,8 +179,23 @@ class PasswordResetService
             return false;
         }
 
-        $this->resetRepo->markUsed($id);
-        $this->userRepo->updatePasswordHash($user->id, password_hash($newPassword, PASSWORD_DEFAULT));
+        // Claiming the token and writing the password are one unit of work
+        // (issue #1257). The claim is a single conditional UPDATE, so of two
+        // requests holding the same link only one gets past it — the other
+        // changes nothing — and a password that cannot be written does not
+        // leave the link spent.
+        $hash = password_hash($newPassword, PASSWORD_DEFAULT);
+        $claimed = TransactionScope::run($this->connection->getPdo(), function () use ($id, $user, $hash): bool {
+            if (!$this->resetRepo->markUsed($id)) {
+                return false;
+            }
+            $this->userRepo->updatePasswordHash($user->id, $hash);
+
+            return true;
+        });
+        if (!$claimed) {
+            return false;
+        }
 
         $this->journalService?->log(
             'core',

@@ -34,6 +34,7 @@ class InboundMailTestHelper
             last_error TEXT,
             last_error_at TEXT,
             failing_since TEXT,
+            last_failure_signature TEXT,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )');

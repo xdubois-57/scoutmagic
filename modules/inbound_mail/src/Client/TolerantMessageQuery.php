@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\InboundMail\Client;
 
 use Illuminate\Support\Collection;
+use Modules\InboundMail\Mailbox\MailboxCredentials;
 use Webklex\PHPIMAP\Connection\Protocols\ImapProtocol;
 use Webklex\PHPIMAP\Folder;
 use Webklex\PHPIMAP\Message;
@@ -61,14 +62,14 @@ final class TolerantMessageQuery extends WhereQuery
      * What `Folder::query()` does, building this class instead of the
      * library's own.
      */
-    public static function on(Folder $folder): self
+    public static function on(Folder $folder, ?MailboxCredentials $credentials = null): self
     {
         $client = $folder->getClient();
         $client->checkConnection();
         // EXAMINE, not the library's `openFolder()`, which SELECTs (#1231).
         // Marking the folder active afterwards keeps every later call of
         // the library from opening it again, read-write.
-        $client->getConnection()->examineFolder($folder->path)->validatedData();
+        ImapFolderReader::examine($folder, $credentials);
         $client->setActiveFolder($folder->path);
 
         return new self($client, $client->extensions);

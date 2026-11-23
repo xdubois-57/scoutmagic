@@ -190,6 +190,30 @@ class AccountAccessRevokerTest extends TestCase
         $this->assertStringContainsString('Déconnexion partout', (string) $descriptions[1]);
     }
 
+    /**
+     * Issue #1257: « Déconnecter partout » also takes the password away, and
+     * the one journal entry says whether it did.
+     */
+    public function testTheJournalSaysWhetherThePasswordWasRemoved(): void
+    {
+        $this->revoker->revoke($this->holder, [], [], AccountAccessRevoker::REASON_SIGN_OUT_EVERYWHERE, $this->holder);
+        $this->revoker->revoke(
+            $this->holder,
+            [],
+            [],
+            AccountAccessRevoker::REASON_SIGN_OUT_EVERYWHERE,
+            $this->holder,
+            passwordRemoved: true
+        );
+
+        $rows = $this->pdo->query('SELECT description, context FROM event_log ORDER BY id')
+            ->fetchAll(\PDO::FETCH_ASSOC);
+        $this->assertFalse(json_decode((string) $rows[0]['context'], true)['password_removed']);
+        $this->assertStringNotContainsString('mot de passe', (string) $rows[0]['description']);
+        $this->assertTrue(json_decode((string) $rows[1]['context'], true)['password_removed']);
+        $this->assertStringContainsString('mot de passe retiré', (string) $rows[1]['description']);
+    }
+
     private function createAccount(string $suffix): int
     {
         $stmt = $this->pdo->prepare('INSERT INTO user_accounts (email_encrypted, email_blind_index) VALUES (?, ?)');
