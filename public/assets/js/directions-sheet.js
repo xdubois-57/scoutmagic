@@ -23,7 +23,7 @@
 
     document.addEventListener('click', function (event) {
         var target = /** @type {Element|null} */ (event.target);
-        if (!target || !target.closest) {
+        if (!target?.closest) {
             return;
         }
         var choice = target.closest('[data-directions-choice]');
@@ -32,7 +32,7 @@
         }
         var sheet = choice.closest('[data-directions-sheet]');
         var bootstrap = /** @type {any} */ (window).bootstrap;
-        if (!sheet || !bootstrap || !bootstrap.Offcanvas) {
+        if (!sheet || !bootstrap?.Offcanvas) {
             return;
         }
         var panel = bootstrap.Offcanvas.getInstance(sheet);

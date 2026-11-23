@@ -68,8 +68,9 @@
         {{ carpool.address }}
     </p>
     <p class="mb-1">
-        <a href="{{ directions_url }}" class="btn btn-sm btn-outline-primary" role="button"
+        <a href="{{ directions_url }}" class="btn btn-sm btn-outline-primary"
            data-bs-toggle="offcanvas" data-bs-target="#directions-sheet" aria-controls="directions-sheet"
+           aria-haspopup="dialog"
            target="_blank" rel="noopener noreferrer">
             <i class="bi bi-sign-turn-right" aria-hidden="true"></i> Itinéraire
         </a>
