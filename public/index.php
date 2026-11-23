@@ -8978,7 +8978,9 @@ if ($isEnabled('finance')) {
                     new \Modules\Finance\Mail\SenderStaffAccountResolver(
                         $sectionStaffAuthorizationService,
                         $financeAccountRepo,
-                        $authorizationScoutYear->id
+                        $authorizationScoutYear->id,
+                        // The staff of the year the mail was sent (#1342).
+                        $scoutYearService
                     ),
                     new \Modules\Finance\Mail\ForwardedSenderExtractor(),
                     // The treasurers learn of a receipt waiting for them

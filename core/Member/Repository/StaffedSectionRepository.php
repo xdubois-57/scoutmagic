@@ -62,10 +62,19 @@ class StaffedSectionRepository
      * address once made an animateur who signs in with their secondary
      * address the animateur of no section at all.
      *
+     * **$includeStewards** also counts an `intendant` function (#1342). It
+     * is off by default, and stays off for every access rule: the steward
+     * keeps the books and the stores of a section, and being counted as
+     * its staff there would open what a staff member reaches. It is for
+     * a question about who someone IS for a section — Finance's « whose
+     * account does this receipt belong to » — never about what they may
+     * see.
+     *
      * @return int[]
      */
-    public function staffedSectionIds(string $email, int $scoutYearId): array
+    public function staffedSectionIds(string $email, int $scoutYearId, bool $includeStewards = false): array
     {
+        $roles = $includeStewards ? ['chief', 'admin', 'intendant'] : ['chief', 'admin'];
         $blindIndex = $this->encryption->blindIndex(strtolower(trim($email)), 'email');
         $memberIds = $this->memberEmails?->findMemberIdsByValidBlindIndex($blindIndex) ?? [];
         $memberIdPlaceholders = $memberIds !== []
@@ -84,10 +93,10 @@ class StaffedSectionRepository
              WHERE (my.email_blind_index = ?'
             . ($memberIdPlaceholders !== null ? " OR my.member_id IN ({$memberIdPlaceholders})" : '')
             . ') AND my.scout_year_id = ? AND my.is_active = 1
-               AND f.role IN (\'chief\', \'admin\')
+               AND f.role IN (' . implode(',', array_fill(0, count($roles), '?')) . ')
                AND mf.section_id IS NOT NULL'
         );
-        $stmt->execute([$blindIndex, ...$memberIds, $scoutYearId]);
+        $stmt->execute([$blindIndex, ...$memberIds, $scoutYearId, ...$roles]);
 
         return array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN));
     }
