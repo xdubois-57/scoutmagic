@@ -12,6 +12,27 @@
     subtitle: 'Le coupe-circuit du site, et tous les appareils autorisés.',
 } only %}
 
+    {# Discovery only (issue #1378): this page is the site-wide administration,
+       and a superadmin's OWN device is set up in Mon compte. The link leads
+       straight to the page that creates a CardDAV access; it switches nothing
+       on and does not get round the cut-out below. #}
+    <div class="card mb-3">
+        <div class="card-body">
+            <h2 class="h5 mb-3">Synchroniser mes contacts</h2>
+            <p class="small text-body-secondary mb-3">
+                Retrouvez automatiquement les coordonnées des animateurs et du Staff d'U dans le
+                carnet d'adresses de votre téléphone ou de votre ordinateur.
+                {% if not sync_enabled %}
+                    La synchronisation est actuellement coupée : aucun appareil ne peut se synchroniser tant
+                    que le coupe-circuit ci-dessous est fermé.
+                {% endif %}
+            </p>
+            <a href="/account/devices" class="btn btn-outline-secondary">
+                <i class="bi bi-phone" aria-hidden="true"></i> Configurer la synchronisation dans Mon compte
+            </a>
+        </div>
+    </div>
+
     <div class="card mb-3">
         <div class="card-body">
             <h2 class="h5 mb-3">Coupe-circuit</h2>

@@ -14,6 +14,14 @@ Cette page répond à deux questions qu'un superadministrateur doit
 pouvoir trancher seul : **qui recopie les coordonnées du staff**, et
 **comment arrêter tout le monde d'un coup**.
 
+## Synchroniser votre propre appareil
+
+Cette page est l'administration de tout le site : elle ne crée aucun
+accès. Pour recopier le carnet d'adresses sur **votre** téléphone ou
+votre ordinateur, ouvrez **Mon compte > Synchroniser mes contacts** (le
+bouton en haut de la page y mène directement) et créez-y votre accès.
+Tant que le coupe-circuit est fermé, aucun appareil ne se synchronise.
+
 ## Le coupe-circuit
 
 « Couper la synchronisation » arrête immédiatement toutes les
