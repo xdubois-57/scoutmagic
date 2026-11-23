@@ -511,14 +511,14 @@ class RentalBookingRepository
         $stmt = $this->pdo->prepare(
             'SELECT COUNT(*) FROM rental_bookings
              WHERE hold_origin = ? AND hold_until > ?
-               AND status IN (?, ?, ?, ?)
+               AND status IN (' . self::provisionalStatusPlaceholders() . ')
                AND (renter_email_blind_index = ? OR renter_email_base_blind_index = ?
                     OR requested_by_account_id = ?)'
         );
         $stmt->execute([
             HoldOrigin::AUTOMATIC->value,
             $now->format('Y-m-d H:i:s'),
-            ...self::PROVISIONAL_STATUSES,
+            ...self::provisionalStatusValues(),
             $this->encryption->blindIndex(self::normalizeEmail($email), self::BLIND_INDEX_PURPOSE),
             // The same address without its « +tag » (issue #1263): a request
             // made before the column existed has none and is matched by the
@@ -551,14 +551,14 @@ class RentalBookingRepository
         $stmt = $this->pdo->prepare(
             'SELECT COUNT(*) FROM rental_bookings
              WHERE hold_origin = ? AND hold_until > ?
-               AND status IN (?, ?, ?, ?)
+               AND status IN (' . self::provisionalStatusPlaceholders() . ')
                AND requested_by_account_id IS NULL
                AND request_source_blind_index = ?'
         );
         $stmt->execute([
             HoldOrigin::AUTOMATIC->value,
             $now->format('Y-m-d H:i:s'),
-            ...self::PROVISIONAL_STATUSES,
+            ...self::provisionalStatusValues(),
             $source,
         ]);
 
@@ -575,14 +575,14 @@ class RentalBookingRepository
         $stmt = $this->pdo->prepare(
             'SELECT COUNT(*) FROM rental_bookings
              WHERE asset_id = ? AND hold_origin = ? AND hold_until > ?
-               AND status IN (?, ?, ?, ?)
+               AND status IN (' . self::provisionalStatusPlaceholders() . ')
                AND requested_by_account_id IS NULL'
         );
         $stmt->execute([
             $assetId,
             HoldOrigin::AUTOMATIC->value,
             $now->format('Y-m-d H:i:s'),
-            ...self::PROVISIONAL_STATUSES,
+            ...self::provisionalStatusValues(),
         ]);
 
         return (int) $stmt->fetchColumn();
@@ -622,13 +622,29 @@ class RentalBookingRepository
         );
     }
 
-    /** The statuses in which a booking takes its dates only while a hold runs. */
-    private const PROVISIONAL_STATUSES = [
-        BookingStatus::RECEIVED->value,
-        BookingStatus::INFO_REQUESTED->value,
-        BookingStatus::PROPOSED->value,
-        BookingStatus::CONTRACT_SENT->value,
-    ];
+    /**
+     * The statuses in which a booking takes its dates only while a hold
+     * runs, as they may be STORED: a row still written `reviewing` reads back
+     * as RECEIVED (storedValuesOf()), so it is one of them too — a legacy
+     * automatic hold must count against the caps like any other (#1263).
+     *
+     * @return list<string>
+     */
+    private static function provisionalStatusValues(): array
+    {
+        return self::storedValuesOf(
+            BookingStatus::RECEIVED,
+            BookingStatus::INFO_REQUESTED,
+            BookingStatus::PROPOSED,
+            BookingStatus::CONTRACT_SENT
+        );
+    }
+
+    /** `?, ?, ?, ?, ?` for provisionalStatusValues(): as many placeholders as values. */
+    private static function provisionalStatusPlaceholders(): string
+    {
+        return implode(', ', array_fill(0, count(self::provisionalStatusValues()), '?'));
+    }
 
     /**
      * Bookings whose temporary hold has lapsed — the expiry sweep's input.
@@ -662,7 +678,8 @@ class RentalBookingRepository
     public function clearHold(int $id): void
     {
         $stmt = $this->pdo->prepare(
-            'UPDATE rental_bookings SET hold_until = NULL, hold_origin = NULL, hold_lapsed_at = NULL, updated_at = ?
+            'UPDATE rental_bookings SET hold_until = NULL, hold_origin = NULL, hold_lapsed_at = NULL,
+                    request_source_blind_index = NULL, renter_email_base_blind_index = NULL, updated_at = ?
              WHERE id = ?'
         );
         $stmt->execute([(new \DateTimeImmutable())->format('Y-m-d H:i:s'), $id]);
@@ -689,7 +706,8 @@ class RentalBookingRepository
     {
         $stmt = $this->pdo->prepare(
             'UPDATE rental_bookings
-             SET hold_lapsed_at = hold_until, hold_until = NULL, hold_origin = NULL, updated_at = ?
+             SET hold_lapsed_at = hold_until, hold_until = NULL, hold_origin = NULL,
+                 request_source_blind_index = NULL, renter_email_base_blind_index = NULL, updated_at = ?
              WHERE id = ?'
         );
         $stmt->execute([(new \DateTimeImmutable())->format('Y-m-d H:i:s'), $id]);
@@ -698,9 +716,15 @@ class RentalBookingRepository
     public function setHold(int $id, ?\DateTimeImmutable $until, ?HoldOrigin $origin): void
     {
         // A new hold, or none: either way the old lapse is no longer news.
+        // And unless the new hold is itself automatic, the automatic one the
+        // two caps counted on is over: what it was counted by goes with it
+        // (issue #1263), as in clearHold() and releaseLapsedHold().
+        $forgetCapKeys = $origin === HoldOrigin::AUTOMATIC
+            ? ''
+            : ', request_source_blind_index = NULL, renter_email_base_blind_index = NULL';
         $stmt = $this->pdo->prepare(
-            'UPDATE rental_bookings SET hold_until = ?, hold_origin = ?, hold_lapsed_at = NULL, updated_at = ?
-             WHERE id = ?'
+            'UPDATE rental_bookings SET hold_until = ?, hold_origin = ?, hold_lapsed_at = NULL' . $forgetCapKeys
+            . ', updated_at = ? WHERE id = ?'
         );
         $stmt->execute([
             $until?->format('Y-m-d H:i:s'),

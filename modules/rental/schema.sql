@@ -474,9 +474,11 @@ CREATE TABLE IF NOT EXISTS rental_bookings (
     -- (`x+1@` and `x+2@` are one), lower-cased; `request_source_blind_index`
     -- is the source of the request, an IPv6 /64 rather than an address
     -- (Core\Security\RateLimitAddress). Null on a request made before this,
-    -- on a request by a manager, or with no source known; they are counted
-    -- for as long as their hold runs and not after, so they need no purge of
-    -- their own.
+    -- on a request by a manager, or with no source known. Cleared as soon as
+    -- the automatic hold ends — it lapses, is cleared, or a manager replaces
+    -- it (RentalBookingRepository::clearHold(), releaseLapsedHold(),
+    -- setHold()) — since the caps read them only while it runs; and in any
+    -- case removed with the booking.
     renter_email_base_blind_index CHAR(64) NULL,
     request_source_blind_index CHAR(64) NULL,
 

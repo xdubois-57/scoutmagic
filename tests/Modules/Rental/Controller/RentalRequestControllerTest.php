@@ -1185,7 +1185,9 @@ class RentalRequestControllerTest extends TestCase
             ]));
         }
 
-        $holds = $this->pdo->query('SELECT hold_until FROM rental_bookings ORDER BY id')->fetchAll(\PDO::FETCH_COLUMN);
+        $stmt = $this->pdo->prepare('SELECT hold_until FROM rental_bookings ORDER BY id');
+        $stmt->execute();
+        $holds = $stmt->fetchAll(\PDO::FETCH_COLUMN);
         $this->assertCount(4, $holds, 'every request is recorded');
         $this->assertNotNull($holds[0]);
         $this->assertNotNull($holds[1]);
@@ -1197,10 +1199,58 @@ class RentalRequestControllerTest extends TestCase
             $responses[3]->getStatusCode(),
             'the visitor is answered the same whichever ceiling played'
         );
-        $sources = $this->pdo->query('SELECT DISTINCT request_source_blind_index FROM rental_bookings')
-            ->fetchAll(\PDO::FETCH_COLUMN);
+        $stmt = $this->pdo->prepare('SELECT DISTINCT request_source_blind_index FROM rental_bookings');
+        $stmt->execute();
+        $sources = $stmt->fetchAll(\PDO::FETCH_COLUMN);
         $this->assertCount(1, $sources, 'the source is recorded, and the same one for all four');
         $this->assertNotContains('203.0.113.7', $sources, 'a blind index, never the address');
+    }
+
+    /**
+     * The source ceiling on its own: three holds from this source on ANOTHER
+     * asset, then a fourth request to an asset far below its own ceiling. It
+     * holds nothing — which only happens if the controller hands the source
+     * to automaticHoldDaysFor() (#1263).
+     */
+    public function testTheSourceCeilingHoldsAcrossAssetsThroughTheForm(): void
+    {
+        $this->createAsset();
+        $otherAssetId = $this->assetRepository->create('Local', 'Autre local', 'autre-local', null, 1, null, null, '+32 470 00 00 00', true);
+        $now = new \DateTimeImmutable();
+        foreach ([40, 50, 60] as $n => $days) {
+            $this->bookingRepository->create(
+                $otherAssetId,
+                'LOC-SRC00' . $n,
+                $this->arrival($days),
+                $this->arrival($days + 3),
+                1,
+                10,
+                null,
+                ['name' => 'Autre Famille', 'email' => 'famille' . $n . '@example.be', 'phone' => '+32 470 12 34 56', 'purpose' => 'Camp'],
+                null,
+                $now->modify('+2 days'),
+                \Modules\Rental\Booking\HoldOrigin::AUTOMATIC,
+                'v1',
+                null,
+                'v1',
+                null,
+                $now,
+                null,
+                '203.0.113.7'
+            );
+        }
+
+        $this->submit($this->validBody([
+            'email' => 'nouvelle.famille@example.be',
+            'arrival' => $this->arrival(30),
+            'departure' => $this->arrival(33),
+        ]));
+
+        $stmt = $this->pdo->prepare('SELECT hold_until FROM rental_bookings WHERE asset_id = ?');
+        $stmt->execute([1]);
+        $holds = $stmt->fetchAll(\PDO::FETCH_COLUMN);
+        $this->assertCount(1, $holds, 'the request is recorded');
+        $this->assertNull($holds[0], 'the source already holds three: this one waits');
     }
 
     /** « x+1@ », « x+2@ » and « x+3@ » are one address: the third waits. */

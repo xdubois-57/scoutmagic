@@ -226,7 +226,11 @@ class RentalBookingService implements OccupancyProvider
                 . 'confidentialité.');
         }
 
-        $holdUntil = self::automaticHoldUntil($now, $arrivalDate, $automaticHoldDays);
+        // Decided here for the answer the visitor gets, and DECIDED AGAIN under
+        // the asset's lock below: between the public form's own read of the
+        // ceilings and this write, other requests may have taken the room
+        // (issue #1263). Held in an object so the lock's closure can lower it.
+        $hold = new \ArrayObject(['until' => self::automaticHoldUntil($now, $arrivalDate, $automaticHoldDays)]);
 
         /** @return array{id: int, tracking_token: string} */
         $write = fn(string $reference): array => $this->bookingRepository->create(
@@ -246,8 +250,8 @@ class RentalBookingService implements OccupancyProvider
                 'comment' => $renter['comment'] ?? null,
             ],
             $estimatedPrice,
-            $holdUntil,
-            $holdUntil !== null ? HoldOrigin::AUTOMATIC : null,
+            $hold['until'],
+            $hold['until'] !== null ? HoldOrigin::AUTOMATIC : null,
             $acceptances['conditions_version'],
             self::hashAcceptedText($acceptances['conditions_text'] ?? ''),
             $acceptances['privacy_version'],
@@ -264,10 +268,25 @@ class RentalBookingService implements OccupancyProvider
         try {
             $created = $this->bookingRepository->withAssetLocked(
                 $assetId,
-                function () use ($availableUnderLock, $write): array {
+                function () use ($availableUnderLock, $write, $hold, $assetId, $requesterAccountId, $sourceAddress, $now): array {
                     $reasons = $availableUnderLock !== null ? $availableUnderLock() : [];
                     if ($reasons !== []) {
                         throw new RentalException(implode(' ', $reasons));
+                    }
+
+                    // The anonymous ceilings, counted again with the asset
+                    // held: the request is then recorded without a hold,
+                    // never refused. The asset's own ceiling is exact here;
+                    // the source's covers every asset, and requests for
+                    // two different ones from one source still race each
+                    // other — a miss bounded by HumanCheck's few requests
+                    // per source and ten minutes, acceptable as the cap's
+                    // own (see automaticHoldDaysFor()).
+                    if ($hold['until'] !== null
+                        && $requesterAccountId === null
+                        && $this->anonymousCeilingReached($assetId, $sourceAddress, $now)
+                    ) {
+                        $hold['until'] = null;
                     }
 
                     return $this->writeWithFreshReference($write);
@@ -639,23 +658,32 @@ class RentalBookingService implements OccupancyProvider
 
         // Only an anonymous request is counted on its source and on the
         // asset: a signed-in one is bounded by its account just above.
-        if ($requesterAccountId === null) {
-            if ($sourceAddress !== null
-                && $this->bookingRepository->countRunningAutomaticHoldsFromSource($sourceAddress, $now)
-                    >= self::MAX_RUNNING_AUTOMATIC_HOLDS_PER_SOURCE
-            ) {
-                return 0;
-            }
-
-            if ($assetId !== null
-                && $this->bookingRepository->countRunningAnonymousAutomaticHoldsOnAsset($assetId, $now)
-                    >= self::MAX_RUNNING_ANONYMOUS_AUTOMATIC_HOLDS_PER_ASSET
-            ) {
-                return 0;
-            }
+        if ($requesterAccountId === null && $this->anonymousCeilingReached($assetId, $sourceAddress, $now)) {
+            return 0;
         }
 
         return $configuredDays;
+    }
+
+    /**
+     * Whether an ANONYMOUS request has no room left for an automatic hold:
+     * its source already has MAX_RUNNING_AUTOMATIC_HOLDS_PER_SOURCE running,
+     * or its asset already has MAX_RUNNING_ANONYMOUS_AUTOMATIC_HOLDS_PER_ASSET
+     * (issue #1263). Asked outside the lock for the visitor's answer and again
+     * under the asset's lock for the write.
+     */
+    private function anonymousCeilingReached(?int $assetId, ?string $sourceAddress, \DateTimeImmutable $now): bool
+    {
+        if ($sourceAddress !== null
+            && $this->bookingRepository->countRunningAutomaticHoldsFromSource($sourceAddress, $now)
+                >= self::MAX_RUNNING_AUTOMATIC_HOLDS_PER_SOURCE
+        ) {
+            return true;
+        }
+
+        return $assetId !== null
+            && $this->bookingRepository->countRunningAnonymousAutomaticHoldsOnAsset($assetId, $now)
+                >= self::MAX_RUNNING_ANONYMOUS_AUTOMATIC_HOLDS_PER_ASSET;
     }
 
     /**

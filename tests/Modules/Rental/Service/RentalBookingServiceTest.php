@@ -960,24 +960,181 @@ class RentalBookingServiceTest extends TestCase
     {
         $booking = $this->submit(['source' => self::SOURCE_V4])['booking'];
 
-        $stored = (string) $this->pdo
-            ->query('SELECT request_source_blind_index FROM rental_bookings WHERE id = ' . $booking->id)
-            ->fetchColumn();
+        $row = $this->bookingRow($booking->id);
+        $stored = (string) $row['request_source_blind_index'];
         $this->assertMatchesRegularExpression('/^[0-9a-f]{64}$/', $stored);
         $this->assertStringNotContainsString('203', $stored);
-        $this->assertStringNotContainsString(self::SOURCE_V4, (string) json_encode(
-            $this->pdo->query('SELECT * FROM rental_bookings WHERE id = ' . $booking->id)->fetch(\PDO::FETCH_ASSOC)
-        ));
+        // Every column, as the bytes it holds: the encrypted ones are binary
+        // and not valid UTF-8, which json_encode() would turn into « false ».
+        foreach ($row as $column => $value) {
+            $this->assertStringNotContainsString(self::SOURCE_V4, (string) $value, $column);
+        }
     }
 
     public function testARequestWithoutASourceStoresNone(): void
     {
         $booking = $this->submit()['booking'];
 
-        $this->assertNull(
-            $this->pdo->query('SELECT request_source_blind_index FROM rental_bookings WHERE id = ' . $booking->id)
-                ->fetchColumn() ?: null
+        $this->assertNull($this->bookingRow($booking->id)['request_source_blind_index'] ?: null);
+    }
+
+    /** @return array<string, mixed> */
+    private function bookingRow(int $id): array
+    {
+        $stmt = $this->pdo->prepare('SELECT * FROM rental_bookings WHERE id = ?');
+        $stmt->execute([$id]);
+
+        return (array) $stmt->fetch(\PDO::FETCH_ASSOC);
+    }
+
+    /**
+     * A booking still written `reviewing`, the status retired in #708, reads
+     * back as « received »: the caps count it like any other request waiting
+     * for an answer (#1263).
+     */
+    private function retire(int $bookingId): void
+    {
+        $stmt = $this->pdo->prepare("UPDATE rental_bookings SET status = 'reviewing' WHERE id = ?");
+        $stmt->execute([$bookingId]);
+    }
+
+    public function testALegacyReviewingHoldStillCountsOnTheSource(): void
+    {
+        for ($n = 0; $n < 3; $n++) {
+            $this->requestFrom(self::SOURCE_V4, $n);
+        }
+        $this->pdo->exec("UPDATE rental_bookings SET status = 'reviewing'");
+
+        $this->assertSame(
+            0,
+            $this->holdDaysFor('2028-06-01', '2028-06-03', 'tout-neuf@example.org', null, 2, source: self::SOURCE_V4)
         );
+    }
+
+    public function testALegacyReviewingHoldStillCountsOnTheAsset(): void
+    {
+        for ($n = 0; $n < 3; $n++) {
+            $this->requestFrom('198.51.100.' . ($n + 1), $n);
+        }
+        $this->pdo->exec("UPDATE rental_bookings SET status = 'reviewing'");
+
+        $this->assertSame(
+            0,
+            $this->holdDaysFor('2028-06-01', '2028-06-03', 'tout-neuf@example.org', null, 2, assetId: $this->assetId)
+        );
+    }
+
+    public function testALegacyReviewingHoldStillCountsOnTheAddress(): void
+    {
+        $this->submit();
+        $this->submit(['arrival' => '2027-07-24', 'departure' => '2027-07-26']);
+        $this->pdo->exec("UPDATE rental_bookings SET status = 'reviewing'");
+
+        $this->assertSame(0, $this->holdDaysFor('2027-08-01', '2027-08-03'));
+    }
+
+    /**
+     * The public form reads the ceilings, then the request is written: other
+     * requests may have taken the room in between. The write counts again
+     * with the asset held and records the request without a hold.
+     */
+    public function testTheAssetCeilingIsCountedAgainUnderTheLockAndNeverRefusesTheRequest(): void
+    {
+        for ($n = 0; $n < 3; $n++) {
+            $this->requestFrom('198.51.100.' . ($n + 1), $n);
+        }
+
+        // hold_days = 2: what a stale answer from the form would have said.
+        $booking = $this->submit([
+            'renter' => ['email' => 'retardataire@example.org'],
+            'source' => '198.51.100.99',
+            'arrival' => '2028-06-01',
+            'departure' => '2028-06-03',
+        ])['booking'];
+
+        $this->assertNull($booking->holdUntil, 'recorded, without a hold');
+        $this->assertNull($booking->holdOrigin);
+        $this->assertSame(BookingStatus::RECEIVED, $booking->status);
+    }
+
+    public function testTheSourceCeilingIsCountedAgainUnderTheLockAcrossAssets(): void
+    {
+        for ($n = 0; $n < 3; $n++) {
+            $this->requestFrom(self::SOURCE_V4, $n, ['asset_id' => $this->otherAssetId()]);
+        }
+
+        $booking = $this->submit([
+            'renter' => ['email' => 'retardataire@example.org'],
+            'source' => self::SOURCE_V4,
+            'arrival' => '2028-06-01',
+            'departure' => '2028-06-03',
+        ])['booking'];
+
+        $this->assertNull($booking->holdUntil);
+    }
+
+    public function testASignedInRequestKeepsItsHoldUnderTheLockToo(): void
+    {
+        for ($n = 0; $n < 3; $n++) {
+            $this->requestFrom('198.51.100.' . ($n + 1), $n);
+        }
+
+        $booking = $this->submit([
+            'renter' => ['email' => 'compte@example.org'],
+            'account' => 7,
+            'arrival' => '2028-06-01',
+            'departure' => '2028-06-03',
+        ])['booking'];
+
+        $this->assertNotNull($booking->holdUntil);
+    }
+
+    /**
+     * What the caps count by is kept for as long as the hold runs and not
+     * after: the booking itself lives for years (#1263).
+     */
+    public function testTheCapKeysAreForgottenWhenTheHoldIsCleared(): void
+    {
+        $booking = $this->submit(['source' => self::SOURCE_V4])['booking'];
+        $this->assertNotNull($this->bookingRow($booking->id)['request_source_blind_index']);
+        $this->assertNotNull($this->bookingRow($booking->id)['renter_email_base_blind_index']);
+
+        $this->repository->clearHold($booking->id);
+
+        $row = $this->bookingRow($booking->id);
+        $this->assertNull($row['request_source_blind_index']);
+        $this->assertNull($row['renter_email_base_blind_index']);
+    }
+
+    public function testTheCapKeysAreForgottenWhenAnAutomaticHoldLapses(): void
+    {
+        $booking = $this->submit(['source' => self::SOURCE_V4])['booking'];
+
+        $this->repository->releaseLapsedHold($booking->id);
+
+        $row = $this->bookingRow($booking->id);
+        $this->assertNull($row['request_source_blind_index']);
+        $this->assertNull($row['renter_email_base_blind_index']);
+    }
+
+    public function testTheCapKeysAreForgottenWhenAManagerReplacesTheHold(): void
+    {
+        $booking = $this->submit(['source' => self::SOURCE_V4])['booking'];
+
+        $this->repository->setHold($booking->id, new \DateTimeImmutable('2999-01-01'), HoldOrigin::MANAGER);
+
+        $row = $this->bookingRow($booking->id);
+        $this->assertNull($row['request_source_blind_index']);
+        $this->assertNull($row['renter_email_base_blind_index']);
+    }
+
+    public function testAnAutomaticHoldSetAgainKeepsTheCapKeys(): void
+    {
+        $booking = $this->submit(['source' => self::SOURCE_V4])['booking'];
+
+        $this->repository->setHold($booking->id, new \DateTimeImmutable('2999-01-01'), HoldOrigin::AUTOMATIC);
+
+        $this->assertNotNull($this->bookingRow($booking->id)['request_source_blind_index']);
     }
 
     public function testTheRequestingAccountIsRecordedWithTheRequest(): void
