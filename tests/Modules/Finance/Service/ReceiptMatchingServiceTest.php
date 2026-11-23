@@ -499,6 +499,32 @@ class ReceiptMatchingServiceTest extends TestCase
         $this->assertSame($otherAccountId, $this->attachmentRepository->findById($receipt->id)?->accountId);
     }
 
+    /**
+     * Without a model to ask, the pile receipt's AI candidates — every
+     * account's movements, read and decrypted — are never fetched.
+     */
+    public function testThePassReadsNoOtherAccountWhenNoModelCanBeAsked(): void
+    {
+        $this->createUnattributedReceipt(12.50, '2026-10-01', '2026-10-01 10:00:00');
+        $this->createTransaction('2026-10-02', -99.0, 'Sans rapport');
+
+        $transactions = $this->getMockBuilder(TransactionRepository::class)
+            ->setConstructorArgs([$this->pdo, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))])
+            ->onlyMethods(['findAll'])
+            ->getMock();
+        $transactions->expects($this->never())->method('findAll');
+
+        $noCheapModel = $this->createStub(LlmConnectorInterface::class);
+        $noCheapModel->method('isAvailable')->willReturn(true);
+        $noCheapModel->method('isTierAvailable')->willReturn(false);
+
+        $service = new ReceiptMatchingService(
+            $this->attachmentRepository, $transactions, $this->transactionAttachmentRepository,
+            $this->journalService, $noCheapModel, $this->receiptService()
+        );
+        $this->assertSame(0, $service->matchPendingReceiptsForAccount($this->accountId));
+    }
+
     public function testDoesNotMarkAnAttemptWithoutACheapModel(): void
     {
         $receipt = $this->createReceipt(12.50, '2026-10-01', '2026-10-01 10:00:00');

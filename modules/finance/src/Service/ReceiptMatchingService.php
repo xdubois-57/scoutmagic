@@ -143,7 +143,7 @@ class ReceiptMatchingService
         // candidate set when the rule pass was narrower (see
         // matchPendingReceiptsForAccount()), fetched only if it will
         // actually be asked.
-        if ($aiCandidates !== null && $receipt->matchingAiAttemptedAt === null) {
+        if ($aiCandidates !== null && $receipt->matchingAiAttemptedAt === null && $this->canAskTheModel()) {
             $candidates = $aiCandidates();
         }
         $this->attemptAiMatch($receipt, $candidates);
@@ -278,7 +278,7 @@ class ReceiptMatchingService
         // The tier the request below asks for, not « anything configured »:
         // a site with no CHEAP model has the call fail before any provider
         // is reached, and the marker must not record that as a question put.
-        if ($this->llmConnector === null || !$this->llmConnector->isTierAvailable(LlmTier::CHEAP)) {
+        if (!$this->canAskTheModel()) {
             return;
         }
 
@@ -432,6 +432,16 @@ class ReceiptMatchingService
         $other = DateInput::requireFromStorage($otherDate, 'finance_transactions.transaction_date');
 
         return (int) $reference->diff($other)->format('%r%a');
+    }
+
+    /**
+     * Whether the AI pass can put its question at all — asked before its
+     * candidates are fetched, since for a pile receipt those are every
+     * account's movements, read and decrypted.
+     */
+    private function canAskTheModel(): bool
+    {
+        return $this->llmConnector !== null && $this->llmConnector->isTierAvailable(LlmTier::CHEAP);
     }
 
     private function isAlreadyAssociated(int $attachmentId): bool
