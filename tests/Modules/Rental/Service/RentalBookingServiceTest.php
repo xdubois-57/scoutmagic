@@ -1128,6 +1128,40 @@ class RentalBookingServiceTest extends TestCase
         $this->assertNull($row['renter_email_base_blind_index']);
     }
 
+    /**
+     * The caps read only the automatic holds that run: a request that takes
+     * none — no hold configured, or no room left — is given no key to count
+     * by at all, rather than one that would sit there for the years the
+     * booking is kept (#1263).
+     */
+    public function testARequestThatTakesNoHoldStoresNoCapKey(): void
+    {
+        $booking = $this->submit(['hold_days' => 0, 'source' => self::SOURCE_V4])['booking'];
+
+        $row = $this->bookingRow($booking->id);
+        $this->assertNull($row['request_source_blind_index']);
+        $this->assertNull($row['renter_email_base_blind_index']);
+    }
+
+    public function testARequestLeftWithoutAHoldByTheCeilingStoresNoCapKeyEither(): void
+    {
+        for ($n = 0; $n < 3; $n++) {
+            $this->requestFrom('198.51.100.' . ($n + 1), $n);
+        }
+
+        $booking = $this->submit([
+            'renter' => ['email' => 'retardataire@example.org'],
+            'source' => '198.51.100.99',
+            'arrival' => '2028-06-01',
+            'departure' => '2028-06-03',
+        ])['booking'];
+
+        $this->assertNull($booking->holdUntil);
+        $row = $this->bookingRow($booking->id);
+        $this->assertNull($row['request_source_blind_index']);
+        $this->assertNull($row['renter_email_base_blind_index']);
+    }
+
     public function testAnAutomaticHoldSetAgainKeepsTheCapKeys(): void
     {
         $booking = $this->submit(['source' => self::SOURCE_V4])['booking'];

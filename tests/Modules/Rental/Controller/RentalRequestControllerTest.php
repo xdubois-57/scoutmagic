@@ -1199,18 +1199,22 @@ class RentalRequestControllerTest extends TestCase
             $responses[3]->getStatusCode(),
             'the visitor is answered the same whichever ceiling played'
         );
-        $stmt = $this->pdo->prepare('SELECT DISTINCT request_source_blind_index FROM rental_bookings');
+        $stmt = $this->pdo->prepare('SELECT request_source_blind_index FROM rental_bookings ORDER BY id');
         $stmt->execute();
         $sources = $stmt->fetchAll(\PDO::FETCH_COLUMN);
-        $this->assertCount(1, $sources, 'the source is recorded, and the same one for all four');
+        $this->assertCount(1, array_unique(array_slice($sources, 0, 3)), 'the three holds carry the same source');
+        $this->assertNotNull($sources[0]);
+        $this->assertNull($sources[3], 'the request that took no hold keeps nothing to count by');
         $this->assertNotContains('203.0.113.7', $sources, 'a blind index, never the address');
     }
 
     /**
      * The source ceiling on its own: three holds from this source on ANOTHER
      * asset, then a fourth request to an asset far below its own ceiling. It
-     * holds nothing — which only happens if the controller hands the source
-     * to automaticHoldDaysFor() (#1263).
+     * holds nothing: the source's ceiling crosses assets, and is read both by
+     * the form's answer (automaticHoldDaysFor()) and again, under the asset's
+     * lock, when the request is written (#1263). What this test pins is the
+     * result, whichever of the two catches it.
      */
     public function testTheSourceCeilingHoldsAcrossAssetsThroughTheForm(): void
     {

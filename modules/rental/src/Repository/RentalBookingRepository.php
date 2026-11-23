@@ -215,6 +215,7 @@ class RentalBookingRepository
     ): array {
         $trackingToken = CapabilityToken::generate();
         $timestamp = $now->format('Y-m-d H:i:s');
+        $keepCapKeys = $holdOrigin === HoldOrigin::AUTOMATIC && $holdUntil !== null;
 
         $stmt = $this->pdo->prepare(
             'INSERT INTO rental_bookings (
@@ -261,11 +262,18 @@ class RentalBookingRepository
             $privacyVersion !== null ? $timestamp : null,
             $this->encryption->encrypt($trackingToken, self::CTX_TRACKING_TOKEN),
             $requestedByAccountId,
-            $this->encryption->blindIndex(
-                self::normalizeEmailForHoldCap($renter['email']),
-                self::EMAIL_BASE_BLIND_INDEX_PURPOSE
-            ),
-            $this->sourceIndex($sourceAddress),
+            // The keys the caps count by, only for a booking that carries an
+            // automatic hold (issue #1263): they are read while that hold
+            // runs and cleared when it ends, so a request that takes none
+            // is given nothing that would outlive it by the years the
+            // booking is kept.
+            $keepCapKeys
+                ? $this->encryption->blindIndex(
+                    self::normalizeEmailForHoldCap($renter['email']),
+                    self::EMAIL_BASE_BLIND_INDEX_PURPOSE
+                )
+                : null,
+            $keepCapKeys ? $this->sourceIndex($sourceAddress) : null,
             $timestamp,
             $timestamp,
         ]);
