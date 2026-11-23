@@ -564,6 +564,44 @@ class PersonalFeedServiceTest extends TestCase
         $this->assertContains($default->id, $ids);
     }
 
+    /**
+     * Issue #1348, decision 1: one rule everywhere. « Mes évènements » (and
+     * the personal ICS feed, which share this scope) added the calendar of
+     * every linked section WITHOUT applying its visibility, so a section
+     * calendar reserved to the chefs appeared to the section's parents. It is
+     * the rule the notifications now follow: linked AND allowed.
+     */
+    public function testASectionCalendarReservedToTheChefsIsNotInAParentsPersonalScope(): void
+    {
+        $sectionId = $this->createSection('BAL01', 'Renards');
+        $branch = $this->pdo->prepare('SELECT age_branch_id FROM sections WHERE id = ?');
+        $branch->execute([$sectionId]);
+        $branchId = (int) $branch->fetchColumn();
+        $this->createMemberWithFunction('parent@test.be', $sectionId, $branchId, 'identified');
+        $this->createMemberWithFunction('chief@test.be', $sectionId, $branchId, 'chief');
+        $this->calendarService->ensureSectionCalendars();
+        $calendar = (new CalendarRepository($this->pdo, $this->encryption))->findBySectionId($sectionId);
+        $this->pdo->prepare('UPDATE calendar_calendars SET visibility = ? WHERE id = ?')
+            ->execute([\Modules\Calendar\Repository\Calendar::VISIBILITY_CHIEF, $calendar->id]);
+
+        $this->assertNotContains($calendar->id, $this->service->resolveCalendarIdsForEmail('parent@test.be', $this->scoutYearId));
+        $this->assertContains($calendar->id, $this->service->resolveCalendarIdsForEmail('chief@test.be', $this->scoutYearId));
+    }
+
+    /** A public section calendar stays in the personal scope of its parents, as before. */
+    public function testAPublicSectionCalendarStaysInTheParentsPersonalScope(): void
+    {
+        $sectionId = $this->createSection('BAL01', 'Renards');
+        $branch = $this->pdo->prepare('SELECT age_branch_id FROM sections WHERE id = ?');
+        $branch->execute([$sectionId]);
+        $branchId = (int) $branch->fetchColumn();
+        $this->createMemberWithFunction('parent@test.be', $sectionId, $branchId, 'identified');
+        $this->calendarService->ensureSectionCalendars();
+        $calendar = (new CalendarRepository($this->pdo, $this->encryption))->findBySectionId($sectionId);
+
+        $this->assertContains($calendar->id, $this->service->resolveCalendarIdsForEmail('parent@test.be', $this->scoutYearId));
+    }
+
     public function testGetOrCreateTokenReturnsSameTokenOnSubsequentCalls(): void
     {
         $userAccountId = $this->createUserAccount('x@test.be');

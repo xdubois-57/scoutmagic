@@ -12,9 +12,11 @@ use Core\Config\ScoutYearService;
 use Core\Config\SettingService;
 use Core\File\UploadHandler;
 use Core\Http\UrlMetadataFetcher;
+use Core\Member\SectionAccountRepository;
 use Core\Notification\NotificationService;
 use Core\Scheduler\SchedulerService;
 use Core\Security\Role;
+use Core\ScoutYear\AuthorizationYearService;
 use Core\Security\UserAccountRepository;
 use Core\Service\DateInput;
 use Core\Storage\Location\Backend\StorageBackendFactory;
@@ -60,7 +62,21 @@ class AlbumService
          * The album folder's `LISEZMOI.txt` (#474). Last and optional so
          * that adding it moved no existing argument; null writes none.
          */
-        private ?AlbumReadme $readme = null
+        private ?AlbumReadme $readme = null,
+        /**
+         * Who a SECTION album is announced to (issue #1348): the accounts
+         * personally linked to the section. Optional like the other
+         * collaborators; without it a section album tells nobody — never a
+         * wider audience than the page allows.
+         */
+        private ?SectionAccountRepository $sectionAccounts = null,
+        /**
+         * The years a role may be held in to count today
+         * (Core\ScoutYear\AuthorizationYearService): what decides who may
+         * still open an old album, and so who is told of it. Optional; without
+         * it, the cadres of the date-computed current year.
+         */
+        private ?AuthorizationYearService $authorizationYears = null
     ) {
     }
 
@@ -269,14 +285,24 @@ class AlbumService
     /**
      * Notification centre + push: "a new album was published".
      *
-     * The audience is the album's own: a unit-wide album goes to every
-     * identified member, and a SECTION album goes to that section's
-     * members and to the cadres — the same people Controller\GalleryController
-     * ::isVisible() lets open it. It used to go to everybody in both
-     * cases, so 159 accounts received « Nouvel album — Weekend Waingunga »
-     * in their notification centre and on their devices, followed the link
-     * and got a 403. A notification carries the title and the body, which
-     * is precisely what the page was refusing them.
+     * The audience is the album's own. A unit-wide album goes to every
+     * identified member. A SECTION album goes to the accounts **personally
+     * linked to that section** — to a member who holds a function in it, by
+     * the member's Desk address or a confirmed secondary address
+     * (Core\Member\SectionAccountRepository). A role alone adds nobody: it used
+     * to add every chef, admin and super-administrator to every section, so an
+     * administrator who is the parent of children elsewhere was told about
+     * albums of sections none of their children is in (issue #1348).
+     *
+     * The gallery's access rule still applies on top (AlbumVisibility, #1112):
+     * below `chief`, a member opens only the albums of the current and the
+     * previous scout year, so an older album is announced to the linked cadres
+     * who see every year and not to parents, who would only get the 403.
+     *
+     * An earlier version told everybody (#223): 159 accounts received
+     * « Nouvel album — Weekend Waingunga » and a 403 on the link. A
+     * notification carries the title and the body, which is precisely what
+     * the page was refusing them.
      *
      * dispatch() still re-checks role_min per recipient and never pushes
      * to the chief who created the album.
@@ -287,12 +313,38 @@ class AlbumService
             return;
         }
 
-        $recipientIds = $album->sectionId === null
-            ? $this->userAccountRepository->findAllIds()
-            : $this->userAccountRepository->findIdsForSectionAudience(
+        if ($album->sectionId === null) {
+            $recipientIds = $this->userAccountRepository->findAllIds();
+        } elseif ($this->sectionAccounts === null) {
+            return;
+        } else {
+            $recipientIds = $this->sectionAccounts->accountIdsLinkedToSections(
                 [$album->sectionId],
                 [$album->scoutYearId]
             );
+        }
+
+        // The age rule is the gallery's, and it does not depend on the section:
+        // an album outside the current and the previous scout year is refused
+        // to a parent whether it is the unit's or their own child's section's
+        // (AlbumVisibility). So the rule narrows the audience of BOTH kinds.
+        $periodYears = $this->scoutYearService->currentAndPreviousYearIds();
+        if (!in_array($album->scoutYearId, $periodYears, true)) {
+            if ($this->sectionAccounts === null) {
+                // The cadres cannot be named: tell nobody, never everybody.
+                return;
+            }
+            // The age window decides WHICH albums are old; who may still open
+            // them is the role the person holds NOW, resolved over the
+            // authorization years — the set the page resolves it over. A chef
+            // of the previous year only is a parent today and would get the
+            // title and a 403; neither is a chef of the date-computed year when
+            // the public year was advanced early (review of #1379).
+            $recipientIds = array_values(array_intersect(
+                $recipientIds,
+                $this->sectionAccounts->cadreAccountIds($this->cadreYearIds())
+            ));
+        }
 
         $recipients = array_map(
             static fn(int $id): array => ['userAccountId' => $id, 'memberId' => null],
@@ -307,6 +359,21 @@ class AlbumService
             'body' => $album->title,
             'url' => '/gallery',
         ], $createdBy);
+    }
+
+    /**
+     * The scout years in which holding a chef or administrator function counts
+     * for opening any album today.
+     *
+     * @return int[]
+     */
+    private function cadreYearIds(): array
+    {
+        if ($this->authorizationYears !== null) {
+            return $this->authorizationYears->resolve()->ids();
+        }
+
+        return [(int) $this->scoutYearService->getCurrentYear()['id']];
     }
 
     /**

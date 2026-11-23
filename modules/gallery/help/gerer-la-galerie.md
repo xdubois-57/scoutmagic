@@ -49,3 +49,13 @@ confirmation.
 > Avant de publier, assurez-vous que les familles n'ont pas refusé la
 > diffusion d'images de leur enfant : une photo publiée est visible de
 > tous les membres concernés, et téléchargeable.
+
+## Qui est prévenu d'un nouvel album
+
+Un album sans section est annoncé à tout le monde. Un album de section l'est
+aux personnes **liées à cette section** (un enfant ou un animateur y a une
+fonction, par l'adresse d'inscription ou une adresse validée) : être chef
+d'unité ne suffit pas, on n'est prévenu que pour ses propres sections. Un album
+d'une année scoute antérieure à la précédente n'est annoncé qu'aux personnes
+liées à la section qui sont chefs ou administrateurs cette année (et aux
+super-administrateurs liés) : à la galerie, les parents n'y ont plus accès.

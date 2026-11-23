@@ -197,53 +197,6 @@ class UserAccountRepository
     }
 
     /**
-     * The accounts a notification about a SECTION-SCOPED object may name:
-     * the accounts of that section's own members, plus everyone who sees
-     * every section anyway — the cadres (a function whose confirmed role
-     * is chief or admin) and the super-administrators.
-     *
-     * Why this exists: `findAllIds()` is right for « every identified
-     * member » (a unit-wide announcement) and wrong for an object whose
-     * page answers 403 to most of them. A notification carries its title
-     * and its body — an album's name, a staff meeting's subject — into the
-     * notification centre of every recipient and out to their devices, so
-     * announcing to a wider audience than the page allows publishes
-     * exactly what the page refuses.
-     *
-     * The link between a member and an account is the e-mail blind index,
-     * as everywhere else (Core\Import\DeskImportService::ensureUserAccount(),
-     * Core\Member\SectionStaffAuthorizationService).
-     *
-     * @param int[] $sectionIds
-     * @param int[] $scoutYearIds the years the object is relevant in
-     * @return int[]
-     */
-    public function findIdsForSectionAudience(array $sectionIds, array $scoutYearIds): array
-    {
-        if ($sectionIds === [] || $scoutYearIds === []) {
-            return $this->findStaffAndSuperAdminIds($scoutYearIds);
-        }
-
-        $sectionPlaceholders = implode(',', array_fill(0, count($sectionIds), '?'));
-        $yearPlaceholders = implode(',', array_fill(0, count($scoutYearIds), '?'));
-
-        $stmt = $this->pdo->prepare(
-            "SELECT DISTINCT ua.id
-             FROM user_accounts ua
-             JOIN member_years my ON my.email_blind_index = ua.email_blind_index
-             JOIN member_functions mf ON mf.member_year_id = my.id
-             WHERE mf.section_id IN ({$sectionPlaceholders})
-               AND my.scout_year_id IN ({$yearPlaceholders})
-               AND my.is_active = 1"
-        );
-        $stmt->execute([...array_map('intval', $sectionIds), ...array_map('intval', $scoutYearIds)]);
-
-        $ids = array_map(static fn (array $row): int => (int) $row['id'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
-
-        return array_values(array_unique([...$ids, ...$this->findStaffAndSuperAdminIds($scoutYearIds)]));
-    }
-
-    /**
      * Everyone who sees every section: the cadres of the years concerned,
      * and the super-administrators.
      *
