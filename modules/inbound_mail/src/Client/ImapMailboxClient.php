@@ -179,12 +179,28 @@ class ImapMailboxClient implements IncomingMailboxClientInterface, PruningMailbo
             // never moved and the box was stuck behind that message for
             // good. What still fails here is the server or the network.
             $query = TolerantMessageQuery::on($imapFolder, $this->credentials);
+            // The range goes to the server as two raw tokens, never through
+            // the query builder's `whereUid()`: that one quotes it
+            // (`UID "6:*"`), which the IMAP grammar does not allow — Gmail
+            // answers « BAD Could not parse command » to every sync after
+            // the first read, where Dovecot lets it through.
+            $found = $imapFolder->getClient()->getConnection()
+                ->search(['UID', ($sinceUid + 1) . ':*'], IMAP::ST_UID)
+                ->validatedData();
+            $uids = array_values(array_unique(array_filter(
+                array_map('intval', is_array($found) ? $found : []),
+                static fn(int $uid): bool => $uid > $sinceUid
+            )));
+            sort($uids);
+            $uids = array_slice($uids, 0, max(0, $limit));
+            if ($uids === []) {
+                return [];
+            }
             $messages = $query
                 ->leaveUnread()
-                ->whereUid(($sinceUid + 1) . ':*')
                 ->setFetchOrderAsc()
-                ->limit($limit)
-                ->get();
+                ->limit(count($uids))
+                ->curate_messages(new Collection($uids));
         } catch (\Throwable $e) {
             throw MailboxConnectionException::at(MailboxConnectionException::STEP_FETCH, $e);
         }
