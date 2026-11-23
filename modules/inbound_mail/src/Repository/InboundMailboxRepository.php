@@ -483,7 +483,10 @@ class InboundMailboxRepository
         // `requireFolder()` matches it exactly. Only a blank line and the
         // `\r` of a CRLF separator go.
         $folders = array_values(array_filter(
-            array_map(static fn(string $line): string => rtrim($line, "\r"), explode("\n", (string) ($row['folders'] ?? ''))),
+            array_map(
+                static fn(string $line): string => rtrim($line, "\r"),
+                explode("\n", (string) ($row['folders'] ?? ''))
+            ),
             static fn(string $folder) => trim($folder) !== ''
         ));
 

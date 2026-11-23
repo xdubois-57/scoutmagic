@@ -231,7 +231,7 @@
         try {
             var parsed = JSON.parse(foldersSection?.dataset.chosen || '[]');
             return Array.isArray(parsed) ? parsed.filter(function (f) { return typeof f === 'string'; }) : [];
-        } catch (e) {
+        } catch {
             // Ignored on purpose: the attribute is the server's own
             // json_encode, unreadable only on a page altered in the
             // browser — and then no folder counts as chosen, which the
