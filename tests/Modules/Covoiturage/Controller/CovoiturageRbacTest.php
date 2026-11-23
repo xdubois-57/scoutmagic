@@ -307,7 +307,7 @@ final class CovoiturageRbacTest extends TestCase
         // JavaScript: the button's href, and its entry in the sheet.
         $this->assertSame(2, substr_count($page, 'https://www.google.com/maps/dir/'));
         $this->assertMatchesRegularExpression(
-            '#<a href="https://www\.google\.com/maps/dir/[^"]*" class="btn btn-sm btn-outline-primary" role="button"#',
+            '#<a href="https://www\.google\.com/maps/dir/[^"]*" class="btn btn-sm btn-outline-primary"\s+data-bs-toggle="offcanvas"#',
             $page
         );
         foreach (['Plans', 'Google Maps', 'Waze'] as $label) {

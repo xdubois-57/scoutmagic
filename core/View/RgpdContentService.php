@@ -1211,9 +1211,9 @@ départ : seulement
 deux coordonnées, le point de rendez-vous saisi par le conducteur et le lieu de la sortie, jamais une
 donnée personnelle ; conserve cette mention.
 Le bouton « Itinéraire » d'un covoiturage propose Plans (maps.apple.com), Google Maps (www.google.com) et Waze
-(waze.com) : le lecteur choisit, son choix n'est pas mémorisé, rien ne part tant qu'il ne choisit pas, et c'est alors son
-propre appareil qui contacte ce service avec le lieu de la sortie pour destination ; ces trois services ne sont
-**PAS des sous-traitants** : ne les place jamais en section 4 ni en section 5.2. Conserve cette mention.
+(waze.com) : le lecteur choisit, son choix n'est pas mémorisé, rien ne part tant qu'il ne choisit pas, et c'est
+alors son propre appareil qui contacte ce service avec le lieu de la sortie pour destination ; ces trois services
+ne sont **PAS des sous-traitants** : ne les place jamais en section 4 ni en section 5.2. Conserve cette mention.
 Ce module ne fait **aucun appel à une IA** et n'introduit aucun autre sous-traitant.
 
 33quater. **Module Réseaux sociaux (module social)** : Si "social" ne figure PAS dans la liste des modules actifs
