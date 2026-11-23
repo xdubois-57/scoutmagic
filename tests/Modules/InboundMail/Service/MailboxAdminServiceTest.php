@@ -66,6 +66,39 @@ class MailboxAdminServiceTest extends TestCase
         );
     }
 
+    /**
+     * A folder path is the server's own spelling and `requireFolder()`
+     * matches it exactly, so a name the server pads with a space reads
+     * back with that space: trimmed, it would be « introuvable » at every
+     * sync. Blank lines still go.
+     */
+    public function testFolderPathsReadBackExactlyAsTheServerSpellsThem(): void
+    {
+        $id = $this->service->create(
+            'imap.test',
+            993,
+            'ssl',
+            'chef@unite.be',
+            'un-mot-de-passe',
+            ['INBOX', ' Archives ', '   '],
+            true,
+            'Envoyés '
+        );
+
+        $mailbox = $this->repository->findById($id);
+        $this->assertNotNull($mailbox);
+        $this->assertSame(['INBOX', ' Archives '], $mailbox->folders);
+        $this->assertSame('Envoyés ', $mailbox->sentFolder);
+    }
+
+    public function testABlankSentFolderStillClearsIt(): void
+    {
+        $id = $this->createMailbox();
+        $this->repository->setSentFolder($id, '  ');
+
+        $this->assertNull($this->repository->findById($id)?->sentFolder);
+    }
+
     // ── One reserved address per module (D5) ────────────────────────────
 
     public function testAModuleWithoutAnAddressOfItsOwnCanBeGivenOne(): void
@@ -369,7 +402,9 @@ class MailboxAdminServiceTest extends TestCase
 
     public function testTheSentFolderTheOperatorNamesIsKeptAndABlankOneClearsIt(): void
     {
-        $id = $this->service->create('imap.test', 993, 'ssl', 'x@unite.be', 'mdp', [], true, ' INBOX.Sent ');
+        // Chosen from the server's own listing (#1343), so kept exactly as
+        // the server spells it rather than trimmed.
+        $id = $this->service->create('imap.test', 993, 'ssl', 'x@unite.be', 'mdp', [], true, 'INBOX.Sent');
         $this->assertSame('INBOX.Sent', $this->repository->findById($id)?->sentFolder);
 
         $this->service->update($id, 'imap.test', 993, 'ssl', 'x@unite.be', '', [], true, '');
