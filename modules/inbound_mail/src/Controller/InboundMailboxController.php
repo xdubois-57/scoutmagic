@@ -122,7 +122,7 @@ class InboundMailboxController extends AbstractController
             return $this->notFound();
         }
 
-        $outcome = $this->refreshService->refresh(new \DateTimeImmutable());
+        $outcome = $this->refreshService->refresh(new \DateTimeImmutable(), AuthSession::getUserAccountId());
         FlashMessage::set($outcome['level'], $outcome['message']);
 
         return $this->redirect('/courrier');

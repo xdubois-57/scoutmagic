@@ -11,6 +11,7 @@ namespace Tests\Modules\InboundMail\Client;
 use Webklex\PHPIMAP\Client;
 use Webklex\PHPIMAP\ClientManager;
 use Webklex\PHPIMAP\Config;
+use Webklex\PHPIMAP\Connection\Protocols\ProtocolInterface;
 
 /**
  * `ClientManager::make()` exactly as the library writes it — the vendor
@@ -19,7 +20,7 @@ use Webklex\PHPIMAP\Config;
  */
 final class ScriptedImapManager extends ClientManager
 {
-    public function __construct(private ScriptedImapServer $server)
+    public function __construct(private ProtocolInterface $server)
     {
         parent::__construct();
     }

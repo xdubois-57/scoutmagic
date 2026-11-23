@@ -50,6 +50,7 @@ use Webklex\PHPIMAP\Message;
 class ImapMailboxClient implements IncomingMailboxClientInterface, PruningMailboxClientInterface
 {
     private ?Client $client = null;
+    private ?MailboxCredentials $credentials = null;
 
     /**
      * How many UIDs one `UID FETCH (UID INTERNALDATE)` names. A first read
@@ -92,18 +93,22 @@ class ImapMailboxClient implements IncomingMailboxClientInterface, PruningMailbo
                 // the commands itself.
             ]);
 
+            // Debug mode prints commands, including authentication payloads.
+            $client->getConfig()->set('options.debug', false);
             $client->connect();
         } catch (\Throwable $e) {
             throw MailboxConnectionException::at(MailboxConnectionException::STEP_CONNECT, $e);
         }
 
         $this->client = $client;
+        $this->credentials = $credentials;
     }
 
     public function disconnect(): void
     {
         $this->client?->disconnect();
         $this->client = null;
+        $this->credentials = null;
     }
 
     /**
@@ -134,7 +139,7 @@ class ImapMailboxClient implements IncomingMailboxClientInterface, PruningMailbo
         try {
             // EXAMINE, never SELECT: the read-only form of opening a
             // folder. Some servers set \Recent on SELECT.
-            $status = $imapFolder->examine();
+            $status = ImapFolderReader::examine($imapFolder, $this->credentials);
             // The same highest UID as a first read sees (firstReadSelection):
             // were it 0 here for a server that leaves UIDNEXT out, new mail
             // would wait behind a first read's whole backlog.
@@ -173,7 +178,7 @@ class ImapMailboxClient implements IncomingMailboxClientInterface, PruningMailbo
             // the whole batch here, as a connection problem — the cursor
             // never moved and the box was stuck behind that message for
             // good. What still fails here is the server or the network.
-            $query = TolerantMessageQuery::on($imapFolder);
+            $query = TolerantMessageQuery::on($imapFolder, $this->credentials);
             $messages = $query
                 ->leaveUnread()
                 ->whereUid(($sinceUid + 1) . ':*')
@@ -218,7 +223,7 @@ class ImapMailboxClient implements IncomingMailboxClientInterface, PruningMailbo
         $imapFolder = $this->requireFolder($folder);
 
         try {
-            $status = $imapFolder->examine();
+            $status = ImapFolderReader::examine($imapFolder, $this->credentials);
             $imapFolder->getClient()->setActiveFolder($imapFolder->path);
             $connection = $imapFolder->getClient()->getConnection();
 
@@ -290,7 +295,7 @@ class ImapMailboxClient implements IncomingMailboxClientInterface, PruningMailbo
             // Straight to the fetch, with no SEARCH: the UIDs are already
             // known, and a UID no longer in the folder is simply not in the
             // server's answer.
-            $query = TolerantMessageQuery::on($imapFolder);
+            $query = TolerantMessageQuery::on($imapFolder, $this->credentials);
             $messages = $query
                 ->leaveUnread()
                 ->setFetchOrderAsc()

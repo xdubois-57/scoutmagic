@@ -10,6 +10,7 @@ namespace Tests\Modules\InboundMail\Client;
 
 use Webklex\PHPIMAP\Client;
 use Webklex\PHPIMAP\Config;
+use Webklex\PHPIMAP\Connection\Protocols\ProtocolInterface;
 
 /**
  * The library's real client, whose connection is a ScriptedImapServer
@@ -17,7 +18,7 @@ use Webklex\PHPIMAP\Config;
  */
 final class ScriptedImapClient extends Client
 {
-    public function __construct(Config $config, private ScriptedImapServer $server)
+    public function __construct(Config $config, private ProtocolInterface $server)
     {
         parent::__construct($config);
     }

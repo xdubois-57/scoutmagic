@@ -7,6 +7,8 @@ namespace Tests\Modules\InboundMail\Service;
 use Core\File\FileRepository;
 use Core\File\UploadHandler;
 use Core\Image\PhotoNormalizer;
+use Core\Journal\JournalRepository;
+use Core\Journal\JournalService;
 use Core\Security\EncryptionService;
 use Core\Security\HtmlSanitizer;
 use Modules\InboundMail\Api\AnalysisResult;
@@ -90,7 +92,7 @@ class MailboxSyncServiceTest extends TestCase
         );
     }
 
-    private function createSyncService(?PhotoNormalizer $normalizer = null): MailboxSyncService
+    private function createSyncService(?PhotoNormalizer $normalizer = null, ?JournalService $journal = null): MailboxSyncService
     {
         $factory = new MailboxClientFactory();
         $factory->register(ProviderType::FAKE, $this->client);
@@ -105,7 +107,8 @@ class MailboxSyncServiceTest extends TestCase
             $factory,
             new AnalysisResultApplier($this->messageRepository),
             new UploadHandler(new FileRepository($this->pdo), $this->storagePath),
-            photoNormalizer: $normalizer
+            photoNormalizer: $normalizer,
+            journal: $journal
         );
     }
 
@@ -187,6 +190,104 @@ class MailboxSyncServiceTest extends TestCase
     private function countMessages(): int
     {
         return (int) $this->pdo->query('SELECT COUNT(*) FROM inbound_messages')->fetchColumn();
+    }
+
+    public function testScheduledFailuresJournalOnlyTransitionsAndRecovery(): void
+    {
+        $this->service = $this->createSyncService(journal: new JournalService(new JournalRepository($this->pdo)));
+        foreach (['UNAVAILABLE', 'UNAVAILABLE', 'AUTHENTICATIONFAILED'] as $code) {
+            $this->client->failNextConnect(\Modules\InboundMail\Client\MailboxConnectionException::at('connect',
+                new \Webklex\PHPIMAP\Exceptions\ImapServerErrorException('NO [' . $code . '] Retry')));
+            $this->sync();
+        }
+        self::assertSame(2, (int) $this->pdo->query("SELECT COUNT(*) FROM event_log WHERE event_type = 'inbound_mailbox_sync_failed'")->fetchColumn());
+        $this->sync();
+        $this->sync();
+        self::assertSame(1, (int) $this->pdo->query("SELECT COUNT(*) FROM event_log WHERE event_type = 'inbound_mailbox_sync_recovered'")->fetchColumn());
+        $mailbox = $this->mailboxRepository->findById($this->mailboxId);
+        self::assertNotNull($mailbox);
+        self::assertNull($mailbox->failingSince);
+        self::assertNull($mailbox->lastFailureSignature);
+    }
+
+    public function testEachManualFailureKeepsItsActorAndRedactedDiagnosticInTheRealJournal(): void
+    {
+        $this->service = $this->createSyncService(journal: new JournalService(new JournalRepository($this->pdo)));
+        $actor = (new \Core\Security\UserAccountRepository($this->pdo, $this->encryption))->create('operator@example.test');
+        for ($i = 0; $i < 2; $i++) {
+            $this->client->failNextConnect(\Modules\InboundMail\Client\MailboxConnectionException::at('connect',
+                new \Webklex\PHPIMAP\Exceptions\ImapServerErrorException(
+                    'NO [AUTHENTICATIONFAILED] LOGIN locations@unite.be un-mot-de-passe private-body'
+                )));
+            $mailbox = $this->mailboxRepository->findById($this->mailboxId);
+            self::assertNotNull($mailbox);
+            $this->service->syncMailbox($mailbox, new \DateTimeImmutable(), MailboxSyncService::ORIGIN_MANUAL, $actor->id);
+        }
+        $events = $this->pdo->query("SELECT * FROM event_log WHERE event_type = 'inbound_mailbox_sync_failed'")->fetchAll();
+        self::assertCount(2, $events);
+        foreach ($events as $event) {
+            self::assertSame($actor->id, (int) $event['user_account_id']);
+            $context = json_decode($event['context'], true, 512, JSON_THROW_ON_ERROR);
+            self::assertSame('manual', $context['origin']);
+            self::assertSame('connect', $context['step']);
+            self::assertSame($this->mailboxId, $context['mailbox_id']);
+            self::assertSame('locations@unite.be', $context['mailbox_address']);
+            self::assertStringNotContainsString('un-mot-de-passe', $event['context']);
+            self::assertStringNotContainsString('private-body', $event['context']);
+        }
+    }
+
+    public function testAWriteFailureInTheJournalDoesNotMaskTheMailboxFailure(): void
+    {
+        $journal = $this->createMock(JournalService::class);
+        $journal->expects(self::once())->method('log')->willThrowException(new \RuntimeException('Journal unavailable'));
+        $this->service = $this->createSyncService(journal: $journal);
+        $this->client->failNextConnect(new \RuntimeException('Connection refused'));
+        self::assertTrue($this->sync()->isFailure());
+    }
+
+    public function testScheduledDiagnosticsRetryAfterARejectedJournalWrite(): void
+    {
+        $storedJournal = new JournalService(new JournalRepository($this->pdo));
+        $writes = 0;
+        $journal = $this->createMock(JournalService::class);
+        $journal->expects(self::exactly(4))->method('log')->willReturnCallback(
+            static function (...$arguments) use (&$writes, $storedJournal): void {
+                $writes++;
+                if (in_array($writes, [1, 3], true)) {
+                    throw new \RuntimeException('Journal temporarily unavailable');
+                }
+                $storedJournal->log(...$arguments);
+            }
+        );
+        $this->service = $this->createSyncService(journal: $journal);
+        $firstSignature = null;
+        $nextSignature = null;
+
+        foreach (['UNAVAILABLE', 'UNAVAILABLE', 'UNAVAILABLE',
+            'AUTHENTICATIONFAILED', 'AUTHENTICATIONFAILED', 'AUTHENTICATIONFAILED'] as $index => $code) {
+            $this->client->failNextConnect(\Modules\InboundMail\Client\MailboxConnectionException::at('connect',
+                new \Webklex\PHPIMAP\Exceptions\ImapServerErrorException('NO [' . $code . '] Retry')));
+            self::assertTrue($this->sync()->isFailure());
+            $signature = $this->mailboxRepository->findById($this->mailboxId)?->lastFailureSignature;
+            if ($index === 0) {
+                self::assertNull($signature, 'A rejected diagnostic must remain pending.');
+            } elseif ($index === 1) {
+                self::assertNotNull($signature);
+                $firstSignature = $signature;
+            } elseif ($index < 4) {
+                self::assertSame($firstSignature, $signature, 'A changed failure is acknowledged only after journal acceptance.');
+            } elseif ($index === 4) {
+                self::assertNotNull($signature);
+                self::assertNotSame($firstSignature, $signature);
+                $nextSignature = $signature;
+            } else {
+                self::assertSame($nextSignature, $signature);
+            }
+            $expectedEvents = [0, 1, 1, 1, 2, 2][$index];
+            self::assertSame($expectedEvents,
+                (int) $this->pdo->query("SELECT COUNT(*) FROM event_log WHERE event_type = 'inbound_mailbox_sync_failed'")->fetchColumn());
+        }
     }
 
     // ── What a consumer learns about the attachments while deciding ─────
@@ -738,6 +839,7 @@ class MailboxSyncServiceTest extends TestCase
 
     public function testOneFailingMailboxDoesNotCostTheOthersTheirMail(): void
     {
+        $this->service = $this->createSyncService(journal: new JournalService(new JournalRepository($this->pdo)));
         $this->registry->register($this->claimEverything());
 
         $second = $this->mailboxRepository->create(
@@ -760,6 +862,9 @@ class MailboxSyncServiceTest extends TestCase
         $this->assertNotNull($report->forMailbox($second));
         $this->assertSame(1, $report->failureCount());
         $this->assertSame(1, $report->totalStored(), 'The healthy box must still have collected.');
+        $events = $this->pdo->query("SELECT context FROM event_log WHERE event_type = 'inbound_mailbox_sync_failed'")->fetchAll();
+        self::assertCount(1, $events);
+        self::assertSame($this->mailboxId, json_decode($events[0]['context'], true, 512, JSON_THROW_ON_ERROR)['mailbox_id']);
     }
 
     // ── Attachments (§7.8) ──────────────────────────────────────────────

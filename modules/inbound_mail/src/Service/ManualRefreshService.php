@@ -64,7 +64,7 @@ class ManualRefreshService
      *
      * @return array{ok: bool, level: string, message: string}
      */
-    public function refresh(\DateTimeImmutable $now): array
+    public function refresh(\DateTimeImmutable $now, ?int $userId = null): array
     {
         if ($this->isLocked($now)) {
             return [
@@ -77,7 +77,7 @@ class ManualRefreshService
         $this->lock($now);
 
         try {
-            $report = ($this->syncServiceFactory)()->syncAll($now);
+            $report = ($this->syncServiceFactory)()->syncAll($now, MailboxSyncService::ORIGIN_MANUAL, $userId);
         } finally {
             // Released whatever happened: a failed synchronisation has
             // already recorded its reason on the mailbox row, and leaving

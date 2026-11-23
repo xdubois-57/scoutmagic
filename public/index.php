@@ -8509,7 +8509,8 @@ if ($isEnabled('inbound_mail')) {
                 null,
                 $encryptedFileStorageService,
                 null,
-                $inboundReplyAddresses
+                $inboundReplyAddresses,
+                journal: $journalService
             ),
         $settingService,
         $settingRepo

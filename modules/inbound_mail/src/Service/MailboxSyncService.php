@@ -12,6 +12,7 @@ use Core\File\EncryptedFileStorageService;
 use Core\Mail\MailAuthenticationResults;
 use Core\File\UploadException;
 use Core\File\UploadHandler;
+use Core\Journal\JournalService;
 use Core\Image\PhotoNormalizationException;
 use Core\Image\PhotoNormalizer;
 use Modules\InboundMail\Api\AttachmentOmission;
@@ -80,6 +81,8 @@ class MailboxSyncService
      * The task simply comes back for the rest.
      */
     public const BATCH_SIZE = 50;
+    public const ORIGIN_MANUAL = 'manual';
+    public const ORIGIN_SCHEDULED = 'scheduled';
 
     /**
      * How far back the first read of a folder goes, in months (D11): by the
@@ -129,7 +132,8 @@ class MailboxSyncService
          */
         private ?ReplyAddressService $replyAddresses = null,
         /** Null builds the normalizer supported by this server on first use. */
-        private ?PhotoNormalizer $photoNormalizer = null
+        private ?PhotoNormalizer $photoNormalizer = null,
+        private ?JournalService $journal = null
     ) {
         $this->consumerRegistry->setAnalysisJournal($analysisJournal);
     }
@@ -139,12 +143,15 @@ class MailboxSyncService
      *
      * @return SyncReport one entry per mailbox, whatever happened to it
      */
-    public function syncAll(\DateTimeImmutable $now): SyncReport
-    {
+    public function syncAll(
+        \DateTimeImmutable $now,
+        string $origin = self::ORIGIN_SCHEDULED,
+        ?int $userId = null
+    ): SyncReport {
         $report = new SyncReport();
 
         foreach ($this->mailboxRepository->findEnabled() as $mailbox) {
-            $report->add($mailbox->id, $this->syncMailbox($mailbox, $now));
+            $report->add($mailbox->id, $this->syncMailbox($mailbox, $now, $origin, $userId));
         }
 
         return $report;
@@ -157,7 +164,12 @@ class MailboxSyncService
      * the configuration page shows it (§7.4). A box that quietly stopped
      * collecting is worse than one that says it is broken.
      */
-    public function syncMailbox(Mailbox $mailbox, \DateTimeImmutable $now): SyncOutcome
+    public function syncMailbox(
+        Mailbox $mailbox,
+        \DateTimeImmutable $now,
+        string $origin = self::ORIGIN_SCHEDULED,
+        ?int $userId = null
+    ): SyncOutcome
     {
         // No guard on "is any consumer registered". There used to be one,
         // on the reasoning that every message would be read and dropped
@@ -232,7 +244,21 @@ class MailboxSyncService
             // Client\ImapMailboxClient::fetchSince()); this is the net
             // under them, and it records the failure rather than losing it.
             $reason = $this->errorFormatter->format($e);
+            $diagnostic = MailboxFailureDiagnostic::from($e, $credentials);
+            $signature = $diagnostic->signature();
             $this->mailboxRepository->recordFailure($mailbox->id, $reason, $now);
+            if ($origin === self::ORIGIN_MANUAL || $mailbox->failingSince === null
+                || $mailbox->lastFailureSignature !== $signature) {
+                $this->logSyncEvent(
+                    $mailbox,
+                    'inbound_mailbox_sync_failed',
+                    'error',
+                    'Échec de la relève de la boîte n° ' . $mailbox->id . '.',
+                    ['origin' => $origin, 'step' => $diagnostic->step] + $diagnostic->details,
+                    $userId,
+                    $signature
+                );
+            }
             $client->disconnect();
             // The step and the classes, for the support: what the sentence
             // on the page cannot say without quoting the server (#1325).
@@ -247,8 +273,50 @@ class MailboxSyncService
 
         $client->disconnect();
         $this->mailboxRepository->recordSuccess($mailbox->id, $now);
+        if ($mailbox->failingSince !== null) {
+            $this->logSyncEvent(
+                $mailbox,
+                'inbound_mailbox_sync_recovered',
+                'info',
+                'La relève de la boîte n° ' . $mailbox->id . ' est rétablie.',
+                ['origin' => $origin],
+                $userId
+            );
+        }
 
         return SyncOutcome::succeeded($seen, $stored);
+    }
+
+    /** @param array<string, mixed> $context */
+    private function logSyncEvent(
+        Mailbox $mailbox,
+        string $type,
+        string $level,
+        string $description,
+        array $context,
+        ?int $userId,
+        ?string $failureSignature = null
+    ): void
+    {
+        if ($this->journal === null) {
+            return;
+        }
+        try {
+            $this->journal->log(
+                'inbound_mail',
+                $type,
+                $level,
+                $description,
+                ['mailbox_id' => $mailbox->id, 'mailbox_address' => $mailbox->username] + $context,
+                $userId
+            );
+            if ($failureSignature !== null) {
+                $this->mailboxRepository->acknowledgeFailure($mailbox->id, $failureSignature);
+            }
+        } catch (\Throwable $error) {
+            // Never let a broken journal hide the original failure or print its payload.
+            error_log('ScoutMagic: mailbox sync journal failed (' . $error::class . ').');
+        }
     }
 
     /**
