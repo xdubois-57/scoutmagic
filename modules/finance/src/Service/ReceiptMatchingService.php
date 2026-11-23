@@ -41,10 +41,12 @@ use Modules\LlmConnector\Api\LlmTier;
  *    receipt whose movement clearly hasn't been imported yet). Shares
  *    the movements within a 3-week window on each side of that
  *    reference date and asks the LLM to pick one, or none. Degrades
- *    silently (attempt is still marked "used") when llm_connector is
- *    disabled or unavailable — matching is a convenience, never a
- *    requirement, per the same principle as Service\
- *    ReceiptExtractionService (ARCHITECTURE.md §7.5).
+ *    silently when llm_connector is disabled, unavailable or has no
+ *    CHEAP model — matching is a convenience, never a requirement, per
+ *    the same principle as Service\ReceiptExtractionService
+ *    (ARCHITECTURE.md §7.5) — and then the attempt is NOT marked used:
+ *    the marker records a question actually put to the model, so the
+ *    receipt is tried again once the connector answers (#1342).
  */
 class ReceiptMatchingService
 {
