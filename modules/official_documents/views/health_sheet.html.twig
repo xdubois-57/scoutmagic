@@ -21,11 +21,12 @@
 
 {% block content %}
 {#
-  The select of `partials/form_field.html.twig` selects the option whose own
-  `selected` is true and ignores `value`: an answer saved earlier was never
-  shown again, the page reopened on « Non précisé », and the next save would
-  have overwritten it. Every choice below is therefore handed its options with
-  the saved one marked (`|map`), the same way, in one expression.
+  Every choice below is a select of `partials/form_field.html.twig` handed the
+  saved answer as its `value`, and nothing else: the partial marks the option
+  that answer names (issue #1380). It used to read only each option's own
+  `selected`, so the page reopened on « Non précisé » and the next save
+  overwrote an answer saved earlier; the options were then marked one by one
+  here (#1346), which is no longer needed.
 #}
 {% set yes_no_options = [
     { value: '', label: 'Non précisé' },
@@ -268,7 +269,7 @@
                             type: 'select',
                             label: 'La personne peut-elle participer aux activités proposées ? (Sport, excursions, jeux, baignade…) ?',
                             value: sheet.participation,
-                            options: yes_no_options|map(option => option|merge({ selected: option.value == sheet.participation })),
+                            options: yes_no_options,
                         } only %}
                         {% include 'partials/form_field.html.twig' with {
                             field_id: 'participation-details', field_name: 'participation_details',
@@ -280,7 +281,7 @@
                             field_id: 'swimming-level', field_name: 'swimming_level',
                             type: 'select', label: 'La personne sait-elle nager ?',
                             value: sheet.swimming_level,
-                            options: swimming_options|map(option => option|merge({ selected: option.value == sheet.swimming_level })),
+                            options: swimming_options,
                         } only %}
 
                         <fieldset class="mb-3">
@@ -347,7 +348,7 @@
                                     type: 'select',
                                     label: 'La personne est-elle en ordre ?',
                                     value: sheet.tetanus_vaccinated,
-                                    options: yes_no_options|map(option => option|merge({ selected: option.value == sheet.tetanus_vaccinated })),
+                                    options: yes_no_options,
                                 } only %}
                             </div>
                             <div class="col-12 col-sm-6">
@@ -366,7 +367,7 @@
                             type: 'select',
                             label: 'La personne est-elle allergique (aliments, médicaments, etc.) ?',
                             value: sheet.allergic,
-                            options: yes_no_options|map(option => option|merge({ selected: option.value == sheet.allergic })),
+                            options: yes_no_options,
                         } only %}
                         <div data-reveal-when="allergic=yes">
                             {% include 'partials/form_field.html.twig' with {
@@ -394,7 +395,7 @@
                             type: 'select',
                             label: 'La personne suit-elle un régime alimentaire particulier ?',
                             value: sheet.follows_diet,
-                            options: yes_no_options|map(option => option|merge({ selected: option.value == sheet.follows_diet })),
+                            options: yes_no_options,
                         } only %}
                         <div data-reveal-when="follows_diet=yes">
                             {% include 'partials/form_field.html.twig' with {
@@ -410,7 +411,7 @@
                             type: 'select',
                             label: 'La personne prend-elle un traitement ?',
                             value: sheet.takes_treatment,
-                            options: yes_no_options|map(option => option|merge({ selected: option.value == sheet.takes_treatment })),
+                            options: yes_no_options,
                         } only %}
                         <div data-reveal-when="takes_treatment=yes">
                             {% include 'partials/form_field.html.twig' with {
@@ -425,7 +426,7 @@
                                 type: 'select',
                                 label: 'Est-elle autonome dans la prise de ces médicaments ?',
                                 value: sheet.treatment_autonomy,
-                                options: yes_no_options|map(option => option|merge({ selected: option.value == sheet.treatment_autonomy })),
+                                options: yes_no_options,
                             } only %}
                         </div>
                     </div>
