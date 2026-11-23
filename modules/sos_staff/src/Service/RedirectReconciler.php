@@ -43,6 +43,7 @@ class RedirectReconciler
     public const NOT_CONFIGURED = 'not_configured';
     public const NO_DESTINATION = 'no_destination';
     public const UNUSABLE_NUMBER = 'unusable_number';
+    public const SIMULATED = 'simulated';
 
     /**
      * @param (\Closure(): \DateTimeImmutable)|null $clock
@@ -116,8 +117,10 @@ class RedirectReconciler
         }
 
         $expected = $this->expectedDestination($scoutYearId);
+        $simulated = $this->providerConfigService->isSimulatedProviderActive();
         $outcome = static fn(string $status): array => [
-            'status' => $status,
+            'status' => $simulated && in_array($status, [self::ALIGNED, self::CORRECTED], true)
+                ? self::SIMULATED : $status,
             'expected_member_id' => $expected['member_id'],
             'expected_number' => $expected['number'],
             'unreachable_member_id' => $expected['unreachable_member_id'],

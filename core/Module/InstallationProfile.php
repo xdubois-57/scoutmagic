@@ -22,10 +22,9 @@ use Core\Statistics\DestinationMatcher;
  * Core\Statistics\DestinationMatcher, which it delegates every host
  * comparison to.
  *
- * Every flag is decided from the configured `base_url` setting, never from
- * $_SERVER['HTTP_HOST']: the Host header is attacker-supplied on every
- * request, so deriving a flag from it would let a crafted request talk an
- * ordinary installation into behaving like the reference installation.
+ * Every flag requires a server-side declaration in config/app.php and a
+ * matching configured host. Neither a database setting alone nor the
+ * attacker-supplied Host header can grant a capability.
  */
 final class InstallationProfile
 {
@@ -109,25 +108,40 @@ final class InstallationProfile
     }
 
     /**
-     * Build the profile from the two raw setting values.
+     * Build the profile from host settings and the server-side declaration.
      *
-     * The single resolver every entry point calls (public/index.php,
-     * public/cron.php, scripts/e2e-support.php), so the three can never
-     * drift into answering the same question differently.
+     * The single resolver used by the web, cron and fixture composition
+     * roots. Scheduler wiring receives the same resolved object.
+     *
+     * @param mixed $declaredFlags The installation_profile value from config/app.php.
      */
-    public static function resolve(?string $baseUrl, ?string $statisticsDestination): self
-    {
+    public static function resolve(
+        ?string $baseUrl,
+        ?string $statisticsDestination,
+        mixed $declaredFlags = []
+    ): self {
+        if (!is_array($declaredFlags) || !array_is_list($declaredFlags)) {
+            return new self();
+        }
+        foreach ($declaredFlags as $declaredFlag) {
+            if (!in_array($declaredFlag, self::KNOWN_FLAGS, true)) {
+                return new self();
+            }
+        }
         $flags = [];
 
-        if (DestinationMatcher::isReceiver($baseUrl, $statisticsDestination)) {
+        if (in_array(self::FLAG_STATISTICS_RECEIVER, $declaredFlags, true)
+            && DestinationMatcher::isReceiver($baseUrl, $statisticsDestination)) {
             $flags[] = self::FLAG_STATISTICS_RECEIVER;
         }
 
-        if ($baseUrl !== null && DestinationMatcher::isSameHost($baseUrl, self::REFERENCE_HOST)) {
+        if (in_array(self::FLAG_REFERENCE_INSTALLATION, $declaredFlags, true)
+            && $baseUrl !== null && DestinationMatcher::isSameHost($baseUrl, self::REFERENCE_HOST)) {
             $flags[] = self::FLAG_REFERENCE_INSTALLATION;
         }
 
-        if ($baseUrl !== null && self::isLocalHost($baseUrl)) {
+        if (in_array(self::FLAG_LOCAL_INSTALLATION, $declaredFlags, true)
+            && $baseUrl !== null && self::isLocalHost($baseUrl)) {
             $flags[] = self::FLAG_LOCAL_INSTALLATION;
         }
 

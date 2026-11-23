@@ -26,10 +26,12 @@ class SosAttentionProviderTest extends TestCase
     private function points(
         ?PhoneProviderInterface $provider,
         ?\DateTimeImmutable $failedAt,
-        ?\Closure $configure = null
+        ?\Closure $configure = null,
+        bool $simulated = false
     ): array {
         $config = $this->createStub(ProviderConfigService::class);
         $config->method('getActiveProvider')->willReturn($provider);
+        $config->method('isSimulatedProviderActive')->willReturn($simulated);
         $settings = $this->createStub(SosSettingsService::class);
         $settings->method('lastRedirectFailureAt')->willReturn($failedAt);
         if ($configure !== null) {
@@ -42,6 +44,15 @@ class SosAttentionProviderTest extends TestCase
     public function testAConfiguredOperatorWhoseLastChangeWorkedRaisesNothing(): void
     {
         $this->assertSame([], $this->points($this->createStub(PhoneProviderInterface::class), null));
+    }
+
+    public function testASimulatedOperatorAlwaysRaisesAnAttentionPoint(): void
+    {
+        $points = $this->points($this->createStub(PhoneProviderInterface::class), null, simulated: true);
+
+        self::assertCount(1, $points);
+        self::assertStringContainsString('Opérateur simulé', $points[0]->title);
+        self::assertStringContainsString("la vraie ligne n'est pas pilotée", $points[0]->why);
     }
 
     public function testNoOperatorIsAnAttentionPoint(): void

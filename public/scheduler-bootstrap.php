@@ -99,7 +99,8 @@ function scoutmagicBootstrapScheduler(
      * §8.17's lesson exactly: two composition roots wiring the same graph
      * is how one of them silently stops.
      */
-    ?\Core\Mail\Feedback\Seed\SeedMailboxes $seedMailboxes = null
+    ?\Core\Mail\Feedback\Seed\SeedMailboxes $seedMailboxes = null,
+    ?\Core\Module\InstallationProfile $installationProfile = null
 ): \Core\Scheduler\TaskContext {
     $pdo = $connection->getPdo();
 
@@ -267,12 +268,12 @@ function scoutmagicBootstrapScheduler(
 
     // Simulated telephony (ARCHITECTURE.md §8.63): the scheduled redirect
     // must talk to the same line the page shows, or the two disagree. The
-    // profile and the arm switch are decided here; registering under
-    // test_tools leaves its enablement to TaskCapabilities' live check.
-    $installationProfile = \Core\Module\InstallationProfile::resolve(
-        (string) ($settingService->get('base_url') ?? ''),
-        (string) ($settingService->get('statistics_destination') ?? '')
-    );
+    // profile comes from the entry point's server configuration, and the
+    // arm switch is checked here. Registration under test_tools leaves
+    // enablement to TaskCapabilities' live check.
+    // Exactly the server-declared profile used for module discovery. A
+    // caller without a declaration receives no test capabilities.
+    $installationProfile ??= new \Core\Module\InstallationProfile();
     if (\Modules\TestTools\Telephony\SimulatedTelephony::isAllowed($installationProfile, $settingService)) {
         $capabilities->register(
             \Modules\SosStaff\Api\PhoneProviderInterface::class,

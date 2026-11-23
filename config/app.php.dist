@@ -5,6 +5,13 @@ return [
     'site_name' => 'Unité scoute',
     'base_url' => 'http://localhost',
 
+    // Server-side capabilities, never inferred from a database setting.
+    // Allowed flags: reference_installation (scoutmagic.be only),
+    // local_installation (local hosts only), statistics_receiver (the
+    // configured statistics destination must also match this site's host).
+    // Ordinary unit installations keep this empty, including after updates.
+    'installation_profile' => [],
+
     // ScoutMagic is never served publicly over HTTP. While this is true
     // the session cookie is always Secure and Strict-Transport-Security
     // is always sent, whatever scheme PHP itself sees — which is what a

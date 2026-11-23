@@ -12,18 +12,68 @@ class InstallationProfileTest extends TestCase
 {
     private const DESTINATION = 'https://scoutmagic.be';
 
+    public function testHostSettingsCannotGrantAProfileWithoutAServerDeclaration(): void
+    {
+        foreach (['https://scoutmagic.be', 'http://unit.local', 'http://localhost'] as $baseUrl) {
+            self::assertSame([], InstallationProfile::resolve($baseUrl, $baseUrl)->all());
+        }
+    }
+
+    /** @return array<string, array{mixed}> */
+    public static function malformedDeclarations(): array
+    {
+        return [
+            'missing' => [null],
+            'boolean' => [true],
+            'string' => ['reference_installation'],
+            'unknown flag' => [['unknown']],
+            'non-string members' => [[true, 1]],
+            'associative declaration' => [['reference_installation' => true]],
+            'known flag and boolean' => [['reference_installation', true]],
+            'known and unknown flags' => [['reference_installation', 'unknown']],
+        ];
+    }
+
+    #[DataProvider('malformedDeclarations')]
+    public function testMalformedOrUnknownServerDeclarationsNeverGrantFlags(mixed $declaration): void
+    {
+        self::assertSame([], InstallationProfile::resolve(
+            self::DESTINATION,
+            self::DESTINATION,
+            $declaration
+        )->all());
+    }
+
+    public function testADeclarationGrantsOnlyItsOwnMatchingCapabilities(): void
+    {
+        foreach ([
+            [self::DESTINATION, ['local_installation'], []],
+            ['http://localhost', ['local_installation'], ['local_installation']],
+            [self::DESTINATION, ['reference_installation'], ['reference_installation']],
+            ['https://unit.example', ['reference_installation'], []],
+            ['https://stats.example', ['statistics_receiver'], ['statistics_receiver']],
+        ] as [$baseUrl, $declaration, $expected]) {
+            self::assertSame($expected, InstallationProfile::resolve($baseUrl, $baseUrl, $declaration)->all());
+        }
+    }
+
+    private function declaredProfile(?string $baseUrl, ?string $destination): InstallationProfile
+    {
+        return InstallationProfile::resolve($baseUrl, $destination, SCOUTMAGIC_TEST_INSTALLATION_PROFILE);
+    }
+
     public function testTheStatisticsReceiverFlagFollowsTheDestination(): void
     {
-        $receiver = InstallationProfile::resolve('https://scoutmagic.be', self::DESTINATION);
+        $receiver = $this->declaredProfile('https://scoutmagic.be', self::DESTINATION);
         $this->assertTrue($receiver->has(InstallationProfile::FLAG_STATISTICS_RECEIVER));
 
-        $ordinary = InstallationProfile::resolve('https://unite-exemple.be', self::DESTINATION);
+        $ordinary = $this->declaredProfile('https://unite-exemple.be', self::DESTINATION);
         $this->assertFalse($ordinary->has(InstallationProfile::FLAG_STATISTICS_RECEIVER));
     }
 
     public function testTheStatisticsReceiverFlagIsAbsentWithoutADestination(): void
     {
-        $profile = InstallationProfile::resolve('https://scoutmagic.be', '');
+        $profile = $this->declaredProfile('https://scoutmagic.be', '');
 
         $this->assertFalse($profile->has(InstallationProfile::FLAG_STATISTICS_RECEIVER));
         // …while the reference flag, which does not depend on it, still holds.
@@ -32,7 +82,7 @@ class InstallationProfileTest extends TestCase
 
     public function testTheReferenceInstallationFlagHoldsOnTheReferenceHost(): void
     {
-        $profile = InstallationProfile::resolve('https://scoutmagic.be', '');
+        $profile = $this->declaredProfile('https://scoutmagic.be', '');
 
         $this->assertTrue($profile->has(InstallationProfile::FLAG_REFERENCE_INSTALLATION));
         $this->assertFalse($profile->has(InstallationProfile::FLAG_LOCAL_INSTALLATION));
@@ -40,35 +90,35 @@ class InstallationProfileTest extends TestCase
 
     public function testTheReferenceInstallationFlagIgnoresAWwwPrefix(): void
     {
-        $profile = InstallationProfile::resolve('https://www.scoutmagic.be', '');
+        $profile = $this->declaredProfile('https://www.scoutmagic.be', '');
 
         $this->assertTrue($profile->has(InstallationProfile::FLAG_REFERENCE_INSTALLATION));
     }
 
     public function testTheReferenceInstallationFlagIsCaseInsensitive(): void
     {
-        $profile = InstallationProfile::resolve('https://ScoutMagic.BE', '');
+        $profile = $this->declaredProfile('https://ScoutMagic.BE', '');
 
         $this->assertTrue($profile->has(InstallationProfile::FLAG_REFERENCE_INSTALLATION));
     }
 
     public function testTheReferenceInstallationFlagAcceptsAMissingScheme(): void
     {
-        $profile = InstallationProfile::resolve('scoutmagic.be', '');
+        $profile = $this->declaredProfile('scoutmagic.be', '');
 
         $this->assertTrue($profile->has(InstallationProfile::FLAG_REFERENCE_INSTALLATION));
     }
 
     public function testTheReferenceInstallationFlagIgnoresATrailingDot(): void
     {
-        $profile = InstallationProfile::resolve('https://scoutmagic.be./', '');
+        $profile = $this->declaredProfile('https://scoutmagic.be./', '');
 
         $this->assertTrue($profile->has(InstallationProfile::FLAG_REFERENCE_INSTALLATION));
     }
 
     public function testTheReferenceInstallationFlagIgnoresPathAndQueryString(): void
     {
-        $profile = InstallationProfile::resolve('https://scoutmagic.be/config?x=1', '');
+        $profile = $this->declaredProfile('https://scoutmagic.be/config?x=1', '');
 
         $this->assertTrue($profile->has(InstallationProfile::FLAG_REFERENCE_INSTALLATION));
     }
@@ -79,7 +129,7 @@ class InstallationProfileTest extends TestCase
      */
     public function testASubdomainOfTheReferenceHostIsNotTheReferenceInstallation(): void
     {
-        $profile = InstallationProfile::resolve('https://stats.scoutmagic.be', '');
+        $profile = $this->declaredProfile('https://stats.scoutmagic.be', '');
 
         $this->assertFalse($profile->has(InstallationProfile::FLAG_REFERENCE_INSTALLATION));
     }
@@ -104,7 +154,7 @@ class InstallationProfileTest extends TestCase
     #[DataProvider('localHostProvider')]
     public function testTheLocalInstallationFlagHoldsOnALocalHost(string $baseUrl): void
     {
-        $profile = InstallationProfile::resolve($baseUrl, '');
+        $profile = $this->declaredProfile($baseUrl, '');
 
         $this->assertTrue($profile->has(InstallationProfile::FLAG_LOCAL_INSTALLATION));
     }
@@ -126,7 +176,7 @@ class InstallationProfileTest extends TestCase
     #[DataProvider('nonLocalHostProvider')]
     public function testTheLocalInstallationFlagDoesNotHoldOnARealDomain(string $baseUrl): void
     {
-        $profile = InstallationProfile::resolve($baseUrl, '');
+        $profile = $this->declaredProfile($baseUrl, '');
 
         $this->assertFalse($profile->has(InstallationProfile::FLAG_LOCAL_INSTALLATION));
     }
@@ -137,7 +187,7 @@ class InstallationProfileTest extends TestCase
     public function testAnEmptyBaseUrlYieldsNoFlagAtAll(): void
     {
         foreach (['', '   ', null] as $baseUrl) {
-            $profile = InstallationProfile::resolve($baseUrl, self::DESTINATION);
+            $profile = $this->declaredProfile($baseUrl, self::DESTINATION);
 
             $this->assertSame([], $profile->all(), 'base_url: ' . var_export($baseUrl, true));
         }
@@ -145,14 +195,14 @@ class InstallationProfileTest extends TestCase
 
     public function testAnUnparseableBaseUrlYieldsNoFlagAtAll(): void
     {
-        $profile = InstallationProfile::resolve('https://', self::DESTINATION);
+        $profile = $this->declaredProfile('https://', self::DESTINATION);
 
         $this->assertSame([], $profile->all());
     }
 
     public function testSeveralFlagsCanHoldAtOnce(): void
     {
-        $profile = InstallationProfile::resolve('https://scoutmagic.be', self::DESTINATION);
+        $profile = $this->declaredProfile('https://scoutmagic.be', self::DESTINATION);
 
         $this->assertTrue($profile->has(InstallationProfile::FLAG_STATISTICS_RECEIVER));
         $this->assertTrue($profile->has(InstallationProfile::FLAG_REFERENCE_INSTALLATION));

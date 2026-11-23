@@ -51,6 +51,7 @@ class SosAdminController extends AbstractController
     private const PAGE_DASHBOARD = '/admin/sos';
     private const PAGE_PLANNING = '/admin/sos/planning';
     private const PAGE_SETTINGS = '/admin/sos/reglages';
+    private const SIMULATION_MESSAGE = "Opérateur simulé : la vraie ligne n'est pas pilotée.";
 
     /** @param (\Closure(): \DateTimeImmutable)|null $clock */
     public function __construct(
@@ -148,6 +149,7 @@ class SosAdminController extends AbstractController
         $today = $now->format('Y-m-d');
 
         return $this->render('@sos_staff/planning.html.twig', [
+            'simulated_provider' => $this->providerConfigService->isSimulatedProviderActive(),
             'sos_page' => self::PAGE_PLANNING,
             'sos_year_notice' => $this->yearNotice(),
             'staff_options' => $staffOptions,
@@ -212,6 +214,7 @@ class SosAdminController extends AbstractController
                 !== null;
 
         return $this->render('@sos_staff/settings.html.twig', [
+            'simulated_provider' => $this->providerConfigService->isSimulatedProviderActive(),
             'sos_page' => self::PAGE_SETTINGS,
             'sos_year_notice' => $this->yearNotice(),
             'staff_options' => $staffOptions,
@@ -300,7 +303,9 @@ class SosAdminController extends AbstractController
             // from the provider just now, so saying so is true.
             return $this->json([
                 'success' => true,
-                'message' => 'La redirection est déjà conforme.',
+                'message' => $this->providerConfigService->isSimulatedProviderActive()
+                    ? self::SIMULATION_MESSAGE
+                    : 'La redirection est déjà conforme.',
                 'html' => $this->renderRedirectBlock($status),
             ]);
         }
@@ -338,9 +343,11 @@ class SosAdminController extends AbstractController
 
         return $this->json([
             'success' => true,
-            'message' => $status['action'] === 'reactivate'
-                ? 'Redirection réactivée et vérifiée.'
-                : 'Redirection resynchronisée et vérifiée.',
+            'message' => $this->providerConfigService->isSimulatedProviderActive()
+                ? self::SIMULATION_MESSAGE
+                : ($status['action'] === 'reactivate'
+                    ? 'Redirection réactivée et vérifiée.'
+                    : 'Redirection resynchronisée et vérifiée.'),
             'html' => $this->renderRedirectBlock($after),
         ]);
     }
@@ -436,6 +443,7 @@ class SosAdminController extends AbstractController
     private function redirectBlockContext(array $status): array
     {
         return [
+            'simulated_provider' => $this->providerConfigService->isSimulatedProviderActive(),
             'sos_number' => $this->providerConfigService->getSosNumber(),
             'live_state' => $status['live_state'],
             'redirect_action' => $status['action'],
@@ -1058,6 +1066,8 @@ class SosAdminController extends AbstractController
     private function destinationMessage(array $reconciled, int $scoutYearId): string
     {
         $now = match ($reconciled['status']) {
+            RedirectReconciler::SIMULATED => self::SIMULATION_MESSAGE
+                . $this->unreachableSentence($reconciled, $scoutYearId),
             RedirectReconciler::ALIGNED, RedirectReconciler::CORRECTED => 'Les appels arrivent maintenant chez '
                 . $this->destinationLabel($this->displayedMemberId($reconciled), $scoutYearId)
                 . ($reconciled['status'] === RedirectReconciler::CORRECTED ? ' (redirection modifiée).' : '.')

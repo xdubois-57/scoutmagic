@@ -15,6 +15,11 @@ la grille de garde pilote réellement le renvoi d'appel. Le
 raccordement se fait une fois, en trois étapes guidées ; l'opérateur
 pris en charge aujourd'hui est OVH.
 
+Si le bandeau **« Opérateur simulé »** est affiché, les actions de la
+page SOS concernent une simulation : la vraie ligne n'est pas pilotée.
+Ce bandeau reste visible jusqu'à la désactivation de la simulation,
+même lorsqu'un opérateur réel est configuré.
+
 ## Étape 1 — Les clés de l'application
 
 Créez une application sur le site d'OVH (le lien est sur la page),

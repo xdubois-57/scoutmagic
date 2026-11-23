@@ -245,6 +245,12 @@ class ProviderConfigService
         return is_string($number) && $number !== '' ? $number : null;
     }
 
+    /** Whether the active adapter is a stand-in rather than the real operator. */
+    public function isSimulatedProviderActive(): bool
+    {
+        return $this->simulatedProvider !== null;
+    }
+
     /**
      * The factory every other SOS service must go through to talk to the
      * telephony provider (module spec §7) — null when nothing is fully

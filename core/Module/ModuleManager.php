@@ -52,7 +52,8 @@ class ModuleManager
         // The named flags that hold for THIS installation
         // (ARCHITECTURE.md §8.49). Resolved once by the composition root
         // via InstallationProfile::resolve(base_url,
-        // statistics_destination) and passed in already decided — this
+        // statistics_destination, server-declared installation_profile)
+        // and passed in already decided — this
         // class only ever asks the profile whether a flag holds, and
         // deliberately has no business knowing what a statistics
         // destination or a reference host is.

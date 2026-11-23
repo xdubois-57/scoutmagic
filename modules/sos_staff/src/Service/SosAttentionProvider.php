@@ -63,6 +63,15 @@ class SosAttentionProvider implements AttentionPointProvider
         }
 
         $points = [];
+        if ($this->providerConfig->isSimulatedProviderActive()) {
+            $points[] = new AttentionPoint(
+                title: 'Opérateur simulé pour le téléphone SOS',
+                why: "La téléphonie est simulée : la vraie ligne n'est pas pilotée par le site.",
+                actionLabel: "Voir le téléphone d'urgence",
+                actionUrl: '/admin/sos',
+                severity: AttentionPoint::SEVERITY_ATTENTION
+            );
+        }
 
         $failedAt = $this->settings->lastRedirectFailureAt();
         if ($failedAt !== null) {

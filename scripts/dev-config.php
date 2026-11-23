@@ -19,9 +19,9 @@ declare(strict_types=1);
  *
  * Never overwrites an existing config/app.php: that file is the
  * developer's own, and may hold values they set on purpose. When it still
- * requires HTTPS — a file that predates the key keeps the production
- * default — the command fails and says which line to add, rather than
- * reporting success on a checkout whose cookies `composer serve` drops.
+ * requires HTTPS or lacks the local installation profile, the command
+ * fails and names the declarations to add. Production defaults never
+ * become development capabilities merely because base_url was edited.
  *
  * Usage: php scripts/dev-config.php [install root, default: this checkout]
  */
@@ -38,12 +38,15 @@ function devConfigSeed(string $root): array
 
     if (is_file($configPath)) {
         $existing = (static fn(string $path): mixed => require $path)($configPath);
-        if (is_array($existing) && ($existing['https_required'] ?? true) === false) {
+        $profiles = is_array($existing) ? ($existing['installation_profile'] ?? []) : [];
+        if (is_array($existing) && ($existing['https_required'] ?? true) === false
+            && is_array($profiles) && array_is_list($profiles)
+            && in_array('local_installation', $profiles, true)) {
             return [0, "config/app.php existe déjà : laissé tel quel.\n"];
         }
 
-        return [1, "config/app.php existe déjà et exige HTTPS : laissé tel quel. Pour servir en HTTP local, "
-            . "ajoutez-y 'https_required' => false.\n"];
+        return [1, "config/app.php existe déjà : laissé tel quel. Pour le développement local, vérifiez les lignes "
+            . "'https_required' => false et 'installation_profile' => ['local_installation'].\n"];
     }
 
     $dist = is_file($distPath) ? file_get_contents($distPath) : false;
@@ -61,6 +64,17 @@ function devConfigSeed(string $root): array
     );
     if ($config === null || $count !== 1) {
         return [1, "config/app.php.dist ne déclare plus 'https_required' => true : script à mettre à jour.\n"];
+    }
+
+    $config = preg_replace(
+        "/'installation_profile'\\s*=>\\s*\\[\\s*\\]\\s*,/",
+        "'installation_profile' => ['local_installation'],",
+        $config,
+        1,
+        $count
+    );
+    if ($config === null || $count !== 1) {
+        return [1, "config/app.php.dist ne déclare plus 'installation_profile' => [] : script à mettre à jour.\n"];
     }
 
     if (@file_put_contents($configPath, $config) === false) {

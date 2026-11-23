@@ -1,0 +1,10 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{% if simulated_provider|default(false) %}
+    <output class="alert alert-warning mt-2 d-block" id="sos-simulation-notice">
+        <strong>Opérateur simulé :</strong> la vraie ligne n'est pas pilotée par le site.
+        Les états et changements de redirection affichés concernent uniquement la simulation.
+    </output>
+{% endif %}

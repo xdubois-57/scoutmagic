@@ -84,10 +84,31 @@ class HttpOnlyEnvironmentsDeclareTheExceptionTest extends TestCase
         $this->assertFalse($config['trust_forwarded_proto'] ?? null, 'the rest of the template is kept');
     }
 
+    public function testDevelopmentConfigurationExplicitlyDeclaresItsLocalProfile(): void
+    {
+        $config = $this->runDevConfig();
+
+        self::assertSame(['local_installation'], $config['installation_profile'] ?? null);
+    }
+
+    public function testAnExistingConfigWithoutALocalProfileIsPreservedAndReported(): void
+    {
+        $this->runDevConfig();
+        $kept = "<?php\nreturn ['https_required' => false];\n";
+        file_put_contents($this->tempDir . '/config/app.php', $kept);
+
+        [$exitCode, $message] = devConfigSeed($this->tempDir);
+
+        self::assertSame(1, $exitCode);
+        self::assertStringContainsString('installation_profile', $message);
+        self::assertStringEqualsFile($this->tempDir . '/config/app.php', $kept);
+    }
+
     public function testTheDevelopmentConfigScriptNeverOverwritesAnExistingConfig(): void
     {
         $this->runDevConfig();
-        $kept = "<?php\n\nreturn ['https_required' => false, 'debug' => true];\n";
+        $kept = "<?php\n\nreturn ['https_required' => false, 'debug' => true, "
+            . "'installation_profile' => ['local_installation']];\n";
         file_put_contents($this->tempDir . '/config/app.php', $kept);
 
         [$exitCode, $message] = devConfigSeed($this->tempDir);

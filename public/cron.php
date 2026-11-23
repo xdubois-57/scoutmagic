@@ -245,9 +245,14 @@ foreach ($mailSettingKeys as $mailSecretKey) {
 // même fabrique — et le profil d'installation est résolu une fois ici
 // puis réutilisé plus bas par ModuleManager, au lieu d'être résolu deux
 // fois dans le même fichier.
+$appConfigPath = dirname(__DIR__) . '/config/app.php';
+$declaredProfiles = is_file($appConfigPath)
+    ? (new \Core\Config\AppConfig($appConfigPath))->get('installation_profile', [])
+    : [];
 $installationProfile = \Core\Module\InstallationProfile::resolve(
     (string) ($settingService->get('base_url') ?? ''),
-    (string) ($settingService->get('statistics_destination') ?? '')
+    (string) ($settingService->get('statistics_destination') ?? ''),
+    $declaredProfiles
 );
 
 // **The provider chain holds here too** (Core\Mail\Transport,
@@ -464,7 +469,8 @@ scoutmagicBootstrapScheduler(
     // is the entry point that runs mailings, so this is the object graph
     // that emits the copies; without the module behind it,
     // `addresses()` answers « none » and nothing is ever measured.
-    $seedMailboxes
+    $seedMailboxes,
+    installationProfile: $installationProfile
 );
 
 // Migrate the whole declared schema, before anything else runs.

@@ -129,6 +129,10 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../vendor/autoload.php';
 
+// Explicit server-side declarations for fixtures exercising each profile.
+// Production composition roots never read this test-only constant.
+define('SCOUTMAGIC_TEST_INSTALLATION_PROFILE', \Core\Module\InstallationProfile::KNOWN_FLAGS);
+
 /**
  * The suite runs under the application's own wall clock.
  *
