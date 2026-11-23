@@ -1328,6 +1328,23 @@ class RestoreBackupRoundTripTest extends TestCase
     }
 
     /**
+     * With no safety copy to go back to, the failure may have struck after
+     * the restored data was in place — the purge, the off-site send — and
+     * `backup_restored` is written only once those have run (#1229). The
+     * entry says WHICH stage failed, so a restore that did complete is not
+     * read as one that did not.
+     */
+    public function testAFailureAtTheTailWithNoSafetyCopySaysItStruckAtTheCompletionStage(): void
+    {
+        $this->makeTheTailOfTheResumedPassFail();
+
+        $this->resume(['safety_db_dump_path' => null, 'safety_zip_path' => null], 999999);
+
+        $this->assertSame('completion', $this->journalContextOf('backup_restore_failed')['stage'] ?? null);
+        $this->assertNotContains('backup_restored', $this->journalTypes());
+    }
+
+    /**
      * Makes the resumed pass fail after its migration, in a way that is
      * not contrived: this pass runs against a database the restore has
      * just replaced, and the tail of it walks the older backups to purge

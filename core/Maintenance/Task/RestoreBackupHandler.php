@@ -1333,6 +1333,10 @@ class RestoreBackupHandler implements TaskHandlerInterface
             ? (string) $payload['safety_zip_path']
             : null;
         $stateKeepFailed = false;
+        // Where the pass was when it failed (issue #1229): the migration, or
+        // the completion that follows it — the purge, the off-site send —
+        // by which time the restored data is already in place.
+        $stage = 'migration';
 
         try {
             $migrationRunner = new MigrationRunner(
@@ -1402,6 +1406,7 @@ class RestoreBackupHandler implements TaskHandlerInterface
                 throw $stateError;
             }
 
+            $stage = 'completion';
             $this->finishRestore(
                 $context,
                 $backupRepository,
@@ -1440,7 +1445,11 @@ class RestoreBackupHandler implements TaskHandlerInterface
                     'warning',
                     'Échec de la migration lors de la reprise d\'une restauration, sans sauvegarde de sécurité '
                         . 'disponible pour restauration',
-                    ['error' => $migrationError->getMessage()],
+                    // `stage` says whether the restored data was already in place
+                    // (`completion`) or not (`migration`): with no safety copy
+                    // nothing was undone either way, and `backup_restored` is
+                    // written only after the completion has run.
+                    ['error' => $migrationError->getMessage(), 'stage' => $stage],
                     $requestedBy
                 );
                 RequesterNotice::sendAboutRestore(

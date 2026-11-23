@@ -1061,11 +1061,17 @@ final class SendRemoteBackupHandlerTest extends TestCase
 
         $this->runOnce([], $backend);
 
-        $error = (string) ($this->journalContextOf('remote_backup_failed')['error'] ?? '');
+        $context = $this->journalContextOf('remote_backup_failed');
+        $error = (string) ($context['error'] ?? '');
         $this->assertNotSame('', $error, 'the failure must be recorded');
         $this->assertStringNotContainsString($failure->getMessage(), $error);
         $this->assertStringNotContainsString('SQLSTATE', $error);
         $this->assertStringNotContainsString('master.key', $error);
+        // What is kept for whoever diagnoses it: the class, never the message
+        // (which names a host, a table or a path). Without it the real cause
+        // would exist nowhere once the sentence is the operator's.
+        $this->assertSame($failure::class, $context['error_class'] ?? null);
+        $this->assertStringNotContainsString($failure->getMessage(), (string) json_encode($context));
         $next = $this->pending();
         $this->assertNotNull($next, 'the run died instead of recording a failure');
         $this->assertSame(1, $next['payload']['failures']);
