@@ -12,6 +12,19 @@ use Core\Service\DateInput;
 
 class UserAccountRepository
 {
+
+    /**
+     * The value every write of `sessions_valid_from` stores — a SQL
+     * expression taking the new stamp twice. **A revocation stamp never moves
+     * back**: an account's stamp is the latest of every revocation written for
+     * it, so a write dated « now » cannot lower a stamp that a « Déconnecter
+     * partout » dated a second ahead (see signOutStamp()), and with it let a
+     * session that stamp had revoked read as valid again (review of #1374).
+     * Portable CASE, not GREATEST(): SQLite has no such function.
+     */
+    private const LATEST_STAMP =
+        'CASE WHEN sessions_valid_from IS NOT NULL AND sessions_valid_from > ? THEN sessions_valid_from ELSE ? END';
+
     public function __construct(
         private \PDO $pdo,
         private EncryptionService $encryption
@@ -498,9 +511,53 @@ class UserAccountRepository
     {
         $now = (new \DateTimeImmutable())->format('Y-m-d H:i:s');
         $stmt = $this->pdo->prepare(
-            'UPDATE user_accounts SET password_hash = ?, password_changed_at = ?, sessions_valid_from = ? WHERE id = ?'
+            'UPDATE user_accounts SET password_hash = ?, password_changed_at = ?, sessions_valid_from = '
+                . self::LATEST_STAMP . ' WHERE id = ?'
         );
-        $stmt->execute([$passwordHash, $now, $now, $id]);
+        $stmt->execute([$passwordHash, $now, $now, $now, $id]);
+    }
+
+    /**
+     * updatePasswordHash() for a request that came from a SESSION — « Mon
+     * compte » setting or changing the password — and that must not land if
+     * that session has been revoked since the request started.
+     *
+     * « Déconnecter partout » stamps sessions_valid_from, then removes the
+     * password. A request that authenticated just before the stamp, passed
+     * its checks and writes just after would otherwise leave its password on
+     * an account the holder had just wiped (review of #1374). The condition
+     * is the one SessionRevalidator applies — a session issued BEFORE the
+     * stamp is revoked, one issued at or after it is not, and one with no
+     * issue time at all cannot be shown to be newer — but evaluated by the
+     * write itself, under its row lock, so either the write goes first and
+     * the sign-out removes its password, or the sign-out goes first and the
+     * write is refused.
+     *
+     * @param int|null $sessionIssuedAt AuthSession::getIssuedAt()
+     * @return int|null the time stamped by the write — the one the writing
+     *         session must be re-issued AT, never later (see
+     *         AuthSession::refreshIssuedAt()) — or null when the password was
+     *         not written
+     */
+    public function updatePasswordHashFromSession(int $id, string $passwordHash, ?int $sessionIssuedAt): ?int
+    {
+        if ($sessionIssuedAt === null) {
+            return null;
+        }
+
+        $stampedAt = new \DateTimeImmutable();
+        $now = $stampedAt->format('Y-m-d H:i:s');
+        $issuedAt = (new \DateTimeImmutable('@' . $sessionIssuedAt))
+            ->setTimezone(new \DateTimeZone(date_default_timezone_get()))
+            ->format('Y-m-d H:i:s');
+        $stmt = $this->pdo->prepare(
+            'UPDATE user_accounts
+                SET password_hash = ?, password_changed_at = ?, sessions_valid_from = ' . self::LATEST_STAMP . '
+              WHERE id = ? AND (sessions_valid_from IS NULL OR sessions_valid_from <= ?)'
+        );
+        $stmt->execute([$passwordHash, $now, $now, $now, $id, $issuedAt]);
+
+        return $stmt->rowCount() > 0 ? $stampedAt->getTimestamp() : null;
     }
 
     /**
@@ -527,9 +584,9 @@ class UserAccountRepository
     {
         $now = (new \DateTimeImmutable())->format('Y-m-d H:i:s');
         $stmt = $this->pdo->prepare(
-            'UPDATE user_accounts SET is_active = 0, sessions_valid_from = ? WHERE id = ?'
+            'UPDATE user_accounts SET is_active = 0, sessions_valid_from = ' . self::LATEST_STAMP . ' WHERE id = ?'
         );
-        $stmt->execute([$now, $id]);
+        $stmt->execute([$now, $now, $id]);
     }
 
     /**
@@ -541,9 +598,60 @@ class UserAccountRepository
      */
     public function revokeSessions(int $id): void
     {
-        $now = (new \DateTimeImmutable())->format('Y-m-d H:i:s');
-        $stmt = $this->pdo->prepare('UPDATE user_accounts SET sessions_valid_from = ? WHERE id = ?');
-        $stmt->execute([$now, $id]);
+        $stamp = self::signOutStamp();
+        $stmt = $this->pdo->prepare(
+            'UPDATE user_accounts SET sessions_valid_from = ' . self::LATEST_STAMP . ' WHERE id = ?'
+        );
+        $stmt->execute([$stamp, $stamp, $id]);
+    }
+
+    /**
+     * The stamp of a « Déconnecter partout »: the NEXT second, not this one.
+     *
+     * SessionRevalidator reads a session as revoked only when it was issued
+     * strictly BEFORE the stamp, and the stamp has the resolution of a second:
+     * a session issued in the very second of the sign-out would read as valid
+     * and its in-flight password write would be accepted after the removal
+     * (review of #1374). Dating the stamp one second ahead revokes every
+     * session issued up to and including that second. The only sessions it
+     * can catch beyond are those opened within the following second, which
+     * after a sign-out everywhere means nobody: signing back in goes through a
+     * link sent by e-mail.
+     */
+    private static function signOutStamp(): string
+    {
+        return (new \DateTimeImmutable('+1 second'))->format('Y-m-d H:i:s');
+    }
+
+    /**
+     * Take the password away — « Déconnecter partout » on « Mon compte »
+     * (issue #1257). The account keeps its row and its e-mail login link;
+     * only the secret goes, so a password somebody else chose stops opening
+     * the account while the holder is never locked out.
+     *
+     * Also stamps sessions_valid_from, like every write that changes the
+     * credentials behind existing sessions (see updatePasswordHash()), and
+     * clears password_changed_at, which only describes a password that
+     * exists.
+     *
+     * @return bool whether a password was actually there to remove; an
+     *         account without one is left untouched, stamp included
+     */
+    public function clearPassword(int $id): bool
+    {
+        $now = self::signOutStamp();
+        // One conditional statement rather than « read hasPassword(), then
+        // clear »: whether a password was there, and its removal, are decided
+        // by the same write under the same row lock, so a password written by
+        // another request cannot slip in between the two (review of #1374).
+        $stmt = $this->pdo->prepare(
+            'UPDATE user_accounts
+                SET password_hash = NULL, password_changed_at = NULL, sessions_valid_from = ' . self::LATEST_STAMP . '
+              WHERE id = ? AND password_hash IS NOT NULL'
+        );
+        $stmt->execute([$now, $now, $id]);
+
+        return $stmt->rowCount() > 0;
     }
 
     /**

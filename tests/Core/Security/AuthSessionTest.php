@@ -182,6 +182,23 @@ class AuthSessionTest extends TestCase
     }
 
     /**
+     * Review of #1374: the time the session is re-issued at is the caller's —
+     * the stamp of the write that authorised the refresh — and never later,
+     * whenever the refresh happens to run.
+     */
+    public function testTheIssuedStampCanBeRefreshedAtTheTimeOfTheWriteThatAuthorisedIt(): void
+    {
+        $this->startTestSession();
+        AuthSession::login(42, 'test@example.com', 'admin');
+        $_SESSION['_auth']['issued_at'] = time() - 3600;
+        $writeStamp = time() - 30;
+
+        AuthSession::refreshIssuedAt($writeStamp);
+
+        $this->assertSame($writeStamp, AuthSession::getIssuedAt());
+    }
+
+    /**
      * A fresh window rotates the session id, as a login does: a copy of
      * the old cookie must not share in the right to add a passkey or a
      * device credential. Everything held in the session stays.

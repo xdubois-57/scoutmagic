@@ -6220,8 +6220,12 @@ stolen session must not be able to make one.
 and live device credentials in one gesture (issue #1115): on a reset by
 link, all of them except those the holder unticked on the reset page; on
 « Déconnecter partout » (`POST /account/sign-out-everywhere`), all of them,
-together with every session. It is told what to *keep*, never what to
-revoke, so a form missing its list revokes everything (`SECURITY.md` §2).
+together with every session **and the password** (issue #1257: the one an
+attacker chose is one of the accesses the alert is about; the controller
+calls `UserAccountRepository::clearPassword()`, the revoker only journals
+`password_removed`). It is told what to *keep*, never what to revoke, so a
+form missing its list revokes everything — the password included, kept only
+by the form's `keep_password` box (`SECURITY.md` §2).
 A device credential is revoked as everywhere else (the row stays); a
 passkey is deleted.
 

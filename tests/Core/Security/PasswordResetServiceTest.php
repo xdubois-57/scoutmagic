@@ -184,6 +184,72 @@ class PasswordResetServiceTest extends TestCase
         $this->assertNotNull($updated->passwordChangedAt);
     }
 
+    /**
+     * Review of #1374, through the service a reset link goes through: a
+     * « Déconnecter partout » stamped the account's sessions, dated ahead; the
+     * reset that follows — in the same second, whatever the clock says — must not
+     * bring that stamp back to « now », or a session it had revoked would read as
+     * valid again. The stamp is fixed in the future, so « now » is always earlier.
+     */
+    public function testResetPasswordLeavesALaterRevocationStampWhereItIs(): void
+    {
+        $account = $this->userRepo->create('stamped@test.com');
+        $ahead = date('Y-m-d H:i:s', time() + 3600);
+        $set = $this->pdo->prepare('UPDATE user_accounts SET sessions_valid_from = ? WHERE id = ?');
+        $set->execute([$ahead, $account->id]);
+        [$id, $rawToken] = $this->createRawToken('stamped@test.com');
+
+        $this->assertTrue($this->service->resetPassword($id, $rawToken, 'MyNewSecureP@ss1'));
+
+        $reloaded = $this->userRepo->findById($account->id);
+        $this->assertTrue(password_verify('MyNewSecureP@ss1', (string) $reloaded?->passwordHash));
+        $this->assertSame($ahead, $reloaded?->sessionsValidFrom?->format('Y-m-d H:i:s'));
+    }
+
+    /**
+     * Review of #1374, the three steps in one sequence with the real services:
+     * a session open for the account, a « Déconnecter partout » whose stamp is
+     * dated one second ahead of it, a reset link used right after, and the old
+     * session revalidated — which must still be revoked. The instants are fixed
+     * (the session and the stamp are in the future, so the reset's « now » is
+     * always earlier than the sign-out's stamp), not read from the clock.
+     */
+    public function testASessionRevokedByASignOutEverywhereStaysRevokedAfterAReset(): void
+    {
+        $account = $this->userRepo->create('sequence@test.com', true);
+        $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES ('2025-2026', '2025-09-01', '2026-08-31', 1)");
+        $yearId = (int) $this->pdo->lastInsertId();
+        $revalidator = new \Core\Security\SessionRevalidator(
+            $this->userRepo,
+            new \Core\Security\RoleResolver(new \Core\Import\MemberYearRepository($this->pdo), $this->encryption, $this->pdo),
+            \Tests\SessionGenerationFixture::forPdo($this->pdo)
+        );
+        $_SESSION = [];
+        \Core\Security\AuthSession::login(
+            $account->id,
+            $account->email,
+            'superadmin',
+            \Tests\SessionGenerationFixture::forPdo($this->pdo)->current()
+        );
+        $issuedAt = time() + 1000;
+        $_SESSION['_auth']['issued_at'] = $issuedAt;
+
+        // « Déconnecter partout », whose stamp is the second after the session's.
+        $signOutStamp = date('Y-m-d H:i:s', $issuedAt + 1);
+        $set = $this->pdo->prepare('UPDATE user_accounts SET sessions_valid_from = ? WHERE id = ?');
+        $set->execute([$signOutStamp, $account->id]);
+
+        // The reset link, used right after.
+        [$id, $rawToken] = $this->createRawToken('sequence@test.com');
+        $this->assertTrue($this->service->resetPassword($id, $rawToken, 'MyNewSecureP@ss1'));
+
+        $this->assertSame($signOutStamp, $this->userRepo->findById($account->id)?->sessionsValidFrom?->format('Y-m-d H:i:s'));
+        $this->assertFalse($revalidator->revalidate(
+            fn(): \Core\ScoutYear\AuthorizationYears => new \Core\ScoutYear\AuthorizationYears($yearId, [$yearId])
+        ));
+        $this->assertFalse(\Core\Security\AuthSession::isAuthenticated(), 'the old session stays revoked');
+    }
+
     public function testResetPasswordConsumesTokenSoItCannotBeReused(): void
     {
         $this->userRepo->create('onceonly@test.com');
@@ -211,6 +277,90 @@ class PasswordResetServiceTest extends TestCase
         [$id, $rawToken] = $this->createRawToken('expired2@test.com', expired: true);
 
         $this->assertFalse($this->service->resetPassword($id, $rawToken, 'MyNewSecureP@ss1'));
+    }
+
+    /**
+     * Issue #1257: checking a token and consuming it were two steps, so two
+     * requests holding the same link could both pass the check and each set
+     * a password. The loser of the claim changes nothing: no password, no
+     * journal line, no passkey taken back.
+     */
+    public function testTheLoserOfTheClaimChangesNothing(): void
+    {
+        $account = $this->userRepo->create('race@test.com');
+        $this->userRepo->updatePasswordHash($account->id, password_hash('Original-Pass-1', PASSWORD_DEFAULT));
+        [$id, $rawToken] = $this->createRawToken('race@test.com');
+        $connection = $this->createStub(Connection::class);
+        $connection->method('getPdo')->willReturn($this->pdo);
+        $loser = new PasswordResetService(
+            $connection,
+            $this->encryption,
+            $this->createStub(MailService::class),
+            EmailTemplateRendererFactory::overTestDatabase($this->pdo, new Environment(new ArrayLoader([]))),
+            'https://example.com',
+            'Test Unit',
+            new class ($this->pdo) extends \Core\Security\PasswordResetRepository {
+                public function markUsed(int $id): bool
+                {
+                    // The other request got there first, after our check.
+                    parent::markUsed($id);
+
+                    return false;
+                }
+            }
+        );
+        $loser->setJournalService(new JournalService(new JournalRepository($this->pdo)));
+
+        $this->assertFalse($loser->resetPassword($id, $rawToken, 'Attacker-Choice-1'));
+
+        $reloaded = $this->userRepo->findById($account->id);
+        $this->assertTrue(password_verify('Original-Pass-1', (string) $reloaded?->passwordHash));
+        $this->assertSame(
+            0,
+            (int) $this->pdo->query("SELECT COUNT(*) FROM event_log WHERE event_type = 'password_reset_completed'")
+                ->fetchColumn()
+        );
+    }
+
+    /**
+     * Consuming the token and writing the password are one transaction: a
+     * password that cannot be written must not leave the link spent, or the
+     * holder is told to start again for nothing.
+     */
+    public function testAPasswordThatCannotBeWrittenLeavesTheTokenUsable(): void
+    {
+        $this->userRepo->create('atomic@test.com');
+        [$id, $rawToken] = $this->createRawToken('atomic@test.com');
+        $this->pdo->exec(
+            "CREATE TRIGGER refuse_password BEFORE UPDATE ON user_accounts
+             BEGIN SELECT RAISE(ABORT, 'refused'); END"
+        );
+
+        try {
+            $this->service->resetPassword($id, $rawToken, 'MyNewSecureP@ss1');
+            $this->fail('The refused write must surface.');
+        } catch (\PDOException) {
+            // expected
+        }
+
+        $this->assertFalse($this->pdo->inTransaction());
+        $this->pdo->exec('DROP TRIGGER refuse_password');
+        $this->assertTrue($this->service->checkToken($id, $rawToken));
+        $this->assertTrue($this->service->resetPassword($id, $rawToken, 'MyNewSecureP@ss1'));
+    }
+
+    public function testResetPasswordRefusesAnAlreadyConsumedTokenWithoutTouchingThePassword(): void
+    {
+        $account = $this->userRepo->create('consumed@test.com');
+        $this->userRepo->updatePasswordHash($account->id, password_hash('Original-Pass-1', PASSWORD_DEFAULT));
+        [$id, $rawToken] = $this->createRawToken('consumed@test.com');
+        $this->pdo->prepare('UPDATE password_reset_tokens SET used = 1 WHERE id = ?')->execute([$id]);
+
+        $this->assertFalse($this->service->resetPassword($id, $rawToken, 'Attacker-Choice-1'));
+        $this->assertTrue(password_verify(
+            'Original-Pass-1',
+            (string) $this->userRepo->findById($account->id)?->passwordHash
+        ));
     }
 
     /**
