@@ -370,4 +370,150 @@ class MemberShowTemplateTest extends TestCase
         $this->assertStringContainsString('Réunion', $sent);
         $this->assertStringNotContainsString('Non envoyée', $sent);
     }
+
+    /**
+     * Section card of the member page (« Informations essentielles »).
+     *
+     * @return array<string, mixed>
+     */
+    private function sectionInfo(?MemberProfile $responsable): array
+    {
+        return [
+            'section' => ['id' => 5, 'name' => 'Louveteaux', 'desk_code' => 'L1', 'email' => null],
+            'responsable' => $responsable,
+            'badge_assignments' => [],
+            'referent_holders' => [],
+            'next_event' => null,
+            'functions_this_year' => [],
+        ];
+    }
+
+    private function responsable(bool $withAddress): MemberProfile
+    {
+        $addresses = $withAddress
+            ? [new \Core\Member\MemberAddress('home', 'Rue de la Paix', '12', null, null, '5000', 'Namur', 'Belgique')]
+            : [];
+
+        return new MemberProfile(
+            memberYearId: 2, memberId: 2, deskId: 'D2', firstName: 'marie', lastName: 'durand',
+            totem: 'Akela', quali: null, gender: null, birthDate: null,
+            phone: null, mobile: null, email: null,
+            patrol: null, formationLevel: null, federationMailConsent: false, unitMailConsent: false,
+            addresses: $addresses, functions: [],
+            scoutYearLabel: '2025-2026'
+        );
+    }
+
+    /**
+     * The « Informations essentielles » block whose label reads $label, as
+     * the DOM element that holds the label and its value.
+     */
+    private function essentialBlock(string $html, string $label): ?\DOMElement
+    {
+        $dom = new \DOMDocument();
+        $previous = libxml_use_internal_errors(true);
+        $dom->loadHTML('<?xml encoding="UTF-8">' . $html);
+        libxml_clear_errors();
+        libxml_use_internal_errors($previous);
+
+        $xpath = new \DOMXPath($dom);
+        $nodes = $xpath->query(
+            "//h2[normalize-space(.)='Informations essentielles']/following::span"
+            . "[contains(concat(' ', normalize-space(@class), ' '), ' text-body-secondary ')]"
+            . "[normalize-space(.)='" . $label . "'][1]/parent::div"
+        );
+
+        return $nodes !== false && $nodes->length > 0 && $nodes->item(0) instanceof \DOMElement
+            ? $nodes->item(0)
+            : null;
+    }
+
+    /**
+     * @return list<string> the class tokens of the element's direct children
+     *         that carry text, keyed by their visible text
+     */
+    private function classesOf(\DOMElement $block, string $containing): array
+    {
+        $xpath = new \DOMXPath($block->ownerDocument);
+        $found = $xpath->query('.//*[contains(normalize-space(.), ' . "'" . $containing . "'" . ')][not(*)]', $block);
+        $this->assertNotFalse($found);
+        $this->assertGreaterThan(0, $found->length, 'no element holds « ' . $containing . ' »');
+        $element = $found->item(0);
+        $this->assertInstanceOf(\DOMElement::class, $element);
+
+        return array_values(array_filter(explode(' ', $element->getAttribute('class'))));
+    }
+
+    public function testTheSectionHeadValueIsSmallLikeTheOtherValuesOfTheCard(): void
+    {
+        $html = $this->render($this->makeMember(), true, ['section_info' => $this->sectionInfo(null)]);
+
+        $block = $this->essentialBlock($html, 'Section');
+        $this->assertNotNull($block);
+        $classes = $this->classesOf($block, 'Louveteaux');
+        $this->assertContains('small', $classes);
+        $this->assertNotContains('text-body-secondary', $classes);
+    }
+
+    public function testTheSectionLeaderNameAndAddressUseTheSameValueStyleAsTheOtherValues(): void
+    {
+        $html = $this->render(
+            $this->makeMember(),
+            true,
+            ['section_info' => $this->sectionInfo($this->responsable(true))]
+        );
+
+        $block = $this->essentialBlock($html, 'Responsable');
+        $this->assertNotNull($block);
+
+        $name = $this->classesOf($block, 'Akela');
+        $this->assertContains('small', $name);
+        $this->assertNotContains('text-body-secondary', $name);
+
+        // The address stays under the name, in the value style: small, and
+        // no longer the grey a label wears (issue #1347).
+        $address = $this->classesOf($block, 'Rue de la Paix');
+        $this->assertContains('small', $address);
+        $this->assertNotContains('text-body-secondary', $address);
+        $this->assertStringContainsString('Namur', $block->textContent);
+    }
+
+    public function testTheLeaderLabelKeepsTheDiscreetLabelStyle(): void
+    {
+        $html = $this->render(
+            $this->makeMember(),
+            true,
+            ['section_info' => $this->sectionInfo($this->responsable(true))]
+        );
+
+        $block = $this->essentialBlock($html, 'Responsable');
+        $this->assertNotNull($block, 'the label must keep the label colour');
+    }
+
+    public function testALeaderWithoutAnAddressShowsTheNameAndNoAddressLine(): void
+    {
+        $html = $this->render(
+            $this->makeMember(),
+            true,
+            ['section_info' => $this->sectionInfo($this->responsable(false))]
+        );
+
+        $block = $this->essentialBlock($html, 'Responsable');
+        $this->assertNotNull($block);
+        $this->assertContains('small', $this->classesOf($block, 'Akela'));
+        $this->assertStringNotContainsString('Namur', $block->textContent);
+        $this->assertStringNotContainsString('Rue de la Paix', $block->textContent);
+        $xpath = new \DOMXPath($block->ownerDocument);
+        $lines = $xpath->query('./div', $block);
+        $this->assertNotFalse($lines);
+        $this->assertSame(0, $lines->length, 'no address line without an address');
+    }
+
+    public function testASectionWithoutALeaderHasNoLeaderBlock(): void
+    {
+        $html = $this->render($this->makeMember(), true, ['section_info' => $this->sectionInfo(null)]);
+
+        $this->assertNull($this->essentialBlock($html, 'Responsable'));
+        $this->assertNotNull($this->essentialBlock($html, 'Section'));
+    }
 }
