@@ -78,6 +78,7 @@ class SosAdminControllerTest extends TestCase
     private bool $applyChangesTheProvider = true;
     /** True: neither a duty nor the default number gives a destination. */
     private bool $noDestination = false;
+    private bool $simulatedProvider = false;
 
     protected function setUp(): void
     {
@@ -131,6 +132,8 @@ class SosAdminControllerTest extends TestCase
         $providerConfigService = $this->createStub(ProviderConfigService::class);
         $providerConfigService->method('getActiveProvider')->willReturnCallback(fn() => $this->activeProvider);
         $providerConfigService->method('getSosNumber')->willReturn('+32 2 000 00 00');
+        $providerConfigService->method('isSimulatedProviderActive')
+            ->willReturnCallback(fn() => $this->simulatedProvider);
         $journalService = new JournalService(new JournalRepository($this->pdo));
 
         // The two RedirectService calls the page makes (issue #1026): which
@@ -330,6 +333,16 @@ class SosAdminControllerTest extends TestCase
         $stmt->execute([$memberYearId, $functionId, $staffduId]);
 
         return $memberId;
+    }
+
+    public function testSimulationIsNamedOnEverySosPage(): void
+    {
+        $this->simulatedProvider = true;
+
+        foreach ([$this->dashboard(), $this->planning(), $this->settingsPage()] as $body) {
+            self::assertStringContainsString('Opérateur simulé', $body);
+            self::assertStringContainsString("la vraie ligne n'est pas pilotée", $body);
+        }
     }
 
     public function testIndexRendersPage(): void
@@ -548,6 +561,21 @@ class SosAdminControllerTest extends TestCase
         $decoded = json_decode($response->getBody(), true);
         $this->assertTrue($decoded['success']);
         $this->assertSame('+32470123456', $this->settingsService->getDefaultNumber($this->scoutYearId));
+    }
+
+    public function testSavingTheDefaultNumberInSimulationDoesNotConfirmTheRealLine(): void
+    {
+        $this->simulatedProvider = true;
+        $memberId = $this->createStaffduMember('Akela', '+32470123456');
+        $response = $this->controller->updateDefaultNumber(
+            $this->jsonRequest(['member_id' => $memberId, '_csrf_token' => $this->csrfToken()]),
+            []
+        );
+        $decoded = json_decode($response->getBody(), true);
+
+        self::assertTrue($decoded['success']);
+        self::assertFalse($decoded['line_ok']);
+        self::assertStringContainsString('Opérateur simulé', $decoded['message']);
     }
 
     public function testUpdateDefaultNumberRejectsMissingMember(): void
@@ -1963,6 +1991,21 @@ class SosAdminControllerTest extends TestCase
         $this->resynchronize();
 
         $this->assertSame([[$baloo, $akela, $this->scoutYearId]], $this->applyCalls);
+    }
+
+    public function testSimulationNeverReturnsARealLineConformanceMessage(): void
+    {
+        $this->simulatedProvider = true;
+        $this->createStaffduMember('Akela', '+32470000001');
+        $this->forwarding = new \Modules\SosStaff\Api\ForwardingState(true, '+32470000001');
+
+        $answer = $this->resynchronize();
+
+        self::assertTrue($answer['success']);
+        self::assertStringContainsString('Opérateur simulé', $answer['message']);
+        self::assertStringNotContainsString('conforme', $answer['message']);
+        self::assertStringContainsString('Redirection simulée active', $answer['html']);
+        self::assertSame([], $this->applyCalls);
     }
 
     public function testNothingIsDoneWhenTheRedirectionIsAlreadyConform(): void

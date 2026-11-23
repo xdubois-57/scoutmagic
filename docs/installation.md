@@ -35,6 +35,24 @@ Aucun SSH, Git ou Composer nécessaire sur le serveur — seulement le FTP, et u
 
 Sans cela, le site n'apprend jamais qu'une nouvelle release existe — voir ARCHITECTURE.md §8.17 pour le fonctionnement de l'installation des mises à jour une fois notifié.
 
+## Les profils réservés aux installations d'essai et de réception
+
+Une installation d'unité conserve `'installation_profile' => []` dans
+`config/app.php`. Ce fichier reste préservé lors des mises à jour.
+Modifier `base_url` dans le site ne peut pas lui donner de profil spécial.
+
+L'installation de référence doit déclarer `reference_installation` dans
+cette liste ; son adresse doit aussi désigner `scoutmagic.be`. Une machine
+de développement déclare `local_installation` et utilise un hôte local.
+`composer dev-config` écrit cette déclaration pour un nouveau fichier local.
+Le serveur qui reçoit les statistiques et tickets de support déclare
+`statistics_receiver` ; son hôte doit correspondre à la destination des
+statistiques. Ces déclarations nécessitent un accès aux fichiers du serveur.
+
+Après une mise à jour d'une installation de référence ou de réception,
+ajoutez explicitement les profils nécessaires dans son fichier existant.
+Aucun profil n'est ajouté automatiquement depuis les réglages de la base.
+
 ## La tâche cron
 
 ```

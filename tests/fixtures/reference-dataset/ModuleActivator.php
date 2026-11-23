@@ -57,6 +57,7 @@ final class ModuleActivator
         private readonly SettingService $settingService,
         private readonly string $modulesDir,
         private readonly string $baseUrl,
+        private readonly mixed $declaredProfiles = [],
     ) {
     }
 
@@ -176,8 +177,8 @@ final class ModuleActivator
      * notification service — a build has nobody to tell that a module was
      * switched on.
      *
-     * The installation profile is resolved from the instance's own base URL
-     * rather than invented: it decides which modules are visible at all
+     * The profile uses the instance's own server declaration and base URL,
+     * rather than a database opt-in: it decides which modules are visible at all
      * (ARCHITECTURE.md §8.49), and a hand-built profile would silently hide
      * the receiver-only modules from a build that is meant to enable
      * everything.
@@ -205,6 +206,7 @@ final class ModuleActivator
             InstallationProfile::resolve(
                 $this->baseUrl,
                 (string) ($this->settingService->get('statistics_destination') ?? ''),
+                $this->declaredProfiles,
             ),
         );
     }

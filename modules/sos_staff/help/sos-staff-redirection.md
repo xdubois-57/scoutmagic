@@ -16,6 +16,12 @@ d'urgence ». Son premier bloc, « Redirection actuelle », affiche l'état
 fait : actif ou non, et vers quel numéro. En dessous, « Redirections
 planifiées » liste les bascules à venir, la prochaine en évidence.
 
+Sur une installation d'essai, le bandeau **« Opérateur simulé »** reste
+visible tant que la simulation est active. Les états et les changements
+affichés concernent uniquement cette simulation : la vraie ligne n'est
+pas pilotée par le site. Une vérification réussie de la simulation ne
+confirme jamais le bon fonctionnement de la vraie ligne.
+
 Le prochain changement est le premier de la liste, suivi des autres
 changements à venir par date et heure croissantes. Les changements passés
 viennent ensuite, du plus récent au plus ancien. Cet ordre s'applique à

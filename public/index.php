@@ -2337,13 +2337,14 @@ foreach ($mailSettingKeys as $mailSecretKey) {
     $secrets[$mailSecretKey] = (string) ($settingService->get($mailSecretKey) ?: ($secrets[$mailSecretKey] ?? ''));
 }
 // Which named flags hold for THIS installation (ARCHITECTURE.md §8.49)?
-// Decided from base_url, never from the Host header, and resolved here
-// through the single resolver every entry point calls so ModuleManager
+// Server-declared capabilities, constrained by base_url, never the Host header.
+// Resolved here through the single resolver every entry point calls so ModuleManager
 // receives an already-built profile rather than learning what a statistics
 // destination or a reference host is.
 $installationProfile = \Core\Module\InstallationProfile::resolve(
     (string) ($settingService->get('base_url') ?? ''),
-    (string) ($settingService->get('statistics_destination') ?? '')
+    (string) ($settingService->get('statistics_destination') ?? ''),
+    $config->get('installation_profile', [])
 );
 
 // The mail sandbox (ARCHITECTURE.md §8.63). Outgoing mail is captured
@@ -4007,7 +4008,8 @@ scoutmagicBootstrapScheduler(
     // composition roots are symmetric: an entry point that forgets the
     // eager call still gets a working feature, which is the shape
     // `cron.php` did not have.
-    $seedMailboxes
+    $seedMailboxes,
+    installationProfile: $installationProfile
 );
 
 // Bootstrap the recurring automatic backup — Task\AutoBackupHandler

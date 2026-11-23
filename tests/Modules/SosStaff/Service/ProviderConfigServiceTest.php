@@ -74,8 +74,10 @@ class ProviderConfigServiceTest extends TestCase
 
         // Nothing configured at all: without the simulated line, nothing.
         $this->assertNull((new ProviderConfigService($this->repository))->getActiveProvider());
+        $this->assertFalse((new ProviderConfigService($this->repository))->isSimulatedProviderActive());
 
         $service = new ProviderConfigService($this->repository, null, $line);
+        $this->assertTrue($service->isSimulatedProviderActive());
         $this->assertSame($line, $service->getActiveProvider());
         $this->assertSame('+3220000000', $service->getSosNumber());
     }

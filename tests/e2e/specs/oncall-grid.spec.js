@@ -145,7 +145,8 @@ test('the dashboard reactivates an inactive redirection in one click, and moves 
     await expect(page.locator('#planned-transitions-list')).toBeVisible();
 
     const block = page.locator('#sos-status-banner');
-    await expect(block.getByRole('heading', { level: 2 })).toContainText('Redirection inactive');
+    await expect(block.getByRole('heading', { level: 2 })).toContainText('Redirection simulée inactive');
+    await expect(page.locator('#sos-simulation-notice')).toContainText("la vraie ligne n'est pas pilotée");
     const button = block.getByRole('button', { name: 'Réactiver la redirection' });
     await expect(button).toBeVisible();
 
@@ -154,11 +155,11 @@ test('the dashboard reactivates an inactive redirection in one click, and moves 
     const answered = waitForServerResponse(page, (response) => response.url().includes('/admin/sos/redirection'));
     await button.click();
     expect((await answered).ok()).toBe(true);
-    await expect(page.locator('.toast-body', { hasText: 'Redirection réactivée et vérifiée.' }).last()).toBeVisible();
+    await expect(page.locator('.toast-body', { hasText: 'Opérateur simulé' }).last()).toBeVisible();
 
     // The block was redrawn from what the provider now says; nothing is
     // left to correct, and no success text was written into the page.
-    await expect(block.getByRole('heading', { level: 2 })).toContainText('Redirection active');
+    await expect(block.getByRole('heading', { level: 2 })).toContainText('Redirection simulée active');
     await expect(page.locator('#sos-redirect-sync')).toHaveCount(0);
     await page.reload({ waitUntil: 'load' });
     await expect(page.locator('#sos-redirect-sync'), 'the provider really changed').toHaveCount(0);
@@ -621,7 +622,8 @@ test('the page says where the calls go, as read from the provider', async ({ pag
 
     const banner = page.locator('#sos-status-banner');
     await expect(banner).toBeVisible();
-    await expect(banner.getByRole('heading', { level: 2 })).toContainText('chez le fournisseur');
+    await expect(banner.getByRole('heading', { level: 2 })).toContainText('Redirection simulée');
+    await expect(page.locator('#sos-simulation-notice')).toContainText("la vraie ligne n'est pas pilotée");
     await expect(banner, 'the SOS number is the simulated line').toContainText('+3220000000');
     await expect(page.getByText('Aucun fournisseur de téléphonie', { exact: false })).toHaveCount(0);
 });

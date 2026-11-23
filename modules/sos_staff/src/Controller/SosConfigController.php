@@ -63,6 +63,7 @@ class SosConfigController extends AbstractController
         $allSections = $this->sectionService->getAllWithBranches();
 
         return $this->render('@sos_staff/config.html.twig', [
+            'simulated_provider' => $this->providerConfigService->isSimulatedProviderActive(),
             'provider_options' => $this->providerConfigService->getProviderOptions(),
             'has_application_credentials' => !empty($config['application_key'])
                 && !empty($config['application_secret']),

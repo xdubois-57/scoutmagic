@@ -20,6 +20,18 @@ voir [installation.md](installation.md).
 
 ## Développement
 
+`composer dev-config` prépare un nouveau `config/app.php` avec HTTP local
+autorisé et `'installation_profile' => ['local_installation']`. Un fichier
+existant n'est jamais écrasé : s'il manque cette déclaration, la commande
+indique la ligne à ajouter. Une URL locale, à elle seule, n'active plus les
+outils d'essai. Le profil exige aussi un hôte local.
+
+Les installations jetables des tests navigateur et DAST déclarent
+`local_installation` et `statistics_receiver` dans leur propre fichier de
+configuration, pour tester aussi la réception du support. Les tests PHP
+déclarent leurs profils de fixtures dans leur bootstrap ; ces déclarations
+ne sont jamais lues par les points d'entrée de production.
+
 ```bash
 composer install
 composer dev-config                # config/app.php de développement (HTTP toléré, voir SECURITY.md § 9)

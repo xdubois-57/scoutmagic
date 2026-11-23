@@ -68,9 +68,17 @@ class ModuleVisibilityTest extends TestCase
     }
 
     #[DataProvider('installationProvider')]
+    public function testAFlaggedHostAloneDoesNotMakeTheModuleVisible(string $baseUrl): void
+    {
+        $profile = InstallationProfile::resolve($baseUrl, 'https://scoutmagic.be');
+
+        self::assertFalse($profile->hasAny($this->manifest->visibleWhen));
+    }
+
+    #[DataProvider('installationProvider')]
     public function testTheModuleIsVisibleOnAFlaggedInstallation(string $baseUrl): void
     {
-        $profile = InstallationProfile::resolve($baseUrl, '');
+        $profile = InstallationProfile::resolve($baseUrl, '', SCOUTMAGIC_TEST_INSTALLATION_PROFILE);
 
         $this->assertTrue($profile->hasAny($this->manifest->visibleWhen), $baseUrl);
     }

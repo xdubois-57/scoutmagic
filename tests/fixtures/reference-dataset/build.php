@@ -205,6 +205,7 @@ $moduleActivator = new ModuleActivator(
     new \Core\Config\SettingService(new \Core\Config\SettingRepository($pdo)),
     $instanceRoot . '/modules',
     $context->baseUrl(),
+    (new \Core\Config\AppConfig($instanceRoot . '/config/app.php'))->get('installation_profile', []),
 );
 $moduleResult = $moduleActivator->activateAll();
 printf("Modules activés : %d\n", count($moduleResult['activated']));

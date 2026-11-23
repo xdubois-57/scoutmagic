@@ -18,7 +18,9 @@
 #}
 <section class="border rounded-3 p-3 mb-4" id="sos-status-banner" aria-labelledby="sos-status-title">
     <div class="d-flex align-items-start gap-2">
-        {% if live_state.error %}
+        {% if simulated_provider|default(false) %}
+            {% set dot_class = 'text-warning' %}
+        {% elseif live_state.error %}
             {% set dot_class = 'text-danger' %}
         {% elseif live_state.active %}
             {% set dot_class = 'text-success' %}
@@ -31,13 +33,21 @@
                 <h2 class="h6 mb-1 text-danger" id="sos-status-title">État de la redirection illisible chez le fournisseur</h2>
                 <p class="small mb-0">{{ live_state.error }}</p>
             {% elseif live_state.active %}
-                <h2 class="h6 mb-1" id="sos-status-title">Redirection active chez le fournisseur</h2>
+                <h2 class="h6 mb-1" id="sos-status-title">
+                    {% if simulated_provider|default(false) %}Redirection simulée active
+                    {% else %}Redirection active chez le fournisseur{% endif %}
+                </h2>
                 <p class="small mb-0">
-                    Les appels{% if sos_number %} au {{ sos_number }}{% endif %} sont actuellement redirigés vers
+                    {% if simulated_provider|default(false) %}Dans la simulation, les appels
+                    {% else %}Les appels{% endif %}
+                    {% if sos_number %} au {{ sos_number }}{% endif %} sont actuellement redirigés vers
                     <strong>{% if live_state.label %}{{ live_state.label }} — {% endif %}{{ live_state.number }}</strong>.
                 </p>
             {% else %}
-                <h2 class="h6 mb-1" id="sos-status-title">Redirection inactive chez le fournisseur</h2>
+                <h2 class="h6 mb-1" id="sos-status-title">
+                    {% if simulated_provider|default(false) %}Redirection simulée inactive
+                    {% else %}Redirection inactive chez le fournisseur{% endif %}
+                </h2>
                 <p class="small mb-0">
                     Les appels{% if sos_number %} au {{ sos_number }}{% endif %} ne sont actuellement redirigés vers aucun
                     téléphone.
