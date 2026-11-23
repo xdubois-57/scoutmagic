@@ -10,6 +10,7 @@ namespace Tests\Modules\InboundMail\Client;
 
 use Modules\InboundMail\Client\FetchedMessage;
 use Modules\InboundMail\Client\ImapMailboxClient;
+use Modules\InboundMail\Client\MailboxConnectionException;
 use Modules\InboundMail\Mailbox\Mailbox;
 use Modules\InboundMail\Mailbox\MailboxCredentials;
 use Modules\InboundMail\Mailbox\ProviderType;
@@ -23,6 +24,9 @@ use PHPUnit\Framework\TestCase;
  * « BAD Could not parse command » and a Gmail box failed every sync after
  * its first read, while a Dovecot box let it through. `ScriptedImapServer`
  * refuses the quoted form as Gmail does.
+ *
+ * And the inbox those reads start from is found whatever case the server
+ * lists it in.
  */
 class ImapUidRangeSearchTest extends TestCase
 {
@@ -70,6 +74,27 @@ class ImapUidRangeSearchTest extends TestCase
         $this->server->folders['INBOX'] = [];
 
         $this->assertSame([], $this->connected()->fetchSince('INBOX', 0, 10));
+    }
+
+    /**
+     * INBOX is case-insensitive (RFC 3501 §5.1): a server that lists its
+     * inbox as « Inbox » still has it read when the box asks for INBOX —
+     * which every box now does.
+     */
+    public function testTheInboxIsFoundWhateverCaseTheServerListsItIn(): void
+    {
+        $this->server->folders = ['Inbox' => [3 => $this->message('trois')]];
+
+        $this->assertSame([3], $this->uids($this->connected()->fetchSince('INBOX', 0, 10)));
+    }
+
+    /** Only the inbox: every other name is matched exactly, as the server listed it. */
+    public function testAnyOtherFolderIsMatchedExactly(): void
+    {
+        $this->server->folders = ['INBOX' => [], 'Archives' => [3 => $this->message('trois')]];
+
+        $this->expectException(MailboxConnectionException::class);
+        $this->connected()->fetchSince('archives', 0, 10);
     }
 
     private function message(string $id): string

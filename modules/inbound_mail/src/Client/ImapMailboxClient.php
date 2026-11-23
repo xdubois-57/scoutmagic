@@ -604,6 +604,15 @@ class ImapMailboxClient implements IncomingMailboxClientInterface, PruningMailbo
     {
         try {
             $imapFolder = $this->requireClient()->getFolderByPath($folder);
+            // INBOX is case-insensitive (RFC 3501 §5.1), and the library
+            // compares paths exactly: a server listing « Inbox » must still
+            // have its inbox read, now that every box reads it. Every other
+            // name stays exact.
+            if ($imapFolder === null && strcasecmp($folder, 'INBOX') === 0) {
+                $imapFolder = $this->requireClient()->getFolders(false)->first(
+                    static fn(Folder $candidate): bool => strcasecmp($candidate->path, 'INBOX') === 0
+                );
+            }
         } catch (MailboxConnectionException $e) {
             throw $e;
         } catch (\Throwable $e) {

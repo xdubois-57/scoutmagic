@@ -347,6 +347,29 @@ describe('inbound-mail-config.js', () => {
             expect(posted().folders).toEqual(['Factures']);
         });
 
+        it('says when the stored sent folder is gone, rather than replacing it unseen', async () => {
+            global.fetch = mockFetch({ 'test-connexion': LWS });
+            $('mailbox-folders').dataset.sent = 'INBOX.Ancien';
+            await boot();
+            fillConnection();
+            checkConnection();
+
+            await vi.waitFor(() => expect($('mailbox-sent-folder').disabled).toBe(false));
+            expect($('mailbox-folders-missing').hidden).toBe(false);
+            expect($('mailbox-folders-missing').textContent).toContain('INBOX.Ancien');
+            expect(posted().sent).toBe('');
+        });
+
+        it('says nothing about the sent folder when none was chosen', async () => {
+            global.fetch = mockFetch({ 'test-connexion': LWS });
+            await boot();
+            fillConnection();
+            checkConnection();
+
+            await vi.waitFor(() => expect($('mailbox-sent-folder').disabled).toBe(false));
+            expect($('mailbox-folders-missing').hidden).toBe(true);
+        });
+
         it('says which module the box is for, since a seed box is offered its junk folder', async () => {
             global.fetch = mockFetch({ 'test-connexion': LWS });
             await boot();

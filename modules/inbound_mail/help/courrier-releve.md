@@ -41,9 +41,10 @@ L'erreur dit à quelle étape la relève s'est arrêtée :
 - **certificat non vérifié** : vérifiez le nom du serveur et le
   chiffrement ; il n'existe pas d'option pour passer outre ;
 - **dossier introuvable** : le dossier nommé n'existe plus sous ce nom
-  exact. Ouvrez l'adresse avec « Modifier » : la liste des dossiers le
-  signale (voir [les dossiers lus](/aide/courrier-dossiers)), et
-  l'enregistrement le retire ;
+  exact. Ouvrez l'adresse avec « Modifier » : une fois la connexion
+  vérifiée, la liste des dossiers le signale (voir
+  [les dossiers lus](/aide/courrier-dossiers)), et l'enregistrement le
+  retire. Sans JavaScript, l'adresse garde ses dossiers ;
 - **une étape après une connexion réussie** (liste des dossiers,
   ouverture d'un dossier, lecture des messages) : les identifiants sont
   bons, c'est le serveur qui a refusé ou coupé. Le nom technique entre

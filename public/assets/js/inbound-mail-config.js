@@ -348,11 +348,20 @@
         });
 
         var missing = chosenFolders.filter(function (f) { return !offered.includes(f); });
+        /** @type {string[]} */
+        var warnings = [];
+        if (missing.length > 0) {
+            warnings.push('Introuvable sur ce serveur, donc plus lu après l’enregistrement : ' + missing.join(', ') + '.');
+        }
+        // A sent folder the server no longer has is replaced by the choice
+        // below on saving: said, rather than swapped unseen.
+        if (sentSelect && chosenSent !== '' && !candidates.includes(chosenSent)) {
+            warnings.push('Dossier des messages envoyés introuvable sur ce serveur : ' + chosenSent
+                + '. L’enregistrement le remplace par le choix ci-dessous.');
+        }
         if (foldersMissing) {
-            foldersMissing.textContent = missing.length > 0
-                ? 'Introuvable sur ce serveur, donc plus lu après l’enregistrement : ' + missing.join(', ') + '.'
-                : '';
-            foldersMissing.hidden = missing.length === 0;
+            foldersMissing.textContent = warnings.join(' ');
+            foldersMissing.hidden = warnings.length === 0;
         }
 
         showSentChoice(typeof data.sent_folder === 'string' ? data.sent_folder : null, candidates);
