@@ -255,8 +255,9 @@ class ExpenseReceiptServiceTest extends TestCase
             self::PDF, 'application/pdf', 'ticket.pdf', null, null, null, 'intendant', [$treasurer], 7
         );
 
-        $row = $this->pdo->query('SELECT account_id, uploaded_by FROM finance_attachments WHERE file_id = ' . $fileId)
-            ->fetch(\PDO::FETCH_ASSOC);
+        $stmt = $this->pdo->prepare('SELECT account_id, uploaded_by FROM finance_attachments WHERE file_id = ?');
+        $stmt->execute([$fileId]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
         $this->assertIsArray($row);
         $this->assertNull($row['account_id']);
         $this->assertSame(7, (int) $row['uploaded_by']);

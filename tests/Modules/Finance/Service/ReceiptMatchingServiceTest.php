@@ -19,6 +19,7 @@ use Modules\LlmConnector\Api\LlmConnectorInterface;
 use Modules\LlmConnector\Api\LlmException;
 use Modules\LlmConnector\Api\LlmRequest;
 use Modules\LlmConnector\Api\LlmResponse;
+use Modules\LlmConnector\Api\LlmTier;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Finance\FinanceTestHelper;
@@ -318,6 +319,14 @@ class ReceiptMatchingServiceTest extends TestCase
         $this->assertSame(1, $matched);
         $this->assertSame([$transaction->id], $this->transactionAttachmentRepository->findTransactionIdsForAttachment($receipt->id));
         $this->assertSame($this->accountId, $this->attachmentRepository->findById($receipt->id)?->accountId);
+        // And its file follows it, or a download would still answer to
+        // the pile's boundary rather than the account's.
+        $stmt = $this->pdo->prepare('SELECT owner_type, owner_id FROM files WHERE id = ?');
+        $stmt->execute([$receipt->fileId]);
+        $file = $stmt->fetch(\PDO::FETCH_ASSOC);
+        $this->assertIsArray($file);
+        $this->assertSame(\Modules\Finance\File\FinanceAccountOwnershipChecker::OWNER_TYPE, $file['owner_type']);
+        $this->assertSame($this->accountId, (int) $file['owner_id']);
     }
 
     /** Nothing to answer it, nothing done: the receipt stays in the pile, unfiled. */
@@ -352,6 +361,7 @@ class ReceiptMatchingServiceTest extends TestCase
 
         $llmConnector = $this->createMock(LlmConnectorInterface::class);
         $llmConnector->method('isAvailable')->willReturn(true);
+        $llmConnector->method('isTierAvailable')->willReturn(true);
         $llmConnector->expects($this->once())
             ->method('complete')
             ->with($this->callback(fn(LlmRequest $r) => str_contains($r->prompt, 'id=' . $transaction->id)))
@@ -371,6 +381,7 @@ class ReceiptMatchingServiceTest extends TestCase
 
         $llmConnector = $this->createStub(LlmConnectorInterface::class);
         $llmConnector->method('isAvailable')->willReturn(true);
+        $llmConnector->method('isTierAvailable')->willReturn(true);
         $llmConnector->method('complete')->willReturn(new LlmResponse('{"transaction_id":9999}', ['transaction_id' => 9999], 10, 10));
 
         $this->service($llmConnector)->matchReceipt($receipt);
@@ -385,6 +396,7 @@ class ReceiptMatchingServiceTest extends TestCase
 
         $llmConnector = $this->createStub(LlmConnectorInterface::class);
         $llmConnector->method('isAvailable')->willReturn(true);
+        $llmConnector->method('isTierAvailable')->willReturn(true);
         $llmConnector->method('complete')->willReturn(new LlmResponse('{"transaction_id":null}', ['transaction_id' => null], 10, 10));
 
         $this->service($llmConnector)->matchReceipt($receipt);
@@ -428,6 +440,25 @@ class ReceiptMatchingServiceTest extends TestCase
         $this->assertNull($this->attachmentRepository->findById($receipt->id)?->matchingAiAttemptedAt);
     }
 
+    /**
+     * A connector with models, but none for the tier the request asks:
+     * the call would fail before any provider, so nothing is marked.
+     */
+    public function testDoesNotMarkAnAttemptWithoutACheapModel(): void
+    {
+        $receipt = $this->createReceipt(12.50, '2026-10-01', '2026-10-01 10:00:00');
+        $this->createTransaction('2026-10-05', -99.0, 'Montant différent');
+
+        $llmConnector = $this->createMock(LlmConnectorInterface::class);
+        $llmConnector->method('isAvailable')->willReturn(true);
+        $llmConnector->method('isTierAvailable')->willReturnCallback(static fn(LlmTier $tier): bool => $tier !== LlmTier::CHEAP);
+        $llmConnector->expects($this->never())->method('complete');
+
+        $this->service($llmConnector)->matchReceipt($receipt);
+
+        $this->assertNull($this->attachmentRepository->findById($receipt->id)?->matchingAiAttemptedAt);
+    }
+
     public function testDoesNotMarkAnAttemptWhenNoConnectorIsConfiguredAtAll(): void
     {
         $receipt = $this->createReceipt(12.50, '2026-10-01', '2026-10-01 10:00:00');
@@ -450,6 +481,7 @@ class ReceiptMatchingServiceTest extends TestCase
 
         $up = $this->createMock(LlmConnectorInterface::class);
         $up->method('isAvailable')->willReturn(true);
+        $up->method('isTierAvailable')->willReturn(true);
         $up->expects($this->once())->method('complete')
             ->willReturn(new LlmResponse('{}', ['transaction_id' => $transaction->id], 10, 10));
         $reloaded = $this->attachmentRepository->findById($receipt->id);
@@ -466,6 +498,7 @@ class ReceiptMatchingServiceTest extends TestCase
 
         $llmConnector = $this->createStub(LlmConnectorInterface::class);
         $llmConnector->method('isAvailable')->willReturn(true);
+        $llmConnector->method('isTierAvailable')->willReturn(true);
         $llmConnector->method('complete')->willThrowException(LlmException::apiError('boom'));
 
         $this->service($llmConnector)->matchReceipt($receipt);
@@ -483,6 +516,7 @@ class ReceiptMatchingServiceTest extends TestCase
 
         $llmConnector = $this->createMock(LlmConnectorInterface::class);
         $llmConnector->method('isAvailable')->willReturn(true);
+        $llmConnector->method('isTierAvailable')->willReturn(true);
         $llmConnector->expects($this->once())
             ->method('complete')
             ->with($this->callback(

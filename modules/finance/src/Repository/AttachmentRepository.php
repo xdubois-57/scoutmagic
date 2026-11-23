@@ -135,10 +135,11 @@ class AttachmentRepository
      */
     public function findActiveUnassigned(): array
     {
-        $stmt = $this->pdo->query("SELECT * FROM finance_attachments WHERE status = 'active' AND account_id IS NULL "
+        $stmt = $this->pdo->prepare("SELECT * FROM finance_attachments WHERE status = 'active' AND account_id IS NULL "
             . "ORDER BY uploaded_at DESC");
+        $stmt->execute();
 
-        return $stmt === false ? [] : array_map([$this, 'hydrate'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
+        return array_map([$this, 'hydrate'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
     }
 
     /**

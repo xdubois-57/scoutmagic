@@ -220,7 +220,10 @@ class ReceiptMatchingService
             return;
         }
 
-        if ($this->llmConnector === null || !$this->llmConnector->isAvailable()) {
+        // The tier the request below asks for, not « anything configured »:
+        // a site with no CHEAP model has the call fail before any provider
+        // is reached, and the marker must not record that as a question put.
+        if ($this->llmConnector === null || !$this->llmConnector->isTierAvailable(LlmTier::CHEAP)) {
             return;
         }
 
