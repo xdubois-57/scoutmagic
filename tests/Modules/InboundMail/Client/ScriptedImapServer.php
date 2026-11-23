@@ -133,7 +133,27 @@ final class ScriptedImapServer extends ImapProtocol
             return $this->no('UID SEARCH');
         }
 
+        // A sequence set is an atom in the IMAP grammar (RFC 3501 §9), never
+        // a quoted string: Gmail answers `UID "6:*"` with a BAD, where
+        // Dovecot lets it through. Refused here as strictly as Gmail does.
+        foreach ($params as $param) {
+            if (preg_match('/\bUID\s+"/', (string) $param) === 1) {
+                $this->commands[] = 'SEARCH ' . implode(' ', $params);
+
+                return $this->bad();
+            }
+        }
+
         $uids = array_keys($this->folders[(string) $this->selected] ?? []);
+
+        // `UID <first>:*` is answered as RFC 3501 says: every UID from
+        // <first> up, and, when there is none, the last message all the
+        // same — `*` is the highest UID in use.
+        if (($params[0] ?? null) === 'UID' && preg_match('/^(\d+):\*$/', (string) ($params[1] ?? ''), $range) === 1) {
+            $this->commands[] = 'SEARCH UID ' . $params[1];
+            $above = array_values(array_filter($uids, static fn(int $id): bool => $id >= (int) $range[1]));
+            $uids = $above !== [] || $uids === [] ? $above : [max($uids)];
+        }
 
         // `SINCE <date>` (D11) is answered as a server does: on the
         // reception date, by day. Every other criterion is not interpreted,
@@ -309,6 +329,12 @@ final class ScriptedImapServer extends ImapProtocol
     private function ok(mixed $result, bool $canBeEmpty = false): Response
     {
         return Response::empty()->setResult($result)->setCanBeEmpty($canBeEmpty);
+    }
+
+    /** A command the server could not parse, worded as Gmail words it. */
+    private function bad(): Response
+    {
+        return Response::make(1, ['UID SEARCH'], ['TAG1 BAD Could not parse command']);
     }
 
     /** The server's own refusal, carrying the account name as real servers' answers do. */

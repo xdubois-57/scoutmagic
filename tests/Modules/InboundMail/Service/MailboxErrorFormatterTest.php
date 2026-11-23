@@ -113,6 +113,21 @@ class MailboxErrorFormatterTest extends TestCase
         $this->assertStringContainsString('introuvable', $sentence);
     }
 
+    /** The folder by its name, so the operator knows which one to fix (#1343). */
+    public function testAMissingFolderIsNamedWhenTheClientSaysWhich(): void
+    {
+        $sentence = $this->formatter->format(new MailboxConnectionException(
+            'Le dossier demandé est introuvable sur le serveur.',
+            0,
+            null,
+            MailboxConnectionException::STEP_OPEN_FOLDER,
+            'INBOX.Archives 2025'
+        ));
+
+        $this->assertStringContainsString('« INBOX.Archives 2025 »', $sentence);
+        $this->assertStringContainsString('introuvable', $sentence);
+    }
+
     public function testASessionCutDuringTheFetchIsNotCalledAServerThatNeverAnswered(): void
     {
         $sentence = $this->format(MailboxConnectionException::STEP_FETCH, new ImapRuntimeException('empty response'));

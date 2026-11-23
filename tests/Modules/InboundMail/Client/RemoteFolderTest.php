@@ -136,4 +136,42 @@ class RemoteFolderTest extends TestCase
         $this->assertSame([], RemoteFolder::offeredAmong($folders));
         $this->assertSame(['Spam'], RemoteFolder::offeredAmong($folders, includingJunk: true));
     }
+
+    /**
+     * The sent mail of a server that marks none is chosen among its own
+     * folders (#1343): every one that opens, the inbox apart — the special
+     * ones included, since `INBOX.Sent` on a server without attributes is
+     * just a folder, and a name is never guessed.
+     */
+    public function testTheSentCandidatesAreEveryFolderThatOpensButTheInbox(): void
+    {
+        $folders = RemoteFolder::fromListing([
+            'INBOX' => ['delimiter' => '.', 'flags' => []],
+            'INBOX.Sent' => ['delimiter' => '.', 'flags' => []],
+            'INBOX.Trash' => ['delimiter' => '.', 'flags' => ['\\Trash']],
+            '[Gmail]' => ['delimiter' => '/', 'flags' => ['\\Noselect']],
+            'Fantôme' => ['delimiter' => '/', 'flags' => ['\\NonExistent']],
+        ]);
+
+        $this->assertSame(['INBOX.Sent', 'INBOX.Trash'], RemoteFolder::sentCandidatesAmong($folders));
+    }
+
+    /**
+     * A server without special-use attributes (LWS, Courier, Dovecot with
+     * an `INBOX.` prefix): its trash and junk folders are offered as
+     * received like any other folder — unticked by default, the form's
+     * business — while the inbox never is: it is always read.
+     */
+    public function testAServerWithoutAttributesOffersEveryFolderButTheInbox(): void
+    {
+        $folders = RemoteFolder::fromListing([
+            'INBOX' => ['delimiter' => '.', 'flags' => []],
+            'INBOX.Sent' => ['delimiter' => '.', 'flags' => []],
+            'INBOX.Trash' => ['delimiter' => '.', 'flags' => []],
+            'INBOX.Spam' => ['delimiter' => '.', 'flags' => []],
+        ]);
+
+        $this->assertSame(['INBOX.Sent', 'INBOX.Trash', 'INBOX.Spam'], RemoteFolder::offeredAmong($folders));
+        $this->assertNull(RemoteFolder::sentAmong($folders));
+    }
 }

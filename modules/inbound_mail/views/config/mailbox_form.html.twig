@@ -184,48 +184,37 @@
                         </p>
                     </div>
 
-                    {# Folders read (D9), folded: the inbox is always read; the
-                       server's other folders are offered without its special
-                       ones (junk, trash, drafts, « Tous les messages »…), and
-                       its sent folder is found automatically. The textarea is
-                       the no-script path; the script replaces it with the
-                       server's own list when the section is opened. #}
+                    {# Folders read (#1343, after D9). Shown only once the
+                       connection the form holds has answered: the inbox,
+                       always read and ticked; the server's other folders,
+                       its special ones left out (junk, trash, drafts,
+                       « Tous les messages »…); and the sent mail, found
+                       from the server's mark or chosen in the server's own
+                       list — never a name typed. Without the script the
+                       section stays hidden: a new address reads its inbox
+                       alone, an edited one keeps the folders it had. #}
                     <div class="col-12">
-                        <details class="border rounded" id="mailbox-folders-details" {{ other_folders is not empty or form.sent_folder != '' ? 'open' : '' }}>
-                            <summary class="px-3 py-2 fw-semibold">Dossiers lus (facultatif)</summary>
-                            <div class="px-3 pb-3">
-                                <div id="mailbox-folders-wrapper">
-                                    {% include 'partials/form_field.html.twig' with {
-                                        field_id: 'mailbox-folders', field_name: 'folders', type: 'textarea',
-                                        label: 'Autres dossiers reçus', rows: 3, placeholder: 'Aucun, seulement la boîte de réception',
-                                        value: other_folders|join("\n"),
-                                        help: 'Un dossier par ligne, avec son nom exact sur le serveur.',
-                                    } only %}
-                                </div>
-                                <div id="mailbox-folders-picker" class="mb-3 d-none">
-                                    <span class="form-label d-block mb-1">Autres dossiers reçus</span>
-                                    <div id="mailbox-folders-list" class="border rounded p-2 overflow-auto"></div>
-                                    <div class="form-text">Aucun coché : seulement la boîte de réception.</div>
-                                </div>
-                                {# <output> is a polite live region of its own: the
-                                   script writes the listing's progress here. #}
-                                <output class="form-text d-block mb-3" id="mailbox-folders-status" aria-live="polite"></output>
-
-                                <p class="mb-1" id="mailbox-sent-found" hidden>
-                                    <span class="form-label d-block mb-0">Dossier des messages envoyés</span>
-                                    Trouvé automatiquement : <span id="mailbox-sent-found-name"></span>
-                                </p>
-                                <div id="mailbox-sent-field">
-                                    {% include 'partials/form_field.html.twig' with {
-                                        field_id: 'mailbox-sent-folder', field_name: 'sent_folder',
-                                        label: 'Dossier des messages envoyés', wrapper_class: 'mb-0',
-                                        placeholder: 'Trouvé automatiquement',
-                                        value: form.sent_folder,
-                                        help: "À changer seulement si le serveur ne l'indique pas lui-même.",
-                                    } only %}
-                                </div>
-                            </div>
-                        </details>
+                        <div class="d-flex flex-wrap align-items-center gap-2">
+                            <button type="button" class="btn btn-outline-secondary btn-sm" id="mailbox-folders-check" hidden>
+                                Vérifier la connexion et choisir les dossiers
+                            </button>
+                            {# <output> is a polite live region of its own: the
+                               script writes the verification's progress here. #}
+                            <output class="form-text" id="mailbox-folders-status" aria-live="polite"></output>
+                        </div>
+                        <fieldset class="border rounded px-3 pb-3 mt-2" id="mailbox-folders" hidden
+                                  data-chosen="{{ other_folders|json_encode }}" data-sent="{{ form.sent_folder }}">
+                            <legend class="float-none w-auto px-2 fs-6 fw-semibold mb-0">Dossiers lus</legend>
+                            <div id="mailbox-folders-list" class="mb-2"></div>
+                            <p class="small text-warning-emphasis mb-2" id="mailbox-folders-missing" hidden></p>
+                            <label class="form-label mb-1" for="mailbox-sent-folder">Dossier des messages envoyés</label>
+                            <select class="form-select" id="mailbox-sent-folder" name="sent_folder" disabled
+                                    aria-describedby="mailbox-sent-help"></select>
+                            <div class="form-text" id="mailbox-sent-help"></div>
+                            {# Posted only with a listing shown: the server
+                               checks the choice against its own. #}
+                            <input type="hidden" name="folders_verified" id="mailbox-folders-verified" value="1" disabled>
+                        </fieldset>
                     </div>
                 </div>
             </div>

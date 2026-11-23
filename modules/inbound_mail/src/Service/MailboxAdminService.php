@@ -417,7 +417,7 @@ class MailboxAdminService
      * box (`RemoteFolder::offeredAmong()`).
      *
      * @return array{ok: bool, message: string, folders: string[], offered_folders?: list<string>,
-     *   sent_folder?: ?string}
+     *   sent_folder?: ?string, sent_candidates?: list<string>}
      */
     public function testConnectionFromParams(
         string $host,
@@ -472,7 +472,53 @@ class MailboxAdminService
             'folders' => RemoteFolder::paths($listed),
             'offered_folders' => RemoteFolder::offeredAmong($listed, $offerJunk),
             'sent_folder' => RemoteFolder::sentAmong($listed),
+            'sent_candidates' => RemoteFolder::sentCandidatesAmong($listed),
         ];
+    }
+
+    /**
+     * The folders a save writes, from what the form posted and what the
+     * server listed during the same save (#1343) — or why not, in French.
+     *
+     * The form offers only the server's own folders, as boxes to tick and
+     * as a list for the sent mail; this checks the post against the same
+     * listing, so an edited request cannot bring back a path the server
+     * does not have, nor a folder the configuration never offers (D9).
+     * The inbox is always read and needs no tick.
+     *
+     * @param list<string> $postedFolders the ticked « autres dossiers »
+     * @param string $postedSent blank: the server's `\Sent` folder, or none
+     * @param array{offered_folders?: list<string>, sent_candidates?: list<string>} $listing
+     * @return array{folders: string[], sent_folder: string}|string
+     */
+    public static function folderChoice(array $postedFolders, string $postedSent, array $listing): array|string
+    {
+        $offered = $listing['offered_folders'] ?? [];
+        $others = [];
+        foreach ($postedFolders as $folder) {
+            if (strcasecmp($folder, 'INBOX') === 0) {
+                continue;
+            }
+            if (!in_array($folder, $offered, true)) {
+                return 'Le dossier « ' . $folder . ' » ne fait pas partie des dossiers que le serveur propose : '
+                    . 'il ne peut pas être lu. Choisissez parmi les dossiers affichés.';
+            }
+            $others[] = $folder;
+        }
+        $others = array_values(array_unique($others));
+
+        if ($postedSent !== '') {
+            if (!in_array($postedSent, $listing['sent_candidates'] ?? [], true)) {
+                return 'Le dossier des messages envoyés « ' . $postedSent . ' » n\'existe pas sur le serveur. '
+                    . 'Choisissez-le dans la liste.';
+            }
+            if (in_array($postedSent, $others, true)) {
+                return 'Le dossier « ' . $postedSent . ' » ne peut pas être lu à la fois comme dossier reçu '
+                    . 'et comme dossier des messages envoyés.';
+            }
+        }
+
+        return ['folders' => self::foldersWithInbox($others), 'sent_folder' => $postedSent];
     }
 
     /**
@@ -503,19 +549,6 @@ class MailboxAdminService
         ));
 
         return $others === [] ? [] : ['INBOX', ...$others];
-    }
-
-    /**
-     * The folder list as an operator typed it: one per line, trimmed, empty
-     * lines dropped.
-     *
-     * @return string[]
-     */
-    public static function parseFolders(string $raw): array
-    {
-        $folders = array_map('trim', preg_split('/[\r\n]+/', $raw) ?: []);
-
-        return array_values(array_unique(array_filter($folders, static fn(string $f) => $f !== '')));
     }
 
     /**

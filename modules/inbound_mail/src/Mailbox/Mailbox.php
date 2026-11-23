@@ -70,15 +70,26 @@ class Mailbox
     }
 
     /**
-     * The folders actually polled. A box configured with none still gets
-     * its INBOX read — an empty list means "the obvious one", not "none",
-     * which would be a box that silently collects nothing.
+     * The folders actually polled: the inbox always, then the others the
+     * operator chose. A box configured with none still gets its INBOX
+     * read — an empty list means "the obvious one", not "none", which
+     * would be a box that silently collects nothing — and so does a box
+     * saved before the inbox was always read, whose list may name only
+     * other folders (#1343). INBOX is the one name RFC 3501 fixes, in any
+     * case; a configured folder the server lacks is kept, and its relève
+     * fails saying which.
      *
      * @return string[]
      */
     public function watchedFolders(): array
     {
-        return $this->folders === [] ? ['INBOX'] : $this->folders;
+        foreach ($this->folders as $folder) {
+            if (strcasecmp($folder, 'INBOX') === 0) {
+                return $this->folders;
+            }
+        }
+
+        return array_merge(['INBOX'], $this->folders);
     }
 
     /**

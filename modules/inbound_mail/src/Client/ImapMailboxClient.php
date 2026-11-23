@@ -147,7 +147,7 @@ class ImapMailboxClient implements IncomingMailboxClientInterface, PruningMailbo
                 ? (int) $status['uidnext'] - 1
                 : $this->searchHighestUid($imapFolder);
         } catch (\Throwable $e) {
-            throw MailboxConnectionException::at(MailboxConnectionException::STEP_OPEN_FOLDER, $e);
+            throw MailboxConnectionException::at(MailboxConnectionException::STEP_OPEN_FOLDER, $e, $folder);
         }
 
         return new FolderState(
@@ -179,12 +179,28 @@ class ImapMailboxClient implements IncomingMailboxClientInterface, PruningMailbo
             // never moved and the box was stuck behind that message for
             // good. What still fails here is the server or the network.
             $query = TolerantMessageQuery::on($imapFolder, $this->credentials);
+            // The range goes to the server as two raw tokens, never through
+            // the query builder's `whereUid()`: that one quotes it
+            // (`UID "6:*"`), which the IMAP grammar does not allow — Gmail
+            // answers « BAD Could not parse command » to every sync after
+            // the first read, where Dovecot lets it through.
+            $found = $imapFolder->getClient()->getConnection()
+                ->search(['UID', ($sinceUid + 1) . ':*'], IMAP::ST_UID)
+                ->validatedData();
+            $uids = array_values(array_unique(array_filter(
+                array_map('intval', is_array($found) ? $found : []),
+                static fn(int $uid): bool => $uid > $sinceUid
+            )));
+            sort($uids);
+            $uids = array_slice($uids, 0, max(0, $limit));
+            if ($uids === []) {
+                return [];
+            }
             $messages = $query
                 ->leaveUnread()
-                ->whereUid(($sinceUid + 1) . ':*')
                 ->setFetchOrderAsc()
-                ->limit($limit)
-                ->get();
+                ->limit(count($uids))
+                ->curate_messages(new Collection($uids));
         } catch (\Throwable $e) {
             throw MailboxConnectionException::at(MailboxConnectionException::STEP_FETCH, $e);
         }
@@ -588,10 +604,19 @@ class ImapMailboxClient implements IncomingMailboxClientInterface, PruningMailbo
     {
         try {
             $imapFolder = $this->requireClient()->getFolderByPath($folder);
+            // INBOX is case-insensitive (RFC 3501 §5.1), and the library
+            // compares paths exactly: a server listing « Inbox » must still
+            // have its inbox read, now that every box reads it. Every other
+            // name stays exact.
+            if ($imapFolder === null && strcasecmp($folder, 'INBOX') === 0) {
+                $imapFolder = $this->requireClient()->getFolders(false)->first(
+                    static fn(Folder $candidate): bool => strcasecmp($candidate->path, 'INBOX') === 0
+                );
+            }
         } catch (MailboxConnectionException $e) {
             throw $e;
         } catch (\Throwable $e) {
-            throw MailboxConnectionException::at(MailboxConnectionException::STEP_OPEN_FOLDER, $e);
+            throw MailboxConnectionException::at(MailboxConnectionException::STEP_OPEN_FOLDER, $e, $folder);
         }
 
         if ($imapFolder === null) {
@@ -599,7 +624,8 @@ class ImapMailboxClient implements IncomingMailboxClientInterface, PruningMailbo
                 'Le dossier demandé est introuvable sur le serveur.',
                 0,
                 null,
-                MailboxConnectionException::STEP_OPEN_FOLDER
+                MailboxConnectionException::STEP_OPEN_FOLDER,
+                $folder
             );
         }
 
