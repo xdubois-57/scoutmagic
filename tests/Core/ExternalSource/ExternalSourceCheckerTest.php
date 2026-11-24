@@ -78,7 +78,8 @@ final class ExternalSourceCheckerTest extends TestCase
         ]);
         $this->assertSame('2026-2027', $result->scale->year);
         $this->assertContains(
-            'amounts on the page: 2026-2027: normal 57,50 €, couple 46,00 €, family 39,00 €',
+            'Barème lu sur la page : 2026-2027: normale 57,50 €, couple 46,00 €, familiale 39,00 €, '
+                . 'IAmA 25,00 €, invités 18,25 €, période Invités 01/06–31/08 inclus',
             $result->notes
         );
     }
@@ -95,29 +96,34 @@ final class ExternalSourceCheckerTest extends TestCase
 
         $this->assertTrue($result->isConform());
         $this->assertContains(
-            'no shipped scale to compare them with yet — amounts reported, not compared',
+            'Aucun barème livré pour la comparaison : valeurs relevées, sans comparaison.',
             $result->notes
         );
     }
 
     public function testChangedAmountsDivergeFromTheReferenceScale(): void
     {
-        $reference = new FederalScale(5750, 4600, 3900, '2026-2027');
+        $reference = new FederalScale(5750, 4600, 3900, 2500, 1825, '01/06', '31/08', '2026-2027');
 
         $result = self::checker(new FetchedPage(200, self::fixture('fees-changed-amounts.html')), $reference)
             ->check(self::feesSource());
 
         $this->assertFalse($result->isConform());
         $this->assertSame(
-            ['amounts changed: the page says 2027-2028: normal 59,00 €, couple 47,50 €, family 40,25 €; '
-                . 'the shipped scale says 2026-2027: normal 57,50 €, couple 46,00 €, family 39,00 €'],
+            [
+                'Montants modifiés : la page annonce 2027-2028: normale 59,00 €, couple 47,50 €, familiale 40,25 €, '
+                    . 'IAmA 25,00 €, invités 18,25 €, période Invités 01/06–31/08 inclus ; '
+                    . 'le barème livré annonce 2026-2027: normale 57,50 €, couple 46,00 €, familiale 39,00 €, '
+                    . 'IAmA 25,00 €, invités 18,25 €, période Invités 01/06–31/08 inclus',
+                'Année scoute modifiée : la page concerne 2027-2028 ; le barème livré concerne 2026-2027.',
+            ],
             $result->divergences
         );
     }
 
     public function testUnchangedAmountsConformToTheReferenceScale(): void
     {
-        $reference = new FederalScale(5750, 4600, 3900);
+        $reference = new FederalScale(5750, 4600, 3900, 2500, 1825, '01/06', '31/08');
 
         $result = self::checker(new FetchedPage(200, self::fixture('fees-conform.html')), $reference)
             ->check(self::feesSource());
@@ -127,16 +133,50 @@ final class ExternalSourceCheckerTest extends TestCase
 
     public function testANewSeasonWithTheSameAmountsDivergesOnItsYear(): void
     {
-        $reference = new FederalScale(5750, 4600, 3900, '2025-2026');
+        $reference = new FederalScale(5750, 4600, 3900, 2500, 1825, '01/06', '31/08', '2025-2026');
 
         $result = self::checker(new FetchedPage(200, self::fixture('fees-conform.html')), $reference)
             ->check(self::feesSource());
 
         $this->assertSame(
-            ['season changed: the page is about 2026-2027, the shipped scale about 2025-2026 '
-                . '— same amounts, but its year must follow'],
+            ['Année scoute modifiée : la page concerne 2026-2027 ; le barème livré concerne 2025-2026.'],
             $result->divergences
         );
+    }
+
+    /** @return iterable<string, array{string, string, string}> */
+    public static function changedNewFacts(): iterable
+    {
+        yield 'IAmA amount only' => ['de 25€', 'de 26€', 'Montants modifiés'];
+        yield 'guest amount only' => ['18,25 €', '19 €', 'Montants modifiés'];
+        yield 'paid window end only' => ['et le 31 aout', 'et le 30 aout', 'Période Invités modifiée'];
+        yield 'paid window start only' => ['Entre le 1er juin', 'Entre le 2 juin', 'Période Invités modifiée'];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('changedNewFacts')]
+    public function testEachNewFactIsComparedEvenWhenTheHouseholdAmountsAreUnchanged(
+        string $from,
+        string $to,
+        string $prefix
+    ): void {
+        $reference = new FederalScale(5750, 4600, 3900, 2500, 1825, '01/06', '31/08', '2026-2027');
+        $page = str_replace($from, $to, self::fixture('fees-conform.html'));
+        $result = self::checker(new FetchedPage(200, $page), $reference)->check(self::feesSource());
+
+        self::assertSame([false, 1, true], [
+            $result->isConform(), count($result->divergences), str_starts_with($result->divergences[0] ?? '', $prefix),
+        ]);
+    }
+
+    public function testALostSeasonHeadingIsNotAConformingReferenceYear(): void
+    {
+        $page = str_replace('<h3><strong>COTISATIONS 2026-2027</strong></h3>', '', self::fixture('fees-conform.html'));
+        $reference = new FederalScale(5750, 4600, 3900, 2500, 1825, '01/06', '31/08', '2026-2027');
+        $result = self::checker(new FetchedPage(200, $page), $reference)->check(self::feesSource());
+
+        self::assertSame([false, ['L’année scoute ne peut pas être identifiée : le barème livré concerne 2026-2027.']], [
+            $result->isConform(), $result->divergences,
+        ]);
     }
 
     public function testAMovedPageAnswering404Diverges(): void
@@ -164,7 +204,7 @@ final class ExternalSourceCheckerTest extends TestCase
             $result->divergences
         );
         $this->assertContains(
-            'the normal, couple and family amounts could not all be read off the page',
+            'Les cinq montants et la période payante Invités ne peuvent pas tous être lus sur la page.',
             $result->divergences
         );
     }

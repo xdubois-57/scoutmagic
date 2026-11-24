@@ -838,7 +838,7 @@ class FeeAccuracyControllerTest extends TestCase
         $this->assertStringContainsString('value="46,00"', $body);
         $this->assertStringContainsString('value="39,00"', $body);
         $this->assertStringContainsString('Montants fédéraux <strong>2026-2027</strong>', $body);
-        $this->assertStringContainsString('24 septembre 2026', $body);
+        $this->assertStringContainsString('24 novembre 2026', $body);
         $this->assertStringContainsString('href="' . FederalScaleLookupService::DEFAULT_URL . '"', $body);
         $this->assertStringContainsString('lesscouts.be</a>', $body);
         $this->assertStringContainsString('vérifiez puis enregistrez', $body);

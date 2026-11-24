@@ -9,19 +9,19 @@ declare(strict_types=1);
 namespace Modules\Fees\Support;
 
 use Core\ExternalSource\FederalScale;
-use Core\Member\HouseholdFeeCategory;
 use Core\Service\DateInput;
+use Modules\Fees\FeeTariff;
 use Modules\Fees\Service\FederalScaleLookupService;
 
 /**
  * The federal scale shipped with the site (issue #355, « Le barème
- * livré »): `modules/fees/data/federal-scale.json`, the three per-person
- * amounts the federation publishes, the scout year they are for, the page
- * they were read on and the day somebody checked them.
+ * livré »): `modules/fees/data/federal-scale.json`, five per-person
+ * amounts and the annual paid guest window, their scout year, source page
+ * and verification date.
  *
  * Two readers, one file:
  *
- * - the barème panel pre-fills its three fields from it when the unit has
+ * - the barème panel pre-fills its available fields from it when the unit has
  *   entered no amount yet and the file's year is the year the screen is
  *   about (`Modules\Fees\Service\ShippedScaleService`) — a proposal, never
  *   a write;
@@ -32,33 +32,36 @@ use Modules\Fees\Service\FederalScaleLookupService;
  *
  * **Read strictly, and refused whole.** Every key must be present with
  * the right type and nothing else may be: a scout year that normalises to
- * itself, an https URL, a real `YYYY-MM-DD` date, and three amounts in
- * cents inside the range a cotisation can plausibly be. A malformed file
+ * itself, an https URL, a real `YYYY-MM-DD` date, and five amounts in
+ * cents inside the range a cotisation can plausibly be. Both day/month
+ * bounds must be valid and ordered in the season's ending year. A malformed file
  * throws — `Tests\Modules\Fees\Support\ShippedFederalScaleTest` loads the
  * real one, so a bad edit fails the build rather than a page.
  *
- * Updating it each season is a data change: the year, the amounts, the
- * verification date, in one commit — the weekly check says when.
+ * Updating it each season is a data change: year, amounts, paid period and
+ * verification date in one commit — the weekly check says when.
  */
 final class ShippedFederalScale
 {
     /** The file this class reads by default. */
     public const PATH = __DIR__ . '/../../data/federal-scale.json';
 
-    private const KEYS = ['year', 'source_url', 'verified_on', 'amount_cents'];
+    private const KEYS = ['year', 'source_url', 'verified_on', 'amount_cents', 'guest_period'];
 
     /** Same plausibility bounds as the AI lookup, for the same reason. */
     private const MIN_AMOUNT_CENTS = 100;
     private const MAX_AMOUNT_CENTS = 50000;
 
     /**
-     * @param array<string, int> $amountCents keyed by HouseholdFeeCategory value, always the three
+     * @param array<string, int> $amountCents keyed by FeeTariff value, always the five
      */
     private function __construct(
         public readonly string $year,
         public readonly string $sourceUrl,
         public readonly string $verifiedOn,
         public readonly array $amountCents,
+        public readonly string $guestFromDayMonth,
+        public readonly string $guestUntilDayMonth,
     ) {
     }
 
@@ -99,11 +102,16 @@ final class ShippedFederalScale
             );
         }
 
+        $year = self::year($data['year']);
+        [$from, $until] = self::period($data['guest_period'], $year);
+
         return new self(
-            self::year($data['year']),
+            $year,
             self::sourceUrl($data['source_url']),
             self::verifiedOn($data['verified_on']),
-            self::amounts($data['amount_cents'])
+            self::amounts($data['amount_cents']),
+            $from,
+            $until
         );
     }
 
@@ -111,9 +119,13 @@ final class ShippedFederalScale
     public function toFederalScale(): FederalScale
     {
         return new FederalScale(
-            $this->amountCents[HouseholdFeeCategory::NORMAL->value],
-            $this->amountCents[HouseholdFeeCategory::COUPLE->value],
-            $this->amountCents[HouseholdFeeCategory::FAMILY->value],
+            $this->amountCents[FeeTariff::NORMAL->value],
+            $this->amountCents[FeeTariff::COUPLE->value],
+            $this->amountCents[FeeTariff::FAMILY->value],
+            $this->amountCents[FeeTariff::IAMA->value],
+            $this->amountCents[FeeTariff::GUEST->value],
+            $this->guestFromDayMonth,
+            $this->guestUntilDayMonth,
             $this->year
         );
     }
@@ -155,8 +167,8 @@ final class ShippedFederalScale
     private static function amounts(mixed $raw): array
     {
         $categories = array_map(
-            static fn (HouseholdFeeCategory $c): string => $c->value,
-            HouseholdFeeCategory::cases()
+            static fn (FeeTariff $c): string => $c->value,
+            FeeTariff::cases()
         );
         if (!is_array($raw) || array_is_list($raw) || count($raw) !== count($categories)) {
             throw new \UnexpectedValueException(
@@ -177,5 +189,23 @@ final class ShippedFederalScale
         }
 
         return $amounts;
+    }
+
+    /** @return array{string, string} */
+    private static function period(mixed $raw, string $year): array
+    {
+        if (
+            !is_array($raw) || count($raw) !== 2
+            || !is_string($raw['start'] ?? null) || !is_string($raw['end'] ?? null)
+        ) {
+            throw new \UnexpectedValueException('The shipped guest period must contain start and end day/month strings.');
+        }
+        $from = DateInput::parse('!d/m/Y', $raw['start'] . '/' . substr($year, 5, 4));
+        $until = DateInput::parse('!d/m/Y', $raw['end'] . '/' . substr($year, 5, 4));
+        if ($from === null || $until === null || $until < $from) {
+            throw new \UnexpectedValueException('The shipped guest period must be valid and ordered in the season ending year.');
+        }
+
+        return [$raw['start'], $raw['end']];
     }
 }

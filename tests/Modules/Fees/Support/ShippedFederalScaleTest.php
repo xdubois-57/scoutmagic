@@ -25,25 +25,26 @@ final class ShippedFederalScaleTest extends TestCase
     private const VALID = [
         'year' => '2026-2027',
         'source_url' => 'https://www.lesscouts.be/fr/cotisations',
-        'verified_on' => '2026-09-24',
-        'amount_cents' => ['normal' => 5750, 'couple' => 4600, 'family' => 3900],
+        'verified_on' => '2026-11-24',
+        'amount_cents' => ['normal' => 5750, 'couple' => 4600, 'family' => 3900, 'iama' => 2500, 'guest' => 1825],
+        'guest_period' => ['start' => '01/06', 'end' => '31/08'],
     ];
 
-    public function testTheShippedFileIsTheSeasonVerifiedOnTheTwentyFourthOfSeptember(): void
+    public function testTheShippedFileIsTheCompleteSeasonVerifiedInNovember(): void
     {
         $scale = ShippedFederalScale::load();
 
         $this->assertSame('2026-2027', $scale->year);
         $this->assertSame(ExternalSources::FEES_PAGE, $scale->sourceUrl);
-        $this->assertSame('2026-09-24', $scale->verifiedOn);
-        $this->assertSame(['normal' => 5750, 'couple' => 4600, 'family' => 3900], $scale->amountCents);
+        $this->assertSame('2026-11-24', $scale->verifiedOn);
+        $this->assertSame(self::VALID['amount_cents'], $scale->amountCents);
     }
 
     /** What the script hands the checker as its reference. */
     public function testItBecomesTheFederalScaleTheCheckComparesWith(): void
     {
         $this->assertEquals(
-            new FederalScale(5750, 4600, 3900, '2026-2027'),
+            new FederalScale(5750, 4600, 3900, 2500, 1825, '01/06', '31/08', '2026-2027'),
             ShippedFederalScale::load()->toFederalScale()
         );
     }
@@ -63,7 +64,7 @@ final class ShippedFederalScaleTest extends TestCase
     }
 
     /**
-     * The fees page as it read on 24 September 2026 conforms to the shipped
+     * The fees page as it read on 24 November 2026 conforms to the shipped
      * scale; the same page a season on diverges, naming both.
      */
     public function testTheRecordedPageConformsAndAChangedOneDiverges(): void
@@ -77,7 +78,7 @@ final class ShippedFederalScaleTest extends TestCase
 
         $changed = self::checker('fees-changed-amounts.html', $reference)->check($source);
         $this->assertFalse($changed->isConform());
-        $this->assertStringContainsString('the shipped scale says 2026-2027', implode("\n", $changed->divergences));
+        $this->assertStringContainsString('le barème livré annonce 2026-2027', implode("\n", $changed->divergences));
     }
 
     public function testAValidDocumentIsRead(): void
@@ -86,6 +87,32 @@ final class ShippedFederalScaleTest extends TestCase
 
         $this->assertSame('2026-2027', $scale->year);
         $this->assertSame(4600, $scale->amountCents['couple']);
+    }
+
+    public function testTheNewAmountsAndBoundsAreReadRatherThanDefaulted(): void
+    {
+        $data = self::VALID;
+        $data['amount_cents']['iama'] = 2600;
+        $data['amount_cents']['guest'] = 1900;
+        $data['guest_period'] = ['start' => '12/06', 'end' => '15/09'];
+        $scale = ShippedFederalScale::fromJson((string) json_encode($data));
+
+        self::assertSame([2600, 1900, '12/06', '15/09'], [
+            $scale->amountCents['iama'], $scale->amountCents['guest'],
+            $scale->guestFromDayMonth, $scale->guestUntilDayMonth,
+        ]);
+    }
+
+    public function testALeapDayInTheEndingYearIsValid(): void
+    {
+        $data = array_replace(self::VALID, [
+            'year' => '2027-2028', 'guest_period' => ['start' => '29/02', 'end' => '31/08'],
+        ]);
+        $scale = ShippedFederalScale::fromJson((string) json_encode($data));
+
+        self::assertSame(['2027-2028', '29/02', '31/08'], [
+            $scale->year, $scale->guestFromDayMonth, $scale->guestUntilDayMonth,
+        ]);
     }
 
     /**
@@ -112,19 +139,23 @@ final class ShippedFederalScaleTest extends TestCase
             'a source that is not a URL' => [$with(['source_url' => 'lesscouts.be'])],
             'an impossible date' => [$with(['verified_on' => '2026-02-30'])],
             'a date in another format' => [$with(['verified_on' => '24/09/2026'])],
-            'an amount in euros' => [$with(['amount_cents' => [
-                'normal' => 57.5, 'couple' => 4600, 'family' => 3900,
-            ]])],
-            'an amount as a string' => [$with(['amount_cents' => [
-                'normal' => '5750', 'couple' => 4600, 'family' => 3900,
-            ]])],
+            'an amount in euros' => [$with(['amount_cents' => array_replace(self::VALID['amount_cents'], ['normal' => 57.5])])],
+            'an amount as a string' => [$with(['amount_cents' => array_replace(self::VALID['amount_cents'], ['normal' => '5750'])])],
             'a missing category' => [$with(['amount_cents' => ['normal' => 5750, 'couple' => 4600]])],
-            'an extra category' => [$with(['amount_cents' => [
-                'normal' => 5750, 'couple' => 4600, 'family' => 3900, 'guest' => 1000,
-            ]])],
-            'an implausible amount' => [$with(['amount_cents' => [
-                'normal' => 999999, 'couple' => 4600, 'family' => 3900,
-            ]])],
+            'an extra category' => [$with(['amount_cents' => array_replace(self::VALID['amount_cents'], ['solidarity' => 1000])])],
+            'an implausible amount' => [$with(['amount_cents' => array_replace(self::VALID['amount_cents'], ['normal' => 999999])])],
+            'missing IAmA' => [$with(['amount_cents' => array_diff_key(self::VALID['amount_cents'], ['iama' => true])])],
+            'missing guests' => [$with(['amount_cents' => array_diff_key(self::VALID['amount_cents'], ['guest' => true])])],
+            'missing period' => [$without('guest_period')],
+            'period is not an object' => [$with(['guest_period' => null])],
+            'missing start' => [$with(['guest_period' => ['end' => '31/08']])],
+            'missing end with another key' => [$with(['guest_period' => ['start' => '01/06', 'other' => '31/08']])],
+            'extra period key' => [$with(['guest_period' => ['start' => '01/06', 'end' => '31/08', 'year' => 2027]])],
+            'numeric date' => [$with(['guest_period' => ['start' => 106, 'end' => '31/08']])],
+            'non canonical date' => [$with(['guest_period' => ['start' => '1/6', 'end' => '31/08']])],
+            'impossible period date' => [$with(['guest_period' => ['start' => '31/06', 'end' => '31/08']])],
+            'reversed period' => [$with(['guest_period' => ['start' => '01/09', 'end' => '31/08']])],
+            'leap day outside the ending year' => [$with(['guest_period' => ['start' => '29/02', 'end' => '31/08']])],
         ];
     }
 

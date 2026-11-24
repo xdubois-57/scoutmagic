@@ -34,7 +34,7 @@ declare(strict_types=1);
  * (the arguments, the exit code, the report); this file only wires the real
  * network in, and the scale shipped with the site
  * (Modules\Fees\Support\ShippedFederalScale) as the reference the fees
- * page's amounts are compared with. Exit 2 also covers a shipped scale file
+ * page's five amounts and paid guest period are compared with. Exit 2 also covers a shipped scale file
  * that cannot be read.
  */
 

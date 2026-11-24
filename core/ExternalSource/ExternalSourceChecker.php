@@ -20,8 +20,8 @@ namespace Core\ExternalSource;
  *
  * - CONTENT: 200, and every expected string present. A redirect is a note,
  *   except for a source whose consumer refuses redirects, where it is a
- *   divergence. On the federal fees page the three amounts must be
- *   readable, and when a reference scale is given they must equal it.
+ *   divergence. On the federal fees page all five amounts and the paid
+ *   guest period must be readable and agree with the reference, when given.
  * - LINK: alive on 2xx, 3xx, 401 and 403 (a console redirecting to its
  *   sign-in page, or refusing an anonymous visitor, still exists); dead on
  *   anything else — 404, 410, an unknown domain, no answer, a server error.
@@ -183,30 +183,48 @@ final class ExternalSourceChecker
         $scale = null;
         if ($source->id === ExternalSources::FEES_PAGE_ID) {
             $scale = FederalScaleExtractor::extract($page->body);
-            if ($scale === null) {
-                $divergences[] = 'the normal, couple and family amounts could not all be read off the page';
-            } else {
-                $notes[] = 'amounts on the page: ' . $scale->describe();
-                if ($this->referenceScale === null) {
-                    $notes[] = 'no shipped scale to compare them with yet — amounts reported, not compared';
-                } elseif (!$scale->sameAmountsAs($this->referenceScale)) {
-                    $divergences[] = 'amounts changed: the page says ' . $scale->describe()
-                        . '; the shipped scale says ' . $this->referenceScale->describe();
-                } elseif (
-                    $scale->year !== null
-                    && $this->referenceScale->year !== null
-                    && $scale->year !== $this->referenceScale->year
-                ) {
-                    // Same amounts, new season: the pre-fill only offers the
-                    // shipped scale for its own year, so it would go quiet.
-                    $divergences[] = 'season changed: the page is about ' . $scale->year
-                        . ', the shipped scale about ' . $this->referenceScale->year
-                        . ' — same amounts, but its year must follow';
-                }
-            }
+            [$scaleProblems, $scaleNotes] = $this->compareScale($scale);
+            $divergences = [...$divergences, ...$scaleProblems];
+            $notes = [...$notes, ...$scaleNotes];
         }
 
         return new SourceCheckResult($source, $page->status, $divergences, $notes, $scale);
+    }
+
+    /** @return array{list<string>, list<string>} */
+    private function compareScale(?FederalScale $scale): array
+    {
+        if ($scale === null) {
+            return [['Les cinq montants et la période payante Invités ne peuvent pas tous être lus sur la page.'], []];
+        }
+
+        $notes = ['Barème lu sur la page : ' . $scale->describe()];
+        if ($this->referenceScale === null) {
+            $notes[] = 'Aucun barème livré pour la comparaison : valeurs relevées, sans comparaison.';
+
+            return [[], $notes];
+        }
+
+        $divergences = [];
+        if (!$scale->sameAmountsAs($this->referenceScale)) {
+            $divergences[] = 'Montants modifiés : la page annonce ' . $scale->describe()
+                . ' ; le barème livré annonce ' . $this->referenceScale->describe();
+        }
+        if (!$scale->sameGuestPeriodAs($this->referenceScale)) {
+            $divergences[] = 'Période Invités modifiée : la page annonce '
+                . $scale->guestFromDayMonth . '–' . $scale->guestUntilDayMonth
+                . ' ; le barème livré annonce ' . $this->referenceScale->guestFromDayMonth
+                . '–' . $this->referenceScale->guestUntilDayMonth . '.';
+        }
+        if ($this->referenceScale->year !== null && $scale->year !== $this->referenceScale->year) {
+            $divergences[] = $scale->year === null
+                ? 'L’année scoute ne peut pas être identifiée : le barème livré concerne '
+                    . $this->referenceScale->year . '.'
+                : 'Année scoute modifiée : la page concerne ' . $scale->year
+                    . ' ; le barème livré concerne ' . $this->referenceScale->year . '.';
+        }
+
+        return [$divergences, $notes];
     }
 
     /**

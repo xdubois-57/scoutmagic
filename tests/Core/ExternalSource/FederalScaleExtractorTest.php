@@ -13,6 +13,10 @@ use PHPUnit\Framework\TestCase;
  */
 final class FederalScaleExtractorTest extends TestCase
 {
+    private const OTHER_FACTS = '<p>Cotisation invités : 18,25 €</p>'
+        . '<p>Les IAmA liés à ton unité devront payer une cotisation de 25€.</p>'
+        . '<h3>Invités</h3><p>Entre le 1er juin et le 31 aout, une inscription coute une cotisation invité.</p>';
+
     /**
      * @return array<string, array{string, int, int, int}>
      */
@@ -40,15 +44,15 @@ final class FederalScaleExtractorTest extends TestCase
     }
 
     #[DataProvider('pages')]
-    public function testTheThreeAmountsAreRead(string $html, int $normal, int $couple, int $family): void
+    public function testTheHouseholdAmountsKeepTheirNumberFormats(string $html, int $normal, int $couple, int $family): void
     {
-        $scale = FederalScaleExtractor::extract($html);
+        $scale = FederalScaleExtractor::extract($html . self::OTHER_FACTS);
 
         $this->assertNotNull($scale);
         $this->assertSame([$normal, $couple, $family], [$scale->normalCents, $scale->coupleCents, $scale->familyCents]);
     }
 
-    public function testTheOtherAmountsOnThePageAreNeverTaken(): void
+    public function testOtherAmountsCannotReplaceMissingHouseholdTariffs(): void
     {
         $html = '<p>Cotisation de solidarité : 5 € minimum.</p><p>Cotisation invités : 18,25 €.</p>';
 
@@ -67,7 +71,7 @@ final class FederalScaleExtractorTest extends TestCase
         $html = '<h3>COTISATIONS 2026 – 2027</h3><p>Cotisation normale : 57,50 €</p>'
             . '<p>Cotisation couple : 46 €</p><p>Cotisation familiale : 39 €</p>';
 
-        $this->assertSame('2026-2027', FederalScaleExtractor::extract($html)?->year);
+        $this->assertSame('2026-2027', FederalScaleExtractor::extract($html . self::OTHER_FACTS)?->year);
     }
 
     /**
@@ -77,9 +81,9 @@ final class FederalScaleExtractorTest extends TestCase
     public function testTheMostRecentSeasonIsReadWhateverItsPlace(): void
     {
         $old = '<h3>Cotisations 2025-2026</h3><p>Cotisation normale : 56,25 €</p>'
-            . '<p>Cotisation couple : 45 €</p><p>Cotisation familiale : 38 €</p>';
+            . '<p>Cotisation couple : 45 €</p><p>Cotisation familiale : 38 €</p>' . self::OTHER_FACTS;
         $new = '<h3>Cotisations 2026-2027</h3><p>Cotisation normale : 57,50 €</p>'
-            . '<p>Cotisation couple : 46 €</p><p>Cotisation familiale : 39 €</p>';
+            . '<p>Cotisation couple : 46 €</p><p>Cotisation familiale : 39 €</p>' . self::OTHER_FACTS;
 
         foreach ([$old . $new, $new . $old] as $html) {
             $scale = FederalScaleExtractor::extract($html);
@@ -98,6 +102,6 @@ final class FederalScaleExtractorTest extends TestCase
             . '<p>Cotisation normale : 57,50 €</p><p>Cotisation couple : 46 €</p>'
             . '<p>Cotisation familiale : 39 €</p></div>';
 
-        $this->assertSame(5750, FederalScaleExtractor::extract($html)?->normalCents);
+        $this->assertSame(5750, FederalScaleExtractor::extract($html . self::OTHER_FACTS)?->normalCents);
     }
 }

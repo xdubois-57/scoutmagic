@@ -40,9 +40,9 @@ final class ShippedScaleServiceTest extends TestCase
         $suggestion = (new ShippedScaleService($this->tariffs))->suggestionFor('2026-2027');
 
         $this->assertNotNull($suggestion);
-        $this->assertSame(['normal' => 5750, 'couple' => 4600, 'family' => 3900], $suggestion['amount_cents']);
+        $this->assertSame(['normal' => 5750, 'couple' => 4600, 'family' => 3900, 'iama' => 2500, 'guest' => 1825], $suggestion['amount_cents']);
         $this->assertSame('2026-2027', $suggestion['year']);
-        $this->assertSame('2026-09-24', $suggestion['verified_on']);
+        $this->assertSame('2026-11-24', $suggestion['verified_on']);
         $this->assertSame(ExternalSources::FEES_PAGE, $suggestion['url']);
         $this->assertSame('lesscouts.be', $suggestion['host']);
         $this->assertSame(ShippedScaleService::ORIGIN, $suggestion['origin']);
