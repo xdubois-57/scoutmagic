@@ -18,8 +18,9 @@ use Core\Security\HumanCheck\HumanCheckService;
 /**
  * Deletes human_check_rate_limits rows past the longest rate-limit window in
  * use — the larger of the setting and HumanCheckService::LONGEST_WINDOW_MINUTES —
- * a row older than that can never affect a future countSince() call again. Self-reschedules at the end of every run rather than being
- * a first-class recurring task, same precedent as Core\Maintenance\Task\
+ * a row older than that can never affect a future countSince() call again.
+ * Self-reschedules at the end of every run rather than being a first-class
+ * recurring task, same precedent as Core\Maintenance\Task\
  * AutoBackupHandler / Core\Notification\Task\PurgeNotificationsHandler
  * (Core\Scheduler has no first-class recurring-task concept) — re-reading
  * the window setting each time so a change takes effect on the next run.
