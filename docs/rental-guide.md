@@ -150,9 +150,15 @@ sans confirmation.
 Deux exceptions, pour qu'une seule demande ne puisse pas prendre tout le
 calendrier : un séjour de **plus de 30 nuits** ne bloque rien de
 lui-même, et une même adresse e-mail, ou un même compte connecté, ne peut
-avoir que **deux blocages en cours** à la fois, tous biens confondus. La
-demande est enregistrée et vous parvient comme les autres ; c'est à vous
-de poser une option si elle mérite les dates. Un blocage automatique de
+avoir que **deux blocages en cours** à la fois, tous biens confondus (une
+étiquette « + » ajoutée à l'adresse, comme `nom+2@…`, ne la change pas).
+Un visiteur qui n'est pas connecté est aussi limité **par provenance**
+(trois blocages en cours depuis une même connexion, quelle que soit
+l'adresse tapée) et **par bien** (trois blocages anonymes en cours sur un
+même bien) : au-delà, la demande est enregistrée sans blocage. La
+demande est enregistrée et vous parvient comme les autres, et le visiteur
+ne voit pas la différence ; c'est à vous de poser une option si elle
+mérite les dates. Un blocage automatique de
 plus de 14 nuits apparaît dans les points d'attention, tant que la
 demande attend votre première réponse.
 

@@ -122,7 +122,8 @@ class RentalBookingServiceTest extends TestCase
             // hold than against the 30-day default, which has its own test.
             $overrides['hold_days'] ?? 2,
             null,
-            $overrides['account'] ?? null
+            $overrides['account'] ?? null,
+            $overrides['source'] ?? null
         );
     }
 
@@ -627,9 +628,51 @@ class RentalBookingServiceTest extends TestCase
         string $email = 'marie@example.org',
         ?int $account = null,
         int $configured = 2,
-        string $now = '2027-06-01 12:00:00'
+        string $now = '2027-06-01 12:00:00',
+        ?string $source = null,
+        ?int $assetId = null
     ): int {
-        return $this->service->automaticHoldDaysFor($arrival, $departure, $email, $account, $configured, $this->now($now));
+        return $this->service->automaticHoldDaysFor(
+            $arrival,
+            $departure,
+            $email,
+            $account,
+            $configured,
+            $this->now($now),
+            $assetId,
+            $source
+        );
+    }
+
+    private ?int $otherAssetId = null;
+
+    private function otherAssetId(): int
+    {
+        if ($this->otherAssetId === null) {
+            $stmt = $this->pdo->prepare('INSERT INTO rental_assets (asset_type, name, slug) VALUES (?, ?, ?)');
+            $stmt->execute(['Local', 'Autre local', 'autre-local']);
+            $this->otherAssetId = (int) $this->pdo->lastInsertId();
+        }
+
+        return $this->otherAssetId;
+    }
+
+    /**
+     * One anonymous request from $source with its own address, for a stay
+     * of its own (dates never overlap, so the availability check never
+     * answers for the cap).
+     *
+     * @param array<string, mixed> $extra
+     */
+    private function requestFrom(?string $source, int $n, array $extra = []): void
+    {
+        $day = str_pad((string) (1 + $n * 3), 2, '0', STR_PAD_LEFT);
+        $this->submit($extra + [
+            'renter' => ['email' => 'visiteur' . $n . '@example.org'],
+            'source' => $source,
+            'arrival' => '2028-01-' . $day,
+            'departure' => '2028-01-' . str_pad((string) (2 + $n * 3), 2, '0', STR_PAD_LEFT),
+        ]);
     }
 
     public function testAStayOfUpToThirtyNightsTakesTheConfiguredHold(): void
@@ -683,6 +726,463 @@ class RentalBookingServiceTest extends TestCase
 
         $this->pdo->prepare("UPDATE rental_bookings SET status = 'refused' WHERE id = ?")->execute([$second->id]);
         $this->assertSame(2, $this->holdDaysFor('2027-08-01', '2027-08-03'));
+    }
+
+    // ── The cap does not stop at the address typed (#1263) ───────────────
+    //
+    // An anonymous visitor who types a new address each time was never at
+    // the ceiling of two. The source of the request and the asset are
+    // counted as well, and the address is compared without its « +tag ».
+
+    private const SOURCE_V4 = '203.0.113.9';
+
+    /** Three from one source: the fourth waits unheld, even under a brand-new address. */
+    public function testASourceWithThreeRunningHoldsGetsNoFourthWhateverAddressItTypes(): void
+    {
+        for ($n = 0; $n < 3; $n++) {
+            $this->requestFrom(self::SOURCE_V4, $n);
+        }
+
+        $this->assertSame(
+            0,
+            $this->holdDaysFor('2028-06-01', '2028-06-03', 'tout-neuf@example.org', null, 2, source: self::SOURCE_V4)
+        );
+    }
+
+    public function testTwoFromOneSourceStillGetAThird(): void
+    {
+        $this->requestFrom(self::SOURCE_V4, 0);
+        $this->requestFrom(self::SOURCE_V4, 1);
+
+        $this->assertSame(
+            2,
+            $this->holdDaysFor('2028-06-01', '2028-06-03', 'tout-neuf@example.org', null, 2, source: self::SOURCE_V4)
+        );
+    }
+
+    public function testAnotherSourceIsNotAffected(): void
+    {
+        for ($n = 0; $n < 3; $n++) {
+            $this->requestFrom(self::SOURCE_V4, $n);
+        }
+
+        $this->assertSame(
+            2,
+            $this->holdDaysFor('2028-06-01', '2028-06-03', 'tout-neuf@example.org', null, 2, source: '203.0.113.10')
+        );
+    }
+
+    /** An IPv6 subscriber holds a whole /64: a new address inside it is the same source. */
+    public function testASourceIsAnIpv6SixtyFourNotAnAddress(): void
+    {
+        $this->requestFrom('2001:db8:1:2::1', 0);
+        $this->requestFrom('2001:db8:1:2::2', 1);
+        $this->requestFrom('2001:db8:1:2:aaaa:bbbb:cccc:dddd', 2);
+
+        $this->assertSame(
+            0,
+            $this->holdDaysFor('2028-06-01', '2028-06-03', 'tout-neuf@example.org', null, 2, source: '2001:db8:1:2:ffff::9')
+        );
+        $this->assertSame(
+            2,
+            $this->holdDaysFor('2028-06-01', '2028-06-03', 'tout-neuf@example.org', null, 2, source: '2001:db8:1:3::1'),
+            'the next /64 is another subscriber'
+        );
+    }
+
+    /** An IPv4 address written in its IPv6-mapped form is that IPv4 address. */
+    public function testAnIpv4MappedAddressCountsWithTheIpv4One(): void
+    {
+        for ($n = 0; $n < 3; $n++) {
+            $this->requestFrom(self::SOURCE_V4, $n);
+        }
+
+        $this->assertSame(
+            0,
+            $this->holdDaysFor('2028-06-01', '2028-06-03', 'tout-neuf@example.org', null, 2, source: '::ffff:203.0.113.9')
+        );
+    }
+
+    /** An account is bounded by its own cap; the source's belongs to the anonymous. */
+    public function testASignedInAccountIsNotCountedOnTheSourceOfAnonymousRequests(): void
+    {
+        for ($n = 0; $n < 3; $n++) {
+            $this->requestFrom(self::SOURCE_V4, $n);
+        }
+
+        $this->assertSame(
+            2,
+            $this->holdDaysFor('2028-06-01', '2028-06-03', 'compte@example.org', 7, 2, source: self::SOURCE_V4)
+        );
+    }
+
+    public function testOnlyHoldsStillRunningAreCountedOnTheSource(): void
+    {
+        for ($n = 0; $n < 3; $n++) {
+            $this->requestFrom(self::SOURCE_V4, $n);
+        }
+
+        // Two days of hold each: five days on, none runs.
+        $this->assertSame(
+            2,
+            $this->holdDaysFor(
+                '2028-06-01',
+                '2028-06-03',
+                'tout-neuf@example.org',
+                null,
+                2,
+                now: '2027-06-06 10:00:00',
+                source: self::SOURCE_V4
+            )
+        );
+    }
+
+    /** A request with no source known counts for no source: never merged into one bucket. */
+    public function testRequestsWithNoKnownSourceDoNotShareOne(): void
+    {
+        for ($n = 0; $n < 3; $n++) {
+            $this->requestFrom(null, $n, ['asset_id' => $this->otherAssetId()]);
+        }
+
+        $this->assertSame(
+            2,
+            $this->holdDaysFor('2028-06-01', '2028-06-03', 'tout-neuf@example.org', null, 2, source: '')
+        );
+    }
+
+    /** Beyond three anonymous holds on one asset, a new anonymous request waits for a manager. */
+    public function testAnAssetWithThreeAnonymousRunningHoldsGivesAnAnonymousRequestNone(): void
+    {
+        for ($n = 0; $n < 3; $n++) {
+            $this->requestFrom('198.51.100.' . ($n + 1), $n);
+        }
+
+        $this->assertSame(
+            0,
+            $this->holdDaysFor('2028-06-01', '2028-06-03', 'tout-neuf@example.org', null, 2, source: '198.51.100.99', assetId: $this->assetId)
+        );
+    }
+
+    public function testAnotherAssetIsNotAffectedByTheCeilingOfThisOne(): void
+    {
+        for ($n = 0; $n < 3; $n++) {
+            $this->requestFrom('198.51.100.' . ($n + 1), $n);
+        }
+
+        $this->assertSame(
+            2,
+            $this->holdDaysFor(
+                '2028-06-01',
+                '2028-06-03',
+                'tout-neuf@example.org',
+                null,
+                2,
+                source: '198.51.100.99',
+                assetId: $this->otherAssetId()
+            )
+        );
+    }
+
+    /** The asset's ceiling is for anonymous requests: a signed-in account keeps its own cap. */
+    public function testASignedInAccountIsNotStoppedByTheAnonymousCeilingOfAnAsset(): void
+    {
+        for ($n = 0; $n < 3; $n++) {
+            $this->requestFrom('198.51.100.' . ($n + 1), $n);
+        }
+
+        $this->assertSame(
+            2,
+            $this->holdDaysFor('2028-06-01', '2028-06-03', 'compte@example.org', 7, 2, assetId: $this->assetId)
+        );
+    }
+
+    /** A hold taken by a signed-in account is not an anonymous one, for the asset's ceiling. */
+    public function testHoldsOfSignedInAccountsDoNotFillTheAnonymousCeiling(): void
+    {
+        for ($n = 0; $n < 3; $n++) {
+            $this->requestFrom('198.51.100.' . ($n + 1), $n, ['account' => 20 + $n]);
+        }
+
+        $this->assertSame(
+            2,
+            $this->holdDaysFor('2028-06-01', '2028-06-03', 'tout-neuf@example.org', null, 2, assetId: $this->assetId)
+        );
+    }
+
+    /** « x+1@ » and « x+2@ » are one address, and so is the same one in capitals. */
+    public function testPlusTagsAndCaseDoNotMakeANewAddress(): void
+    {
+        $this->submit(['renter' => ['email' => 'visiteur+1@example.org']]);
+        $this->submit([
+            'renter' => ['email' => 'Visiteur+deux@Example.ORG'],
+            'arrival' => '2027-07-24',
+            'departure' => '2027-07-26',
+        ]);
+
+        $this->assertSame(0, $this->holdDaysFor('2027-08-01', '2027-08-03', 'visiteur+3@example.org'));
+        $this->assertSame(0, $this->holdDaysFor('2027-08-01', '2027-08-03', 'visiteur@example.org'));
+        $this->assertSame(2, $this->holdDaysFor('2027-08-01', '2027-08-03', 'autre+1@example.org'));
+    }
+
+    /** Only the tag is dropped: another local part or another domain is another address. */
+    public function testOnlyThePlusTagIsDropped(): void
+    {
+        $this->submit(['renter' => ['email' => 'visiteur+1@example.org']]);
+        $this->submit([
+            'renter' => ['email' => 'visiteur+2@example.org'],
+            'arrival' => '2027-07-24',
+            'departure' => '2027-07-26',
+        ]);
+
+        $this->assertSame(2, $this->holdDaysFor('2027-08-01', '2027-08-03', 'visiteur@example.com'));
+        $this->assertSame(2, $this->holdDaysFor('2027-08-01', '2027-08-03', 'visiteur2@example.org'));
+    }
+
+    /** The address the visitor typed is still the one on the booking: only the count normalises. */
+    public function testThePlusTagIsKeptOnTheBookingItself(): void
+    {
+        $booking = $this->submit(['renter' => ['email' => 'visiteur+1@example.org']])['booking'];
+
+        $this->assertSame('visiteur+1@example.org', $booking->renterEmail);
+    }
+
+    /** A legitimate, isolated request keeps its hold as before. */
+    public function testALegitimateIsolatedRequestKeepsItsHold(): void
+    {
+        $this->assertSame(
+            2,
+            $this->holdDaysFor('2027-08-01', '2027-08-03', 'famille@example.org', null, 2, source: self::SOURCE_V4, assetId: $this->assetId)
+        );
+    }
+
+    /** The source is personal data: stored as a keyed hash, never as an address. */
+    public function testTheSourceIsStoredAsABlindIndexNeverAsAnAddress(): void
+    {
+        $booking = $this->submit(['source' => self::SOURCE_V4])['booking'];
+
+        $row = $this->bookingRow($booking->id);
+        $stored = (string) $row['request_source_blind_index'];
+        $this->assertMatchesRegularExpression('/^[0-9a-f]{64}$/', $stored);
+        $this->assertStringNotContainsString('203', $stored);
+        // Every column, as the bytes it holds: the encrypted ones are binary
+        // and not valid UTF-8, which json_encode() would turn into « false ».
+        foreach ($row as $column => $value) {
+            $this->assertStringNotContainsString(self::SOURCE_V4, (string) $value, $column);
+        }
+    }
+
+    /**
+     * The source count only reads anonymous requests: a signed-in request
+     * that takes a hold keeps its e-mail key and no source it would never be
+     * counted by (#1263).
+     */
+    public function testASignedInRequestStoresNoSourceKey(): void
+    {
+        $booking = $this->submit(['source' => self::SOURCE_V4, 'account' => 7])['booking'];
+
+        $row = $this->bookingRow($booking->id);
+        $this->assertNull($row['request_source_blind_index']);
+        $this->assertNotNull($row['renter_email_base_blind_index']);
+    }
+
+    public function testARequestWithoutASourceStoresNone(): void
+    {
+        $booking = $this->submit()['booking'];
+
+        $this->assertNull($this->bookingRow($booking->id)['request_source_blind_index'] ?: null);
+    }
+
+    /** @return array<string, mixed> */
+    private function bookingRow(int $id): array
+    {
+        $stmt = $this->pdo->prepare('SELECT * FROM rental_bookings WHERE id = ?');
+        $stmt->execute([$id]);
+
+        return (array) $stmt->fetch(\PDO::FETCH_ASSOC);
+    }
+
+    /**
+     * A booking still written `reviewing`, the status retired in #708, reads
+     * back as « received »: the caps count it like any other request waiting
+     * for an answer (#1263).
+     */
+    private function retire(int $bookingId): void
+    {
+        $stmt = $this->pdo->prepare("UPDATE rental_bookings SET status = 'reviewing' WHERE id = ?");
+        $stmt->execute([$bookingId]);
+    }
+
+    public function testALegacyReviewingHoldStillCountsOnTheSource(): void
+    {
+        for ($n = 0; $n < 3; $n++) {
+            $this->requestFrom(self::SOURCE_V4, $n);
+        }
+        $this->pdo->exec("UPDATE rental_bookings SET status = 'reviewing'");
+
+        $this->assertSame(
+            0,
+            $this->holdDaysFor('2028-06-01', '2028-06-03', 'tout-neuf@example.org', null, 2, source: self::SOURCE_V4)
+        );
+    }
+
+    public function testALegacyReviewingHoldStillCountsOnTheAsset(): void
+    {
+        for ($n = 0; $n < 3; $n++) {
+            $this->requestFrom('198.51.100.' . ($n + 1), $n);
+        }
+        $this->pdo->exec("UPDATE rental_bookings SET status = 'reviewing'");
+
+        $this->assertSame(
+            0,
+            $this->holdDaysFor('2028-06-01', '2028-06-03', 'tout-neuf@example.org', null, 2, assetId: $this->assetId)
+        );
+    }
+
+    public function testALegacyReviewingHoldStillCountsOnTheAddress(): void
+    {
+        $this->submit();
+        $this->submit(['arrival' => '2027-07-24', 'departure' => '2027-07-26']);
+        $this->pdo->exec("UPDATE rental_bookings SET status = 'reviewing'");
+
+        $this->assertSame(0, $this->holdDaysFor('2027-08-01', '2027-08-03'));
+    }
+
+    /**
+     * The public form reads the ceilings, then the request is written: other
+     * requests may have taken the room in between. The write counts again
+     * with the asset held and records the request without a hold.
+     */
+    public function testTheAssetCeilingIsCountedAgainUnderTheLockAndNeverRefusesTheRequest(): void
+    {
+        for ($n = 0; $n < 3; $n++) {
+            $this->requestFrom('198.51.100.' . ($n + 1), $n);
+        }
+
+        // hold_days = 2: what a stale answer from the form would have said.
+        $booking = $this->submit([
+            'renter' => ['email' => 'retardataire@example.org'],
+            'source' => '198.51.100.99',
+            'arrival' => '2028-06-01',
+            'departure' => '2028-06-03',
+        ])['booking'];
+
+        $this->assertNull($booking->holdUntil, 'recorded, without a hold');
+        $this->assertNull($booking->holdOrigin);
+        $this->assertSame(BookingStatus::RECEIVED, $booking->status);
+    }
+
+    public function testTheSourceCeilingIsCountedAgainUnderTheLockAcrossAssets(): void
+    {
+        for ($n = 0; $n < 3; $n++) {
+            $this->requestFrom(self::SOURCE_V4, $n, ['asset_id' => $this->otherAssetId()]);
+        }
+
+        $booking = $this->submit([
+            'renter' => ['email' => 'retardataire@example.org'],
+            'source' => self::SOURCE_V4,
+            'arrival' => '2028-06-01',
+            'departure' => '2028-06-03',
+        ])['booking'];
+
+        $this->assertNull($booking->holdUntil);
+    }
+
+    public function testASignedInRequestKeepsItsHoldUnderTheLockToo(): void
+    {
+        for ($n = 0; $n < 3; $n++) {
+            $this->requestFrom('198.51.100.' . ($n + 1), $n);
+        }
+
+        $booking = $this->submit([
+            'renter' => ['email' => 'compte@example.org'],
+            'account' => 7,
+            'arrival' => '2028-06-01',
+            'departure' => '2028-06-03',
+        ])['booking'];
+
+        $this->assertNotNull($booking->holdUntil);
+    }
+
+    /**
+     * What the caps count by is kept for as long as the hold runs and not
+     * after: the booking itself lives for years (#1263).
+     */
+    public function testTheCapKeysAreForgottenWhenTheHoldIsCleared(): void
+    {
+        $booking = $this->submit(['source' => self::SOURCE_V4])['booking'];
+        $this->assertNotNull($this->bookingRow($booking->id)['request_source_blind_index']);
+        $this->assertNotNull($this->bookingRow($booking->id)['renter_email_base_blind_index']);
+
+        $this->repository->clearHold($booking->id);
+
+        $row = $this->bookingRow($booking->id);
+        $this->assertNull($row['request_source_blind_index']);
+        $this->assertNull($row['renter_email_base_blind_index']);
+    }
+
+    public function testTheCapKeysAreForgottenWhenAnAutomaticHoldLapses(): void
+    {
+        $booking = $this->submit(['source' => self::SOURCE_V4])['booking'];
+
+        $this->repository->releaseLapsedHold($booking->id);
+
+        $row = $this->bookingRow($booking->id);
+        $this->assertNull($row['request_source_blind_index']);
+        $this->assertNull($row['renter_email_base_blind_index']);
+    }
+
+    public function testTheCapKeysAreForgottenWhenAManagerReplacesTheHold(): void
+    {
+        $booking = $this->submit(['source' => self::SOURCE_V4])['booking'];
+
+        $this->repository->setHold($booking->id, new \DateTimeImmutable('2999-01-01'), HoldOrigin::MANAGER);
+
+        $row = $this->bookingRow($booking->id);
+        $this->assertNull($row['request_source_blind_index']);
+        $this->assertNull($row['renter_email_base_blind_index']);
+    }
+
+    /**
+     * The caps read only the automatic holds that run: a request that takes
+     * none — no hold configured, or no room left — is given no key to count
+     * by at all, rather than one that would sit there for the years the
+     * booking is kept (#1263).
+     */
+    public function testARequestThatTakesNoHoldStoresNoCapKey(): void
+    {
+        $booking = $this->submit(['hold_days' => 0, 'source' => self::SOURCE_V4])['booking'];
+
+        $row = $this->bookingRow($booking->id);
+        $this->assertNull($row['request_source_blind_index']);
+        $this->assertNull($row['renter_email_base_blind_index']);
+    }
+
+    public function testARequestLeftWithoutAHoldByTheCeilingStoresNoCapKeyEither(): void
+    {
+        for ($n = 0; $n < 3; $n++) {
+            $this->requestFrom('198.51.100.' . ($n + 1), $n);
+        }
+
+        $booking = $this->submit([
+            'renter' => ['email' => 'retardataire@example.org'],
+            'source' => '198.51.100.99',
+            'arrival' => '2028-06-01',
+            'departure' => '2028-06-03',
+        ])['booking'];
+
+        $this->assertNull($booking->holdUntil);
+        $row = $this->bookingRow($booking->id);
+        $this->assertNull($row['request_source_blind_index']);
+        $this->assertNull($row['renter_email_base_blind_index']);
+    }
+
+    public function testAnAutomaticHoldSetAgainKeepsTheCapKeys(): void
+    {
+        $booking = $this->submit(['source' => self::SOURCE_V4])['booking'];
+
+        $this->repository->setHold($booking->id, new \DateTimeImmutable('2999-01-01'), HoldOrigin::AUTOMATIC);
+
+        $this->assertNotNull($this->bookingRow($booking->id)['request_source_blind_index']);
     }
 
     public function testTheRequestingAccountIsRecordedWithTheRequest(): void

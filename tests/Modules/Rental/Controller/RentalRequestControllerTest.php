@@ -1165,6 +1165,118 @@ class RentalRequestControllerTest extends TestCase
         $this->assertNull($holds[3], 'a stay longer than the ceiling holds nothing');
     }
 
+    /**
+     * Issue #1263, through the public form: the address a visitor types is
+     * theirs to change at every request, so a fourth request from one
+     * source is recorded without a hold whatever address it carries — and
+     * is answered exactly like the others, the visitor never learning which
+     * ceiling played.
+     */
+    public function testTheFormGivesNoAutomaticHoldToAFourthRequestFromOneSourceWhateverTheAddress(): void
+    {
+        $this->createAsset();
+
+        $responses = [];
+        foreach ([[30, 33], [40, 43], [50, 53], [60, 63]] as $n => [$from, $to]) {
+            $responses[] = $this->submit($this->validBody([
+                'email' => 'famille' . $n . '@example.be',
+                'arrival' => $this->arrival($from),
+                'departure' => $this->arrival($to),
+            ]));
+        }
+
+        $stmt = $this->pdo->prepare('SELECT hold_until FROM rental_bookings ORDER BY id');
+        $stmt->execute();
+        $holds = $stmt->fetchAll(\PDO::FETCH_COLUMN);
+        $this->assertCount(4, $holds, 'every request is recorded');
+        $this->assertNotNull($holds[0]);
+        $this->assertNotNull($holds[1]);
+        $this->assertNotNull($holds[2]);
+        $this->assertNull($holds[3], 'the fourth request from one source holds nothing');
+
+        $this->assertSame(
+            $responses[0]->getStatusCode(),
+            $responses[3]->getStatusCode(),
+            'the visitor is answered the same whichever ceiling played'
+        );
+        $stmt = $this->pdo->prepare('SELECT request_source_blind_index FROM rental_bookings ORDER BY id');
+        $stmt->execute();
+        $sources = $stmt->fetchAll(\PDO::FETCH_COLUMN);
+        $this->assertCount(1, array_unique(array_slice($sources, 0, 3)), 'the three holds carry the same source');
+        $this->assertNotNull($sources[0]);
+        $this->assertNull($sources[3], 'the request that took no hold keeps nothing to count by');
+        $this->assertNotContains('203.0.113.7', $sources, 'a blind index, never the address');
+    }
+
+    /**
+     * The source ceiling on its own: three holds from this source on ANOTHER
+     * asset, then a fourth request to an asset far below its own ceiling. It
+     * holds nothing: the source's ceiling crosses assets, and is read both by
+     * the form's answer (automaticHoldDaysFor()) and again, under the asset's
+     * lock, when the request is written (#1263). What this test pins is the
+     * result, whichever of the two catches it.
+     */
+    public function testTheSourceCeilingHoldsAcrossAssetsThroughTheForm(): void
+    {
+        $this->createAsset();
+        $otherAssetId = $this->assetRepository->create('Local', 'Autre local', 'autre-local', null, 1, null, null, '+32 470 00 00 00', true);
+        $now = new \DateTimeImmutable();
+        foreach ([40, 50, 60] as $n => $days) {
+            $this->bookingRepository->create(
+                $otherAssetId,
+                'LOC-SRC00' . $n,
+                $this->arrival($days),
+                $this->arrival($days + 3),
+                1,
+                10,
+                null,
+                ['name' => 'Autre Famille', 'email' => 'famille' . $n . '@example.be', 'phone' => '+32 470 12 34 56', 'purpose' => 'Camp'],
+                null,
+                $now->modify('+2 days'),
+                \Modules\Rental\Booking\HoldOrigin::AUTOMATIC,
+                'v1',
+                null,
+                'v1',
+                null,
+                $now,
+                null,
+                '203.0.113.7'
+            );
+        }
+
+        $this->submit($this->validBody([
+            'email' => 'nouvelle.famille@example.be',
+            'arrival' => $this->arrival(30),
+            'departure' => $this->arrival(33),
+        ]));
+
+        $stmt = $this->pdo->prepare('SELECT hold_until FROM rental_bookings WHERE asset_id = ?');
+        $stmt->execute([1]);
+        $holds = $stmt->fetchAll(\PDO::FETCH_COLUMN);
+        $this->assertCount(1, $holds, 'the request is recorded');
+        $this->assertNull($holds[0], 'the source already holds three: this one waits');
+    }
+
+    /** « x+1@ », « x+2@ » and « x+3@ » are one address: the third waits. */
+    public function testThePlusTagOfAnAddressDoesNotGetRoundTheCapThroughTheForm(): void
+    {
+        $this->createAsset();
+
+        foreach ([[30, 33, 'visiteur+1@example.be'], [40, 43, 'visiteur+2@example.be'], [50, 53, 'visiteur+3@example.be']] as [$from, $to, $email]) {
+            $this->submit($this->validBody([
+                'email' => $email,
+                'arrival' => $this->arrival($from),
+                'departure' => $this->arrival($to),
+            ]));
+        }
+
+        $holds = $this->pdo->query('SELECT hold_until FROM rental_bookings ORDER BY id')->fetchAll(\PDO::FETCH_COLUMN);
+        $this->assertCount(3, $holds);
+        $this->assertNotNull($holds[0]);
+        $this->assertNotNull($holds[1]);
+        $this->assertNull($holds[2], 'the third address with the same base holds nothing');
+    }
+
     /** A signed-in account is traceable: its acknowledgement keeps the name. */
     public function testASignedInRequestsAcknowledgementGreetsTheRenterByName(): void
     {
