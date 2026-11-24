@@ -48,7 +48,6 @@ final class InvoiceProblem
         self::NO_LINE_FOUND,
         self::UNRECOGNISED_LINE,
         self::FRACTIONAL_QUANTITY,
-        self::AMBIGUOUS_REPETITION,
         self::TOTAL_MISSING,
     ];
 
@@ -68,11 +67,12 @@ final class InvoiceProblem
         return in_array($this->kind, self::FORMAT_KINDS, true);
     }
 
-    /** Where the reading stopped: `extraction`, `recognition` or `arithmetic`. */
+    /** Where the reading stopped: extraction, recognition, interpretation or arithmetic. */
     public function stage(): string
     {
         return match ($this->kind) {
             self::NO_TEXT_LAYER, self::EXTRACTION_FAILED => 'extraction',
+            self::AMBIGUOUS_REPETITION => 'interpretation',
             self::LINE_ARITHMETIC, self::NAME_COUNT, self::TOTAL_MISMATCH => 'arithmetic',
             default => 'recognition',
         };

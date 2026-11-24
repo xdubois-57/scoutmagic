@@ -320,6 +320,23 @@ class InvoiceImportServiceTest extends TestCase
         $this->assertTrue($context['reading']['total_found']);
     }
 
+    public function testAnAmbiguousRepetitionIsJournaledWithoutCallingItAFormatOrTotalError(): void
+    {
+        $text = implode("\n", [
+            'COT_NORM Cotisation normale ZX777B1 40,00 1 40,00', 'Page 1/2',
+            'COT_NORM Cotisation normale ZX777B1 40,00 1 40,00', 'TOTAL A PAYER 80,00',
+        ]);
+        $outcome = $this->serviceReading($text)->import('%PDF', $this->scoutYearId, null);
+        $statement = $this->pdo->prepare('SELECT description, context FROM event_log WHERE event_type = ?');
+        $statement->execute(['fees_invoice_refused']);
+        $row = $statement->fetch(\PDO::FETCH_ASSOC);
+        $context = json_decode((string) $row['context'], true);
+
+        self::assertSame([false, 'interpretation', [InvoiceProblem::AMBIGUOUS_REPETITION],
+            'Facture refusée : des lignes identiques sans liste nominative restent ambiguës.'],
+            [$outcome->isUnreadable(), $context['stage'], $context['codes'], $row['description']]);
+    }
+
     /** Whatever the PDF library throws, the import answers, and journals no message. */
     public function testAnExtractorThatThrowsIsAReadingRefusalNotAnErrorPage(): void
     {

@@ -15,8 +15,9 @@ use Modules\Fees\Invoice\InvoiceProblem;
  * and they are deliberately different failures, because the answer a
  * treasurer needs is not the same one:
  *
- * - `REFUSED` — **the file is at fault**. The arithmetic does not close,
- *   and the problems say on which line. Nothing was stored.
+ * - `REFUSED` — the reading is incomplete, its arithmetic does not close,
+ *   or identical rows cannot be interpreted without names. The problems
+ *   explain which case and where. Nothing was stored.
  * - `STALE_ROSTER` — **the file is fine and the site is behind**. A
  *   section the invoice bills does not exist here, which means Desk has
  *   moved on and this installation has not re-imported. The answer is one
@@ -105,5 +106,16 @@ final class InvoiceImportOutcome
     public function isStored(): bool
     {
         return $this->status === self::IMPORTED;
+    }
+
+    public function isAmbiguous(): bool
+    {
+        foreach ($this->problems as $problem) {
+            if ($problem->kind === InvoiceProblem::AMBIGUOUS_REPETITION) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

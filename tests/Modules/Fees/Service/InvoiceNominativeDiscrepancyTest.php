@@ -63,16 +63,21 @@ class InvoiceNominativeDiscrepancyTest extends TestCase
         FeesTestHelper::createTables($this->pdo);
         $this->encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
 
-        $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date) VALUES ('2025-2026', '2025-09-01', '2026-08-31')");
+        $statement = $this->pdo->prepare('INSERT INTO scout_years (label, start_date, end_date) VALUES (?, ?, ?)');
+        $statement->execute(['2025-2026', '2025-09-01', '2026-08-31']);
         $this->scoutYearId = (int) $this->pdo->lastInsertId();
 
-        $this->pdo->exec("INSERT INTO age_branches (desk_code, label, sort_order) VALUES ('LOUV', 'Louveteaux', 20)");
+        $statement = $this->pdo->prepare('INSERT INTO age_branches (desk_code, label, sort_order) VALUES (?, ?, ?)');
+        $statement->execute(['LOUV', 'Louveteaux', 20]);
         $branchId = (int) $this->pdo->lastInsertId();
-        $this->pdo->exec("INSERT INTO sections (age_branch_id, desk_code, name) VALUES ({$branchId}, 'ZX777L1', 'Meute Akela')");
+        $statement = $this->pdo->prepare('INSERT INTO sections (age_branch_id, desk_code, name) VALUES (?, ?, ?)');
+        $statement->execute([$branchId, 'ZX777L1', 'Meute Akela']);
         $this->louveteauxId = (int) $this->pdo->lastInsertId();
-        $this->pdo->exec("INSERT INTO sections (age_branch_id, desk_code, name) VALUES ({$branchId}, 'ZX777E1', 'Troupe Sanglier')");
+        $statement = $this->pdo->prepare('INSERT INTO sections (age_branch_id, desk_code, name) VALUES (?, ?, ?)');
+        $statement->execute([$branchId, 'ZX777E1', 'Troupe Sanglier']);
         $this->eclaireursId = (int) $this->pdo->lastInsertId();
-        $this->pdo->exec("INSERT INTO sections (age_branch_id, desk_code, name) VALUES ({$branchId}, 'STAFFDU', 'Staff U')");
+        $statement = $this->pdo->prepare('INSERT INTO sections (age_branch_id, desk_code, name) VALUES (?, ?, ?)');
+        $statement->execute([$branchId, 'STAFFDU', 'Staff U']);
         $this->staffId = (int) $this->pdo->lastInsertId();
 
         $feeCategories = new FeeCategoryRepository($this->pdo);
@@ -80,7 +85,8 @@ class InvoiceNominativeDiscrepancyTest extends TestCase
         $this->familyFeeId = $feeCategories->create('N_F_COTISATION FAMILLE', 'Cotisation famille');
         $this->unrecognisedFeeId = $feeCategories->create('Cotisation invités', 'Cotisation invités');
 
-        $this->pdo->exec("INSERT INTO functions (desk_code, label, role) VALUES ('Anime', 'Anime', 'identified')");
+        $statement = $this->pdo->prepare('INSERT INTO functions (desk_code, label, role) VALUES (?, ?, ?)');
+        $statement->execute(['Anime', 'Anime', 'identified']);
         $this->functionId = (int) $this->pdo->lastInsertId();
 
         $this->invoices = new InvoiceRepository($this->pdo);
@@ -110,7 +116,8 @@ class InvoiceNominativeDiscrepancyTest extends TestCase
         bool $leaving = false,
         ?string $formationLevel = null
     ): array {
-        $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('" . uniqid('', true) . "')");
+        $statement = $this->pdo->prepare('INSERT INTO members (desk_id) VALUES (?)');
+        $statement->execute([uniqid('', true)]);
         $memberId = (int) $this->pdo->lastInsertId();
 
         $stmt = $this->pdo->prepare(
@@ -197,7 +204,8 @@ class InvoiceNominativeDiscrepancyTest extends TestCase
             new InvoiceLine('COT_NORM', 'Cotisation normale', 'ZX777L1', 4000, 1, 4000),
         ], $this->snapshot());
         // Exercise the new fee nature independently of the parser change.
-        $this->pdo->exec("UPDATE fees_invoice_lines SET nature = 'fee'");
+        $statement = $this->pdo->prepare('UPDATE fees_invoice_lines SET nature = ?');
+        $statement->execute(['fee']);
 
         self::assertSame([], $this->service->nominativeDiscrepancies($invoice));
     }
@@ -210,7 +218,8 @@ class InvoiceNominativeDiscrepancyTest extends TestCase
             $this->feeLine('COT_NORM', 'Cotisation normale', 'ZX777L1', 4000, [$person]),
             new InvoiceLine('COT_FAM', 'Cotisation famille', 'ZX777L1', 3200, 1, 3200),
         ], $this->snapshot());
-        $this->pdo->exec("UPDATE fees_invoice_lines SET nature = 'fee'");
+        $statement = $this->pdo->prepare('UPDATE fees_invoice_lines SET nature = ?');
+        $statement->execute(['fee']);
 
         self::assertSame([], $this->service->nominativeDiscrepancies($invoice));
     }
@@ -222,7 +231,8 @@ class InvoiceNominativeDiscrepancyTest extends TestCase
             $this->feeLine('COT_NORM', 'Cotisation normale', 'ZX777L1', 4000, [$person]),
             new InvoiceLine('COT_FAM', 'Cotisation famille', 'ZX777L1', 3200, 1, 3200),
         ], $this->snapshot());
-        $this->pdo->exec("UPDATE fees_invoice_lines SET nature = 'fee'");
+        $statement = $this->pdo->prepare('UPDATE fees_invoice_lines SET nature = ?');
+        $statement->execute(['fee']);
 
         $discrepancies = $this->service->nominativeDiscrepancies($invoice);
         self::assertSame([[NominativeDiscrepancy::DIFFERENT_CATEGORY, null]],
@@ -235,7 +245,8 @@ class InvoiceNominativeDiscrepancyTest extends TestCase
         $invoice = $this->storeInvoice([
             new InvoiceLine('RED_ANIM_BREV', 'Reduction brevet', 'ZX777L1', -600, 1, -600),
         ], $this->snapshot());
-        $this->pdo->exec("UPDATE fees_invoice_lines SET nature = 'reduction'");
+        $statement = $this->pdo->prepare('UPDATE fees_invoice_lines SET nature = ?');
+        $statement->execute(['reduction']);
 
         self::assertSame([], $this->service->nominativeDiscrepancies($invoice));
     }

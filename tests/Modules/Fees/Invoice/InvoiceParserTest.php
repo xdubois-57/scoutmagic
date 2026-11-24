@@ -199,6 +199,28 @@ class InvoiceParserTest extends TestCase
 
     // -- 4. Page-break repetition ----------------------------------------
 
+    /** @return iterable<string, array{string, string}> */
+    public static function ambiguousLocations(): iterable
+    {
+        yield 'different reference' => ['COT_FAM', 'ZX777B1'];
+        yield 'different section' => ['COT_NORM', 'ZX777B2'];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('ambiguousLocations')]
+    public function testEveryDistinctAmbiguousRepetitionKeepsItsLocation(string $reference, string $section): void
+    {
+        $first = 'COT_NORM Cotisation normale ZX777B1 40,00 1 40,00';
+        $second = $reference . ' Cotisation ' . $section . ' 40,00 1 40,00';
+        $result = $this->parser->parse(implode("\n", [
+            $first, 'Page 1/3', $first, $second, 'Page 2/3', $second, 'TOTAL A PAYER 160,00',
+        ]));
+
+        self::assertSame([['COT_NORM', 'ZX777B1'], [$reference, $section]], array_map(
+            static fn(InvoiceProblem $problem): array => [$problem->reference, $problem->sectionCode],
+            $result->problems
+        ));
+    }
+
     /** @return iterable<string, array{string, bool, string}> */
     public static function blankParagraphs(): iterable
     {

@@ -25,7 +25,8 @@ final class InvoiceQuantityOnMysqlTest extends TestCase
     public function testAnAdvanceWithNegativeQuantityIsStoredOnTheDeclaredSchema(): void
     {
         $pdo = $this->productionEngine();
-        $pdo->exec("INSERT INTO scout_years (label, start_date, end_date) VALUES ('2030-2031', '2030-09-01', '2031-08-31')");
+        $statement = $pdo->prepare('INSERT INTO scout_years (label, start_date, end_date) VALUES (?, ?, ?)');
+        $statement->execute(['2030-2031', '2030-09-01', '2031-08-31']);
         $yearId = (int) $pdo->lastInsertId();
         $pdf = SyntheticInvoicePdf::build([[
             'Facture n° DEMO-701',

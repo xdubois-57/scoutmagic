@@ -310,7 +310,8 @@ class InvoiceParser
         $seen = [];
         $distinct = [];
         foreach ($problems as $problem) {
-            $key = $problem->kind . "\0" . $problem->message;
+            $key = implode("\0", [$problem->kind, $problem->message,
+                $problem->reference ?? '', $problem->sectionCode ?? '']);
             if (!isset($seen[$key])) {
                 $seen[$key] = true;
                 $distinct[] = $problem;

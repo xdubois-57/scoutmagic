@@ -38,6 +38,11 @@ document. Le message désigne la ligne concernée. Rien n'est enregistré.
 n'est enregistré. Signalez le problème sans envoyer le PDF : le journal
 fournit des compteurs de lecture, sans aucun nom.
 
+**Lignes identiques sans liste nominative.** Les lignes sont lues, mais
+le site ne peut pas distinguer une continuation de deux cotisations.
+Demandez un document avec les listes nominatives. Chaque référence et
+section concernées sont indiquées ; rien n'est enregistré.
+
 **Roster périmé.** Une section facturée est inconnue du site. Réimportez
 Desk, puis reprenez le même PDF. La solution est d'actualiser les données,
 pas d'associer manuellement un code à une autre section.

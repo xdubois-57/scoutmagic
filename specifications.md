@@ -1816,7 +1816,10 @@ séparateurs de pages de l'extracteur ne sont utilisés que si le nombre de
 blocs correspond exactement au total de pages imprimé. L'en-tête peut être
 repris sans noms supplémentaires, si la liste est déjà complète sur la
 page précédente. Deux cotisations indépendantes identiques restent deux
-lignes. Une répétition ambiguë sans aucun nom refuse le document.
+lignes. Une répétition ambiguë sans aucun nom refuse le document. L'écran
+demande alors une liste nominative, sans parler de format inconnu ni de
+total incohérent. Chaque référence et section ambiguës sont conservées
+dans le diagnostic, même si plusieurs ont le même message.
 
 **Ce que le site n'a pas compris est compté.** Un en-tête, un pied de page,
 un sous-total : tout ce qui ne correspond à aucune des deux formes est

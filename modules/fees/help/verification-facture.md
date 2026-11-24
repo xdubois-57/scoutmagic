@@ -12,7 +12,9 @@ related: factures-federation, justesse-des-tarifs, cotisations
 ---
 
 Le rapport compare la facture à la **photographie des données Desk** prise
-au plus près avant son émission, et non à la situation actuelle.
+au plus près avant son émission. Si toutes les photographies sont postérieures,
+il utilise la première disponible après l'émission et affiche l'écart de dates.
+La comparaison repose sur cette photographie, pas sur la situation actuelle.
 
 ## Lignes reconstituées : combien ?
 
