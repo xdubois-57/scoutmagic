@@ -665,6 +665,29 @@ class FinanceMessageConsumerTest extends TestCase
         $this->assertSame([], $reader->readFor);
     }
 
+    /** The reader's bounds hold before a byte is fetched: no file it would refuse is decrypted into memory. */
+    public function testNoBytesAreFetchedPastTheReadersBounds(): void
+    {
+        $fetched = [];
+        $attachments = [new InboundAttachment(80, 55, 980, 'enorme.pdf', 'application/pdf', \Core\Mail\AttachmentTextReader::MAX_FILE_BYTES + 1, 'h-big')];
+        foreach (range(81, 85) as $id) {
+            $attachments[] = $this->storedAttachment($id);
+        }
+        $reader = $this->readerAnswering([]);
+
+        $this->consumer(
+            readFile: static function (int $fileId) use (&$fetched): string {
+                $fetched[] = $fileId;
+
+                return 'octets ' . $fileId;
+            },
+            attachmentText: $reader
+        )->analyzeStored($this->generalMessage($attachments));
+
+        $this->assertSame([981, 982, 983], $fetched);
+        $this->assertSame([[81, 82, 83]], $reader->readFor);
+    }
+
     public function testOnlyTheAttachmentThatReadsLikeAReceiptIsFiled(): void
     {
         $filed = [];

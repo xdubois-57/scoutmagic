@@ -516,10 +516,20 @@ class FinanceMessageConsumer implements
         // and the pile's own duplicate check only sees the pile: a receipt
         // a treasurer moved onto an account, or archived, would come back.
         // Same hash as the store's: the bytes before any orientation fix.
+        //
+        // Within the reader's own bounds, BEFORE a byte is fetched: a file
+        // it would refuse, or one past its count, is not decrypted into
+        // memory here only to be dropped — this is somebody else's mail.
         $known = new AttachmentRepository($this->pdo, $this->encryption);
         $fresh = [];
         $contents = [];
         foreach ($receipts as $attachment) {
+            if (count($fresh) >= AttachmentTextReader::MAX_ATTACHMENTS) {
+                break;
+            }
+            if ($attachment->sizeBytes > AttachmentTextReader::MAX_FILE_BYTES) {
+                continue;
+            }
             $content = ($this->readFile)($attachment->fileId);
             if ($content === null || $content === ''
                 || $known->existsWithContentHash(hash('sha256', $content))
