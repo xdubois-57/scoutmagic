@@ -771,7 +771,21 @@ function scoutmagicBootstrapScheduler(
                                 ],
                                 null
                             );
-                        }
+                        },
+                        // What a stored attachment says (#1342): the deferred
+                        // pass reads a general-address message's documents
+                        // to tell a receipt from the rest. Its text on the
+                        // site first; a photo or a scan is transcribed at the
+                        // OCR tier, once per message at most. Without a
+                        // connector, the text layer alone.
+                        new \Core\Mail\AttachmentTextReader(
+                            $financeStoredFileReader,
+                            null,
+                            $context->getOptional(\Modules\LlmConnector\Api\LlmConnectorInterface::class)
+                        ),
+                        // Whether the stored message's box is the treasury's
+                        // own — the question the arrival pass is told.
+                        $inboundMail
                     ));
                 }
 
@@ -812,7 +826,7 @@ function scoutmagicBootstrapScheduler(
                             // The deferred pass is exactly where an
                             // attachment's BYTES are allowed to be read
                             // (§8.58) — never inside the sync loop.
-                            new \Modules\Camps\Mail\AttachmentTextReader(
+                            new \Core\Mail\AttachmentTextReader(
                                 new \Core\File\StoredFileReader(
                                     $fileRepository,
                                     new \Core\File\EncryptedFileStorageService(

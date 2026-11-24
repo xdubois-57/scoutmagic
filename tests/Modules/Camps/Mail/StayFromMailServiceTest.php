@@ -86,7 +86,7 @@ class StayFromMailServiceTest extends TestCase
 
     private function service(
         ?LlmConnectorInterface $llm = null,
-        ?\Modules\Camps\Mail\AttachmentTextReader $attachments = null
+        ?\Core\Mail\AttachmentTextReader $attachments = null
     ): StayFromMailService {
         return new StayFromMailService(
             $this->camps,
@@ -262,7 +262,7 @@ class StayFromMailServiceTest extends TestCase
      * what this test is about is precisely that an exception inside the
      * OCR call reaches the journal as a different word.
      */
-    private function readerWhoseProviderIsDown(): \Modules\Camps\Mail\AttachmentTextReader
+    private function readerWhoseProviderIsDown(): \Core\Mail\AttachmentTextReader
     {
         $llm = $this->createStub(LlmConnectorInterface::class);
         $llm->method('isTierAvailable')->willReturn(true);
@@ -276,7 +276,7 @@ class StayFromMailServiceTest extends TestCase
      * the real path, not a stub of it: what these tests are about is
      * precisely what happens inside the OCR call.
      */
-    private function readerWith(LlmConnectorInterface $llm): \Modules\Camps\Mail\AttachmentTextReader
+    private function readerWith(LlmConnectorInterface $llm): \Core\Mail\AttachmentTextReader
     {
         $files = new \Core\File\FileRepository($this->pdo);
         if ($this->scanFileId === 0) {
@@ -294,7 +294,7 @@ class StayFromMailServiceTest extends TestCase
             );
         }
 
-        return new \Modules\Camps\Mail\AttachmentTextReader(
+        return new \Core\Mail\AttachmentTextReader(
             new \Core\File\StoredFileReader(
                 $files,
                 new \Core\File\EncryptedFileStorageService(
@@ -396,7 +396,7 @@ class StayFromMailServiceTest extends TestCase
                 false
             );
 
-            $reader = new \Modules\Camps\Mail\AttachmentTextReader(new \Core\File\StoredFileReader(
+            $reader = new \Core\Mail\AttachmentTextReader(new \Core\File\StoredFileReader(
                 $files,
                 new \Core\File\EncryptedFileStorageService(
                     $files,

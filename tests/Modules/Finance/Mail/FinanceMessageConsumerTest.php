@@ -542,9 +542,224 @@ class FinanceMessageConsumerTest extends TestCase
         );
     }
 
-    public function testTheDeferredPassAddsNothing(): void
+    // ── The deferred pass: what only the stored message can answer (#1342) ──
+
+    public function testTheDeferredPassLeavesAMessageThisModuleAlreadyHoldsAlone(): void
     {
-        $this->assertTrue($this->consumer()->analyzeStored($this->storedMessage())->isEmpty());
+        $reader = $this->readerAnswering([88 => "FACTURE\nTotal: 42.50 EUR"]);
+        $filed = [];
+
+        $result = $this->consumer($filed, attachmentText: $reader)->analyzeStored($this->generalMessage(
+            [$this->storedAttachment(88)],
+            links: [new MessageLink(FinanceMessageConsumer::CONSUMER_ID, FinanceMessageConsumer::REFERENCE_UNKNOWN, LinkOrigin::ATTACHMENT)]
+        ));
+
+        $this->assertTrue($result->isEmpty());
+        $this->assertSame([], $filed);
+        $this->assertSame([], $reader->readFor);
+    }
+
+    /**
+     * The arrival rules again, on what was KEPT: an IBAN of the unit beside
+     * a photo that arrived as HEIC — no receipt type then, a JPEG now.
+     */
+    public function testTheArrivalRulesRunAgainOnTheAttachmentsAsTheyWereKept(): void
+    {
+        $reader = $this->readerAnswering([88 => "TICKET\nTOTAL 12,50"]);
+
+        $result = $this->consumer(attachmentText: $reader)->analyzeStored($this->generalMessage(
+            [$this->storedAttachment(88, 'photo.jpg', 'image/jpeg')],
+            body: 'Remboursement sur BE92 0015 1175 7023 svp.'
+        ));
+
+        $this->assertCount(1, $result->candidates);
+        $this->assertSame(FinanceMessageConsumer::referenceFor($this->accountId), $result->candidates[0]->businessReference);
+        $this->assertSame([], $reader->readFor, 'the covering e-mail answered: nothing is read');
+    }
+
+    /**
+     * The sender's single staff, now that the photo is a JPEG: the same
+     * association the arrival pass would have made.
+     */
+    public function testTheSendersStaffPlacesAKeptPhotoOnItsAccount(): void
+    {
+        $staffAccountId = $this->animateurOfOneStaff('chef@unite.be');
+        $message = $this->generalMessage([$this->storedAttachment(88, 'photo.jpg', 'image/jpeg')]);
+        $message = new InboundMessage(
+            id: $message->id,
+            mailboxId: $message->mailboxId,
+            consumerId: '',
+            businessReference: '',
+            linkOrigin: LinkOrigin::MANUAL,
+            subject: $message->subject,
+            fromEmail: 'chef@unite.be',
+            fromName: null,
+            messageId: $message->messageId,
+            inReplyTo: null,
+            sentAt: $message->sentAt,
+            bodyText: $message->bodyText,
+            bodyHtml: '',
+            toEmails: [],
+            attachments: $message->attachments
+        );
+
+        $result = $this->consumerWithSenderStaff()->analyzeStored($message);
+
+        $this->assertSame(FinanceMessageConsumer::referenceFor($staffAccountId), $result->links[0]->businessReference);
+    }
+
+    public function testAPhotoNormalisedOnTheTreasurysOwnBoxGoesToTheSortingPile(): void
+    {
+        $result = $this->consumer(inboundMail: $this->boxDedicatedToFinance())->analyzeStored(
+            $this->generalMessage([$this->storedAttachment(88, 'photo.jpg', 'image/jpeg')])
+        );
+
+        $this->assertSame(FinanceMessageConsumer::REFERENCE_UNKNOWN, $result->links[0]->businessReference);
+    }
+
+    /**
+     * Decision 1: on the general address the receipt is filed in the pile
+     * and the MESSAGE is not linked — a link to « Compte inconnu » would
+     * open the unit's general mail to every treasurer.
+     */
+    public function testAReceiptReadOnTheGeneralAddressIsFiledInThePileAndTheMessageStaysUnlinked(): void
+    {
+        $filed = [];
+
+        $result = $this->consumer($filed, attachmentText: $this->readerAnswering([88 => "FACTURE Delhaize\nTotal: 42.50 EUR"]))
+            ->analyzeStored($this->generalMessage([$this->storedAttachment(88)]));
+
+        $this->assertTrue($result->isEmpty(), 'no link, no proposition');
+        $this->assertSame(
+            [['filename' => 'facture.pdf', 'account_id' => null, 'role' => RecordingExpenseReceipts::UNATTENDED]],
+            $filed
+        );
+    }
+
+    public function testOnlyTheAttachmentThatReadsLikeAReceiptIsFiled(): void
+    {
+        $filed = [];
+        $reader = $this->readerAnswering([
+            88 => 'Programme du week-end : départ à 9 h.',
+            89 => "TICKET\nTOTAL 12,50",
+        ]);
+
+        $this->consumer($filed, attachmentText: $reader)->analyzeStored($this->generalMessage([
+            $this->storedAttachment(88, 'programme.pdf'),
+            $this->storedAttachment(89, 'ticket.jpg', 'image/jpeg'),
+        ]));
+
+        $this->assertSame(['ticket.jpg'], array_column($filed, 'filename'));
+    }
+
+    public function testADocumentThatDoesNotReadLikeAReceiptStaysOutOfTheReceipts(): void
+    {
+        $filed = [];
+
+        $result = $this->consumer($filed, attachmentText: $this->readerAnswering([88 => 'Bonne fête des pères !']))
+            ->analyzeStored($this->generalMessage([$this->storedAttachment(88)]));
+
+        $this->assertTrue($result->isEmpty());
+        $this->assertFalse($result->readingFailed);
+        $this->assertSame([], $filed);
+    }
+
+    /** Only receipt types are read: a spreadsheet is a document, not a receipt. */
+    public function testOnlyReceiptTypesAreReadAtAll(): void
+    {
+        $reader = $this->readerAnswering([]);
+
+        $this->consumer(attachmentText: $reader)->analyzeStored($this->generalMessage([
+            $this->storedAttachment(88, 'budget.ods', 'application/vnd.oasis.opendocument.spreadsheet'),
+        ]));
+
+        $this->assertSame([], $reader->readFor);
+    }
+
+    /** As on arrival: two of the unit's IBANs are a transfer between them, and silence. */
+    public function testTwoOfTheUnitsIbansStillMeanSilenceOnTheDeferredPass(): void
+    {
+        $this->activeAccount('Épargne', self::OTHER_IBAN);
+        $filed = [];
+        $reader = $this->readerAnswering([88 => "FACTURE\nTotal: 42.50 EUR"]);
+
+        $this->consumer($filed, attachmentText: $reader)->analyzeStored($this->generalMessage(
+            [$this->storedAttachment(88)],
+            body: 'Virement de BE92 0015 1175 7023 vers BE71 0961 2345 6769.'
+        ));
+
+        $this->assertSame([], $filed);
+        $this->assertSame([], $reader->readFor);
+    }
+
+    public function testAReadingThatFailedWithNothingFiledAsksForAnotherPass(): void
+    {
+        $result = $this->consumer(attachmentText: $this->readerAnswering([], failed: true))
+            ->analyzeStored($this->generalMessage([$this->storedAttachment(88, 'ticket.jpg', 'image/jpeg')]));
+
+        $this->assertTrue($result->readingFailed);
+    }
+
+    /** A receipt already filed is not worth a second provider call to re-learn. */
+    public function testAReadingThatFailedAfterSomethingWasFiledAsksForNothingMore(): void
+    {
+        $filed = [];
+
+        $result = $this->consumer($filed, attachmentText: $this->readerAnswering([88 => "FACTURE\nTotal: 42.50 EUR"], failed: true))
+            ->analyzeStored($this->generalMessage([
+                $this->storedAttachment(88),
+                $this->storedAttachment(89, 'ticket.jpg', 'image/jpeg'),
+            ]));
+
+        $this->assertFalse($result->readingFailed);
+        $this->assertCount(1, $filed);
+    }
+
+    /** A newsletter's pictures are its layout: never a transcription. Its PDFs are still read. */
+    public function testAListMailsPicturesAreNotRead(): void
+    {
+        $reader = $this->readerAnswering([]);
+
+        $this->consumer(attachmentText: $reader)->analyzeStored($this->generalMessage(
+            [$this->storedAttachment(88, 'banniere.jpg', 'image/jpeg'), $this->storedAttachment(89, 'facture.pdf')],
+            bulk: true
+        ));
+
+        $this->assertSame([[89]], $reader->readFor);
+    }
+
+    public function testFinanceRefusingAReadReceiptIsSaid(): void
+    {
+        $said = [];
+        $consumer = new FinanceMessageConsumer(
+            $this->accounts,
+            new TreasurerScopeService(\Core\Database\Connection::withPdo($this->pdo), new \Core\Badge\BadgeRepository($this->pdo)),
+            $this->pdo,
+            $this->encryption,
+            1,
+            new RefusingExpenseReceipts(),
+            null,
+            static fn(int $fileId): ?string => 'des octets',
+            onFilingFailed: static function (\Throwable $e, string $mimeType, int $attachmentId) use (&$said): void {
+                $said[] = $attachmentId;
+            },
+            attachmentText: $this->readerAnswering([88 => "FACTURE\nTotal: 42.50 EUR"])
+        );
+
+        $consumer->analyzeStored($this->generalMessage([$this->storedAttachment(88)]));
+
+        $this->assertSame([88], $said);
+    }
+
+    /** §7.5: without a reader, the general address is judged on its covering e-mail alone. */
+    public function testWithoutAReaderTheGeneralAddressFilesNothingFromContent(): void
+    {
+        $filed = [];
+
+        $result = $this->consumer($filed)->analyzeStored($this->generalMessage([$this->storedAttachment(88)]));
+
+        $this->assertTrue($result->isEmpty());
+        $this->assertSame([], $filed);
     }
 
     // ── Qui dépose le reçu, et par quelle porte ─────────────────────────
@@ -857,7 +1072,9 @@ class FinanceMessageConsumerTest extends TestCase
         ?\Closure $readFile = null,
         ?\Modules\Finance\Api\ExpenseReceiptInterface $receipts = null,
         bool $withSenderStaff = false,
-        ?\Modules\Finance\Mail\FinanceMailNotifier $notifier = null
+        ?\Modules\Finance\Mail\FinanceMailNotifier $notifier = null,
+        ?\Core\Mail\AttachmentTextReader $attachmentText = null,
+        ?\Modules\InboundMail\Api\InboundMailInterface $inboundMail = null
     ): FinanceMessageConsumer {
         $receipts ??= new RecordingExpenseReceipts($filed);
 
@@ -879,7 +1096,90 @@ class FinanceMessageConsumerTest extends TestCase
             $readFile ?? static fn(int $fileId): ?string => 'des octets',
             $withSenderStaff ? $this->senderStaffResolver() : null,
             $withSenderStaff ? new \Modules\Finance\Mail\ForwardedSenderExtractor() : null,
-            $notifier
+            $notifier,
+            attachmentText: $attachmentText,
+            inboundMail: $inboundMail
+        );
+    }
+
+    /**
+     * A reader that answers what each attachment "says", and remembers
+     * which attachments it was asked about — no file, no model.
+     *
+     * @param array<int, string> $texts keyed by attachment id
+     */
+    private function readerAnswering(array $texts, bool $failed = false): \Core\Mail\AttachmentTextReader
+    {
+        return new class ($texts, $failed) extends \Core\Mail\AttachmentTextReader {
+            /** @var list<list<int>> */
+            public array $readFor = [];
+
+            /** @param array<int, string> $texts */
+            public function __construct(private array $texts, private bool $failed)
+            {
+            }
+
+            public function readEach(array $attachments): array
+            {
+                $ids = array_map(static fn(InboundAttachment $attachment): int => $attachment->id, $attachments);
+                $this->readFor[] = $ids;
+
+                return array_intersect_key($this->texts, array_flip($ids));
+            }
+
+            public function readingFailed(): bool
+            {
+                return $this->failed;
+            }
+        };
+    }
+
+    private function boxDedicatedToFinance(): \Modules\InboundMail\Api\InboundMailInterface
+    {
+        $inboundMail = $this->createStub(\Modules\InboundMail\Api\InboundMailInterface::class);
+        $inboundMail->method('isDedicatedTo')->willReturnCallback(
+            static fn(string $consumerId, int $mailboxId): bool => $consumerId === FinanceMessageConsumer::CONSUMER_ID
+        );
+
+        return $inboundMail;
+    }
+
+    private function storedAttachment(int $id, string $filename = 'facture.pdf', string $mimeType = 'application/pdf'): InboundAttachment
+    {
+        return new InboundAttachment($id, 55, 900 + $id, $filename, $mimeType, 120000, 'hash-' . $id);
+    }
+
+    /**
+     * A stored message of the unit's general address, from nobody the unit
+     * knows, naming no account — the case only its documents can settle.
+     *
+     * @param InboundAttachment[] $attachments
+     * @param MessageLink[] $links
+     */
+    private function generalMessage(
+        array $attachments,
+        string $body = 'Bonjour, voici le ticket des courses.',
+        bool $bulk = false,
+        array $links = []
+    ): InboundMessage {
+        return new InboundMessage(
+            id: 55,
+            mailboxId: 1,
+            consumerId: '',
+            businessReference: '',
+            linkOrigin: LinkOrigin::MANUAL,
+            subject: 'Courses',
+            fromEmail: 'inconnu@example.be',
+            fromName: null,
+            messageId: 'a@b',
+            inReplyTo: null,
+            sentAt: new \DateTimeImmutable('2027-07-12 09:30:00'),
+            bodyText: $body,
+            bodyHtml: '',
+            toEmails: [],
+            attachments: $attachments,
+            links: $links,
+            isBulk: $bulk
         );
     }
 

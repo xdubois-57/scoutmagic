@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\Finance\Mail;
 
+use Core\Mail\AttachmentTextReader;
 use Core\Security\EncryptionService;
 use Core\Security\Role;
 use Modules\Finance\Api\ExpenseReceiptInterface;
@@ -19,7 +20,10 @@ use Modules\Finance\Service\ReceiptService;
 use Modules\Finance\Service\TreasurerScope;
 use Modules\Finance\Service\TreasurerScopeService;
 use Modules\InboundMail\Api\AnalysisResult;
+use Modules\InboundMail\Api\CandidateAttachment;
 use Modules\InboundMail\Api\CandidateMessage;
+use Modules\InboundMail\Api\InboundAttachment;
+use Modules\InboundMail\Api\InboundMailInterface;
 use Modules\InboundMail\Api\InboundMessage;
 use Modules\InboundMail\Api\LinkOrigin;
 use Modules\InboundMail\Api\MessageCandidate;
@@ -53,6 +57,10 @@ use Modules\InboundMail\Api\ReferenceSuggestion;
  *    receipt is kept with no account at all, in a sorting pile its
  *    treasurers work through. On the unit's public address this stops at
  *    silence instead: a photo in a parent's message is not a receipt.
+ * 4. **Nothing places it, on the unit's public address, and the document
+ *    itself reads like a receipt** → filed in the sorting pile, the
+ *    message left unlinked (`analyzeStored()`, #1342). That is the
+ *    deferred pass, the only one allowed to read an attachment's bytes.
  *
  * The IBAN wins over the sender deliberately. It is a statement about the
  * MONEY, made in the document's own covering text; the sender is a
@@ -189,7 +197,21 @@ class FinanceMessageConsumer implements
          *
          * @var (\Closure(\Throwable, string, int): void)|null
          */
-        private ?\Closure $onFilingFailed = null
+        private ?\Closure $onFilingFailed = null,
+        /**
+         * What a stored attachment says, as text — the deferred pass's
+         * own reading (`analyzeStored()`, #1342). Null: that pass reads no
+         * document, which is what it did before, and a receipt on the
+         * unit's general address is found only by its covering e-mail.
+         */
+        private ?AttachmentTextReader $attachmentText = null,
+        /**
+         * Whether the box a stored message came from is this module's own.
+         * The arrival pass is told on the candidate; the deferred pass
+         * asks, as camps does. Null reads as « shared », which grants
+         * nothing extra.
+         */
+        private ?InboundMailInterface $inboundMail = null
     ) {
     }
 
@@ -299,10 +321,10 @@ class FinanceMessageConsumer implements
      * metadata says whether there is a receipt-shaped file, and the IBAN
      * is in the text.
      *
-     * Reading the PDF itself would be the obvious next step and is
-     * deliberately not taken: it is `analyzeStored()`'s territory, it
-     * costs an extraction per message, and the account is named in the
-     * covering email far more often than inside the invoice.
+     * Reading the PDF itself is deliberately not done here: it is
+     * `analyzeStored()`'s territory, it costs an extraction per message,
+     * and the synchronisation loop sees attachment metadata and nothing
+     * else.
      */
     public function analyze(CandidateMessage $message): AnalysisResult
     {
@@ -394,15 +416,164 @@ class FinanceMessageConsumer implements
     }
 
     /**
-     * Nothing on the deferred pass.
+     * The deferred pass: what only the stored message can answer (#1342).
      *
-     * Reading an invoice's own text would need an extraction per message
-     * and would answer a question the covering email usually answers
-     * already. Adding it later is a change to this class alone.
+     * **First, the arrival rules again, on what was actually kept.** The
+     * arrival pass judged the attachments as they came off the server; a
+     * HEIC or WebP photo was no receipt type there, and was then normalised
+     * to a JPEG on its way to storage (`MailboxSyncService::prepareAttachment()`).
+     * Read again here, the same rules see the JPEG. On a message the
+     * arrival pass already placed this changes nothing: a link stops it
+     * below, and a proposition re-made is the same proposition
+     * (`AnalysisResultApplier` keeps one, and never revives one set aside).
+     *
+     * **Then, on the unit's general address only, the document itself**
+     * (decisions 1 and 2). Nothing in the covering e-mail placed the
+     * message — no IBAN of the unit, no single staff behind the sender —
+     * so the attachments are read: their text first, on the site; a
+     * picture or a scan with no text is transcribed by the model, once
+     * per message at most (`Core\Mail\AttachmentTextReader`). Each one
+     * that reads like a receipt (`ReceiptTextRecognizer`) is filed in the
+     * sorting pile, **and the message is not linked**. A link to
+     * « Compte inconnu » would make the whole message — the unit's general
+     * mail, its other attachments — readable by every treasurer
+     * (`canRead()`); what they are owed is the receipt, and the message
+     * stays where the general address's own rule keeps it (#1333).
+     *
+     * Two IBANs of the unit in the text stay silence, as on arrival: the
+     * covering e-mail of a transfer between two accounts, whose document
+     * belongs to neither side by default.
+     *
+     * A dedicated box needs no reading: the arrival rules already file
+     * every receipt it receives.
      */
     public function analyzeStored(InboundMessage $message): AnalysisResult
     {
-        return AnalysisResult::nothing();
+        if ($message->linksFor(self::CONSUMER_ID) !== []) {
+            return AnalysisResult::nothing();
+        }
+
+        $receipts = array_values(array_filter(
+            $message->attachments,
+            static fn(InboundAttachment $attachment): bool => in_array(
+                $attachment->mimeType,
+                self::RECEIPT_MIME_TYPES,
+                true
+            )
+        ));
+        if ($receipts === []) {
+            return AnalysisResult::nothing();
+        }
+
+        $dedicated = $this->inboundMail?->isDedicatedTo(self::CONSUMER_ID, $message->mailboxId) ?? false;
+        $arrival = $this->analyze(self::candidateFrom($message, $dedicated));
+        if (!$arrival->isEmpty() || $dedicated) {
+            return $arrival;
+        }
+
+        if (count($this->accountsNamed(self::textOf($message->subject, $message->bodyText, $message->bodyHtml))) > 1) {
+            return AnalysisResult::nothing();
+        }
+
+        // A list mail's pictures are its layout — a newsletter's banner is
+        // well past the logo floor — and transcribing them would be a
+        // provider call per newsletter. Its PDFs are still read: a web
+        // shop's invoice comes from exactly that kind of sender.
+        if ($message->isBulk) {
+            $receipts = array_values(array_filter(
+                $receipts,
+                static fn(InboundAttachment $attachment): bool => $attachment->mimeType === 'application/pdf'
+            ));
+        }
+
+        return $this->fileWhatReadsLikeAReceipt($receipts);
+    }
+
+    /**
+     * The receipts among a general-address message's attachments, filed in
+     * the sorting pile and nowhere else.
+     *
+     * « Reading failed » is reported only when nothing was filed: the
+     * deferred pass then comes back for the message (`MAX_ANALYSIS_ATTEMPTS`),
+     * and a document already filed would be offered again for nothing —
+     * the store would recognise its bytes, but a second provider call
+     * would have been paid to learn it.
+     *
+     * @param InboundAttachment[] $receipts
+     */
+    private function fileWhatReadsLikeAReceipt(array $receipts): AnalysisResult
+    {
+        if ($this->attachmentText === null || $this->receipts === null || $this->readFile === null) {
+            return AnalysisResult::nothing();
+        }
+
+        $texts = $this->attachmentText->readEach($receipts);
+        $recognizer = new ReceiptTextRecognizer();
+        $filed = 0;
+
+        foreach ($receipts as $attachment) {
+            if (!$recognizer->looksLikeAReceipt($texts[$attachment->id] ?? '')) {
+                continue;
+            }
+
+            $content = ($this->readFile)($attachment->fileId);
+            if ($content === null || $content === '') {
+                continue;
+            }
+
+            try {
+                // The unattended door, on no account: nobody asked for
+                // this, and nothing but the document says it is a receipt.
+                // Identical bytes already in the pile are the same receipt
+                // (`ReceiptService::uploadUnattributed()`), so a message
+                // analysed again does not file it twice.
+                $this->receipts->storeUnattendedReceipt(
+                    $content,
+                    $attachment->mimeType,
+                    $attachment->filename,
+                    null
+                );
+                $filed++;
+            } catch (\Throwable $e) {
+                $this->sayNotFiled($e, $attachment);
+            }
+        }
+
+        return $filed === 0 && $this->attachmentText->readingFailed()
+            ? AnalysisResult::readingFailed()
+            : AnalysisResult::nothing();
+    }
+
+    /**
+     * A stored message in the shape the arrival rules read — with the
+     * attachments as they were KEPT, which is the point.
+     */
+    private static function candidateFrom(InboundMessage $message, bool $dedicated): CandidateMessage
+    {
+        return new CandidateMessage(
+            mailboxId: $message->mailboxId,
+            subject: $message->subject,
+            fromEmail: $message->fromEmail,
+            fromName: $message->fromName,
+            messageId: $message->messageId,
+            inReplyTo: $message->inReplyTo,
+            references: [],
+            toEmails: $message->toEmails,
+            sentAt: $message->sentAt,
+            bodyText: $message->bodyText,
+            bodyHtml: $message->bodyHtml,
+            attachments: array_map(
+                static fn(InboundAttachment $attachment): CandidateAttachment => new CandidateAttachment(
+                    $attachment->filename,
+                    $attachment->mimeType,
+                    $attachment->sizeBytes
+                ),
+                $message->attachments
+            ),
+            mailboxDedicatedTo: $dedicated ? self::CONSUMER_ID : null,
+            direction: $message->direction,
+            senderVerified: $message->senderVerified
+        );
     }
 
     /**
@@ -496,21 +667,27 @@ class FinanceMessageConsumer implements
                 // is indistinguishable from a receipt nobody sent: the
                 // message shows as filed, the receipts screen is empty,
                 // and there is nothing anywhere to read (#175).
-                if ($this->onFilingFailed !== null) {
-                    try {
-                        ($this->onFilingFailed)($e, $attachment->mimeType, $attachment->id);
-                    } catch (\Throwable) {
-                        // What the composition roots install here writes a
-                        // row: a database that is down would turn SAYING
-                        // that a receipt was not filed into a second,
-                        // louder failure, and the rest of this message's
-                        // attachments would never be looked at. A trace is
-                        // worth having and worth nothing at that price.
-                    }
-                }
+                $this->sayNotFiled($e, $attachment);
 
                 continue;
             }
+        }
+    }
+
+    private function sayNotFiled(\Throwable $e, InboundAttachment $attachment): void
+    {
+        if ($this->onFilingFailed === null) {
+            return;
+        }
+
+        try {
+            ($this->onFilingFailed)($e, $attachment->mimeType, $attachment->id);
+        } catch (\Throwable) {
+            // What the composition roots install here writes a row: a
+            // database that is down would turn SAYING that a receipt was
+            // not filed into a second, louder failure, and the rest of this
+            // message's attachments would never be looked at. A trace is
+            // worth having and worth nothing at that price.
         }
     }
 
@@ -582,6 +759,10 @@ class FinanceMessageConsumer implements
                 . 'staff, sans confirmation ; une adresse d\'expéditeur n\'est jamais authentifiée',
             'sur une boîte dédiée aux finances uniquement : pièce jointe de type reçu que rien ne permet '
                 . 'de rattacher — le reçu est conservé sans compte, à trier par la trésorerie',
+            'sur l\'adresse générale : pièce jointe dont le contenu ressemble à un reçu (« Total », « TVA », '
+                . 'un montant…) — lue sur le site, ou par l\'IA pour une photo ou un scan, une fois par message '
+                . 'au plus. Le reçu est conservé sans compte, à trier par la trésorerie ; le message, lui, '
+                . 'n\'est pas rattaché et reste visible du seul staff d\'unité',
         ];
     }
 
@@ -628,6 +809,18 @@ class FinanceMessageConsumer implements
      */
     private function theOneAccountNamed(string $text): ?Account
     {
+        $found = $this->accountsNamed($text);
+
+        return count($found) === 1 ? array_values($found)[0] : null;
+    }
+
+    /**
+     * Every active account of the unit whose IBAN the text names.
+     *
+     * @return array<int, Account> keyed by account id
+     */
+    private function accountsNamed(string $text): array
+    {
         $found = [];
 
         foreach ($this->ibansIn($text) as $iban) {
@@ -642,7 +835,7 @@ class FinanceMessageConsumer implements
             }
         }
 
-        return count($found) === 1 ? array_values($found)[0] : null;
+        return $found;
     }
 
     /**
@@ -656,15 +849,20 @@ class FinanceMessageConsumer implements
      */
     private static function readableText(CandidateMessage $message): string
     {
-        $html = $message->bodyHtml === ''
+        return self::textOf($message->subject, $message->bodyText, $message->bodyHtml);
+    }
+
+    private static function textOf(string $subject, string $bodyText, string $bodyHtml): string
+    {
+        $html = $bodyHtml === ''
             ? ''
             : html_entity_decode(
-                strip_tags(preg_replace('/<[^>]+>/', ' ', $message->bodyHtml) ?? ''),
+                strip_tags(preg_replace('/<[^>]+>/', ' ', $bodyHtml) ?? ''),
                 ENT_QUOTES | ENT_HTML5,
                 'UTF-8'
             );
 
-        return $message->subject . "\n" . $message->bodyText . "\n" . $html;
+        return $subject . "\n" . $bodyText . "\n" . $html;
     }
 
     /**

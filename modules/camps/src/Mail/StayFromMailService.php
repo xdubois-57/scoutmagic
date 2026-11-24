@@ -11,6 +11,7 @@ namespace Modules\Camps\Mail;
 use Core\Audit\AuditSource;
 use Core\Config\SettingService;
 use Core\Journal\JournalService;
+use Core\Mail\AttachmentTextReader;
 use Core\Service\DateInput;
 use Modules\Camps\Repository\Camp;
 use Modules\Camps\Repository\CampRepository;
@@ -123,7 +124,7 @@ class StayFromMailService
          */
         private ?LlmConnectorInterface $llm = null,
         /**
-         * What the message's attachments say (`Mail\AttachmentTextReader`).
+         * What the message's attachments say (`Core\Mail\AttachmentTextReader`).
          *
          * Null reads the body alone, which is what this service did — and
          * what made it blind to the ordinary case: a booking arrives as a
@@ -872,7 +873,7 @@ class StayFromMailService
      * Whether that same reading failed, per message.
      *
      * Memoised with the text rather than asked of the reader on demand:
-     * `Mail\AttachmentTextReader::readingFailed()` speaks about its last
+     * `Core\Mail\AttachmentTextReader::readingFailed()` speaks about its last
      * call, and the text above is deliberately read once.
      *
      * @var array<int, bool>
