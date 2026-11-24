@@ -636,6 +636,35 @@ class FinanceMessageConsumerTest extends TestCase
         );
     }
 
+    /**
+     * The message is never linked, so « Relancer l'analyse » offers it
+     * again. A receipt a treasurer has since moved onto an account, or
+     * archived, must not come back into the pile, and must not cost a
+     * second reading either.
+     *
+     * @return array<string, array{string}>
+     */
+    public static function decisionsOnAReceipt(): array
+    {
+        return ['moved onto an account' => ['active'], 'archived' => ['archived']];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('decisionsOnAReceipt')]
+    public function testAReceiptFinanceAlreadyHoldsIsNeitherReadNorFiledAgain(string $status): void
+    {
+        $this->pdo->prepare(
+            'INSERT INTO finance_attachments (account_id, file_id, mime_type, original_filename, status, content_hash)
+             VALUES (?, 1, ?, ?, ?, ?)'
+        )->execute([$this->accountId, 'application/pdf', 'facture.pdf', $status, hash('sha256', 'des octets')]);
+        $filed = [];
+        $reader = $this->readerAnswering([88 => "FACTURE\nTotal: 42.50 EUR"]);
+
+        $this->consumer($filed, attachmentText: $reader)->analyzeStored($this->generalMessage([$this->storedAttachment(88)]));
+
+        $this->assertSame([], $filed);
+        $this->assertSame([], $reader->readFor);
+    }
+
     public function testOnlyTheAttachmentThatReadsLikeAReceiptIsFiled(): void
     {
         $filed = [];

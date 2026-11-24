@@ -40,8 +40,8 @@ use Modules\LlmConnector\Api\LlmTier;
  * attachment metadata and nothing else.
  *
  * **Bounded three ways**, because a message is somebody else's file: the
- * number of attachments read, each one's size, and the total text handed
- * back. A three-hundred-page appendix must not become a model prompt or a
+ * number of attachments read, each one's size, and the text handed back —
+ * in total for {@see read()}, per attachment for {@see readEach()}. A three-hundred-page appendix must not become a model prompt or a
  * regex's input.
  *
  * **Three ways in, in order of cost.** A PDF's embedded text layer and a
@@ -69,9 +69,10 @@ class AttachmentTextReader
     public const MAX_FILE_BYTES = 5_000_000;
 
     /**
-     * How much text one message may contribute in total. A booking states
-     * its dates and its venue in the first page; the rest is the general
-     * conditions.
+     * How much text one message may contribute in total through
+     * {@see read()} — and one attachment through {@see readEach()}. A
+     * booking states its dates and its venue in the first page; the rest is
+     * the general conditions.
      */
     public const MAX_CHARS = 12000;
 
@@ -149,11 +150,17 @@ class AttachmentTextReader
      *
      * The bounds are those of {@see read()}, OCR budget included: still
      * {@see self::MAX_OCR_CALLS} transcription per message, whatever the
-     * number of attachments. The one difference is when that call is made.
-     * Here the first picture or scan is transcribed even when another
-     * attachment had text, because a text attachment says nothing about
-     * a different document: the PDF of the general conditions next to a
-     * photographed till ticket does not make the ticket legible.
+     * number of attachments. Two things differ:
+     *
+     * - **when that call is made.** Here the first picture or scan is
+     *   transcribed even when another attachment had text, because a text
+     *   attachment says nothing about a different document: the PDF of the
+     *   general conditions next to a photographed till ticket does not make
+     *   the ticket legible.
+     * - **what {@see self::MAX_CHARS} caps.** Each attachment's text, not
+     *   their sum — at most {@see self::MAX_ATTACHMENTS} times as much in
+     *   all. A cap on the total would starve the later attachments of the
+     *   very text each of them is judged on.
      *
      * @param InboundAttachment[] $attachments
      * @return array<int, string> keyed by attachment id; an attachment

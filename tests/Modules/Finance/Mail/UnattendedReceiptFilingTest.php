@@ -262,6 +262,30 @@ final class UnattendedReceiptFilingTest extends TestCase
         $this->assertCount(1, $this->attachments->findActiveOrdered());
     }
 
+    /** Sorted onto an account by a treasurer, then the message is analysed again: nothing returns to the pile. */
+    public function testAReceiptMovedOntoAnAccountDoesNotComeBackOnASecondReading(): void
+    {
+        $accountId = $this->accounts->create('Louveteaux', \Modules\Finance\Repository\Account::TYPE_BANK, null, null, null, 'intendant');
+        $this->accounts->updateStatus($accountId, \Modules\Finance\Repository\Account::STATUS_ACTIVE);
+        $message = $this->generalMessage($this->inboundPdf('text_receipt.pdf'));
+        $consumer = $this->consumer(attachmentText: $this->textReader());
+
+        $consumer->analyzeStored($message);
+        $receiptService = new ReceiptService(
+            $this->attachments,
+            $this->accounts,
+            new TransactionAttachmentRepository($this->pdo),
+            new EncryptedFileStorageService($this->files, $this->encryption, $this->storagePath),
+            new TransactionRepository($this->pdo, $this->encryption)
+        );
+        $receiptService->reassign($this->attachments->findActiveOrdered()[0]->id, $accountId);
+        $consumer->analyzeStored($message);
+
+        $filed = $this->attachments->findActiveOrdered();
+        $this->assertCount(1, $filed);
+        $this->assertSame($accountId, $filed[0]->accountId);
+    }
+
     /** The booking contract camps reads states a price and no receipt word: it is not filed. */
     public function testABookingContractIsNotTakenForAReceipt(): void
     {

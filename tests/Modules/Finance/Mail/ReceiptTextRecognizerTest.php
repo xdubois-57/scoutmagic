@@ -28,6 +28,7 @@ class ReceiptTextRecognizerTest extends TestCase
             'Dutch' => ["Kassaticket\nTotaal 23,40"],
             'Dutch VAT and an amount' => ['Factuur 77 — BTW 21 % — 121,00 EUR'],
             'English' => ['Invoice #42 — Amount due 19.99'],
+            'English thousands with a comma' => ['Invoice #42 — Total: 1,234.00'],
             'a sum ending a sentence' => ['Ticket de caisse : total 12,50.'],
             'a sum with a Belgian dash' => ['Facture : 12,50.- EUR'],
         ];

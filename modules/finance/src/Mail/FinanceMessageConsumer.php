@@ -14,6 +14,7 @@ use Core\Security\Role;
 use Modules\Finance\Api\ExpenseReceiptInterface;
 use Modules\Finance\Repository\Account;
 use Modules\Finance\Repository\AccountRepository;
+use Modules\Finance\Repository\AttachmentRepository;
 use Modules\Finance\Service\AccountVisibility;
 use Modules\Finance\Service\IbanNormalizer;
 use Modules\Finance\Service\ReceiptService;
@@ -509,28 +510,43 @@ class FinanceMessageConsumer implements
             return AnalysisResult::nothing();
         }
 
-        $texts = $this->attachmentText->readEach($receipts);
+        // What finance already holds is not read again, nor filed again.
+        // This message is never linked, so nothing else stops a second
+        // pass — « Relancer l'analyse » requeues every unlinked message —
+        // and the pile's own duplicate check only sees the pile: a receipt
+        // a treasurer moved onto an account, or archived, would come back.
+        // Same hash as the store's: the bytes before any orientation fix.
+        $known = new AttachmentRepository($this->pdo, $this->encryption);
+        $fresh = [];
+        $contents = [];
+        foreach ($receipts as $attachment) {
+            $content = ($this->readFile)($attachment->fileId);
+            if ($content === null || $content === ''
+                || $known->existsWithContentHash(hash('sha256', $content))
+            ) {
+                continue;
+            }
+            $fresh[] = $attachment;
+            $contents[$attachment->id] = $content;
+        }
+        if ($fresh === []) {
+            return AnalysisResult::nothing();
+        }
+
+        $texts = $this->attachmentText->readEach($fresh);
         $recognizer = new ReceiptTextRecognizer();
         $filed = 0;
 
-        foreach ($receipts as $attachment) {
+        foreach ($fresh as $attachment) {
             if (!$recognizer->looksLikeAReceipt($texts[$attachment->id] ?? '')) {
-                continue;
-            }
-
-            $content = ($this->readFile)($attachment->fileId);
-            if ($content === null || $content === '') {
                 continue;
             }
 
             try {
                 // The unattended door, on no account: nobody asked for
                 // this, and nothing but the document says it is a receipt.
-                // Identical bytes already in the pile are the same receipt
-                // (`ReceiptService::uploadUnattributed()`), so a message
-                // analysed again does not file it twice.
                 $this->receipts->storeUnattendedReceipt(
-                    $content,
+                    $contents[$attachment->id],
                     $attachment->mimeType,
                     $attachment->filename,
                     null
