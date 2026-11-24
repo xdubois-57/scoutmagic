@@ -76,11 +76,14 @@ class MailReceiptFiler
      *
      * @param MessageLink[] $links
      * @param \Closure(int): ?string $readFile
+     * @param int $budget at most this many attachments are looked at; the
+     *                    rest stay untouched, and unremembered, for the next
+     *                    pass
      * @return int how many attachments were looked at — filed, or only
      *             remembered — so a caller can tell a pass that still had
      *             work from one that found none
      */
-    public function catchUp(InboundMessage $message, array $links, \Closure $readFile): int
+    public function catchUp(InboundMessage $message, array $links, \Closure $readFile, int $budget = PHP_INT_MAX): int
     {
         $considered = 0;
 
@@ -97,6 +100,9 @@ class MailReceiptFiler
             }
 
             foreach (self::receiptAttachmentsOf($message, $link) as $attachment) {
+                if ($considered >= $budget) {
+                    return $considered;
+                }
                 if ($this->sources->has($attachment->id)) {
                     continue;
                 }
@@ -196,6 +202,20 @@ class MailReceiptFiler
             // Worth saying, never worth failing a filing over.
             $this->sayNotFiled($e, $attachment);
         }
+    }
+
+    /**
+     * Remembers an attachment whose bytes finance already holds, pointing
+     * at the receipt that holds them, so a later pass skips it at once.
+     */
+    public function rememberHeld(InboundMessage $message, InboundAttachment $attachment, string $content): void
+    {
+        $this->sources->record(
+            $attachment->id,
+            $message->id,
+            array_key_first($this->known->statusesByContentHash(hash('sha256', $content))),
+            ReceiptMailSourceRepository::REASON_ALREADY_HELD
+        );
     }
 
     /**

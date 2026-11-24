@@ -364,6 +364,10 @@ class ReceiptController extends AbstractController
                     'matching_ai_attempted' => $row['attachment']->matchingAiAttemptedAt !== null,
                     'is_pending' => $row['is_pending'],
                     'movement_count' => $row['movement_count'],
+                    // Where a receipt from the mail came from — the same line
+                    // the server-rendered grid shows (#1342), so a refresh
+                    // does not lose it. Null for one uploaded by hand.
+                    'origin' => $row['origin'],
                 ],
                 $rows
             ),

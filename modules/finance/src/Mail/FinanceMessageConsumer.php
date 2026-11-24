@@ -688,6 +688,15 @@ class FinanceMessageConsumer implements
             }
 
             if ($actor === null) {
+                // The same rule as every unattended filing: bytes finance
+                // holds as a live receipt anywhere — moved since onto
+                // another account — or a deleted one from this message, or
+                // of unknown origin, are only remembered. The store's own
+                // duplicate check sees one account at a time.
+                if (!$filer->mayFileFrom($message, $content)) {
+                    $filer->rememberHeld($message, $attachment, $content);
+                    continue;
+                }
                 $filer->fileUnattended($message, $attachment, $content, $accountId, $link->origin->value);
                 continue;
             }

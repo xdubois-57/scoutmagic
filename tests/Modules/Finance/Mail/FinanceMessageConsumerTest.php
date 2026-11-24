@@ -667,6 +667,83 @@ class FinanceMessageConsumerTest extends TestCase
         $this->assertCount(1, $filed);
     }
 
+    /**
+     * An automatic association follows the same rule as every unattended
+     * filing: bytes held as a live receipt on ANOTHER account — moved there
+     * by a treasurer — are not filed twice. The store alone sees one
+     * account at a time.
+     */
+    public function testAnAutomaticAssociationDoesNotFileAReceiptMovedElsewhere(): void
+    {
+        $elsewhere = $this->activeAccount('Épargne', self::OTHER_IBAN);
+        $this->pdo->prepare(
+            'INSERT INTO finance_attachments (account_id, file_id, mime_type, original_filename, status, content_hash)
+             VALUES (?, 1, ?, ?, ?, ?)'
+        )->execute([$elsewhere, 'application/pdf', 'facture.pdf', 'active', hash('sha256', 'des octets')]);
+        $filed = [];
+
+        $this->consumer($filed)->onLinked(
+            $this->generalMessage([$this->storedAttachment(88)]),
+            new MessageLink(FinanceMessageConsumer::CONSUMER_ID, FinanceMessageConsumer::referenceFor($this->accountId), LinkOrigin::IBAN)
+        );
+
+        $this->assertSame([], $filed);
+        $this->assertSame('already_held', $this->sourceReason(88));
+    }
+
+    /** …while a receipt deleted from another message comes back with this new one (decision 3). */
+    public function testAnAutomaticAssociationBringsBackADeletedReceiptFromANewMessage(): void
+    {
+        $this->recordSource(70, 54, $this->heldReceipt('archived'));
+        $filed = [];
+
+        $this->consumer($filed)->onLinked(
+            $this->generalMessage([$this->storedAttachment(88)]),
+            new MessageLink(FinanceMessageConsumer::CONSUMER_ID, FinanceMessageConsumer::referenceFor($this->accountId), LinkOrigin::IBAN)
+        );
+
+        $this->assertCount(1, $filed);
+    }
+
+    /** A refusal remembered, then a person files the attachment: its receipt gets the provenance. */
+    public function testAPersonsFilingCompletesAProvenanceThatNamedNoReceipt(): void
+    {
+        (new \Modules\Finance\Repository\ReceiptMailSourceRepository($this->pdo))->record(88, 55, null, 'not_filed');
+        $receiptId = $this->heldReceipt('active');
+
+        $this->consumer(actorFor: 7)->onLinked(
+            $this->generalMessage([$this->storedAttachment(88)]),
+            new MessageLink(FinanceMessageConsumer::CONSUMER_ID, FinanceMessageConsumer::referenceFor($this->accountId), LinkOrigin::MANUAL, 0, 7)
+        );
+
+        $row = $this->pdo->query('SELECT attachment_id, reason FROM finance_receipt_mail_sources WHERE inbound_attachment_id = 88')
+            ->fetch(\PDO::FETCH_ASSOC);
+        $this->assertSame($receiptId, (int) $row['attachment_id']);
+        $this->assertSame('manual', $row['reason']);
+    }
+
+    /** The catch-up stops at its budget, and leaves what it did not look at for the next pass. */
+    public function testTheCatchUpStopsAtItsBudget(): void
+    {
+        $filed = [];
+        $filer = new \Modules\Finance\Mail\MailReceiptFiler($this->pdo, $this->encryption, new RecordingExpenseReceipts($filed));
+        $message = $this->generalMessage(
+            [$this->storedAttachment(88), $this->storedAttachment(89, 'autre.pdf')],
+            links: [new MessageLink(FinanceMessageConsumer::CONSUMER_ID, FinanceMessageConsumer::REFERENCE_UNKNOWN, LinkOrigin::ATTACHMENT)]
+        );
+
+        $considered = $filer->catchUp(
+            $message,
+            $message->linksFor(FinanceMessageConsumer::CONSUMER_ID),
+            static fn(int $fileId): string => 'octets ' . $fileId,
+            1
+        );
+
+        $this->assertSame(1, $considered);
+        $this->assertCount(1, $filed);
+        $this->assertNull($this->sourceReason(89), 'untouched, and not remembered');
+    }
+
     /** Where it came from and why: the association's origin, kept with the receipt. */
     public function testAnUnattendedFilingRemembersWhyItLandedThere(): void
     {

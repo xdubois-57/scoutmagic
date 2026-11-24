@@ -46,12 +46,22 @@ class ReceiptMailSourceRepository
     /**
      * Remembers that an inbound attachment produced (or is) this receipt.
      *
-     * First write wins: the row says where the receipt came from the first
-     * time, and a later pass over the same attachment has nothing to add.
+     * First receipt wins: the row says where the receipt came from the
+     * first time, and a later pass over the same attachment has nothing to
+     * add. Except to a row that names no receipt — a refusal, or one held
+     * by a receipt it could not name — which a person's later filing of
+     * the same attachment completes, so its receipt has a provenance too.
      */
     public function record(int $inboundAttachmentId, int $inboundMessageId, ?int $attachmentId, string $reason): void
     {
         if ($this->has($inboundAttachmentId)) {
+            if ($attachmentId !== null) {
+                $this->pdo->prepare(
+                    'UPDATE finance_receipt_mail_sources SET attachment_id = ?, reason = ?
+                      WHERE inbound_attachment_id = ? AND attachment_id IS NULL'
+                )->execute([$attachmentId, mb_substr($reason, 0, 20), $inboundAttachmentId]);
+            }
+
             return;
         }
 

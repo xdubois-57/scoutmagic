@@ -189,7 +189,10 @@ class ExtractReceiptDataHandler implements TaskHandlerInterface
                 $this->logFailure($context, $attachmentId, 'Aucune donnée exploitable dans la réponse IA.');
             }
         } else {
-            $attachmentRepository->updateSuggestedData($attachmentId, $amount, $date, Attachment::SUGGESTED_SOURCE_AI);
+            // Never over what a person typed in, even meanwhile (#1342):
+            // the merchant and the description below are the reading's
+            // alone, the amount and the date are not.
+            $attachmentRepository->writeAiSuggestedData($attachmentId, $amount, $date);
             if ($merchant !== null) {
                 $attachmentRepository->updateSuggestedLabel($attachmentId, $merchant);
             }

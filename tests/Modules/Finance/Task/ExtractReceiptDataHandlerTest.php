@@ -177,6 +177,37 @@ class ExtractReceiptDataHandlerTest extends TestCase
         $this->assertNotNull($this->extractionAttemptedAt($attachmentId));
     }
 
+    /**
+     * A person typed the amount and date in while the reading was queued:
+     * the reading's answer does not overwrite them (#1342). The merchant,
+     * which nobody types, is still the reading's to give.
+     */
+    public function testTheReadingNeverOverwritesWhatAPersonTypedIn(): void
+    {
+        $attachmentId = $this->createAttachment();
+        $this->attachmentRepository->updateSuggestedData($attachmentId, 12.5, '2026-09-01', \Modules\Finance\Repository\Attachment::SUGGESTED_SOURCE_MANUAL);
+        $connector = $this->createStub(LlmConnectorInterface::class);
+        $connector->method('isAvailable')->willReturn(true);
+        $connector->method('isTierAvailable')->willReturn(true);
+        $connector->method('complete')->willReturn(new LlmResponse(
+            '',
+            ['amount' => 99.0, 'date' => '2026-10-10', 'merchant' => 'Delhaize', 'description' => 'Achat de fournitures'],
+            100,
+            10
+        ));
+
+        (new ExtractReceiptDataHandler())->handle(
+            ['attachment_id' => $attachmentId],
+            $this->createTaskContext(connector: $connector)
+        );
+
+        $attachment = $this->attachmentRepository->findById($attachmentId);
+        $this->assertSame(12.5, $attachment->suggestedAmount);
+        $this->assertSame('2026-09-01', $attachment->suggestedDate);
+        $this->assertSame('manual', $attachment->suggestedSource);
+        $this->assertSame('Delhaize', $attachment->suggestedLabel);
+    }
+
     /** A reading while no provider answers was never a reading: no mark, so the catch-up comes back. */
     public function testNoMarkWhileNoProviderAnswers(): void
     {

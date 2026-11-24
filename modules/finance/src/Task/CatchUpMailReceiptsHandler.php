@@ -175,7 +175,8 @@ class CatchUpMailReceiptsHandler implements TaskHandlerInterface
                 $considered += $filer->catchUp(
                     $message,
                     $message->linksFor(FinanceMessageConsumer::CONSUMER_ID),
-                    $readFile
+                    $readFile,
+                    self::BATCH_SIZE - $considered
                 );
                 if ($considered >= self::BATCH_SIZE) {
                     return $considered;

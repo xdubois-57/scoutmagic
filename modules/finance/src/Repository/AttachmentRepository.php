@@ -528,6 +528,30 @@ class AttachmentRepository
     }
 
     /**
+     * The AI reading's amount and date — unless a person has typed theirs
+     * in meanwhile (#1342). Decided in the UPDATE itself, at the moment of
+     * writing: the reading runs for seconds against a provider, and a check
+     * made before the call would let a manual edit made during it be
+     * overwritten. False when a manual value stood.
+     */
+    public function writeAiSuggestedData(int $id, ?float $suggestedAmount, ?string $suggestedDate): bool
+    {
+        $stmt = $this->pdo->prepare(
+            'UPDATE finance_attachments SET suggested_amount = ?, suggested_date = ?, suggested_source = ?
+              WHERE id = ? AND (suggested_source IS NULL OR suggested_source <> ?)'
+        );
+        $stmt->execute([
+            $suggestedAmount,
+            $suggestedDate,
+            Attachment::SUGGESTED_SOURCE_AI,
+            $id,
+            Attachment::SUGGESTED_SOURCE_MANUAL,
+        ]);
+
+        return $stmt->rowCount() > 0;
+    }
+
+    /**
      * Written only by Task\ExtractReceiptDataHandler — kept separate from
      * updateSuggestedData() so a manual amount/date edit (Controller\
      * ReceiptController::update(), which never touches the label) can
