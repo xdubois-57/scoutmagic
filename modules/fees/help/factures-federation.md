@@ -33,6 +33,13 @@ chaque sous-total et vérifié que la somme retombe exactement sur le total
 imprimé. Elle rejoint la saison, et son rapport de vérification devient
 consultable.
 
+Le récapitulatif de TVA est distingué des cotisations. Deux cotisations
+identiques pour deux personnes restent séparées ; une liste qui continue
+à la page suivante n'est comptée qu'une fois. Si le document ne permet pas
+de distinguer une répétition de deux cotisations, la lecture est refusée
+avec cette explication. Une ligne sans noms reste une cotisation, mais
+limite les contrôles nominatifs du rapport.
+
 **Total incohérent.** La lecture ne retombe pas sur le total du document,
 et l'écran nomme la ligne où elle décroche. Rien n'est enregistré : une
 facture à moitié lue produirait une vérification à moitié fausse, ce qui

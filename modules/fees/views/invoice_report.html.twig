@@ -76,6 +76,14 @@
             </div>
         {% endif %}
 
+        {% if has_unnamed_lines %}
+            <output class="alert alert-info d-block">
+                Cette facture contient des lignes sans liste de personnes. Leur quantité est comparée
+                à la photographie de Desk quand leur tarif et leur section sont connus.
+                Elles ne permettent pas de désigner des personnes manquantes ni de chiffrer les écarts nominatifs.
+            </output>
+        {% endif %}
+
         {% set _tabs = [] %}
         {% for key, label in views %}
             {% set _tabs = _tabs|merge([{ id: key, label: label ~ ' (' ~ view_counts[key] ~ ')', selected: key == view }]) %}
@@ -129,7 +137,7 @@
 
             {% if discrepancies is empty %}
                 {% include 'partials/empty_state.html.twig' with {
-                    message: "Aucun écart nominatif entre cette facture et la photographie du roster.",
+                    message: "Aucun écart nominatif détecté parmi les personnes que le site peut comparer.",
                     icon: 'bi-check2-circle',
                 } only %}
             {% else %}

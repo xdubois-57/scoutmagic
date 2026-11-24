@@ -38,6 +38,8 @@
                                         Sans section
                                     {% elseif line.undeterminedReason == 'global_adjustment' %}
                                         Ajustement global
+                                    {% elseif line.undeterminedReason == 'multiple_lines' %}
+                                        Tarif réparti sur plusieurs lignes
                                     {% else %}
                                         Aucune photographie
                                     {% endif %}

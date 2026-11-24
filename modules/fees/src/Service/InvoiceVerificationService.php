@@ -62,15 +62,31 @@ class InvoiceVerificationService
     {
         $snapshotMembers = $invoice->snapshotId === null ? null : $this->snapshots->findMembers($invoice->snapshotId);
         $sectionLabels = $this->sectionLabels();
+        $lines = $this->invoices->findLines($invoice->id);
+        $groupCounts = [];
+        foreach ($lines as $line) {
+            $key = self::quantityGroup($line);
+            $groupCounts[$key] = ($groupCounts[$key] ?? 0) + 1;
+        }
 
         return array_map(
             fn(StoredInvoiceLine $line): ReconstitutedLine => $this->reconstitute(
                 $line,
                 $snapshotMembers,
-                $sectionLabels
+                $sectionLabels,
+                $groupCounts[self::quantityGroup($line)] > 1
             ),
-            $this->invoices->findLines($invoice->id)
+            $lines
         );
+    }
+
+    private static function quantityGroup(StoredInvoiceLine $line): string
+    {
+        $tariff = $line->nature === InvoiceLine::NATURE_FEE
+            ? (FeeCategoryClassifier::classify($line->reference, $line->descriptor)->value ?? $line->reference)
+            : (self::mentionsBrevet($line) ? 'brevet' : $line->reference);
+
+        return $line->nature . '|' . ($line->sectionId ?? '-') . '|' . strtoupper($tariff);
     }
 
     /**
@@ -232,6 +248,18 @@ class InvoiceVerificationService
         return $count;
     }
 
+    /** Summaries allow count checks, but cannot establish nominative coverage. */
+    public function hasUnnamedLines(StoredInvoice $invoice): bool
+    {
+        foreach ($this->invoices->findLines($invoice->id) as $line) {
+            if ($line->nature !== InvoiceLine::NATURE_ADJUSTMENT && !$line->hasNominativeList()) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /**
      * Held by Desk, in a section this invoice bills, on a household
      * tariff — and named by no fee line.
@@ -286,8 +314,13 @@ class InvoiceVerificationService
     {
         $reduced = [];
         $unitPriceBySection = [];
+        $summarisedSections = [];
         foreach ($lines as $line) {
             if ($line->nature !== InvoiceLine::NATURE_REDUCTION || !self::mentionsBrevet($line)) {
+                continue;
+            }
+            if (!$line->hasNominativeList()) {
+                $summarisedSections[$line->sectionId ?? 0] = true;
                 continue;
             }
             $unitPriceBySection[$line->sectionId ?? 0] = $line->unitPriceCents;
@@ -295,6 +328,7 @@ class InvoiceVerificationService
                 $reduced[$memberId] = true;
             }
         }
+        $unitPriceBySection = array_diff_key($unitPriceBySection, $summarisedSections);
 
         if ($unitPriceBySection === []) {
             return [];
@@ -332,7 +366,7 @@ class InvoiceVerificationService
     {
         $prices = [];
         foreach ($lines as $line) {
-            if ($line->nature !== InvoiceLine::NATURE_FEE) {
+            if ($line->nature !== InvoiceLine::NATURE_FEE || !$line->hasNominativeList()) {
                 continue;
             }
             $category = FeeCategoryClassifier::classify($line->reference, $line->descriptor);
@@ -352,13 +386,20 @@ class InvoiceVerificationService
     private function billedSectionIds(array $lines): array
     {
         $sections = [];
+        $summarisedSections = [];
         foreach ($lines as $line) {
             if ($line->nature === InvoiceLine::NATURE_FEE && $line->sectionId !== null) {
-                $sections[$line->sectionId] = true;
+                if ($line->hasNominativeList()) {
+                    $sections[$line->sectionId] = true;
+                } else {
+                    $summarisedSections[$line->sectionId] = true;
+                }
             }
         }
 
-        return $sections;
+        // A mixed section is not exhaustively named: its summary can be
+        // billing exactly the people omitted from the nominative lines.
+        return array_diff_key($sections, $summarisedSections);
     }
 
     /**
@@ -480,7 +521,8 @@ class InvoiceVerificationService
     private function reconstitute(
         StoredInvoiceLine $line,
         ?array $snapshotMembers,
-        array $sectionLabels
+        array $sectionLabels,
+        bool $multipleLines
     ): ReconstitutedLine
     {
         $sectionLabel = $line->sectionId === null ? null : ($sectionLabels[$line->sectionId] ?? $line->sectionCode);
@@ -497,6 +539,11 @@ class InvoiceVerificationService
             $expected = $this->expectedQuantity($line, $snapshotMembers);
             if ($expected === null) {
                 $reason = ReconstitutedLine::UNDETERMINED_UNKNOWN_REFERENCE;
+            } elseif ($multipleLines) {
+                // The snapshot counts the entire section/tariff, not the
+                // independent slice each of these rows happens to bill.
+                $expected = null;
+                $reason = ReconstitutedLine::UNDETERMINED_MULTIPLE_LINES;
             }
         }
 

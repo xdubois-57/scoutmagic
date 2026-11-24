@@ -30,6 +30,7 @@ final class ReconstitutedLine
     public const UNDETERMINED_NO_SECTION = 'no_section';
     public const UNDETERMINED_GLOBAL_ADJUSTMENT = 'global_adjustment';
     public const UNDETERMINED_NO_SNAPSHOT = 'no_snapshot';
+    public const UNDETERMINED_MULTIPLE_LINES = 'multiple_lines';
 
     public function __construct(
         public readonly string $reference,

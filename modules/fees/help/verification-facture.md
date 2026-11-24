@@ -28,7 +28,15 @@ un écran qui reproche à la fédération une erreur commise par l'unité.
 
 Une ligne que le site ne sait pas juger est affichée **sans verdict** :
 référence inconnue, ligne sans section, ajustement global comme la
-déduction de l'acompte. Le silence n'est pas une accusation.
+déduction de l'acompte, ou même tarif réparti sur plusieurs lignes de la
+même section. Le total de la section ne peut pas être comparé séparément à
+chacune de ces lignes. Le silence n'est pas une accusation.
+
+Une cotisation sans liste de personnes reste vérifiable en quantité lorsque
+son tarif et sa section sont connus dans la photographie. Elle ne permet
+pas de désigner des personnes manquantes ni de chiffrer les écarts
+nominatifs. Le rapport le précise ; l'absence d'écart n'est pas la preuve
+que toutes les personnes ont été comparées.
 
 Les lignes conformes sont repliées et comptées, jamais supprimées : sans
 elles, le rapport ne se rapproche plus du document papier.

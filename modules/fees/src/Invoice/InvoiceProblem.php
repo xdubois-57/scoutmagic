@@ -34,6 +34,7 @@ final class InvoiceProblem
 
     /** A quantity with a fractional part, `2,50`: never truncated, refused (#1327). */
     public const FRACTIONAL_QUANTITY = 'fractional_quantity';
+    public const AMBIGUOUS_REPETITION = 'ambiguous_repetition';
 
     /**
      * The kinds that mean « this document could not be READ », as opposed
@@ -47,6 +48,7 @@ final class InvoiceProblem
         self::NO_LINE_FOUND,
         self::UNRECOGNISED_LINE,
         self::FRACTIONAL_QUANTITY,
+        self::AMBIGUOUS_REPETITION,
         self::TOTAL_MISSING,
     ];
 

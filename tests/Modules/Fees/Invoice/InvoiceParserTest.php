@@ -199,7 +199,7 @@ class InvoiceParserTest extends TestCase
 
     // -- 4. Page-break repetition ----------------------------------------
 
-    public function testTheSameTupleSeenTwiceIsOneLineWhoseListsAreMerged(): void
+    public function testTheSameTupleAtAPageBreakIsOneLineWhoseListsAreMerged(): void
     {
         $repeated = [
             'COT_NORM Cotisation normale SV025B1 39,00 3 117,00',
@@ -340,6 +340,7 @@ class InvoiceParserTest extends TestCase
         $result = $this->parse([
             'COT_NORM Cotisation normale SV025B1 39,00 1 39,00',
             'PISSOORT Anouk 03/11/2015 Animé',
+            'Page 1 sur 2',
             'COT_NORM Cotisation normale SV025B1 39,00 1 39,00',
             // The same person, spelled differently by the same document.
             'Pissoort Anouk 03/11/2015 Animé',

@@ -32,4 +32,9 @@ final class StoredInvoiceLine
         public readonly int $unmatchedPeopleCount
     ) {
     }
+
+    public function hasNominativeList(): bool
+    {
+        return $this->memberIds !== [] || $this->unmatchedPeopleCount > 0;
+    }
 }
