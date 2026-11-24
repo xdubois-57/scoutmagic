@@ -68,13 +68,72 @@ final class InvoiceSummaryReaderTest extends TestCase
             $result->invoice?->recomputedTotalCents(), $result->stats->repeatedTariffRows]);
     }
 
-    public function testAPartialListContinuesAcrossAPageWithoutDoubleBilling(): void
+    /** @return iterable<string, array{string, string, ?int}> */
+    public static function pageMarkers(): iterable
+    {
+        yield 'footer' => ['Page 1 sur 2', '', 2];
+        yield 'attached header' => ['', 'Page 2/2XX', 2];
+        yield 'space after slash' => ['', 'Page 2/ 2XX', 2];
+        yield 'spaces around slash' => ['', 'Page 2 / 2<>', 2];
+        yield 'table header only' => ['', '', null];
+    }
+
+    #[DataProvider('pageMarkers')]
+    public function testAPartialListContinuesAcrossAPageWithoutDoubleBilling(
+        string $footer,
+        string $header,
+        ?int $pageCount
+    ): void
     {
         $result = $this->read([
-            ['COT_INVITE Cotisation invites ZX777B1 18,25 2 36,50', 'SOLIS Ada 11/02/2001 Membre', 'Page 1 sur 2'],
-            ['Reference Description Section Prix Quantite Montant',
+            ['COT_INVITE Cotisation invites ZX777B1 18,25 2 36,50', 'SOLIS Ada 11/02/2001 Membre', $footer],
+            [$header, 'Reference Description Section Prix Quantite Montant',
                 'COT_INVITE Cotisation invites ZX777B1 18,25 2 36,50',
                 'VEGA Iris 17/04/2002 Membre', 'TOTAL A PAYER 36,50'],
+        ]);
+
+        self::assertSame([true, 1, 2, 1, $pageCount], [$result->isAccepted(), count($result->invoice?->lines ?? []),
+            count($result->invoice?->lines[0]->people ?? []), $result->stats->repeatedTariffRows, $result->stats->pageCount]);
+    }
+
+    public function testTheFirstPageCanLackItsFooterWhenThePrintedCountConfirmsTheExtractorSeparators(): void
+    {
+        $result = $this->read([
+            ['COT_NORM Cotisation normale ZX777B1 40,00 2 80,00', 'SOLIS Ada 11/02/2001 Membre'],
+            ['COT_NORM Cotisation normale ZX777B1 40,00 2 80,00', 'VEGA Iris 17/04/2002 Membre',
+                'TOTAL A PAYER 80,00', 'Page 2/2XX'],
+        ]);
+
+        self::assertSame([true, 1, 2, 1], [$result->isAccepted(), count($result->invoice?->lines ?? []),
+            count($result->invoice?->lines[0]->people ?? []), $result->stats->repeatedTariffRows]);
+    }
+
+    public function testABlankSeparatorWithoutPageOrHeaderEvidenceDoesNotMergeCharges(): void
+    {
+        $result = $this->read([
+            ['COT_NORM Cotisation normale ZX777B1 40,00 2 80,00', 'SOLIS Ada 11/02/2001 Membre'],
+            ['COT_NORM Cotisation normale ZX777B1 40,00 2 80,00', 'VEGA Iris 17/04/2002 Membre',
+                'TOTAL A PAYER 80,00'],
+        ]);
+
+        self::assertFalse($result->isAccepted());
+    }
+
+    /** @return iterable<string, array{bool}> */
+    public static function listsOnOnePage(): iterable
+    {
+        yield 'list finishes before repeated header' => [true];
+        yield 'list starts after repeated header' => [false];
+    }
+
+    #[DataProvider('listsOnOnePage')]
+    public function testARepeatedHeaderCanHaveItsWholeListOnJustOneSideOfThePageBreak(bool $onFirstPage): void
+    {
+        $names = ['SOLIS Ada 11/02/2001 Membre', 'VEGA Iris 17/04/2002 Membre'];
+        $tariff = 'COT_INVITE Cotisation invites ZX777B1 18,25 2 36,50';
+        $result = $this->read([
+            [$tariff, ...($onFirstPage ? $names : [])],
+            [$tariff, ...($onFirstPage ? [] : $names), 'TOTAL A PAYER 36,50', 'Page 2/2'],
         ]);
 
         self::assertSame([true, 1, 2, 1], [$result->isAccepted(), count($result->invoice?->lines ?? []),

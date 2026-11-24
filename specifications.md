@@ -1811,8 +1811,12 @@ importées ne sont pas recalculées.
 **Une répétition au saut de page est une seule ligne** si un marqueur de
 page et la continuation ou la répétition de la liste nominative le
 confirment, en plus de la même combinaison (référence, section, prix,
-quantité, montant). Deux cotisations indépendantes identiques restent deux
-lignes. Une répétition ambiguë sans liste de noms refuse le document.
+quantité, montant). L'en-tête du tableau répété sert aussi d'indice. Les
+séparateurs de pages de l'extracteur ne sont utilisés que si le nombre de
+blocs correspond exactement au total de pages imprimé. L'en-tête peut être
+repris sans noms supplémentaires, si la liste est déjà complète sur la
+page précédente. Deux cotisations indépendantes identiques restent deux
+lignes. Une répétition ambiguë sans aucun nom refuse le document.
 
 **Ce que le site n'a pas compris est compté.** Un en-tête, un pied de page,
 un sous-total : tout ce qui ne correspond à aucune des deux formes est

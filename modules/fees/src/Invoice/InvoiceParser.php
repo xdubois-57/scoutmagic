@@ -48,6 +48,8 @@ class InvoiceParser
     /** A section code as this federation writes one: letters, then digits. */
     private const SECTION_CODE = '/\b[A-Z]{1,6}\d{2,}[A-Z0-9]*\b/u';
     private const TARIFF_REFERENCE = '[A-Z]{3}_[A-Za-z0-9_]+';
+    /** The next footer token can be attached directly after the page total. */
+    private const PAGE_MARKER = '/\bPage\s*(\d+)\s*(?:sur\s*|\/\s*)(\d+)/ui';
 
     /**
      * The label the federation prints instead of a code for the unit's own
@@ -64,6 +66,11 @@ class InvoiceParser
         $stats->extractedLines = count($lines);
         $stats->pageCount = self::pageCount($text);
         $stats->tabsSeen = str_contains($text, "\t");
+        // Smalot joins trimmed pages with two newlines. Use these boundaries
+        // only when a printed page total corroborates the exact block count;
+        // an arbitrary blank paragraph alone proves no page break.
+        $pageSeparators = $stats->pageCount !== null
+            && count(explode("\n\n", $text)) === $stats->pageCount;
 
         /** @var InvoiceLine[] $tariffLines */
         $tariffLines = [];
@@ -95,6 +102,7 @@ class InvoiceParser
             $cells = trim(preg_replace('/[^\S\t]+/u', ' ', $collapsed) ?? '');
             $line = trim(preg_replace('/\s+/u', ' ', $collapsed) ?? '');
             if ($line === '') {
+                $pageBreak = $pageBreak || $pageSeparators;
                 continue;
             }
             $stats->nonEmptyLines++;
@@ -108,8 +116,14 @@ class InvoiceParser
                 continue;
             }
 
-            if (preg_match('/\bPage\s+\d+\s*(?:sur\s+|\/)\d+\b/ui', $line) === 1) {
+            if (preg_match(self::PAGE_MARKER, $line) === 1) {
                 $pageBreak = true;
+                $ignored++;
+                continue;
+            }
+
+            if (self::isTariffHeader($line)) {
+                $pageBreak = $currentLine !== null;
                 $ignored++;
                 continue;
             }
@@ -240,6 +254,16 @@ class InvoiceParser
         ), $stats);
     }
 
+    private static function isTariffHeader(string $line): bool
+    {
+        $lower = mb_strtolower($line);
+
+        return preg_match('/\d/u', $line) !== 1
+            && str_contains($lower, 'description')
+            && str_contains($lower, 'montant')
+            && (str_contains($lower, 'référence') || str_contains($lower, 'reference'));
+    }
+
     /** @param InvoiceProblem[] $problems */
     private function joinContinuation(
         ?InvoiceLine $previous,
@@ -250,7 +274,7 @@ class InvoiceParser
         if (!$afterPageBreak || $previous === null || $previous->tuple() !== $line->tuple()) {
             return null;
         }
-        if ($previous->people === [] || $line->people === []) {
+        if ($previous->people === [] && $line->people === []) {
             $problems[] = new InvoiceProblem(
                 InvoiceProblem::AMBIGUOUS_REPETITION,
                 'Deux lignes identiques de part et d\'autre d\'un saut de page ne permettent pas de distinguer '
@@ -292,14 +316,14 @@ class InvoiceParser
         return $distinct;
     }
 
-    /** « Page 3 sur 10 », when the document says it; null otherwise. */
+    /** « Page 3 sur 10 » or « Page 3/10 », when printed; null otherwise. */
     private static function pageCount(string $text): ?int
     {
-        if (preg_match_all('/\bPage\s+\d+\s+sur\s+(\d+)\b/ui', $text, $matches) < 1) {
+        if (preg_match_all(self::PAGE_MARKER, $text, $matches) < 1) {
             return null;
         }
 
-        return max(array_map('intval', $matches[1]));
+        return max(array_map('intval', $matches[2]));
     }
 
     /**
