@@ -61,20 +61,32 @@ class ReceiptMailSourceRepository
      *
      * First receipt wins: the row says where the receipt came from the
      * first time, and a later pass over the same attachment has nothing to
-     * add. Except to a row that names no receipt — a refusal, or one held
-     * by a receipt it could not name — which a person's later filing of
-     * the same attachment completes, so its receipt has a provenance too.
+     * add. Except to a row where nothing was filed — a refusal, a file that
+     * could not be read, or bytes finance already held — which a later
+     * filing of the same attachment (a person's) replaces, so the receipt
+     * it produced has a provenance too, and the line that says so. A row
+     * that names no receipt at all is completed by any receipt.
      */
     public function record(int $inboundAttachmentId, int $inboundMessageId, ?int $attachmentId, string $reason): void
     {
         $reason = mb_substr($reason, 0, 20);
         if ($this->exists($inboundAttachmentId)) {
             // An unreadable file that has since been read is whatever came
-            // of it now; any other row is completed only by a receipt.
+            // of it now; a row where nothing was filed gives way to a
+            // filing; any other row is completed only by a receipt.
+            $isFiling = $attachmentId !== null
+                && !in_array($reason, [self::REASON_ALREADY_HELD, self::REASON_NOT_FILED, self::REASON_UNREADABLE], true);
+            $replaceable = [self::REASON_UNREADABLE];
+            if ($isFiling) {
+                $replaceable[] = self::REASON_ALREADY_HELD;
+                $replaceable[] = self::REASON_NOT_FILED;
+            }
+            $placeholders = implode(',', array_fill(0, count($replaceable), '?'));
             $this->pdo->prepare(
                 'UPDATE finance_receipt_mail_sources SET attachment_id = ?, reason = ?
-                  WHERE inbound_attachment_id = ? AND (reason = ? OR (attachment_id IS NULL AND ? IS NOT NULL))'
-            )->execute([$attachmentId, $reason, $inboundAttachmentId, self::REASON_UNREADABLE, $attachmentId]);
+                  WHERE inbound_attachment_id = ?
+                    AND (reason IN (' . $placeholders . ') OR (attachment_id IS NULL AND ? IS NOT NULL))'
+            )->execute([$attachmentId, $reason, $inboundAttachmentId, ...$replaceable, $attachmentId]);
 
             return;
         }

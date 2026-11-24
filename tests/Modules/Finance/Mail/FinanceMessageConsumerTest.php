@@ -722,6 +722,48 @@ class FinanceMessageConsumerTest extends TestCase
         $this->assertSame('manual', $row['reason']);
     }
 
+    /**
+     * A row that only remembered bytes already held — pointing at the
+     * receipt that held them — gives way too: the receipt a person then
+     * files is the one this attachment produced, and shows where it came from.
+     */
+    public function testAPersonsFilingReplacesAProvenanceThatOnlyRememberedHeldBytes(): void
+    {
+        $this->pdo->prepare(
+            'INSERT INTO finance_attachments (account_id, file_id, mime_type, original_filename, status, content_hash)
+             VALUES (?, 2, ?, ?, ?, NULL)'
+        )->execute([$this->accountId, 'application/pdf', 'autre.pdf', 'archived']);
+        $heldBy = (int) $this->pdo->lastInsertId();
+        (new \Modules\Finance\Repository\ReceiptMailSourceRepository($this->pdo))->record(88, 55, $heldBy, 'already_held');
+        $receiptId = $this->heldReceipt('active');
+
+        $this->consumer(actorFor: 7)->onLinked(
+            $this->generalMessage([$this->storedAttachment(88)]),
+            new MessageLink(FinanceMessageConsumer::CONSUMER_ID, FinanceMessageConsumer::referenceFor($this->accountId), LinkOrigin::MANUAL, 0, 7)
+        );
+
+        $row = $this->pdo->query('SELECT attachment_id, reason FROM finance_receipt_mail_sources WHERE inbound_attachment_id = 88')
+            ->fetch(\PDO::FETCH_ASSOC);
+        $this->assertSame($receiptId, (int) $row['attachment_id']);
+        $this->assertSame('manual', $row['reason']);
+    }
+
+    /** A filing already recorded stays the first one: a second pass has nothing to add. */
+    public function testARecordedFilingIsNotReplaced(): void
+    {
+        $sources = new \Modules\Finance\Repository\ReceiptMailSourceRepository($this->pdo);
+        $first = $this->heldReceipt('active');
+        $sources->record(88, 55, $first, 'iban');
+
+        $sources->record(88, 55, $first + 1, 'manual');
+        $sources->record(88, 55, $first + 1, 'already_held');
+
+        $row = $this->pdo->query('SELECT attachment_id, reason FROM finance_receipt_mail_sources WHERE inbound_attachment_id = 88')
+            ->fetch(\PDO::FETCH_ASSOC);
+        $this->assertSame($first, (int) $row['attachment_id']);
+        $this->assertSame('iban', $row['reason']);
+    }
+
     /** A file the catch-up could not read is not « through finance »: once readable, it files. */
     public function testAnUnreadableAttachmentStillFilesOnceItCanBeRead(): void
     {
