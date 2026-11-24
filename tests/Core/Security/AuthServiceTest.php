@@ -936,7 +936,9 @@ class AuthServiceTest extends TestCase
                 $sleeps[] = $microseconds;
             },
             static fn(int $min, int $max): int => 1000,
-            false
+            false,
+            null,
+            static fn(): float => 0.0
         );
         $logged = [];
         $sentTo = [];

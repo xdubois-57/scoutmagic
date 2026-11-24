@@ -575,7 +575,9 @@ class PasswordResetServiceTest extends TestCase
                 $sleeps[] = $microseconds;
             },
             static fn(int $min, int $max): int => 900,
-            false
+            false,
+            null,
+            static fn(): float => 0.0
         );
         $sentTo = [];
         $service = $this->serviceAfterTheAnswer($after, $sentTo);

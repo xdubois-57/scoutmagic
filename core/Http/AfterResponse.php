@@ -26,12 +26,17 @@ namespace Core\Http;
  *   itself did no work that depends on the account, so every address answers in
  *   the same time, and the e-mail leaves as fast as before.
  * - **It cannot** (CGI, mod_php): the work runs inside the request, as it
- *   always did, and then the request waits a random 500 ms to 2 s, **whether or
- *   not there was any work**. That does not hide the difference — an attacker
- *   averaging many answers still sees it — but it drowns one answer in noise,
- *   and the per-address and per-IP limits of the two forms bound how many
- *   answers one source can average. It is documented as what it is
- *   (SECURITY.md § 2), not as a guarantee.
+ *   always did, and the request is then held until a deadline drawn at random
+ *   between 500 ms and 2 s, **whether or not there was any work**. The wait is
+ *   what is left of that deadline, never a fixed sleep stacked on top of the
+ *   work: stacked, a send of a second and a half would still put the two
+ *   answers in different places. Padded, an address with an account and one
+ *   without both answer at the deadline for as long as the send fits inside
+ *   it. **A send that takes longer than the deadline still shows** — nothing
+ *   here can make a slow relay fast — and an attacker averaging many answers
+ *   still sees the rest; the per-address and per-IP limits of the two forms
+ *   bound how many answers one source can average. It is documented as what
+ *   it is (SECURITY.md § 2), not as a guarantee.
  *
  * What a piece of work does must never reach the visitor, so `flush()` and
  * `run()` swallow what it throws: the work journals its own failures, and a
@@ -56,6 +61,7 @@ final class AfterResponse
     private \Closure $sleepMicroseconds;
     private \Closure $randomMilliseconds;
     private \Closure $report;
+    private \Closure $clock;
 
     /**
      * Every collaborator is a seam for the tests; production passes none.
@@ -69,6 +75,9 @@ final class AfterResponse
      *        the two bounds, inclusive.
      * @param \Closure(string): void|null $report Where a failure that escaped the
      *        work is written; null is the PHP error log.
+     * @param \Closure(): float|null $clock Seconds, with a fraction, from any fixed
+     *        origin — what the padding measures the work against. Null is
+     *        microtime(true).
      * @param bool $detectHost False pins « no early finish » when none is given,
      *        whatever the host can do — how a test builds the inline path on a
      *        host that has fastcgi_finish_request().
@@ -78,7 +87,8 @@ final class AfterResponse
         ?\Closure $sleepMicroseconds = null,
         ?\Closure $randomMilliseconds = null,
         bool $detectHost = true,
-        ?\Closure $report = null
+        ?\Closure $report = null,
+        ?\Closure $clock = null
     ) {
         $this->finishRequest = $finishRequest ?? ($detectHost && function_exists('fastcgi_finish_request')
             ? static function (): void {
@@ -90,6 +100,7 @@ final class AfterResponse
         };
         $this->randomMilliseconds = $randomMilliseconds
             ?? static fn(int $min, int $max): int => random_int($min, $max);
+        $this->clock = $clock ?? static fn(): float => microtime(true);
         $this->report = $report ?? static function (string $line): void {
             error_log($line);
         };
@@ -105,8 +116,8 @@ final class AfterResponse
      * Hand over what the request would otherwise do before answering.
      *
      * `null` says « there is nothing to do for this one » — the address has no
-     * account — and is still a call, because without early finish the wait that
-     * follows must not depend on whether there was work.
+     * account — and is still a call, because without early finish the answer
+     * must come at the same deadline whether or not there was work.
      *
      * @param \Closure(): void|null $work
      */
@@ -120,13 +131,23 @@ final class AfterResponse
             return;
         }
 
+        // The deadline is drawn before the work, and the wait is what the work
+        // left of it: a send that took 300 ms of a 900 ms deadline waits 600 ms.
+        $started = ($this->clock)();
+        $deadlineMilliseconds = ($this->randomMilliseconds)(
+            self::JITTER_MIN_MILLISECONDS,
+            self::JITTER_MAX_MILLISECONDS
+        );
+
         if ($work !== null) {
             $this->attempt($work);
         }
 
-        ($this->sleepMicroseconds)(
-            ($this->randomMilliseconds)(self::JITTER_MIN_MILLISECONDS, self::JITTER_MAX_MILLISECONDS) * 1000
-        );
+        $elapsedMilliseconds = (int) ceil((($this->clock)() - $started) * 1000);
+        $remainingMilliseconds = $deadlineMilliseconds - $elapsedMilliseconds;
+        if ($remainingMilliseconds > 0) {
+            ($this->sleepMicroseconds)($remainingMilliseconds * 1000);
+        }
     }
 
     /**

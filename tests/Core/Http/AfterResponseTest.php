@@ -26,11 +26,15 @@ class AfterResponseTest extends TestCase
     /** @var list<array{int, int}> */
     private array $randomCalls = [];
 
+    /** The fake clock, in seconds: what the work spends is added to it. */
+    private float $now = 100.0;
+
     protected function setUp(): void
     {
         $this->events = [];
         $this->sleeps = [];
         $this->randomCalls = [];
+        $this->now = 100.0;
     }
 
     private function finishingEarly(): AfterResponse
@@ -62,7 +66,9 @@ class AfterResponseTest extends TestCase
 
                 return 750;
             },
-            false
+            false,
+            null,
+            fn(): float => $this->now
         );
     }
 
@@ -217,7 +223,7 @@ class AfterResponseTest extends TestCase
         $this->assertSame(function_exists('fastcgi_finish_request'), (new AfterResponse())->canFinishEarly());
     }
 
-    public function testWithoutEarlyFinishTheWorkRunsAtOnceThenTheRequestWaitsARandomTime(): void
+    public function testWithoutEarlyFinishTheWorkRunsAtOnceThenTheRequestWaitsForTheDeadline(): void
     {
         $after = $this->withoutEarlyFinish();
 
@@ -226,7 +232,7 @@ class AfterResponseTest extends TestCase
         });
 
         $this->assertSame(['work'], $this->events);
-        $this->assertSame([750 * 1000], $this->sleeps);
+        $this->assertSame([750 * 1000], $this->sleeps, 'work that took no time leaves the whole deadline');
         $this->assertSame([[500, 2000]], $this->randomCalls);
     }
 
@@ -240,15 +246,43 @@ class AfterResponseTest extends TestCase
         $this->assertSame([750 * 1000], $this->sleeps, 'the wait does not depend on there being work');
     }
 
+    /**
+     * The wait is what the work left of the deadline, not a sleep stacked on
+     * top of it (issue #1267): an address whose send took 300 ms and one with
+     * nothing to send both answer at the deadline.
+     */
+    public function testTheWaitIsWhatTheWorkLeftOfTheDeadline(): void
+    {
+        $after = $this->withoutEarlyFinish();
+
+        $after->run(function (): void {
+            $this->now += 0.3;
+        });
+
+        $this->assertSame([450 * 1000], $this->sleeps, '750 ms deadline, 300 ms spent sending');
+    }
+
+    public function testWorkThatTakesLongerThanTheDeadlineIsNotWaitedForAgain(): void
+    {
+        $after = $this->withoutEarlyFinish();
+
+        $after->run(function (): void {
+            $this->now += 1.2;
+        });
+
+        $this->assertSame([], $this->sleeps, 'the deadline already passed: no sleep on top of the work');
+    }
+
     public function testWithoutEarlyFinishWorkThatThrowsStillGetsItsWait(): void
     {
         $after = $this->withoutEarlyFinish();
 
         $after->run(function (): void {
+            $this->now += 0.1;
             throw new \RuntimeException('mail down');
         });
 
-        $this->assertSame([750 * 1000], $this->sleeps);
+        $this->assertSame([650 * 1000], $this->sleeps);
     }
 
     public function testTheWaitIsBetweenHalfASecondAndTwoSeconds(): void

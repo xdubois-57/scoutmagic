@@ -68,9 +68,11 @@ appliquées, mots de passe et clés gérés par l'unité déployante.
   (`Core\Http\AfterResponse`, run by `public/index.php` once the response is sent; `fastcgi_finish_request()` closes
   the connection first), and what is done before it — both address lookups, the hashes, the link row, the journal line
   — is the same for every address. A host without `fastcgi_finish_request()` (CGI, mod_php) sends the e-mail inside
-  the request and then waits a random 500 ms to 2 s, **for every address alike**. That is attenuation, not a
-  guarantee: an attacker who averages many answers still sees the difference, and what bounds the samples one source
-  can take is the per-address limit and the per-IP ceiling of § 16. The visitor is not told, so the staff has to be: a
+  the request and holds **every** answer until a deadline drawn at random between 500 ms and 2 s — the wait is what
+  the send left of that deadline, not a sleep added on top of it, so an address with an account and one without answer
+  at the same moment as long as the send fits inside the deadline. That is attenuation, not a guarantee: **a send
+  slower than 2 s still shows** (a slow relay, a connection timeout), an attacker who averages many answers still sees
+  the rest, and what bounds the samples one source can take is the per-address limit and the per-IP ceiling of § 16. The visitor is not told, so the staff has to be: a
   failed send is journaled (`magic_link_send_failed`, `password_reset_send_failed`) and
   `Core\Security\LoginMailAttentionProvider` shows the failures of the last 24 hours on the attention-points page.
 - The magic-link polling endpoint (`GET /auth/poll/{id}`) is bound to the session that requested the link (`Core\Security\PendingMagicLink`). `magic_links.id` is a sequential `AUTO_INCREMENT` integer, never the emailed secret — it is not a capability, and polling somebody else's id returns the same "not confirmed yet" as an unconfirmed one. Only `AuthService::verifyMagicLink()` checks the real token. **Nor is the session cookie enough** (issue #1115): `PendingMagicLink::remember()` also mints a poll token — 32 random bytes, only its SHA-256 kept in the session — handed in the JSON answer to the page that asked for the link and to nobody else. That page holds it in memory (no cookie, no storage) and sends it with every poll (`X-Magic-Link-Poll-Token`); a poll without it gets the same uniform answer. Two holders of one session cookie — a shared computer, a copied cookie — therefore cannot race for a confirmed link, neither to sign in nor, once signed in, to take the fresh window that adds a passkey or a device. A page reloaded or closed loses its token and starts over from the address form; a link opened in another tab of the same browser still signs that session in directly, as before.
