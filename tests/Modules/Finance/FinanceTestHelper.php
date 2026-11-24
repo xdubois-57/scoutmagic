@@ -120,6 +120,7 @@ class FinanceTestHelper
             suggested_description TEXT,
             suggested_source TEXT,
             matching_ai_attempted_at TEXT,
+            extraction_attempted_at TEXT,
             status TEXT NOT NULL DEFAULT \'active\',
             parent_attachment_id INTEGER,
             uploaded_by INTEGER,
@@ -128,6 +129,16 @@ class FinanceTestHelper
             FOREIGN KEY (account_id) REFERENCES finance_accounts(id),
             FOREIGN KEY (file_id) REFERENCES files(id),
             FOREIGN KEY (parent_attachment_id) REFERENCES finance_attachments(id)
+        )');
+
+        $pdo->exec('CREATE TABLE finance_receipt_mail_sources (
+            inbound_attachment_id INTEGER NOT NULL PRIMARY KEY,
+            inbound_message_id INTEGER NOT NULL,
+            attachment_id INTEGER,
+            reason TEXT NOT NULL,
+            attempts INTEGER NOT NULL DEFAULT 1,
+            recorded_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (attachment_id) REFERENCES finance_attachments(id) ON DELETE SET NULL
         )');
 
         $pdo->exec('CREATE TABLE finance_transaction_attachments (

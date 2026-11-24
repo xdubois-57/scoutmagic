@@ -112,6 +112,12 @@
                 : '<a href="' + escapeHtml(fileUrl(r.file_url)) + '" target="_blank" rel="noopener">' + receiptThumbHtml(r) + '</a>')
             + '<div class="fw-semibold text-truncate" title="' + escapeHtml(r.original_filename) + '">' + escapeHtml(r.original_filename) + '</div>'
             + '<div class="text-body-secondary small">' + escapeHtml(r.uploaded_at) + '</div>'
+            // Where a receipt from the mail came from (#1342) — as
+            // receipts/_grid.html.twig renders it; nothing for an upload.
+            + (r.origin
+                ? '<div class="text-body-secondary small"><i class="bi bi-envelope" aria-hidden="true"></i> '
+                    + escapeHtml(r.origin) + '</div>'
+                : '')
             + receiptSuggestedBlockHtml(r)
             + '<div>' + receiptStatusBlockHtml(r) + '</div>'
             + '<div class="d-flex flex-wrap gap-2 mt-auto">'

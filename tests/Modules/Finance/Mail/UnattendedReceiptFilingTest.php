@@ -286,6 +286,36 @@ final class UnattendedReceiptFilingTest extends TestCase
         $this->assertSame($accountId, $filed[0]->accountId);
     }
 
+    /**
+     * Decision 3, with the real store: deleted, then the same message read
+     * again — nothing comes back; the same document in a NEW message — it
+     * does.
+     */
+    public function testADeletedReceiptComesBackOnlyFromANewMessage(): void
+    {
+        $fileId = $this->inboundPdf('text_receipt.pdf');
+        $consumer = $this->consumer(attachmentText: $this->textReader());
+        $consumer->analyzeStored($this->generalMessage($fileId));
+        $this->receiptService()->delete($this->attachments->findActiveOrdered()[0]->id);
+
+        $consumer->analyzeStored($this->generalMessage($fileId));
+        $this->assertSame([], $this->attachments->findActiveOrdered(), 'the same message brings nothing back');
+
+        $consumer->analyzeStored($this->generalMessage($fileId, messageId: 57, attachmentId: 91));
+        $this->assertCount(1, $this->attachments->findActiveOrdered(), 'a new message does');
+    }
+
+    private function receiptService(): ReceiptService
+    {
+        return new ReceiptService(
+            $this->attachments,
+            $this->accounts,
+            new TransactionAttachmentRepository($this->pdo),
+            new EncryptedFileStorageService($this->files, $this->encryption, $this->storagePath),
+            new TransactionRepository($this->pdo, $this->encryption)
+        );
+    }
+
     /** The booking contract camps reads states a price and no receipt word: it is not filed. */
     public function testABookingContractIsNotTakenForAReceipt(): void
     {
@@ -318,12 +348,12 @@ final class UnattendedReceiptFilingTest extends TestCase
     }
 
     /** A general-address message nothing in its covering e-mail places. */
-    private function generalMessage(int $fileId): InboundMessage
+    private function generalMessage(int $fileId, int $messageId = 56, int $attachmentId = 90): InboundMessage
     {
         $size = (int) ($this->files->findById($fileId)?->sizeBytes ?? 0);
 
         return new InboundMessage(
-            id: 56,
+            id: $messageId,
             mailboxId: 1,
             consumerId: '',
             businessReference: '',
@@ -337,7 +367,7 @@ final class UnattendedReceiptFilingTest extends TestCase
             bodyText: 'Bonjour, voici le ticket.',
             bodyHtml: '',
             toEmails: [],
-            attachments: [new InboundAttachment(90, 56, $fileId, 'facture.pdf', 'application/pdf', $size, 'hash-c')]
+            attachments: [new InboundAttachment($attachmentId, $messageId, $fileId, 'facture.pdf', 'application/pdf', $size, 'hash-c')]
         );
     }
 

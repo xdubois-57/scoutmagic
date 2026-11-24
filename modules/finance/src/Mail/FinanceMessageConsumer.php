@@ -14,7 +14,7 @@ use Core\Security\Role;
 use Modules\Finance\Api\ExpenseReceiptInterface;
 use Modules\Finance\Repository\Account;
 use Modules\Finance\Repository\AccountRepository;
-use Modules\Finance\Repository\AttachmentRepository;
+use Modules\Finance\Repository\ReceiptMailSourceRepository;
 use Modules\Finance\Service\AccountVisibility;
 use Modules\Finance\Service\IbanNormalizer;
 use Modules\Finance\Service\ReceiptService;
@@ -126,6 +126,9 @@ class FinanceMessageConsumer implements
      * document, and an accounting receipt it is not.
      */
     public const RECEIPT_MIME_TYPES = ReceiptService::ALLOWED_MIME_TYPES;
+
+    /** Built on first use: see filer(). */
+    private ?MailReceiptFiler $filer = null;
 
     public function __construct(
         private AccountRepository $accounts,
@@ -452,7 +455,16 @@ class FinanceMessageConsumer implements
      */
     public function analyzeStored(InboundMessage $message): AnalysisResult
     {
-        if ($message->linksFor(self::CONSUMER_ID) !== []) {
+        $links = $message->linksFor(self::CONSUMER_ID);
+        if ($links !== []) {
+            // The catch-up of decision 9: an association nobody made whose
+            // receipt was never filed (MailReceiptFiler::catchUp()). The
+            // deferred pass reaches every message once on arrival, which is
+            // the moment a failure in onLinked() is fresh.
+            if ($this->readFile !== null) {
+                $this->filer()?->catchUp($message, $links, $this->readFile);
+            }
+
             return AnalysisResult::nothing();
         }
 
@@ -489,7 +501,22 @@ class FinanceMessageConsumer implements
             ));
         }
 
-        return $this->fileWhatReadsLikeAReceipt($receipts);
+        return $this->fileWhatReadsLikeAReceipt($message, $receipts);
+    }
+
+    /** The filer every mail-to-receipt path goes through, once finance can file at all. */
+    private function filer(): ?MailReceiptFiler
+    {
+        if ($this->receipts === null) {
+            return null;
+        }
+
+        return $this->filer ??= new MailReceiptFiler(
+            $this->pdo,
+            $this->encryption,
+            $this->receipts,
+            $this->onFilingFailed
+        );
     }
 
     /**
@@ -504,36 +531,35 @@ class FinanceMessageConsumer implements
      *
      * @param InboundAttachment[] $receipts
      */
-    private function fileWhatReadsLikeAReceipt(array $receipts): AnalysisResult
+    private function fileWhatReadsLikeAReceipt(InboundMessage $message, array $receipts): AnalysisResult
     {
-        if ($this->attachmentText === null || $this->receipts === null || $this->readFile === null) {
+        $filer = $this->filer();
+        if ($this->attachmentText === null || $filer === null || $this->readFile === null) {
             return AnalysisResult::nothing();
         }
 
         // What finance already holds is not read again, nor filed again.
         // This message is never linked, so nothing else stops a second
-        // pass — « Relancer l'analyse » requeues every unlinked message —
-        // and the pile's own duplicate check only sees the pile: a receipt
-        // a treasurer moved onto an account, or archived, would come back.
-        // Same hash as the store's: the bytes before any orientation fix.
+        // pass — « Relancer l'analyse » requeues every unlinked message.
+        // An attachment already through finance is skipped outright, and
+        // the bytes are checked against every receipt, not only the pile
+        // (`MailReceiptFiler::mayFileFrom()`). Same hash as the store's: the
+        // bytes before any orientation fix.
         //
         // Within the reader's own bounds, BEFORE a byte is fetched: a file
         // it would refuse, or one past its count, is not decrypted into
         // memory here only to be dropped — this is somebody else's mail.
-        $known = new AttachmentRepository($this->pdo, $this->encryption);
         $fresh = [];
         $contents = [];
         foreach ($receipts as $attachment) {
             if (count($fresh) >= AttachmentTextReader::MAX_ATTACHMENTS) {
                 break;
             }
-            if (!AttachmentTextReader::willRead($attachment)) {
+            if (!AttachmentTextReader::willRead($attachment) || $filer->alreadyThrough($attachment)) {
                 continue;
             }
             $content = ($this->readFile)($attachment->fileId);
-            if ($content === null || $content === ''
-                || $known->existsWithContentHash(hash('sha256', $content))
-            ) {
+            if ($content === null || $content === '' || !$filer->mayFileFrom($message, $content)) {
                 continue;
             }
             $fresh[] = $attachment;
@@ -552,18 +578,16 @@ class FinanceMessageConsumer implements
                 continue;
             }
 
-            try {
-                // The unattended door, on no account: nobody asked for
-                // this, and nothing but the document says it is a receipt.
-                $this->receipts->storeUnattendedReceipt(
-                    $contents[$attachment->id],
-                    $attachment->mimeType,
-                    $attachment->filename,
-                    null
-                );
+            // The unattended door, on no account: nobody asked for this,
+            // and nothing but the document says it is a receipt.
+            if ($filer->fileUnattended(
+                $message,
+                $attachment,
+                $contents[$attachment->id],
+                null,
+                ReceiptMailSourceRepository::REASON_CONTENT
+            )) {
                 $filed++;
-            } catch (\Throwable $e) {
-                $this->sayNotFiled($e, $attachment);
             }
         }
 
@@ -641,15 +665,20 @@ class FinanceMessageConsumer implements
             return;
         }
 
-        foreach ($message->attachments as $attachment) {
-            if (!in_array($attachment->mimeType, self::RECEIPT_MIME_TYPES, true)) {
-                continue;
-            }
+        $filer = $this->filer();
+        if ($filer === null) {
+            return;
+        }
 
-            // Scoped to one attachment when the association is
-            // attachment-level, which is what a proposition about a single
-            // invoice in a message carrying three files means.
-            if ($link->attachmentId !== 0 && $link->attachmentId !== $attachment->id) {
+        // Scoped to one attachment when the association is attachment-level,
+        // which is what a proposition about a single invoice in a message
+        // carrying three files means.
+        foreach (MailReceiptFiler::receiptAttachmentsOf($message, $link) as $attachment) {
+            // An attachment already through finance is not filed again by
+            // nobody — a re-read, a move between accounts that re-links
+            // (decision 3). A PERSON associating it is a decision of their
+            // own, and files.
+            if ($actor === null && $filer->alreadyThrough($attachment)) {
                 continue;
             }
 
@@ -658,18 +687,22 @@ class FinanceMessageConsumer implements
                 continue;
             }
 
-            try {
-                if ($actor === null) {
-                    $this->receipts->storeUnattendedReceipt(
-                        $content,
-                        $attachment->mimeType,
-                        $attachment->filename,
-                        $accountId
-                    );
+            if ($actor === null) {
+                // The same rule as every unattended filing: bytes finance
+                // holds as a live receipt anywhere — moved since onto
+                // another account — or a deleted one from this message, or
+                // of unknown origin, are only remembered. The store's own
+                // duplicate check sees one account at a time.
+                if (!$filer->mayFileFrom($message, $content)) {
+                    $filer->rememberHeld($message, $attachment, $content);
                     continue;
                 }
+                $filer->fileUnattended($message, $attachment, $content, $accountId, $link->origin->value);
+                continue;
+            }
 
-                $this->receipts->storeReceipt(
+            try {
+                $fileId = $this->receipts->storeReceipt(
                     $content,
                     $attachment->mimeType,
                     $attachment->filename,
@@ -685,6 +718,7 @@ class FinanceMessageConsumer implements
                     $actor['member_ids'],
                     $link->createdByUserAccountId
                 );
+                $filer->remember($message, $attachment, $fileId, ReceiptMailSourceRepository::REASON_MANUAL);
             } catch (\Throwable $e) {
                 // Finance refused the account, or the bytes could not be
                 // read. Neither is worth failing the association over: the
@@ -695,27 +729,10 @@ class FinanceMessageConsumer implements
                 // is indistinguishable from a receipt nobody sent: the
                 // message shows as filed, the receipts screen is empty,
                 // and there is nothing anywhere to read (#175).
-                $this->sayNotFiled($e, $attachment);
+                $filer->sayNotFiled($e, $attachment);
 
                 continue;
             }
-        }
-    }
-
-    private function sayNotFiled(\Throwable $e, InboundAttachment $attachment): void
-    {
-        if ($this->onFilingFailed === null) {
-            return;
-        }
-
-        try {
-            ($this->onFilingFailed)($e, $attachment->mimeType, $attachment->id);
-        } catch (\Throwable) {
-            // What the composition roots install here writes a row: a
-            // database that is down would turn SAYING that a receipt was
-            // not filed into a second, louder failure, and the rest of this
-            // message's attachments would never be looked at. A trace is
-            // worth having and worth nothing at that price.
         }
     }
 

@@ -29,7 +29,9 @@ comptes » dans l'aide des finances) : un compte que vous ne voyez plus
 Si le connecteur IA du site est actif, chaque reçu déposé est lu
 automatiquement : montant, date et commerçant sont suggérés (badge
 « IA ») et un mouvement correspondant est proposé quand il existe. Un
-reçu arrivé par e-mail est lu de la même façon. Le badge « IA : aucun
+reçu arrivé par e-mail est lu de la même façon, y compris ceux arrivés
+avant que cette lecture existe : le site les reprend quelques-uns par
+heure. Le badge « IA : aucun
 mouvement trouvé » n'apparaît que si l'IA a réellement été interrogée ;
 tant que le connecteur est indisponible, elle sera essayée plus tard.
 Ce ne sont que des suggestions — sans IA, tout reste faisable à la
@@ -50,6 +52,14 @@ Un reçu « En attente » n'est encore relié à rien. Trois chemins :
 Un reçu peut couvrir plusieurs mouvements, et inversement.
 « Remplacer » change le fichier sans perdre l'association ;
 « Supprimer » demande confirmation.
+
+## Un reçu arrivé par e-mail
+
+Sa carte dit d'où il vient et pourquoi il a été classé là : l'IBAN cité,
+l'expéditeur, la boîte de la trésorerie, ou son contenu sur l'adresse
+générale. Relire le courrier ne le recrée jamais : un reçu supprimé ne
+revient que s'il arrive dans un **nouveau** message, et un reçu déplacé
+sur un autre compte y reste.
 
 ## Bien s'organiser
 

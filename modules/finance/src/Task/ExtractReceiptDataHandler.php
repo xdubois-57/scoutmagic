@@ -117,6 +117,13 @@ class ExtractReceiptDataHandler implements TaskHandlerInterface
             return;
         }
 
+        // The reading is being attempted, whatever it finds (#1342): what
+        // tells Task\BackfillReceiptReadingsHandler this receipt is not one
+        // that was filed while the reading was not wired. Written only past
+        // the connector check — a receipt read while no provider answered
+        // was never read, and stays one the catch-up offers again.
+        $attachmentRepository->markExtractionAttempted($attachmentId);
+
         $fileStorage = new EncryptedFileStorageService(
             new FileRepository($pdo),
             $context->encryption,
@@ -182,7 +189,10 @@ class ExtractReceiptDataHandler implements TaskHandlerInterface
                 $this->logFailure($context, $attachmentId, 'Aucune donnée exploitable dans la réponse IA.');
             }
         } else {
-            $attachmentRepository->updateSuggestedData($attachmentId, $amount, $date, Attachment::SUGGESTED_SOURCE_AI);
+            // Never over what a person typed in, even meanwhile (#1342):
+            // the merchant and the description below are the reading's
+            // alone, the amount and the date are not.
+            $attachmentRepository->writeAiSuggestedData($attachmentId, $amount, $date);
             if ($merchant !== null) {
                 $attachmentRepository->updateSuggestedLabel($attachmentId, $merchant);
             }

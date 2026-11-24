@@ -114,7 +114,8 @@ class ReceiptControllerTest extends TestCase
             $receiptService,
             FinanceTestHelper::movementDescriptions($this->pdo, $encryption),
             $journalService,
-            $this->triageMail
+            $this->triageMail,
+            new \Modules\Finance\Repository\ReceiptMailSourceRepository($this->pdo)
         );
 
         $this->accountId = $this->accountRepository->create('Compte', Account::TYPE_BANK, null, null, null, 'intendant');
@@ -283,6 +284,23 @@ class ReceiptControllerTest extends TestCase
 
         $this->assertSame(200, $response->getStatusCode());
         $this->assertStringContainsString('En attente', $response->getBody());
+    }
+
+    /**
+     * Where it came from and why (#1342, decision 8): a receipt that arrived
+     * by e-mail says so in one line; one uploaded by hand says nothing.
+     */
+    public function testAReceiptFromTheMailSaysWhereItCameFrom(): void
+    {
+        $this->controller->upload($this->uploadRequest($this->tmpPdfFile(), $this->csrfToken()), []);
+        $this->controller->upload($this->uploadRequest($this->tmpPdfFile(), $this->csrfToken()), []);
+        [$fromMail] = $this->attachmentRepository->findActiveOrdered();
+        (new \Modules\Finance\Repository\ReceiptMailSourceRepository($this->pdo))->record(88, 55, $fromMail->id, 'iban');
+
+        $body = $this->controller->list(new Request('GET', '/finance/receipts', ['account_id' => (string) $this->accountId], [], [], []), [])->getBody();
+
+        $this->assertSame(1, substr_count($body, 'Arrivé par e-mail'));
+        $this->assertStringContainsString('l&#039;IBAN du compte était cité', $body);
     }
 
     public function testListFiltersToPendingOnly(): void

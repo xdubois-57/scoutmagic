@@ -1048,6 +1048,16 @@ function scoutmagicBootstrapScheduler(
         \Modules\Registration\Task\AutoAcceptRequestsHandler::bootstrap($schedulerService);
     }
 
+    // The receipts that never got their AI reading (#1342, decision 9),
+    // given it a few an hour. Seeded here, with the other chains that must
+    // run on a site reached only by its crontab.
+    if (in_array('finance', $enabledModuleIds, true)) {
+        \Modules\Finance\Task\BackfillReceiptReadingsHandler::bootstrap($schedulerService);
+        // And the mail already associated whose receipt was never filed,
+        // walked once, until a run finds nothing left.
+        \Modules\Finance\Task\CatchUpMailReceiptsHandler::bootstrap($schedulerService, $settingService);
+    }
+
     // Existing providers need capability evidence on the first cron pass after upgrading.
     if (in_array('llm_connector', $enabledModuleIds, true)) {
         \Modules\LlmConnector\Task\RefreshModelsHandler::bootstrap($schedulerService);
