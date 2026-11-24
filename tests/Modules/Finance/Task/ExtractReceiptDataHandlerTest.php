@@ -158,6 +158,78 @@ class ExtractReceiptDataHandlerTest extends TestCase
         return $content;
     }
 
+    /**
+     * The reading leaves its mark whatever it finds (#1342): that is what
+     * keeps Task\BackfillReceiptReadingsHandler from offering it again.
+     */
+    public function testTheReadingMarksTheReceiptWhateverItFinds(): void
+    {
+        $attachmentId = $this->createAttachment();
+        $connector = $this->createStub(LlmConnectorInterface::class);
+        $connector->method('isAvailable')->willReturn(true);
+        $connector->method('isTierAvailable')->willReturn(false);
+
+        (new ExtractReceiptDataHandler())->handle(
+            ['attachment_id' => $attachmentId],
+            $this->createTaskContext(connector: $connector)
+        );
+
+        $this->assertNotNull($this->extractionAttemptedAt($attachmentId));
+    }
+
+    /**
+     * A person typed the amount and date in while the reading was queued:
+     * the reading's answer does not overwrite them (#1342). The merchant,
+     * which nobody types, is still the reading's to give.
+     */
+    public function testTheReadingNeverOverwritesWhatAPersonTypedIn(): void
+    {
+        $attachmentId = $this->createAttachment();
+        $this->attachmentRepository->updateSuggestedData($attachmentId, 12.5, '2026-09-01', \Modules\Finance\Repository\Attachment::SUGGESTED_SOURCE_MANUAL);
+        $connector = $this->createStub(LlmConnectorInterface::class);
+        $connector->method('isAvailable')->willReturn(true);
+        $connector->method('isTierAvailable')->willReturn(true);
+        $connector->method('complete')->willReturn(new LlmResponse(
+            '',
+            ['amount' => 99.0, 'date' => '2026-10-10', 'merchant' => 'Delhaize', 'description' => 'Achat de fournitures'],
+            100,
+            10
+        ));
+
+        (new ExtractReceiptDataHandler())->handle(
+            ['attachment_id' => $attachmentId],
+            $this->createTaskContext(connector: $connector)
+        );
+
+        $attachment = $this->attachmentRepository->findById($attachmentId);
+        $this->assertSame(12.5, $attachment->suggestedAmount);
+        $this->assertSame('2026-09-01', $attachment->suggestedDate);
+        $this->assertSame('manual', $attachment->suggestedSource);
+        $this->assertSame('Delhaize', $attachment->suggestedLabel);
+    }
+
+    /** A reading while no provider answers was never a reading: no mark, so the catch-up comes back. */
+    public function testNoMarkWhileNoProviderAnswers(): void
+    {
+        $attachmentId = $this->createAttachment();
+
+        (new ExtractReceiptDataHandler())->handle(
+            ['attachment_id' => $attachmentId],
+            $this->createTaskContext(withLlmConnector: false)
+        );
+
+        $this->assertNull($this->extractionAttemptedAt($attachmentId));
+    }
+
+    private function extractionAttemptedAt(int $attachmentId): ?string
+    {
+        $stmt = $this->pdo->prepare('SELECT extraction_attempted_at FROM finance_attachments WHERE id = ?');
+        $stmt->execute([$attachmentId]);
+        $value = $stmt->fetchColumn();
+
+        return $value === false || $value === null ? null : (string) $value;
+    }
+
     public function testNoOpWhenPayloadHasNoAttachmentId(): void
     {
         $handler = new ExtractReceiptDataHandler();

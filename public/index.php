@@ -159,6 +159,7 @@ use Core\Notification\VapidKeyPairFactory;
 use Minishlink\WebPush\WebPush;
 use Twig\TwigFunction;
 use Core\View\ConfigurationMode;
+use Core\View\NavigationIdentity;
 use Core\View\DynamicMenuRegistrar;
 use Core\View\EditableContentRepository;
 use Core\View\EditableContentService;
@@ -3233,8 +3234,14 @@ $effectiveScoutYear = $scoutYearResolver->getEffectiveYear(
     Role::fromString($currentRole)
 );
 
-// Update user display name based on linked members
-$displayName = AuthSession::getEmail() ?? '';
+// The signed-in account, read once: its profile gives the name the navigation
+// writes beside the photo, and its name gives the avatar's initials (issue
+// #1360). Never the members linked to its e-mail address — those are other
+// people, and the photo beside the name is the account's own.
+$currentAccountForAvatar = AuthSession::isAuthenticated()
+    ? $userAccountRepo->findById((int) AuthSession::getUserAccountId())
+    : null;
+$displayName = NavigationIdentity::displayName($currentAccountForAvatar, AuthSession::getEmail() ?? '');
 $memberCount = 0;
 $linkedMembers = [];
 $temporaryMemberName = null;
@@ -3243,23 +3250,15 @@ if (AuthSession::isAuthenticated()) {
         AuthSession::getEmail(),
         $effectiveScoutYear->id
     );
-    if (count($linkedMembers) > 0) {
-        $primaryMember = MemberService::getHighestRoleMember($linkedMembers);
-        $displayName = $primaryMember !== null ? $primaryMember->getDisplayName() : $displayName;
-        $memberCount = count($linkedMembers);
-    }
+    $memberCount = count($linkedMembers);
 
-    // A temporary member (ARCHITECTURE.md §8.42) takes over the header
-    // identity outright, rather than going through getHighestRoleMember():
-    // an animé carries no function at all, so the "highest role" rule would
-    // always keep showing the admin's own member and the override would be
-    // invisible in the one place it most needs to be legible. The banner
-    // right below the nav is what stops that from reading as "you are
-    // logged in as this person".
+    // A temporary member (ARCHITECTURE.md §8.42) is named in the banner right
+    // below the nav, "Vous agissez au nom de …", and nowhere else: the
+    // navigation says who is logged in, the banner says on whose behalf they
+    // act, and neither replaces the other (issue #1360).
     $temporaryMemberYearId = $temporaryMemberProvider->resolveMemberYearId(AuthSession::getEmail() ?? '');
     foreach ($linkedMembers as $member) {
         if ($member->memberYearId === $temporaryMemberYearId) {
-            $displayName = $member->getDisplayName();
             $temporaryMemberName = $member->getDisplayName();
             break;
         }
@@ -3392,16 +3391,10 @@ $twig->addGlobal('current_user_display_name', $displayName);
 // a visitor who is not identified, which resolves to no photo and no
 // initials circle is drawn for them anyway.
 $twig->addGlobal('current_user_account_id', AuthSession::getUserAccountId() ?? 0);
-// What the avatar's INITIALS come from, which is not always what the nav
-// writes next to it: the header shows a member's display name (a totem,
-// "Akéla"), and a temporary member takes it over entirely (§8.42) — while
-// the circle stands for the person logged in. Their own first and last
-// name when the account carries them, and the header's name otherwise,
-// so this never falls back to two letters of an email address unless
-// there is genuinely nothing else.
-$currentAccountForAvatar = AuthSession::isAuthenticated()
-    ? $userAccountRepo->findById((int) AuthSession::getUserAccountId())
-    : null;
+// What the avatar's INITIALS come from: the account's own first and last
+// name when it carries them, and the header's name otherwise (which is then
+// the e-mail address), so this never falls back to two letters of an e-mail
+// address unless there is genuinely nothing else.
 $currentAccountName = $currentAccountForAvatar === null
     ? ''
     : trim(($currentAccountForAvatar->firstName ?? '') . ' ' . ($currentAccountForAvatar->lastName ?? ''));
@@ -9255,7 +9248,9 @@ if ($isEnabled('finance')) {
             $journalService,
             // The mail this module proposed on, for the treasury to answer
             // (§7.5): null without `inbound_mail`, and no block then.
-            $inboundMailForOthers
+            $inboundMailForOthers,
+            // Where a receipt that arrived by e-mail came from (#1342).
+            new \Modules\Finance\Repository\ReceiptMailSourceRepository($pdo)
         )
     );
     $frontController->registerController(

@@ -400,6 +400,34 @@ class SchedulerBootstrapTest extends TestCase
         );
     }
 
+    /**
+     * The two catch-ups of #1342's decision 9 — the receipts that never got
+     * their AI reading, the mail whose receipt was never filed — are chains
+     * the crontab must start too: seeded by THIS bootstrap when finance is
+     * on, and not otherwise.
+     */
+    public function testTheReceiptReadingCatchUpIsSeededWithFinance(): void
+    {
+        ['context' => $with] = $this->bootstrap(['finance']);
+        ['context' => $without] = $this->bootstrap([]);
+
+        $this->assertSame(1, self::pendingOf($with, \Modules\Finance\Task\BackfillReceiptReadingsHandler::TASK_KEY));
+        $this->assertSame(0, self::pendingOf($without, \Modules\Finance\Task\BackfillReceiptReadingsHandler::TASK_KEY));
+        // And the walk over the mail already associated, until it is done.
+        $this->assertSame(1, self::pendingOf($with, \Modules\Finance\Task\CatchUpMailReceiptsHandler::TASK_KEY));
+        $this->assertSame(0, self::pendingOf($without, \Modules\Finance\Task\CatchUpMailReceiptsHandler::TASK_KEY));
+    }
+
+    private static function pendingOf(\Core\Scheduler\TaskContext $context, string $taskKey): int
+    {
+        $stmt = $context->connection->getPdo()->prepare(
+            "SELECT COUNT(*) FROM scheduled_actions WHERE module_id = 'finance' AND task_key = ? AND status = 'pending'"
+        );
+        $stmt->execute([$taskKey]);
+
+        return (int) $stmt->fetchColumn();
+    }
+
     public function testTheSyncFactoryIsNotRegisteredWhenInboundMailIsDisabled(): void
     {
         ['runner' => $runner] = $this->bootstrap(['rental', 'camps']);

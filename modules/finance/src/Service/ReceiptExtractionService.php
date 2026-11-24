@@ -53,4 +53,21 @@ class ReceiptExtractionService
             'attachment-' . $attachmentId
         );
     }
+
+    /**
+     * The same, for a catch-up that comes back every hour
+     * (Task\BackfillReceiptReadingsHandler): nothing is queued while a
+     * reading of THIS receipt is already waiting or running, so a slow
+     * queue does not pile up copies of one provider call. Per receipt, by
+     * its reference — scheduleAfterUnlessLive() would allow one reading
+     * alive for the whole module.
+     */
+    public function scheduleExtractionUnlessQueued(int $attachmentId): void
+    {
+        if ($this->schedulerService->findLive('finance', self::TASK_KEY, 'attachment-' . $attachmentId) !== null) {
+            return;
+        }
+
+        $this->scheduleExtraction($attachmentId);
+    }
 }

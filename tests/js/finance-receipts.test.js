@@ -142,6 +142,32 @@ describe('finance-receipts.js: live search', () => {
         expect(card.textContent).toContain('En attente');
     });
 
+    // #1342: where a receipt from the mail came from survives a refresh —
+    // the same line the server-rendered grid shows — and an upload by hand
+    // still says nothing.
+    it('keeps the e-mail origin line when the grid is redrawn, escaped, and none for an upload', async () => {
+        await boot();
+        fetch.mockReturnValue(jsonResponse({
+            success: true,
+            page: 1,
+            total_pages: 1,
+            receipts: [
+                receipt({ id: 31, origin: 'Arrivé par e-mail : <l\'IBAN> du compte était cité' }),
+                receipt({ id: 32, origin: null }),
+            ],
+        }));
+
+        document.getElementById('receipts-pending-only').checked = true;
+        document.getElementById('receipts-pending-only').dispatchEvent(new Event('change'));
+        await settle();
+
+        const fromMail = document.querySelector('#receipts-grid [data-receipt-id="31"]');
+        const byHand = document.querySelector('#receipts-grid [data-receipt-id="32"]');
+        expect(fromMail.textContent).toContain("Arrivé par e-mail : <l'IBAN> du compte était cité");
+        expect(fromMail.querySelector('.bi-envelope')).not.toBeNull();
+        expect(byHand.textContent).not.toContain('Arrivé par e-mail');
+    });
+
     // Issue #1109: the card links and shows the file only under its opaque
     // address, checked where it is written; anything else is unavailable.
     it('links the card to the opaque address the server gave', async () => {
