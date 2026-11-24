@@ -10,6 +10,7 @@ namespace Core\Security;
 
 use Core\Database\Connection;
 use Core\Database\TransactionScope;
+use Core\Http\AfterResponse;
 use Core\Journal\JournalService;
 use Core\Mail\MailService;
 use Core\Mail\Template\EmailTemplateRenderer;
@@ -28,10 +29,14 @@ class PasswordResetService
     private const TOKEN_EXPIRY_MINUTES = 60;
     private const MAX_REQUESTS_PER_HOUR = 5;
 
+    /** The journal event a failed send writes; what the attention points count (issue #1267). */
+    public const EVENT_SEND_FAILED = 'password_reset_send_failed';
+
     private UserAccountRepository $userRepo;
     private PasswordResetRepository $resetRepo;
     private ?JournalService $journalService = null;
     private ?AccountAccessRevoker $accessRevoker = null;
+    private ?AfterResponse $afterResponse = null;
 
     public function __construct(
         private Connection $connection,
@@ -52,6 +57,16 @@ class PasswordResetService
     public function setJournalService(JournalService $journalService): void
     {
         $this->journalService = $journalService;
+    }
+
+    /**
+     * Late, like the journal: with it the e-mail leaves after the answer
+     * (issue #1267). Production always sets it; with none, the e-mail is sent
+     * inside the request, which is what the tests and the CLI want.
+     */
+    public function setAfterResponse(AfterResponse $afterResponse): void
+    {
+        $this->afterResponse = $afterResponse;
     }
 
     /**
@@ -84,21 +99,6 @@ class PasswordResetService
         $tokenId = $this->resetRepo->create($blindIndex, $tokenHash, $expiresAt);
 
         $user = $this->userRepo->findByEmail($normalizedEmail);
-        if ($user !== null) {
-            // The token rides in the URL FRAGMENT, not the query string.
-            // A fragment is never sent to the server, so it stays out of
-            // access logs, proxy logs and any Referer header the reset page
-            // emits — all places a query-string token would land in
-            // cleartext. The page's own script lifts it out of
-            // location.hash and posts it back (see
-            // Core\Http\Controller\PasswordResetController::show()).
-            $resetUrl = rtrim($this->baseUrl, '/') . "/password-reset/{$tokenId}#{$rawToken}";
-            try {
-                $this->sendResetEmail($normalizedEmail, $resetUrl);
-            } catch (\Throwable) {
-                // Best-effort — a send failure must not leak whether the account exists either.
-            }
-        }
 
         $this->journalService?->log(
             'core',
@@ -109,6 +109,63 @@ class PasswordResetService
             [],
             null
         );
+
+        // The e-mail is the only thing that differs between an address with an
+        // account and one without, so it leaves AFTER the answer (issue #1267,
+        // Core\Http\AfterResponse): sent inside the request, the SMTP
+        // connection would make an address that has an account answer later.
+        // An address with no account hands over nothing to do, and the wait a
+        // host without early finish adds is the same for both.
+        if ($user === null) {
+            $this->afterTheAnswer(null);
+
+            return;
+        }
+
+        // The token rides in the URL FRAGMENT, not the query string.
+        // A fragment is never sent to the server, so it stays out of
+        // access logs, proxy logs and any Referer header the reset page
+        // emits — all places a query-string token would land in
+        // cleartext. The page's own script lifts it out of
+        // location.hash and posts it back (see
+        // Core\Http\Controller\PasswordResetController::show()).
+        $resetUrl = rtrim($this->baseUrl, '/') . "/password-reset/{$tokenId}#{$rawToken}";
+        $userId = $user->id;
+        $this->afterTheAnswer(function () use ($normalizedEmail, $resetUrl, $userId): void {
+            try {
+                $this->sendResetEmail($normalizedEmail, $resetUrl);
+            } catch (\Throwable $e) {
+                // Never told to the visitor — a send failure must not leak
+                // whether the account exists either. Journaled instead, the
+                // address taken out of the reason, and the administrators
+                // see it on the attention points (Core\Security\
+                // LoginMailAttentionProvider): a reset mail that never
+                // leaves would otherwise be a silent failure for everybody.
+                $reason = str_replace($normalizedEmail, '[adresse]', $e->getMessage());
+                $this->journalService?->log(
+                    'core',
+                    self::EVENT_SEND_FAILED,
+                    'info',
+                    "Échec de l'envoi de l'email de réinitialisation de mot de passe",
+                    ['error' => $reason],
+                    $userId
+                );
+            }
+        });
+    }
+
+    /** Run $work once the answer has been given — at once when nothing was wired. */
+    private function afterTheAnswer(?\Closure $work): void
+    {
+        if ($this->afterResponse === null) {
+            if ($work !== null) {
+                $work();
+            }
+
+            return;
+        }
+
+        $this->afterResponse->run($work);
     }
 
     /**

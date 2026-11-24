@@ -39,6 +39,14 @@ use Twig\Environment;
 
 class AuthController extends AbstractController
 {
+    /**
+     * Requests the magic-link form accepts from one source (an IPv4 address or
+     * an IPv6 /64) in an hour, whatever addresses they name (issue #1267). The
+     * « mot de passe oublié » form is held to the same figure by the HumanCheck
+     * settings (5 every 10 minutes: at most 30 an hour).
+     */
+    public const MAGIC_LINK_MAX_PER_IP_PER_HOUR = 30;
+
     /** Core\Security\HumanCheck form key for the magic-link request form. */
     private const HUMAN_CHECK_FORM_KEY = 'magic_link_request';
 
@@ -153,22 +161,24 @@ class AuthController extends AbstractController
                 . 'données pour vous connecter.']);
         }
 
-        // Core\Security\HumanCheck: honeypot + minimum-delay barriers only
-        // (enforceRateLimit: false). AuthService::requestMagicLink()
-        // already rate-limits by email blind index (SECURITY.md §8,
-        // MAX_REQUESTS_PER_HOUR) — a second, differently-scoped (per-IP)
-        // counter here would produce inconsistent thresholds and
-        // unexplained lockouts for the same abuse pattern (ARCHITECTURE.md
-        // §8's iteration-1 spec calls this out explicitly). The honeypot
-        // and delay checks are still worth applying: they catch a naive
-        // bot before it ever touches AuthService, at zero cost to a
-        // legitimate slow human.
+        // Core\Security\HumanCheck: honeypot, minimum delay, and — since issue
+        // #1267 — a per-IP ceiling of MAGIC_LINK_MAX_PER_IP_PER_HOUR requests an
+        // hour. AuthService::requestMagicLink() still limits per address
+        // (SECURITY.md §8, MAX_REQUESTS_PER_HOUR), and that limit alone could
+        // not stop one source typing a different address each time to find out
+        // which have an account. The ceiling is wide on purpose: a household,
+        // a school or a scout hall behind one connection shares one address
+        // (SECURITY.md §16), and a refusal here reads as « Une erreur est
+        // survenue » to somebody who did nothing wrong. A refusal does not say
+        // which barrier stopped the request.
         $humanCheckResult = $this->humanCheck?->verify(
             self::HUMAN_CHECK_FORM_KEY,
             AuthSession::isAuthenticated(),
             $request->getBodyAll(),
             (string) $request->getServer('REMOTE_ADDR', ''),
-            false
+            true,
+            60,
+            self::MAGIC_LINK_MAX_PER_IP_PER_HOUR
         );
         if ($humanCheckResult !== null && !$humanCheckResult->accepted) {
             return $this->json(['success' => false, 'error' => 'Une erreur est survenue. Veuillez réessayer.']);

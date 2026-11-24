@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Core\Security;
 
 use Core\Database\Connection;
+use Core\Http\AfterResponse;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Mail\MailException;
@@ -131,8 +132,10 @@ class PasswordResetServiceTest extends TestCase
         $service->requestReset('unknown@test.com');
 
         $this->assertSame(2, (int) $this->pdo->query('SELECT COUNT(*) FROM password_reset_tokens')->fetchColumn());
+        // The failure is journaled for the staff (issue #1267), and only
+        // for the address that has an account: the visitor sees none of it.
         $this->assertSame(
-            ['password_reset_requested', 'password_reset_requested'],
+            ['password_reset_requested', 'password_reset_send_failed', 'password_reset_requested'],
             $this->pdo->query('SELECT event_type FROM event_log ORDER BY id')->fetchAll(\PDO::FETCH_COLUMN)
         );
     }
@@ -469,5 +472,123 @@ class PasswordResetServiceTest extends TestCase
         $this->assertSame(1, preg_match('#/password-reset/(\d+)\#(.+)$#', $this->capturedResetUrl, $m));
 
         return [(int) $m[1], rawurldecode($m[2])];
+    }
+
+    // ── The e-mail leaves after the answer (issue #1267) ───────────────
+
+    /**
+     * @param list<string> $sentTo
+     */
+    private function serviceAfterTheAnswer(AfterResponse $after, array &$sentTo, bool $failing = false): PasswordResetService
+    {
+        $mail = $this->createStub(MailService::class);
+        $mail->method('send')->willReturnCallback(
+            function (string $to) use (&$sentTo, $failing): void {
+                if ($failing) {
+                    throw new MailException('Refusé : ' . $to);
+                }
+                $sentTo[] = $to;
+            }
+        );
+        $connection = $this->createStub(Connection::class);
+        $connection->method('getPdo')->willReturn($this->pdo);
+        $twig = new Environment(new ArrayLoader([
+            'email/password_reset.html.twig' => '<a href="{{ reset_url }}">Reset</a>',
+            'email/password_reset.text.twig' => '{{ reset_url }}',
+        ]));
+        $twig->addGlobal('site_name', 'Test Unit');
+        $service = new PasswordResetService(
+            $connection,
+            $this->encryption,
+            $mail,
+            EmailTemplateRendererFactory::overTestDatabase($this->pdo, $twig),
+            'https://example.com',
+            'Test Unit'
+        );
+        $service->setJournalService(new JournalService(new JournalRepository($this->pdo)));
+        $service->setAfterResponse($after);
+
+        return $service;
+    }
+
+    private function finishingFirst(): AfterResponse
+    {
+        return new AfterResponse(static function (): void {
+        }, static function (int $microseconds): void {
+        }, static fn(int $min, int $max): int => $min);
+    }
+
+    public function testTheResetEmailIsNotSentBeforeTheAnswerHasBeenGiven(): void
+    {
+        $this->userRepo->create('user@test.com');
+        $after = $this->finishingFirst();
+        $sentTo = [];
+        $service = $this->serviceAfterTheAnswer($after, $sentTo);
+
+        $service->requestReset('user@test.com');
+        $this->assertSame([], $sentTo, 'no SMTP connection while the visitor is still waiting');
+
+        $after->flush();
+
+        $this->assertSame(['user@test.com'], $sentTo);
+    }
+
+    public function testBeforeTheAnswerAnAddressWithAndWithoutAnAccountLeaveTheSameTraces(): void
+    {
+        $this->userRepo->create('known@test.com');
+        $after = $this->finishingFirst();
+        $sentTo = [];
+        $service = $this->serviceAfterTheAnswer($after, $sentTo);
+
+        $service->requestReset('known@test.com');
+        $service->requestReset('nobody@test.com');
+
+        $this->assertSame(2, (int) $this->pdo->query('SELECT COUNT(*) FROM password_reset_tokens')->fetchColumn());
+        $this->assertSame(
+            ['password_reset_requested', 'password_reset_requested'],
+            $this->pdo->query('SELECT event_type FROM event_log ORDER BY id')->fetchAll(\PDO::FETCH_COLUMN)
+        );
+        $this->assertSame([], $sentTo);
+    }
+
+    public function testAFailedSendAfterTheAnswerIsJournaledWithoutTheAddress(): void
+    {
+        $account = $this->userRepo->create('refused@test.com');
+        $after = $this->finishingFirst();
+        $sentTo = [];
+        $service = $this->serviceAfterTheAnswer($after, $sentTo, failing: true);
+
+        $service->requestReset('refused@test.com');
+        $after->flush();
+
+        $row = $this->pdo->query(
+            "SELECT context, user_account_id FROM event_log WHERE event_type = 'password_reset_send_failed'"
+        )->fetch(\PDO::FETCH_ASSOC);
+        $this->assertIsArray($row);
+        $this->assertSame($account->id, (int) $row['user_account_id']);
+        $this->assertStringNotContainsString('refused@test.com', (string) $row['context']);
+        $this->assertStringContainsString('[adresse]', (string) $row['context']);
+    }
+
+    public function testWithoutAnEarlyFinishEveryAddressWaitsTheSameRandomTime(): void
+    {
+        $this->userRepo->create('known@test.com');
+        $sleeps = [];
+        $after = new AfterResponse(
+            null,
+            static function (int $microseconds) use (&$sleeps): void {
+                $sleeps[] = $microseconds;
+            },
+            static fn(int $min, int $max): int => 900,
+            false
+        );
+        $sentTo = [];
+        $service = $this->serviceAfterTheAnswer($after, $sentTo);
+
+        $service->requestReset('known@test.com');
+        $service->requestReset('nobody@test.com');
+
+        $this->assertSame(['known@test.com'], $sentTo, 'sent inside the request when it cannot be finished first');
+        $this->assertSame([900000, 900000], $sleeps);
     }
 }

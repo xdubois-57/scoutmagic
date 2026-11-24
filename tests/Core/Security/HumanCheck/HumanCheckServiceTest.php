@@ -181,6 +181,34 @@ class HumanCheckServiceTest extends TestCase
         $this->assertTrue($otherSubscriber->accepted);
     }
 
+    /** A form may bring its own ceiling and window, in place of the settings (issue #1267). */
+    public function testAFormMayCarryItsOwnCeilingInsteadOfTheSetting(): void
+    {
+        $ip = '203.0.113.20';
+
+        // The setting says 3; this form says 5.
+        for ($i = 0; $i < 5; $i++) {
+            $result = $this->service->verify(self::FORM_KEY, false, $this->buildFormData(time() - 10), $ip, true, 60, 5);
+            $this->assertTrue($result->accepted, "Attempt {$i} is under this form's own ceiling");
+        }
+
+        $result = $this->service->verify(self::FORM_KEY, false, $this->buildFormData(time() - 10), $ip, true, 60, 5);
+
+        $this->assertFalse($result->accepted);
+        $this->assertSame('rate_limited', $result->reason);
+    }
+
+    public function testWithoutAnOverrideTheSettingsStillApply(): void
+    {
+        $ip = '203.0.113.21';
+
+        for ($i = 0; $i < 3; $i++) {
+            $this->assertTrue($this->service->verify(self::FORM_KEY, false, $this->buildFormData(time() - 10), $ip)->accepted);
+        }
+
+        $this->assertFalse($this->service->verify(self::FORM_KEY, false, $this->buildFormData(time() - 10), $ip)->accepted);
+    }
+
     public function testEnforceRateLimitFalseSkipsTheThirdBarrier(): void
     {
         $ip = '203.0.113.10';

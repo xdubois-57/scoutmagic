@@ -2508,6 +2508,12 @@ $notificationPreferenceRepo = new NotificationPreferenceRepository($pdo);
 // $roleResolver/$scoutYearService exist (dispatch()'s role_min re-check
 // needs both) — see that construction's own comment.
 
+// What a request starts and the visitor does not wait for: the sign-in link
+// and the « mot de passe oublié » link leave after the answer, so an address
+// with an account does not answer later than one without (issue #1267). Run
+// by flush() right after the response is sent, near the end of this file.
+$afterResponse = new \Core\Http\AfterResponse();
+
 // Create AuthService
 $authService = new AuthService(
     $connection,
@@ -2527,6 +2533,9 @@ $passwordResetService = new PasswordResetService(
     (string) $settingService->get('base_url'),
     (string) $settingService->get('site_name')
 );
+
+$authService->setAfterResponse($afterResponse);
+$passwordResetService->setAfterResponse($afterResponse);
 
 // Create generic short-URL service (Core\Url) and A4 poster PDF service
 // (Core\Pdf) — not module-specific, see schema/core.sql's short_urls table
@@ -3356,6 +3365,10 @@ $attentionProviders = [
     new \Core\Member\Duplicate\DuplicateAttentionProvider(
         new \Core\Member\Duplicate\DuplicateMemberRepository($pdo, $encryptionService)
     ),
+    // Sign-in and « mot de passe oublié » e-mails that failed to leave in the
+    // last day (issue #1267): the visitor is told nothing, by design, so the
+    // administrators have to be.
+    new \Core\Security\LoginMailAttentionProvider(new \Core\Journal\JournalRepository($pdo)),
 ];
 
 // The registry Modules\Gallery\Service\DelegatedAlbumAccessRegistry
@@ -14094,6 +14107,13 @@ if (session_status() === PHP_SESSION_ACTIVE) {
     session_write_close();
 }
 \Core\Debug\RequestTimeline::mark('session_write_close_done');
+
+// What the request handed over to run after its answer — the sign-in and
+// « mot de passe oublié » e-mails (issue #1267). The session lock is already
+// released above, so a slow SMTP connection holds nobody up, and the answer
+// is closed first where the host can (fastcgi_finish_request); where it cannot,
+// nothing was kept and this does nothing. It never throws.
+$afterResponse->flush();
 
 // The poor man's cron used to run here: a once-a-minute, visit-triggered
 // scheduler slice followed by the journal cleanup and the two stale-artifact

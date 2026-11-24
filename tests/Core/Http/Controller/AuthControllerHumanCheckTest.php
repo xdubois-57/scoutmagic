@@ -157,4 +157,38 @@ class AuthControllerHumanCheckTest extends TestCase
         $result = json_decode($response->getBody(), true);
         $this->assertFalse($result['success']);
     }
+
+    /**
+     * The form lets one source ask for thirty links an hour, whatever the
+     * addresses — and no more (issue #1267). A source is an IPv4 address or an
+     * IPv6 /64; another source is not affected.
+     */
+    public function testTheMagicLinkFormStopsASourceAfterThirtyRequestsAnHour(): void
+    {
+        $this->startTestSession();
+        $token = CsrfGuard::generateToken();
+        $fields = $this->humanCheckFields();
+        sleep(2);
+
+        $this->authService->expects($this->exactly(31))
+            ->method('requestMagicLink')
+            ->willReturn(new MagicLinkResult(true, 42, null));
+
+        $send = function (string $email, string $ip) use ($token, $fields): array {
+            $body = array_merge(['email' => $email, '_csrf_token' => $token, 'rgpd_consent' => '1'], $fields);
+            $request = new Request('POST', '/login/magic-link', [], $body, [], ['REMOTE_ADDR' => $ip]);
+
+            return json_decode($this->controller->requestMagicLink($request, [])->getBody(), true);
+        };
+
+        for ($i = 1; $i <= 30; $i++) {
+            $this->assertTrue($send('person' . $i . '@test.com', '203.0.113.50')['success'], "request {$i}");
+        }
+
+        $refused = $send('person31@test.com', '203.0.113.50');
+        $this->assertFalse($refused['success']);
+        $this->assertSame('Une erreur est survenue. Veuillez réessayer.', $refused['error']);
+
+        $this->assertTrue($send('someone-else@test.com', '203.0.113.51')['success'], 'another source is not affected');
+    }
 }

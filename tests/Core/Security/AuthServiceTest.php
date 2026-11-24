@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Core\Security;
 
 use Core\Database\Connection;
+use Core\Http\AfterResponse;
 use Core\Journal\JournalService;
 use Core\Mail\DkimManager;
 use Core\Mail\MailException;
@@ -386,8 +387,9 @@ class AuthServiceTest extends TestCase
             ->with('user@test.com')
             ->willThrowException(new MailException('Destinataire refusé : user@test.com'));
         // Since #1250 a failed send no longer ends the request: the visitor
-        // gets the same answer as for any address, so the request itself
-        // is journaled afterwards like every other one.
+        // gets the same answer as for any address. Since #1267 the request
+        // is journaled before the answer and the send, with its outcome,
+        // after it.
         $logged = [];
         $journal = $this->createMock(JournalService::class);
         $journal->expects($this->exactly(2))
@@ -410,6 +412,7 @@ class AuthServiceTest extends TestCase
         $service->requestMagicLink('user@test.com');
 
         $this->assertSame([
+            ['core', 'magic_link_requested', 'info', 'Demande de lien magique', [], null],
             [
                 'core',
                 'magic_link_send_failed',
@@ -418,8 +421,7 @@ class AuthServiceTest extends TestCase
                 ['error' => 'Destinataire refusé : [adresse]', 'via_secondary_email' => false],
                 $account->id,
             ],
-            ['core', 'magic_link_requested', 'info', 'Demande de lien magique', [], null],
-        ], $logged, 'the failure, with the address taken out, then the request — and no « sent » entry');
+        ], $logged, 'the request, then the failure with the address taken out — and no « sent » entry');
     }
 
     /**
@@ -792,5 +794,172 @@ class AuthServiceTest extends TestCase
         $this->assertNotNull($found);
         $this->assertSame('getbyid@test.com', $found->email);
         $this->assertTrue($found->isSuperAdmin);
+    }
+
+    // ── The e-mail leaves after the answer (issue #1267) ───────────────
+
+    /**
+     * A service whose mail counter and journal are the test's own, wired to
+     * an AfterResponse that can finish the answer first.
+     *
+     * @param list<array<int, mixed>> $logged
+     * @param list<string> $sentTo
+     */
+    private function serviceAfterTheAnswer(AfterResponse $after, array &$logged, array &$sentTo, bool $failing = false): AuthService
+    {
+        $mail = $this->createStub(MailService::class);
+        $mail->method('send')->willReturnCallback(
+            function (string $to) use (&$sentTo, $failing): void {
+                if ($failing) {
+                    throw new MailException('Destinataire refusé : ' . $to);
+                }
+                $sentTo[] = $to;
+            }
+        );
+        $journal = $this->createStub(JournalService::class);
+        $journal->method('log')->willReturnCallback(function (...$args) use (&$logged): void {
+            $logged[] = $args;
+        });
+        $connection = $this->createStub(Connection::class);
+        $connection->method('getPdo')->willReturn($this->pdo);
+        $twig = new Environment(new ArrayLoader([
+            'email/magic_link.html.twig' => '<a href="{{ magic_link_url }}">Login</a>',
+            'email/magic_link.text.twig' => '{{ magic_link_url }}',
+        ]));
+        $service = new AuthService(
+            $connection,
+            $this->encryption,
+            $mail,
+            EmailTemplateRendererFactory::overTestDatabase($this->pdo, $twig),
+            'https://example.com',
+            'Test Unit'
+        );
+        $service->setJournalService($journal);
+        $service->setAfterResponse($after);
+
+        return $service;
+    }
+
+    private function finishingFirst(): AfterResponse
+    {
+        return new AfterResponse(static function (): void {
+        }, static function (int $microseconds): void {
+        }, static fn(int $min, int $max): int => $min);
+    }
+
+    public function testTheEmailIsNotSentBeforeTheAnswerHasBeenGiven(): void
+    {
+        $this->userRepo->create('user@test.com');
+        $after = $this->finishingFirst();
+        $logged = [];
+        $sentTo = [];
+        $service = $this->serviceAfterTheAnswer($after, $logged, $sentTo);
+
+        $result = $service->requestMagicLink('user@test.com');
+
+        $this->assertTrue($result->success);
+        $this->assertSame([], $sentTo, 'no SMTP connection while the visitor is still waiting');
+
+        $after->flush();
+
+        $this->assertSame(['user@test.com'], $sentTo);
+    }
+
+    /** What the visitor waits for is the same thing for an address with an account and one without. */
+    public function testBeforeTheAnswerAnAddressWithAndWithoutAnAccountDoTheSameThing(): void
+    {
+        $this->userRepo->create('known@test.com');
+        $after = $this->finishingFirst();
+        $logged = [];
+        $sentTo = [];
+        $service = $this->serviceAfterTheAnswer($after, $logged, $sentTo);
+
+        $known = $service->requestMagicLink('known@test.com');
+        $loggedForKnown = $logged;
+        $logged = [];
+        $unknown = $service->requestMagicLink('nobody@test.com');
+        $loggedForUnknown = $logged;
+
+        $this->assertSame([['core', 'magic_link_requested', 'info', 'Demande de lien magique', [], null]], $loggedForKnown);
+        $this->assertSame($loggedForKnown, $loggedForUnknown, 'the same journal lines before the answer');
+        $this->assertSame($known->success, $unknown->success);
+        $this->assertSame($known->error, $unknown->error);
+        $this->assertMatchesRegularExpression('/^\d{6}$/', (string) $known->matchCode);
+        $this->assertMatchesRegularExpression('/^\d{6}$/', (string) $unknown->matchCode);
+        $this->assertSame([], $sentTo);
+    }
+
+    public function testWhatBecameOfEachAddressIsJournaledAfterTheAnswer(): void
+    {
+        $account = $this->userRepo->create('known@test.com');
+        $after = $this->finishingFirst();
+        $logged = [];
+        $sentTo = [];
+        $service = $this->serviceAfterTheAnswer($after, $logged, $sentTo);
+
+        $service->requestMagicLink('known@test.com');
+        $service->requestMagicLink('nobody@test.com');
+        $after->flush();
+
+        $events = array_map(static fn(array $line): string => $line[1], $logged);
+        $this->assertSame(
+            ['magic_link_requested', 'magic_link_requested', 'magic_link_email_sent', 'magic_link_no_account_found'],
+            $events
+        );
+        $this->assertSame($account->id, $logged[2][5]);
+        $this->assertSame(['known@test.com'], $sentTo);
+    }
+
+    public function testAFailedSendAfterTheAnswerIsJournaledAndNeverAnswered(): void
+    {
+        $account = $this->userRepo->create('refused@test.com');
+        $after = $this->finishingFirst();
+        $logged = [];
+        $sentTo = [];
+        $service = $this->serviceAfterTheAnswer($after, $logged, $sentTo, failing: true);
+
+        $result = $service->requestMagicLink('refused@test.com');
+        $after->flush();
+
+        $this->assertTrue($result->success);
+        $this->assertNull($result->error);
+        $failure = array_values(array_filter($logged, static fn(array $line): bool => $line[1] === AuthService::EVENT_SEND_FAILED));
+        $this->assertCount(1, $failure);
+        $this->assertSame('Destinataire refusé : [adresse]', $failure[0][4]['error']);
+        $this->assertSame($account->id, $failure[0][5]);
+    }
+
+    /** Where the answer cannot be finished first, every address waits for the same random time. */
+    public function testWithoutAnEarlyFinishTheEmailIsSentInsideTheRequestAndEveryAddressWaits(): void
+    {
+        $this->userRepo->create('known@test.com');
+        $sleeps = [];
+        $after = new AfterResponse(
+            null,
+            static function (int $microseconds) use (&$sleeps): void {
+                $sleeps[] = $microseconds;
+            },
+            static fn(int $min, int $max): int => 1000,
+            false
+        );
+        $logged = [];
+        $sentTo = [];
+        $service = $this->serviceAfterTheAnswer($after, $logged, $sentTo);
+
+        $service->requestMagicLink('known@test.com');
+        $this->assertSame(['known@test.com'], $sentTo);
+        $service->requestMagicLink('nobody@test.com');
+
+        $this->assertSame(['known@test.com'], $sentTo);
+        $this->assertSame([1000000, 1000000], $sleeps, 'one wait for each request, with or without an account');
+    }
+
+    public function testAServiceWithNoAfterResponseSendsAtOnce(): void
+    {
+        $this->userRepo->create('user@test.com');
+
+        $this->authService->requestMagicLink('user@test.com');
+
+        $this->assertTrue($this->emailSent);
     }
 }
