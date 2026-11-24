@@ -88,6 +88,26 @@ class PurgeHumanCheckRateLimitsHandlerTest extends TestCase
         $this->assertSame(0, $this->repository->countSince('two-hours-hash', 'auth_magic_link', '2000-01-01 00:00:00'));
     }
 
+    /**
+     * What the ceiling reads after the purge is what it read before it: an
+     * hourly allowance of thirty that is exhausted stays exhausted.
+     */
+    public function testAnExhaustedHourlyAllowanceStillCountsThirtyAfterThePurge(): void
+    {
+        $stmt = $this->pdo->prepare('INSERT INTO human_check_rate_limits (ip_hash, form_key, created_at) VALUES (?, ?, ?)');
+        $thirtyMinutesAgo = (new \DateTimeImmutable('-30 minutes'))->format('Y-m-d H:i:s');
+        for ($i = 0; $i < 30; $i++) {
+            $stmt->execute(['one-source', 'auth_magic_link', $thirtyMinutesAgo]);
+        }
+        $sinceAnHour = (new \DateTimeImmutable('-60 minutes'))->format('Y-m-d H:i:s');
+        $before = $this->repository->countSince('one-source', 'auth_magic_link', $sinceAnHour);
+
+        (new PurgeHumanCheckRateLimitsHandler())->handle([], $this->context);
+
+        $this->assertSame(30, $before);
+        $this->assertSame(30, $this->repository->countSince('one-source', 'auth_magic_link', $sinceAnHour));
+    }
+
     public function testAWindowSettingLongerThanAnHourIsStillHonoured(): void
     {
         $this->settings->set('human_check_rate_limit_window_minutes', '180');

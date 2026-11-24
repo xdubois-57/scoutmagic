@@ -141,11 +141,11 @@ class HumanCheckService
             // on the client's network, not the one address: an IPv6
             // subscriber has a whole /64 to rotate through (issue #1128).
             $ipHash = $this->encryption->blindIndex(RateLimitAddress::key($ipAddress), 'human_check_ip');
-            $windowMinutes = min(
-                self::LONGEST_WINDOW_MINUTES,
-                $rateLimitWindowMinutes
-                    ?? (int) $this->settings->get('human_check_rate_limit_window_minutes', null, 10)
-            );
+            // Only a form's own window is held to the longest one the purge keeps;
+            // the window setting is the administrator's, and the purge honours it.
+            $windowMinutes = $rateLimitWindowMinutes !== null
+                ? min(self::LONGEST_WINDOW_MINUTES, $rateLimitWindowMinutes)
+                : (int) $this->settings->get('human_check_rate_limit_window_minutes', null, 10);
             $maxAttempts = $rateLimitMaxAttempts
                 ?? (int) $this->settings->get('human_check_rate_limit_max_attempts', null, 5);
             $since = (new \DateTimeImmutable('-' . $windowMinutes . ' minutes'))->format('Y-m-d H:i:s');
