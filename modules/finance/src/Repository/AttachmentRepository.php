@@ -37,6 +37,24 @@ class AttachmentRepository
         return $id === false ? null : $this->findById((int) $id);
     }
 
+    /**
+     * Whether finance holds these bytes at all — on any account or none,
+     * active or archived (#1342).
+     *
+     * The question the deferred mail pass asks before it reads a document
+     * of the general address again. A receipt a treasurer has since moved
+     * onto an account, or archived, is a decision about THAT receipt; the
+     * same bytes arriving in the pile again would undo it, which the
+     * per-account lookup above cannot see.
+     */
+    public function existsWithContentHash(string $contentHash): bool
+    {
+        $stmt = $this->pdo->prepare('SELECT 1 FROM finance_attachments WHERE content_hash = ? LIMIT 1');
+        $stmt->execute([$contentHash]);
+
+        return $stmt->fetchColumn() !== false;
+    }
+
     public function findById(int $id): ?Attachment
     {
         $stmt = $this->pdo->prepare('SELECT * FROM finance_attachments WHERE id = ?');

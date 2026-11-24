@@ -25,13 +25,11 @@ Ensuite, trois règles, dans cet ordre.
 
 Sur une boîte **dédiée** aux finances, ou si l'expéditeur anime la section
 à laquelle ce compte appartient, le reçu est enregistré sur ce compte sans
-confirmation : deux indices indépendants disent la même chose. Le
-rattachement est affiché comme « IBAN du compte cité dans le message » ;
+confirmation : deux indices indépendants disent la même chose.
 « Changer de compte » corrige une erreur en un clic.
 
 Sinon le site vous **propose** ce compte, en tête de la page Reçus, dans
-« Courrier à trier », et les trésoriers en sont avertis par la
-notification « Reçu arrivé par e-mail à confirmer ». Rien n'est
+« Courrier à trier », et les trésoriers en sont avertis. Rien n'est
 enregistré tant qu'un trésorier n'a pas confirmé. « Rattacher » enregistre la pièce jointe
 comme reçu de ce compte, en votre nom ; « Écarter » est définitif.
 
@@ -50,8 +48,7 @@ staff de l'**année du mail** qui compte : un ancien message va au staff
 d'alors.
 
 S'il anime deux staffs, ou si son staff n'a pas exactement un compte
-**actif** — un compte de section encore en brouillon ne compte pas —, le
-site ne choisit pas et passe à la règle suivante.
+**actif**, le site ne choisit pas et passe à la règle suivante.
 
 Sur un message **transféré**, le site regarde d'abord qui l'a transféré,
 puis, à défaut, l'expéditeur d'origine cité dans le corps.
@@ -62,16 +59,19 @@ ne classe rien.
 
 ## 3. Rien ne le place
 
-Sur une boîte **dédiée** aux finances — une adresse que l'unité a créée
-pour sa trésorerie et déclarée comme telle —, le reçu est quand même
-conservé, sans compte, dans « Compte inconnu » sur la page Reçus. C'est
-là que la trésorerie le trie.
+Sur une boîte **dédiée** aux finances, le reçu est quand même conservé,
+sans compte, dans « Compte inconnu » sur la page Reçus. C'est là que la
+trésorerie le trie.
 
-Sur l'adresse **publique** de l'unité, le site ne garde rien : une photo
-dans le message d'un parent n'est pas un reçu.
+Sur l'adresse **générale** de l'unité, le site lit le document lui-même :
+le texte d'un PDF sur le site, une photo ou un scan par l'IA si elle
+est activée, une fois par message au plus. Ce qui ressemble à un reçu — « Total », « TVA », un
+montant — rejoint « Compte inconnu ». Le message, lui, n'est pas
+rattaché : il reste visible du seul staff d'unité. La photo de vacances
+d'un parent ne donne rien.
 
 ## Détacher le message ne supprime pas le reçu
 
 Une fois le reçu créé, il appartient au compte. Retirer le message du
 compte est une décision sur le courrier, pas sur la comptabilité : le reçu
-reste, et se retire depuis l'écran des reçus si vous le souhaitez.
+reste, et se retire depuis l'écran des reçus.

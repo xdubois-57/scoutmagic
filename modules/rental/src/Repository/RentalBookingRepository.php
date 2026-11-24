@@ -10,6 +10,7 @@ namespace Modules\Rental\Repository;
 
 use Core\Security\CapabilityToken;
 use Core\Security\EncryptionService;
+use Core\Security\RateLimitAddress;
 use Core\Service\DateInput;
 use Modules\Rental\Booking\BookingStatus;
 use Modules\Rental\Booking\HoldOrigin;
@@ -113,6 +114,12 @@ class RentalBookingRepository
      */
     public const BLIND_INDEX_PURPOSE = 'rental_renter_email';
 
+    /** The address without its « +tag », for the cap on holds only (#1263). */
+    public const EMAIL_BASE_BLIND_INDEX_PURPOSE = 'rental_renter_email_base';
+
+    /** The source of a public request, for the cap on holds only (#1263). */
+    public const SOURCE_BLIND_INDEX_PURPOSE = 'rental_request_source';
+
     public function __construct(
         private \PDO $pdo,
         private EncryptionService $encryption
@@ -128,6 +135,46 @@ class RentalBookingRepository
     public static function normalizeEmail(string $email): string
     {
         return EncryptionService::normalizeEmailForIndex($email);
+    }
+
+    /**
+     * The address as the cap on automatic holds compares it (issue #1263):
+     * lower-cased and without the « +tag » of its local part, so
+     * `visiteur+1@` and `visiteur+2@` are one visitor. Only the tag goes —
+     * another local part or another domain is another address, and the
+     * provider-specific rules (the dots of a Gmail address) are left alone.
+     * Never stored as an address, never used to match the booking to
+     * anybody: it only feeds a blind index the cap counts on.
+     */
+    public static function normalizeEmailForHoldCap(string $email): string
+    {
+        $email = self::normalizeEmail($email);
+        $at = strrpos($email, '@');
+        if ($at === false) {
+            return $email;
+        }
+
+        $local = substr($email, 0, $at);
+        $plus = strpos($local, '+');
+        if ($plus !== false && $plus > 0) {
+            $local = substr($local, 0, $plus);
+        }
+
+        return $local . substr($email, $at);
+    }
+
+    /**
+     * What a request's source is counted as: the blind index of
+     * RateLimitAddress::key() — an IPv6 /64, not an address — or null when
+     * no source is known, so unknown sources never merge into one bucket.
+     */
+    private function sourceIndex(?string $sourceAddress): ?string
+    {
+        $sourceAddress = trim((string) $sourceAddress);
+
+        return $sourceAddress === ''
+            ? null
+            : $this->encryption->blindIndex(RateLimitAddress::key($sourceAddress), self::SOURCE_BLIND_INDEX_PURPOSE);
     }
 
     /**
@@ -163,10 +210,12 @@ class RentalBookingRepository
         ?string $privacyVersion,
         ?string $privacyHash,
         \DateTimeImmutable $now,
-        ?int $requestedByAccountId = null
+        ?int $requestedByAccountId = null,
+        ?string $sourceAddress = null
     ): array {
         $trackingToken = CapabilityToken::generate();
         $timestamp = $now->format('Y-m-d H:i:s');
+        $keepCapKeys = $holdOrigin === HoldOrigin::AUTOMATIC && $holdUntil !== null;
 
         $stmt = $this->pdo->prepare(
             'INSERT INTO rental_bookings (
@@ -179,8 +228,9 @@ class RentalBookingRepository
                 estimated_price_snapshot, estimated_total_cents,
                 conditions_version, conditions_hash, conditions_accepted_at,
                 privacy_version, privacy_hash, privacy_acknowledged_at,
-                tracking_token_encrypted, requested_by_account_id, created_at, updated_at
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                tracking_token_encrypted, requested_by_account_id,
+                renter_email_base_blind_index, request_source_blind_index, created_at, updated_at
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
 
         $stmt->execute([
@@ -212,6 +262,19 @@ class RentalBookingRepository
             $privacyVersion !== null ? $timestamp : null,
             $this->encryption->encrypt($trackingToken, self::CTX_TRACKING_TOKEN),
             $requestedByAccountId,
+            // The keys the caps count by, only for a booking that carries an
+            // automatic hold (issue #1263): they are read while that hold
+            // runs and cleared when it ends, so a request that takes none
+            // is given nothing that would outlive it by the years the
+            // booking is kept.
+            $keepCapKeys
+                ? $this->encryption->blindIndex(
+                    self::normalizeEmailForHoldCap($renter['email']),
+                    self::EMAIL_BASE_BLIND_INDEX_PURPOSE
+                )
+                : null,
+            // The source is only ever read for an anonymous request.
+            $keepCapKeys && $requestedByAccountId === null ? $this->sourceIndex($sourceAddress) : null,
             $timestamp,
             $timestamp,
         ]);
@@ -457,15 +520,78 @@ class RentalBookingRepository
         $stmt = $this->pdo->prepare(
             'SELECT COUNT(*) FROM rental_bookings
              WHERE hold_origin = ? AND hold_until > ?
-               AND status IN (?, ?, ?, ?)
-               AND (renter_email_blind_index = ? OR requested_by_account_id = ?)'
+               AND status IN (' . self::provisionalStatusPlaceholders() . ')
+               AND (renter_email_blind_index = ? OR renter_email_base_blind_index = ?
+                    OR requested_by_account_id = ?)'
         );
         $stmt->execute([
             HoldOrigin::AUTOMATIC->value,
             $now->format('Y-m-d H:i:s'),
-            ...self::PROVISIONAL_STATUSES,
+            ...self::provisionalStatusValues(),
             $this->encryption->blindIndex(self::normalizeEmail($email), self::BLIND_INDEX_PURPOSE),
+            // The same address without its « +tag » (issue #1263): a request
+            // made before the column existed has none and is matched by the
+            // full address above, as before.
+            $this->encryption->blindIndex(
+                self::normalizeEmailForHoldCap($email),
+                self::EMAIL_BASE_BLIND_INDEX_PURPOSE
+            ),
             $accountId ?? 0,
+        ]);
+
+        return (int) $stmt->fetchColumn();
+    }
+
+    /**
+     * How many AUTOMATIC holds ANONYMOUS requests from one source have
+     * running at $now, every asset together (issue #1263). The source is an
+     * IPv4 address or an IPv6 /64 (RateLimitAddress::key()), compared as a
+     * blind index: a visitor who types a new address at every request is
+     * still one source. A signed-in request is the account's to count and is
+     * left out; a source that is not known counts for nothing.
+     */
+    public function countRunningAutomaticHoldsFromSource(string $sourceAddress, \DateTimeImmutable $now): int
+    {
+        $source = $this->sourceIndex($sourceAddress);
+        if ($source === null) {
+            return 0;
+        }
+
+        $stmt = $this->pdo->prepare(
+            'SELECT COUNT(*) FROM rental_bookings
+             WHERE hold_origin = ? AND hold_until > ?
+               AND status IN (' . self::provisionalStatusPlaceholders() . ')
+               AND requested_by_account_id IS NULL
+               AND request_source_blind_index = ?'
+        );
+        $stmt->execute([
+            HoldOrigin::AUTOMATIC->value,
+            $now->format('Y-m-d H:i:s'),
+            ...self::provisionalStatusValues(),
+            $source,
+        ]);
+
+        return (int) $stmt->fetchColumn();
+    }
+
+    /**
+     * How many AUTOMATIC holds ANONYMOUS requests have running on one asset
+     * at $now (issue #1263): the ceiling that holds whatever the source and
+     * whatever the address, since both are the visitor's to change.
+     */
+    public function countRunningAnonymousAutomaticHoldsOnAsset(int $assetId, \DateTimeImmutable $now): int
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT COUNT(*) FROM rental_bookings
+             WHERE asset_id = ? AND hold_origin = ? AND hold_until > ?
+               AND status IN (' . self::provisionalStatusPlaceholders() . ')
+               AND requested_by_account_id IS NULL'
+        );
+        $stmt->execute([
+            $assetId,
+            HoldOrigin::AUTOMATIC->value,
+            $now->format('Y-m-d H:i:s'),
+            ...self::provisionalStatusValues(),
         ]);
 
         return (int) $stmt->fetchColumn();
@@ -505,13 +631,29 @@ class RentalBookingRepository
         );
     }
 
-    /** The statuses in which a booking takes its dates only while a hold runs. */
-    private const PROVISIONAL_STATUSES = [
-        BookingStatus::RECEIVED->value,
-        BookingStatus::INFO_REQUESTED->value,
-        BookingStatus::PROPOSED->value,
-        BookingStatus::CONTRACT_SENT->value,
-    ];
+    /**
+     * The statuses in which a booking takes its dates only while a hold
+     * runs, as they may be STORED: a row still written `reviewing` reads back
+     * as RECEIVED (storedValuesOf()), so it is one of them too — a legacy
+     * automatic hold must count against the caps like any other (#1263).
+     *
+     * @return list<string>
+     */
+    private static function provisionalStatusValues(): array
+    {
+        return self::storedValuesOf(
+            BookingStatus::RECEIVED,
+            BookingStatus::INFO_REQUESTED,
+            BookingStatus::PROPOSED,
+            BookingStatus::CONTRACT_SENT
+        );
+    }
+
+    /** `?, ?, ?, ?, ?` for provisionalStatusValues(): as many placeholders as values. */
+    private static function provisionalStatusPlaceholders(): string
+    {
+        return implode(', ', array_fill(0, count(self::provisionalStatusValues()), '?'));
+    }
 
     /**
      * Bookings whose temporary hold has lapsed — the expiry sweep's input.
@@ -545,7 +687,8 @@ class RentalBookingRepository
     public function clearHold(int $id): void
     {
         $stmt = $this->pdo->prepare(
-            'UPDATE rental_bookings SET hold_until = NULL, hold_origin = NULL, hold_lapsed_at = NULL, updated_at = ?
+            'UPDATE rental_bookings SET hold_until = NULL, hold_origin = NULL, hold_lapsed_at = NULL,
+                    request_source_blind_index = NULL, renter_email_base_blind_index = NULL, updated_at = ?
              WHERE id = ?'
         );
         $stmt->execute([(new \DateTimeImmutable())->format('Y-m-d H:i:s'), $id]);
@@ -572,7 +715,8 @@ class RentalBookingRepository
     {
         $stmt = $this->pdo->prepare(
             'UPDATE rental_bookings
-             SET hold_lapsed_at = hold_until, hold_until = NULL, hold_origin = NULL, updated_at = ?
+             SET hold_lapsed_at = hold_until, hold_until = NULL, hold_origin = NULL,
+                 request_source_blind_index = NULL, renter_email_base_blind_index = NULL, updated_at = ?
              WHERE id = ?'
         );
         $stmt->execute([(new \DateTimeImmutable())->format('Y-m-d H:i:s'), $id]);
@@ -581,9 +725,15 @@ class RentalBookingRepository
     public function setHold(int $id, ?\DateTimeImmutable $until, ?HoldOrigin $origin): void
     {
         // A new hold, or none: either way the old lapse is no longer news.
+        // And unless the new hold is itself automatic, the automatic one the
+        // two caps counted on is over: what it was counted by goes with it
+        // (issue #1263), as in clearHold() and releaseLapsedHold().
+        $forgetCapKeys = $origin === HoldOrigin::AUTOMATIC
+            ? ''
+            : ', request_source_blind_index = NULL, renter_email_base_blind_index = NULL';
         $stmt = $this->pdo->prepare(
-            'UPDATE rental_bookings SET hold_until = ?, hold_origin = ?, hold_lapsed_at = NULL, updated_at = ?
-             WHERE id = ?'
+            'UPDATE rental_bookings SET hold_until = ?, hold_origin = ?, hold_lapsed_at = NULL' . $forgetCapKeys
+            . ', updated_at = ? WHERE id = ?'
         );
         $stmt->execute([
             $until?->format('Y-m-d H:i:s'),

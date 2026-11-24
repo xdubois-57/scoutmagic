@@ -2,13 +2,13 @@
 
 declare(strict_types=1);
 
-namespace Tests\Modules\Camps\Mail;
+namespace Tests\Core\Mail;
 
 use Core\File\EncryptedFileStorageService;
 use Core\File\FileRepository;
 use Core\File\StoredFileReader;
 use Core\Security\EncryptionService;
-use Modules\Camps\Mail\AttachmentTextReader;
+use Core\Mail\AttachmentTextReader;
 use Modules\InboundMail\Api\InboundAttachment;
 use Modules\LlmConnector\Api\LlmConnectorInterface;
 use Modules\LlmConnector\Api\LlmException;
@@ -36,7 +36,7 @@ class AttachmentTextReaderTest extends TestCase
     protected function setUp(): void
     {
         $this->pdo = DatabaseTestHelper::createTestDatabase();
-        $this->storagePath = sys_get_temp_dir() . '/campsattachments_' . uniqid();
+        $this->storagePath = sys_get_temp_dir() . '/attachmenttext_' . uniqid();
         mkdir($this->storagePath . '/inbound', 0700, true);
         $this->files = new FileRepository($this->pdo);
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
@@ -62,7 +62,7 @@ class AttachmentTextReaderTest extends TestCase
         $attachment = $this->store(
             'contrat.pdf',
             'application/pdf',
-            (string) file_get_contents(dirname(__DIR__, 3) . '/fixtures/pdf/camp_booking_contract.pdf')
+            (string) file_get_contents(dirname(__DIR__, 2) . '/fixtures/pdf/camp_booking_contract.pdf')
         );
 
         $text = $this->reader->read([$attachment]);
@@ -121,7 +121,7 @@ class AttachmentTextReaderTest extends TestCase
         $attachment = $this->store(
             'contrat.pdf',
             'application/pdf',
-            (string) file_get_contents(dirname(__DIR__, 3) . '/fixtures/pdf/camp_booking_contract.pdf')
+            (string) file_get_contents(dirname(__DIR__, 2) . '/fixtures/pdf/camp_booking_contract.pdf')
         );
 
         $this->readerWith($this->llmTranscribing('jamais appelé'))->read([$attachment]);
@@ -366,6 +366,72 @@ class AttachmentTextReaderTest extends TestCase
     public function testAMessageWithNoAttachmentsReadsAsNothing(): void
     {
         $this->assertSame('', $this->reader->read([]));
+    }
+
+    // ── One text per attachment (finance, #1342) ─────────────────────
+
+    public function testEachAttachmentKeepsItsOwnText(): void
+    {
+        $receipt = $this->store(
+            'ticket.pdf',
+            'application/pdf',
+            (string) file_get_contents(dirname(__DIR__, 2) . '/fixtures/pdf/text_receipt.pdf')
+        );
+        $note = $this->store('note.txt', 'text/plain', 'Merci pour les courses.');
+
+        $texts = $this->reader->readEach([$receipt, $note]);
+
+        $this->assertStringContainsString('Total: 42.50 EUR', $texts[$receipt->id]);
+        $this->assertSame('Merci pour les courses.', $texts[$note->id]);
+    }
+
+    /**
+     * A text attachment says nothing about a different document: the
+     * photographed ticket next to a PDF of conditions is still transcribed —
+     * which read() deliberately does not do.
+     */
+    public function testAPictureIsTranscribedEvenWhenAnotherAttachmentHadText(): void
+    {
+        $note = $this->store('conditions.txt', 'text/plain', 'Conditions générales.');
+        $photo = $this->store('ticket.jpg', 'image/jpeg', str_repeat('x', 60000));
+
+        $texts = $this->readerWith($this->llmTranscribing('TOTAL 12,50'))->readEach([$note, $photo]);
+
+        $this->assertSame('TOTAL 12,50', $texts[$photo->id]);
+        $this->assertCount(1, $this->asked);
+    }
+
+    public function testStillOneTranscriptionPerMessageWhenReadOneByOne(): void
+    {
+        $scans = [];
+        foreach (range(1, 3) as $n) {
+            $scans[] = $this->store("ticket{$n}.jpg", 'image/jpeg', str_repeat('x', 60000));
+        }
+
+        $texts = $this->readerWith($this->llmTranscribing('TOTAL 12,50'))->readEach($scans);
+
+        $this->assertCount(AttachmentTextReader::MAX_OCR_CALLS, $this->asked);
+        $this->assertSame([$scans[0]->id], array_keys($texts));
+    }
+
+    public function testASignatureLogoIsNotReadOneByOneEither(): void
+    {
+        $logo = $this->store('logo.png', 'image/png', str_repeat('x', 4000));
+
+        $this->assertSame([], $this->readerWith($this->llmTranscribing('jamais appelé'))->readEach([$logo]));
+        $this->assertSame([], $this->asked);
+    }
+
+    public function testAFailedTranscriptionIsSaidOnTheOneByOneReadingToo(): void
+    {
+        $llm = $this->createStub(LlmConnectorInterface::class);
+        $llm->method('isTierAvailable')->willReturn(true);
+        $llm->method('complete')->willThrowException(new LlmException('panne'));
+        $photo = $this->store('ticket.jpg', 'image/jpeg', str_repeat('x', 60000));
+        $reader = $this->readerWith($llm);
+
+        $this->assertSame([], $reader->readEach([$photo]));
+        $this->assertTrue($reader->readingFailed());
     }
 
     /** @var list<LlmRequest> */

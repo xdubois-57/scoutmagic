@@ -641,7 +641,7 @@ class CampsMessageConsumer implements
      * The period reading again, with the contract in it.
      *
      * The difference from `fromPeriod()` is the text, not the rule: here
-     * the attachments have been read (`Mail\AttachmentTextReader`), which
+     * the attachments have been read (`Core\Mail\AttachmentTextReader`), which
      * is what makes it work on the ordinary booking — a PDF stating
      * « Arrivée : 18-09-26 / Départ : 20-09-26 » under a covering note
      * that states nothing at all.

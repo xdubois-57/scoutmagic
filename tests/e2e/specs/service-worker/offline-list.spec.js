@@ -25,6 +25,7 @@ import { loginAsAdmin } from '../../support/admin-login.js';
 import { answerConfirmation, waitForConfirmReady } from '../../support/confirm-dialog.js';
 import { answerCookieBanner } from '../../support/cookie-banner.js';
 import { openModal } from '../../support/modal.js';
+import { saveDraftThenPublish } from '../../support/news-publish.js';
 import { pngBuffer } from '../../support/png.js';
 import { scaled } from '../../support/timeouts.js';
 
@@ -145,12 +146,9 @@ test('the list is held offline without being opened, with its images, and nothin
     await page.getByLabel('Résumé en une phrase').fill('Lu dans le train.');
     await page.locator('#image').setInputFiles({ name: 'affiche.png', mimeType: 'image/png', buffer: pngBuffer(40, 40) });
     await page.getByRole('radio', { name: 'Public', exact: true }).check();
-    // Published straight away (#845): a draft is on no list, so nothing
+    // Published once saved (#845, #1357): a draft is on no list, so nothing
     // would hold it.
-    await waitForConfirmReady(page);
-    await page.getByRole('button', { name: 'Publier', exact: true }).click();
-    await answerConfirmation(page);
-    await page.waitForURL(/\/news\/\d+\/gerer$/, { waitUntil: 'domcontentloaded' });
+    await saveDraftThenPublish(page);
     const articleUrl = new URL(page.url()).pathname.replace(/\/gerer$/, '');
 
     try {

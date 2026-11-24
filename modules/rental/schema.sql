@@ -466,6 +466,23 @@ CREATE TABLE IF NOT EXISTS rental_bookings (
     -- type a different address each time. Not a foreign key — the
     -- request outlives the account, and nothing reads it but that count.
     requested_by_account_id INT UNSIGNED NULL,
+    -- What the same cap counts besides the typed address and the account
+    -- (issue #1263), both written for a PUBLIC request only and both blind
+    -- indexes — never an address, never an IP: the cap would otherwise never
+    -- fill for a visitor who types a new address at every request.
+    -- `renter_email_base_blind_index` is the address without its « +tag »
+    -- (`x+1@` and `x+2@` are one), lower-cased; `request_source_blind_index`
+    -- is the source of the request, an IPv6 /64 rather than an address
+    -- (Core\Security\RateLimitAddress). Written only for a booking that takes
+    -- an AUTOMATIC hold: null on a request that takes none (no hold
+    -- configured, or no room left), on one made before this, one by a manager,
+    -- or with no source known. Cleared as soon as
+    -- the automatic hold ends — it lapses, is cleared, or a manager replaces
+    -- it (RentalBookingRepository::clearHold(), releaseLapsedHold(),
+    -- setHold()) — since the caps read them only while it runs; and in any
+    -- case removed with the booking.
+    renter_email_base_blind_index CHAR(64) NULL,
+    request_source_blind_index CHAR(64) NULL,
 
     -- ── Price snapshot (§6.11) ───────────────────────────────────────
     -- The ESTIMATED price at submission, as a self-contained
@@ -625,6 +642,10 @@ CREATE TABLE IF NOT EXISTS rental_bookings (
     KEY idx_rental_bookings_hold (hold_until),
     -- Linking a booking to an identified visitor, and inbound-mail matching.
     KEY idx_rental_bookings_email (renter_email_blind_index),
+    -- The caps on running automatic holds (#1114, #1263): by source, by
+    -- address without its tag, and by asset for the anonymous.
+    KEY idx_rental_bookings_hold_source (request_source_blind_index, hold_origin, hold_until),
+    KEY idx_rental_bookings_hold_email_base (renter_email_base_blind_index, hold_origin, hold_until),
     CONSTRAINT fk_rental_bookings_asset
         FOREIGN KEY (asset_id) REFERENCES rental_assets (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

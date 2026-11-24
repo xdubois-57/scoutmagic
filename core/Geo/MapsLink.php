@@ -76,7 +76,8 @@ final class MapsLink
 
         return match ($provider) {
             self::APPLE => 'https://' . self::APPLE_HOST . '/?daddr=' . rawurlencode($destination) . '&dirflg=d',
-            self::GOOGLE => 'https://' . self::GOOGLE_HOST . '/maps/dir/?api=1&destination=' . rawurlencode($destination),
+            self::GOOGLE => 'https://' . self::GOOGLE_HOST . '/maps/dir/?api=1&destination='
+                . rawurlencode($destination),
             // Waze takes coordinates as `ll` and a free-text place as `q`:
             // both with `navigate=yes`, so the route starts at once.
             self::WAZE => 'https://' . self::WAZE_HOST . '/ul?'

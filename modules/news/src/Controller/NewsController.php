@@ -80,7 +80,17 @@ class NewsController extends AbstractController
 
     /** @var string[] */
     private const IMAGE_ALLOWED_MIMES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
-    private const IMAGE_MAX_SIZE_BYTES = 5 * 1024 * 1024;
+
+    /**
+     * The most a picture may weigh at the server, cover and inserted images
+     * alike: the same 10 Mo as the members' photos
+     * (Core\Photo\PhotoIngestionService::MAX_SIZE_BYTES). Defensive, and
+     * wider than the 5 Mo it replaces (issue #1357): the browser now
+     * re-encodes a cover as a JPEG and checks the file it will send against
+     * THIS number, which the editor hands it (`data-max-bytes`) rather than
+     * repeating it. The POST refuses an excess anyway, script or not.
+     */
+    private const IMAGE_MAX_SIZE_BYTES = 10 * 1024 * 1024;
 
     /**
      * Core\Security\HumanCheck form key for a public form response — must
@@ -360,13 +370,21 @@ class NewsController extends AbstractController
         $accountId = (int) AuthSession::getUserAccountId();
         $visibility = (string) $request->getBody('visibility', Article::VISIBILITY_PUBLIC);
 
-        $intent = (string) $request->getBody('intent', self::INTENT_SAVE);
+        // A creation only ever SAVES (issue #1357): the editor offers no
+        // « Publier » nor « Programmer… » before the first save, and a
+        // request that asks for one anyway — without JavaScript, or forged —
+        // gets its draft and the sentence below, never a publication.
+        // Nothing is judged about a time asked for: nothing is scheduled.
+        $prematureIntent = in_array(
+            (string) $request->getBody('intent', self::INTENT_SAVE),
+            [self::INTENT_PUBLISH, self::INTENT_SCHEDULE],
+            true
+        );
 
         try {
             // Before anything is written: a refused field label must not
             // leave a new draft behind without its form (issue #1120).
             $this->formService->assertFieldLabels($this->extractFields($request));
-            $scheduleAt = $this->requestedScheduleMoment($request, $intent, null);
             $imageFileId = $this->resolveUploadedImageFileId($request, $visibility, $accountId);
 
             $article = $this->articleService->create(
@@ -404,7 +422,9 @@ class NewsController extends AbstractController
             $accountId
         );
 
-        $this->applyIntentAfterSave($article, $intent, $accountId, $scheduleAt);
+        if ($prematureIntent) {
+            FlashMessage::set('warning', 'Enregistrez d\'abord, puis publiez.');
+        }
 
         return $this->redirect('/news/' . $article->id . '/gerer');
     }
@@ -930,6 +950,9 @@ class NewsController extends AbstractController
 
         return [
             'article' => $article,
+            // The cover's size limit, for the page to hand to the browser
+            // and to say in its help (issue #1357): one number, written here.
+            'image_max_bytes' => self::IMAGE_MAX_SIZE_BYTES,
             // The daily digest of a form's responses is due at an INSTANT;
             // under the poor man's cron it goes out at the occasion of a
             // visit instead (issue #248). partials/_form_settings.html.twig
@@ -1041,8 +1064,11 @@ class NewsController extends AbstractController
             // Part 2: only a draft never online is scheduled — a
             // republication keeps its first date — and a scheduled one
             // has its time changed until it is out.
-            'can_schedule' => $state === Article::STATE_SCHEDULED
-                || ($state === Article::STATE_DRAFT && $article?->publishedAt === null),
+            // None before the first save (issue #1357): nothing exists yet to
+            // schedule — the editor then says to save the draft first.
+            'can_schedule' => $article !== null
+                && ($state === Article::STATE_SCHEDULED
+                    || ($state === Article::STATE_DRAFT && $article->publishedAt === null)),
             'scheduled_for' => $state === Article::STATE_SCHEDULED
                 ? PublicationWording::longDateTime((string) $article?->publishedAt)
                 : '',
