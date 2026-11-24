@@ -268,7 +268,15 @@ class RentalBookingService implements OccupancyProvider
         try {
             $created = $this->bookingRepository->withAssetLocked(
                 $assetId,
-                function () use ($availableUnderLock, $write, $hold, $assetId, $requesterAccountId, $sourceAddress, $now): array {
+                function () use (
+                    $availableUnderLock,
+                    $write,
+                    $hold,
+                    $assetId,
+                    $requesterAccountId,
+                    $sourceAddress,
+                    $now
+                ): array {
                     $reasons = $availableUnderLock !== null ? $availableUnderLock() : [];
                     if ($reasons !== []) {
                         throw new RentalException(implode(' ', $reasons));
