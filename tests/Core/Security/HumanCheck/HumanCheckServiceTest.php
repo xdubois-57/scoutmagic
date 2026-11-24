@@ -24,10 +24,12 @@ class HumanCheckServiceTest extends TestCase
 
     private EncryptionService $encryption;
     private HumanCheckService $service;
+    private \PDO $pdo;
 
     protected function setUp(): void
     {
         $pdo = DatabaseTestHelper::createTestDatabase();
+        $this->pdo = $pdo;
         $this->encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
 
         $settings = new SettingService(new SettingRepository($pdo));
@@ -196,6 +198,24 @@ class HumanCheckServiceTest extends TestCase
 
         $this->assertFalse($result->accepted);
         $this->assertSame('rate_limited', $result->reason);
+    }
+
+    /**
+     * No override counts further back than the purge keeps (issue #1267): a
+     * window of ten hours is held to one, so a row from two hours ago — which
+     * the purge may already have taken — never counts against the source.
+     */
+    public function testAnOverrideIsHeldToTheLongestWindowThePurgeKeeps(): void
+    {
+        $ip = '203.0.113.30';
+        $ipHash = $this->encryption->blindIndex(\Core\Security\RateLimitAddress::key($ip), 'human_check_ip');
+        $this->pdo->prepare('INSERT INTO human_check_rate_limits (ip_hash, form_key, created_at) VALUES (?, ?, ?)')
+            ->execute([$ipHash, self::FORM_KEY, date('Y-m-d H:i:s', time() - 2 * 3600)]);
+
+        $result = $this->service->verify(self::FORM_KEY, false, $this->buildFormData(time() - 10), $ip, true, 600, 1);
+
+        $this->assertSame(60, HumanCheckService::LONGEST_WINDOW_MINUTES);
+        $this->assertTrue($result->accepted, 'a two-hour-old row is outside the longest window');
     }
 
     public function testWithoutAnOverrideTheSettingsStillApply(): void

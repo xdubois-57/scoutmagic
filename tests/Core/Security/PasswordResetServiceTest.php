@@ -492,16 +492,11 @@ class PasswordResetServiceTest extends TestCase
         );
         $connection = $this->createStub(Connection::class);
         $connection->method('getPdo')->willReturn($this->pdo);
-        $twig = new Environment(new ArrayLoader([
-            'email/password_reset.html.twig' => '<a href="{{ reset_url }}">Reset</a>',
-            'email/password_reset.text.twig' => '{{ reset_url }}',
-        ]));
-        $twig->addGlobal('site_name', 'Test Unit');
         $service = new PasswordResetService(
             $connection,
             $this->encryption,
             $mail,
-            EmailTemplateRendererFactory::overTestDatabase($this->pdo, $twig),
+            EmailTemplateRendererFactory::overTestDatabase($this->pdo, TestTwig::create()),
             'https://example.com',
             'Test Unit'
         );

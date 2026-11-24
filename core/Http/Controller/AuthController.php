@@ -177,7 +177,7 @@ class AuthController extends AbstractController
             $request->getBodyAll(),
             (string) $request->getServer('REMOTE_ADDR', ''),
             true,
-            60,
+            HumanCheckService::LONGEST_WINDOW_MINUTES,
             self::MAGIC_LINK_MAX_PER_IP_PER_HOUR
         );
         if ($humanCheckResult !== null && !$humanCheckResult->accepted) {

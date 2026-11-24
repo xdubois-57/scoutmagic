@@ -37,6 +37,14 @@ use Core\Security\RateLimitAddress;
  */
 class HumanCheckService
 {
+    /**
+     * The longest window a form may count over, in minutes — an override given
+     * to verify() is held to it, and the daily purge keeps a row this long
+     * whatever the window setting says, so a form counting over an hour is
+     * never counting over rows the purge already took (issue #1267).
+     */
+    public const LONGEST_WINDOW_MINUTES = 60;
+
     private const TOKEN_VERSION = 'v1';
     private const TOKEN_FIELD = 'human_check_token';
 
@@ -133,8 +141,11 @@ class HumanCheckService
             // on the client's network, not the one address: an IPv6
             // subscriber has a whole /64 to rotate through (issue #1128).
             $ipHash = $this->encryption->blindIndex(RateLimitAddress::key($ipAddress), 'human_check_ip');
-            $windowMinutes = $rateLimitWindowMinutes
-                ?? (int) $this->settings->get('human_check_rate_limit_window_minutes', null, 10);
+            $windowMinutes = min(
+                self::LONGEST_WINDOW_MINUTES,
+                $rateLimitWindowMinutes
+                    ?? (int) $this->settings->get('human_check_rate_limit_window_minutes', null, 10)
+            );
             $maxAttempts = $rateLimitMaxAttempts
                 ?? (int) $this->settings->get('human_check_rate_limit_max_attempts', null, 5);
             $since = (new \DateTimeImmutable('-' . $windowMinutes . ' minutes'))->format('Y-m-d H:i:s');

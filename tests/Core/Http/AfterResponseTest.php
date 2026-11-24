@@ -98,11 +98,25 @@ class AfterResponseTest extends TestCase
         $this->assertSame([], $this->randomCalls);
     }
 
-    public function testAFlushWithNothingKeptDoesNotEvenFinishTheRequest(): void
+    /**
+     * An address with no account hands over nothing. Its answer must still be
+     * closed before the rest of the request's tail runs, or it is the slower
+     * one on the requests that trigger that tail.
+     */
+    public function testAFlushWithNothingKeptStillFinishesTheRequest(): void
     {
         $after = $this->finishingEarly();
 
         $after->run(null);
+        $after->flush();
+
+        $this->assertSame(['finish'], $this->events);
+    }
+
+    public function testWithoutEarlyFinishAFlushDoesNothing(): void
+    {
+        $after = $this->runningInline();
+
         $after->flush();
 
         $this->assertSame([], $this->events);
@@ -148,6 +162,33 @@ class AfterResponseTest extends TestCase
         $after->flush();
 
         $this->assertSame(['finish', 'second'], $this->events);
+    }
+
+    /** What escapes the work is written down — as a class and a fixed sentence, never the message. */
+    public function testWhatEscapesTheWorkIsReportedWithoutItsMessage(): void
+    {
+        $reports = [];
+        $after = new AfterResponse(
+            static function (): void {
+            },
+            static function (int $microseconds): void {
+            },
+            static fn(int $min, int $max): int => $min,
+            true,
+            static function (string $line) use (&$reports): void {
+                $reports[] = $line;
+            }
+        );
+        $after->run(function (): void {
+            throw new \RuntimeException('SMTP refused jean@example.org');
+        });
+
+        $after->flush();
+
+        $this->assertCount(1, $reports);
+        $this->assertStringContainsString('RuntimeException', $reports[0]);
+        $this->assertStringNotContainsString('jean@example.org', $reports[0]);
+        $this->assertStringNotContainsString('SMTP', $reports[0]);
     }
 
     public function testAFinishThatFailsDoesNotCostTheWork(): void

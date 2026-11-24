@@ -822,15 +822,11 @@ class AuthServiceTest extends TestCase
         });
         $connection = $this->createStub(Connection::class);
         $connection->method('getPdo')->willReturn($this->pdo);
-        $twig = new Environment(new ArrayLoader([
-            'email/magic_link.html.twig' => '<a href="{{ magic_link_url }}">Login</a>',
-            'email/magic_link.text.twig' => '{{ magic_link_url }}',
-        ]));
         $service = new AuthService(
             $connection,
             $this->encryption,
             $mail,
-            EmailTemplateRendererFactory::overTestDatabase($this->pdo, $twig),
+            EmailTemplateRendererFactory::overTestDatabase($this->pdo, TestTwig::create()),
             'https://example.com',
             'Test Unit'
         );

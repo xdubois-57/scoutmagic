@@ -35,7 +35,8 @@ namespace Core\Http;
  *
  * What a piece of work does must never reach the visitor, so `flush()` and
  * `run()` swallow what it throws: the work journals its own failures, and a
- * throwable that escaped it has nowhere to go but the PHP error log.
+ * throwable that escaped it is written to the PHP error log — its class and a
+ * fixed sentence, never its message.
  *
  * Built once in `public/index.php` and handed to the services that need it. A
  * service with none runs its work at once and without any wait, which is what a
@@ -49,9 +50,12 @@ final class AfterResponse
     /** @var list<\Closure(): void> */
     private array $pending = [];
 
+    private bool $flushed = false;
+
     private ?\Closure $finishRequest;
     private \Closure $sleepMicroseconds;
     private \Closure $randomMilliseconds;
+    private \Closure $report;
 
     /**
      * Every collaborator is a seam for the tests; production passes none.
@@ -63,6 +67,8 @@ final class AfterResponse
      * @param \Closure(int): void|null $sleepMicroseconds
      * @param \Closure(int, int): int|null $randomMilliseconds A number between
      *        the two bounds, inclusive.
+     * @param \Closure(string): void|null $report Where a failure that escaped the
+     *        work is written; null is the PHP error log.
      * @param bool $detectHost False pins « no early finish » when none is given,
      *        whatever the host can do — how a test builds the inline path on a
      *        host that has fastcgi_finish_request().
@@ -71,7 +77,8 @@ final class AfterResponse
         ?\Closure $finishRequest = null,
         ?\Closure $sleepMicroseconds = null,
         ?\Closure $randomMilliseconds = null,
-        bool $detectHost = true
+        bool $detectHost = true,
+        ?\Closure $report = null
     ) {
         $this->finishRequest = $finishRequest ?? ($detectHost && function_exists('fastcgi_finish_request')
             ? static function (): void {
@@ -83,6 +90,9 @@ final class AfterResponse
         };
         $this->randomMilliseconds = $randomMilliseconds
             ?? static fn(int $min, int $max): int => random_int($min, $max);
+        $this->report = $report ?? static function (string $line): void {
+            error_log($line);
+        };
     }
 
     /** Whether the answer can reach the browser before this work runs. */
@@ -121,13 +131,20 @@ final class AfterResponse
 
     /**
      * Finish the answer, then run what was kept. Called once, after the
-     * response has been sent; a call with nothing kept does nothing at all.
+     * response has been sent. Without early finish it does nothing.
+     *
+     * **It finishes the answer even when nothing was kept.** An address with no
+     * account hands over nothing; if its answer stayed open while the rest of
+     * the request's tail runs (the operational checks, the housekeeping), it
+     * would be the slower of the two on the requests that trigger them —
+     * exactly the difference this class exists to remove.
      */
     public function flush(): void
     {
-        if ($this->pending === [] || $this->finishRequest === null) {
+        if ($this->finishRequest === null || $this->flushed) {
             return;
         }
+        $this->flushed = true;
 
         $work = $this->pending;
         $this->pending = [];
@@ -148,8 +165,12 @@ final class AfterResponse
     {
         try {
             $work();
-        } catch (\Throwable) {
-            // The work journals its own failures; see the class comment.
+        } catch (\Throwable $e) {
+            // The work journals its own failures, so what reaches here is a
+            // failure of the journal itself, or something nobody expected. It
+            // goes to the PHP error log — a fixed sentence and the class,
+            // never the message, which can carry an address.
+            ($this->report)(self::class . ': work failed (' . $e::class . ')');
         }
     }
 }
