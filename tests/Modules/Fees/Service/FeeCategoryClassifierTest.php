@@ -6,6 +6,7 @@ namespace Tests\Modules\Fees\Service;
 
 use Core\Member\HouseholdFeeCategory;
 use Modules\Fees\Service\FeeCategoryClassifier;
+use Modules\Fees\FeeTariff;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -59,5 +60,27 @@ class FeeCategoryClassifierTest extends TestCase
     {
         $this->assertSame(HouseholdFeeCategory::COUPLE, FeeCategoryClassifier::classify('X_42', 'Cotisation couple'));
         $this->assertSame(HouseholdFeeCategory::COUPLE, FeeCategoryClassifier::classify('COUPLE', 'X_42'));
+    }
+
+    /** @return iterable<string, array{string, ?FeeTariff}> */
+    public static function fiveTariffs(): iterable
+    {
+        yield 'normal invoice code' => ['COT_NORM', FeeTariff::NORMAL];
+        yield 'couple invoice code' => ['COT_COUPLE', FeeTariff::COUPLE];
+        yield 'family invoice code' => ['COT_FAM', FeeTariff::FAMILY];
+        yield 'mixed case local IAmA invoice code' => ['COT_iAM_LOCAL', FeeTariff::IAMA];
+        yield 'upper case local IAmA invoice code' => ['COT_IAM_LOCAL', FeeTariff::IAMA];
+        yield 'real IAmA Desk wording' => ['L_L_COTISATION IAMA', FeeTariff::IAMA];
+        yield 'guest invoice code' => ['COT_INVITE', FeeTariff::GUEST];
+        yield 'guest wording' => ['Cotisation invités et demi-année', FeeTariff::GUEST];
+        yield 'federal-only IAmA' => ['IAmA uniquement au niveau fédéral', null];
+        yield 'federal fee for a unit IAmA' => ['IAmA liés à une unité — cotisation fédérale', FeeTariff::IAMA];
+        yield 'an unknown future reference' => ['COT_EXAMPLE_FUTURE', null];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('fiveTariffs')]
+    public function testApplicableTariffsIncludeOnlyRecognisedReferences(string $wording, ?FeeTariff $expected): void
+    {
+        self::assertSame($expected, FeeCategoryClassifier::classifyTariff($wording, $wording));
     }
 }

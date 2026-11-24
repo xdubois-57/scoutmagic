@@ -47,7 +47,7 @@
 -- (AGENTS.md § Architecture) — hence a table here, pointing at it.
 CREATE TABLE IF NOT EXISTS fees_household_tariffs (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    -- One of Core\Member\HouseholdFeeCategory: normal, couple, family.
+    -- One of Modules\Fees\FeeTariff: normal, couple, family, iama, guest.
     household_category VARCHAR(10) NOT NULL,
     fee_category_id INT UNSIGNED NULL,
     amount_cents INT UNSIGNED NULL,

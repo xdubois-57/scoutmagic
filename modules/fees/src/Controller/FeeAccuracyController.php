@@ -10,12 +10,12 @@ namespace Modules\Fees\Controller;
 
 use Core\Http\Controller\AbstractController;
 use Core\Http\FlashMessage;
+use Core\Exception\UserFacingMessage;
 use Core\Http\Request;
 use Core\Http\Response;
 use Core\Import\FeeCategoryRepository;
 use Core\Journal\JournalService;
 use Core\Member\Household\HouseholdService;
-use Core\Member\HouseholdFeeCategory;
 use Core\ScoutYear\ScoutYearResolver;
 use Core\ScoutYear\ScoutYearSession;
 use Core\Security\AuthSession;
@@ -27,6 +27,7 @@ use Modules\Fees\Service\FederalScaleLookupService;
 use Modules\Fees\Service\FeeAccuracyService;
 use Modules\Fees\Service\HouseholdTariffService;
 use Modules\Fees\Service\ShippedScaleService;
+use Modules\Fees\Service\TariffConfigurationService;
 use Modules\Fees\Support\SuggestedScale;
 use Modules\Fees\Value\FeeAccuracyReport;
 use Modules\Fees\Value\HouseholdReview;
@@ -65,24 +66,9 @@ class FeeAccuracyController extends AbstractController
         private FeeCategoryRepository $feeCategories,
         private ScoutYearResolver $scoutYearResolver,
         private JournalService $journal,
-        /**
-         * Reads the federation's own page and proposes the three amounts.
-         * Always present, never a nullable dependency of its own: the
-         * optional module is `llm_connector`, and it is that service which
-         * holds the nullable `Api\` handle (ARCHITECTURE.md §7.5). With the
-         * connector absent, disabled or unconfigured, `isAvailable()`
-         * answers false, the button is not rendered, and the barème is what
-         * it has always been — three fields typed by hand. Same shape as
-         * `Modules\News\Service\SeoKeywordService` in the article editor.
-         */
         private FederalScaleLookupService $federalScale,
-        /**
-         * The federal scale shipped with the site (issue #355): proposed
-         * in the barème's fields while the unit has stored no amount and
-         * the file is for the year on screen. A proposal like the AI's,
-         * through the same `scale_suggestion` — nothing is saved from it.
-         */
-        private ShippedScaleService $shippedScale
+        private ShippedScaleService $shippedScale,
+        private TariffConfigurationService $configuration
     ) {
     }
 
@@ -97,15 +83,11 @@ class FeeAccuracyController extends AbstractController
         $report = $this->accuracy->report($year->id);
         $view = $this->resolveView($request->getQuery('vue'));
 
-        // Read once, cleared on read: the amounts a lookup just proposed
-        // survive exactly the redirect that brought us here, and nothing
-        // else. They are shown in the form's own fields, unsaved. Failing
-        // that, the shipped scale — only on an empty barème, only for the
-        // year on screen (ShippedScaleService says why).
-        // Not after a failed lookup, whose message says nothing was filled.
         $declined = SuggestedScale::takeDeclined();
-        $suggested = SuggestedScale::take()
-            ?? ($declined ? null : $this->shippedScale->suggestionFor($year->label));
+        $draft = SuggestedScale::draftFor($year->label);
+        $proposal = SuggestedScale::peek($year->label);
+        $suggested = $declined || $draft !== null || $proposal !== null
+            ? null : $this->shippedScale->suggestionFor($year->label);
 
         return $this->render('@fees/accuracy.html.twig', [
             'scout_year_label' => $year->label,
@@ -123,11 +105,13 @@ class FeeAccuracyController extends AbstractController
             'tariff_panel' => $this->tariffs->panel(),
             'has_any_amount' => $this->tariffs->hasAnyAmount(),
             'fee_categories' => $this->feeCategories->findAll(),
-            // The « Chercher les montants » button exists only while a
-            // CHEAP-tier model is really reachable; everything else about
-            // the barème is unchanged when it is not.
+            // The lookup button exists only while a CHEAP-tier model is reachable.
             'scale_lookup_available' => $this->federalScale->isAvailable(),
             'scale_suggestion' => $suggested,
+            'scale_proposal' => $proposal,
+            'scale_draft' => $draft,
+            'scale_year' => FederalScaleLookupService::normalizeYear($year->label),
+            'guest_period' => $this->configuration->fields(),
         ]);
     }
 
@@ -218,8 +202,7 @@ class FeeAccuracyController extends AbstractController
     }
 
     /**
-     * POST /admin/fees/tarifs/bareme — the three amounts, and the Desk
-     * category each corresponds to.
+     * POST /admin/fees/tarifs/bareme — the only write of the whole scale.
      *
      * @param array<string, string> $params
      */
@@ -228,38 +211,29 @@ class FeeAccuracyController extends AbstractController
         if (($guard = $this->guardCsrf($request, self::PATH)) !== null) {
             return $guard;
         }
+        $year = $this->effectiveYear();
+        try {
+            $this->configuration->save($year->label, $request->getBodyAll());
+        } catch (\Throwable $error) {
+            SuggestedScale::rememberDraft($year->label, $request->getBodyAll());
+            FlashMessage::set('error', UserFacingMessage::from(
+                $error, 'Le barème n’a pas pu être enregistré. Vérifiez les valeurs puis réessayez.'
+            ));
 
-        foreach (HouseholdFeeCategory::cases() as $category) {
-            $this->tariffs->save(
-                $category,
-                self::positiveIntOrNull($request->getBody('fee_category_' . $category->value, '')),
-                self::amountCentsOrNull($request->getBody('amount_' . $category->value, ''))
-            );
+            return $this->redirect(self::PATH);
         }
-
+        SuggestedScale::clear();
         $this->journal->log(
-            'fees',
-            'fees_tariff_scale_saved',
-            'info',
-            'Barème des cotisations enregistré',
-            [],
-            AuthSession::getUserAccountId()
+            'fees', 'fees_tariff_scale_saved', 'info', 'Barème des cotisations enregistré',
+            ['scout_year_id' => $year->id], AuthSession::getUserAccountId()
         );
-
         FlashMessage::set('success', 'Barème enregistré.');
 
         return $this->redirect(self::PATH);
     }
 
     /**
-     * POST /admin/fees/tarifs/bareme/chercher — « Chercher les montants ».
-     *
-     * Reads the federation's page through the AI connector and comes back
-     * with a **proposal**: the three fields are pre-filled and the block
-     * says which page was read and for which year, so nobody validates a
-     * number without knowing what it rests on. **Nothing is saved here** —
-     * the only write is the treasurer's own « Enregistrer le barème »
-     * afterwards, and this action holds no repository at all.
+     * POST /admin/fees/tarifs/bareme/chercher — retains the draft and offers values separately.
      *
      * @param array<string, string> $params
      */
@@ -268,31 +242,59 @@ class FeeAccuracyController extends AbstractController
         if (($guard = $this->guardCsrf($request, self::PATH)) !== null) {
             return $guard;
         }
-
-        // The button is not rendered when the connector is unavailable, but
-        // a POST is a POST: the route answers the same way whether it was
-        // reached from a stale page or by hand.
+        $year = $this->effectiveYear();
+        SuggestedScale::rememberDraft($year->label, $request->getBodyAll());
         if (!$this->federalScale->isAvailable()) {
-            FlashMessage::set(
-                'error',
-                "Aucun connecteur IA n'est configuré : les montants ne peuvent pas être cherchés."
-            );
+            FlashMessage::set('error', 'Aucun connecteur IA n’est configuré : la recherche n’est pas disponible.');
 
             return $this->redirect(self::PATH);
         }
+        try {
+            TariffConfigurationService::requireFormYear($request->getBody('scale_year'), $year->label);
+        } catch (\Core\Config\SettingException $error) {
+            FlashMessage::set('error', $error->getMessage());
 
-        $year = $this->effectiveYear();
+            return $this->redirect(self::PATH);
+        }
         $lookup = $this->federalScale->lookup($year->label, AuthSession::getUserAccountId());
-
         if (!$lookup->isFound()) {
             SuggestedScale::decline();
             FlashMessage::set('error', $lookup->message);
-
-            return $this->redirect(self::PATH);
+        } else {
+            SuggestedScale::set($lookup);
+            FlashMessage::set('success', $lookup->message);
         }
 
-        SuggestedScale::set($lookup);
-        FlashMessage::set('success', $lookup->message);
+        return $this->redirect(self::PATH);
+    }
+
+    /**
+     * POST /admin/fees/tarifs/bareme/appliquer — fills fields, never saves.
+     *
+     * @param array<string, string> $params
+     */
+    public function applyTariffs(Request $request, array $params): Response
+    {
+        if (($guard = $this->guardCsrf($request, self::PATH)) !== null) {
+            return $guard;
+        }
+        $year = $this->effectiveYear();
+        try {
+            $mode = $request->getBody('apply_scale');
+            $draft = in_array($mode, ['amounts', 'all'], true)
+                ? SuggestedScale::apply(
+                    $year->label, $request->getBody('proposal_token'), $request->getBodyAll(), $mode === 'all'
+                ) : null;
+            if ($draft === null) {
+                FlashMessage::set('error', 'Cette proposition a expiré ou a été remplacée. Relancez la recherche.');
+            } else {
+                FlashMessage::set(
+                    'success', 'Proposition reprise dans le formulaire. Enregistrez le barème pour la conserver.'
+                );
+            }
+        } catch (\Core\Config\SettingException $error) {
+            FlashMessage::set('error', $error->getMessage());
+        }
 
         return $this->redirect(self::PATH);
     }
@@ -425,29 +427,4 @@ class FeeAccuracyController extends AbstractController
         return $this->scoutYearResolver->getEffectiveYear(ScoutYearSession::getPreviewId(), $role);
     }
 
-    private static function positiveIntOrNull(mixed $raw): ?int
-    {
-        $value = (int) (is_scalar($raw) ? $raw : 0);
-
-        return $value > 0 ? $value : null;
-    }
-
-    /**
-     * "39,50" and "39.50" both mean the same thing to a Belgian keyboard;
-     * an empty field means "no amount", never zero.
-     */
-    private static function amountCentsOrNull(mixed $raw): ?int
-    {
-        $value = trim((string) (is_scalar($raw) ? $raw : ''));
-        if ($value === '') {
-            return null;
-        }
-
-        $value = str_replace([' ', "\u{a0}", ','], ['', '', '.'], $value);
-        if (!is_numeric($value) || (float) $value < 0) {
-            return null;
-        }
-
-        return (int) round((float) $value * 100);
-    }
 }

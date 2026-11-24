@@ -8,40 +8,36 @@ declare(strict_types=1);
 
 namespace Modules\Fees\Support;
 
-use Core\Member\HouseholdFeeCategory;
 use Core\Security\SessionStore;
+use Modules\Fees\FeeTariff;
+use Modules\Fees\Service\FederalScaleLookupService;
+use Modules\Fees\Service\TariffConfigurationService;
 use Modules\Fees\Value\FederalScaleLookup;
 
 /**
- * A one-shot carrier for the amounts « Chercher les montants » proposed, so
- * the redirect that follows the POST can pre-fill the barème's three fields
- * without anything having been saved.
+ * A proposal and its unsaved form draft, held in the requester's session.
+ * Applying a proposal merges into the CURRENT posted fields, never the draft
+ * from before the lookup. Tokens reject a proposal replaced in another tab;
+ * the canonical year rejects a form kept across a scout-year switch.
+ * Nothing here reaches a repository or saves the scale.
  *
- * Same shape and same reason as `Modules\Groups\Support\RejectedDraft`: the
- * POST answers with a redirect (nothing is written, so re-submitting on F5
- * would be a second billable AI call for nothing), and the suggestion has to
- * survive exactly that one redirect. It is kept in the asker's own session,
- * `take()` clears it on read, and it reaches **no** repository — the only
- * path from a model's answer into `fees_household_tariffs` is a chef
- * d'unité reading these figures and clicking « Enregistrer le barème ».
+ * @phpstan-type ScaleProposal array{
+ *   url: string, year: string, amount_cents: array<string, int>,
+ *   guest_from: ?string, guest_until: ?string, missing_fields: list<string>, token: string
+ * }
  */
 final class SuggestedScale
 {
     private const SESSION_KEY = '_fees_suggested_scale';
     private const DECLINED_KEY = '_fees_suggested_scale_declined';
+    private const DRAFT_KEY = '_fees_scale_draft';
 
-    /**
-     * A lookup that failed says « rien n'a été pré-rempli » on the page it
-     * redirects to: that one render must not open pre-filled from the
-     * shipped scale either, or the screen would contradict its own message.
-     */
     public static function decline(): void
     {
         SessionStore::remove(self::SESSION_KEY);
         SessionStore::set(self::DECLINED_KEY, true);
     }
 
-    /** Whether the render at hand follows a failed lookup; cleared on read. */
     public static function takeDeclined(): bool
     {
         $declined = SessionStore::get(self::DECLINED_KEY) === true;
@@ -52,45 +48,169 @@ final class SuggestedScale
 
     public static function set(FederalScaleLookup $lookup): void
     {
+        if (!$lookup->isFound()) {
+            self::decline();
+            return;
+        }
+        SessionStore::remove(self::DECLINED_KEY);
         SessionStore::set(self::SESSION_KEY, [
             'url' => $lookup->url,
             'year' => $lookup->year,
             'amount_cents' => $lookup->amountCents,
+            'guest_from' => $lookup->guestFromDayMonth,
+            'guest_until' => $lookup->guestUntilDayMonth,
+            'token' => bin2hex(random_bytes(16)),
         ]);
     }
 
-    /**
-     * The suggestion, re-validated on the way out: a session value is not
-     * hostile input, but it is old input — a page kept open across a scout
-     * year switch, or a shape this class wrote in an earlier version.
-     *
-     * @return array{url: string, year: string, amount_cents: array<string, int>}|null
-     */
-    public static function take(): ?array
+    /** @return ScaleProposal|null */
+    public static function peek(string $year): ?array
     {
         $stored = SessionStore::get(self::SESSION_KEY);
+        $year = FederalScaleLookupService::normalizeYear($year);
+        if (!is_array($stored) || $year === null || ($stored['year'] ?? null) !== $year) {
+            return null;
+        }
+        $url = $stored['url'] ?? null;
+        $token = $stored['token'] ?? null;
+        if (!is_string($url) || filter_var($url, FILTER_VALIDATE_URL) === false
+            || parse_url($url, PHP_URL_SCHEME) !== 'https'
+            || !is_string($token) || preg_match('/^[a-f0-9]{32}$/D', $token) !== 1) {
+            return null;
+        }
+        $amounts = self::amounts($stored['amount_cents'] ?? null);
+        $period = self::period($stored, $year);
+        if ($amounts === null || $period === null
+            || ($amounts === [] && $period['from'] === null && $period['until'] === null)) {
+            return null;
+        }
+        $lookup = FederalScaleLookup::found($url, $year, $amounts, $period['from'], $period['until']);
+
+        return [
+            'url' => $url, 'year' => $year, 'amount_cents' => $amounts,
+            'guest_from' => $period['from'], 'guest_until' => $period['until'],
+            'missing_fields' => $lookup->missingFields, 'token' => $token,
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $current
+     * @return array<string, string>|null
+     */
+    public static function apply(string $year, mixed $token, array $current, bool $includePeriod): ?array
+    {
+        $year = TariffConfigurationService::requireFormYear($current['scale_year'] ?? null, $year);
+        $proposal = self::peek($year);
+        if ($proposal === null || !is_string($token) || !hash_equals($proposal['token'], $token)) {
+            return null;
+        }
+        $draft = self::draftValues($current);
+        foreach ($proposal['amount_cents'] as $key => $cents) {
+            $draft['amount_' . $key] = sprintf('%d,%02d', intdiv($cents, 100), $cents % 100);
+        }
+        if ($includePeriod) {
+            if ($proposal['guest_from'] !== null) {
+                $draft['guest_from'] = $proposal['guest_from'];
+            }
+            if ($proposal['guest_until'] !== null) {
+                $draft['guest_until'] = $proposal['guest_until'];
+            }
+        }
+        self::rememberDraft($year, $draft);
         SessionStore::remove(self::SESSION_KEY);
 
-        if (!is_array($stored)) {
+        return $draft;
+    }
+
+    /** @param array<string, mixed> $input */
+    public static function rememberDraft(string $year, array $input): void
+    {
+        $year = FederalScaleLookupService::normalizeYear($year);
+        if ($year !== null && ($input['scale_year'] ?? null) === $year) {
+            SessionStore::set(self::DRAFT_KEY, ['year' => $year, 'fields' => self::draftValues($input)]);
+        }
+    }
+
+    /** @return array<string, string>|null */
+    public static function draftFor(string $year): ?array
+    {
+        $draft = SessionStore::get(self::DRAFT_KEY);
+        $year = FederalScaleLookupService::normalizeYear($year);
+        if (!is_array($draft) || $year === null || ($draft['year'] ?? null) !== $year
+            || !is_array($draft['fields'] ?? null)) {
             return null;
         }
 
-        $url = $stored['url'] ?? null;
-        $year = $stored['year'] ?? null;
-        $amounts = $stored['amount_cents'] ?? null;
-        if (!is_string($url) || !is_string($year) || !is_array($amounts)) {
+        return self::draftValues($draft['fields']);
+    }
+
+    public static function clear(): void
+    {
+        SessionStore::remove(self::SESSION_KEY);
+        SessionStore::remove(self::DRAFT_KEY);
+        SessionStore::remove(self::DECLINED_KEY);
+    }
+
+    /** @return array<string, int>|null */
+    private static function amounts(mixed $raw): ?array
+    {
+        if (!is_array($raw)) {
             return null;
         }
-
         $clean = [];
-        foreach (HouseholdFeeCategory::cases() as $category) {
-            $cents = $amounts[$category->value] ?? null;
-            if (!is_int($cents) || $cents <= 0) {
+        foreach ($raw as $key => $cents) {
+            if (!is_string($key) || FeeTariff::tryFrom($key) === null || !is_int($cents)
+                || $cents < FederalScaleLookupService::MIN_AMOUNT_CENTS
+                || $cents > FederalScaleLookupService::MAX_AMOUNT_CENTS) {
                 return null;
             }
-            $clean[$category->value] = $cents;
+            $clean[$key] = $cents;
         }
 
-        return ['url' => $url, 'year' => $year, 'amount_cents' => $clean];
+        return $clean;
+    }
+
+    /**
+     * @param array<mixed> $stored
+     * @return array{from: ?string, until: ?string}|null
+     */
+    private static function period(array $stored, string $year): ?array
+    {
+        $from = $stored['guest_from'] ?? null;
+        $until = $stored['guest_until'] ?? null;
+        if (($from !== null && !is_string($from)) || ($until !== null && !is_string($until))) {
+            return null;
+        }
+        if (($from !== null && TariffConfigurationService::dayMonthOrNull($from, $year) !== $from)
+            || ($until !== null && TariffConfigurationService::dayMonthOrNull($until, $year) !== $until)) {
+            return null;
+        }
+        if ($from !== null && $until !== null
+            && TariffConfigurationService::periodFromFields($year, $from, $until) === null) {
+            return null;
+        }
+
+        return ['from' => $from, 'until' => $until];
+    }
+
+    /**
+     * @param array<mixed> $input
+     * @return array<string, string>
+     */
+    private static function draftValues(array $input): array
+    {
+        $keys = ['scale_year', 'guest_from', 'guest_until'];
+        foreach (FeeTariff::cases() as $tariff) {
+            $keys[] = 'amount_' . $tariff->value;
+            $keys[] = 'fee_category_' . $tariff->value;
+        }
+        $draft = [];
+        foreach ($keys as $key) {
+            if (is_string($input[$key] ?? null)) {
+                $draft[$key] = $input[$key];
+            }
+        }
+
+        return $draft;
     }
 }

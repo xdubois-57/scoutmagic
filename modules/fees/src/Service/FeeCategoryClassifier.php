@@ -10,36 +10,15 @@ namespace Modules\Fees\Service;
 
 use Core\Member\HouseholdFeeCategory;
 use Core\Service\TextNormalizerService;
+use Modules\Fees\FeeTariff;
 
 /**
- * Recognises which of the three household tariffs a Desk fee category is,
- * from its own wording.
- *
- * `fee_categories` rows are created verbatim from the CSV's "Tarif" column
- * (`Core\Import\MappingResolver`), so their spelling is the federation's and
- * differs between units and between exports: "Tarif normal",
- * "N_N_COTISATION NORMALE", "Cotisation famille". A heuristic on the folded
- * text recognises the usual ones, which is what keeps a unit from having to
- * configure anything before the screen works — and what it does NOT
- * recognise it says so about, rather than guessing: `null` means "not one of
- * the three household tariffs".
- *
- * `null` is a real answer, not a gap to close. Desk offers a unit three
- * cotisation types today and every member carries one, animateurs included,
- * so nothing in a current export SHOULD land here — but a federation adds
- * tariffs, and a unit spells them how it likes. Widening the needles to
- * catch a value nobody has seen would trade a member left out of the
- * comparison, which is visible on the screen and fixable in one click, for a
- * member compared against the wrong tariff, which is not.
- *
- * A unit whose wording this misses overrides it explicitly, one row per
- * category, on the screen's own barème panel (`fees_household_tariffs`) —
- * the same heuristic-plus-hand-mapping shape as
- * `Modules\Leadership\Service\FormationLevelResolver`.
- *
- * Folding goes through `Core\Service\TextNormalizerService::fold()`, this
- * codebase's one case- and accent-insensitive comparison form (§8.0): a
- * second one written here would disagree with it on some host eventually.
+ * Recognises five federal tariffs from imported Desk codes and labels.
+ * classify() preserves Core's three-category household contract;
+ * classifyTariff() includes local IAmA and guests for the fees module.
+ * Unknown wording and federal-only IAmA remain unknown rather than guessed.
+ * Explicit per-row mappings in the scale override this heuristic.
+ * Folding uses the shared TextNormalizerService representation.
  */
 final class FeeCategoryClassifier
 {
@@ -51,6 +30,8 @@ final class FeeCategoryClassifier
      * @var array<string, string[]>
      */
     private const NEEDLES = [
+        'guest' => ['invite'],
+        'iama' => ['iama', 'iam local'],
         'family' => ['famille', 'familiale', 'familial'],
         'couple' => ['couple'],
         'normal' => ['normale', 'normal', 'individuelle', 'individuel'],
@@ -58,12 +39,37 @@ final class FeeCategoryClassifier
 
     public static function classify(string $deskCode, string $label): ?HouseholdFeeCategory
     {
+        $tariff = self::classifyTariff($deskCode, $label);
+
+        return $tariff === null ? null : HouseholdFeeCategory::tryFrom($tariff->value);
+    }
+
+    public static function classifyTariff(string $deskCode, string $label): ?FeeTariff
+    {
         $haystack = TextNormalizerService::fold($deskCode . ' ' . $label);
+        if (
+            str_contains($haystack, 'iama') && str_contains($haystack, 'federal')
+            && !str_contains($haystack, 'unite') && !str_contains($haystack, 'clan')
+            && !str_contains($haystack, 'local')
+        ) {
+            return null;
+        }
+        $reference = match (TextNormalizerService::fold($deskCode)) {
+            'cot norm' => FeeTariff::NORMAL,
+            'cot couple' => FeeTariff::COUPLE,
+            'cot fam' => FeeTariff::FAMILY,
+            'cot iam local' => FeeTariff::IAMA,
+            'cot invite' => FeeTariff::GUEST,
+            default => null,
+        };
+        if ($reference !== null) {
+            return $reference;
+        }
 
         foreach (self::NEEDLES as $category => $needles) {
             foreach ($needles as $needle) {
                 if (str_contains($haystack, $needle)) {
-                    return HouseholdFeeCategory::from($category);
+                    return FeeTariff::from($category);
                 }
             }
         }

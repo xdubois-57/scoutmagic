@@ -13450,8 +13450,11 @@ if ($isEnabled('fees')) {
                 $journalService
             ),
             // The federal scale shipped in modules/fees/data (issue #355),
-            // proposed on an empty barème for the year it is for.
-            new \Modules\Fees\Service\ShippedScaleService($feesTariffService)
+            // proposed only for unsaved rows and its own season.
+            new \Modules\Fees\Service\ShippedScaleService($feesTariffService),
+            new \Modules\Fees\Service\TariffConfigurationService(
+                $feesTariffService, $feeCategoryRepo, $settingService
+            )
         )
     );
 

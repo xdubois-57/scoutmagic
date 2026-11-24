@@ -8,6 +8,8 @@ declare(strict_types=1);
 
 namespace Modules\Fees\Value;
 
+use Modules\Fees\FeeTariff;
+
 /**
  * What one « Chercher les montants » attempt came to.
  *
@@ -40,28 +42,53 @@ final class FederalScaleLookup
     public const YEAR_MISMATCH = 'year_mismatch';
 
     /**
-     * @param array<string, int> $amountCents keyed by
-     *        Core\Member\HouseholdFeeCategory::value — always the three
-     *        keys on FOUND, always empty otherwise
+     * @param array<string, int> $amountCents only the tariffs actually found
+     * @param list<string> $missingFields fixed French labels, never model prose
      */
     private function __construct(
         public readonly string $status,
         public readonly string $url,
         public readonly ?string $year,
         public readonly array $amountCents,
-        public readonly string $message
+        public readonly string $message,
+        public readonly ?string $guestFromDayMonth = null,
+        public readonly ?string $guestUntilDayMonth = null,
+        public readonly array $missingFields = []
     ) {
     }
 
     /** @param array<string, int> $amountCents */
-    public static function found(string $url, string $year, array $amountCents): self
-    {
+    public static function found(
+        string $url,
+        string $year,
+        array $amountCents,
+        ?string $guestFromDayMonth = null,
+        ?string $guestUntilDayMonth = null
+    ): self {
+        $missing = [];
+        foreach (FeeTariff::cases() as $tariff) {
+            if (!array_key_exists($tariff->value, $amountCents)) {
+                $missing[] = $tariff->label();
+            }
+        }
+        if ($guestFromDayMonth === null) {
+            $missing[] = 'Début de la période Invités';
+        }
+        if ($guestUntilDayMonth === null) {
+            $missing[] = 'Fin de la période Invités';
+        }
+
         return new self(
             self::FOUND,
             $url,
             $year,
             $amountCents,
-            'Montants trouvés. Vérifiez-les, puis enregistrez le barème.'
+            $missing === []
+                ? 'Montants et période trouvés. Choisissez les valeurs à reprendre, puis enregistrez le barème.'
+                : 'Proposition partielle. À compléter : ' . implode(', ', $missing) . '.',
+            $guestFromDayMonth,
+            $guestUntilDayMonth,
+            $missing
         );
     }
 
@@ -107,7 +134,7 @@ final class FederalScaleLookup
             $url,
             null,
             [],
-            "Les trois montants n'ont pas pu être lus sur cette page. Saisissez-les à la main."
+            "Aucun montant ni aucune date exploitable n’a pu être lu sur cette page. Saisissez-les à la main."
         );
     }
 
@@ -118,7 +145,7 @@ final class FederalScaleLookup
             $url,
             null,
             [],
-            "Aucune année scoute n'a pu être identifiée sur cette page : rien n'a été pré-rempli."
+            "L’année scoute du barème n’a pas pu être confirmée : aucune proposition n’a été préparée."
         );
     }
 
@@ -129,7 +156,8 @@ final class FederalScaleLookup
             $url,
             $foundYear,
             [],
-            "Cette page annonce les montants de l'année {$foundYear}, pas {$expectedYear} : rien n'a été pré-rempli."
+            "Cette page annonce les montants de l’année {$foundYear}, pas {$expectedYear} : "
+            . "aucune proposition n’a été préparée."
         );
     }
 

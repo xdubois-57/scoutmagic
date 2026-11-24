@@ -49,8 +49,8 @@ final class ShippedFederalScale
     private const KEYS = ['year', 'source_url', 'verified_on', 'amount_cents', 'guest_period'];
 
     /** Same plausibility bounds as the AI lookup, for the same reason. */
-    private const MIN_AMOUNT_CENTS = 100;
-    private const MAX_AMOUNT_CENTS = 50000;
+    private const MIN_AMOUNT_CENTS = FederalScaleLookupService::MIN_AMOUNT_CENTS;
+    private const MAX_AMOUNT_CENTS = FederalScaleLookupService::MAX_AMOUNT_CENTS;
 
     /**
      * @param array<string, int> $amountCents keyed by FeeTariff value, always the five
@@ -198,12 +198,16 @@ final class ShippedFederalScale
             !is_array($raw) || count($raw) !== 2
             || !is_string($raw['start'] ?? null) || !is_string($raw['end'] ?? null)
         ) {
-            throw new \UnexpectedValueException('The shipped guest period must contain start and end day/month strings.');
+            throw new \UnexpectedValueException(
+                'The shipped guest period must contain start and end day/month strings.'
+            );
         }
         $from = DateInput::parse('!d/m/Y', $raw['start'] . '/' . substr($year, 5, 4));
         $until = DateInput::parse('!d/m/Y', $raw['end'] . '/' . substr($year, 5, 4));
         if ($from === null || $until === null || $until < $from) {
-            throw new \UnexpectedValueException('The shipped guest period must be valid and ordered in the season ending year.');
+            throw new \UnexpectedValueException(
+                'The shipped guest period must be valid and ordered in the season ending year.'
+            );
         }
 
         return [$raw['start'], $raw['end']];

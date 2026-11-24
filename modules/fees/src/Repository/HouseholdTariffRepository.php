@@ -8,17 +8,25 @@ declare(strict_types=1);
 
 namespace Modules\Fees\Repository;
 
+use Core\Database\TransactionScope;
 use Core\Member\HouseholdFeeCategory;
+use Modules\Fees\FeeTariff;
 use Modules\Fees\Value\HouseholdTariff;
 
 /**
- * The three rows of `fees_household_tariffs`. Nothing personal here, so no
+ * The five rows of `fees_household_tariffs`. Nothing personal here, so no
  * encryption — an amount and a foreign key.
  */
 class HouseholdTariffRepository
 {
     public function __construct(private \PDO $pdo)
     {
+    }
+
+    /** @param callable(): void $writes */
+    public function transactionally(callable $writes): void
+    {
+        TransactionScope::run($this->pdo, $writes);
     }
 
     /** @return array<string, HouseholdTariff> keyed by household category value */
@@ -32,7 +40,7 @@ class HouseholdTariffRepository
 
         $tariffs = [];
         foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
-            $category = HouseholdFeeCategory::tryFrom((string) $row['household_category']);
+            $category = FeeTariff::tryFrom((string) $row['household_category']);
             if ($category === null) {
                 continue;
             }
@@ -53,8 +61,11 @@ class HouseholdTariffRepository
      * statement that means the same thing on both is worth two round trips
      * on a panel a chief opens twice a year.
      */
-    public function save(HouseholdFeeCategory $category, ?int $feeCategoryId, ?int $amountCents): void
-    {
+    public function save(
+        FeeTariff|HouseholdFeeCategory $category,
+        ?int $feeCategoryId,
+        ?int $amountCents
+    ): void {
         $delete = $this->pdo->prepare('DELETE FROM fees_household_tariffs WHERE household_category = ?');
         $delete->execute([$category->value]);
 

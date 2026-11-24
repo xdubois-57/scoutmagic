@@ -16,4 +16,15 @@ enum FeeTariff: string
     case FAMILY = 'family';
     case IAMA = 'iama';
     case GUEST = 'guest';
+
+    public function label(): string
+    {
+        return match ($this) {
+            self::NORMAL => 'Normale',
+            self::COUPLE => 'Couple',
+            self::FAMILY => 'Familiale',
+            self::IAMA => 'IAmA liés à l’unité',
+            self::GUEST => 'Invités',
+        };
+    }
 }

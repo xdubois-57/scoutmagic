@@ -3894,11 +3894,55 @@ The encoded fee category against the number of people at the same address, and t
 
 **A tariff outside the three is not judged.** Its holder is **counted** in the household — the federation counts people at an address, not tariffs — but is never reported as being on the wrong one. Reporting them would be a false positive on every unit, on the first screen a treasurer opens. Desk offers a unit exactly three cotisation types (`N_COTISATION_NORMALE`, `C_COTISATION_COUPLE`, `F_COTISATION_FAMILLE`) and every member carries one, animateurs included — so this path is not about a fourth tariff that already exists, but about the ones the federation adds later, and about a unit whose export spells one of the three in a wording `FeeCategoryClassifier` misses. Both are imported and kept like any other value, classified as none of the three, and mapped by hand on the barème panel when a unit wants them compared. The reference dataset used to contradict this by giving every cadre a « Tarif animateur » no Desk export has ever produced (issue #194); it now derives each member's tariff from their household size, the way a unit encodes it.
 
-**The barème prices a discrepancy and nothing else.** Three hand-entered amounts in the same table, folded away, read from the invoices themselves from IT-05 on. Absent, a discrepancy is shown **without a figure** rather than as `0,00 €`. The sign is never hidden: positive means the unit is declaring less than it owes, which comes back in the regularisation invoice and is the more urgent of the two directions. `fee_categories` is a core table and is not extended for this (AGENTS.md § Architecture) — hence a module table pointing at it.
+**The five-tariff scale is fees-owned.** `FeeTariff` covers normal, couple,
+family, local IAmA and guests. Core's `HouseholdFeeCategory` remains the generic
+three-category household contract; `HouseholdTariffService::categoryForFeeCategoryId()`
+projects into it, while `tariffForFeeCategoryId()` preserves all five. The existing
+`fees_household_tariffs` table stores the five rows; no second price table or
+historical price grid. NULL means unknown and zero is explicit. The selector
+uses actual imported Desk categories; no guest code is fabricated.
 
-**« Chercher les montants » proposes the barème, and proposes it only** (`Service\FederalScaleLookupService`). An optional dependency on `llm_connector` (§7.5) in its ordinary shape — a nullable `Api\LlmConnectorInterface` inside the service, an `isAvailable()` the controller asks before rendering anything, the button simply absent otherwise — reading the federation's own cotisations page (`fees_federal_scale_url`, a setting, defaulting to the federal page) and asking a CHEAP-tier model for four values: the scout year and the three per-person amounts. **There is deliberately no search step**: this project has no search API, scraping a result page is against the search engines' terms and breaks on their anti-bot protections, and a page that moves is one field to edit. **The year is the guardrail that matters**, because the real page carries two sections at once («COTISATIONS 2025-2026» and «COTISATIONS 2026-2027»): a year that does not normalise to the scout year the screen is about refuses the whole answer rather than pre-filling three plausible-looking numbers from the wrong season. Further traps live in the prompt — last year's amount printed in parentheses right after this year's (seen in August 2026, gone by September), amounts written without decimals (« 46 € » beside « 57,50 € »), and half a dozen amounts (invités, demi-année, IAmA, solidarité) that are not household tariffs. **Nothing is written**: the service holds no repository, the proposal crosses one redirect in the asker's session (`Support\SuggestedScale`) to fill the three fields, and the only write is still the treasurer's own « Enregistrer le barème ». The block says which URL was read and which year was found, because a figure nobody can trace is worse than an empty field. The injection contract for a page this project does not control is SECURITY.md §18bis; the outbound fetch itself is §17's "configured endpoints" family.
+**One validated save, one transaction.** `Service\TariffConfigurationService`
+validates five nullable amounts as integer cents, known and unique explicit
+Desk mappings, the two ordered annual bounds and the posted canonical scout
+year before writing. The bounds (`fees_guest_from`, `fees_guest_until`) and
+confirmed reference year (`fees_scale_year`) are internal module settings,
+written with `SettingService::setManyInternal()` in the tariff repository's
+existing `Core\Database\TransactionScope`. A failure rolls back prices and
+settings, then invalidates both caches. Annual dates use `DateInput` and the
+season's ending civil year; defaults are 01/06–31/08 inclusive. A stale tab
+cannot confirm a scale for the newly selected scout year.
 
-**The barème also opens pre-filled from the scale shipped with the site** (`data/federal-scale.json`, issue #355: the scout year, the federal page, the day it was read, the three amounts in cents). `Service\ShippedScaleService` proposes it only while the barème was **never saved** — one save, even with its amounts left empty on purpose, and the barème is the unit's own; offered again on every visit, the figures would be saved by the next unrelated change to the panel — **and** the file's year is the effective scout year of the screen, the same year « Chercher les montants » checks its answer against; last season's figures in this season's fields are what both refuse. It travels through the same `scale_suggestion` as an AI proposal (which wins when both exist, being the more recent act), with a banner naming the year, the verification date and the page, except on the render right after a failed lookup, whose message says nothing was pre-filled (`SuggestedScale::decline()`). Nothing is written on the GET; « Enregistrer le barème » is still the only write. The same file is the external sources check's reference (§8.123), so the week the federal page changes, the check says so.
+**« Chercher les montants et la période » offers, never saves.** The optional
+`Api\LlmConnectorInterface` dependency and CHEAP-tier availability guard remain
+unchanged (§7.5). `FederalScaleLookupService` fetches the configured public page
+and selects the requested season before sending text to the model. The
+shared `Core\ExternalSource\FederalScaleExtractor` may append an unambiguous
+common paid guest policy outside all recognised season banners, never prices
+or IAmA from another season. The answer's canonical year must match; five
+bounded amounts and two valid annual dates are accepted independently, missing
+fields get fixed labels, inverted bounds remain unknown. No unit data reaches
+the model. SECURITY.md §18bis defines prompt isolation and output validation.
+
+**A proposal and a draft are separate session state.** `Support\SuggestedScale`
+retains both across renders. Search preserves the posted fields and presents
+the proposal with its source, year and missing fields. Applying it merges only
+found values into the CURRENT submitted fields, optionally preserving the dates;
+a per-proposal token and canonical year reject replacement, replay and stale
+season tabs. Neither search nor application writes the database. Only Save
+persists the scale and clears this state. A failed save retains validly shaped
+form fields and displays a fixed French message rather than a technical error.
+The template keeps Save as its first submit so Enter never makes an AI call.
+`fees-scale.js` only updates the explanatory sentence with `textContent`.
+
+**Shipped defaults preserve each saved row.** `ShippedScaleService` offers
+`data/federal-scale.json` amounts only for its own season and only where no
+row was ever saved. An old three-row scale can gain IAmA and guests without
+overwriting a saved NULL or zero. Its banner names source, verified date and
+year. A draft or explicit proposal takes precedence. The same five prices and
+annual bounds are the external-sources reference (§8.123); none is written by
+opening the page. Historical comparisons require an explicit compatible
+reference year rather than treating current defaults as historical evidence.
 
 **A household with no usable address is neither compliant nor in breach.** `HouseholdService::memberYearIdsWithoutUsableAddress()` (§8.34) feeds a tab of its own and a line in the summary, so the page never reads as "everybody was checked".
 
