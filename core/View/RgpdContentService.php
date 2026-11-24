@@ -947,7 +947,14 @@ le paragraphe « Aide du modèle pour départager (module Camps…) », qui tran
 fournisseur d'IA pour ordonner des propositions sans jamais rattacher (même statut de sous-traitant que la règle 30) ;
 retire ce dernier sans connecteur ; (h) si "finance" est aussi actif, conserve le paragraphe « Reçus reçus par email »
 : un reçu n'est enregistré sans confirmation que sur une boîte consacrée à la trésorerie ou lorsque l'expéditeur anime
-la section du compte cité, et l'empreinte de contenu conservée contre les doublons ne concerne aucune personne ; (i)
+la section du compte cité, et l'empreinte de contenu conservée contre les doublons ne concerne aucune personne ; et
+conserve le paragraphe « Reçus repérés sur l'adresse générale de l'unité » : sur l'adresse générale, le contenu d'une
+pièce jointe de type reçu est lu pour reconnaître un reçu, le texte d'un PDF sur le site, et, si "llm_connector" est
+actif, une photo ou un scan sans texte est envoyé au fournisseur d'IA pour transcription — au plus un document par
+message —, ce qui fait de ce fournisseur un sous-traitant pour ce traitement (section 4, et 5.2 hors UE/EEE, comme pour
+la création automatique d'un séjour) ; un reçu reconnu est classé sans compte et le message N'EST PAS rattaché
+aux finances, les trésoriers ne voyant que le reçu. Sans connecteur IA, retire de ce paragraphe la phrase sur la
+transcription ; (i)
 conserve les paragraphes « Notifications internes » et « Adresse de réponse signée » : une notification ne cite que le
 dossier, jamais l'expéditeur ni l'objet ; l'adresse de réponse reprend une référence déjà présente dans l'e-mail et
 une signature, sans donnée personnelle, et une signature invalide fait une adresse ordinaire. **Le fournisseur de la

@@ -6,7 +6,7 @@
 
 declare(strict_types=1);
 
-namespace Modules\Camps\Mail;
+namespace Core\Mail;
 
 use Core\File\PdfRasterizer;
 use Core\File\PdfTextExtractor;
@@ -27,6 +27,12 @@ use Modules\LlmConnector\Api\LlmTier;
  * `subject + bodyText`, this module saw nothing at all in such a message,
  * refused it for want of dates, and left no trace of having looked.
  *
+ * **In core because two modules read with it** (#1342): camps for a
+ * booking's dates, finance to tell a receipt from the rest. A module does
+ * not import another module's classes, and a reading each of them
+ * re-implemented would drift — bounds, OCR budget, logo floor — the day
+ * one of them was tuned. It depends on nothing but `Api\` types.
+ *
  * **Deferred pass only, and that is not an accident.** Extracting a PDF's
  * text layer is expensive and unbounded, so it belongs exactly where
  * `Task\AnalyzeStoredMessagesHandler` already puts everything that needs an
@@ -34,9 +40,10 @@ use Modules\LlmConnector\Api\LlmTier;
  * attachment metadata and nothing else.
  *
  * **Bounded three ways**, because a message is somebody else's file: the
- * number of attachments read, each one's size, and the total text handed
- * back. A three-hundred-page appendix must not become a model prompt or a
- * regex's input.
+ * number of attachments read, each one's size, and the text handed back —
+ * in total for {@see read()}, per attachment for {@see readEach()}. A
+ * three-hundred-page appendix must not become a model prompt or a regex's
+ * input.
  *
  * **Three ways in, in order of cost.** A PDF's embedded text layer and a
  * plain-text part are free, exact and offline, so they are tried first and
@@ -63,9 +70,10 @@ class AttachmentTextReader
     public const MAX_FILE_BYTES = 5_000_000;
 
     /**
-     * How much text one message may contribute in total. A booking states
-     * its dates and its venue in the first page; the rest is the general
-     * conditions.
+     * How much text one message may contribute in total through
+     * {@see read()} — and one attachment through {@see readEach()}. A
+     * booking states its dates and its venue in the first page; the rest is
+     * the general conditions.
      */
     public const MAX_CHARS = 12000;
 
@@ -128,9 +136,54 @@ class AttachmentTextReader
      */
     public function read(array $attachments): string
     {
+        // The model is asked only when no attachment had text of its own:
+        // a booking's contract is one document, and a second attachment
+        // that carries a text layer already says what the scan would.
+        $texts = $this->readAll($attachments, ocrOnlyWhenNothingElseAnswered: true);
+
+        return mb_substr(implode("\n", array_values($texts)), 0, self::MAX_CHARS);
+    }
+
+    /**
+     * The same reading, kept apart per attachment — for a caller that
+     * decides about each document separately (finance: which of a
+     * message's files is a receipt, #1342).
+     *
+     * The bounds are those of {@see read()}, OCR budget included: still
+     * {@see self::MAX_OCR_CALLS} transcription per message, whatever the
+     * number of attachments. Two things differ:
+     *
+     * - **when that call is made.** Here the first picture or scan is
+     *   transcribed even when another attachment had text, because a text
+     *   attachment says nothing about a different document: the PDF of the
+     *   general conditions next to a photographed till ticket does not make
+     *   the ticket legible.
+     * - **what {@see self::MAX_CHARS} caps.** Each attachment's text, not
+     *   their sum — at most {@see self::MAX_ATTACHMENTS} times as much in
+     *   all. A cap on the total would starve the later attachments of the
+     *   very text each of them is judged on.
+     *
+     * @param InboundAttachment[] $attachments
+     * @return array<int, string> keyed by attachment id; an attachment
+     *         that was not read, or said nothing, is absent
+     */
+    public function readEach(array $attachments): array
+    {
+        return array_map(
+            static fn(string $text): string => mb_substr($text, 0, self::MAX_CHARS),
+            $this->readAll($attachments, ocrOnlyWhenNothingElseAnswered: false)
+        );
+    }
+
+    /**
+     * @param InboundAttachment[] $attachments
+     * @return array<int, string> keyed by attachment id, in reading order
+     */
+    private function readAll(array $attachments, bool $ocrOnlyWhenNothingElseAnswered): array
+    {
         $this->readingFailed = false;
         $pdf = $this->pdf ?? new PdfTextExtractor();
-        $pieces = [];
+        $texts = [];
         $read = 0;
         /** @var array<int, array{attachment: InboundAttachment, bytes: string}> */
         $unreadable = [];
@@ -139,7 +192,7 @@ class AttachmentTextReader
             if ($read >= self::MAX_ATTACHMENTS) {
                 break;
             }
-            if (!self::isReadable($attachment) && !self::isPicture($attachment)) {
+            if (!self::willRead($attachment)) {
                 continue;
             }
 
@@ -162,7 +215,7 @@ class AttachmentTextReader
                 : $pdf->extractText($bytes);
 
             if ($text !== null && trim($text) !== '') {
-                $pieces[] = trim($text);
+                $texts[$attachment->id] = trim($text);
                 continue;
             }
 
@@ -173,11 +226,11 @@ class AttachmentTextReader
             $unreadable[] = ['attachment' => $attachment, 'bytes' => $bytes];
         }
 
-        if ($pieces === []) {
-            $pieces = $this->transcribe($unreadable);
+        if (!$ocrOnlyWhenNothingElseAnswered || $texts === []) {
+            $texts += $this->transcribe($unreadable);
         }
 
-        return mb_substr(implode("\n", $pieces), 0, self::MAX_CHARS);
+        return $texts;
     }
 
     /** {@see self::$readingFailed}. */
@@ -200,7 +253,7 @@ class AttachmentTextReader
      * down must cost this module a stay, never a synchronisation pass.
      *
      * @param array<int, array{attachment: InboundAttachment, bytes: string}> $pending
-     * @return string[]
+     * @return array<int, string> keyed by attachment id
      */
     private function transcribe(array $pending): array
     {
@@ -253,11 +306,26 @@ class AttachmentTextReader
 
             $text = trim($response->content);
             if ($text !== '') {
-                $texts[] = mb_substr($text, 0, self::MAX_OCR_CHARS);
+                $texts[$entry['attachment']->id] = mb_substr($text, 0, self::MAX_OCR_CHARS);
             }
         }
 
         return $texts;
+    }
+
+    /**
+     * Whether {@see read()} and {@see readEach()} would read this
+     * attachment at all — and so count it against
+     * {@see self::MAX_ATTACHMENTS}.
+     *
+     * Public for a caller that has to fetch the bytes itself before the
+     * reader does (finance, which hashes them first): the same predicate,
+     * so a signature logo below {@see self::MIN_PICTURE_BYTES} neither gets
+     * decrypted for nothing nor takes the place of the invoice behind it.
+     */
+    public static function willRead(InboundAttachment $attachment): bool
+    {
+        return self::isReadable($attachment) || self::isPicture($attachment);
     }
 
     /** The shapes whose text is really text, and costs nothing to read. */

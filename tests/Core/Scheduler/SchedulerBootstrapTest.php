@@ -363,6 +363,43 @@ class SchedulerBootstrapTest extends TestCase
         );
     }
 
+    /**
+     * The deferred pass reads a general-address message's documents to
+     * find its receipts (#1342, lot 4) — on the consumer THIS bootstrap
+     * builds, with a reader, the connector the context resolves for its
+     * one transcription, and the box-purpose question it must not answer
+     * for itself.
+     */
+    public function testTheStoredPassReadsAttachmentsForFinance(): void
+    {
+        ['runner' => $runner, 'context' => $context] = $this->bootstrap(['inbound_mail', 'finance', 'llm_connector']);
+
+        $factories = (new \ReflectionProperty(SchedulerRunner::class, 'handlerFactories'))->getValue($runner);
+        $handler = ($factories['inbound_mail::' . \Modules\InboundMail\Task\AnalyzeStoredMessagesHandler::TASK_KEY])($context);
+        $registry = (new \ReflectionProperty(\Modules\InboundMail\Task\AnalyzeStoredMessagesHandler::class, 'consumerRegistry'))
+            ->getValue($handler);
+        $consumers = (new \ReflectionProperty(\Modules\InboundMail\Service\MessageConsumerRegistry::class, 'consumers'))
+            ->getValue($registry);
+        $finance = array_values(array_filter(
+            $consumers,
+            static fn(object $consumer): bool => $consumer instanceof \Modules\Finance\Mail\FinanceMessageConsumer
+        ));
+        $this->assertCount(1, $finance);
+
+        $reader = (new \ReflectionProperty(\Modules\Finance\Mail\FinanceMessageConsumer::class, 'attachmentText'))
+            ->getValue($finance[0]);
+        $this->assertInstanceOf(\Core\Mail\AttachmentTextReader::class, $reader, 'the deferred pass would read no document');
+        $this->assertSame(
+            $context->getOptional(\Modules\LlmConnector\Api\LlmConnectorInterface::class),
+            (new \ReflectionProperty(\Core\Mail\AttachmentTextReader::class, 'llm'))->getValue($reader)
+        );
+        $this->assertInstanceOf(
+            \Modules\InboundMail\Api\InboundMailInterface::class,
+            (new \ReflectionProperty(\Modules\Finance\Mail\FinanceMessageConsumer::class, 'inboundMail'))->getValue($finance[0]),
+            'every box would read as the general address'
+        );
+    }
+
     public function testTheSyncFactoryIsNotRegisteredWhenInboundMailIsDisabled(): void
     {
         ['runner' => $runner] = $this->bootstrap(['rental', 'camps']);

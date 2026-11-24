@@ -230,6 +230,117 @@ final class UnattendedReceiptFilingTest extends TestCase
         $this->assertSame([88, 89], $seen, 'the second attachment must still be looked at');
     }
 
+    // ── The deferred pass, end to end (#1342, lot 4) ────────────────────
+
+    /**
+     * A real PDF invoice on the general address: read on the site by the
+     * real reader, recognised, and filed in the pile by the real store —
+     * with no model, since the PDF has its own text.
+     */
+    public function testAnInvoiceReadOnTheGeneralAddressLandsInTheSortingPile(): void
+    {
+        $fileId = $this->inboundPdf('text_receipt.pdf');
+
+        $result = $this->consumer(attachmentText: $this->textReader())->analyzeStored($this->generalMessage($fileId));
+
+        $this->assertTrue($result->isEmpty(), 'the message itself is not linked');
+        $filed = $this->attachments->findActiveOrdered();
+        $this->assertCount(1, $filed);
+        $this->assertNull($filed[0]->accountId);
+        $this->assertSame('application/pdf', $filed[0]->mimeType);
+    }
+
+    /** Analysed again — « Réanalyser le courrier conservé » — the same bytes are the same receipt. */
+    public function testReadingTheSameMessageTwiceFilesOneReceipt(): void
+    {
+        $message = $this->generalMessage($this->inboundPdf('text_receipt.pdf'));
+        $consumer = $this->consumer(attachmentText: $this->textReader());
+
+        $consumer->analyzeStored($message);
+        $consumer->analyzeStored($message);
+
+        $this->assertCount(1, $this->attachments->findActiveOrdered());
+    }
+
+    /** Sorted onto an account by a treasurer, then the message is analysed again: nothing returns to the pile. */
+    public function testAReceiptMovedOntoAnAccountDoesNotComeBackOnASecondReading(): void
+    {
+        $accountId = $this->accounts->create('Louveteaux', \Modules\Finance\Repository\Account::TYPE_BANK, null, null, null, 'intendant');
+        $this->accounts->updateStatus($accountId, \Modules\Finance\Repository\Account::STATUS_ACTIVE);
+        $message = $this->generalMessage($this->inboundPdf('text_receipt.pdf'));
+        $consumer = $this->consumer(attachmentText: $this->textReader());
+
+        $consumer->analyzeStored($message);
+        $receiptService = new ReceiptService(
+            $this->attachments,
+            $this->accounts,
+            new TransactionAttachmentRepository($this->pdo),
+            new EncryptedFileStorageService($this->files, $this->encryption, $this->storagePath),
+            new TransactionRepository($this->pdo, $this->encryption)
+        );
+        $receiptService->reassign($this->attachments->findActiveOrdered()[0]->id, $accountId);
+        $consumer->analyzeStored($message);
+
+        $filed = $this->attachments->findActiveOrdered();
+        $this->assertCount(1, $filed);
+        $this->assertSame($accountId, $filed[0]->accountId);
+    }
+
+    /** The booking contract camps reads states a price and no receipt word: it is not filed. */
+    public function testABookingContractIsNotTakenForAReceipt(): void
+    {
+        $this->consumer(attachmentText: $this->textReader())
+            ->analyzeStored($this->generalMessage($this->inboundPdf('camp_booking_contract.pdf')));
+
+        $this->assertSame([], $this->attachments->findActiveOrdered());
+    }
+
+    private function textReader(): \Core\Mail\AttachmentTextReader
+    {
+        return new \Core\Mail\AttachmentTextReader($this->reader);
+    }
+
+    /** A fixture PDF stored as the sync stores an attachment: through UploadHandler. */
+    private function inboundPdf(string $fixture): int
+    {
+        $temporary = tempnam(sys_get_temp_dir(), 'inbound-mail-');
+        $this->assertIsString($temporary);
+        copy(dirname(__DIR__, 3) . '/fixtures/pdf/' . $fixture, $temporary);
+
+        return (new UploadHandler($this->files, $this->storagePath))->handle(
+            ['tmp_name' => $temporary, 'name' => $fixture, 'size' => (int) filesize($temporary), 'error' => UPLOAD_ERR_OK],
+            'inbound_mail/attachments',
+            ['application/pdf'],
+            5 * 1024 * 1024,
+            'intendant',
+            'inbound_mail'
+        );
+    }
+
+    /** A general-address message nothing in its covering e-mail places. */
+    private function generalMessage(int $fileId): InboundMessage
+    {
+        $size = (int) ($this->files->findById($fileId)?->sizeBytes ?? 0);
+
+        return new InboundMessage(
+            id: 56,
+            mailboxId: 1,
+            consumerId: '',
+            businessReference: '',
+            linkOrigin: LinkOrigin::MANUAL,
+            subject: 'Courses',
+            fromEmail: 'inconnu@example.be',
+            fromName: null,
+            messageId: 'c@d',
+            inReplyTo: null,
+            sentAt: new \DateTimeImmutable('2026-09-01 07:40:00'),
+            bodyText: 'Bonjour, voici le ticket.',
+            bodyHtml: '',
+            toEmails: [],
+            attachments: [new InboundAttachment(90, 56, $fileId, 'facture.pdf', 'application/pdf', $size, 'hash-c')]
+        );
+    }
+
     private function messageWithTwoAttachments(int $firstFileId, int $secondFileId): InboundMessage
     {
         $base = $this->message($firstFileId);
@@ -261,7 +372,8 @@ final class UnattendedReceiptFilingTest extends TestCase
      */
     private function consumer(
         ?\Modules\Finance\Api\ExpenseReceiptInterface $receipts = null,
-        ?\Closure $onFilingFailed = null
+        ?\Closure $onFilingFailed = null,
+        ?\Core\Mail\AttachmentTextReader $attachmentText = null
     ): FinanceMessageConsumer
     {
         $receiptService = new ReceiptService(
@@ -298,7 +410,8 @@ final class UnattendedReceiptFilingTest extends TestCase
             null,
             null,
             null,
-            $onFilingFailed
+            $onFilingFailed,
+            $attachmentText
         );
     }
 

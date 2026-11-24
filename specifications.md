@@ -1572,7 +1572,7 @@ The narrowing is a rule about access, not a filtered dropdown. It holds on the d
 
 A receipt is a file, and a file's own access level only knows about roles — it cannot say "the Louveteaux section". Left alone it would have made the whole rule cosmetic: the account disappears from the screen while its receipts stay downloadable by their direct link. Each receipt is therefore attached to its account, and asking for one asks the same question the screen asks.
 
-This covers the receipts already stored before the change, not only the new ones, and it applies from the next page load on any installation — nobody has to open a particular screen for it to take effect. A receipt attached to no account at all — which only very old or imported entries can be — becomes unreachable rather than open to everyone: nothing can say who is allowed to see it.
+This covers the receipts already stored before the change, not only the new ones, and it applies from the next page load on any installation — nobody has to open a particular screen for it to take effect. A receipt attached to no account at all is the sorting pile « Compte inconnu », where a receipt arriving by e-mail lands when nothing places it — including one recognised from its own content on the unit's general address, whose message stays unattached. It is open to the unit's treasurers and the chef d'unité, and to nobody else; once moved onto an account, it follows that account's rule.
 
 ### 28.6 Out of scope
 

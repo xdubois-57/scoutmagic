@@ -11123,7 +11123,7 @@ if ($isEnabled('camps')) {
         // the one place this module did not look. The connector is the
         // last resort only — a scanned contract, transcribed at the OCR
         // tier — and a text layer never costs a call.
-        new \Modules\Camps\Mail\AttachmentTextReader(
+        new \Core\Mail\AttachmentTextReader(
             $storedFileReader,
             null,
             $llmConnectorForOthers ?? null

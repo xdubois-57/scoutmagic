@@ -793,7 +793,7 @@ class CampsChiefControllerTest extends TestCase
         array &$moves,
         ?\Modules\LlmConnector\Api\LlmConnectorInterface $llm = null,
         string $bodyText = 'Nous confirmons du 12 au 19 juillet 2028. Prix : 2450 €.',
-        ?\Modules\Camps\Mail\AttachmentTextReader $attachmentText = null,
+        ?\Core\Mail\AttachmentTextReader $attachmentText = null,
         array $attachments = []
     ): CampsChiefController {
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
@@ -919,7 +919,7 @@ class CampsChiefControllerTest extends TestCase
                 $this->llmNaming('Centre de camp Le Grand Pré'),
                 // A one-word body and a contract, the way they really come.
                 'Bonjour,',
-                new \Modules\Camps\Mail\AttachmentTextReader(
+                new \Core\Mail\AttachmentTextReader(
                     new \Core\File\StoredFileReader(
                         $files,
                         new \Core\File\EncryptedFileStorageService(
