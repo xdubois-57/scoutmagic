@@ -279,6 +279,11 @@ CREATE TABLE IF NOT EXISTS finance_attachments (
     suggested_description BLOB NULL,
     suggested_source ENUM('manual', 'ai') NULL,
     matching_ai_attempted_at DATETIME NULL,
+    -- When the AI reading (Task\ExtractReceiptDataHandler) last ran on this
+    -- receipt (#1342). NULL with no suggestion is « never read », which is
+    -- what Task\BackfillReceiptReadingsHandler looks for: a receipt filed
+    -- while that reading was not wired gets it once, and only once.
+    extraction_attempted_at DATETIME NULL,
     status ENUM('active', 'archived') NOT NULL DEFAULT 'active',
     parent_attachment_id INT UNSIGNED NULL,
     uploaded_by INT UNSIGNED NULL,
@@ -295,6 +300,34 @@ CREATE TABLE IF NOT EXISTS finance_attachments (
     CONSTRAINT fk_fatt_account FOREIGN KEY (account_id) REFERENCES finance_accounts(id) ON DELETE SET NULL,
     CONSTRAINT fk_fatt_file FOREIGN KEY (file_id) REFERENCES files(id),
     CONSTRAINT fk_fatt_parent FOREIGN KEY (parent_attachment_id) REFERENCES finance_attachments(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- finance_receipt_mail_sources: which inbound attachment a receipt came
+-- from, and why it was filed where it was (#1342, decisions 3, 8 and 9).
+--
+-- A table of its own rather than columns on finance_attachments, because it
+-- must outlive the receipt's own fate: deleting a receipt archives it, and a
+-- receipt can be moved, but the fact that THIS attachment of THIS message
+-- was already turned into a receipt is what stops a replay — a re-read, a
+-- re-analysis — from filing it a second time. Keyed by the inbound
+-- attachment, so a new message carrying the same document is a new row.
+--
+-- No foreign key to inbound_mail's tables: a module never points into
+-- another one's schema, and the ids are only ever compared, never joined.
+-- The receipt side keeps its key and loses it with the receipt
+-- (ON DELETE SET NULL), the memory staying.
+CREATE TABLE IF NOT EXISTS finance_receipt_mail_sources (
+    inbound_attachment_id INT UNSIGNED NOT NULL PRIMARY KEY,
+    inbound_message_id INT UNSIGNED NOT NULL,
+    attachment_id INT UNSIGNED NULL,
+    -- Why the receipt landed where it did: the link's origin (iban,
+    -- sender, attachment, manual…) or `content` for one read off the
+    -- general address. Shown on the receipt as a one-line explanation.
+    reason VARCHAR(20) NOT NULL,
+    recorded_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_frms_attachment (attachment_id),
+    INDEX idx_frms_message (inbound_message_id),
+    CONSTRAINT fk_frms_attachment FOREIGN KEY (attachment_id) REFERENCES finance_attachments(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- finance_transaction_attachments: many-to-many join — a receipt can

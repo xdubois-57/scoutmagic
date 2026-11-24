@@ -2,7 +2,7 @@
   "id": "finance",
   "name": "Finances",
   "description": "Comptes, mouvements et justificatifs.",
-  "version": "1.30.0",
+  "version": "1.31.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -694,6 +694,14 @@
       "type": "text",
       "label": "Durée de conservation",
       "description": "Nombre d'années après lesquelles les mouvements sont purgés."
+    },
+    {
+      "key": "finance_mail_receipts_caught_up_at",
+      "default_value": "",
+      "type": "text",
+      "label": "Reprise des reçus du courrier terminée",
+      "description": "Horodatage interne : le courrier déjà rattaché à un compte a été parcouru une fois pour classer les reçus qui ne l'avaient jamais été. Non modifiable.",
+      "editable": false
     }
   ],
   "cookies": [],
@@ -705,6 +713,14 @@
     {
       "key": "extract_receipt_data",
       "handler": "Modules\\Finance\\Task\\ExtractReceiptDataHandler"
+    },
+    {
+      "key": "backfill_receipt_readings",
+      "handler": "Modules\\Finance\\Task\\BackfillReceiptReadingsHandler"
+    },
+    {
+      "key": "catch_up_mail_receipts",
+      "handler": "Modules\\Finance\\Task\\CatchUpMailReceiptsHandler"
     },
     {
       "key": "run_categorization_rules",

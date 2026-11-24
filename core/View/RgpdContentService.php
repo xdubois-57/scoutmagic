@@ -953,8 +953,9 @@ pièce jointe de type reçu est lu pour reconnaître un reçu, le texte d'un PDF
 actif, une photo ou un scan sans texte est envoyé au fournisseur d'IA pour transcription — au plus un document par
 message —, ce qui fait de ce fournisseur un sous-traitant pour ce traitement (section 4, et 5.2 hors UE/EEE, comme pour
 la création automatique d'un séjour) ; un reçu reconnu est classé sans compte et le message N'EST PAS rattaché
-aux finances, les trésoriers ne voyant que le reçu. Sans connecteur IA, retire de ce paragraphe la phrase sur la
-transcription ; (i)
+aux finances, les trésoriers ne voyant que le reçu ; la référence interne du message et de la pièce jointe d'où vient
+un reçu est conservée avec lui, sans rien du contenu, pour qu'une relecture ne le recrée jamais. Sans connecteur IA,
+retire de ce paragraphe la phrase sur la transcription ; (i)
 conserve les paragraphes « Notifications internes » et « Adresse de réponse signée » : une notification ne cite que le
 dossier, jamais l'expéditeur ni l'objet ; l'adresse de réponse reprend une référence déjà présente dans l'e-mail et
 une signature, sans donnée personnelle, et une signature invalide fait une adresse ordinaire. **Le fournisseur de la

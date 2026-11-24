@@ -1574,6 +1574,8 @@ A receipt is a file, and a file's own access level only knows about roles — it
 
 This covers the receipts already stored before the change, not only the new ones, and it applies from the next page load on any installation — nobody has to open a particular screen for it to take effect. A receipt attached to no account at all is the sorting pile « Compte inconnu », where a receipt arriving by e-mail lands when nothing places it — including one recognised from its own content on the unit's general address, whose message stays unattached. It is open to the unit's treasurers and the chef d'unité, and to nobody else; once moved onto an account, it follows that account's rule.
 
+A receipt that arrived by e-mail says on its card where it came from and why it was filed there — the account's IBAN quoted, its sender, the treasury's own box, or its content on the general address — with no link to the message itself, whose reading stays the courrier's rule. Reading the mail again never files it again: a deleted receipt comes back only in a new message, and a receipt moved onto another account stays there. The receipts filed before this existed are caught up once — their AI reading, a few an hour; the mail already associated with an account whose receipt was never filed, walked once — and neither catch-up brings back a receipt somebody deleted or overrides a reading somebody typed in.
+
 ### 28.6 Out of scope
 
 A treasurer who is not an animator of the section, a per-account list of named people, an accountant role spanning the whole unit but excluded from one section, and reassigning an existing receipt from one account to another.

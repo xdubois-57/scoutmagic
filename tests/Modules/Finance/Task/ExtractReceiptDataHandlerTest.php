@@ -158,6 +158,47 @@ class ExtractReceiptDataHandlerTest extends TestCase
         return $content;
     }
 
+    /**
+     * The reading leaves its mark whatever it finds (#1342): that is what
+     * keeps Task\BackfillReceiptReadingsHandler from offering it again.
+     */
+    public function testTheReadingMarksTheReceiptWhateverItFinds(): void
+    {
+        $attachmentId = $this->createAttachment();
+        $connector = $this->createStub(LlmConnectorInterface::class);
+        $connector->method('isAvailable')->willReturn(true);
+        $connector->method('isTierAvailable')->willReturn(false);
+
+        (new ExtractReceiptDataHandler())->handle(
+            ['attachment_id' => $attachmentId],
+            $this->createTaskContext(connector: $connector)
+        );
+
+        $this->assertNotNull($this->extractionAttemptedAt($attachmentId));
+    }
+
+    /** A reading while no provider answers was never a reading: no mark, so the catch-up comes back. */
+    public function testNoMarkWhileNoProviderAnswers(): void
+    {
+        $attachmentId = $this->createAttachment();
+
+        (new ExtractReceiptDataHandler())->handle(
+            ['attachment_id' => $attachmentId],
+            $this->createTaskContext(withLlmConnector: false)
+        );
+
+        $this->assertNull($this->extractionAttemptedAt($attachmentId));
+    }
+
+    private function extractionAttemptedAt(int $attachmentId): ?string
+    {
+        $stmt = $this->pdo->prepare('SELECT extraction_attempted_at FROM finance_attachments WHERE id = ?');
+        $stmt->execute([$attachmentId]);
+        $value = $stmt->fetchColumn();
+
+        return $value === false || $value === null ? null : (string) $value;
+    }
+
     public function testNoOpWhenPayloadHasNoAttachmentId(): void
     {
         $handler = new ExtractReceiptDataHandler();

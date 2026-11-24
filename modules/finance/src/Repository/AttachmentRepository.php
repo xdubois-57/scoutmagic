@@ -38,21 +38,57 @@ class AttachmentRepository
     }
 
     /**
-     * Whether finance holds these bytes at all — on any account or none,
-     * active or archived (#1342).
+     * Every receipt holding these bytes, whatever its account and status,
+     * as `[id => status]` (#1342).
      *
-     * The question the deferred mail pass asks before it reads a document
-     * of the general address again. A receipt a treasurer has since moved
-     * onto an account, or archived, is a decision about THAT receipt; the
-     * same bytes arriving in the pile again would undo it, which the
-     * per-account lookup above cannot see.
+     * What the mail path asks before it files a document again: an active
+     * one anywhere means it is already filed — maybe since moved onto an
+     * account, which the per-account lookup above cannot see — and an
+     * archived one is a receipt somebody deleted.
+     *
+     * @return array<int, string>
      */
-    public function existsWithContentHash(string $contentHash): bool
+    public function statusesByContentHash(string $contentHash): array
     {
-        $stmt = $this->pdo->prepare('SELECT 1 FROM finance_attachments WHERE content_hash = ? LIMIT 1');
+        $stmt = $this->pdo->prepare(
+            'SELECT id, status FROM finance_attachments WHERE content_hash = ? ORDER BY id ASC'
+        );
         $stmt->execute([$contentHash]);
 
-        return $stmt->fetchColumn() !== false;
+        $statuses = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $statuses[(int) $row['id']] = (string) $row['status'];
+        }
+
+        return $statuses;
+    }
+
+    /**
+     * A receipt filed before finance kept a hash, recognised the only way
+     * left — same file name, same type — in any state (#1342). For the
+     * catch-up of old mail, which must not file twice what it cannot
+     * recognise by its bytes.
+     */
+    public function findUnhashedByName(string $originalFilename, string $mimeType): ?int
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT id FROM finance_attachments
+              WHERE content_hash IS NULL AND original_filename = ? AND mime_type = ?
+           ORDER BY id ASC LIMIT 1'
+        );
+        $stmt->execute([$originalFilename, $mimeType]);
+        $id = $stmt->fetchColumn();
+
+        return $id === false ? null : (int) $id;
+    }
+
+    public function findByFileId(int $fileId): ?Attachment
+    {
+        $stmt = $this->pdo->prepare('SELECT * FROM finance_attachments WHERE file_id = ? ORDER BY id ASC LIMIT 1');
+        $stmt->execute([$fileId]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+        return $row !== false ? $this->hydrate($row) : null;
     }
 
     public function findById(int $id): ?Attachment
@@ -520,6 +556,36 @@ class AttachmentRepository
      * one allowed AI-assisted matching attempt — set regardless of
      * whether that attempt found a movement, so it is never retried.
      */
+    /**
+     * The AI reading has run on this receipt (Task\ExtractReceiptDataHandler),
+     * whatever it found (#1342).
+     */
+    public function markExtractionAttempted(int $id): void
+    {
+        $this->pdo->prepare('UPDATE finance_attachments SET extraction_attempted_at = ? WHERE id = ?')
+            ->execute([date('Y-m-d H:i:s'), $id]);
+    }
+
+    /**
+     * Active receipts the AI reading has never run on, oldest first: no
+     * suggestion of any kind, and no attempt recorded. A receipt a person
+     * filled in by hand carries `suggested_source = 'manual'` and is not
+     * one of them.
+     *
+     * @return list<int>
+     */
+    public function findIdsNeverRead(int $limit): array
+    {
+        $stmt = $this->pdo->prepare(
+            "SELECT id FROM finance_attachments
+              WHERE status = 'active' AND suggested_source IS NULL AND extraction_attempted_at IS NULL
+           ORDER BY id ASC LIMIT " . max(1, $limit)
+        );
+        $stmt->execute();
+
+        return array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN));
+    }
+
     public function markAiMatchAttempted(int $id): void
     {
         $stmt = $this->pdo->prepare('UPDATE finance_attachments SET matching_ai_attempted_at = ? WHERE id = ?');

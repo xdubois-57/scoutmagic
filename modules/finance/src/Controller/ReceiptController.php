@@ -63,9 +63,31 @@ class ReceiptController extends AbstractController
          * Null without `inbound_mail`, and the page then has no « Courrier
          * à trier » block — which is exactly true.
          */
-        private ?\Modules\InboundMail\Api\InboundMailInterface $inboundMail = null
+        private ?\Modules\InboundMail\Api\InboundMailInterface $inboundMail = null,
+        /**
+         * Where a receipt that arrived by e-mail came from, and why it was
+         * filed there (#1342, decision 8). Null: no line is shown, which is
+         * what the screen showed before.
+         */
+        private ?\Modules\Finance\Repository\ReceiptMailSourceRepository $mailSources = null
     ) {
     }
+
+    /**
+     * The one-line explanation shown under a receipt that arrived by e-mail,
+     * by the reason its provenance records (#1342). Deliberately no link to
+     * the message: who may open it is the courrier's question, and a
+     * treasurer seeing a receipt from the general address may not.
+     */
+    private const ORIGIN_LABELS = [
+        'iban' => 'Arrivé par e-mail : l\'IBAN du compte était cité',
+        'sender' => 'Arrivé par e-mail : envoyé par un animateur de ce staff',
+        'attachment' => 'Arrivé par e-mail sur la boîte de la trésorerie',
+        'content' => 'Arrivé par e-mail : reconnu à son contenu, sur l\'adresse générale',
+        'manual' => 'Arrivé par e-mail : rattaché par un trésorier',
+    ];
+
+    private const ORIGIN_FALLBACK = 'Arrivé par e-mail';
 
     /**
      * The references this session may answer for: its visible accounts,
@@ -404,11 +426,19 @@ class ReceiptController extends AbstractController
             ($page - 1) * self::PER_PAGE
         );
 
+        $origins = $this->mailSources?->originsFor(array_map(
+            static fn(array $row): int => $row['attachment']->id,
+            $results
+        )) ?? [];
+
         return array_map(
             fn(array $row) => [
                 'attachment' => $row['attachment'],
                 'movement_count' => $row['movement_count'],
                 'is_pending' => $row['movement_count'] === 0,
+                'origin' => isset($origins[$row['attachment']->id])
+                    ? (self::ORIGIN_LABELS[$origins[$row['attachment']->id]['reason']] ?? self::ORIGIN_FALLBACK)
+                    : null,
             ],
             $results
         );

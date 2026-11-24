@@ -9255,7 +9255,9 @@ if ($isEnabled('finance')) {
             $journalService,
             // The mail this module proposed on, for the treasury to answer
             // (§7.5): null without `inbound_mail`, and no block then.
-            $inboundMailForOthers
+            $inboundMailForOthers,
+            // Where a receipt that arrived by e-mail came from (#1342).
+            new \Modules\Finance\Repository\ReceiptMailSourceRepository($pdo)
         )
     );
     $frontController->registerController(

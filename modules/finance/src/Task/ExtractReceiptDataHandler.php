@@ -117,6 +117,13 @@ class ExtractReceiptDataHandler implements TaskHandlerInterface
             return;
         }
 
+        // The reading is being attempted, whatever it finds (#1342): what
+        // tells Task\BackfillReceiptReadingsHandler this receipt is not one
+        // that was filed while the reading was not wired. Written only past
+        // the connector check — a receipt read while no provider answered
+        // was never read, and stays one the catch-up offers again.
+        $attachmentRepository->markExtractionAttempted($attachmentId);
+
         $fileStorage = new EncryptedFileStorageService(
             new FileRepository($pdo),
             $context->encryption,

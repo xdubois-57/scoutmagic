@@ -544,19 +544,138 @@ class FinanceMessageConsumerTest extends TestCase
 
     // ── The deferred pass: what only the stored message can answer (#1342) ──
 
-    public function testTheDeferredPassLeavesAMessageThisModuleAlreadyHoldsAlone(): void
+    /**
+     * The catch-up of decision 9: an association nobody made whose receipt
+     * was never filed — a failure in onLinked(), or a gap #1342 fixed — is
+     * filed by the deferred pass, once.
+     */
+    public function testAMessageLinkedWithoutItsReceiptHasItFiledOnce(): void
     {
+        $filed = [];
         $reader = $this->readerAnswering([88 => "FACTURE\nTotal: 42.50 EUR"]);
+        $consumer = $this->consumer($filed, attachmentText: $reader);
+        $message = $this->generalMessage(
+            [$this->storedAttachment(88)],
+            links: [new MessageLink(FinanceMessageConsumer::CONSUMER_ID, FinanceMessageConsumer::REFERENCE_UNKNOWN, LinkOrigin::ATTACHMENT)]
+        );
+
+        $this->assertTrue($consumer->analyzeStored($message)->isEmpty());
+        $consumer->analyzeStored($message);
+
+        $this->assertSame([['filename' => 'facture.pdf', 'account_id' => null, 'role' => RecordingExpenseReceipts::UNATTENDED]], $filed);
+        $this->assertSame([], $reader->readFor, 'the association placed it: nothing is read');
+        $this->assertSame('attachment', $this->sourceReason(88));
+    }
+
+    /** A person's association files under their own right; the unattended door does not stand in for it. */
+    public function testTheCatchUpLeavesAPersonsAssociationAlone(): void
+    {
         $filed = [];
 
-        $result = $this->consumer($filed, attachmentText: $reader)->analyzeStored($this->generalMessage(
+        $this->consumer($filed)->analyzeStored($this->generalMessage(
+            [$this->storedAttachment(88)],
+            links: [new MessageLink(FinanceMessageConsumer::CONSUMER_ID, FinanceMessageConsumer::referenceFor($this->accountId), LinkOrigin::MANUAL, 0, 7)]
+        ));
+
+        $this->assertSame([], $filed);
+    }
+
+    /** Bytes finance holds in any state — here deleted, so archived — are remembered, never filed again. */
+    public function testTheCatchUpBringsBackNoReceiptSomebodyDeleted(): void
+    {
+        $this->heldReceipt('archived');
+        $filed = [];
+
+        $this->consumer($filed)->analyzeStored($this->generalMessage(
             [$this->storedAttachment(88)],
             links: [new MessageLink(FinanceMessageConsumer::CONSUMER_ID, FinanceMessageConsumer::REFERENCE_UNKNOWN, LinkOrigin::ATTACHMENT)]
         ));
 
-        $this->assertTrue($result->isEmpty());
         $this->assertSame([], $filed);
-        $this->assertSame([], $reader->readFor);
+        $this->assertSame('already_held', $this->sourceReason(88));
+    }
+
+    /**
+     * Decision 3: a deleted receipt comes back only from a NEW message. The
+     * archived one is known to have come from message 54; this is 55.
+     */
+    public function testADeletedReceiptComesBackFromANewMessage(): void
+    {
+        $this->recordSource(70, 54, $this->heldReceipt('archived'));
+        $filed = [];
+
+        $this->consumer($filed, attachmentText: $this->readerAnswering([88 => "FACTURE\nTotal: 42.50 EUR"]))
+            ->analyzeStored($this->generalMessage([$this->storedAttachment(88)]));
+
+        $this->assertCount(1, $filed);
+        $this->assertSame('content', $this->sourceReason(88));
+    }
+
+    /** The same invoice forwarded twice: a live receipt from another message stops it, provenance or not. */
+    public function testALiveReceiptFromAnotherMessageIsNotFiledTwice(): void
+    {
+        $this->recordSource(70, 54, $this->heldReceipt('active'));
+        $filed = [];
+
+        $this->consumer($filed, attachmentText: $this->readerAnswering([88 => "FACTURE\nTotal: 42.50 EUR"]))
+            ->analyzeStored($this->generalMessage([$this->storedAttachment(88)]));
+
+        $this->assertSame([], $filed);
+    }
+
+    /** …and not from the message it was deleted from, nor when nobody can say where it came from. */
+    public function testADeletedReceiptDoesNotComeBackFromTheSameMessageNorFromAnUnknownOne(): void
+    {
+        $fromThisMessage = $this->heldReceipt('archived');
+        $this->recordSource(70, 55, $fromThisMessage);
+        $filed = [];
+
+        $this->consumer($filed, attachmentText: $this->readerAnswering([88 => "FACTURE\nTotal: 42.50 EUR"]))
+            ->analyzeStored($this->generalMessage([$this->storedAttachment(88)]));
+        $this->pdo->exec('DELETE FROM finance_receipt_mail_sources');
+        $this->consumer($filed, attachmentText: $this->readerAnswering([88 => "FACTURE\nTotal: 42.50 EUR"]))
+            ->analyzeStored($this->generalMessage([$this->storedAttachment(88)]));
+
+        $this->assertSame([], $filed);
+    }
+
+    /** A re-read of the same attachment files nothing, even once its receipt was moved or deleted. */
+    public function testAnAttachmentAlreadyThroughFinanceIsNotFiledAgainByNobody(): void
+    {
+        $this->recordSource(88, 55, null);
+        $filed = [];
+
+        $this->consumer($filed)->onLinked(
+            $this->generalMessage([$this->storedAttachment(88)]),
+            new MessageLink(FinanceMessageConsumer::CONSUMER_ID, FinanceMessageConsumer::referenceFor($this->accountId), LinkOrigin::IBAN)
+        );
+
+        $this->assertSame([], $filed);
+    }
+
+    /** A person associating it again is a decision of their own: it files. */
+    public function testAPersonAssociatingAnAttachmentAgainFilesIt(): void
+    {
+        $this->recordSource(88, 55, null);
+        $filed = [];
+
+        $this->consumer($filed, actorFor: 7)->onLinked(
+            $this->generalMessage([$this->storedAttachment(88)]),
+            new MessageLink(FinanceMessageConsumer::CONSUMER_ID, FinanceMessageConsumer::referenceFor($this->accountId), LinkOrigin::MANUAL, 0, 7)
+        );
+
+        $this->assertCount(1, $filed);
+    }
+
+    /** Where it came from and why: the association's origin, kept with the receipt. */
+    public function testAnUnattendedFilingRemembersWhyItLandedThere(): void
+    {
+        $this->consumer()->onLinked(
+            $this->generalMessage([$this->storedAttachment(88)]),
+            new MessageLink(FinanceMessageConsumer::CONSUMER_ID, FinanceMessageConsumer::referenceFor($this->accountId), LinkOrigin::SENDER)
+        );
+
+        $this->assertSame('sender', $this->sourceReason(88));
     }
 
     /**
@@ -652,10 +771,7 @@ class FinanceMessageConsumerTest extends TestCase
     #[\PHPUnit\Framework\Attributes\DataProvider('decisionsOnAReceipt')]
     public function testAReceiptFinanceAlreadyHoldsIsNeitherReadNorFiledAgain(string $status): void
     {
-        $this->pdo->prepare(
-            'INSERT INTO finance_attachments (account_id, file_id, mime_type, original_filename, status, content_hash)
-             VALUES (?, 1, ?, ?, ?, ?)'
-        )->execute([$this->accountId, 'application/pdf', 'facture.pdf', $status, hash('sha256', 'des octets')]);
+        $this->heldReceipt($status);
         $filed = [];
         $reader = $this->readerAnswering([88 => "FACTURE\nTotal: 42.50 EUR"]);
 
@@ -1209,6 +1325,32 @@ class FinanceMessageConsumerTest extends TestCase
                 return $this->failed;
             }
         };
+    }
+
+    /** A receipt holding the bytes every test reader returns ('des octets'). */
+    private function heldReceipt(string $status): int
+    {
+        $this->pdo->prepare(
+            'INSERT INTO finance_attachments (account_id, file_id, mime_type, original_filename, status, content_hash)
+             VALUES (?, 1, ?, ?, ?, ?)'
+        )->execute([$this->accountId, 'application/pdf', 'facture.pdf', $status, hash('sha256', 'des octets')]);
+
+        return (int) $this->pdo->lastInsertId();
+    }
+
+    private function recordSource(int $inboundAttachmentId, int $inboundMessageId, ?int $attachmentId): void
+    {
+        (new \Modules\Finance\Repository\ReceiptMailSourceRepository($this->pdo))
+            ->record($inboundAttachmentId, $inboundMessageId, $attachmentId, 'iban');
+    }
+
+    private function sourceReason(int $inboundAttachmentId): ?string
+    {
+        $stmt = $this->pdo->prepare('SELECT reason FROM finance_receipt_mail_sources WHERE inbound_attachment_id = ?');
+        $stmt->execute([$inboundAttachmentId]);
+        $reason = $stmt->fetchColumn();
+
+        return $reason === false ? null : (string) $reason;
     }
 
     private function boxDedicatedToFinance(): \Modules\InboundMail\Api\InboundMailInterface
