@@ -12,7 +12,8 @@ related: publier-une-actualite, decouvrir-le-site
 
 La page Actualités publie les articles de l'unité : annonces,
 évènements, fêtes. Un article peut porter un formulaire d'inscription
-— le badge « Formulaire ouvert » le signale dès la liste.
+— le badge « Formulaire ouvert » le signale dès la liste, seulement
+quand il y a vraiment des questions à remplir.
 
 ## Répondre à un formulaire
 

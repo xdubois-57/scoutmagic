@@ -362,6 +362,117 @@ class NewsIntegrationTest extends TestCase
         $this->assertStringNotContainsString('/gerer', $body);
     }
 
+    // ── The form badge of a list card (#1377) ──────────────────────────
+
+    /**
+     * A published public article with a form row, the fields given as
+     * [type, label] pairs, and the form forced closed or not.
+     *
+     * @param list<array{0: string, 1: string}> $fields
+     */
+    private function publishedArticleWithForm(string $title, array $fields, bool $forceClosed = false): int
+    {
+        $articleId = NewsTestHelper::publish(
+            $this->pdo,
+            $this->articleRepository->create($title, Article::VISIBILITY_PUBLIC, true, null, null, $this->chiefAccountId)
+        );
+        $formId = $this->formRepository->create(
+            $articleId,
+            NewsForm::ACCESS_PUBLIC,
+            NewsForm::RESPONSE_LIMIT_UNLIMITED,
+            null,
+            null,
+            $forceClosed,
+            'chief',
+            null,
+            null
+        );
+        foreach ($fields as $order => [$type, $label]) {
+            $this->fieldRepository->create($formId, $order, $type, $label, false, null, null, null, null, null);
+        }
+
+        return $articleId;
+    }
+
+    /** @return array<string, string> both lists, as the visitor and the manager see them */
+    private function listBodies(): array
+    {
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+
+        return [
+            'public' => $this->newsController->index(new Request('GET', '/news', [], [], [], []), [])->getBody(),
+            'manage' => $this->newsController->manage(new Request('GET', '/news/manage', [], [], [], []), [])->getBody(),
+        ];
+    }
+
+    public function testAFormWithOnlyATextBlockShowsNoBadgeInEitherList(): void
+    {
+        // The default article: a form row that holds a single block of text.
+        $this->publishedArticleWithForm('Fête du test', [[FormField::TYPE_TEXT, 'Bienvenue']]);
+
+        foreach ($this->listBodies() as $list => $body) {
+            $this->assertStringContainsString('Fête du test', $body, $list);
+            $this->assertStringNotContainsString('Formulaire ouvert', $body, $list);
+            $this->assertStringNotContainsString('Formulaire fermé', $body, $list);
+        }
+    }
+
+    public function testAFormWithOnlyNonInputFieldsShowsNoBadgeEvenWhenClosed(): void
+    {
+        $this->publishedArticleWithForm(
+            'Miam',
+            [[FormField::TYPE_TEXT, 'Menu'], [FormField::TYPE_CONFIRMATION, 'J\'ai lu']],
+            forceClosed: true
+        );
+
+        foreach ($this->listBodies() as $list => $body) {
+            $this->assertStringContainsString('Miam', $body, $list);
+            $this->assertStringNotContainsString('Formulaire ouvert', $body, $list);
+            $this->assertStringNotContainsString('Formulaire fermé', $body, $list);
+        }
+    }
+
+    public function testAnArticleWithoutAnyFormShowsNoBadge(): void
+    {
+        NewsTestHelper::publish($this->pdo, $this->articleRepository->create('Sans formulaire', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId));
+
+        foreach ($this->listBodies() as $list => $body) {
+            $this->assertStringContainsString('Sans formulaire', $body, $list);
+            $this->assertStringNotContainsString('Formulaire ouvert', $body, $list);
+            $this->assertStringNotContainsString('Formulaire fermé', $body, $list);
+        }
+    }
+
+    public function testAnOpenFormWithARealFieldShowsTheOpenBadgeInBothLists(): void
+    {
+        $this->publishedArticleWithForm('Inscription', [[FormField::TYPE_TEXT, 'Intro'], [FormField::TYPE_SHORT_TEXT, 'Votre nom']]);
+
+        foreach ($this->listBodies() as $list => $body) {
+            $this->assertStringContainsString('Formulaire ouvert', $body, $list);
+            $this->assertStringNotContainsString('Formulaire fermé', $body, $list);
+        }
+    }
+
+    public function testAClosedFormWithARealFieldShowsTheClosedBadgeInBothLists(): void
+    {
+        $this->publishedArticleWithForm('Inscription close', [[FormField::TYPE_SHORT_TEXT, 'Votre nom']], forceClosed: true);
+
+        foreach ($this->listBodies() as $list => $body) {
+            $this->assertStringContainsString('Formulaire fermé', $body, $list);
+            $this->assertStringNotContainsString('Formulaire ouvert', $body, $list);
+        }
+    }
+
+    public function testTheBadgeFollowsTheFieldsOfEachCardNotThoseOfItsNeighbour(): void
+    {
+        $this->publishedArticleWithForm('Avec question', [[FormField::TYPE_SHORT_TEXT, 'Votre nom']]);
+        $this->publishedArticleWithForm('Texte seul', [[FormField::TYPE_TEXT, 'Bienvenue']]);
+
+        foreach ($this->listBodies() as $list => $body) {
+            $this->assertSame(1, substr_count($body, 'Formulaire ouvert'), $list);
+        }
+    }
+
     public function testTheFormTabsAreTheSharedNavRailAndNoLongerPills(): void
     {
         AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
