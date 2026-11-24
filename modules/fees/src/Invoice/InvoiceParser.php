@@ -48,8 +48,8 @@ class InvoiceParser
     /** A section code as this federation writes one: letters, then digits. */
     private const SECTION_CODE = '/\b[A-Z]{1,6}\d{2,}[A-Z0-9]*\b/u';
     private const TARIFF_REFERENCE = '[A-Z]{3}_[A-Za-z0-9_]+';
-    /** The next footer token can be attached directly after the page total. */
-    private const PAGE_MARKER = '/\bPage\s*(\d+)\s*(?:sur\s*|\/\s*)(\d+)/ui';
+    /** An attached footer token is allowed, but the prefix of a birth date is not. */
+    private const PAGE_MARKER = '/\bPage\s*(\d+)\s*(?:sur\s*|\/\s*)(\d+)(?![\d\/])/ui';
 
     /**
      * The label the federation prints instead of a code for the unit's own
@@ -61,7 +61,9 @@ class InvoiceParser
 
     public function parse(string $text): InvoiceReadResult
     {
-        $lines = preg_split('/\R/u', $text) ?: [];
+        // Count and consume boundaries using the same newline convention.
+        $text = preg_replace('/\R/u', "\n", $text) ?? $text;
+        $lines = explode("\n", $text);
         $stats = new InvoiceReadStats();
         $stats->extractedLines = count($lines);
         $stats->pageCount = self::pageCount($text);
@@ -70,6 +72,7 @@ class InvoiceParser
         // only when a printed page total corroborates the exact block count;
         // an arbitrary blank paragraph alone proves no page break.
         $pageSeparators = $stats->pageCount !== null
+            && $stats->pageCount > 1
             && count(explode("\n\n", $text)) === $stats->pageCount;
 
         /** @var InvoiceLine[] $tariffLines */
@@ -102,7 +105,7 @@ class InvoiceParser
             $cells = trim(preg_replace('/[^\S\t]+/u', ' ', $collapsed) ?? '');
             $line = trim(preg_replace('/\s+/u', ' ', $collapsed) ?? '');
             if ($line === '') {
-                $pageBreak = $pageBreak || $pageSeparators;
+                $pageBreak = $pageBreak || ($pageSeparators && $rawLine === '');
                 continue;
             }
             $stats->nonEmptyLines++;
@@ -116,8 +119,8 @@ class InvoiceParser
                 continue;
             }
 
-            if (preg_match(self::PAGE_MARKER, $line) === 1) {
-                $pageBreak = true;
+            if (preg_match(self::PAGE_MARKER, $line, $pageMarker) === 1) {
+                $pageBreak = $pageBreak || (int) $pageMarker[2] > 1;
                 $ignored++;
                 continue;
             }
@@ -257,11 +260,12 @@ class InvoiceParser
     private static function isTariffHeader(string $line): bool
     {
         $lower = mb_strtolower($line);
+        $hasReference = str_contains($lower, 'référence') || str_contains($lower, 'reference');
 
         return preg_match('/\d/u', $line) !== 1
             && str_contains($lower, 'description')
             && str_contains($lower, 'montant')
-            && (str_contains($lower, 'référence') || str_contains($lower, 'reference'));
+            && $hasReference;
     }
 
     /** @param InvoiceProblem[] $problems */

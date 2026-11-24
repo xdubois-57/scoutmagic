@@ -11,6 +11,7 @@ namespace Tests\Modules\Fees\Invoice;
 use Core\File\PdfTextExtractor;
 use Modules\Fees\Invoice\InvoiceLine;
 use Modules\Fees\Invoice\InvoiceParser;
+use Modules\Fees\Invoice\InvoicePerson;
 use Modules\Fees\Invoice\InvoiceProblem;
 use Modules\Fees\Invoice\InvoiceReader;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -117,6 +118,20 @@ final class InvoiceSummaryReaderTest extends TestCase
         ]);
 
         self::assertFalse($result->isAccepted());
+    }
+
+    public function testAFirstNamePageFollowedByABirthDateIsNotPagination(): void
+    {
+        $result = $this->read([[
+            'COT_NORM Cotisation normale ZX777B1 40,00 1 40,00',
+            'SOLIS Page 11/02/2001 Membre',
+            'TOTAL A PAYER 40,00',
+        ]]);
+
+        self::assertSame([true, ['Page'], null], [$result->isAccepted(),
+            array_map(static fn(InvoicePerson $person): string => $person->firstName,
+                $result->invoice?->lines[0]->people ?? []),
+            $result->stats->pageCount]);
     }
 
     /** @return iterable<string, array{bool}> */

@@ -82,9 +82,15 @@ class InvoiceVerificationService
 
     private static function quantityGroup(StoredInvoiceLine $line): string
     {
-        $tariff = $line->nature === InvoiceLine::NATURE_FEE
-            ? (FeeCategoryClassifier::classify($line->reference, $line->descriptor)->value ?? $line->reference)
-            : (self::mentionsBrevet($line) ? 'brevet' : $line->reference);
+        $tariff = $line->reference;
+        if ($line->nature === InvoiceLine::NATURE_FEE) {
+            $category = FeeCategoryClassifier::classify($line->reference, $line->descriptor);
+            if ($category !== null) {
+                $tariff = $category->value;
+            }
+        } elseif (self::mentionsBrevet($line)) {
+            $tariff = 'brevet';
+        }
 
         return $line->nature . '|' . ($line->sectionId ?? '-') . '|' . strtoupper($tariff);
     }

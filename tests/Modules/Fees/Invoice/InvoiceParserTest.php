@@ -199,6 +199,39 @@ class InvoiceParserTest extends TestCase
 
     // -- 4. Page-break repetition ----------------------------------------
 
+    /** @return iterable<string, array{string, bool, string}> */
+    public static function blankParagraphs(): iterable
+    {
+        yield 'single page, spaces' => ['   ', false, "\n"];
+        yield 'single page, tab' => ["\t", false, "\n"];
+        yield 'single page, NBSP' => ["\u{00A0}", false, "\n"];
+        yield 'single page, narrow NBSP' => ["\u{202F}", false, "\n"];
+        yield 'single-page counter inside the text stream' => ['Page 1/1', false, "\n"];
+        yield 'two pages, spaces inside first page' => ['   ', true, "\n"];
+        yield 'single page, CRLF blank paragraph' => ['', false, "\r\n"];
+        yield 'two pages, CRLF blank paragraph inside first page' => ['', true, "\r\n"];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('blankParagraphs')]
+    public function testWhitespaceParagraphsDoNotTurnIndependentSummariesIntoPageContinuations(
+        string $blank,
+        bool $twoPages,
+        string $newline
+    ): void {
+        $text = implode($newline, [
+            'COT_NORM Cotisation normale ZX777B1 40,00 1 40,00',
+            $blank,
+            'COT_NORM Cotisation normale ZX777B1 40,00 1 40,00',
+            'TOTAL A PAYER 80,00',
+        ]);
+        $text .= $twoPages ? "\n\nPage 2/2" : $newline . 'Page 1/1';
+
+        $result = $this->parser->parse($text);
+
+        $this->assertSame([true, 2, 8000, 0], [$result->isAccepted(), count($result->invoice?->lines ?? []),
+            $result->invoice?->recomputedTotalCents(), $result->stats->repeatedTariffRows]);
+    }
+
     public function testTheSameTupleAtAPageBreakIsOneLineWhoseListsAreMerged(): void
     {
         $repeated = [
