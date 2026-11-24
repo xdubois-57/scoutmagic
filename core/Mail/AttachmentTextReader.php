@@ -191,7 +191,7 @@ class AttachmentTextReader
             if ($read >= self::MAX_ATTACHMENTS) {
                 break;
             }
-            if (!self::isReadable($attachment) && !self::isPicture($attachment)) {
+            if (!self::willRead($attachment)) {
                 continue;
             }
 
@@ -310,6 +310,21 @@ class AttachmentTextReader
         }
 
         return $texts;
+    }
+
+    /**
+     * Whether {@see read()} and {@see readEach()} would read this
+     * attachment at all — and so count it against
+     * {@see self::MAX_ATTACHMENTS}.
+     *
+     * Public for a caller that has to fetch the bytes itself before the
+     * reader does (finance, which hashes them first): the same predicate,
+     * so a signature logo below {@see self::MIN_PICTURE_BYTES} neither gets
+     * decrypted for nothing nor takes the place of the invoice behind it.
+     */
+    public static function willRead(InboundAttachment $attachment): bool
+    {
+        return self::isReadable($attachment) || self::isPicture($attachment);
     }
 
     /** The shapes whose text is really text, and costs nothing to read. */

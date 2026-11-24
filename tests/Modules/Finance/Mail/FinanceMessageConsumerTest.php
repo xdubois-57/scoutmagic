@@ -688,6 +688,31 @@ class FinanceMessageConsumerTest extends TestCase
         $this->assertSame([[81, 82, 83]], $reader->readFor);
     }
 
+    /** Three signature logos ahead of the invoice: they take no place in the reader's count. */
+    public function testSmallPicturesDoNotCrowdOutTheInvoice(): void
+    {
+        $fetched = [];
+        $attachments = [];
+        foreach (range(81, 83) as $id) {
+            $attachments[] = new InboundAttachment($id, 55, 900 + $id, "logo{$id}.png", 'image/png', 20000, 'h-' . $id);
+        }
+        $attachments[] = $this->storedAttachment(84);
+        $filed = [];
+
+        $this->consumer(
+            $filed,
+            readFile: static function (int $fileId) use (&$fetched): string {
+                $fetched[] = $fileId;
+
+                return 'octets ' . $fileId;
+            },
+            attachmentText: $this->readerAnswering([84 => "FACTURE\nTotal: 42.50 EUR"])
+        )->analyzeStored($this->generalMessage($attachments));
+
+        $this->assertSame([984], $fetched, 'no logo is decrypted');
+        $this->assertSame(['facture.pdf'], array_column($filed, 'filename'));
+    }
+
     public function testOnlyTheAttachmentThatReadsLikeAReceiptIsFiled(): void
     {
         $filed = [];

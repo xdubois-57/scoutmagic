@@ -527,7 +527,7 @@ class FinanceMessageConsumer implements
             if (count($fresh) >= AttachmentTextReader::MAX_ATTACHMENTS) {
                 break;
             }
-            if ($attachment->sizeBytes > AttachmentTextReader::MAX_FILE_BYTES) {
+            if (!AttachmentTextReader::willRead($attachment)) {
                 continue;
             }
             $content = ($this->readFile)($attachment->fileId);
