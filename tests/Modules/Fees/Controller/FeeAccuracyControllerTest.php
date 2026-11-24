@@ -748,6 +748,9 @@ class FeeAccuracyControllerTest extends TestCase
             . '"debut_invites":"01/06","fin_invites":"31/08"}'
         ));
         AuthSession::login(1, 'admin@test.be', 'admin');
+        $this->tariffs->save(HouseholdFeeCategory::COUPLE, null, 4600);
+        $this->tariffs->save(FeeTariff::GUEST, null, 1825);
+        $before = $this->storedScaleState();
         $posted = array_replace($this->validBody(), [
             'amount_normal' => '61,11', 'amount_couple' => '', 'amount_guest' => '0',
             'guest_from' => '02/06', 'guest_until' => '15/09',
@@ -764,7 +767,7 @@ class FeeAccuracyControllerTest extends TestCase
             $this->assertStringContainsString('57,50 €', $body);
             $this->assertStringContainsString('À compléter : Couple, Familiale', $body);
             $this->assertStringContainsString(FederalScaleLookupService::DEFAULT_URL, $body);
-            $this->assertSame(0, $this->storedTariffRows());
+            $this->assertSame($before, $this->storedScaleState());
         }
         $this->assertNotNull(SuggestedScale::peek('2025-2026'));
     }
@@ -779,7 +782,11 @@ class FeeAccuracyControllerTest extends TestCase
     public function testApplyingUsesCurrentFieldsAndDoesNotSave(string $mode, string $from, string $until): void
     {
         AuthSession::login(1, 'admin@test.be', 'admin');
-        SuggestedScale::rememberDraft('2025-2026', array_replace($this->validBody(), ['amount_couple' => '45']));
+        $this->tariffs->save(HouseholdFeeCategory::FAMILY, null, 3900);
+        $before = DatabaseTestHelper::snapshot($this->pdo);
+        SuggestedScale::rememberDraft('2025-2026', array_replace($this->validBody(), [
+            'amount_couple' => '45', 'amount_family' => '39,00', 'amount_guest' => '18,25',
+        ]));
         SuggestedScale::set(FederalScaleLookup::found(
             FederalScaleLookupService::DEFAULT_URL, '2025-2026', ['normal' => 5750, 'iama' => 2500], '01/06', '31/08'
         ));
@@ -797,12 +804,14 @@ class FeeAccuracyControllerTest extends TestCase
             'fee_category_normal' => (string) $this->normalFeeId] as $name => $value) {
             $this->assertSame($value, $this->fieldValue($body, $name), $name);
         }
-        $this->assertSame(0, $this->storedTariffRows());
+        $this->assertSame($before, DatabaseTestHelper::snapshot($this->pdo));
         $this->assertNull(SuggestedScale::peek('2025-2026'));
         // A replay cannot overwrite what was filled by the first application.
+        $applied = SuggestedScale::draftFor('2025-2026');
         $this->dispatch('POST', '/admin/fees/tarifs/bareme/appliquer', 'applyTariffs', $posted);
-        $this->assertSame('error', FlashMessage::get()['type']);
-        $this->assertSame('49,12', SuggestedScale::draftFor('2025-2026')['amount_couple']);
+        $this->assertSame(['error', $applied], [
+            FlashMessage::get()['type'], SuggestedScale::draftFor('2025-2026'),
+        ]);
     }
 
     public function testAReplacedProposalAndAnotherYearCannotBeApplied(): void
@@ -813,11 +822,17 @@ class FeeAccuracyControllerTest extends TestCase
         $oldToken = SuggestedScale::peek('2025-2026')['token'];
         SuggestedScale::set($lookup);
         $current = SuggestedScale::peek('2025-2026');
-        $posted = array_replace($this->validBody(), ['proposal_token' => $oldToken, 'apply_scale' => 'all']);
+        SuggestedScale::rememberDraft('2025-2026', array_replace($this->validBody(), ['amount_couple' => '44,00']));
+        $posted = array_replace($this->validBody(), [
+            'proposal_token' => $oldToken, 'apply_scale' => 'all',
+            'amount_couple' => '47,23', 'amount_normal' => '61,11',
+        ]);
         $this->dispatch('POST', '/admin/fees/tarifs/bareme/appliquer', 'applyTariffs', $posted);
-        $this->assertSame('error', FlashMessage::get()['type']);
-        $this->assertSame($current, SuggestedScale::peek('2025-2026'));
-        $this->assertNull(SuggestedScale::draftFor('2025-2026'));
+        $draft = SuggestedScale::draftFor('2025-2026');
+        $this->assertSame(['error', $current, '47,23', '61,11', 0], [
+            FlashMessage::get()['type'], SuggestedScale::peek('2025-2026'),
+            $draft['amount_couple'] ?? null, $draft['amount_normal'] ?? null, $this->storedTariffRows(),
+        ]);
         $this->switchToTheShippedYear();
         $posted['proposal_token'] = $current['token'];
         $this->dispatch('POST', '/admin/fees/tarifs/bareme/appliquer', 'applyTariffs', $posted);
@@ -943,6 +958,14 @@ class FeeAccuracyControllerTest extends TestCase
         $this->settingService->setInternal(ScoutYearResolver::SETTING_PUBLIC_YEAR, (string) $shippedYearId);
     }
 
+    /** @return array<string, list<string>> */
+    private function storedScaleState(): array
+    {
+        $snapshot = DatabaseTestHelper::snapshot($this->pdo);
+
+        return ['tariffs' => $snapshot['fees_household_tariffs'], 'settings' => $snapshot['settings']];
+    }
+
     private function storedTariffRows(): int
     {
         return (int) $this->pdo->query('SELECT COUNT(*) FROM fees_household_tariffs')->fetchColumn();
@@ -969,8 +992,8 @@ class FeeAccuracyControllerTest extends TestCase
 
     /**
      * A failed lookup says nothing was pre-filled: the page it redirects to
-     * must not open pre-filled from the shipped scale either. The next
-     * visit offers it again.
+     * must retain the draft rather than opening shipped defaults, on
+     * this render and subsequent visits alike.
      */
     public function testAFailedLookupIsNotContradictedByTheShippedScale(): void
     {
@@ -1003,7 +1026,7 @@ class FeeAccuracyControllerTest extends TestCase
         $this->assertSame(0, $this->storedTariffRows());
     }
 
-    /** One amount the unit saved and the barème is theirs: nothing shipped sits over it. */
+    /** Saved rows remain unchanged while missing rows can receive shipped defaults. */
     public function testTheShippedScaleNeverCoversAStoredAmount(): void
     {
         $this->switchToTheShippedYear();

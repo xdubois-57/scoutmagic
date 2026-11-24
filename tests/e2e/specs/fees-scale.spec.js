@@ -65,6 +65,19 @@ test('the scale keeps edits, applies a partial proposal explicitly and saves all
         await testInfo.attach(`scale-${width}`, { body: await form.screenshot(), contentType: 'image/png' });
     }
     await page.setViewportSize({ width: 375, height: 900 });
+    // A second tab replaces the proposal while this page still carries the
+    // old token. Refusal must preserve THIS page's edits and keep the new
+    // proposal available for an explicit retry.
+    const otherTab = await page.context().newPage();
+    await otherTab.goto('/admin/fees/tarifs', { waitUntil: 'load' });
+    await offerProposal(otherTab, year);
+    await amount('Couple').fill('48,34');
+    await page.getByRole('button', { name: 'Reprendre les montants', exact: true }).click();
+    await expect(page.getByRole('alert').filter({ hasText: 'Cette proposition a expiré ou a été remplacée' })).toBeVisible();
+    await expect(amount('Couple')).toHaveValue('48,34');
+    await expect(amount('Normale')).toHaveValue('61,11');
+    await expect(page.getByRole('heading', { name: `Proposition fédérale pour ${year}` })).toBeVisible();
+    await otherTab.close();
     await amount('Couple').fill('47,23');
     await page.getByRole('button', { name: 'Reprendre les montants', exact: true }).click();
     await expect(amount('Normale')).toHaveValue('58,12');

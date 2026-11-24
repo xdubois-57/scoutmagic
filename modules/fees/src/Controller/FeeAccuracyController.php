@@ -286,7 +286,8 @@ class FeeAccuracyController extends AbstractController
                     $year->label, $request->getBody('proposal_token'), $request->getBodyAll(), $mode === 'all'
                 ) : null;
             if ($draft === null) {
-                FlashMessage::set('error', 'Cette proposition a expiré ou a été remplacée. Relancez la recherche.');
+                FlashMessage::set('error', 'Cette proposition a expiré ou a été remplacée. '
+                    . 'Vérifiez les valeurs affichées avant de continuer.');
             } else {
                 FlashMessage::set(
                     'success', 'Proposition reprise dans le formulaire. Enregistrez le barème pour la conserver.'

@@ -101,7 +101,15 @@ final class SuggestedScale
     {
         $year = TariffConfigurationService::requireFormYear($current['scale_year'] ?? null, $year);
         $proposal = self::peek($year);
-        if ($proposal === null || !is_string($token) || !hash_equals($proposal['token'], $token)) {
+        if ($proposal === null || !is_string($token)) {
+            return null;
+        }
+        if (!hash_equals($proposal['token'], $token)) {
+            // Another tab replaced the proposal. Keep this tab's current
+            // inputs without consuming the replacement. A consumed proposal
+            // takes the branch above, preserving the already applied draft.
+            self::rememberDraft($year, $current);
+
             return null;
         }
         $draft = self::draftValues($current);
