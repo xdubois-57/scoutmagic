@@ -3,13 +3,13 @@
  Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
 #}
 {#
-  Three states, and two of them are failures — told apart on purpose,
-  because they need answers from different people:
+  Refusals are told apart because they need different next actions:
 
     Dépôt          — nothing has been read yet.
     Total incohérent — the DOCUMENT is at fault; the failing row is named.
     Format non interprétable — the document could not be read in full
                      (#1327): a layout to report, never stored half-read.
+    Lignes ambiguës — identical rows need nominative evidence.
     Roster périmé  — the document is fine and the SITE is behind Desk.
                      One button: importer Desk. There is deliberately no
                      screen offering to map an unknown section code by
@@ -50,6 +50,8 @@
                     <i class="bi bi-exclamation-octagon" aria-hidden="true"></i>
                     {% if outcome.unreadable %}
                         Format non interprétable — rien n'a été enregistré
+                    {% elseif outcome.ambiguous %}
+                        Lignes identiques sans liste nominative — rien n'a été enregistré
                     {% else %}
                         Total incohérent — rien n'a été enregistré
                     {% endif %}
@@ -61,6 +63,12 @@
                         lecture partielle. La raison est notée au journal, sans le contenu du document ;
                         signalez-la au support plutôt que d'envoyer le PDF, qui contient des données
                         personnelles.
+                    </p>
+                {% elseif outcome.ambiguous %}
+                    <p>
+                        Les lignes ont été lues, mais leurs listes nominatives manquent : le site ne peut pas
+                        distinguer une continuation de page de deux cotisations distinctes.
+                        Demandez un document avec les listes nominatives pour lever cette ambiguïté.
                     </p>
                 {% else %}
                     <p>

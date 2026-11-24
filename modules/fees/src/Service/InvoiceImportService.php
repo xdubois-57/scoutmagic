@@ -74,14 +74,20 @@ class InvoiceImportService
             $reading->problems,
             static fn(InvoiceProblem $problem): bool => $problem->isFormatProblem()
         ) !== [];
+        $ambiguous = array_any(
+            $reading->problems,
+            static fn(InvoiceProblem $problem): bool => $problem->kind === InvoiceProblem::AMBIGUOUS_REPETITION
+        );
 
         $this->journal->log(
             'fees',
             'fees_invoice_refused',
             'info',
-            $unreadable
-                ? 'Facture refusée : son format n\'a pas pu être interprété.'
-                : 'Facture refusée : la lecture ne retombe pas sur son total.',
+            match (true) {
+                $unreadable => 'Facture refusée : son format n\'a pas pu être interprété.',
+                $ambiguous => 'Facture refusée : des lignes identiques sans liste nominative restent ambiguës.',
+                default => 'Facture refusée : la lecture ne retombe pas sur son total.',
+            },
             [
                 'scout_year_id' => $scoutYearId,
                 'stage' => $stages[0] ?? 'recognition',
@@ -199,8 +205,9 @@ class InvoiceImportService
     /**
      * The snapshot the invoice will be checked against: the most recent one
      * taken **on or before** the issue date, because that is the roster the
-     * federation billed. Falling back to the latest one when the invoice
-     * predates every snapshot is deliberate — the verification report then
+     * federation billed. Falling back to the earliest one when the invoice
+     * predates every snapshot is deliberate — it is the closest one after
+     * emission, and the verification report then
      * shows the date gap rather than refusing to say anything.
      */
     private function snapshotFor(int $scoutYearId, ?string $issueDate): ?RosterSnapshot

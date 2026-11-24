@@ -102,6 +102,7 @@ class InvoiceReportController extends AbstractController
             'discrepancies' => $discrepancies,
             'kind_labels' => self::KIND_LABELS,
             'unmatched_people' => $this->verification->unmatchedPeopleCount($invoice),
+            'has_unnamed_lines' => $this->verification->hasUnnamedLines($invoice),
             'snapshot_gap_days' => $this->verification->snapshotDateGapInDays($invoice),
             'breadcrumb_current' => 'Facture ' . $invoice->documentNumber,
         ]);
@@ -217,6 +218,8 @@ class InvoiceReportController extends AbstractController
                 ReconstitutedLine::UNDETERMINED_NO_SECTION => 'Sans section — non vérifiée',
                 ReconstitutedLine::UNDETERMINED_GLOBAL_ADJUSTMENT => 'Ajustement global — non vérifié',
                 ReconstitutedLine::UNDETERMINED_NO_SNAPSHOT => 'Aucune photographie — non vérifiée',
+                ReconstitutedLine::UNDETERMINED_MULTIPLE_LINES => 'Tarif réparti sur plusieurs lignes — non vérifié',
+                ReconstitutedLine::UNDETERMINED_NEGATIVE_QUANTITY => 'Quantité négative — non vérifiée',
                 default => 'Non vérifiée',
             };
         }

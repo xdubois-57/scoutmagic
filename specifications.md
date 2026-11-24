@@ -1795,16 +1795,37 @@ quantité sur chaque ligne qui en a une, somme des montants = total à payer.
 Un seul échec et la facture n'est pas lue — le message désigne la ligne
 fautive et donne les deux chiffres.
 
-**Une référence tarifaire inconnue ne bloque jamais.** Sa nature se déduit de
-sa forme : une ligne sans liste nominative est un ajustement global (la
-déduction d'un acompte), un prix unitaire négatif avec liste est une
-réduction (l'animateur breveté), un prix positif avec liste est une
-cotisation. Les Iama ne sont pas exonérés : leur cotisation locale est une
-ligne comme les autres.
+**Une référence tarifaire inconnue ne bloque jamais.** Les deux mises en
+page exigent une référence de forme `XXX_…` : un récapitulatif de TVA ne
+peut pas devenir une cotisation. Une cotisation récapitulative reste une
+cotisation même sans noms ; un prix négatif indique une réduction. La
+référence de déduction globale `COT_ACOMPTE`, sans section, reste un
+ajustement, que son prix ou sa quantité soit négatif. Les quantités sont
+stockées dans une colonne signée.
 
-**Une répétition au saut de page est une seule ligne.** La même combinaison
-(référence, section, prix, quantité, montant) vue deux fois est reconnue
-comme telle et ses listes sont fusionnées.
+**Sans noms, pas de contrôle nominatif.** Une ligne récapitulative n'établit
+pas que sa section est entièrement nommée, et son prix ne chiffre pas les
+écarts nominatifs. Le contrôle de quantité reste possible si le tarif et la
+section sont connus dans la photographie de Desk ; sinon il est non
+déterminable. Le rapport explique cette limite. Les natures déjà
+importées ne sont pas recalculées.
+
+Une quantité négative de régularisation ne se compare pas à un effectif
+de personnes, quelle que soit sa référence. La ligne et son montant restent
+conservés, mais le rapport et le tableur ne lui attribuent aucun écart d'effectif.
+
+**Une répétition au saut de page est une seule ligne** si un marqueur de
+page et la continuation ou la répétition de la liste nominative le
+confirment, en plus de la même combinaison (référence, section, prix,
+quantité, montant). L'en-tête du tableau répété sert aussi d'indice. Les
+séparateurs de pages de l'extracteur ne sont utilisés que si le nombre de
+blocs correspond exactement au total de pages imprimé. L'en-tête peut être
+repris sans noms supplémentaires, si la liste est déjà complète sur la
+page précédente. Deux cotisations indépendantes identiques restent deux
+lignes. Une répétition ambiguë sans aucun nom refuse le document. L'écran
+demande alors une liste nominative, sans parler de format inconnu ni de
+total incohérent. Chaque référence et section ambiguës sont conservées
+dans le diagnostic, même si plusieurs ont le même message.
 
 **Ce que le site n'a pas compris est compté.** Un en-tête, un pied de page,
 un sous-total : tout ce qui ne correspond à aucune des deux formes est

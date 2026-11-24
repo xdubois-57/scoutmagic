@@ -152,9 +152,11 @@ CREATE TABLE IF NOT EXISTS fees_invoice_lines (
     -- stored line with a code always has its section.
     section_id INT UNSIGNED NULL,
     unit_price_cents INT NOT NULL,
-    quantity INT UNSIGNED NOT NULL,
+    -- A global advance deduction can have quantity -1.
+    quantity INT NOT NULL,
     amount_cents INT NOT NULL,
-    -- fee / reduction / adjustment, read off the line's own shape.
+    -- fee / reduction / adjustment; lack of names does not make a fee
+    -- a global adjustment. Stored natures are never reinterpreted.
     nature VARCHAR(12) NOT NULL,
     line_order INT UNSIGNED NOT NULL DEFAULT 0,
     INDEX idx_fil_invoice (invoice_id, line_order),

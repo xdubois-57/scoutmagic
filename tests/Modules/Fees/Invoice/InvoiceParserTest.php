@@ -199,7 +199,62 @@ class InvoiceParserTest extends TestCase
 
     // -- 4. Page-break repetition ----------------------------------------
 
-    public function testTheSameTupleSeenTwiceIsOneLineWhoseListsAreMerged(): void
+    /** @return iterable<string, array{string, string}> */
+    public static function ambiguousLocations(): iterable
+    {
+        yield 'different reference' => ['COT_FAM', 'ZX777B1'];
+        yield 'different section' => ['COT_NORM', 'ZX777B2'];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('ambiguousLocations')]
+    public function testEveryDistinctAmbiguousRepetitionKeepsItsLocation(string $reference, string $section): void
+    {
+        $first = 'COT_NORM Cotisation normale ZX777B1 40,00 1 40,00';
+        $second = $reference . ' Cotisation ' . $section . ' 40,00 1 40,00';
+        $result = $this->parser->parse(implode("\n", [
+            $first, 'Page 1/3', $first, $second, 'Page 2/3', $second, 'TOTAL A PAYER 160,00',
+        ]));
+
+        self::assertSame([['COT_NORM', 'ZX777B1'], [$reference, $section]], array_map(
+            static fn(InvoiceProblem $problem): array => [$problem->reference, $problem->sectionCode],
+            $result->problems
+        ));
+    }
+
+    /** @return iterable<string, array{string, bool, string}> */
+    public static function blankParagraphs(): iterable
+    {
+        yield 'single page, spaces' => ['   ', false, "\n"];
+        yield 'single page, tab' => ["\t", false, "\n"];
+        yield 'single page, NBSP' => ["\u{00A0}", false, "\n"];
+        yield 'single page, narrow NBSP' => ["\u{202F}", false, "\n"];
+        yield 'single-page counter inside the text stream' => ['Page 1/1', false, "\n"];
+        yield 'two pages, spaces inside first page' => ['   ', true, "\n"];
+        yield 'single page, CRLF blank paragraph' => ['', false, "\r\n"];
+        yield 'two pages, CRLF blank paragraph inside first page' => ['', true, "\r\n"];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('blankParagraphs')]
+    public function testWhitespaceParagraphsDoNotTurnIndependentSummariesIntoPageContinuations(
+        string $blank,
+        bool $twoPages,
+        string $newline
+    ): void {
+        $text = implode($newline, [
+            'COT_NORM Cotisation normale ZX777B1 40,00 1 40,00',
+            $blank,
+            'COT_NORM Cotisation normale ZX777B1 40,00 1 40,00',
+            'TOTAL A PAYER 80,00',
+        ]);
+        $text .= $twoPages ? "\n\nPage 2/2" : $newline . 'Page 1/1';
+
+        $result = $this->parser->parse($text);
+
+        $this->assertSame([true, 2, 8000, 0], [$result->isAccepted(), count($result->invoice?->lines ?? []),
+            $result->invoice?->recomputedTotalCents(), $result->stats->repeatedTariffRows]);
+    }
+
+    public function testTheSameTupleAtAPageBreakIsOneLineWhoseListsAreMerged(): void
     {
         $repeated = [
             'COT_NORM Cotisation normale SV025B1 39,00 3 117,00',
@@ -340,6 +395,7 @@ class InvoiceParserTest extends TestCase
         $result = $this->parse([
             'COT_NORM Cotisation normale SV025B1 39,00 1 39,00',
             'PISSOORT Anouk 03/11/2015 Animé',
+            'Page 1 sur 2',
             'COT_NORM Cotisation normale SV025B1 39,00 1 39,00',
             // The same person, spelled differently by the same document.
             'Pissoort Anouk 03/11/2015 Animé',

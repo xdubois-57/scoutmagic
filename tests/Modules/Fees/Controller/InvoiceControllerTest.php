@@ -42,6 +42,7 @@ use Modules\Finance\Api\ExpenseReceiptInterface;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Fees\FeesTestHelper;
+use Tests\Modules\Fees\Invoice\SyntheticInvoicePdf;
 use Twig\Environment;
 use Core\Member\Repository\MemberProfileRepository;
 use Core\Member\Repository\SectionRepository;
@@ -265,6 +266,28 @@ class InvoiceControllerTest extends TestCase
     }
 
     // --- Roster périmé ------------------------------------------------
+
+    public function testAnAmbiguousRepetitionExplainsTheMissingNamesInsteadOfRequestingSupport(): void
+    {
+        AuthSession::login(1, 'admin@test.be', 'admin');
+        $tariff = 'COT_NORM Cotisation normale ZX777B1 40,00 1 40,00';
+        $this->givenAnUploadedFile(SyntheticInvoicePdf::build([
+            [$tariff, 'Page 1/2'], [$tariff, 'TOTAL A PAYER 80,00'],
+        ]));
+        $body = (string) $this->dispatch('POST', '/admin/fees/factures/import', 'upload', [
+            '_csrf_token' => CsrfGuard::generateToken(),
+        ])->getBody();
+        preg_match('/<div class="alert alert-danger" role="alert">(.*?)<\/div>/s', $body, $match);
+        $alert = html_entity_decode(strip_tags($match[1] ?? ''), ENT_QUOTES, 'UTF-8');
+
+        self::assertSame([true, true, false, false, false], [
+            str_contains($alert, 'Lignes identiques sans liste nominative'),
+            str_contains($alert, 'Demandez un document avec les listes nominatives'),
+            str_contains($alert, 'Format non interprétable'),
+            str_contains($alert, 'Total incohérent'),
+            str_contains($alert, 'support'),
+        ]);
+    }
 
     public function testASectionTheSiteDoesNotKnowAsksForADeskImportRatherThanAMapping(): void
     {

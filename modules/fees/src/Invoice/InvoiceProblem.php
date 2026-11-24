@@ -34,6 +34,7 @@ final class InvoiceProblem
 
     /** A quantity with a fractional part, `2,50`: never truncated, refused (#1327). */
     public const FRACTIONAL_QUANTITY = 'fractional_quantity';
+    public const AMBIGUOUS_REPETITION = 'ambiguous_repetition';
 
     /**
      * The kinds that mean « this document could not be READ », as opposed
@@ -66,11 +67,12 @@ final class InvoiceProblem
         return in_array($this->kind, self::FORMAT_KINDS, true);
     }
 
-    /** Where the reading stopped: `extraction`, `recognition` or `arithmetic`. */
+    /** Where the reading stopped: extraction, recognition, interpretation or arithmetic. */
     public function stage(): string
     {
         return match ($this->kind) {
             self::NO_TEXT_LAYER, self::EXTRACTION_FAILED => 'extraction',
+            self::AMBIGUOUS_REPETITION => 'interpretation',
             self::LINE_ARITHMETIC, self::NAME_COUNT, self::TOTAL_MISMATCH => 'arithmetic',
             default => 'recognition',
         };

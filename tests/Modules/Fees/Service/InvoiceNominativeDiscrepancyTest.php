@@ -63,16 +63,21 @@ class InvoiceNominativeDiscrepancyTest extends TestCase
         FeesTestHelper::createTables($this->pdo);
         $this->encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
 
-        $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date) VALUES ('2025-2026', '2025-09-01', '2026-08-31')");
+        $statement = $this->pdo->prepare('INSERT INTO scout_years (label, start_date, end_date) VALUES (?, ?, ?)');
+        $statement->execute(['2025-2026', '2025-09-01', '2026-08-31']);
         $this->scoutYearId = (int) $this->pdo->lastInsertId();
 
-        $this->pdo->exec("INSERT INTO age_branches (desk_code, label, sort_order) VALUES ('LOUV', 'Louveteaux', 20)");
+        $statement = $this->pdo->prepare('INSERT INTO age_branches (desk_code, label, sort_order) VALUES (?, ?, ?)');
+        $statement->execute(['LOUV', 'Louveteaux', 20]);
         $branchId = (int) $this->pdo->lastInsertId();
-        $this->pdo->exec("INSERT INTO sections (age_branch_id, desk_code, name) VALUES ({$branchId}, 'SV025L1', 'Meute Akela')");
+        $statement = $this->pdo->prepare('INSERT INTO sections (age_branch_id, desk_code, name) VALUES (?, ?, ?)');
+        $statement->execute([$branchId, 'ZX777L1', 'Meute Akela']);
         $this->louveteauxId = (int) $this->pdo->lastInsertId();
-        $this->pdo->exec("INSERT INTO sections (age_branch_id, desk_code, name) VALUES ({$branchId}, 'SV025E1', 'Troupe Sanglier')");
+        $statement = $this->pdo->prepare('INSERT INTO sections (age_branch_id, desk_code, name) VALUES (?, ?, ?)');
+        $statement->execute([$branchId, 'ZX777E1', 'Troupe Sanglier']);
         $this->eclaireursId = (int) $this->pdo->lastInsertId();
-        $this->pdo->exec("INSERT INTO sections (age_branch_id, desk_code, name) VALUES ({$branchId}, 'STAFFDU', 'Staff U')");
+        $statement = $this->pdo->prepare('INSERT INTO sections (age_branch_id, desk_code, name) VALUES (?, ?, ?)');
+        $statement->execute([$branchId, 'STAFFDU', 'Staff U']);
         $this->staffId = (int) $this->pdo->lastInsertId();
 
         $feeCategories = new FeeCategoryRepository($this->pdo);
@@ -80,7 +85,8 @@ class InvoiceNominativeDiscrepancyTest extends TestCase
         $this->familyFeeId = $feeCategories->create('N_F_COTISATION FAMILLE', 'Cotisation famille');
         $this->unrecognisedFeeId = $feeCategories->create('Cotisation invités', 'Cotisation invités');
 
-        $this->pdo->exec("INSERT INTO functions (desk_code, label, role) VALUES ('Anime', 'Anime', 'identified')");
+        $statement = $this->pdo->prepare('INSERT INTO functions (desk_code, label, role) VALUES (?, ?, ?)');
+        $statement->execute(['Anime', 'Anime', 'identified']);
         $this->functionId = (int) $this->pdo->lastInsertId();
 
         $this->invoices = new InvoiceRepository($this->pdo);
@@ -110,7 +116,8 @@ class InvoiceNominativeDiscrepancyTest extends TestCase
         bool $leaving = false,
         ?string $formationLevel = null
     ): array {
-        $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('" . uniqid('', true) . "')");
+        $statement = $this->pdo->prepare('INSERT INTO members (desk_id) VALUES (?)');
+        $statement->execute([uniqid('', true)]);
         $memberId = (int) $this->pdo->lastInsertId();
 
         $stmt = $this->pdo->prepare(
@@ -161,7 +168,7 @@ class InvoiceNominativeDiscrepancyTest extends TestCase
             $this->scoutYearId,
             $snapshotId,
             null,
-            ['SV025L1' => $this->louveteauxId, 'SV025E1' => $this->eclaireursId, 'STAFFDU' => $this->staffId],
+            ['ZX777L1' => $this->louveteauxId, 'ZX777E1' => $this->eclaireursId, 'STAFFDU' => $this->staffId],
             $this->matches
         );
 
@@ -190,13 +197,164 @@ class InvoiceNominativeDiscrepancyTest extends TestCase
 
     // --- the five kinds -------------------------------------------------
 
+    public function testAnUnnamedSummaryDoesNotReportEveryMemberAsMissing(): void
+    {
+        $this->member('Ada', 'Solis', $this->normalFeeId, $this->louveteauxId);
+        $invoice = $this->storeInvoice([
+            new InvoiceLine('COT_NORM', 'Cotisation normale', 'ZX777L1', 4000, 1, 4000),
+        ], $this->snapshot());
+        // Exercise the new fee nature independently of the parser change.
+        $statement = $this->pdo->prepare('UPDATE fees_invoice_lines SET nature = ?');
+        $statement->execute(['fee']);
+
+        self::assertSame([], $this->service->nominativeDiscrepancies($invoice));
+    }
+
+    public function testASummaryInAMixedSectionDoesNotManufactureMissingPeople(): void
+    {
+        [, $person] = $this->member('Ada', 'Solis', $this->normalFeeId, $this->louveteauxId);
+        $this->member('Iris', 'Vega', $this->familyFeeId, $this->louveteauxId);
+        $invoice = $this->storeInvoice([
+            $this->feeLine('COT_NORM', 'Cotisation normale', 'ZX777L1', 4000, [$person]),
+            new InvoiceLine('COT_FAM', 'Cotisation famille', 'ZX777L1', 3200, 1, 3200),
+        ], $this->snapshot());
+        $statement = $this->pdo->prepare('UPDATE fees_invoice_lines SET nature = ?');
+        $statement->execute(['fee']);
+
+        self::assertSame([], $this->service->nominativeDiscrepancies($invoice));
+    }
+
+    public function testAnUnnamedSummaryDoesNotPriceANominativeDiscrepancy(): void
+    {
+        [, $person] = $this->member('Ada', 'Solis', $this->familyFeeId, $this->louveteauxId);
+        $invoice = $this->storeInvoice([
+            $this->feeLine('COT_NORM', 'Cotisation normale', 'ZX777L1', 4000, [$person]),
+            new InvoiceLine('COT_FAM', 'Cotisation famille', 'ZX777L1', 3200, 1, 3200),
+        ], $this->snapshot());
+        $statement = $this->pdo->prepare('UPDATE fees_invoice_lines SET nature = ?');
+        $statement->execute(['fee']);
+
+        $discrepancies = $this->service->nominativeDiscrepancies($invoice);
+        self::assertSame([[NominativeDiscrepancy::DIFFERENT_CATEGORY, null]],
+            array_map(static fn(NominativeDiscrepancy $gap): array => [$gap->kind, $gap->costCents], $discrepancies));
+    }
+
+    public function testAnUnnamedReductionDoesNotAccuseEveryBrevetHolder(): void
+    {
+        $this->member('Ada', 'Solis', $this->normalFeeId, $this->louveteauxId, false, 'Breveté');
+        $invoice = $this->storeInvoice([
+            new InvoiceLine('RED_ANIM_BREV', 'Reduction brevet', 'ZX777L1', -600, 1, -600),
+        ], $this->snapshot());
+        $statement = $this->pdo->prepare('UPDATE fees_invoice_lines SET nature = ?');
+        $statement->execute(['reduction']);
+
+        self::assertSame([], $this->service->nominativeDiscrepancies($invoice));
+    }
+
+    public function testASummaryHasAQuantityVerdictOnlyForAKnownTariffAndSection(): void
+    {
+        $this->member('Ada', 'Solis', $this->normalFeeId, $this->louveteauxId);
+        $this->member('Iris', 'Vega', $this->normalFeeId, $this->louveteauxId);
+        $invoice = $this->storeInvoice([
+            new InvoiceLine('COT_NORM', 'Cotisation normale', 'ZX777L1', 4000, 2, 8000),
+            new InvoiceLine('NEW_TARIFF', 'Autre tarif', 'ZX777L1', 800, 1, 800),
+        ], $this->snapshot());
+
+        self::assertSame([true, [[2, null], [null, 'unknown_reference']]], [
+            $this->service->hasUnnamedLines($invoice),
+            array_map(static fn(\Modules\Fees\Value\ReconstitutedLine $line): array =>
+                [$line->expectedQuantity, $line->undeterminedReason], $this->service->reconstitutedLines($invoice)),
+        ]);
+    }
+
+    /** @return iterable<string, array{string, string, int}> */
+    public static function reversedQuantities(): iterable
+    {
+        yield 'membership reversal' => ['COT_NORM', 'Cotisation normale', 4000];
+        yield 'brevet reduction reversal' => ['RED_ANIM_BREV', 'Reduction brevet', -600];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('reversedQuantities')]
+    public function testANegativeQuantityDoesNotAccuseTheSectionsPositiveHeadcount(
+        string $reference,
+        string $descriptor,
+        int $unitPrice
+    ): void {
+        $this->member('Ada', 'Solis', $this->normalFeeId, $this->louveteauxId, false, 'Breveté');
+        $invoice = $this->storeInvoice([
+            new InvoiceLine($reference, $descriptor, 'ZX777L1', $unitPrice, -1, -$unitPrice),
+        ], $this->snapshot());
+        $line = $this->service->reconstitutedLines($invoice)[0];
+
+        self::assertSame([null, 'negative_quantity', null, null, 0], [
+            $line->expectedQuantity, $line->undeterminedReason, $line->difference(), $line->differenceCents(),
+            $this->service->countDiscrepancies($invoice),
+        ]);
+    }
+
+    /** @return iterable<string, array{string, string, int, int}> */
+    public static function reversalsWithPositiveSiblings(): iterable
+    {
+        foreach (self::reversedQuantities() as $name => [$reference, $descriptor, $unitPrice]) {
+            yield $name . ' with matching quantity' => [$reference, $descriptor, $unitPrice, 1];
+            yield $name . ' with mismatching quantity' => [$reference, $descriptor, $unitPrice, 2];
+        }
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('reversalsWithPositiveSiblings')]
+    public function testAReversalDoesNotDisableItsPositiveSiblingsHeadcountCheck(
+        string $reference,
+        string $descriptor,
+        int $unitPrice,
+        int $positiveQuantity
+    ): void {
+        $this->member('Ada', 'Solis', $this->normalFeeId, $this->louveteauxId, false, 'Breveté');
+        $invoice = $this->storeInvoice([
+            new InvoiceLine($reference, $descriptor, 'ZX777L1', $unitPrice, $positiveQuantity, $unitPrice * $positiveQuantity),
+            new InvoiceLine($reference, $descriptor, 'ZX777L1', $unitPrice, -1, -$unitPrice),
+        ], $this->snapshot());
+        [$positive, $reversal] = $this->service->reconstitutedLines($invoice);
+
+        self::assertSame([1, null, ($positiveQuantity - 1) * $unitPrice, null, 'negative_quantity', null, $positiveQuantity - 1], [
+            $positive->expectedQuantity, $positive->undeterminedReason, $positive->differenceCents(),
+            $reversal->expectedQuantity, $reversal->undeterminedReason, $reversal->differenceCents(),
+            $this->service->countDiscrepancies($invoice),
+        ]);
+    }
+
+    public function testAMixedReductionDoesNotManufactureMissingBrevetReductions(): void
+    {
+        [, $person] = $this->member('Ada', 'Solis', $this->normalFeeId, $this->louveteauxId, false, 'Breveté');
+        $this->member('Iris', 'Vega', $this->normalFeeId, $this->louveteauxId, false, 'Breveté');
+        $invoice = $this->storeInvoice([
+            new InvoiceLine('RED_ANIM_BREV', 'Reduction brevet', 'ZX777L1', -600, 1, -600, [$person]),
+            new InvoiceLine('RED_ANIM_BREV', 'Reduction brevet', 'ZX777L1', -600, 1, -600),
+        ], $this->snapshot());
+
+        self::assertSame([], $this->service->nominativeDiscrepancies($invoice));
+    }
+
+    public function testIndependentLinesCannotEachBeComparedWithTheWholeSectionsCount(): void
+    {
+        [, $ada] = $this->member('Ada', 'Solis', $this->normalFeeId, $this->louveteauxId);
+        [, $iris] = $this->member('Iris', 'Vega', $this->normalFeeId, $this->louveteauxId);
+        $invoice = $this->storeInvoice([
+            $this->feeLine('COT_NORM', 'Cotisation normale', 'ZX777L1', 4000, [$ada]),
+            $this->feeLine('COT_NORM', 'Cotisation normale', 'ZX777L1', 4000, [$iris]),
+        ], $this->snapshot());
+
+        self::assertSame([[null, 'multiple_lines'], [null, 'multiple_lines']],
+            array_map(static fn(\Modules\Fees\Value\ReconstitutedLine $line): array =>
+                [$line->expectedQuantity, $line->undeterminedReason], $this->service->reconstitutedLines($invoice)));
+    }
+
     public function testEverythingAgreeingProducesNoDiscrepancyAtAll(): void
     {
         [, $basile] = $this->member('Basile', 'Dubois', $this->normalFeeId, $this->louveteauxId);
         $snapshotId = $this->snapshot();
 
         $invoice = $this->storeInvoice(
-            [$this->feeLine('COT_NORM', 'Cotisation normale', 'SV025L1', 3900, [$basile])],
+            [$this->feeLine('COT_NORM', 'Cotisation normale', 'ZX777L1', 3900, [$basile])],
             $snapshotId
         );
 
@@ -213,7 +371,7 @@ class InvoiceNominativeDiscrepancyTest extends TestCase
         $snapshotId = $this->snapshot();
 
         $invoice = $this->storeInvoice(
-            [$this->feeLine('COT_NORM', 'Cotisation normale', 'SV025L1', 3900, [$camille])],
+            [$this->feeLine('COT_NORM', 'Cotisation normale', 'ZX777L1', 3900, [$camille])],
             $snapshotId
         );
 
@@ -233,7 +391,7 @@ class InvoiceNominativeDiscrepancyTest extends TestCase
         $snapshotId = $this->snapshot();
 
         $invoice = $this->storeInvoice(
-            [$this->feeLine('COT_NORM', 'Cotisation normale', 'SV025L1', 3900, [$basile])],
+            [$this->feeLine('COT_NORM', 'Cotisation normale', 'ZX777L1', 3900, [$basile])],
             $snapshotId
         );
 
@@ -257,7 +415,7 @@ class InvoiceNominativeDiscrepancyTest extends TestCase
         $snapshotId = $this->snapshot();
 
         $invoice = $this->storeInvoice(
-            [$this->feeLine('COT_NORM', 'Cotisation normale', 'SV025L1', 3900, [$basile])],
+            [$this->feeLine('COT_NORM', 'Cotisation normale', 'ZX777L1', 3900, [$basile])],
             $snapshotId
         );
 
@@ -272,7 +430,7 @@ class InvoiceNominativeDiscrepancyTest extends TestCase
         $snapshotId = $this->snapshot();
 
         $invoice = $this->storeInvoice(
-            [$this->feeLine('COT_NORM', 'Cotisation normale', 'SV025L1', 3900, [$basile])],
+            [$this->feeLine('COT_NORM', 'Cotisation normale', 'ZX777L1', 3900, [$basile])],
             $snapshotId
         );
 
@@ -290,7 +448,7 @@ class InvoiceNominativeDiscrepancyTest extends TestCase
 
         // Billed under the Louveteaux, held by Desk in the Troupe.
         $invoice = $this->storeInvoice(
-            [$this->feeLine('COT_NORM', 'Cotisation normale', 'SV025L1', 3900, [$basile])],
+            [$this->feeLine('COT_NORM', 'Cotisation normale', 'ZX777L1', 3900, [$basile])],
             $snapshotId
         );
 
@@ -316,8 +474,8 @@ class InvoiceNominativeDiscrepancyTest extends TestCase
         // Basile is billed at the normal tariff; Desk has him on famille,
         // and the document's own famille line says what that costs.
         $invoice = $this->storeInvoice([
-            $this->feeLine('COT_NORM', 'Cotisation normale', 'SV025L1', 3900, [$basile]),
-            $this->feeLine('COT_FAM', 'Cotisation famille', 'SV025L1', 3100, [$louise]),
+            $this->feeLine('COT_NORM', 'Cotisation normale', 'ZX777L1', 3900, [$basile]),
+            $this->feeLine('COT_FAM', 'Cotisation famille', 'ZX777L1', 3100, [$louise]),
         ], $snapshotId);
 
         $discrepancies = array_values(array_filter(
@@ -342,7 +500,7 @@ class InvoiceNominativeDiscrepancyTest extends TestCase
         $snapshotId = $this->snapshot();
 
         $invoice = $this->storeInvoice(
-            [$this->feeLine('COT_NORM', 'Cotisation normale', 'SV025L1', 3900, [$basile])],
+            [$this->feeLine('COT_NORM', 'Cotisation normale', 'ZX777L1', 3900, [$basile])],
             $snapshotId
         );
 
@@ -403,7 +561,7 @@ class InvoiceNominativeDiscrepancyTest extends TestCase
         [, $camille] = $this->member('Camille', 'Renard', $this->normalFeeId, $this->louveteauxId, leaving: true);
 
         $invoice = $this->storeInvoice(
-            [$this->feeLine('COT_NORM', 'Cotisation normale', 'SV025L1', 3900, [$camille])],
+            [$this->feeLine('COT_NORM', 'Cotisation normale', 'ZX777L1', 3900, [$camille])],
             null
         );
 
@@ -423,7 +581,7 @@ class InvoiceNominativeDiscrepancyTest extends TestCase
         $snapshotId = $this->snapshot();
 
         $invoice = $this->storeInvoice(
-            [$this->feeLine('COT_NORM', 'Cotisation normale', 'SV025L1', 3900, [$basile, $stranger])],
+            [$this->feeLine('COT_NORM', 'Cotisation normale', 'ZX777L1', 3900, [$basile, $stranger])],
             $snapshotId
         );
 
@@ -439,8 +597,8 @@ class InvoiceNominativeDiscrepancyTest extends TestCase
         $snapshotId = $this->snapshot();
 
         $invoice = $this->storeInvoice([
-            $this->feeLine('COT_NORM', 'Cotisation normale', 'SV025L1', 3900, [$basile]),
-            $this->feeLine('COT_FAM', 'Cotisation famille', 'SV025E1', 3100, [$louise]),
+            $this->feeLine('COT_NORM', 'Cotisation normale', 'ZX777L1', 3900, [$basile]),
+            $this->feeLine('COT_FAM', 'Cotisation famille', 'ZX777E1', 3100, [$louise]),
         ], $snapshotId);
 
         $kinds = $this->kinds($invoice);
@@ -457,7 +615,7 @@ class InvoiceNominativeDiscrepancyTest extends TestCase
         $snapshotId = $this->snapshot();
 
         $invoice = $this->storeInvoice(
-            [$this->feeLine('COT_NORM', 'Cotisation normale', 'SV025L1', 3900, [$camille, $anne])],
+            [$this->feeLine('COT_NORM', 'Cotisation normale', 'ZX777L1', 3900, [$camille, $anne])],
             $snapshotId
         );
 

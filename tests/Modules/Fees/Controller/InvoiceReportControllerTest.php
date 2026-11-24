@@ -80,16 +80,19 @@ class InvoiceReportControllerTest extends TestCase
         $this->otherYearId = $scoutYearService->ensureYear('2024-2025');
         $settingService->setInternal(ScoutYearResolver::SETTING_PUBLIC_YEAR, (string) $this->scoutYearId);
 
-        $this->pdo->exec("INSERT INTO age_branches (desk_code, label, sort_order) VALUES ('LOUV', 'Louveteaux', 20)");
+        $statement = $this->pdo->prepare('INSERT INTO age_branches (desk_code, label, sort_order) VALUES (?, ?, ?)');
+        $statement->execute(['LOUV', 'Louveteaux', 20]);
         $branchId = (int) $this->pdo->lastInsertId();
-        $this->pdo->exec("INSERT INTO sections (age_branch_id, desk_code, name) VALUES ({$branchId}, 'SV025L1', 'Meute Akela')");
+        $statement = $this->pdo->prepare('INSERT INTO sections (age_branch_id, desk_code, name) VALUES (?, ?, ?)');
+        $statement->execute([$branchId, 'SV025L1', 'Meute Akela']);
         $this->louveteauxId = (int) $this->pdo->lastInsertId();
 
         $feeCategories = new FeeCategoryRepository($this->pdo);
         $this->normalFeeId = $feeCategories->create('N_N_COTISATION NORMALE', 'Cotisation normale');
         $this->familyFeeId = $feeCategories->create('N_F_COTISATION FAMILLE', 'Cotisation famille');
 
-        $this->pdo->exec("INSERT INTO functions (desk_code, label, role) VALUES ('Anime', 'Anime', 'identified')");
+        $statement = $this->pdo->prepare('INSERT INTO functions (desk_code, label, role) VALUES (?, ?, ?)');
+        $statement->execute(['Anime', 'Anime', 'identified']);
         $this->functionId = (int) $this->pdo->lastInsertId();
 
         $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
@@ -136,7 +139,8 @@ class InvoiceReportControllerTest extends TestCase
 
     private function member(string $firstName, string $lastName, ?int $feeCategoryId, bool $leaving = false): InvoicePerson
     {
-        $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('" . uniqid('', true) . "')");
+        $statement = $this->pdo->prepare('INSERT INTO members (desk_id) VALUES (?)');
+        $statement->execute([uniqid('', true)]);
         $memberId = (int) $this->pdo->lastInsertId();
 
         $stmt = $this->pdo->prepare(
@@ -277,11 +281,13 @@ class InvoiceReportControllerTest extends TestCase
     /** Signalled, never costed — the tariff is the same on either section. */
     public function testASectionDiscrepancyIsShownWithoutAnAmount(): void
     {
-        $this->pdo->exec("INSERT INTO sections (age_branch_id, desk_code, name) SELECT age_branch_id, 'SV025E1', 'Troupe Sanglier' FROM sections LIMIT 1");
+        $statement = $this->pdo->prepare('INSERT INTO sections (age_branch_id, desk_code, name) SELECT age_branch_id, ?, ? FROM sections LIMIT 1');
+        $statement->execute(['SV025E1', 'Troupe Sanglier']);
         $otherSectionId = (int) $this->pdo->lastInsertId();
 
         $person = $this->member('Basile', 'Dubois', $this->normalFeeId);
-        $this->pdo->exec("UPDATE member_functions SET section_id = {$otherSectionId}");
+        $statement = $this->pdo->prepare('UPDATE member_functions SET section_id = ?');
+        $statement->execute([$otherSectionId]);
         $snapshot = $this->snapshots->capture($this->scoutYearId, new \DateTimeImmutable('2026-01-05 07:00:00'));
         $id = $this->storeInvoice([$this->feeLine('COT_NORM', 'Cotisation normale', 3900, [$person])], $snapshot->id);
         AuthSession::login(1, 'admin@test.be', 'admin');
@@ -334,6 +340,36 @@ class InvoiceReportControllerTest extends TestCase
         $body = (string) $this->dispatch('GET', '/admin/fees/factures/{id}', 'show', ['id' => (string) $id])->getBody();
 
         $this->assertStringContainsString("1 personne(s) facturée(s) que le site n'a pas reconnue(s)", $body);
+    }
+
+    /** @return iterable<string, array{bool}> */
+    public static function unnamedInvoices(): iterable
+    {
+        yield 'unnamed summary' => [true];
+        yield 'fully nominative' => [false];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('unnamedInvoices')]
+    public function testTheReportAnnouncesUnnamedLinesOnlyWhenPresent(bool $unnamed): void
+    {
+        $person = $this->member('Ada', 'Solis', $this->normalFeeId);
+        $statement = $this->pdo->prepare('UPDATE sections SET desk_code = ? WHERE id = ?');
+        $statement->execute(['ZX777L1', $this->louveteauxId]);
+        $snapshot = $this->snapshots->capture($this->scoutYearId, new \DateTimeImmutable('2026-01-05 07:00:00'));
+        $line = new InvoiceLine('COT_NORM', 'Cotisation normale', 'ZX777L1', 4000, 1, 4000, $unnamed ? [] : [$person]);
+        $id = $this->invoices->store(
+            new ParsedInvoice('TEST-REPORT-001', '2026-01-08', [$line], 4000, null, null, null, 0),
+            $this->scoutYearId,
+            $snapshot->id,
+            null,
+            ['ZX777L1' => $this->louveteauxId],
+            $this->matches
+        );
+        AuthSession::login(1, 'admin@test.be', 'admin');
+
+        $body = (string) $this->dispatch('GET', '/admin/fees/factures/{id}', 'show', ['id' => (string) $id])->getBody();
+
+        self::assertSame($unnamed, str_contains($body, 'Cette facture contient des lignes sans liste de personnes.'));
     }
 
     public function testAnUnknownVueFallsBackToTheLineTabRatherThanFailing(): void

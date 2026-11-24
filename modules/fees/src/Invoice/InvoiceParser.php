@@ -28,8 +28,9 @@ use Core\Member\UnitStaffSectionService;
  *    quantity = amount, per line; names listed = quantity, on every line
  *    that has a list; Σ amounts = TOTAL A PAYER. One failure and the
  *    reading is refused, naming the offending line.
- * 4. **A page-break repetition is deduplicated by tuple identity**, not by
- *    detecting a page boundary ({@see InvoiceLine::tuple()}).
+ * 4. **A page-break repetition needs evidence**: a page marker, the same
+ *    tariff tuple and a continued or repeated nominative list. Identical
+ *    independent charges remain separate.
  * 5. **Tolerate the unknown, count it.** Anything matching neither shape
  *    is ignored, and the number of ignored rows is returned.
  * 6. **Belgian numbers** ({@see BelgianNumber}).
@@ -46,6 +47,9 @@ class InvoiceParser
 
     /** A section code as this federation writes one: letters, then digits. */
     private const SECTION_CODE = '/\b[A-Z]{1,6}\d{2,}[A-Z0-9]*\b/u';
+    private const TARIFF_REFERENCE = '[A-Z]{3}_[A-Za-z0-9_]+';
+    /** An attached footer token is allowed, but the prefix of a birth date is not. */
+    private const PAGE_MARKER = '/\bPage\s*(\d+)\s*(?:sur\s*|\/\s*)(\d+)(?![\d\/])/ui';
 
     /**
      * The label the federation prints instead of a code for the unit's own
@@ -57,19 +61,30 @@ class InvoiceParser
 
     public function parse(string $text): InvoiceReadResult
     {
-        $lines = preg_split('/\R/u', $text) ?: [];
+        // Count and consume boundaries using the same newline convention.
+        $text = preg_replace('/\R/u', "\n", $text) ?? $text;
+        $lines = explode("\n", $text);
         $stats = new InvoiceReadStats();
         $stats->extractedLines = count($lines);
         $stats->pageCount = self::pageCount($text);
         $stats->tabsSeen = str_contains($text, "\t");
+        // Smalot joins trimmed pages with two newlines. Use these boundaries
+        // only when a printed page total corroborates the exact block count;
+        // an arbitrary blank paragraph alone proves no page break.
+        $pageSeparators = $stats->pageCount !== null
+            && $stats->pageCount > 1
+            && count(explode("\n\n", $text)) === $stats->pageCount;
 
         /** @var InvoiceLine[] $tariffLines */
         $tariffLines = [];
-        /** @var InvoicePerson[][] $peopleByTuple */
-        $peopleByTuple = [];
+        /** @var InvoicePerson[][] $peopleByLine */
+        $peopleByLine = [];
+        /** @var bool[] $afterPageBreak */
+        $afterPageBreak = [];
         /** @var InvoiceProblem[] $readingProblems */
         $readingProblems = [];
-        $currentTuple = null;
+        $currentLine = null;
+        $pageBreak = false;
         $ignored = 0;
 
         $documentNumber = null;
@@ -90,9 +105,31 @@ class InvoiceParser
             $cells = trim(preg_replace('/[^\S\t]+/u', ' ', $collapsed) ?? '');
             $line = trim(preg_replace('/\s+/u', ' ', $collapsed) ?? '');
             if ($line === '') {
+                $pageBreak = $pageBreak || ($pageSeparators && $rawLine === '');
                 continue;
             }
             $stats->nonEmptyLines++;
+
+            // A VAT footer has a percentage followed by base, tax and
+            // total. Its decimal amounts must not look like an unread fee.
+            $number = BelgianNumber::PATTERN;
+            $vatSummary = '/^\d+(?:,\d+)?\s*%\s+' . $number . '\s+' . $number . '\s+' . $number . '$/u';
+            if (preg_match($vatSummary, $line) === 1) {
+                $ignored++;
+                continue;
+            }
+
+            if (preg_match(self::PAGE_MARKER, $line, $pageMarker) === 1) {
+                $pageBreak = $pageBreak || (int) $pageMarker[2] > 1;
+                $ignored++;
+                continue;
+            }
+
+            if (self::isTariffHeader($line)) {
+                $pageBreak = $currentLine !== null;
+                $ignored++;
+                continue;
+            }
 
             // The footer is tried FIRST, because "Date : 08/01/2026" carries
             // the same date marker a nominative line does and would
@@ -127,12 +164,14 @@ class InvoiceParser
             $person = $this->readPerson($line, $cells);
             if ($person !== null) {
                 $stats->personRows++;
-                if ($currentTuple === null) {
+                if ($currentLine === null) {
                     $stats->orphanPersonRows++;
                     $ignored++;
                     continue;
                 }
-                $peopleByTuple[$currentTuple][] = $person;
+                $peopleByLine[$currentLine][] = $person;
+                // A list can continue without its tariff being repeated.
+                $pageBreak = false;
                 continue;
             }
 
@@ -152,25 +191,35 @@ class InvoiceParser
             }
 
             $stats->tariffRows++;
-            $tuple = $tariff->tuple();
-            if (!isset($tariffLines[$tuple])) {
-                $tariffLines[$tuple] = $tariff;
-                $peopleByTuple[$tuple] = [];
-            } else {
-                $stats->repeatedTariffRows++;
-            }
-            $currentTuple = $tuple;
+            $currentLine = count($tariffLines);
+            $tariffLines[] = $tariff;
+            $peopleByLine[$currentLine] = [];
+            $afterPageBreak[$currentLine] = $pageBreak;
+            $pageBreak = false;
         }
 
         $stats->ignoredRows = $ignored;
-        $stats->distinctTariffLines = count($tariffLines);
         $stats->totalFound = $totalCents !== null;
         $stats->documentNumberFound = $documentNumber !== null;
 
         $merged = [];
-        foreach ($tariffLines as $tuple => $tariff) {
-            $merged[] = $tariff->withPeople($this->dedupePeople($peopleByTuple[$tuple] ?? []));
+        foreach ($tariffLines as $index => $tariff) {
+            $line = $tariff->withPeople($this->dedupePeople($peopleByLine[$index]));
+            $previousIndex = count($merged) - 1;
+            $continuation = $this->joinContinuation(
+                $merged[$previousIndex] ?? null,
+                $line,
+                $afterPageBreak[$index],
+                $readingProblems
+            );
+            if ($continuation !== null) {
+                $merged[$previousIndex] = $continuation;
+                $stats->repeatedTariffRows++;
+                continue;
+            }
+            $merged[] = $line;
         }
+        $stats->distinctTariffLines = count($merged);
 
         // A row that looks like money and was not read is a document only
         // partly understood: nothing is accepted on a partial reading,
@@ -208,6 +257,47 @@ class InvoiceParser
         ), $stats);
     }
 
+    private static function isTariffHeader(string $line): bool
+    {
+        $lower = mb_strtolower($line);
+        $hasReference = str_contains($lower, 'référence') || str_contains($lower, 'reference');
+
+        return preg_match('/\d/u', $line) !== 1
+            && str_contains($lower, 'description')
+            && str_contains($lower, 'montant')
+            && $hasReference;
+    }
+
+    /** @param InvoiceProblem[] $problems */
+    private function joinContinuation(
+        ?InvoiceLine $previous,
+        InvoiceLine $line,
+        bool $afterPageBreak,
+        array &$problems
+    ): ?InvoiceLine {
+        if (!$afterPageBreak || $previous === null || $previous->tuple() !== $line->tuple()) {
+            return null;
+        }
+        if ($previous->people === [] && $line->people === []) {
+            $problems[] = new InvoiceProblem(
+                InvoiceProblem::AMBIGUOUS_REPETITION,
+                'Deux lignes identiques de part et d\'autre d\'un saut de page ne permettent pas de distinguer '
+                    . 'une continuation de deux cotisations : aucune liste nominative ne le confirme.',
+                $line->reference,
+                $line->sectionCode
+            );
+
+            return null;
+        }
+
+        $people = $this->dedupePeople([...$previous->people, ...$line->people]);
+        $continued = count($previous->people) < abs($line->quantity)
+            && count($people) <= abs($line->quantity);
+        $repeated = count($people) === count($previous->people);
+
+        return $continued || $repeated ? $previous->withPeople($people) : null;
+    }
+
     /**
      * A row repeated at the top of a page is rejected twice for the same
      * reason; it is said once, as the row is read once.
@@ -220,7 +310,8 @@ class InvoiceParser
         $seen = [];
         $distinct = [];
         foreach ($problems as $problem) {
-            $key = $problem->kind . "\0" . $problem->message;
+            $key = implode("\0", [$problem->kind, $problem->message,
+                $problem->reference ?? '', $problem->sectionCode ?? '']);
             if (!isset($seen[$key])) {
                 $seen[$key] = true;
                 $distinct[] = $problem;
@@ -230,14 +321,14 @@ class InvoiceParser
         return $distinct;
     }
 
-    /** « Page 3 sur 10 », when the document says it; null otherwise. */
+    /** « Page 3 sur 10 » or « Page 3/10 », when printed; null otherwise. */
     private static function pageCount(string $text): ?int
     {
-        if (preg_match_all('/\bPage\s+\d+\s+sur\s+(\d+)\b/ui', $text, $matches) < 1) {
+        if (preg_match_all(self::PAGE_MARKER, $text, $matches) < 1) {
             return null;
         }
 
-        return max(array_map('intval', $matches[1]));
+        return max(array_map('intval', $matches[2]));
     }
 
     /**
@@ -247,7 +338,7 @@ class InvoiceParser
      */
     private static function looksFinancial(string $line): bool
     {
-        if (preg_match('/[A-Z]{3}_[A-Za-z0-9_]+/u', $line) === 1) {
+        if (preg_match('/' . self::TARIFF_REFERENCE . '/u', $line) === 1) {
             return true;
         }
 
@@ -363,7 +454,8 @@ class InvoiceParser
                 . '(?<amount>' . $money . ')\s*(?<pu>' . $money . ')$/u';
             if (preg_match($glued, $cells, $match) === 1) {
                 $left = trim($match['left']);
-                if (preg_match('/^(?<rest>.*?)(?<reference>[A-Z]{3}_[A-Za-z0-9_]+)$/u', $left, $parts) !== 1) {
+                $referencePattern = '/^(?<rest>.*?)(?<reference>' . self::TARIFF_REFERENCE . ')$/u';
+                if (preg_match($referencePattern, $left, $parts) !== 1) {
                     return null;
                 }
                 $descriptor = self::separateSectionCode(trim($parts['rest']));
@@ -381,7 +473,8 @@ class InvoiceParser
             }
         }
 
-        $pattern = '/^(?<reference>\S+)\s+(?<descriptor>.*?)\s+(?<pu>' . BelgianNumber::PATTERN . ')'
+        $pattern = '/^(?<reference>' . self::TARIFF_REFERENCE . ')\s+(?<descriptor>.*?)\s+(?<pu>'
+            . BelgianNumber::PATTERN . ')'
             . '\s+(?<qt>' . $quantity . ')\s+(?<amount>' . BelgianNumber::PATTERN . ')$/u';
         if (preg_match($pattern, $line, $match) !== 1) {
             return null;
