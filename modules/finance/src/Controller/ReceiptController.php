@@ -418,7 +418,7 @@ class ReceiptController extends AbstractController
     }
 
     /**
-     * @return array<int, array{attachment: Attachment, movement_count: int, is_pending: bool}>
+     * @return array<int, array{attachment: Attachment, movement_count: int, is_pending: bool, origin: ?string}>
      */
     private function buildRows(?int $accountId, bool $pendingOnly, string $search, int $page): array
     {
