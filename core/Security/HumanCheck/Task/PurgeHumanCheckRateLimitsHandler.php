@@ -13,12 +13,14 @@ use Core\Scheduler\SchedulerService;
 use Core\Scheduler\TaskContext;
 use Core\Scheduler\TaskHandlerInterface;
 use Core\Security\HumanCheck\HumanCheckRateLimitRepository;
+use Core\Security\HumanCheck\HumanCheckService;
 
 /**
- * Deletes human_check_rate_limits rows past the current rate-limit window
- * — a row older than the window can never affect a future countSince()
- * call again. Self-reschedules at the end of every run rather than being
- * a first-class recurring task, same precedent as Core\Maintenance\Task\
+ * Deletes human_check_rate_limits rows past the longest rate-limit window in
+ * use — the larger of the setting and HumanCheckService::LONGEST_WINDOW_MINUTES —
+ * a row older than that can never affect a future countSince() call again.
+ * Self-reschedules at the end of every run rather than being a first-class
+ * recurring task, same precedent as Core\Maintenance\Task\
  * AutoBackupHandler / Core\Notification\Task\PurgeNotificationsHandler
  * (Core\Scheduler has no first-class recurring-task concept) — re-reading
  * the window setting each time so a change takes effect on the next run.
@@ -37,7 +39,13 @@ class PurgeHumanCheckRateLimitsHandler implements TaskHandlerInterface
         $pdo = $context->connection->getPdo();
         $repository = new HumanCheckRateLimitRepository($pdo);
 
-        $windowMinutes = (int) ($context->settings->get('human_check_rate_limit_window_minutes') ?: 10);
+        // Never shorter than the longest window a form may count over: the
+        // magic-link form counts a whole hour (issue #1267), and a row taken
+        // after ten minutes would hand its source a fresh allowance.
+        $windowMinutes = max(
+            (int) ($context->settings->get('human_check_rate_limit_window_minutes') ?: 10),
+            HumanCheckService::LONGEST_WINDOW_MINUTES
+        );
         $cutoff = (new \DateTimeImmutable('-' . $windowMinutes . ' minutes'))->format('Y-m-d H:i:s');
         $repository->deleteOlderThan($cutoff);
 
