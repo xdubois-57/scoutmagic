@@ -37,6 +37,14 @@ use Core\Security\RateLimitAddress;
  */
 class HumanCheckService
 {
+    /**
+     * The longest window a form may count over, in minutes — an override given
+     * to verify() is held to it, and the daily purge keeps a row this long
+     * whatever the window setting says, so a form counting over an hour is
+     * never counting over rows the purge already took (issue #1267).
+     */
+    public const LONGEST_WINDOW_MINUTES = 60;
+
     private const TOKEN_VERSION = 'v1';
     private const TOKEN_FIELD = 'human_check_token';
 
@@ -68,16 +76,22 @@ class HumanCheckService
      *   (Request::getBodyAll()) — the trap field's real name isn't known
      *   ahead of time, so the full body is needed, not one key.
      * @param bool $enforceRateLimit Set false to skip the third barrier
-     *   only — see Core\Http\Controller\AuthController for the one call
-     *   site that does this and why (magic-link requests already have
-     *   their own, differently-scoped rate limit).
+     *   only.
+     * @param int|null $rateLimitWindowMinutes This form's own window, in place
+     *   of the `human_check_rate_limit_window_minutes` setting — null keeps the
+     *   setting. See AuthController: the magic-link form counts a whole hour,
+     *   not ten minutes (issue #1267).
+     * @param int|null $rateLimitMaxAttempts This form's own ceiling inside that
+     *   window, in place of `human_check_rate_limit_max_attempts`.
      */
     public function verify(
         string $formKey,
         bool $sessionIdentified,
         array $formData,
         ?string $ipAddress,
-        bool $enforceRateLimit = true
+        bool $enforceRateLimit = true,
+        ?int $rateLimitWindowMinutes = null,
+        ?int $rateLimitMaxAttempts = null
     ): HumanCheckResult {
         // Explicit short-circuit, not an optimization — module spec:
         // "aucune des trois barrières ne s'applique" for an identified
@@ -117,7 +131,7 @@ class HumanCheckService
         }
 
         // Barrier 3: per-IP sliding window. Skipped entirely when the
-        // caller opted out (magic link, see docblock) or has no IP to
+        // caller opted out or has no IP to
         // check (CLI context) — degrades to "barrier not applied" rather
         // than rejecting, since it's genuinely inapplicable, not failed.
         if ($enforceRateLimit && $ipAddress !== null && $ipAddress !== '') {
@@ -127,8 +141,13 @@ class HumanCheckService
             // on the client's network, not the one address: an IPv6
             // subscriber has a whole /64 to rotate through (issue #1128).
             $ipHash = $this->encryption->blindIndex(RateLimitAddress::key($ipAddress), 'human_check_ip');
-            $windowMinutes = (int) $this->settings->get('human_check_rate_limit_window_minutes', null, 10);
-            $maxAttempts = (int) $this->settings->get('human_check_rate_limit_max_attempts', null, 5);
+            // Only a form's own window is held to the longest one the purge keeps;
+            // the window setting is the administrator's, and the purge honours it.
+            $windowMinutes = $rateLimitWindowMinutes !== null
+                ? min(self::LONGEST_WINDOW_MINUTES, $rateLimitWindowMinutes)
+                : (int) $this->settings->get('human_check_rate_limit_window_minutes', null, 10);
+            $maxAttempts = $rateLimitMaxAttempts
+                ?? (int) $this->settings->get('human_check_rate_limit_max_attempts', null, 5);
             $since = (new \DateTimeImmutable('-' . $windowMinutes . ' minutes'))->format('Y-m-d H:i:s');
 
             if ($this->rateLimitRepository->countSince($ipHash, $formKey, $since) >= $maxAttempts) {

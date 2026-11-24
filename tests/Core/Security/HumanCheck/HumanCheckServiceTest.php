@@ -24,10 +24,12 @@ class HumanCheckServiceTest extends TestCase
 
     private EncryptionService $encryption;
     private HumanCheckService $service;
+    private \PDO $pdo;
 
     protected function setUp(): void
     {
         $pdo = DatabaseTestHelper::createTestDatabase();
+        $this->pdo = $pdo;
         $this->encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
 
         $settings = new SettingService(new SettingRepository($pdo));
@@ -179,6 +181,81 @@ class HumanCheckServiceTest extends TestCase
         $this->assertFalse($sameSubscriber->accepted);
         $this->assertSame('rate_limited', $sameSubscriber->reason);
         $this->assertTrue($otherSubscriber->accepted);
+    }
+
+    /** A form may bring its own ceiling and window, in place of the settings (issue #1267). */
+    public function testAFormMayCarryItsOwnCeilingInsteadOfTheSetting(): void
+    {
+        $ip = '203.0.113.20';
+
+        // The setting says 3; this form says 5.
+        for ($i = 0; $i < 5; $i++) {
+            $result = $this->service->verify(self::FORM_KEY, false, $this->buildFormData(time() - 10), $ip, true, 60, 5);
+            $this->assertTrue($result->accepted, "Attempt {$i} is under this form's own ceiling");
+        }
+
+        $result = $this->service->verify(self::FORM_KEY, false, $this->buildFormData(time() - 10), $ip, true, 60, 5);
+
+        $this->assertFalse($result->accepted);
+        $this->assertSame('rate_limited', $result->reason);
+    }
+
+    /**
+     * No override counts further back than the purge keeps (issue #1267): a
+     * window of ten hours is held to one, so a row from two hours ago — which
+     * the purge may already have taken — never counts against the source.
+     */
+    public function testAnOverrideIsHeldToTheLongestWindowThePurgeKeeps(): void
+    {
+        $ip = '203.0.113.30';
+        $ipHash = $this->encryption->blindIndex(\Core\Security\RateLimitAddress::key($ip), 'human_check_ip');
+        $this->pdo->prepare('INSERT INTO human_check_rate_limits (ip_hash, form_key, created_at) VALUES (?, ?, ?)')
+            ->execute([$ipHash, self::FORM_KEY, date('Y-m-d H:i:s', time() - 2 * 3600)]);
+
+        $result = $this->service->verify(self::FORM_KEY, false, $this->buildFormData(time() - 10), $ip, true, 600, 1);
+
+        $this->assertSame(60, HumanCheckService::LONGEST_WINDOW_MINUTES);
+        $this->assertTrue($result->accepted, 'a two-hour-old row is outside the longest window');
+    }
+
+    /** The administrator's own window setting is not capped: only a form's override is. */
+    public function testAWindowSettingLongerThanAnHourIsNotCapped(): void
+    {
+        $settings = new SettingService(new SettingRepository($this->pdo));
+        $settings->register('human_check_min_delay_seconds', '2', 'number', 'Délai minimum', 'Description de test.');
+        $settings->register('human_check_form_validity_seconds', '100', 'number', 'Durée de validité', 'Description de test.');
+        $settings->register('human_check_rate_limit_window_minutes', '10', 'number', 'Fenêtre', 'Description de test.');
+        $settings->register('human_check_rate_limit_max_attempts', '3', 'number', 'Max tentatives', 'Description de test.');
+        // Already registered by setUp(): register() keeps what is there, so the
+        // values this test needs are written.
+        $settings->set('human_check_rate_limit_window_minutes', '180');
+        $settings->set('human_check_rate_limit_max_attempts', '1');
+        $service = new HumanCheckService(
+            $this->encryption,
+            new HumanCheckRateLimitRepository($this->pdo),
+            $settings,
+            new JournalService(new JournalRepository($this->pdo))
+        );
+        $ip = '203.0.113.31';
+        $ipHash = $this->encryption->blindIndex(\Core\Security\RateLimitAddress::key($ip), 'human_check_ip');
+        $this->pdo->prepare('INSERT INTO human_check_rate_limits (ip_hash, form_key, created_at) VALUES (?, ?, ?)')
+            ->execute([$ipHash, self::FORM_KEY, date('Y-m-d H:i:s', time() - 2 * 3600)]);
+
+        $result = $service->verify(self::FORM_KEY, false, $this->buildFormData(time() - 10), $ip);
+
+        $this->assertFalse($result->accepted, 'a row from two hours ago still counts inside a three-hour window');
+        $this->assertSame('rate_limited', $result->reason);
+    }
+
+    public function testWithoutAnOverrideTheSettingsStillApply(): void
+    {
+        $ip = '203.0.113.21';
+
+        for ($i = 0; $i < 3; $i++) {
+            $this->assertTrue($this->service->verify(self::FORM_KEY, false, $this->buildFormData(time() - 10), $ip)->accepted);
+        }
+
+        $this->assertFalse($this->service->verify(self::FORM_KEY, false, $this->buildFormData(time() - 10), $ip)->accepted);
     }
 
     public function testEnforceRateLimitFalseSkipsTheThirdBarrier(): void

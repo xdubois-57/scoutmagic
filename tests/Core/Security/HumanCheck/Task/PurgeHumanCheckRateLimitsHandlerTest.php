@@ -62,13 +62,61 @@ class PurgeHumanCheckRateLimitsHandlerTest extends TestCase
     public function testDeletesRowsOlderThanTheConfiguredWindow(): void
     {
         $stmt = $this->pdo->prepare('INSERT INTO human_check_rate_limits (ip_hash, form_key, created_at) VALUES (?, ?, ?)');
-        $stmt->execute(['old-hash', 'news_form_response', (new \DateTimeImmutable('-1 hour'))->format('Y-m-d H:i:s')]);
+        $stmt->execute(['old-hash', 'news_form_response', (new \DateTimeImmutable('-2 hours'))->format('Y-m-d H:i:s')]);
         $this->repository->record('recent-hash', 'news_form_response');
 
         (new PurgeHumanCheckRateLimitsHandler())->handle([], $this->context);
 
         $this->assertSame(0, $this->repository->countSince('old-hash', 'news_form_response', '2000-01-01 00:00:00'));
         $this->assertSame(1, $this->repository->countSince('recent-hash', 'news_form_response', '2000-01-01 00:00:00'));
+    }
+
+    /**
+     * The magic-link form counts over a whole hour (issue #1267): with the
+     * window setting at ten minutes, a purge must not take rows that hour
+     * still needs, or an exhausted allowance would be handed back.
+     */
+    public function testKeepsRowsAFormCountingOverAnHourStillNeeds(): void
+    {
+        $stmt = $this->pdo->prepare('INSERT INTO human_check_rate_limits (ip_hash, form_key, created_at) VALUES (?, ?, ?)');
+        $stmt->execute(['half-hour-hash', 'auth_magic_link', (new \DateTimeImmutable('-30 minutes'))->format('Y-m-d H:i:s')]);
+        $stmt->execute(['two-hours-hash', 'auth_magic_link', (new \DateTimeImmutable('-2 hours'))->format('Y-m-d H:i:s')]);
+
+        (new PurgeHumanCheckRateLimitsHandler())->handle([], $this->context);
+
+        $this->assertSame(1, $this->repository->countSince('half-hour-hash', 'auth_magic_link', '2000-01-01 00:00:00'));
+        $this->assertSame(0, $this->repository->countSince('two-hours-hash', 'auth_magic_link', '2000-01-01 00:00:00'));
+    }
+
+    /**
+     * What the ceiling reads after the purge is what it read before it: an
+     * hourly allowance of thirty that is exhausted stays exhausted.
+     */
+    public function testAnExhaustedHourlyAllowanceStillCountsThirtyAfterThePurge(): void
+    {
+        $stmt = $this->pdo->prepare('INSERT INTO human_check_rate_limits (ip_hash, form_key, created_at) VALUES (?, ?, ?)');
+        $thirtyMinutesAgo = (new \DateTimeImmutable('-30 minutes'))->format('Y-m-d H:i:s');
+        for ($i = 0; $i < 30; $i++) {
+            $stmt->execute(['one-source', 'auth_magic_link', $thirtyMinutesAgo]);
+        }
+        $sinceAnHour = (new \DateTimeImmutable('-60 minutes'))->format('Y-m-d H:i:s');
+        $before = $this->repository->countSince('one-source', 'auth_magic_link', $sinceAnHour);
+
+        (new PurgeHumanCheckRateLimitsHandler())->handle([], $this->context);
+
+        $this->assertSame(30, $before);
+        $this->assertSame(30, $this->repository->countSince('one-source', 'auth_magic_link', $sinceAnHour));
+    }
+
+    public function testAWindowSettingLongerThanAnHourIsStillHonoured(): void
+    {
+        $this->settings->set('human_check_rate_limit_window_minutes', '180');
+        $stmt = $this->pdo->prepare('INSERT INTO human_check_rate_limits (ip_hash, form_key, created_at) VALUES (?, ?, ?)');
+        $stmt->execute(['two-hours-hash', 'news_form_response', (new \DateTimeImmutable('-2 hours'))->format('Y-m-d H:i:s')]);
+
+        (new PurgeHumanCheckRateLimitsHandler())->handle([], $this->context);
+
+        $this->assertSame(1, $this->repository->countSince('two-hours-hash', 'news_form_response', '2000-01-01 00:00:00'));
     }
 
     public function testReschedulesItselfForTomorrow(): void

@@ -916,12 +916,7 @@ class NewsController extends AbstractController
                 // stripped-body excerpt, so the list never shows leftover
                 // multi-paragraph formatting.
                 'excerpt' => $article->summary,
-                // An imported article's form is closed for good, and it
-                // usually holds nothing but the article's text: the badge
-                // says « Formulaire fermé » only when there were questions.
-                'form_badge' => $form === null || ($article->isImported() && !$this->hasRealInputField(
-                    $this->formService->getFields($form->id)
-                )) ? null : ($form->isOpen() ? 'open' : 'closed'),
+                'form_badge' => $this->listFormBadge($form),
                 'can_edit' => $currentAccountId !== null && !$article->isImported(),
                 'is_imported' => $article->isImported(),
                 // An imported article names no author: its account is the
@@ -929,6 +924,26 @@ class NewsController extends AbstractController
                 'author_name' => $article->isImported() ? null : ($author->firstName ?? $author?->email),
             ];
         }, $articles);
+    }
+
+    /**
+     * The form badge of a list card: « open » or « closed » only for a form
+     * a reader can actually answer, null for everything else (#1377).
+     *
+     * Every article owns a form row — its blocks of text live there — so
+     * the row's existence says nothing. What counts is the question the
+     * detail page also asks, hasRealInputField(): at least one field that
+     * collects an answer. An imported article is no exception: its form is
+     * closed for good and usually holds nothing but the article's text, so
+     * it gets « closed » only when there were questions.
+     */
+    private function listFormBadge(?NewsForm $form): ?string
+    {
+        if ($form === null || !$this->hasRealInputField($this->formService->getFields($form->id))) {
+            return null;
+        }
+
+        return $form->isOpen() ? 'open' : 'closed';
     }
 
     /**

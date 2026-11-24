@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Core\Security;
 
 use Core\Database\Connection;
+use Core\Http\AfterResponse;
 use Core\Journal\JournalService;
 use Core\Mail\MailPurpose;
 use Core\Mail\MailService;
@@ -20,6 +21,9 @@ class AuthService
     private const TOKEN_EXPIRY_MINUTES = 15;
     private const MAX_REQUESTS_PER_HOUR = 5;
 
+    /** The journal event a failed send writes; what the attention points count (issue #1267). */
+    public const EVENT_SEND_FAILED = 'magic_link_send_failed';
+
     /**
      * Wrong match codes a link survives before it is spent (issue #1099).
      * With a six-digit code, three guesses give one chance in 333 333.
@@ -30,6 +34,7 @@ class AuthService
     private MagicLinkRepository $magicLinkRepo;
     private MemberEmailRepository $memberEmailRepo;
     private ?JournalService $journalService = null;
+    private ?AfterResponse $afterResponse = null;
 
     public function __construct(
         private Connection $connection,
@@ -51,12 +56,28 @@ class AuthService
     }
 
     /**
+     * Late, like the journal: with it the e-mail leaves after the answer
+     * (issue #1267). Production always sets it; with none, the e-mail is sent
+     * inside the request, which is what the tests and the CLI want.
+     */
+    public function setAfterResponse(AfterResponse $afterResponse): void
+    {
+        $this->afterResponse = $afterResponse;
+    }
+
+    /**
      * Step 1: User submits their email on the login page.
      *
      * Generates a magic link token and sends it to the user's email if the account exists.
      * Returns success regardless of whether the email exists or whether the send worked
      * (no enumeration): a failed send is journaled as `magic_link_send_failed`, not answered.
      * Only the per-address rate limit answers otherwise, and it counts unknown addresses too.
+     *
+     * The time the answer takes does not say either (issue #1267, SECURITY.md § 2): the e-mail is
+     * sent after the answer has reached the browser (Core\Http\AfterResponse), and what is done
+     * before it — both address lookups, the two hashes, the link row, the journal line — is the same
+     * for every address. A host that cannot finish the answer first sends it inside the request
+     * and then waits a random half-second to two, for every address alike.
      */
     public function requestMagicLink(string $email): MagicLinkResult
     {
@@ -99,8 +120,14 @@ class AuthService
         // confers, and it is also what countRecentByEmail() above counts,
         // so storing anything else would both hand out somebody else's
         // session and silently disable the rate limit.
+        //
+        // Both lookups are made for every address, whatever the first one
+        // finds: the answer is the same, and so must be the time it takes
+        // (issue #1267).
         $user = $this->userRepo->findByBlindIndex($blindIndex);
-        $viaSecondaryEmail = $user === null && $this->secondaryLoginAddress($blindIndex) !== null;
+        $secondaryAddress = $this->secondaryLoginAddress($blindIndex);
+        $viaSecondaryEmail = $user === null && $secondaryAddress !== null;
+        $canLogIn = $user !== null || $viaSecondaryEmail;
 
         // Store in database
         $magicLinkId = $this->magicLinkRepo->create(
@@ -109,57 +136,6 @@ class AuthService
             $expiresAt,
             password_hash($matchCode, PASSWORD_DEFAULT)
         );
-
-        if ($user !== null || $viaSecondaryEmail) {
-            // Send the magic link email
-            $magicLinkUrl = rtrim($this->baseUrl, '/') . "/auth/verify?token={$rawToken}&id={$magicLinkId}";
-            $sent = false;
-            try {
-                $this->sendMagicLinkEmail($normalizedEmail, $magicLinkUrl);
-                $sent = true;
-            } catch (\Throwable $e) {
-                // Recorded for the staff, never told to the visitor: an
-                // unknown address always gets the success answer below, so
-                // a failure answered differently would say that this one
-                // has an account — to anybody able to type an address while
-                // mail is failing, a state an outsider may cause (quota,
-                // relay refusals). Same rule as PasswordResetService.
-                $reason = str_replace($normalizedEmail, '[adresse]', $e->getMessage());
-                $this->journalService?->log(
-                    'core',
-                    'magic_link_send_failed',
-                    'info',
-                    "Échec de l'envoi de l'email de lien magique",
-                    ['error' => $reason, 'via_secondary_email' => $viaSecondaryEmail],
-                    $user?->id
-                );
-            }
-
-            if ($sent) {
-                $this->journalService?->log(
-                    'core',
-                    'magic_link_email_sent',
-                    'info',
-                    'Email de lien magique envoyé',
-                    ['via_secondary_email' => $viaSecondaryEmail],
-                    $user?->id
-                );
-            }
-        } else {
-            // No enumeration in the response (still returns success below)
-            // but worth a distinct journal entry — an admin trying to
-            // diagnose "my colleague never got the email" needs to be able
-            // to tell "no account matched at all" apart from "matched but
-            // the send failed" apart from "sent fine, check spam".
-            $this->journalService?->log(
-                'core',
-                'magic_link_no_account_found',
-                'info',
-                'Demande de lien magique pour une adresse sans compte correspondant',
-                [],
-                null
-            );
-        }
 
         $this->journalService?->log(
             'core',
@@ -174,12 +150,99 @@ class AuthService
             null
         );
 
+        // Everything that differs between an address with an account and one
+        // without happens AFTER the answer (issue #1267): the e-mail, which
+        // takes as long as an SMTP connection takes, and the journal line that
+        // says what became of it. Both kinds of address hand over a piece of
+        // work, so the request itself did the same thing for each.
+        $magicLinkUrl = rtrim($this->baseUrl, '/') . "/auth/verify?token={$rawToken}&id={$magicLinkId}";
+        $this->afterTheAnswer(fn() => $this->deliverOrRecord(
+            $canLogIn,
+            $normalizedEmail,
+            $magicLinkUrl,
+            $viaSecondaryEmail,
+            $user?->id
+        ));
+
         return new MagicLinkResult(
             success: true,
             magicLinkId: $magicLinkId,
             error: null,
             matchCode: $matchCode
         );
+    }
+
+    /**
+     * What happens once the answer is on its way: send the link to an address
+     * that can log in, and journal what became of it — or journal that no
+     * account matched. An admin trying to diagnose « my colleague never got
+     * the email » needs to tell « no account matched at all » apart from
+     * « matched but the send failed » apart from « sent fine, check spam ».
+     *
+     * A failed send is journaled and never answered: an unknown address always
+     * gets the success answer, so a failure answered differently would say
+     * that this one has an account — to anybody able to type an address while
+     * mail is failing, a state an outsider may cause (quota, relay refusals).
+     * Same rule as PasswordResetService. The administrators learn of it from
+     * the attention points (Core\Security\LoginMailAttentionProvider), which
+     * read these journal lines.
+     */
+    private function deliverOrRecord(
+        bool $canLogIn,
+        string $normalizedEmail,
+        string $magicLinkUrl,
+        bool $viaSecondaryEmail,
+        ?int $userId
+    ): void {
+        if (!$canLogIn) {
+            $this->journalService?->log(
+                'core',
+                'magic_link_no_account_found',
+                'info',
+                'Demande de lien magique pour une adresse sans compte correspondant',
+                [],
+                null
+            );
+
+            return;
+        }
+
+        try {
+            $this->sendMagicLinkEmail($normalizedEmail, $magicLinkUrl);
+        } catch (\Throwable $e) {
+            $reason = str_replace($normalizedEmail, '[adresse]', $e->getMessage());
+            $this->journalService?->log(
+                'core',
+                self::EVENT_SEND_FAILED,
+                'info',
+                "Échec de l'envoi de l'email de lien magique",
+                ['error' => $reason, 'via_secondary_email' => $viaSecondaryEmail],
+                $userId
+            );
+
+            return;
+        }
+
+        $this->journalService?->log(
+            'core',
+            'magic_link_email_sent',
+            'info',
+            'Email de lien magique envoyé',
+            ['via_secondary_email' => $viaSecondaryEmail],
+            $userId
+        );
+    }
+
+    /** Run $work once the answer has been given — at once when nothing was wired. */
+    private function afterTheAnswer(\Closure $work): void
+    {
+        if ($this->afterResponse === null) {
+            $work();
+
+            return;
+        }
+
+        $this->afterResponse->run($work);
     }
 
     /**
