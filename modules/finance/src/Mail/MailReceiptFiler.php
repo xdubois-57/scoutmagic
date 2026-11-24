@@ -103,16 +103,19 @@ class MailReceiptFiler
                 if ($considered >= $budget) {
                     return $considered;
                 }
-                if ($this->sources->has($attachment->id)) {
+                if ($this->sources->settled($attachment->id)) {
                     continue;
                 }
-                // Counted even when it cannot be read, and NOT remembered:
-                // a pass that met only unreadable files has not found the
-                // history empty, and a file that comes back is looked at
-                // again. The reader says it in the journal.
+                // Counted even when it cannot be read: a pass that met only
+                // unreadable files has not found the history empty. And
+                // counted against the file, so the catch-up gives up on it
+                // after a few runs (ReceiptMailSourceRepository::MAX_UNREADABLE_TRIES)
+                // rather than holding the walk open for ever. The reader
+                // says it in the journal.
                 $considered++;
                 $content = $readFile($attachment->fileId);
                 if ($content === null || $content === '') {
+                    $this->sources->markUnreadable($attachment->id, $message->id);
                     continue;
                 }
 
@@ -214,12 +217,18 @@ class MailReceiptFiler
      */
     public function rememberHeld(InboundMessage $message, InboundAttachment $attachment, string $content): void
     {
-        $this->sources->record(
-            $attachment->id,
-            $message->id,
-            array_key_first($this->known->statusesByContentHash(hash('sha256', $content))),
-            ReceiptMailSourceRepository::REASON_ALREADY_HELD
-        );
+        try {
+            $this->sources->record(
+                $attachment->id,
+                $message->id,
+                array_key_first($this->known->statusesByContentHash(hash('sha256', $content))),
+                ReceiptMailSourceRepository::REASON_ALREADY_HELD
+            );
+        } catch (\Throwable $e) {
+            // As remember(): a provenance that cannot be written is said,
+            // and costs the message's other attachments nothing.
+            $this->sayNotFiled($e, $attachment);
+        }
     }
 
     /**

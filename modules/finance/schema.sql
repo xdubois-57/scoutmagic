@@ -324,6 +324,9 @@ CREATE TABLE IF NOT EXISTS finance_receipt_mail_sources (
     -- sender, attachment, manual…) or `content` for one read off the
     -- general address. Shown on the receipt as a one-line explanation.
     reason VARCHAR(20) NOT NULL,
+    -- How many catch-up runs could not read the file (reason
+    -- `unreadable`): after a few, the walk leaves it.
+    attempts SMALLINT UNSIGNED NOT NULL DEFAULT 1,
     recorded_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_frms_attachment (attachment_id),
     INDEX idx_frms_message (inbound_message_id),

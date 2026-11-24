@@ -177,18 +177,24 @@ final class CatchUpMailReceiptsHandlerTest extends TestCase
 
     /**
      * Only unreadable files left is not an empty history: the walk does not
-     * declare itself done, and says why.
+     * declare itself done, and says why — for a few runs. Then it leaves
+     * the file, so one gone for good neither holds the walk open for ever
+     * nor takes the place of readable ones behind it.
      */
-    public function testUnreadableFilesDoNotEndTheWalk(): void
+    public function testAnUnreadableFileIsTriedAFewTimesThenLeft(): void
     {
         $this->linked(LinkOrigin::IBAN, fileId: 99999);
 
+        foreach (range(1, \Modules\Finance\Repository\ReceiptMailSourceRepository::MAX_UNREADABLE_TRIES) as $try) {
+            $this->runTask();
+            $this->assertSame('', $this->settings()->get(CatchUpMailReceiptsHandler::DONE_SETTING, 'finance', ''), "try {$try}: not done");
+            $this->pdo->exec('DELETE FROM scheduled_actions');
+        }
         $this->runTask();
 
-        $this->assertSame('', $this->settings()->get(CatchUpMailReceiptsHandler::DONE_SETTING, 'finance', ''));
-        $this->assertSame(1, $this->pendingChains());
+        $this->assertNotSame('', $this->settings()->get(CatchUpMailReceiptsHandler::DONE_SETTING, 'finance', ''));
         $this->assertSame(
-            1,
+            \Modules\Finance\Repository\ReceiptMailSourceRepository::MAX_UNREADABLE_TRIES,
             (int) $this->pdo->query("SELECT COUNT(*) FROM event_log WHERE event_type = 'inbound_receipt_unreadable'")->fetchColumn()
         );
     }

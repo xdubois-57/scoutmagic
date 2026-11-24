@@ -722,6 +722,57 @@ class FinanceMessageConsumerTest extends TestCase
         $this->assertSame('manual', $row['reason']);
     }
 
+    /** A file the catch-up could not read is not « through finance »: once readable, it files. */
+    public function testAnUnreadableAttachmentStillFilesOnceItCanBeRead(): void
+    {
+        (new \Modules\Finance\Repository\ReceiptMailSourceRepository($this->pdo))->markUnreadable(88, 55);
+        $filed = [];
+
+        $this->consumer($filed)->onLinked(
+            $this->generalMessage([$this->storedAttachment(88)]),
+            new MessageLink(FinanceMessageConsumer::CONSUMER_ID, FinanceMessageConsumer::referenceFor($this->accountId), LinkOrigin::IBAN)
+        );
+
+        $this->assertCount(1, $filed);
+        $this->assertSame('iban', $this->sourceReason(88));
+    }
+
+    /**
+     * A provenance that cannot be written is said, and costs the message's
+     * other attachments nothing.
+     */
+    public function testAProvenanceThatCannotBeWrittenDoesNotStopTheOtherAttachments(): void
+    {
+        $this->heldReceipt('active');
+        $this->pdo->exec(
+            "CREATE TRIGGER refuse_sources BEFORE INSERT ON finance_receipt_mail_sources BEGIN SELECT RAISE(ABORT, 'refused'); END"
+        );
+        $filed = [];
+        $said = [];
+        $consumer = new FinanceMessageConsumer(
+            $this->accounts,
+            new TreasurerScopeService(\Core\Database\Connection::withPdo($this->pdo), new \Core\Badge\BadgeRepository($this->pdo)),
+            $this->pdo,
+            $this->encryption,
+            1,
+            new RecordingExpenseReceipts($filed),
+            null,
+            // 88 holds the bytes finance already has; 89 is new.
+            static fn(int $fileId): ?string => $fileId === 988 ? 'des octets' : 'autres octets',
+            onFilingFailed: static function (\Throwable $e, string $mimeType, int $attachmentId) use (&$said): void {
+                $said[] = $attachmentId;
+            }
+        );
+
+        $consumer->onLinked(
+            $this->generalMessage([$this->storedAttachment(88), $this->storedAttachment(89, 'autre.pdf')]),
+            new MessageLink(FinanceMessageConsumer::CONSUMER_ID, FinanceMessageConsumer::referenceFor($this->accountId), LinkOrigin::IBAN)
+        );
+
+        $this->assertSame(['autre.pdf'], array_column($filed, 'filename'), 'the second attachment is still filed');
+        $this->assertContains(88, $said, 'and the first one\'s failure is said');
+    }
+
     /** The catch-up stops at its budget, and leaves what it did not look at for the next pass. */
     public function testTheCatchUpStopsAtItsBudget(): void
     {

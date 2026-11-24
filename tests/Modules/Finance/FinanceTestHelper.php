@@ -136,6 +136,7 @@ class FinanceTestHelper
             inbound_message_id INTEGER NOT NULL,
             attachment_id INTEGER,
             reason TEXT NOT NULL,
+            attempts INTEGER NOT NULL DEFAULT 1,
             recorded_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (attachment_id) REFERENCES finance_attachments(id) ON DELETE SET NULL
         )');
