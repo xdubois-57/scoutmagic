@@ -175,6 +175,24 @@ final class CatchUpMailReceiptsHandlerTest extends TestCase
         $this->assertCount(1, $this->attachments->findActiveOrdered(), 'the old one, and no second');
     }
 
+    /**
+     * Only unreadable files left is not an empty history: the walk does not
+     * declare itself done, and says why.
+     */
+    public function testUnreadableFilesDoNotEndTheWalk(): void
+    {
+        $this->linked(LinkOrigin::IBAN, fileId: 99999);
+
+        $this->runTask();
+
+        $this->assertSame('', $this->settings()->get(CatchUpMailReceiptsHandler::DONE_SETTING, 'finance', ''));
+        $this->assertSame(1, $this->pendingChains());
+        $this->assertSame(
+            1,
+            (int) $this->pdo->query("SELECT COUNT(*) FROM event_log WHERE event_type = 'inbound_receipt_unreadable'")->fetchColumn()
+        );
+    }
+
     /** No courrier module: nothing to catch up yet, and not « done » either. */
     public function testWithoutTheCourrierTheChainWaits(): void
     {

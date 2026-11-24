@@ -106,12 +106,16 @@ class MailReceiptFiler
                 if ($this->sources->has($attachment->id)) {
                     continue;
                 }
+                // Counted even when it cannot be read, and NOT remembered:
+                // a pass that met only unreadable files has not found the
+                // history empty, and a file that comes back is looked at
+                // again. The reader says it in the journal.
+                $considered++;
                 $content = $readFile($attachment->fileId);
                 if ($content === null || $content === '') {
                     continue;
                 }
 
-                $considered++;
                 $held = $this->heldAnywhere($attachment, $content);
                 if ($held !== false) {
                     $this->sources->record(

@@ -162,7 +162,24 @@ class CatchUpMailReceiptsHandler implements TaskHandlerInterface
                 );
             }
         );
-        $readFile = static fn(int $fileId): ?string => $files->read($fileId);
+        // And says so when it cannot read, as both composition roots' readers
+        // do: an attachment whose file is gone keeps this walk going, and a
+        // person has to be able to see why (an id, never the filename, §8.6).
+        $readFile = static function (int $fileId) use ($files, $context): ?string {
+            $content = $files->read($fileId);
+            if ($content === null) {
+                $context->journal->log(
+                    'finance',
+                    'inbound_receipt_unreadable',
+                    'warning',
+                    'Pièce jointe illisible : aucun reçu créé',
+                    ['file_id' => $fileId],
+                    null
+                );
+            }
+
+            return $content;
+        };
 
         $references = [FinanceMessageConsumer::REFERENCE_UNKNOWN];
         foreach ($accounts->findAllOrdered() as $account) {
