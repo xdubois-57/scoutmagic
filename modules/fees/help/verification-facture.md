@@ -27,13 +27,14 @@ tandis que « Justesse des tarifs » vérifie les catégories encodées.
 
 Une ligne est affichée **sans verdict** si les données ne permettent pas
 de la juger : référence inconnue, section absente, photographie absente,
-ajustement global ou tarif réparti sur plusieurs lignes. Le compte de
-toute une section ne peut pas être comparé séparément à chacune de ces
-lignes.
+ajustement global, quantité négative ou tarif réparti sur plusieurs lignes.
+Le compte de toute une section ne peut pas être comparé séparément à
+chacune de ces lignes.
 
 Une cotisation sans noms reste vérifiable en quantité lorsque son tarif
-et sa section sont connus. Elle ne permet ni de désigner des personnes
-manquantes ni de chiffrer les écarts nominatifs. Le rapport précise ces
+et sa section sont connus, avec une quantité positive ou nulle. Elle ne
+permet ni de désigner des personnes manquantes ni de chiffrer les écarts
+nominatifs. Le rapport précise ces
 limites ; une absence d'écart ne prouve pas que tout a été comparé.
 
 Les lignes conformes sont repliées et comptées. Vous pouvez les afficher

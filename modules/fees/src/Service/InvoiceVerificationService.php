@@ -539,6 +539,9 @@ class InvoiceVerificationService
             $reason = ReconstitutedLine::UNDETERMINED_NO_SNAPSHOT;
         } elseif ($line->nature === InvoiceLine::NATURE_ADJUSTMENT) {
             $reason = ReconstitutedLine::UNDETERMINED_GLOBAL_ADJUSTMENT;
+        } elseif ($line->quantity < 0) {
+            // A reversal is not a count of people in the snapshot.
+            $reason = ReconstitutedLine::UNDETERMINED_NEGATIVE_QUANTITY;
         } elseif ($line->sectionId === null) {
             $reason = ReconstitutedLine::UNDETERMINED_NO_SECTION;
         } else {

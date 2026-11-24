@@ -14,7 +14,7 @@ namespace Modules\Fees\Value;
  *
  * `$expectedQuantity` is **null when the site cannot say**, never zero —
  * and the two are not the same claim. An unknown tariff reference, a line
- * with no section, a global adjustment: each of those leaves the count
+ * with no section, a global adjustment, a negative quantity: each leaves the count
  * undetermined, `$undeterminedReason` says which, and the screen shows the
  * line without a verdict rather than accusing the federation of billing
  * for nobody.
@@ -31,6 +31,7 @@ final class ReconstitutedLine
     public const UNDETERMINED_GLOBAL_ADJUSTMENT = 'global_adjustment';
     public const UNDETERMINED_NO_SNAPSHOT = 'no_snapshot';
     public const UNDETERMINED_MULTIPLE_LINES = 'multiple_lines';
+    public const UNDETERMINED_NEGATIVE_QUANTITY = 'negative_quantity';
 
     public function __construct(
         public readonly string $reference,

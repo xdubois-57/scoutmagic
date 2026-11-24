@@ -1808,6 +1808,10 @@ section sont connus dans la photographie de Desk ; sinon il est non
 déterminable. Le rapport explique cette limite. Les natures déjà
 importées ne sont pas recalculées.
 
+Une quantité négative de régularisation ne se compare pas à un effectif
+de personnes, quelle que soit sa référence. La ligne et son montant restent
+conservés, mais le rapport et le tableur ne lui attribuent aucun écart d'effectif.
+
 **Une répétition au saut de page est une seule ligne** si un marqueur de
 page et la continuation ou la répétition de la liste nominative le
 confirment, en plus de la même combinaison (référence, section, prix,

@@ -74,8 +74,10 @@ class InvoiceImportService
             $reading->problems,
             static fn(InvoiceProblem $problem): bool => $problem->isFormatProblem()
         ) !== [];
-        $ambiguous = array_any($reading->problems,
-            static fn(InvoiceProblem $problem): bool => $problem->kind === InvoiceProblem::AMBIGUOUS_REPETITION);
+        $ambiguous = array_any(
+            $reading->problems,
+            static fn(InvoiceProblem $problem): bool => $problem->kind === InvoiceProblem::AMBIGUOUS_REPETITION
+        );
 
         $this->journal->log(
             'fees',

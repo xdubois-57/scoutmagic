@@ -267,6 +267,31 @@ class InvoiceNominativeDiscrepancyTest extends TestCase
         ]);
     }
 
+    /** @return iterable<string, array{string, string, int}> */
+    public static function reversedQuantities(): iterable
+    {
+        yield 'membership reversal' => ['COT_NORM', 'Cotisation normale', 4000];
+        yield 'brevet reduction reversal' => ['RED_ANIM_BREV', 'Reduction brevet', -600];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('reversedQuantities')]
+    public function testANegativeQuantityDoesNotAccuseTheSectionsPositiveHeadcount(
+        string $reference,
+        string $descriptor,
+        int $unitPrice
+    ): void {
+        $this->member('Ada', 'Solis', $this->normalFeeId, $this->louveteauxId, false, 'Breveté');
+        $invoice = $this->storeInvoice([
+            new InvoiceLine($reference, $descriptor, 'ZX777L1', $unitPrice, -1, -$unitPrice),
+        ], $this->snapshot());
+        $line = $this->service->reconstitutedLines($invoice)[0];
+
+        self::assertSame([null, 'negative_quantity', null, null, 0], [
+            $line->expectedQuantity, $line->undeterminedReason, $line->difference(), $line->differenceCents(),
+            $this->service->countDiscrepancies($invoice),
+        ]);
+    }
+
     public function testAMixedReductionDoesNotManufactureMissingBrevetReductions(): void
     {
         [, $person] = $this->member('Ada', 'Solis', $this->normalFeeId, $this->louveteauxId, false, 'Breveté');

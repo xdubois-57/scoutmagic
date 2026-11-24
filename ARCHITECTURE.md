@@ -3943,6 +3943,8 @@ Robustness here is not cleverer patterns. It is never leaning on position, and r
 
 ### 8.78 The verification report (`Modules\Fees\Controller\InvoiceReportController`)
 
+A negative billed quantity is a reversal, not a snapshot headcount. Its quantity comparison is undetermined for every reference and nature, while its signed financial amount is preserved. Positive and zero unnamed summaries remain countable when their tariff and section are known.
+
 Two tabs, answering two different questions, and the split is the point: **how many** (the reconstituted lines) and **who** (the nominative discrepancies). Run together they produce a screen that says a section is one over and leaves a treasurer to work out which of thirty children it is.
 
 **Reconstituted lines.** Per (reference, section): unit price, billed quantity, the quantity the snapshot held, and the gap costed at the line's own price. The expected figure comes from the **snapshot** and never from a tariff calculation — that is the line between this report and « Justesse des tarifs » (§8.75): one checks the count, the other checks the categories, and confusing them produces a screen that accuses the federation of an error the unit made. A line the site cannot judge carries `null`, never zero, with the reason (`ReconstitutedLine::UNDETERMINED_*`): unknown reference, no section, global adjustment, no snapshot. Conforming lines are **collapsed and counted, never dropped** — a first screenful of forty "conforme" rows hides the two that are not, and omitting them would stop the report reconciling against the paper document.
