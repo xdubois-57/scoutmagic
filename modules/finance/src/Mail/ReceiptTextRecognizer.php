@@ -51,8 +51,12 @@ final class ReceiptTextRecognizer
     /** The words a total is printed next to, on the same line as its amount. */
     private const TOTAL_WORDS = ['total', 'totaal', 'montant', 'a payer', 'te betalen', 'bedrag', 'amount due'];
 
-    /** A sum with two decimals: « 12,50 », « 1 234.00 », « 1.234,00 ». */
-    private const AMOUNT = '\d{1,3}(?:[ .\x{00A0}\x{202F}]?\d{3})*[.,]\d{2}(?!\d)';
+    /**
+     * A sum with two decimals: « 12,50 », « 1 234.00 », « 1.234,00 ». Not
+     * the start of a date: « 12.09.2026 » is followed by a separator and a
+     * digit, which a sum never is.
+     */
+    private const AMOUNT = '\d{1,3}(?:[ .\x{00A0}\x{202F}]?\d{3})*[.,]\d{2}(?!\d|[.\/-]\d)';
 
     public function looksLikeAReceipt(string $text): bool
     {
@@ -88,12 +92,13 @@ final class ReceiptTextRecognizer
         return false;
     }
 
-    /** « 12,50 € », « € 12,50 », « 12,50 EUR », « EUR 12.50 ». */
+    /** « 12,50 € », « € 12,50 », « 12,50 EUR », « 12,50.- EUR », « EUR 12.50 ». */
     private static function hasMoneyAmount(string $folded): bool
     {
         $currency = '(?:€|eur\b|euros?\b)';
 
-        return preg_match('/' . self::AMOUNT . '\s?' . $currency . '/u', $folded) === 1
+        // « 12,50.- EUR »: the dash a Belgian price is often written with.
+        return preg_match('/' . self::AMOUNT . '(?:\.-)?\s?' . $currency . '/u', $folded) === 1
             || preg_match('/' . $currency . '\s?' . self::AMOUNT . '/u', $folded) === 1;
     }
 

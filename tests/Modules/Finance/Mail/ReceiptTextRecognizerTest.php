@@ -28,6 +28,8 @@ class ReceiptTextRecognizerTest extends TestCase
             'Dutch' => ["Kassaticket\nTotaal 23,40"],
             'Dutch VAT and an amount' => ['Factuur 77 — BTW 21 % — 121,00 EUR'],
             'English' => ['Invoice #42 — Amount due 19.99'],
+            'a sum ending a sentence' => ['Ticket de caisse : total 12,50.'],
+            'a sum with a Belgian dash' => ['Facture : 12,50.- EUR'],
         ];
     }
 
@@ -50,6 +52,8 @@ class ReceiptTextRecognizerTest extends TestCase
             'a booking contract' => ["CENTRE DE CAMP LE GRAND PRE\nArrivee: 18-09-26\nForfait: 1.468,80 EUR"],
             'a total far from any amount, and an amount with no currency' => ["Total des présences\n\nTaille 12,50"],
             'a word inside another word' => ['Nous sommes totalement ravis : 12,50 points.'],
+            'a date is not a sum' => ['Total des présences au 12.09.2026 : 42'],
+            'nor with slashes or hyphens' => ["Facture du 12/09/2026\nTotal au 01-09-2026"],
         ];
     }
 

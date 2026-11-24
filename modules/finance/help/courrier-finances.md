@@ -64,8 +64,8 @@ sans compte, dans « Compte inconnu » sur la page Reçus. C'est là que la
 trésorerie le trie.
 
 Sur l'adresse **générale** de l'unité, le site lit le document lui-même :
-le texte d'un PDF sur le site, une photo ou un scan par l'IA, une fois
-par message au plus. Ce qui ressemble à un reçu — « Total », « TVA », un
+le texte d'un PDF sur le site, une photo ou un scan par l'IA si elle
+est activée, une fois par message au plus. Ce qui ressemble à un reçu — « Total », « TVA », un
 montant — rejoint « Compte inconnu ». Le message, lui, n'est pas
 rattaché : il reste visible du seul staff d'unité. La photo de vacances
 d'un parent ne donne rien.
