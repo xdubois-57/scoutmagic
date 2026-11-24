@@ -29,6 +29,7 @@ import { answerConfirmation, waitForConfirmReady } from '../support/confirm-dial
 import { answerCookieBanner } from '../support/cookie-banner.js';
 import { loginAsAdmin, loginAsMember } from '../support/admin-login.js';
 import { openModal } from '../support/modal.js';
+import { saveDraftThenPublish } from '../support/news-publish.js';
 import { pngBuffer } from '../support/png.js';
 
 const ARTICLE_TITLE = `Souper spaghetti ${Date.now()}`;
@@ -86,12 +87,10 @@ test('an article is re-edited without losing its form, a member edits their resp
     await placesPanel.getByLabel('Limiter la capacité').check();
     await placesPanel.getByLabel('Capacité maximale').fill('5');
 
-    // A new article is a draft (issue #845): « Publier » asks for whom,
-    // in the site's dialog, then saves and puts it online.
-    await waitForConfirmReady(page);
-    await page.getByRole('button', { name: 'Publier', exact: true }).click();
-    await answerConfirmation(page);
-    await page.waitForURL(/\/news\/\d+\/gerer$/, { waitUntil: 'domcontentloaded' });
+    // A new article is a draft (issue #845), and only a saved one can be
+    // published (issue #1357): save the draft, then « Publier » asks for
+    // whom, in the site's dialog, and puts it online.
+    await saveDraftThenPublish(page);
     const articleUrl = new URL(page.url()).pathname.replace(/\/gerer$/, '');
 
     // ---------------------------------------------------------------
