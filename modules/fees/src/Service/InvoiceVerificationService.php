@@ -65,6 +65,9 @@ class InvoiceVerificationService
         $lines = $this->invoices->findLines($invoice->id);
         $groupCounts = [];
         foreach ($lines as $line) {
+            if ($line->quantity < 0) {
+                continue;
+            }
             $key = self::quantityGroup($line);
             $groupCounts[$key] = ($groupCounts[$key] ?? 0) + 1;
         }
@@ -74,7 +77,7 @@ class InvoiceVerificationService
                 $line,
                 $snapshotMembers,
                 $sectionLabels,
-                $groupCounts[self::quantityGroup($line)] > 1
+                ($groupCounts[self::quantityGroup($line)] ?? 0) > 1
             ),
             $lines
         );

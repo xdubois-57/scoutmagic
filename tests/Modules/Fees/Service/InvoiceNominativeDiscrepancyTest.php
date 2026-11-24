@@ -292,6 +292,36 @@ class InvoiceNominativeDiscrepancyTest extends TestCase
         ]);
     }
 
+    /** @return iterable<string, array{string, string, int, int}> */
+    public static function reversalsWithPositiveSiblings(): iterable
+    {
+        foreach (self::reversedQuantities() as $name => [$reference, $descriptor, $unitPrice]) {
+            yield $name . ' with matching quantity' => [$reference, $descriptor, $unitPrice, 1];
+            yield $name . ' with mismatching quantity' => [$reference, $descriptor, $unitPrice, 2];
+        }
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('reversalsWithPositiveSiblings')]
+    public function testAReversalDoesNotDisableItsPositiveSiblingsHeadcountCheck(
+        string $reference,
+        string $descriptor,
+        int $unitPrice,
+        int $positiveQuantity
+    ): void {
+        $this->member('Ada', 'Solis', $this->normalFeeId, $this->louveteauxId, false, 'Breveté');
+        $invoice = $this->storeInvoice([
+            new InvoiceLine($reference, $descriptor, 'ZX777L1', $unitPrice, $positiveQuantity, $unitPrice * $positiveQuantity),
+            new InvoiceLine($reference, $descriptor, 'ZX777L1', $unitPrice, -1, -$unitPrice),
+        ], $this->snapshot());
+        [$positive, $reversal] = $this->service->reconstitutedLines($invoice);
+
+        self::assertSame([1, null, ($positiveQuantity - 1) * $unitPrice, null, 'negative_quantity', null, $positiveQuantity - 1], [
+            $positive->expectedQuantity, $positive->undeterminedReason, $positive->differenceCents(),
+            $reversal->expectedQuantity, $reversal->undeterminedReason, $reversal->differenceCents(),
+            $this->service->countDiscrepancies($invoice),
+        ]);
+    }
+
     public function testAMixedReductionDoesNotManufactureMissingBrevetReductions(): void
     {
         [, $person] = $this->member('Ada', 'Solis', $this->normalFeeId, $this->louveteauxId, false, 'Breveté');
