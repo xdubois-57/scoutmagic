@@ -130,7 +130,9 @@ final class TariffConfigurationServiceTest extends TestCase
         $before = $this->snapshot();
         $message = null;
         try {
-            $this->service->save('2026-2027', array_replace($this->input(), $changes));
+            $this->service->save('2026-2027', array_replace(
+                $this->input(), ['amount_normal' => '58,23'], $changes
+            ));
         } catch (SettingException $error) {
             $message = $error->getMessage();
         }

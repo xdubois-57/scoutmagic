@@ -838,19 +838,39 @@ class FeeAccuracyControllerTest extends TestCase
         $this->assertSame(0, $this->storedTariffRows());
     }
 
-    public function testAllScalePostsRequireCsrfIncludingApplication(): void
+    /** @return array<string, array{string, string}> */
+    public static function scalePostRoutes(): array
+    {
+        return [
+            'save' => ['saveTariffs', '/bareme'],
+            'lookup' => ['lookupTariffs', '/bareme/chercher'],
+            'apply' => ['applyTariffs', '/bareme/appliquer'],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('scalePostRoutes')]
+    public function testAllScalePostsRequireCsrfIncludingApplication(string $action, string $suffix): void
     {
         AuthSession::login(1, 'admin@test.be', 'admin');
-        SuggestedScale::set(FederalScaleLookup::found(FederalScaleLookupService::DEFAULT_URL, '2025-2026', ['normal' => 5750]));
+        $this->useLookupService($this->lookupAnswering('{"annee":"2025-2026","normale":"59"}'));
+        SuggestedScale::set(FederalScaleLookup::found(
+            FederalScaleLookupService::DEFAULT_URL, '2025-2026', ['normal' => 5750]
+        ));
         $proposal = SuggestedScale::peek('2025-2026');
-        foreach (['saveTariffs' => '/bareme', 'lookupTariffs' => '/bareme/chercher', 'applyTariffs' => '/bareme/appliquer'] as $action => $suffix) {
-            $before = DatabaseTestHelper::snapshot($this->pdo);
-            $posted = array_replace($this->validBody(), ['_csrf_token' => 'wrong', 'proposal_token' => $proposal['token'], 'apply_scale' => 'all']);
-            $this->dispatch('POST', '/admin/fees/tarifs' . $suffix, $action, $posted);
-            $this->assertSame($before, DatabaseTestHelper::snapshot($this->pdo));
-            $this->assertSame($proposal, SuggestedScale::peek('2025-2026'));
-            $this->assertNull(SuggestedScale::draftFor('2025-2026'));
-        }
+        $before = DatabaseTestHelper::snapshot($this->pdo);
+        // Every allowed path would change this state: save writes five rows,
+        // lookup writes its journal and replaces the proposal, apply consumes
+        // it and retains the current form. A refusal therefore has an effect
+        // to prevent, including on the two routes that do not save prices.
+        $posted = array_replace($this->validBody(), [
+            '_csrf_token' => 'wrong', 'proposal_token' => $proposal['token'],
+            'apply_scale' => 'all', 'amount_normal' => '61,11',
+        ]);
+        $this->dispatch('POST', '/admin/fees/tarifs' . $suffix, $action, $posted);
+        $this->assertSame([$before, $proposal, null], [
+            DatabaseTestHelper::snapshot($this->pdo), SuggestedScale::peek('2025-2026'),
+            SuggestedScale::draftFor('2025-2026'),
+        ]);
     }
 
     public function testTheLiveRuleScriptHasAnAbsoluteVersionedUrl(): void
