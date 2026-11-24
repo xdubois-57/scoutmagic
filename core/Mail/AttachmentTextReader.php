@@ -41,8 +41,9 @@ use Modules\LlmConnector\Api\LlmTier;
  *
  * **Bounded three ways**, because a message is somebody else's file: the
  * number of attachments read, each one's size, and the text handed back —
- * in total for {@see read()}, per attachment for {@see readEach()}. A three-hundred-page appendix must not become a model prompt or a
- * regex's input.
+ * in total for {@see read()}, per attachment for {@see readEach()}. A
+ * three-hundred-page appendix must not become a model prompt or a regex's
+ * input.
  *
  * **Three ways in, in order of cost.** A PDF's embedded text layer and a
  * plain-text part are free, exact and offline, so they are tried first and
