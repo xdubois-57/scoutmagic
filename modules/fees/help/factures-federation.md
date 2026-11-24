@@ -10,74 +10,52 @@ paths: /admin/fees/factures, /admin/fees/factures/import
 related: cotisations, justesse-des-tarifs, import-desk
 ---
 
-La fédération envoie plusieurs documents sur une saison : un acompte en
-novembre, les factures finales de janvier et de février, une
-régularisation en fin d'année. La page **Factures** les présente dans
-l'ordre où ils sont arrivés, avec le cumul de ce que l'unité a payé.
+La page **Factures** présente les documents de la saison et le cumul de
+leurs totaux : acompte, factures finales et régularisation. L'acompte étant
+déduit dans la facture finale par une ligne négative, ce cumul ne le
+compte pas deux fois.
 
-## Le cumul ne compte jamais l'acompte deux fois
+## Importer une facture
 
-L'acompte est déduit *à l'intérieur* de la facture finale, par une ligne
-négative. Le total imprimé sur la facture finale est donc déjà net. Le
-cumul additionne ces totaux tels quels : c'est ce que l'unité a
-réellement payé, pas la somme des montants bruts.
+Déposez le PDF original envoyé par la fédération. Un scan ne convient
+pas : le site lit sa couche texte.
 
-## Importer : trois issues, et deux sont des refus
+**Facture acceptée.** Chaque montant est recalculé : prix × quantité,
+nombre de personnes lorsqu'une liste est présente, puis somme des lignes.
+Le total doit correspondre exactement au document. Son rapport de
+vérification devient alors consultable.
 
-Déposez le PDF que la fédération a envoyé, tel quel. Un scan ne convient
-pas : le site lit le texte du document, il ne le reconnaît pas sur une
-image.
+Le récapitulatif TVA est distingué des cotisations. Deux cotisations
+identiques pour deux personnes restent séparées ; une liste continuée à
+la page suivante est comptée une seule fois. Une répétition ambiguë
+refuse la lecture avec une explication. Une cotisation sans noms reste
+vérifiable en quantité, mais limite les contrôles nominatifs.
 
-**La facture est acceptée.** Le site a relu chaque ligne, recalculé
-chaque sous-total et vérifié que la somme retombe exactement sur le total
-imprimé. Elle rejoint la saison, et son rapport de vérification devient
-consultable.
+**Total incohérent.** L'arithmétique ne retombe pas sur les montants du
+document. Le message désigne la ligne concernée. Rien n'est enregistré.
 
-Le récapitulatif de TVA est distingué des cotisations. Deux cotisations
-identiques pour deux personnes restent séparées ; une liste qui continue
-à la page suivante n'est comptée qu'une fois. Si le document ne permet pas
-de distinguer une répétition de deux cotisations, la lecture est refusée
-avec cette explication. Une ligne sans noms reste une cotisation, mais
-limite les contrôles nominatifs du rapport.
+**Format non interprétable.** La mise en page n'est pas reconnue. Rien
+n'est enregistré. Signalez le problème sans envoyer le PDF : le journal
+fournit des compteurs de lecture, sans aucun nom.
 
-**Total incohérent.** La lecture ne retombe pas sur le total du document,
-et l'écran nomme la ligne où elle décroche. Rien n'est enregistré : une
-facture à moitié lue produirait une vérification à moitié fausse, ce qui
-est pire que pas de vérification du tout.
+**Roster périmé.** Une section facturée est inconnue du site. Réimportez
+Desk, puis reprenez le même PDF. La solution est d'actualiser les données,
+pas d'associer manuellement un code à une autre section.
 
-**Format non interprétable.** La mise en page du document n'est pas
-reconnue ; rien n'est enregistré. Signalez-le sans envoyer le PDF :
-le journal suffit, sans aucun nom.
+## Importer deux fois ne crée pas de doublon
 
-**Roster périmé.** Le document se lit parfaitement, mais il facture une
-section que ce site ne connaît pas. Ce n'est pas une correspondance que
-quelqu'un aurait oublié d'encoder : c'est que Desk a changé et que le
-site n'a pas été réimporté depuis. Réimportez Desk, puis reprenez le même
-fichier — il passera tel quel. Il n'existe volontairement aucun écran
-pour associer un code de section à la main.
+Le numéro du document l'identifie. Si vous ne savez plus si une facture
+est déjà importée, réessayez : le site vous le dira sans la modifier.
 
-## Importer deux fois le même document ne fait rien
+## Conserver le PDF comme justificatif
 
-Le numéro du document est son identité. Si vous n'êtes pas sûr d'avoir
-déjà importé la facture de janvier, essayez : le site vous dira qu'elle
-est déjà là et n'enregistrera rien de plus.
+Lorsque Finances est activé, vous pouvez choisir un compte de l'unité.
+Le PDF y devient un justificatif chiffré au repos, accessible aux mêmes
+personnes que ce compte. Les noms restent uniquement dans ce fichier ;
+les tables de vérification n'en conservent aucun.
 
-## Conserver le PDF dans Finances
+Le rapprochement bancaire reste manuel. Sans Finances, le PDF n'est pas
+conservé ; la vérification fonctionne pareil.
 
-Si le module Finances est activé, vous pouvez rattacher le PDF à un
-compte de l'unité : il y devient un justificatif ordinaire, chiffré au
-repos, visible par les mêmes personnes que ce compte. C'est aussi le seul
-endroit où les noms figurant sur la facture sont conservés — le site,
-lui, n'en garde aucun.
-
-Le rapprochement avec le mouvement bancaire reste manuel. Le site ne
-devine pas quel virement paie quelle facture.
-
-Si Finances est désactivé, la case n'apparaît pas, le PDF n'est pas
-conservé, et la vérification fonctionne exactement pareil.
-
-## Ce que le site ne fait pas
-
-Il n'écrit jamais dans Desk, et il ne conteste rien à votre place. Il
-lit, il recalcule, il montre où ça diverge. La correction — dans Desk ou
-auprès de la fédération — reste la vôtre.
+Le site ne modifie pas Desk et ne conteste pas la facture auprès de la
+fédération. Il montre les écarts pour vous permettre de les vérifier.
