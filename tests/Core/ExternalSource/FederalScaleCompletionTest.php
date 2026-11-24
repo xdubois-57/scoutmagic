@@ -10,8 +10,9 @@ use PHPUnit\Framework\TestCase;
 
 final class FederalScaleCompletionTest extends TestCase
 {
-    private static function page(): string
-    {
+    private static function page(
+        string $guestWindow = 'Entre le 1er juin et le 31 aout, une inscription coute une cotisation invité.'
+    ): string {
         return '<h3>Cotisations 2026-2027</h3>'
             . '<p>Cotisation normale : 40 €</p><p>Cotisation couple : 32 € par personne</p>'
             . '<p>Cotisation familiale : 27 € par personne</p>'
@@ -19,7 +20,7 @@ final class FederalScaleCompletionTest extends TestCase
             . '<h4>Les IAmA</h4><p>Un IAmA uniquement fédéral ne paie pas de cotisation.</p>'
             . '<p>Les IAmA liés à ton unité devront payer une cotisation de 25€.</p>'
             . '<h3>Invités</h3><p>Du 15 aout au 31 mai, une inscription occasionnelle est gratuite.</p>'
-            . '<p>Entre le 1er juin et le 31 aout, une inscription coute une cotisation invité.</p>';
+            . '<p>' . $guestWindow . '</p>';
     }
 
     public function testAllFiveAmountsAndThePaidWindowComeFromTheSameSeason(): void
@@ -85,5 +86,27 @@ final class FederalScaleCompletionTest extends TestCase
         $html = str_replace(['2026-2027', 'Entre le 1er juin'], ['2027-2028', 'Entre le 29 février'], self::page());
 
         self::assertSame('29/02', FederalScaleExtractor::extract($html)?->guestFromDayMonth);
+    }
+
+    /** @return iterable<string, array{string, string}> */
+    public static function adjacentWindows(): iterable
+    {
+        foreach (['15 aout et le 31 mai', '1er mars et le 31 mai'] as $freeWindow) {
+            foreach (['. ', '; ', ' et '] as $separator) {
+                yield $freeWindow . $separator => [$freeWindow, $separator];
+            }
+        }
+    }
+
+    #[DataProvider('adjacentWindows')]
+    public function testAFreeWindowCannotBorrowThePaidPredicateFromTheNextWindow(
+        string $freeWindow,
+        string $separator
+    ): void {
+        $page = self::page('Entre le ' . $freeWindow . ', une inscription est gratuite' . $separator
+            . 'Entre le 1er juin et le 31 aout, une inscription coute une cotisation invité.');
+        $scale = FederalScaleExtractor::extract($page);
+
+        self::assertSame(['01/06', '31/08'], [$scale?->guestFromDayMonth, $scale?->guestUntilDayMonth]);
     }
 }

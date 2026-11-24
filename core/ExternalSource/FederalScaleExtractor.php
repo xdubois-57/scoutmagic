@@ -59,6 +59,9 @@ final class FederalScaleExtractor
     public static function extract(string $html): ?FederalScale
     {
         [$year, $text] = self::latestSeason(self::text($html));
+        if ($year !== null) {
+            $text = self::withGlobalGuestPolicy($html, $text, $year);
+        }
         $cents = [];
 
         foreach (self::CATEGORY_WORDS as $key => $word) {
@@ -95,7 +98,52 @@ final class FederalScaleExtractor
     /** The requested year's complete text, including its IAmA/guest subheadings. */
     public static function sectionForYear(string $html, string $year): ?string
     {
-        return self::seasonSection(self::text($html), $year);
+        $section = self::seasonSection(self::text($html), $year);
+
+        return $section === null ? null : self::withGlobalGuestPolicy($html, $section, $year);
+    }
+
+    /** Keep seasonal prices separate from the page's shared annual guest policy. */
+    private static function withGlobalGuestPolicy(string $html, string $section, string $year): string
+    {
+        if (self::paidGuestPeriod($section, $year) !== null) {
+            return $section;
+        }
+        $policy = self::globalGuestPolicy($html, $year);
+
+        return $policy === '' ? $section : $section . "\n" . $policy;
+    }
+
+    /**
+     * The federal page puts seasonal prices (including local IAmA) in
+     * cmpt-banner-noLink blocks, and the recurring guest window outside.
+     * Remove EVERY season banner before reading that common policy: a
+     * missing current value must never borrow an older season's prices
+     * or dates. An unrecognised layout stays undetermined.
+     */
+    private static function globalGuestPolicy(string $html, string $year): string
+    {
+        $document = \Dom\HTMLDocument::createFromString($html, LIBXML_NOERROR, 'UTF-8');
+        $removed = false;
+        foreach ($document->querySelectorAll('.cmpt-banner-noLink') as $banner) {
+            if (self::seasonHeadings(self::text($document->saveHtml($banner))) !== []) {
+                $banner->remove();
+                $removed = true;
+            }
+        }
+        $remaining = self::text($document->saveHtml());
+        if (!$removed || self::seasonHeadings($remaining) !== []) {
+            return '';
+        }
+
+        $policies = [];
+        foreach (explode("\n", $remaining) as $line) {
+            if (self::paidGuestPeriod($line, $year) !== null) {
+                $policies[] = $line;
+            }
+        }
+
+        return count($policies) === 1 ? $policies[0] : '';
     }
 
     /**
@@ -169,20 +217,35 @@ final class FederalScaleExtractor
         $date = '(\d{1,2})(?:er)?\s+(' . $months . ')';
         $pattern = '/\bentre\s+le\s+' . $date . '\s+et\s+le\s+' . $date
             . '[^\n]*?\bco[uû]te\s+une?\s+cotisation\s+invit[eé]\b/iu';
-        if (preg_match($pattern, $text, $match) !== 1) {
-            return null;
+        // A free window cannot borrow the paid predicate of the next range,
+        // even when both ranges share one paragraph or have no punctuation.
+        $windows = preg_split('/(?=\bentre\s+le\s+\d)/iu', $text) ?: [];
+        foreach ($windows as $window) {
+            if (preg_match($pattern, $window, $match) !== 1) {
+                continue;
+            }
+
+            $calendarYear = $year === null ? '2000' : substr($year, 5, 4);
+            $from = sprintf(
+                '%02d/%02d',
+                (int) $match[1],
+                self::MONTHS[TextNormalizerService::fold($match[2])]
+            );
+            $until = sprintf(
+                '%02d/%02d',
+                (int) $match[3],
+                self::MONTHS[TextNormalizerService::fold($match[4])]
+            );
+            $start = DateInput::parse('!d/m/Y', $from . '/' . $calendarYear);
+            $end = DateInput::parse('!d/m/Y', $until . '/' . $calendarYear);
+            if ($start === null || $end === null || $end < $start) {
+                return null;
+            }
+
+            return [$from, $until];
         }
 
-        $calendarYear = $year === null ? '2000' : substr($year, 5, 4);
-        $from = sprintf('%02d/%02d', (int) $match[1], self::MONTHS[TextNormalizerService::fold($match[2])]);
-        $until = sprintf('%02d/%02d', (int) $match[3], self::MONTHS[TextNormalizerService::fold($match[4])]);
-        $start = DateInput::parse('!d/m/Y', $from . '/' . $calendarYear);
-        $end = DateInput::parse('!d/m/Y', $until . '/' . $calendarYear);
-        if ($start === null || $end === null || $end < $start) {
-            return null;
-        }
-
-        return [$from, $until];
+        return null;
     }
 
     /**

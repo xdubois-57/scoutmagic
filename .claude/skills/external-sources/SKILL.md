@@ -65,9 +65,10 @@ when the report names one, the address it redirects to.
   and `guest_period.end`, and `verified_on`
   set to the day you read the page — and every installed site's barème
   proposes the new figures from the release that carries it. A new season
-  whose amounts did not move is a divergence too (« season changed »): the
-  barème only proposes the file for its own year, so the fix is the file's
-  `year` and `verified_on`, amounts and period untouched. A period-only
+  whose five amounts AND both paid guest bounds did not move is a divergence
+  too (« Année scoute modifiée »): the barème only proposes the file for its
+  own year, so only then is the fix limited to `year` and `verified_on`.
+  When amounts or bounds also change, update those values too. A period-only
   change is a divergence too: update the two bounds and verification date.
 - **A console or legal link is dead**: find the provider's current page for
   the same thing (API keys, privacy policy, DPA…) on the provider's own
