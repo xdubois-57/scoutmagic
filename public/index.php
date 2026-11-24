@@ -2513,6 +2513,13 @@ $notificationPreferenceRepo = new NotificationPreferenceRepository($pdo);
 // with an account does not answer later than one without (issue #1267). Run
 // by flush() right after the response is sent, near the end of this file.
 $afterResponse = new \Core\Http\AfterResponse();
+// A safety net for the work it keeps: a client that drops the connection, a
+// `exit`, a fatal error before the normal flush() below would otherwise lose a
+// sign-in e-mail already promised — silently, nothing journaled. Shutdown
+// functions still run in all three cases, and flush() runs the work only once.
+register_shutdown_function(static function () use ($afterResponse): void {
+    $afterResponse->flush();
+});
 
 // Create AuthService
 $authService = new AuthService(
