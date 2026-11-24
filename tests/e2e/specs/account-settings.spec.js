@@ -116,6 +116,13 @@ test('the account page updates the profile, replaces the photo through the clien
     await expect(page.getByRole('textbox', { name: 'Prénom', exact: true })).toHaveValue('Prénom-E2E');
     await expect(page.getByRole('textbox', { name: 'Nom', exact: true })).toHaveValue('Nom-E2E');
 
+    // The navigation names the signed-in account by the first name saved
+    // here, at the very next render and without a new login (#1360): once in
+    // the mobile menu's identity card, once in the desktop header's account
+    // link. Whatever members are linked to this e-mail address, none of
+    // their names takes its place.
+    await expect(page.locator('a[href="/account"]').filter({ hasText: 'Prénom-E2E' })).toHaveCount(2);
+
     await page.getByRole('textbox', { name: 'Prénom', exact: true }).fill(originalFirstName);
     await page.getByRole('textbox', { name: 'Nom', exact: true }).fill(originalLastName);
     await page.getByRole('button', { name: 'Enregistrer' }).click();
