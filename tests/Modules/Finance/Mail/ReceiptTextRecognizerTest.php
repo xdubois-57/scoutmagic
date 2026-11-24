@@ -54,6 +54,8 @@ class ReceiptTextRecognizerTest extends TestCase
             'a word inside another word' => ['Nous sommes totalement ravis : 12,50 points.'],
             'a date is not a sum' => ['Total des présences au 12.09.2026 : 42'],
             'nor with slashes or hyphens' => ["Facture du 12/09/2026\nTotal au 01-09-2026"],
+            'nor with a two-digit year' => ['Total au 12.09.26'],
+            'nor a two-digit year with slashes' => ['Facture — total au 12/09/26'],
         ];
     }
 

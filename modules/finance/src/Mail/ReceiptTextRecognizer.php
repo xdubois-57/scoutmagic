@@ -53,10 +53,11 @@ final class ReceiptTextRecognizer
 
     /**
      * A sum with two decimals: « 12,50 », « 1 234.00 », « 1.234,00 ». Not
-     * the start of a date: « 12.09.2026 » is followed by a separator and a
-     * digit, which a sum never is.
+     * a piece of a date, on either side: « 12.09.2026 » is followed by a
+     * separator and a digit, and the « 09.26 » of « 12.09.26 » is preceded
+     * by one — neither of which a sum ever is.
      */
-    private const AMOUNT = '\d{1,3}(?:[ .\x{00A0}\x{202F}]?\d{3})*[.,]\d{2}(?!\d|[.\/-]\d)';
+    private const AMOUNT = '(?<!\d)(?<!\d[.,\/-])\d{1,3}(?:[ .\x{00A0}\x{202F}]?\d{3})*[.,]\d{2}(?!\d|[.\/-]\d)';
 
     public function looksLikeAReceipt(string $text): bool
     {

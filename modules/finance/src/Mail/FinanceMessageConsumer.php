@@ -440,9 +440,11 @@ class FinanceMessageConsumer implements
      * (`canRead()`); what they are owed is the receipt, and the message
      * stays where the general address's own rule keeps it (#1333).
      *
-     * Two IBANs of the unit in the text stay silence, as on arrival: the
-     * covering e-mail of a transfer between two accounts, whose document
-     * belongs to neither side by default.
+     * Two IBANs of the unit in the text keep the content reading out, as
+     * they keep the IBAN rule out on arrival: the covering e-mail of a
+     * transfer between two accounts, whose document belongs to neither side
+     * by default. The sender rule is untouched — on arrival, and replayed
+     * above, a single staff behind the sender still places the receipt.
      *
      * A dedicated box needs no reading: the arrival rules already file
      * every receipt it receives.
