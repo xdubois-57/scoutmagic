@@ -119,7 +119,7 @@ class MailReceiptFiler
                     continue;
                 }
 
-                $held = $this->heldAnywhere($attachment, $content);
+                $held = $this->heldAnywhere($attachment, $content, $accountId);
                 if ($held !== false) {
                     $this->sources->record(
                         $attachment->id,
@@ -265,17 +265,18 @@ class MailReceiptFiler
      * hash, the same name and type: a catch-up walks a history that can be
      * older than the hash, and a receipt it cannot recognise by its bytes
      * would otherwise be filed a second time — or brought back after
-     * somebody deleted it. Missing one receipt in that history is the
-     * cheaper mistake.
+     * somebody deleted it. Each old receipt answers for one attachment only
+     * ({@see AttachmentRepository::findUnhashedByName()}), so a common name
+     * costs at most one receipt per old one: the cheaper mistake.
      */
-    private function heldAnywhere(InboundAttachment $attachment, string $content): int|false
+    private function heldAnywhere(InboundAttachment $attachment, string $content, ?int $accountId): int|false
     {
         $byBytes = array_key_first($this->known->statusesByContentHash(hash('sha256', $content)));
         if ($byBytes !== null) {
             return $byBytes;
         }
 
-        return $this->known->findUnhashedByName($attachment->filename, $attachment->mimeType) ?? false;
+        return $this->known->findUnhashedByName($attachment->filename, $attachment->mimeType, $accountId) ?? false;
     }
 
     public function sayNotFiled(\Throwable $e, InboundAttachment $attachment): void

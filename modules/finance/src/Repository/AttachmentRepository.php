@@ -68,15 +68,24 @@ class AttachmentRepository
      * left — same file name, same type — in any state (#1342). For the
      * catch-up of old mail, which must not file twice what it cannot
      * recognise by its bytes.
+     *
+     * A name is weak evidence, so one old receipt answers for ONE mail
+     * attachment: once an attachment's provenance points at it, it is
+     * claimed, and the next attachment of that name is filed rather than
+     * held. Without that, a single old « facture.pdf » would hold back every
+     * attachment called the same, on every account, silently. Among the
+     * unclaimed, one on the attachment's own account goes first.
      */
-    public function findUnhashedByName(string $originalFilename, string $mimeType): ?int
+    public function findUnhashedByName(string $originalFilename, string $mimeType, ?int $accountId): ?int
     {
         $stmt = $this->pdo->prepare(
-            'SELECT id FROM finance_attachments
-              WHERE content_hash IS NULL AND original_filename = ? AND mime_type = ?
-           ORDER BY id ASC LIMIT 1'
+            'SELECT a.id FROM finance_attachments a
+              WHERE a.content_hash IS NULL AND a.original_filename = ? AND a.mime_type = ?
+                AND NOT EXISTS (SELECT 1 FROM finance_receipt_mail_sources s WHERE s.attachment_id = a.id)
+           ORDER BY CASE WHEN a.account_id = ? OR (a.account_id IS NULL AND ? IS NULL) THEN 0 ELSE 1 END, a.id ASC
+              LIMIT 1'
         );
-        $stmt->execute([$originalFilename, $mimeType]);
+        $stmt->execute([$originalFilename, $mimeType, $accountId, $accountId]);
         $id = $stmt->fetchColumn();
 
         return $id === false ? null : (int) $id;

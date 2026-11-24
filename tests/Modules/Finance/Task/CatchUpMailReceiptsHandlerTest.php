@@ -176,6 +176,53 @@ final class CatchUpMailReceiptsHandlerTest extends TestCase
     }
 
     /**
+     * A name is weak evidence: one old receipt answers for one attachment.
+     * A second attachment of the same name, on another message and another
+     * account, is filed — not held back for ever by the first one's receipt.
+     */
+    public function testAnOldReceiptHoldsBackOnlyOneAttachmentOfItsName(): void
+    {
+        $this->unhashedReceipt($this->accountId);
+        $this->linked(LinkOrigin::IBAN, messageId: 60, attachmentId: 95);
+        $this->linked(LinkOrigin::IBAN, messageId: 61, attachmentId: 96);
+
+        $this->runTask();
+
+        $this->assertCount(2, $this->attachments->findActiveOrdered(), 'the old one, and the second attachment filed');
+        $this->assertSame(
+            ['already_held', LinkOrigin::IBAN->value],
+            $this->pdo->query('SELECT reason FROM finance_receipt_mail_sources ORDER BY inbound_attachment_id')
+                ->fetchAll(\PDO::FETCH_COLUMN)
+        );
+    }
+
+    /** Among old receipts of that name, the one on the attachment's own account is the one it claims. */
+    public function testTheOldReceiptOnTheSameAccountIsClaimedFirst(): void
+    {
+        $elsewhere = $this->unhashedReceipt(null);
+        $here = $this->unhashedReceipt($this->accountId);
+        $this->linked(LinkOrigin::IBAN);
+
+        $this->runTask();
+
+        $this->assertSame(
+            $here,
+            (int) $this->pdo->query("SELECT attachment_id FROM finance_receipt_mail_sources WHERE reason = 'already_held'")->fetchColumn()
+        );
+        $this->assertNotSame($elsewhere, $here);
+    }
+
+    private function unhashedReceipt(?int $accountId): int
+    {
+        $this->pdo->prepare(
+            'INSERT INTO finance_attachments (account_id, file_id, mime_type, original_filename, status, content_hash)
+             VALUES (?, 1, ?, ?, ?, NULL)'
+        )->execute([$accountId, 'application/pdf', 'facture.pdf', 'active']);
+
+        return (int) $this->pdo->lastInsertId();
+    }
+
+    /**
      * Only unreadable files left is not an empty history: the walk does not
      * declare itself done, and says why — for a few runs. Then it leaves
      * the file, so one gone for good neither holds the walk open for ever
@@ -208,9 +255,14 @@ final class CatchUpMailReceiptsHandlerTest extends TestCase
         $this->assertSame('', $this->settings()->get(CatchUpMailReceiptsHandler::DONE_SETTING, 'finance', ''));
     }
 
-    private function linked(LinkOrigin $origin, ?int $byUserAccountId = null, ?int $fileId = null): int
-    {
-        $fileId ??= $this->inboundPdf();
+    private function linked(
+        LinkOrigin $origin,
+        ?int $byUserAccountId = null,
+        ?int $fileId = null,
+        int $messageId = 60,
+        int $attachmentId = 95
+    ): int {
+        $fileId ??= $this->inboundPdf((string) $attachmentId);
         $size = (int) ((new FileRepository($this->pdo))->findById($fileId)?->sizeBytes ?? 0);
         $link = new MessageLink(
             FinanceMessageConsumer::CONSUMER_ID,
@@ -221,7 +273,7 @@ final class CatchUpMailReceiptsHandlerTest extends TestCase
         );
 
         $this->mail[] = new InboundMessage(
-            id: 60,
+            id: $messageId,
             mailboxId: 1,
             consumerId: FinanceMessageConsumer::CONSUMER_ID,
             businessReference: $link->businessReference,
@@ -229,24 +281,28 @@ final class CatchUpMailReceiptsHandlerTest extends TestCase
             subject: 'Facture',
             fromEmail: 'fournisseur@example.be',
             fromName: null,
-            messageId: 'e@f',
+            messageId: 'e' . $messageId . '@f',
             inReplyTo: null,
             sentAt: new \DateTimeImmutable('2026-09-01 07:40:00'),
             bodyText: 'Ci-joint.',
             bodyHtml: '',
             toEmails: [],
-            attachments: [new InboundAttachment(95, 60, $fileId, 'facture.pdf', 'application/pdf', $size, 'hash-e')],
+            attachments: [new InboundAttachment($attachmentId, $messageId, $fileId, 'facture.pdf', 'application/pdf', $size, 'hash-e')],
             links: [$link]
         );
 
         return $fileId;
     }
 
-    private function inboundPdf(): int
+    /** @param string $variant bytes appended after the PDF, so two attachments are two documents */
+    private function inboundPdf(string $variant = ''): int
     {
         $temporary = tempnam(sys_get_temp_dir(), 'inbound-mail-');
         $this->assertIsString($temporary);
         copy(dirname(__DIR__, 3) . '/fixtures/pdf/text_receipt.pdf', $temporary);
+        if ($variant !== '') {
+            file_put_contents($temporary, "\n% " . $variant . "\n", FILE_APPEND);
+        }
 
         return (new UploadHandler(new FileRepository($this->pdo), $this->storagePath))->handle(
             ['tmp_name' => $temporary, 'name' => 'facture.pdf', 'size' => (int) filesize($temporary), 'error' => UPLOAD_ERR_OK],
