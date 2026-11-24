@@ -67,13 +67,33 @@ class ExpenseReceiptService implements ExpenseReceiptInterface
         string $content,
         string $mimeType,
         string $originalFilename,
-        int $accountId,
+        ?int $accountId,
         ?float $suggestedAmount,
         ?string $suggestedDate,
         string $actorRole,
         array $actorLinkedMemberIds,
         ?int $uploadedBy
     ): int {
+        // The sorting pile, under the actor's own right to it (#1342 §E):
+        // the unattended route is for associations NOBODY made, and taking
+        // it on behalf of a person would file where they may not look.
+        if ($accountId === null) {
+            $visibility = $this->visibilityFor($actorLinkedMemberIds);
+            if (!$visibility->isUnassignedReceiptVisibleTo(Role::fromString($actorRole))) {
+                throw new FinanceException('Compte introuvable.');
+            }
+
+            return $this->receiptService->uploadUnattributed(
+                $content,
+                $mimeType,
+                $originalFilename,
+                $uploadedBy,
+                true,
+                $suggestedAmount,
+                $suggestedDate
+            )->fileId;
+        }
+
         $account = $this->accountRepository->findById($accountId);
         // "No such account" and "not yours" answer the same thing, so a
         // caller never learns which accounts exist (SECURITY.md §3). Asked

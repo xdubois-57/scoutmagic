@@ -190,18 +190,30 @@ class ReceiptService
      * `UNASSIGNED_OWNER_ID` and the checker asks the narrower question
      * (§8.70).
      *
-     * Deliberately offers no suggested amount or date: those come from
-     * the upload form or from Task\ExtractReceiptDataHandler, and there
-     * is no form here.
+     * A suggested amount or date is kept when the caller has one, as on
+     * an account (`Api\ExpenseReceiptInterface::storeReceipt()` files
+     * here for a null account); otherwise they come from
+     * Task\ExtractReceiptDataHandler.
      */
     public function uploadUnattributed(
         string $content,
         string $mimeType,
         string $originalFilename,
         ?int $uploadedBy,
-        bool $reuseIdentical = false
+        bool $reuseIdentical = false,
+        ?float $suggestedAmount = null,
+        ?string $suggestedDate = null
     ): Attachment {
-        return $this->store(null, $content, $mimeType, $originalFilename, null, null, $uploadedBy, $reuseIdentical);
+        return $this->store(
+            null,
+            $content,
+            $mimeType,
+            $originalFilename,
+            $suggestedAmount,
+            $suggestedDate,
+            $uploadedBy,
+            $reuseIdentical
+        );
     }
 
     /**

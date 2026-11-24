@@ -381,14 +381,16 @@ class FinanceMessageConsumer implements
             return null;
         }
 
-        $account = $this->senderStaff->resolve($message->fromEmail);
+        // In the year the mail was sent (#1342): an old mail read late
+        // belongs to the staff its sender animated then.
+        $account = $this->senderStaff->resolve($message->fromEmail, $message->sentAt);
         if ($account !== null) {
             return $account;
         }
 
         $forwarded = $this->forwardedSender?->extract($message->bodyText, $message->bodyHtml);
 
-        return $forwarded === null ? null : $this->senderStaff->resolve($forwarded);
+        return $forwarded === null ? null : $this->senderStaff->resolve($forwarded, $message->sentAt);
     }
 
     /**
@@ -472,7 +474,12 @@ class FinanceMessageConsumer implements
                     $content,
                     $attachment->mimeType,
                     $attachment->filename,
-                    (int) $accountId,
+                    // Null for « Compte inconnu »: finance files it in the
+                    // sorting pile under this person's right to it. Cast
+                    // to an int, it was account 0, refused as unknown —
+                    // and the message stayed linked with no receipt
+                    // filed (#1342 §E).
+                    $accountId,
                     null,
                     null,
                     $actor['role'],

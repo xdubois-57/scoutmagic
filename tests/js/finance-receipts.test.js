@@ -56,7 +56,7 @@ function receipt(overrides = {}) {
         id: 31,
         file_id: 99,
         file_url: '/files/aBcDeFgHiJkLmNoPqRsT99',
-        thumbnail_url: '/files/aBcDeFgHiJkLmNoPqRsT99/thumbnail',
+        thumbnail_url: '/files/aBcDeFgHiJkLmNoPqRsT99/thumbnail?v=2',
         mime_type: 'image/jpeg',
         original_filename: 'ticket.jpg',
         uploaded_at: '01/07/2026 14:00',
@@ -158,6 +158,7 @@ describe('finance-receipts.js: live search', () => {
         ['an unsafe scheme', 'javascript:alert(1)'],
         ['a sequential address', '/files/99'],
         ['no address at all', ''],
+        ['a thumbnail with a query other than its rendering', '/files/aBcDeFgHiJkLmNoPqRsT99/thumbnail?v=2&x=1'],
     ])('never writes %s into the card', async (_label, url) => {
         await boot();
         fetch.mockReturnValue(jsonResponse({
@@ -462,6 +463,24 @@ describe('finance-receipts.js: linked movements dialog', () => {
         // Both views refresh: the dialog's list and the grid behind it.
         expect(fetch.mock.calls[1][0]).toBe('/finance/receipts/31/movements');
         expect(fetch.mock.calls[2][0]).toContain('/finance/receipts/search?');
+    });
+});
+
+describe('finance-receipts.js: PDF thumbnail', () => {
+    // #1342: the address names its rendering, so a browser that cached a
+    // black thumbnail asks again; and the whole page shows, never cropped.
+    it('shows the versioned thumbnail, whole', async () => {
+        await boot();
+        fetch.mockReturnValueOnce(jsonResponse({
+            success: true, page: 1, total_pages: 1,
+            receipts: [receipt({ mime_type: 'application/pdf', original_filename: 'facture.pdf' })],
+        }));
+        document.getElementById('receipts-filter-btn').click();
+        await settle();
+
+        const thumbnail = document.querySelector('img.pdf-thumbnail');
+        expect(thumbnail.getAttribute('src')).toBe('/files/aBcDeFgHiJkLmNoPqRsT99/thumbnail?v=2');
+        expect(thumbnail.getAttribute('style')).toContain('object-fit:contain');
     });
 });
 

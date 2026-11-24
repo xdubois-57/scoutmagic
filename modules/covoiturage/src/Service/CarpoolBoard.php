@@ -9,7 +9,6 @@ declare(strict_types=1);
 namespace Modules\Covoiturage\Service;
 
 use Core\Config\SettingService;
-use Core\Geo\MapsLink;
 use Core\Member\MemberProfile;
 use Core\Member\MemberService;
 use Core\Member\SectionService;
@@ -169,7 +168,6 @@ class CarpoolBoard
             'id' => $carpool->id,
             'title' => $carpool->title(),
             'address' => $carpool->address,
-            'maps_url' => MapsLink::url($carpool->point, $carpool->address),
             'point_line' => $carpool->point?->line(),
             'dates' => $this->dates($carpool, $today),
             'outbound_day' => CarpoolFormat::day($carpool->outboundDate, $today),

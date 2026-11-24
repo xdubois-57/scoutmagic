@@ -60,11 +60,15 @@ class SectionStaffAuthorizationService
      * Use this one to establish a relationship; use the other to decide what
      * somebody may reach.
      *
+     * $includeStewards also counts an `intendant` function — for who
+     * someone is for a section, never for what they may reach
+     * (StaffedSectionRepository::staffedSectionIds()).
+     *
      * @return int[]
      */
-    public function ownStaffedSectionIds(string $email, int $scoutYearId): array
+    public function ownStaffedSectionIds(string $email, int $scoutYearId, bool $includeStewards = false): array
     {
-        return $this->staffedSections->staffedSectionIds($email, $scoutYearId);
+        return $this->staffedSections->staffedSectionIds($email, $scoutYearId, $includeStewards);
     }
 
     /**

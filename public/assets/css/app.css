@@ -891,20 +891,26 @@ body.cookie-banner-visible {
    docs/chantiers/CHANTIER-telephone.md). The number's own 44px touch
    target is in the pointer:coarse block at the top of this file. The
    sheet's rows are 48px, as in the mock-up; the sheet keeps its content
-   height rather than Bootstrap's fixed 30vh. */
-.phone-sheet {
+   height rather than Bootstrap's fixed 30vh. .action-sheet is the same
+   look for the other bottom sheets of actions (the carpool page's
+   « Itinéraire », issue #1345): one set of rules, not a second look. */
+.phone-sheet,
+.action-sheet {
     --bs-offcanvas-height: auto;
 }
-.phone-sheet-item {
+.phone-sheet-item,
+.action-sheet-item {
     display: flex;
     align-items: center;
     gap: 0.75rem;
     min-height: 48px;
 }
-.phone-sheet-item[hidden] {
+.phone-sheet-item[hidden],
+.action-sheet-item[hidden] {
     display: none;
 }
-.phone-sheet-item .bi {
+.phone-sheet-item .bi,
+.action-sheet-item .bi {
     font-size: 1.25rem;
     width: 1.5rem;
     text-align: center;

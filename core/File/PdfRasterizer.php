@@ -61,12 +61,21 @@ class PdfRasterizer
             // file (not a blob) — it keeps Ghostscript from rasterizing
             // every page of a longer document just to use the first one.
             $imagick->readImage($tmpPath . '[0]');
-            $imagick->setImageFormat('jpeg');
-            $imagick->setImageCompressionQuality(self::JPEG_QUALITY);
-            $imagick->setImageBackgroundColor('white');
-            $imagick->flattenImages();
 
-            return $imagick->getImageBlob();
+            // Onto white FIRST, then JPEG (#1342). A page whose background
+            // is transparent — a scan or photo exported with a mask — has
+            // its transparent pixels stored as black, and JPEG keeps no
+            // alpha: converted as it was read, that page came out black
+            // with a few light dots. The flattening was there, but ran
+            // after the conversion and its result, a NEW image, was thrown
+            // away.
+            $imagick->setImageBackgroundColor('white');
+            $page = $imagick->mergeImageLayers(\Imagick::LAYERMETHOD_FLATTEN);
+            $page->setImageAlphaChannel(\Imagick::ALPHACHANNEL_REMOVE);
+            $page->setImageFormat('jpeg');
+            $page->setImageCompressionQuality(self::JPEG_QUALITY);
+
+            return $page->getImageBlob();
         } catch (\Throwable) {
             return null;
         } finally {

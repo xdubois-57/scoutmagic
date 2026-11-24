@@ -35,16 +35,19 @@ notification « Reçu arrivé par e-mail à confirmer ». Rien n'est
 enregistré tant qu'un trésorier n'a pas confirmé. « Rattacher » enregistre la pièce jointe
 comme reçu de ce compte, en votre nom ; « Écarter » est définitif.
 
-Si le message cite deux de vos comptes, il ne propose rien : c'est presque
-toujours un virement interne, dont le reçu n'appartient à aucun côté.
+S'il cite deux de vos comptes, il ne propose rien : c'est presque
+toujours un virement interne.
 
 Une même facture transmise deux fois ne fait qu'un reçu.
 
 ## 2. L'expéditeur anime un seul staff
 
-Un animateur envoie la photo d'un ticket à l'adresse de la trésorerie. Le site reconnaît son adresse — celle du Desk comme une
-adresse secondaire confirmée —, voit qu'il anime **un seul** staff, et
-classe le reçu sur le compte de ce staff, sans confirmation.
+Un animateur envoie la photo d'un ticket à la trésorerie. Le site
+reconnaît son adresse — du Desk ou secondaire confirmée —, voit qu'il
+anime **un seul** staff, et classe le reçu sur le compte de ce staff,
+sans confirmation. L'intendant compte comme un animateur, et c'est le
+staff de l'**année du mail** qui compte : un ancien message va au staff
+d'alors.
 
 S'il anime deux staffs, ou si son staff n'a pas exactement un compte
 **actif** — un compte de section encore en brouillon ne compte pas —, le
@@ -53,9 +56,9 @@ site ne choisit pas et passe à la règle suivante.
 Sur un message **transféré**, le site regarde d'abord qui l'a transféré,
 puis, à défaut, l'expéditeur d'origine cité dans le corps.
 
-**À savoir :** une adresse d'expéditeur se falsifie. Ce qui se joue reste
-le classement d'un **document**, jamais un montant ni un mouvement ; et
-une adresse inventée ne correspond à aucun membre, donc ne classe rien.
+**À savoir :** une adresse d'expéditeur se falsifie, mais il ne s'agit
+que de classer un **document**, jamais un montant ; une adresse inventée
+ne classe rien.
 
 ## 3. Rien ne le place
 

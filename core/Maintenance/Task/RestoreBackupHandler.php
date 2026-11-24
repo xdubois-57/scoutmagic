@@ -1333,6 +1333,10 @@ class RestoreBackupHandler implements TaskHandlerInterface
             ? (string) $payload['safety_zip_path']
             : null;
         $stateKeepFailed = false;
+        // Where the pass was when it failed (issue #1229): the migration, or
+        // the completion that follows it — the purge, the off-site send —
+        // by which time the restored data is already in place.
+        $stage = 'migration';
 
         try {
             $migrationRunner = new MigrationRunner(
@@ -1402,6 +1406,7 @@ class RestoreBackupHandler implements TaskHandlerInterface
                 throw $stateError;
             }
 
+            $stage = 'completion';
             $this->finishRestore(
                 $context,
                 $backupRepository,
@@ -1440,7 +1445,11 @@ class RestoreBackupHandler implements TaskHandlerInterface
                     'warning',
                     'Échec de la migration lors de la reprise d\'une restauration, sans sauvegarde de sécurité '
                         . 'disponible pour restauration',
-                    ['error' => $migrationError->getMessage()],
+                    // `stage` says whether the restored data was already in place
+                    // (`completion`) or not (`migration`): with no safety copy
+                    // nothing was undone either way, and `backup_restored` is
+                    // written only after the completion has run.
+                    ['error' => $migrationError->getMessage(), 'stage' => $stage],
                     $requestedBy
                 );
                 RequesterNotice::sendAboutRestore(
@@ -1640,15 +1649,6 @@ class RestoreBackupHandler implements TaskHandlerInterface
             new \Core\Config\SettingRepository($context->connection->getPdo())
         )))->rotate();
 
-        $context->journal->log(
-            'core',
-            'backup_restored',
-            'info',
-            'Sauvegarde restaurée',
-            ['source' => $source, 'restored_from' => $restoredFrom],
-            $requestedBy
-        );
-
         (new \Core\Maintenance\BackupRetention(
             $backupRepository,
             $fileRepository,
@@ -1675,6 +1675,19 @@ class RestoreBackupHandler implements TaskHandlerInterface
                 SendRemoteBackupHandler::REFERENCE
             );
         }
+
+        // Journaled last, once the purge and the off-site send have been
+        // asked for and could not throw to the rollback (issue #1229): written
+        // before them, « Sauvegarde restaurée » stayed in the journal beside a
+        // failure and a failed rollback when one of them refused.
+        $context->journal->log(
+            'core',
+            'backup_restored',
+            'info',
+            'Sauvegarde restaurée',
+            ['source' => $source, 'restored_from' => $restoredFrom],
+            $requestedBy
+        );
 
         RequesterNotice::sendAboutRestore(
             $context,
@@ -1741,7 +1754,12 @@ class RestoreBackupHandler implements TaskHandlerInterface
                 'backup_restore_rolled_back',
                 'warning',
                 'Restauration automatique de l\'état précédent effectuée après échec de restauration',
-                [],
+                // The cause, written here and not only above (issue #1229):
+                // the `backup_restore_failed` line is in the database this
+                // rollback has just replaced by one that predates it, so a
+                // rollback that succeeds would otherwise erase why it was
+                // needed. This entry is written after.
+                ['error' => $error->getMessage()],
                 $requestedBy
             );
             $notifyTitle = 'Échec de la restauration';

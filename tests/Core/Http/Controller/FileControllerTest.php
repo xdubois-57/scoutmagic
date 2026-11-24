@@ -432,7 +432,7 @@ class FileControllerTest extends TestCase
         $first = $this->controller->thumbnail($this->fileRequest(), ['file' => $this->segmentOf($id)]);
         $this->assertSame(200, $first->getStatusCode());
 
-        $cachePath = $this->storagePath . '/temp/pdf_thumb/' . $id . '.jpg';
+        $cachePath = \Core\File\PdfThumbnailCache::pathFor($this->storagePath, $id);
         $this->assertFileExists($cachePath, 'the rendered thumbnail must be cached to disk');
 
         // Delete the source PDF: a second call must still succeed, proving it
@@ -458,8 +458,15 @@ class FileControllerTest extends TestCase
 
         $this->assertSame(200, $response->getStatusCode());
         $this->assertFileDoesNotExist(
-            $this->storagePath . '/temp/pdf_thumb/' . $fileId . '.jpg',
+            \Core\File\PdfThumbnailCache::pathFor($this->storagePath, $fileId),
             'an encrypted file must never have a plaintext thumbnail cached'
+        );
+        // Under no name at all: tied to one spelling of the cache path,
+        // this assertion went vacuous the day the path changed (#1342).
+        $this->assertSame(
+            [],
+            glob($this->storagePath . '/' . \Core\File\PdfThumbnailCache::SUBDIRECTORY . '/*') ?: [],
+            'no thumbnail of any name may be cached for an encrypted file'
         );
     }
 

@@ -263,8 +263,25 @@ class SendRemoteBackupHandler implements TaskHandlerInterface
         // had just written orphaned on the disk.
         try {
             [$archivePath, $remoteName, $fresh] = $this->resolveArchive($payload, $context);
-        } catch (\RuntimeException $e) {
-            $this->recordFailure($payload, $context, $e->getMessage());
+        } catch (\Throwable $e) {
+            // Any failure, not only a RuntimeException (issue #1229): an
+            // \Error or a ValueError escaping here would stop
+            // `recordFailure()`, the one thing that climbs the counter that
+            // abandons the send. And through UserFacingMessage like the
+            // destination just above: a BackupException or an
+            // InsufficientDiskSpaceException speak for themselves, while a
+            // PDOException's message names a host, a table or a statement
+            // and is no sentence for a journal an administrator reads.
+            $this->recordFailure(
+                $payload,
+                $context,
+                UserFacingMessage::from(
+                    $e,
+                    'L\'archive à envoyer n\'a pas pu être construite. L\'envoi sera retenté au prochain passage.'
+                ),
+                null,
+                $e::class
+            );
 
             return;
         }
@@ -663,9 +680,15 @@ class SendRemoteBackupHandler implements TaskHandlerInterface
         array $payload,
         TaskContext $context,
         string $reason,
-        ?ResumableUploadBackend $backend = null
+        ?ResumableUploadBackend $backend = null,
+        ?string $errorClass = null
     ): void {
         $failures = (int) ($payload['failures'] ?? 0) + 1;
+        // The class of what failed, beside the operator's sentence (issue
+        // #1229): the message of a database exception names a host or a
+        // table and stays out of the journal, but with neither it the cause
+        // would be nowhere at all. Only when there is one.
+        $kind = $errorClass !== null ? ['error_class' => $errorClass] : [];
         $configured = (int) ($context->settings->get(self::MAX_FAILURES_SETTING) ?: self::DEFAULT_MAX_FAILURES);
         $ceiling = max(1, $configured);
 
@@ -698,7 +721,7 @@ class SendRemoteBackupHandler implements TaskHandlerInterface
                 'remote_backup_abandoned',
                 'warning',
                 'Envoi hors site abandonné après plusieurs échecs consécutifs',
-                ['failures' => $failures, 'error' => $reason, 'partial_discarded' => $discarded]
+                ['failures' => $failures, 'error' => $reason, 'partial_discarded' => $discarded] + $kind
             );
             $this->scheduleNext($context, []);
 
@@ -710,7 +733,7 @@ class SendRemoteBackupHandler implements TaskHandlerInterface
             'remote_backup_failed',
             'info',
             'Un envoi hors site a échoué et sera repris',
-            ['failures' => $failures, 'error' => $reason]
+            ['failures' => $failures, 'error' => $reason] + $kind
         );
 
         // What is carried forward is the archive and the count, and

@@ -28,9 +28,12 @@ comptes » dans l'aide des finances) : un compte que vous ne voyez plus
 
 Si le connecteur IA du site est actif, chaque reçu déposé est lu
 automatiquement : montant, date et commerçant sont suggérés (badge
-« IA ») et un mouvement correspondant est proposé quand il existe. Ce
-ne sont que des suggestions — sans IA, tout reste faisable à la main,
-rien n'est bloqué.
+« IA ») et un mouvement correspondant est proposé quand il existe. Un
+reçu arrivé par e-mail est lu de la même façon. Le badge « IA : aucun
+mouvement trouvé » n'apparaît que si l'IA a réellement été interrogée ;
+tant que le connecteur est indisponible, elle sera essayée plus tard.
+Ce ne sont que des suggestions — sans IA, tout reste faisable à la
+main, rien n'est bloqué.
 
 ## Associer au mouvement
 
@@ -40,7 +43,9 @@ Un reçu « En attente » n'est encore relié à rien. Trois chemins :
 - depuis la page Mouvements, le trombone d'une ligne propose
   d'associer un reçu en attente ou d'en téléverser un ;
 - après chaque import bancaire, les reçus en attente sont confrontés
-  d'office aux nouveaux mouvements.
+  d'office aux nouveaux mouvements, ceux de « Compte inconnu » compris :
+  un reçu arrivé avant son mouvement y est rangé sur le compte du
+  mouvement trouvé.
 
 Un reçu peut couvrir plusieurs mouvements, et inversement.
 « Remplacer » change le fichier sans perdre l'association ;

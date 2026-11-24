@@ -28,6 +28,19 @@ final class RefusingSettingService extends InMemorySettingService
 {
     public string $refuseKey = '';
 
+    /** A key whose READ throws `$readFailure` — the database failing under a build. */
+    public string $failReadKey = '';
+    public ?\Throwable $readFailure = null;
+
+    public function get(string $key, ?string $moduleId = null, mixed $default = null): mixed
+    {
+        if ($this->readFailure !== null && $this->failReadKey !== '' && $key === $this->failReadKey) {
+            throw $this->readFailure;
+        }
+
+        return parent::get($key, $moduleId, $default);
+    }
+
     public function setInternal(string $key, string $value, ?string $moduleId = null): void
     {
         if ($this->refuseKey !== '' && $key === $this->refuseKey) {

@@ -662,6 +662,11 @@ class RestoreBackupRoundTripTest extends TestCase
         $this->assertContains('restore_state_keep_failed', $types);
         $this->assertContains('backup_restore_rolled_back', $types);
         $this->assertNotContains('backup_restored', $types);
+        $this->assertNotSame(
+            '',
+            (string) ($this->journalContextOf('backup_restore_rolled_back')['error'] ?? ''),
+            'a rollback that succeeds must still say why it was needed (#1229)'
+        );
         $this->assertSame(
             1,
             (int) $this->pdo()->query(
@@ -853,10 +858,32 @@ class RestoreBackupRoundTripTest extends TestCase
             json_decode((string) $failed[0]['context'], true)['error'] ?? null
         );
         $this->assertNotContains('backup_restore_rolled_back', $this->journalTypes());
-        // Pinned, not endorsed: « Sauvegarde restaurée » is journaled before
-        // the purge that failed here, and nothing withdraws it once the
-        // rollback has failed too — the journal then says both.
-        $this->assertContains('backup_restored', $this->journalTypes());
+        // « Sauvegarde restaurée » is journaled once the purge has succeeded
+        // (#1229), not before: a restore whose purge failed and whose
+        // rollback failed too is never also filed as restored.
+        $this->assertNotContains('backup_restored', $this->journalTypes());
+    }
+
+    /**
+     * Both a rollback that works and one that fails tell the truth: the
+     * first keeps the cause in its own entry, the second never contradicts
+     * itself with a « restaurée ».
+     */
+    public function testARestoreThatFailsAtTheTailNeverClaimsToHaveSucceeded(): void
+    {
+        $safety = $this->safetyCopyOnDisk();
+        $this->makeTheTailOfTheResumedPassFail();
+
+        $this->resume($safety);
+
+        $types = $this->journalTypes();
+        $this->assertContains('backup_restore_rolled_back', $types);
+        $this->assertNotContains('backup_restored', $types);
+        $this->assertNotSame(
+            '',
+            (string) ($this->journalContextOf('backup_restore_rolled_back')['error'] ?? ''),
+            'the cause of the failure survives the rollback'
+        );
     }
 
     /**
@@ -1095,6 +1122,14 @@ class RestoreBackupRoundTripTest extends TestCase
         $this->assertSame('Unité du Chêne', $this->unitName());
         $this->assertContains('backup_restore_rolled_back', $this->journalTypes());
         $this->assertNotContains('backup_restore_rollback_failed', $this->journalTypes());
+        // The line that carried the cause was written before the rollback put
+        // back a database that predates it, and went with it (#1229): the
+        // rolled-back entry, written after, is what keeps the reason.
+        $this->assertSame(
+            'La restauration de la base de données a échoué — la sauvegarde est peut-être incomplète ou issue '
+            . 'd\'une autre version. Consultez le journal des événements pour le détail.',
+            $this->journalContextOf('backup_restore_rolled_back')['error'] ?? null
+        );
 
         // And the copy on disk really is encrypted.
         $copies = glob($this->storagePath . '/maintenance/files_*.zip') ?: [];
@@ -1293,6 +1328,23 @@ class RestoreBackupRoundTripTest extends TestCase
     }
 
     /**
+     * With no safety copy to go back to, the failure may have struck after
+     * the restored data was in place — the purge, the off-site send — and
+     * `backup_restored` is written only once those have run (#1229). The
+     * entry says WHICH stage failed, so a restore that did complete is not
+     * read as one that did not.
+     */
+    public function testAFailureAtTheTailWithNoSafetyCopySaysItStruckAtTheCompletionStage(): void
+    {
+        $this->makeTheTailOfTheResumedPassFail();
+
+        $this->resume(['safety_db_dump_path' => null, 'safety_zip_path' => null], 999999);
+
+        $this->assertSame('completion', $this->journalContextOf('backup_restore_failed')['stage'] ?? null);
+        $this->assertNotContains('backup_restored', $this->journalTypes());
+    }
+
+    /**
      * Makes the resumed pass fail after its migration, in a way that is
      * not contrived: this pass runs against a database the restore has
      * just replaced, and the tail of it walks the older backups to purge
@@ -1422,6 +1474,24 @@ class RestoreBackupRoundTripTest extends TestCase
             'safety_db_dump_path' => $service->createDatabaseDump(),
             'safety_zip_path' => $service->createFileBackup(),
         ];
+    }
+
+    /**
+     * The decoded context of the latest journal entry of one type.
+     *
+     * @return array<string, mixed>
+     */
+    private function journalContextOf(string $eventType): array
+    {
+        foreach (array_reverse((new JournalRepository($this->pdo()))->search()) as $entry) {
+            if ($entry['event_type'] === $eventType) {
+                $decoded = is_string($entry['context'] ?? null) ? json_decode((string) $entry['context'], true) : null;
+
+                return is_array($decoded) ? $decoded : [];
+            }
+        }
+
+        return [];
     }
 
     /**

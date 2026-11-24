@@ -24,7 +24,7 @@
       label: 'Nom du bien',
       type: 'text',                -- text|email|url|tel|number|date|time|
                                    -- password|textarea|select (default text)
-      value: asset.name,           -- optional
+      value: asset.name,           -- optional; a select reads it too, see below
       help: 'Affiché publiquement.', -- optional, ARIA-wired
       required: true,              -- default false
       placeholder: '…',            -- optional
@@ -53,6 +53,20 @@
       data: { id: 4, url: '/x' },  -- optional data-* ON THE CONTROL
       label_suffix: ' — Meute',   -- optional, see below
   } only %}
+
+  On `value` for a `select` (issue #1380): it names the option to show, the
+  way it fills a text field. The option whose `value` equals it, **compared
+  as strings** (`5` and `'5'` are one, `true` is `'1'`, `false` is `''`), is
+  the one marked `selected` — the first such option only, and whatever the
+  options' own `selected` say, so there are never two. An explicit `''`, `'0'`
+  or `0` is a value, not an absence: only a missing or null `value` leaves
+  the choice to the options' own `selected: true`, as every caller did before
+  this was read. A `value` NO option has (a choice retired since) falls back
+  on that same `selected`, and marks nothing when there is none — it never
+  invents a match, and a browser then submits its first option. A page that
+  reopens a saved form therefore only has to pass the saved answer: without
+  it the select reopens on its first option and the next save overwrites the
+  answer saved earlier.
 
   On `size`: the survey that preceded this partial's second pass found 34
   templates it could not serve, all for the same reason — their labels
@@ -123,6 +137,13 @@
     ~ (_small ? (_type == 'select' ? ' form-select-sm' : ' form-control-sm') : '')
     ~ (control_class_extra|default('') ? ' ' ~ control_class_extra : '') %}
 {% set _wrapper = wrapper_class is defined ? wrapper_class : 'mb-3' %}
+{# Select only (issue #1380): `value` names the option shown when there is one
+   to name. Absent or null is no value; '' , '0' and 0 are values. #}
+{% set _value_given = value is defined and value is not null and value is not iterable %}
+{% set _value_string = _value_given ? (value ~ '') : '' %}
+{% set _value_names_an_option = _type == 'select' and _value_given
+    and (options|default([])|filter(o => ((o.value|default('')) ~ '') == _value_string)|length > 0) %}
+{% set _value_marked = false %}
 <div{% if _wrapper %} class="{{ _wrapper }}"{% endif %}>
     <label class="{{ label_visually_hidden|default(false) ? 'visually-hidden' : 'form-label' ~ (_small ? ' small' : '') }}" for="{{ field_id }}">
         {{- label -}}
@@ -150,8 +171,16 @@
                 {%- if _described %} aria-describedby="{{ _described }}"{% endif %}
                 {%- for key, dval in data|default({}) %} data-{{ key }}="{{ dval }}"{% endfor %}>
             {% for option in options|default([]) %}
+                {# `value` wins when it names an option — the first one only —
+                   else the option's own `selected`. #}
+                {% if _value_names_an_option %}
+                    {% set _is_selected = not _value_marked and ((option.value|default('')) ~ '') == _value_string %}
+                    {% if _is_selected %}{% set _value_marked = true %}{% endif %}
+                {% else %}
+                    {% set _is_selected = option.selected|default(false) %}
+                {% endif %}
                 <option value="{{ option.value }}"
-                        {{- option.selected|default(false) ? ' selected' : '' }}
+                        {{- _is_selected ? ' selected' : '' }}
                         {{- option.disabled|default(false) ? ' disabled' : '' }}
                         {%- for key, dval in option.data|default({}) %} data-{{ key }}="{{ dval }}"{% endfor %}>{{ option.label }}</option>
             {% endfor %}

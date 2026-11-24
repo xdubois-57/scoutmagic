@@ -360,6 +360,29 @@ class FinanceMessageConsumerTest extends TestCase
         $this->assertSame(LinkOrigin::SENDER, $result->links[0]->origin);
     }
 
+    /**
+     * The sender's staff is looked up in the year the mail was sent
+     * (#1342): read late, a mail from a year the site has no record of
+     * goes to no account rather than to whoever the sender staffs today.
+     */
+    public function testTheSendersStaffIsThatOfTheYearTheMailWasSent(): void
+    {
+        $this->animateurOfOneStaff('anna@example.be');
+
+        $result = $this->consumerWithSenderStaff()->analyze($this->message(
+            'Reçu de mes dépenses',
+            '',
+            [$this->pdfAttachment()],
+            fromEmail: 'anna@example.be',
+            sentAt: '2024-05-02 10:00:00'
+        ));
+
+        $this->assertSame([], array_filter(
+            $result->links,
+            static fn($link): bool => $link->origin === LinkOrigin::SENDER
+        ));
+    }
+
     public function testAnIbanInTheTextBeatsTheSendersStaff(): void
     {
         $this->animateurOfOneStaff('anna@example.be');
@@ -589,6 +612,29 @@ class FinanceMessageConsumerTest extends TestCase
 
         $this->assertCount(1, $filed);
         $this->assertNull($filed[0]['account_id'], 'the pile is an absent account, never account 0');
+    }
+
+    /**
+     * The same pile, linked by a PERSON (#1342 §E): filed with no account,
+     * under their own rights — it used to reach finance as account 0,
+     * refused as unknown, and the message stayed linked with nothing filed.
+     */
+    public function testAPersonLinkingToTheSortingPileFilesItWithNoAccount(): void
+    {
+        $filed = [];
+        $consumer = $this->consumer($filed, actorFor: 7);
+
+        $consumer->onLinked($this->storedMessage(), new MessageLink(
+            FinanceMessageConsumer::CONSUMER_ID,
+            FinanceMessageConsumer::REFERENCE_UNKNOWN,
+            LinkOrigin::MANUAL,
+            0,
+            7
+        ));
+
+        $this->assertCount(1, $filed);
+        $this->assertNull($filed[0]['account_id'], 'the pile is an absent account, never account 0');
+        $this->assertSame('admin', $filed[0]['role'], 'filed under the person, not the unattended route');
     }
 
     public function testAConfirmedPropositionFilesTheAttachmentAsAReceipt(): void
@@ -845,7 +891,8 @@ class FinanceMessageConsumerTest extends TestCase
         string $body,
         array $attachments,
         string $fromEmail = 'fournisseur@example.be',
-        ?string $dedicatedTo = null
+        ?string $dedicatedTo = null,
+        string $sentAt = '2027-07-12 09:30:00'
     ): CandidateMessage {
         return new CandidateMessage(
             mailboxId: 1,
@@ -856,7 +903,7 @@ class FinanceMessageConsumerTest extends TestCase
             inReplyTo: null,
             references: [],
             toEmails: [],
-            sentAt: new \DateTimeImmutable('2027-07-12 09:30:00'),
+            sentAt: new \DateTimeImmutable($sentAt),
             bodyText: $body,
             bodyHtml: '',
             attachments: $attachments,
@@ -906,7 +953,9 @@ class FinanceMessageConsumerTest extends TestCase
 )
 ),
             $this->accounts,
-            1
+            1,
+            // As both composition roots build it: the mail's own year.
+            new \Core\Config\ScoutYearService($this->pdo)
         );
     }
 
@@ -1007,7 +1056,7 @@ class RecordingExpenseReceipts implements \Modules\Finance\Api\ExpenseReceiptInt
         string $content,
         string $mimeType,
         string $originalFilename,
-        int $accountId,
+        ?int $accountId,
         ?float $suggestedAmount,
         ?string $suggestedDate,
         string $actorRole,

@@ -35,10 +35,30 @@ final class PdfThumbnailCache
     public const RETENTION_DAYS = 30;
 
     /**
+     * Which rendering of Core\File\PdfRasterizer a cached thumbnail and a
+     * thumbnail URL belong to. Raise it whenever the rendering changes:
+     * the disk cache is keyed by it (an old render is never served again,
+     * and purgeStale() removes it at once), and so is the URL
+     * (FilePublicIds::urlFor()), which browsers hold for a week
+     * (FileController sends `max-age=604800`).
+     *
+     * 2 — #1342: a transparent page came out black.
+     */
+    public const RENDER_VERSION = 2;
+
+    /** Where the thumbnail of $fileId, in the current rendering, is cached. */
+    public static function pathFor(string $storagePath, int $fileId): string
+    {
+        return $storagePath . '/' . self::SUBDIRECTORY . '/' . $fileId . '.v' . self::RENDER_VERSION . '.jpg';
+    }
+
+    /**
      * Deletes cached thumbnails whose file modification time is older
-     * than RETENTION_DAYS. Returns how many were removed. Silent on a
-     * missing directory (nothing was ever previewed) and on individual
-     * unlink failures — a cache purge must never take a request down.
+     * than RETENTION_DAYS, and every thumbnail of an older rendering
+     * whatever its age — nothing serves it any more. Returns how many
+     * were removed. Silent on a missing directory (nothing was ever
+     * previewed) and on individual unlink failures — a cache purge must
+     * never take a request down.
      */
     public static function purgeStale(string $storagePath, int $retentionDays = self::RETENTION_DAYS): int
     {
@@ -49,9 +69,11 @@ final class PdfThumbnailCache
 
         $cutoff = time() - $retentionDays * 86400;
         $removed = 0;
+        $current = '.v' . self::RENDER_VERSION . '.jpg';
         foreach (glob($directory . '/*.jpg') ?: [] as $path) {
+            $outdated = !str_ends_with($path, $current);
             $mtime = @filemtime($path);
-            if ($mtime !== false && $mtime < $cutoff && @unlink($path)) {
+            if (($outdated || ($mtime !== false && $mtime < $cutoff)) && @unlink($path)) {
                 $removed++;
             }
         }

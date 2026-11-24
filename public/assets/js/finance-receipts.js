@@ -54,7 +54,7 @@
      * @returns {string}
      */
     function fileUrl(url) {
-        return typeof url === 'string' && /^\/files\/[A-Za-z0-9_-]{22}(?:\/(?:thumbnail|thumb|md))?$/.test(url)
+        return typeof url === 'string' && /^\/files\/[A-Za-z0-9_-]{22}(?:\/(?:thumbnail(?:\?v=\d+)?|thumb|md))?$/.test(url)
             ? url
             : '';
     }
@@ -71,10 +71,10 @@
                 + '<span class="visually-hidden">Fichier indisponible</span></div>';
         }
         if (r.mime_type.startsWith('image/')) {
-            return '<img src="' + escapeHtml(src) + '" alt="' + escapeHtml(r.original_filename) + '" class="img-fluid rounded" style="max-height:160px;object-fit:cover;width:100%;">';
+            return '<img src="' + escapeHtml(src) + '" alt="' + escapeHtml(r.original_filename) + '" class="img-fluid rounded" style="max-height:160px;object-fit:contain;width:100%;">';
         }
         if (r.mime_type === 'application/pdf') {
-            return '<img src="' + escapeHtml(src) + '" alt="' + escapeHtml(r.original_filename) + '" class="img-fluid rounded pdf-thumbnail" style="max-height:160px;object-fit:cover;width:100%;">';
+            return '<img src="' + escapeHtml(src) + '" alt="' + escapeHtml(r.original_filename) + '" class="img-fluid rounded pdf-thumbnail" style="max-height:160px;object-fit:contain;width:100%;">';
         }
         return '<div class="d-flex align-items-center justify-content-center bg-body-secondary rounded" style="height:160px;">'
             + '<i class="bi bi-file-earmark-word fs-1"></i></div>';

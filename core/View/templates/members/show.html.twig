@@ -42,7 +42,7 @@
                     {% else %}
                         <div class="mb-3">
                             <span class="text-body-secondary d-block small">Section</span>
-                            {{ section_info.section.name ?? section_info.section.desk_code }}
+                            <span class="small">{{ section_info.section.name ?? section_info.section.desk_code }}</span>
                             {% if section_info.section.email %}
                                 <div class="small">
                                     <i class="bi bi-envelope text-body-secondary" aria-hidden="true"></i>
@@ -56,9 +56,11 @@
                                 <span class="text-body-secondary d-block small">Responsable</span>
                                 {# The section is known here, so its own totem
                                    (« Akela ») shows — issue #722. #}
-                                {{ section_info.responsable|display_name_full(section_info.section.id) }}
+                                <span class="small">{{ section_info.responsable|display_name_full(section_info.section.id) }}</span>
+                                {# A value, not a label: same size and colour as the
+                                   section and the badges (issue #1347). #}
                                 {% if section_info.responsable.addresses|length > 0 %}
-                                    <div class="small text-body-secondary">{{ section_info.responsable.addresses[0].format()|normalize_address }}</div>
+                                    <div class="small">{{ section_info.responsable.addresses[0].format()|normalize_address }}</div>
                                 {% endif %}
                             </div>
                         {% endif %}

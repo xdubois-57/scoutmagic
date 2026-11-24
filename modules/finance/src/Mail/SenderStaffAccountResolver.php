@@ -8,8 +8,8 @@ declare(strict_types=1);
 
 namespace Modules\Finance\Mail;
 
+use Core\Config\ScoutYearService;
 use Core\Member\SectionStaffAuthorizationService;
-use Core\Security\Role;
 use Modules\Finance\Repository\Account;
 use Modules\Finance\Repository\AccountRepository;
 
@@ -41,34 +41,52 @@ use Modules\Finance\Repository\AccountRepository;
 class SenderStaffAccountResolver
 {
     /**
-     * The role handed to `getStaffedSections()`, and it matters.
+     * **Staff, stewards included, and in the year of the mail** (#1342).
      *
-     * That method short-circuits to **every section** for an admin role,
-     * which is right for a chef d'unité browsing a screen and wrong here:
-     * a receipt sent by the chef d'unité would resolve to every section at
-     * once, fail the "exactly one" test, and land in the sorting pile
-     * instead of on the section they actually animate. The question asked
-     * here is never "what may this person see" — it is "what does this
-     * person staff", and that question has no privileged answer.
+     * Staff here counts the chiefs AND the steward (`intendant`): the
+     * steward is who most often buys for a section and sends the receipt.
+     * Counted only for this question — whose account a receipt belongs to
+     * — and never for what anybody may see
+     * (`StaffedSectionRepository::staffedSectionIds()`).
+     *
+     * And the year is the one the mail was sent in: a receipt read late —
+     * an old mail fetched again, a mailbox connected in October — belongs
+     * to the section its sender staffed THEN, not to the one they moved to
+     * since. A year the site has no record of resolves to nothing, and the
+     * receipt goes to the sorting pile rather than onto a guess.
+     *
+     * `ownStaffedSectionIds()` and not `getStaffedSections()`: the latter
+     * answers « what may this person see », which is every section for a
+     * chef d'unité — a receipt they sent would match them all and fail the
+     * « exactly one » test. The question here is what they staff.
+     *
+     * $scoutYearId is the year used when no date is given; $scoutYears,
+     * the one that turns a date into its year. Without it, every date
+     * counts as $scoutYearId's, as before.
      */
-    private const NEUTRAL_ROLE = Role::IDENTIFIED;
-
     public function __construct(
         private SectionStaffAuthorizationService $staffAuthorization,
         private AccountRepository $accounts,
-        private int $scoutYearId
+        private int $scoutYearId,
+        private ?ScoutYearService $scoutYears = null
     ) {
     }
 
     /**
-     * The one account this address's staff owns, or null — which covers
-     * "unknown address", "several staffs" and "no usable account" alike,
-     * because all three mean the same thing to the caller.
+     * The one account this address's staff owned on $sentAt, or null —
+     * which covers "unknown address", "several staffs", "no usable account"
+     * and "no record of that year" alike, because all mean the same thing
+     * to the caller.
      */
-    public function resolve(string $email): ?Account
+    public function resolve(string $email, ?\DateTimeImmutable $sentAt = null): ?Account
     {
         $email = strtolower(trim($email));
         if ($email === '' || !str_contains($email, '@')) {
+            return null;
+        }
+
+        $scoutYearId = $this->scoutYearOf($sentAt);
+        if ($scoutYearId === null) {
             return null;
         }
 
@@ -76,16 +94,23 @@ class SenderStaffAccountResolver
         // (`member_emails`), so an animateur who writes from their personal
         // address is still recognised — the same resolution the whole site
         // uses to decide which sections somebody staffs.
-        $sections = $this->staffAuthorization->getStaffedSections(
-            $email,
-            self::NEUTRAL_ROLE->value,
-            $this->scoutYearId
-        );
-        if (count($sections) !== 1) {
+        $sectionIds = $this->staffAuthorization->ownStaffedSectionIds($email, $scoutYearId, includeStewards: true);
+        if (count($sectionIds) !== 1) {
             return null;
         }
 
-        return $this->theOneActiveAccountOf((int) $sections[0]['id']);
+        return $this->theOneActiveAccountOf($sectionIds[0]);
+    }
+
+    private function scoutYearOf(?\DateTimeImmutable $sentAt): ?int
+    {
+        if ($sentAt === null || $this->scoutYears === null) {
+            return $this->scoutYearId;
+        }
+
+        $year = $this->scoutYears->findByLabel(ScoutYearService::labelForDate($sentAt));
+
+        return $year === null ? null : (int) $year['id'];
     }
 
     /**

@@ -9,76 +9,118 @@ declare(strict_types=1);
 namespace Core\Geo;
 
 /**
- * A link that opens a place on a map, for a reader to follow.
+ * The links that open a route to a place, one per map application the
+ * reader may choose (issues #703, #1345).
  *
- * **It prefers the point and falls back on the address**: a link that only
- * worked once geocoding had run would be useless on exactly the outings
- * whose address a gazetteer does not know. OpenStreetMap, the provider
- * the site already names (MapTiles): nothing is sent anywhere until the
- * reader clicks, and then only by their own browser.
+ * **The reader chooses, the site never guesses.** A carpool page offers
+ * three applications — Plans (Apple), Google Maps and Waze — on every
+ * device: the browser cannot list the applications a phone has installed,
+ * and an iPhone owner may well prefer Waze. There is no « other
+ * application » entry (a `geo:` link) and no remembered choice. Each link is
+ * the provider's own https:// one, which hands the route to the installed
+ * application where there is one and falls back on the provider's web page
+ * where there is not.
+ *
+ * **One destination for all three**: the point when there is one, the
+ * address otherwise — a link that only worked once geocoding had run would
+ * be useless on exactly the outings whose address a gazetteer does not
+ * know. The displayed address never replaces a precise point in the link.
+ * Nothing leaves the server: the destination travels only when the reader
+ * picks an application, and then only from their own browser.
+ *
+ * **The hosts are named here once**, as the messaging apps are in
+ * Core\Phone\MessagingApps and the tiles in Core\Geo\MapTiles: the default
+ * RGPD page (core/View/rgpd_default.html) and the rule the generated policy
+ * must keep (Core\View\RgpdContentService) say which services a click
+ * reaches, and Tests\Core\Geo\MapsLinkTest checks they still agree. None of
+ * the three is a sub-processor.
  */
 final class MapsLink
 {
-    public static function url(?GeoPoint $point, string $address): string
+    public const APPLE = 'apple';
+    public const GOOGLE = 'google';
+    public const WAZE = 'waze';
+
+    /** Where a Plans link goes. */
+    public const APPLE_HOST = 'maps.apple.com';
+
+    /** Where a Google Maps link goes. */
+    public const GOOGLE_HOST = 'www.google.com';
+
+    /** Where a Waze link goes. */
+    public const WAZE_HOST = 'waze.com';
+
+    /**
+     * The providers, in the order of the sheet, and how each is named to the
+     * reader.
+     *
+     * @return array<string, string> provider key => label
+     */
+    public static function providers(): array
     {
-        if ($point !== null) {
-            $lat = number_format($point->latitude, 6, '.', '');
-            $lng = number_format($point->longitude, 6, '.', '');
-
-            return 'https://www.openstreetmap.org/?mlat=' . $lat . '&mlon=' . $lng . '#map=17/' . $lat . '/' . $lng;
-        }
-
-        return 'https://www.openstreetmap.org/search?query=' . rawurlencode(trim($address));
+        return [
+            self::APPLE => 'Plans',
+            self::GOOGLE => 'Google Maps',
+            self::WAZE => 'Waze',
+        ];
     }
 
     /**
-     * A link that opens the reader's own map application with a route to
-     * the place from where they are (issue #703) — a second question from
-     * {@see url()}, which shows a place, so a second method rather than a
-     * change to that one.
+     * The route link of one provider.
      *
-     * Chosen from the reader's User-Agent, because the right link depends
-     * on the device: Apple Plans on an Apple device (`maps.apple.com` is
-     * handed to the Plans app there); a `geo:` link on Android, so the
-     * phone offers whichever map application is installed; and Google Maps
-     * in the browser anywhere else.
-     *
-     * **That last case is a change of provider, made on purpose.**
-     * {@see url()} names OpenStreetMap, the provider the site already uses
-     * for its tiles. OpenStreetMap's own route planner needs a starting
-     * point typed by hand, which is precisely what « from where I am »
-     * avoids, and the request named Google Maps. Nothing leaves the server
-     * either way: the destination travels only when the reader clicks, and
-     * only from their own browser.
+     * @throws \InvalidArgumentException for a provider the site does not offer
      */
-    public static function directions(?GeoPoint $point, string $address, string $userAgent): string
+    public static function directionsFor(string $provider, ?GeoPoint $point, string $address): string
     {
-        $destination = $point !== null
-            ? number_format($point->latitude, 6, '.', '') . ',' . number_format($point->longitude, 6, '.', '')
-            : trim($address);
+        $destination = self::destination($point, $address);
 
-        return match (self::platform($userAgent)) {
-            'apple' => 'https://maps.apple.com/?daddr=' . rawurlencode($destination) . '&dirflg=d',
-            'android' => $point !== null
-                ? 'geo:' . $destination . '?q=' . rawurlencode($destination)
-                : 'geo:0,0?q=' . rawurlencode($destination),
-            default => 'https://www.google.com/maps/dir/?api=1&destination=' . rawurlencode($destination),
+        return match ($provider) {
+            self::APPLE => 'https://' . self::APPLE_HOST . '/?daddr=' . rawurlencode($destination) . '&dirflg=d',
+            self::GOOGLE => 'https://' . self::GOOGLE_HOST . '/maps/dir/?api=1&destination=' . rawurlencode($destination),
+            // Waze takes coordinates as `ll` and a free-text place as `q`:
+            // both with `navigate=yes`, so the route starts at once.
+            self::WAZE => 'https://' . self::WAZE_HOST . '/ul?'
+                . ($point !== null ? 'll=' . rawurlencode($destination) : 'q=' . rawurlencode($destination))
+                . '&navigate=yes',
+            default => throw new \InvalidArgumentException('Unknown map provider « ' . $provider . ' ».'),
         };
     }
 
     /**
-     * 'apple', 'android' or 'other'. Android first: its User-Agent never
-     * names an Apple device, while some Apple ones say « like Mac OS X ».
+     * Every provider with its label and its link, in the order of the sheet:
+     * what a page renders on the server, so the choice works without
+     * JavaScript.
+     *
+     * @return list<array{key: string, label: string, url: string}>
      */
-    private static function platform(string $userAgent): string
+    public static function choices(?GeoPoint $point, string $address): array
     {
-        if (stripos($userAgent, 'Android') !== false) {
-            return 'android';
-        }
-        if (preg_match('/iPhone|iPad|iPod|Macintosh|Mac OS X/i', $userAgent) === 1) {
-            return 'apple';
+        $choices = [];
+        foreach (self::providers() as $key => $label) {
+            $choices[] = [
+                'key' => $key,
+                'label' => $label,
+                'url' => self::directionsFor($key, $point, $address),
+            ];
         }
 
-        return 'other';
+        return $choices;
+    }
+
+    /**
+     * The link of the « Itinéraire » button itself, for a browser where the
+     * sheet does not open: Google Maps in the browser, which works on every
+     * device. With JavaScript the button opens the sheet instead.
+     */
+    public static function fallback(?GeoPoint $point, string $address): string
+    {
+        return self::directionsFor(self::GOOGLE, $point, $address);
+    }
+
+    private static function destination(?GeoPoint $point, string $address): string
+    {
+        return $point !== null
+            ? number_format($point->latitude, 6, '.', '') . ',' . number_format($point->longitude, 6, '.', '')
+            : trim($address);
     }
 }

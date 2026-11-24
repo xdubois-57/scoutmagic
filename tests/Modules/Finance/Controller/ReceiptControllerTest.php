@@ -331,7 +331,12 @@ class ReceiptControllerTest extends TestCase
         // Issue #1109: the script is handed the addresses, built by the
         // server from the file's opaque id — never the sequential file_id.
         $this->assertMatchesRegularExpression('#^/files/[A-Za-z0-9_-]{22}$#', $data['receipts'][0]['file_url']);
-        $this->assertSame($data['receipts'][0]['file_url'] . '/thumbnail', $data['receipts'][0]['thumbnail_url']);
+        // …and the thumbnail's names its rendering, so a browser holding
+        // an older one (#1342's black thumbnails) asks again.
+        $this->assertSame(
+            $data['receipts'][0]['file_url'] . '/thumbnail?v=' . \Core\File\PdfThumbnailCache::RENDER_VERSION,
+            $data['receipts'][0]['thumbnail_url']
+        );
         $this->assertStringNotContainsString(
             '/files/' . $data['receipts'][0]['file_id'] . '/',
             $data['receipts'][0]['thumbnail_url']
