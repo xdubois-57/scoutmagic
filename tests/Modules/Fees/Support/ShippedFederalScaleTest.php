@@ -78,7 +78,7 @@ final class ShippedFederalScaleTest extends TestCase
 
         $changed = self::checker('fees-changed-amounts.html', $reference)->check($source);
         $this->assertFalse($changed->isConform());
-        $this->assertStringContainsString('le barème livré annonce 2026-2027', implode("\n", $changed->divergences));
+        $this->assertStringContainsString('the shipped scale states 2026-2027', implode("\n", $changed->divergences));
     }
 
     public function testAValidDocumentIsRead(): void

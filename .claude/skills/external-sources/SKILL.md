@@ -66,7 +66,7 @@ when the report names one, the address it redirects to.
   set to the day you read the page — and every installed site's barème
   proposes the new figures from the release that carries it. A new season
   whose five amounts AND both paid guest bounds did not move is a divergence
-  too (« Année scoute modifiée »): the barème only proposes the file for its
+  too (« Scout year changed »): the barème only proposes the file for its
   own year, so only then is the fix limited to `year` and `verified_on`.
   When amounts or bounds also change, update those values too. A period-only
   change is a divergence too: update the two bounds and verification date.
