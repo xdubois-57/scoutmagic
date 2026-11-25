@@ -602,8 +602,8 @@ CREATE TABLE import_journal (
 -- any installation that already has one, and this schema's migration
 -- runner never drops a table or a constraint (see `SchemaComparator`).
 --
--- **No personal data, deliberately.** Every column below is a foreign key
--- or a code. Names and birth dates stay where they already are, in
+-- Operational identifiers, codes, dates and flags stay in clear, without
+-- copying identity fields. Names and birth dates stay where they are, in
 -- `member_years`, which persists for the whole scout year even for a
 -- member gone inactive — so a snapshot row joins back to a readable person
 -- through (member_id, the snapshot's scout_year_id) whenever a screen

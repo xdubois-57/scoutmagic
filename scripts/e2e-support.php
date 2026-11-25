@@ -2440,7 +2440,11 @@ function e2eFeesHouseholdFixture(string $instanceDir, string $stamp, bool $clear
 {
     $config = e2eDatabaseConfig();
     $connection = new Core\Database\Connection(
-        $config['host'], $config['port'], $config['name'], $config['user'], $config['password']
+        $config['host'],
+        $config['port'],
+        $config['name'],
+        $config['user'],
+        $config['password']
     );
     $pdo = $connection->getPdo();
     $deskIds = array_map(static fn(int $n): string => 'ZX777_FEE_' . $stamp . '_' . $n, [1, 2, 3]);
@@ -2460,10 +2464,12 @@ function e2eFeesHouseholdFixture(string $instanceDir, string $stamp, bool $clear
         return;
     }
     $secrets = (new Core\Security\SecretManager(
-        $instanceDir . '/storage/keys/master.key', $instanceDir . '/storage/config/secrets.enc'
+        $instanceDir . '/storage/keys/master.key',
+        $instanceDir . '/storage/config/secrets.enc'
     ))->readSecrets();
     $encryption = Core\Security\EncryptionService::fromEncodedKeys(
-        (string) ($secrets['encryption_key'] ?? ''), (string) ($secrets['blind_index_key'] ?? '')
+        (string) ($secrets['encryption_key'] ?? ''),
+        (string) ($secrets['blind_index_key'] ?? '')
     );
     $year = (new Core\Config\ScoutYearService($pdo))->getCurrentYear();
     $categories = new Core\Import\FeeCategoryRepository($pdo);

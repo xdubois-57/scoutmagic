@@ -21,9 +21,15 @@ class FeesTestHelper
         $manifest = json_decode((string) file_get_contents(dirname(__DIR__, 3) . '/modules/fees/module.json'), true);
         foreach ($manifest['settings'] as $setting) {
             $settings->register(
-                $setting['key'], $setting['default_value'], $setting['type'], $setting['label'],
-                $setting['description'], 'fees', $setting['validation_regex'] ?? null,
-                null, $setting['editable'] ?? true
+                $setting['key'],
+                $setting['default_value'],
+                $setting['type'],
+                $setting['label'],
+                $setting['description'],
+                'fees',
+                $setting['validation_regex'] ?? null,
+                null,
+                $setting['editable'] ?? true
             );
         }
         if ($confirmedYear !== null) {
