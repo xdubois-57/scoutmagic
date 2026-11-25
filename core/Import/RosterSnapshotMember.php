@@ -9,8 +9,8 @@ declare(strict_types=1);
 namespace Core\Import;
 
 /**
- * One person inside a frozen roster — foreign keys and codes only, no
- * name and no birth date (see `schema/core.sql`). A screen that
+ * One person inside a frozen roster — foreign keys, codes, operational
+ * dates and flags, no name and no birth date (see `schema/core.sql`). A screen that
  * needs a readable person joins back to `member_years` on
  * (memberId, the snapshot's scout year).
  */
@@ -28,7 +28,8 @@ final class RosterSnapshotMember
          * without changing role, and the import report reports both.
          */
         public readonly ?int $functionId,
-        public readonly bool $leaving
+        public readonly bool $leaving,
+        public readonly RosterMembershipFacts $membershipFacts = new RosterMembershipFacts()
     ) {
     }
 }

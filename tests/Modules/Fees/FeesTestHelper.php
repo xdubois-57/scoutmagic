@@ -10,6 +10,35 @@ namespace Tests\Modules\Fees;
  */
 class FeesTestHelper
 {
+    /** Register the real settings, optionally confirming a synthetic fixture's season. */
+    public static function configuration(
+        \PDO $pdo,
+        \Modules\Fees\Service\HouseholdTariffService $tariffs,
+        \Core\Import\FeeCategoryRepository $categories,
+        ?string $confirmedYear = null
+    ): \Modules\Fees\Service\TariffConfigurationService {
+        $settings = new \Core\Config\SettingService(new \Core\Config\SettingRepository($pdo));
+        $manifest = json_decode((string) file_get_contents(dirname(__DIR__, 3) . '/modules/fees/module.json'), true);
+        foreach ($manifest['settings'] as $setting) {
+            $settings->register(
+                $setting['key'],
+                $setting['default_value'],
+                $setting['type'],
+                $setting['label'],
+                $setting['description'],
+                'fees',
+                $setting['validation_regex'] ?? null,
+                null,
+                $setting['editable'] ?? true
+            );
+        }
+        if ($confirmedYear !== null) {
+            $settings->setInternal('fees_scale_year', $confirmedYear, 'fees');
+        }
+
+        return new \Modules\Fees\Service\TariffConfigurationService($tariffs, $categories, $settings);
+    }
+
     /**
      * The module's own tables.
      *

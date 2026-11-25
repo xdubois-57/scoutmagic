@@ -89,6 +89,7 @@ class FeeAccuracyControllerTest extends TestCase
 
         $scoutYearService = new ScoutYearService($this->pdo);
         $this->scoutYearId = $scoutYearService->ensureYear('2025-2026');
+        $settingService->setInternal('fees_scale_year', '2025-2026', 'fees');
         $settingService->setInternal(ScoutYearResolver::SETTING_PUBLIC_YEAR, (string) $this->scoutYearId);
         $scoutYearResolver = new ScoutYearResolver($scoutYearService, $settingService, new MemberYearRepository($this->pdo));
 
@@ -141,7 +142,12 @@ class FeeAccuracyControllerTest extends TestCase
                 new HouseholdDetailRepository($this->pdo, $this->encryption),
                 $this->tariffs,
                 $this->ignored,
-                $this->feeCategories
+                $this->feeCategories,
+                new \Core\Import\RosterSnapshotRepository($this->pdo),
+                new \Modules\Fees\Service\TariffConfigurationService(
+                    $this->tariffs, $this->feeCategories, $this->settingService
+                ),
+                new ScoutYearService($this->pdo)
             ),
             $this->tariffs,
             $this->ignored,
@@ -158,7 +164,7 @@ class FeeAccuracyControllerTest extends TestCase
         );
     }
 
-    private function createMember(string $firstName, ?int $feeCategoryId): void
+    private function createMember(string $firstName, ?int $feeCategoryId, ?string $startDate = '2025-09-01'): int
     {
         $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('" . uniqid('', true) . "')");
         $memberId = (int) $this->pdo->lastInsertId();
@@ -175,6 +181,12 @@ class FeeAccuracyControllerTest extends TestCase
             $feeCategoryId,
         ]);
         $memberYearId = (int) $this->pdo->lastInsertId();
+        $this->pdo->exec(
+            "INSERT OR IGNORE INTO functions (id, desk_code, label, role) VALUES (777, 'ZX777_FN', "
+            . "'Fonction test', 'identified')"
+        );
+        $this->pdo->prepare('INSERT INTO member_functions (member_year_id, function_id, start_date) VALUES (?, 777, ?)')
+            ->execute([$memberYearId, $startDate]);
 
         $normalized = AddressNormalizer::normalize('Rue de la Station', '5', null, '1000');
         $stmt = $this->pdo->prepare(
@@ -191,6 +203,7 @@ class FeeAccuracyControllerTest extends TestCase
             $this->encryption->encrypt('Bruxelles', 'member_addresses.city'),
             $this->encryption->blindIndex($normalized, 'address'),
         ]);
+        return $memberYearId;
     }
 
     private function createLeavingMember(string $firstName, ?int $feeCategoryId): void
@@ -454,7 +467,7 @@ class FeeAccuracyControllerTest extends TestCase
         $this->assertStringContainsString('À corriger', $body);
     }
 
-    public function testAMemberOutsideTheTariffsIsSaidNotToBeComparedNeverWrong(): void
+    public function testAnIamaMemberKeepsItsDeskTariffAndCountsForTheOtherMember(): void
     {
         $this->feeCategories->create('L_L_COTISATION IAMA', 'Cotisation iAMA');
         $iamaId = (int) $this->pdo->query("SELECT id FROM fee_categories WHERE desk_code = 'L_L_COTISATION IAMA'")->fetchColumn();
@@ -465,8 +478,7 @@ class FeeAccuracyControllerTest extends TestCase
         $body = (string) $this->dispatch('GET', '/admin/fees/tarifs', 'index')->getBody();
 
         $this->assertStringContainsString('L_L_COTISATION IAMA', $body);
-        $this->assertStringContainsString('Hors tarif de foyer', $body);
-        $this->assertStringContainsString('Non comparé', $body);
+        $this->assertStringContainsString('Tarif IAmA saisi dans Desk', $body);
     }
 
     /**
@@ -523,7 +535,7 @@ class FeeAccuracyControllerTest extends TestCase
 
         $body = (string) $this->dispatch('GET', '/admin/fees/tarifs?vue=prevoir', 'index')->getBody();
 
-        $this->assertStringContainsString('touchez pas maintenant', $body);
+        $this->assertStringContainsString('anticipez pas le mouvement', $body);
     }
 
     /**
@@ -1153,4 +1165,73 @@ class FeeAccuracyControllerTest extends TestCase
 
         return $fc->handle(new Request($method, (string) $routePath, $query, $body, [], []));
     }
+    public function testUnknownMembershipIsVisibleInItsOwnTabAndInTheExport(): void
+    {
+        $this->createMember('A', $this->normalFeeId);
+        $this->createMember('B', $this->normalFeeId);
+        $this->createMember('C', $this->normalFeeId, null);
+        AuthSession::login(1, 'admin@test.be', 'admin');
+        $body = (string) $this->dispatch('GET', '/admin/fees/tarifs?vue=indeterminables', 'index')->getBody();
+        self::assertStringContainsString('Non déterminables (1)', $body);
+        self::assertStringContainsString('2 à 3 retenus', $body);
+        self::assertStringContainsString('Dates de début de fonction absentes ou incomplètes.', $body);
+
+        $response = $this->dispatch('GET', '/admin/fees/tarifs/export', 'export');
+        $path = tempnam(sys_get_temp_dir(), 'fees-export-');
+        try {
+            file_put_contents($path, (string) $response->getBody());
+            $sheet = (new \PhpOffice\PhpSpreadsheet\Reader\Xlsx())->load($path)->getActiveSheet();
+            self::assertSame(['Non déterminables', 'Non déterminable', '2 à 3'], [
+                $sheet->getCell('A2')->getValue(), $sheet->getCell('G2')->getValue(), $sheet->getCell('J2')->getValue(),
+            ]);
+            self::assertStringContainsString('Dates de début', (string) $sheet->getCell('K4')->getValue());
+        } finally {
+            unlink($path);
+        }
+    }
+
+    public function testADateBasedGuestIsShownWithoutDemandingAnInventedDeskCode(): void
+    {
+        $this->pdo->exec(
+            "INSERT INTO scout_years (label, start_date, end_date) VALUES ('2024-2025', '2024-09-01', "
+            . "'2025-08-31')"
+        );
+        $previous = (int) $this->pdo->lastInsertId();
+        $this->pdo->prepare(
+            'INSERT INTO import_journal (scout_year_id, line_count, member_count, imported_at) '
+            . 'VALUES (?, 0, 0, ?)'
+        )
+            ->execute([$previous, '2025-08-01']);
+        $this->createMember('A', $this->normalFeeId);
+        $this->createMember('B', $this->normalFeeId);
+        $guestId = $this->createMember('C', $this->normalFeeId, '2026-06-01');
+        AuthSession::login(1, 'admin@test.be', 'admin');
+        $body = (string) $this->dispatch('GET', '/admin/fees/tarifs', 'index')->getBody();
+        self::assertStringContainsString('2 retenu(s)', $body);
+        self::assertStringContainsString('Invités selon la période', $body);
+        self::assertStringContainsString('Ne compte pas pour le tarif Couple/Familial.', $body);
+        $document = new \DOMDocument();
+        @$document->loadHTML($body);
+        $row = (new \DOMXPath($document))->query('//tr[td/a[@href="/admin/members/' . $guestId . '"]]')->item(0);
+        $text = trim((string) preg_replace('/\s+/u', ' ', $row?->textContent ?? ''));
+        self::assertSame(
+            'C Dupont N_N_COTISATION NORMALE Invités selon la période Ne compte pas pour le tarif Couple/Familial.',
+            $text
+        );
+    }
+
+    public function testAMissingDeskTariffIsExplicitInTheMembersOwnRow(): void
+    {
+        $memberYearId = $this->createMember('Absent', null);
+        $this->createMember('Connu', $this->normalFeeId);
+        AuthSession::login(1, 'admin@test.be', 'admin');
+        $body = (string) $this->dispatch('GET', '/admin/fees/tarifs?vue=indeterminables', 'index')->getBody();
+        $document = \Dom\HTMLDocument::createFromString($body, LIBXML_NOERROR);
+        $link = $document->querySelector('a[href="/admin/members/' . $memberYearId . '"]');
+        self::assertNotNull($link);
+        $row = $link->parentElement?->parentElement;
+        self::assertNotNull($row);
+        self::assertSame('aucun tarif', trim($row->getElementsByTagName('td')->item(1)->textContent));
+    }
+
 }

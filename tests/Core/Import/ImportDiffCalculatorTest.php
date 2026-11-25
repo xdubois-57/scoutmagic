@@ -37,7 +37,10 @@ class ImportDiffCalculatorTest extends TestCase
         $this->snapshots = new RosterSnapshotRepository($this->pdo);
         $this->calculator = new ImportDiffCalculator($this->snapshots);
 
-        $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES ('2025-2026', '2025-09-01', '2026-08-31', 1)");
+        $this->pdo->exec(
+            "INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES ('2025-2026', "
+            . "'2025-09-01', '2026-08-31', 1)"
+        );
         $this->scoutYearId = (int) $this->pdo->lastInsertId();
 
         $this->animateurId = $this->createFunction('ANIM', 'identified');
@@ -156,6 +159,18 @@ class ImportDiffCalculatorTest extends TestCase
 
         $this->assertTrue($diff->available);
         $this->assertTrue($diff->isEmpty());
+    }
+
+    public function testNewMembershipFactsDoNotManufactureAnImportMovement(): void
+    {
+        $before = $this->snapshotOf([['member' => 1, 'fee' => $this->feeNormal]]);
+        $after = $this->snapshotOf([['member' => 1, 'fee' => $this->feeNormal]]);
+        $this->pdo->prepare(
+            'UPDATE fees_roster_snapshot_members SET first_function_start = ?, '
+            . 'function_starts_complete = 1, present_previous_year = 0 WHERE snapshot_id = ?'
+        )
+            ->execute(['2026-06-01', $after->id]);
+        self::assertTrue($this->calculator->calculate($before, $after, 1, new NewMappings())->isEmpty());
     }
 
     /* ------------------------------------------------------------------ */

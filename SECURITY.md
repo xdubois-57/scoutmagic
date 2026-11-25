@@ -193,6 +193,17 @@ State the condition, not merely the exception, when citing this as precedent: "t
 
 Everything else in that table follows the ordinary rules: the **recipient** is personal data and is a `BLOB` plus a blind index, encrypted and decrypted only in the Repository; the raw message, its two body halves and every attachment are encrypted at rest through `Core\File\EncryptedFileStorageService`; `from_address` and `reply_to` are organisational addresses and stay in clear per design.md §2.6. **No e-mail address from this sandbox ever appears in a journal entry**, including the `security`-level entries the arm switch and the manual emptying write.
 
+### Operational facts in roster snapshots
+
+Core-produced snapshots (`fees_roster_snapshot_members`) keep operational
+identifiers, codes and flags in clear text, together with the earliest known start
+among all functions, the completeness of those dates and previous-season presence.
+These generic columns describe a past state without copying names, contact details
+or birth dates. Added fields remain NULL for older snapshots; live data never
+reconstructs them. Capture stays inside the import transaction, even with the fees
+module disabled, and snapshots follow the imports' season-based deletion (§13).
+The default privacy notice and its generation prompt disclose this Core processing.
+
 ### Personal data
 
 All fields identifying a natural person are encrypted (AES-256-GCM) as BLOB:

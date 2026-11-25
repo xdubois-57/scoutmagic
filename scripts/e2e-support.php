@@ -35,6 +35,8 @@ declare(strict_types=1);
  *                              repository ships activated — see
  *                              e2eActivateAllModules() for why all of
  *                              them and not just the default three.
+ *   fees-household-fixture <seed|clear> <instance> <stamp>
+ *                              Seed or remove only one synthetic household.
  *   seed-fees-scale-proposal <session-id> <year>
  *                              Put a fictitious federal proposal in an
  *                              already authenticated E2E session; no AI
@@ -139,6 +141,18 @@ function e2eSupportMain(array $argv): void
                 exit(1);
             }
             exit(e2eRunScheduler($instanceDir));
+
+        case 'fees-household-fixture':
+            require_once $repoRoot . '/vendor/autoload.php';
+            $action = $argv[2] ?? '';
+            $instance = $argv[3] ?? '';
+            $stamp = $argv[4] ?? '';
+            if (!in_array($action, ['seed', 'clear'], true) || preg_match('/^[a-z0-9]{8,32}$/D', $stamp) !== 1) {
+                fwrite(STDERR, "A fixture action and an alphanumeric stamp are required.\n");
+                exit(1);
+            }
+            e2eFeesHouseholdFixture($instance, $stamp, $action === 'clear');
+            exit(0);
 
         case 'seed-fees-scale-proposal':
             $sessionId = $argv[2] ?? '';
@@ -2419,6 +2433,105 @@ function e2eSeedSharedAddressSiblings(string $instanceDir, string $stamp): array
         'family_password' => $password,
         'siblings' => $seeded,
     ];
+}
+
+/** @return array{id: int, label: string, start_date: string, end_date: string} */
+function e2eFeesHouseholdYear(PDO $pdo): array
+{
+    return (new Core\ScoutYear\ScoutYearResolver(
+        new Core\Config\ScoutYearService($pdo),
+        new Core\Config\SettingService(new Core\Config\SettingRepository($pdo)),
+        new Core\Import\MemberYearRepository($pdo)
+    ))->getCurrentPublicYear();
+}
+
+/** A synthetic household; no account, authentication shortcut or HTTP endpoint. */
+function e2eFeesHouseholdFixture(string $instanceDir, string $stamp, bool $clear): void
+{
+    $config = e2eDatabaseConfig();
+    $connection = new Core\Database\Connection(
+        $config['host'],
+        $config['port'],
+        $config['name'],
+        $config['user'],
+        $config['password']
+    );
+    $pdo = $connection->getPdo();
+    $deskIds = array_map(static fn(int $n): string => 'ZX777_FEE_' . $stamp . '_' . $n, [1, 2, 3]);
+    if ($clear) {
+        $statement = $pdo->prepare('SELECT id FROM members WHERE desk_id IN (?, ?, ?)');
+        $statement->execute($deskIds);
+        foreach ($statement->fetchAll(PDO::FETCH_COLUMN) as $memberId) {
+            $statement = $pdo->prepare('SELECT id FROM member_years WHERE member_id = ?');
+            $statement->execute([(int) $memberId]);
+            foreach ($statement->fetchAll(PDO::FETCH_COLUMN) as $memberYearId) {
+                $pdo->prepare('DELETE FROM member_addresses WHERE member_year_id = ?')->execute([$memberYearId]);
+                $pdo->prepare('DELETE FROM member_functions WHERE member_year_id = ?')->execute([$memberYearId]);
+            }
+            $pdo->prepare('DELETE FROM member_years WHERE member_id = ?')->execute([$memberId]);
+            $pdo->prepare('DELETE FROM members WHERE id = ?')->execute([$memberId]);
+        }
+        return;
+    }
+    $secrets = (new Core\Security\SecretManager(
+        $instanceDir . '/storage/keys/master.key',
+        $instanceDir . '/storage/config/secrets.enc'
+    ))->readSecrets();
+    $encryption = Core\Security\EncryptionService::fromEncodedKeys(
+        (string) ($secrets['encryption_key'] ?? ''),
+        (string) ($secrets['blind_index_key'] ?? '')
+    );
+    $year = e2eFeesHouseholdYear($pdo);
+    $categories = new Core\Import\FeeCategoryRepository($pdo);
+    $ids = [];
+    foreach (['NORMAL' => 'Cotisation normale', 'IAMA' => 'Cotisation IAMA'] as $code => $label) {
+        $deskCode = 'ZX777_FEE_' . $code;
+        $pdo->prepare(
+            'INSERT IGNORE INTO fee_categories (desk_code, label) VALUES (?, ?)'
+        )->execute([$deskCode, $label]);
+        foreach ($categories->findAll() as $category) {
+            if ($category['desk_code'] === $deskCode) {
+                $ids[$code] = $category['id'];
+            }
+        }
+    }
+    $functionId = (int) $pdo->query("SELECT id FROM functions WHERE desk_code = 'E2E-FCT'")->fetchColumn();
+    if ($functionId === 0) {
+        throw new RuntimeException('The provisioned E2E function is missing.');
+    }
+    foreach ($deskIds as $index => $deskId) {
+        $pdo->prepare('INSERT INTO members (desk_id) VALUES (?)')->execute([$deskId]);
+        $memberId = (int) $pdo->lastInsertId();
+        $pdo->prepare(
+            'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, '
+            . 'last_name_encrypted, fee_category_id) VALUES (?, ?, ?, ?, ?)'
+        )
+            ->execute([
+                $memberId, $year['id'],
+                $encryption->encrypt(['Alpha', 'Beta', 'Gamma'][$index], 'member_years.first_name'),
+                $encryption->encrypt('Exemple', 'member_years.last_name'),
+                $ids[$index === 1 ? 'IAMA' : 'NORMAL'],
+            ]);
+        $memberYearId = (int) $pdo->lastInsertId();
+        $street = 'Rue Exemple ' . $stamp;
+        $addressKey = Core\Member\AddressNormalizer::normalize($street, '1', null, '1000');
+        $pdo->prepare(
+            'INSERT INTO member_addresses (member_year_id, address_type, street_encrypted, '
+            . 'number_encrypted, postal_code_encrypted, address_normalized_blind_index) VALUES (?, ?, '
+            . '?, ?, ?, ?)'
+        )
+            ->execute([
+                $memberYearId, 'Domicile', $encryption->encrypt($street, 'member_addresses.street'),
+                $encryption->encrypt('1', 'member_addresses.number'),
+                $encryption->encrypt('1000', 'member_addresses.postal_code'),
+                $encryption->blindIndex($addressKey, 'address'),
+            ]);
+        $pdo->prepare(
+            'INSERT INTO member_functions (member_year_id, function_id, start_date, '
+            . 'is_main_function) VALUES (?, ?, ?, 1)'
+        )
+            ->execute([$memberYearId, $functionId, $index === 2 ? null : $year['start_date']]);
+    }
 }
 
 /**

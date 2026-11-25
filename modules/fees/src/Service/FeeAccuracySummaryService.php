@@ -32,7 +32,8 @@ class FeeAccuracySummaryService implements FeeAccuracySummaryProvider
             count($report->toCorrect),
             $report->withoutAddressCount(),
             count($report->ignored),
-            $report->householdCount
+            $report->householdCount,
+            count($report->indeterminate)
         );
     }
 }

@@ -46,9 +46,15 @@ class FeeAccuracySummaryServiceTest extends TestCase
         FeesTestHelper::createTables($this->pdo);
         $this->encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
 
-        $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date) VALUES ('2026-2027', '2026-09-01', '2027-08-31')");
+        $this->pdo->exec(
+            "INSERT INTO scout_years (label, start_date, end_date) VALUES ('2026-2027', '2026-09-01', "
+            . "'2027-08-31')"
+        );
         $this->yearId = (int) $this->pdo->lastInsertId();
-        $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date) VALUES ('2027-2028', '2027-09-01', '2028-08-31')");
+        $this->pdo->exec(
+            "INSERT INTO scout_years (label, start_date, end_date) VALUES ('2027-2028', '2027-09-01', "
+            . "'2028-08-31')"
+        );
         $this->otherYearId = (int) $this->pdo->lastInsertId();
 
         $feeCategories = new FeeCategoryRepository($this->pdo);
@@ -57,12 +63,16 @@ class FeeAccuracySummaryServiceTest extends TestCase
 
         $this->households = new HouseholdService(new HouseholdRepository($this->pdo, $this->encryption));
         $this->ignored = new IgnoredHouseholdRepository($this->pdo, $this->encryption);
+        $tariffs = new HouseholdTariffService(new HouseholdTariffRepository($this->pdo), $feeCategories);
         $this->summary = new FeeAccuracySummaryService(new FeeAccuracyService(
             $this->households,
             new HouseholdDetailRepository($this->pdo, $this->encryption),
-            new HouseholdTariffService(new HouseholdTariffRepository($this->pdo), $feeCategories),
+            $tariffs,
             $this->ignored,
-            $feeCategories
+            $feeCategories,
+            new \Core\Import\RosterSnapshotRepository($this->pdo),
+            FeesTestHelper::configuration($this->pdo, $tariffs, $feeCategories),
+            new \Core\Config\ScoutYearService($this->pdo)
         ));
     }
 
@@ -147,6 +157,12 @@ class FeeAccuracySummaryServiceTest extends TestCase
             $feeCategoryId,
         ]);
         $memberYearId = (int) $this->pdo->lastInsertId();
+        $this->pdo->exec(
+            "INSERT OR IGNORE INTO functions (id, desk_code, label, role) VALUES (777, 'ZX777_FN', "
+            . "'Fonction test', 'identified')"
+        );
+        $this->pdo->prepare('INSERT INTO member_functions (member_year_id, function_id, start_date) VALUES (?, 777, ?)')
+            ->execute([$memberYearId, '2026-09-01']);
 
         if ($street === null || $number === null) {
             return;

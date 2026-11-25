@@ -1848,6 +1848,13 @@ Red is not the danger. Every layer above is loud when it fails. What has
 actually gone wrong here, repeatedly, is **something green that proved
 nothing**:
 
+- **A guard over an empty extraction can pass without checking anything.**
+  The roster-snapshot data test now requires its DDL extraction to match each table
+  and verifies an expected column before checking exclusions. A pattern requiring
+  `IF NOT EXISTS` previously read no Core table and passed every exclusion against
+  an empty string. `ModuleManifestTest` covers both declaration forms; its
+  counterproofs inject forbidden columns only into fixtures, never shipped schemas.
+
 - Database-backed tests **skip** rather than fail without a server, so
   `phpunit` is green having tested none of them.
 - `Claude review` exits **success** when it refuses to run over a

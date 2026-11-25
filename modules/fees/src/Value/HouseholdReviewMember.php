@@ -8,24 +8,12 @@ declare(strict_types=1);
 
 namespace Modules\Fees\Value;
 
-use Core\Member\HouseholdFeeCategory;
+use Modules\Fees\FeeTariff;
 
-/**
- * One line of a household card: who, what Desk has them on, and what the
- * household's size implies they should be on.
- *
- * $encodedCategory is null in two different situations the card keeps
- * apart: Desk holds no fee category at all, or it holds one the site does
- * not recognise as a household tariff — a type the federation added after
- * this heuristic was written, or a wording this unit spells its own way.
- * $comparable says which — a member outside the three tariffs is not
- * compared, and above all is never reported as wrong.
- *
- * $encodedDeskCode is the `fee_categories.desk_code` of what Desk holds —
- * the word the treasurer will look for in Desk, shown as it is (#1326).
- */
+/** The encoded tariff and independently determined applicable tariff for one person. */
 final class HouseholdReviewMember
 {
+    /** @param list<string> $expectedDeskCodes real codes only, never an invented guest code */
     public function __construct(
         public readonly int $memberId,
         public readonly int $memberYearId,
@@ -35,16 +23,56 @@ final class HouseholdReviewMember
         public readonly ?int $encodedFeeCategoryId,
         public readonly ?string $encodedFeeCategoryLabel,
         public readonly ?string $encodedDeskCode,
-        public readonly ?HouseholdFeeCategory $encodedCategory,
-        public readonly bool $comparable,
+        public readonly ?FeeTariff $encodedCategory,
+        public readonly ?FeeTariff $expectedCategory,
+        public readonly GuestEligibility $guest,
+        public readonly array $expectedDeskCodes,
         public readonly bool $leaving,
         public readonly ?string $leavingMarkedAt
     ) {
     }
 
-    public function matches(HouseholdFeeCategory $expected): bool
+    public function isIndeterminate(): bool
     {
-        return $this->encodedCategory === $expected;
+        return $this->guest->qualifies !== true
+            && ($this->guest->qualifies === null || $this->expectedCategory === null
+                || $this->encodedCategory === null);
+    }
+
+    public function needsCorrection(): bool
+    {
+        return !$this->isIndeterminate() && $this->guest->qualifies !== true
+            && $this->encodedCategory !== $this->expectedCategory;
+    }
+
+    public function statusLabel(): string
+    {
+        if ($this->isIndeterminate()) {
+            return 'Non déterminable';
+        }
+        if ($this->guest->qualifies === true) {
+            return 'Invités selon la période';
+        }
+        if ($this->encodedCategory === FeeTariff::IAMA) {
+            return 'Tarif IAmA saisi dans Desk';
+        }
+
+        return $this->needsCorrection() ? 'À corriger' : 'Conforme';
+    }
+
+    public function reasonLabel(): ?string
+    {
+        if ($this->guest->qualifies === null) {
+            return $this->guest->reasonLabel();
+        }
+        if ($this->expectedCategory === null) {
+            return 'Nombre de membres retenus pour le tarif du foyer non déterminable.';
+        }
+        if ($this->encodedCategory === null && $this->guest->qualifies !== true) {
+            return 'Tarif Desk absent ou non reconnu. Vérifiez sa correspondance dans le barème.';
+        }
+
+        return null;
     }
 
     /**

@@ -48,6 +48,10 @@
             scale_suggestion: scale_suggestion,
         } only %}
 
+        {% if not scale_confirmed %}
+            <p class="small text-body-secondary">Enregistrez le barème pour confirmer ses montants et sa période pour {{ scout_year_label }}. Les montants d’une autre année ne chiffrent pas les écarts de celle-ci.</p>
+        {% endif %}
+
         {% set _tabs = [] %}
         {% for key, label in views %}
             {% set _tabs = _tabs|merge([{ id: key, label: label ~ ' (' ~ view_counts[key] ~ ')', selected: key == view }]) %}
@@ -68,8 +72,8 @@
                 {% if report.toCorrectDifferenceCents is not null %}
                     Total : <strong>{{ (report.toCorrectDifferenceCents / 100)|money }}</strong>
                     {{ report.toCorrectDifferenceCents > 0 ? 'à déclarer en plus' : 'déclaré en trop' }}.
-                {% elseif not has_any_amount %}
-                    Renseignez le barème ci-dessus pour chiffrer les écarts.
+                {% elseif report.toCorrect is not empty %}
+                    Certains contrôles ou montants restent non déterminables ; le total n’est pas chiffrable.
                 {% endif %}
             </p>
             {% for review in report.toCorrect %}
@@ -86,9 +90,9 @@
         {% elseif view == 'prevoir' %}
             <div class="alert alert-info" role="alert">
                 <i class="bi bi-hand-index" aria-hidden="true"></i>
-                <strong>N'y touchez pas maintenant.</strong> Ces foyers sont corrects aujourd'hui : Desk contient
+                <strong>N’anticipez pas le mouvement.</strong> Pour ces foyers, Desk contient
                 encore l'ancienne composition, et c'est celle-là que la fédération facture. Ils basculeront quand le
-                départ ou l'arrivée sera acté dans Desk.
+                départ ou l'arrivée sera acté dans Desk. Les éventuels écarts actuels sont indiqués séparément.
             </div>
             {% for review in report.upcoming %}
                 {% include '@fees/partials/_household_card.html.twig' with {
@@ -105,6 +109,18 @@
                 {% include 'partials/empty_state.html.twig' with {
                     message: 'Aucun foyer ne changera de tarif à la suite d\'un mouvement déjà connu.',
                     icon: 'bi-hourglass',
+                } only %}
+            {% endfor %}
+
+        {% elseif view == 'indeterminables' %}
+            <p class="small text-body-secondary">Ces foyers ont des contrôles non déterminables : dates de fonction, année précédente, période Invités ou tarif Desk non vérifiables. Les écarts certains restent visibles dans « À corriger dans Desk ».</p>
+            {% for review in report.indeterminate %}
+                {% include '@fees/partials/_household_card.html.twig' with {
+                    review: review, mode: 'indeterminables', category_labels: category_labels,
+                } only %}
+            {% else %}
+                {% include 'partials/empty_state.html.twig' with {
+                    message: 'Aucun foyer avec des contrôles non déterminables.', icon: 'bi-question-circle',
                 } only %}
             {% endfor %}
 

@@ -12,6 +12,8 @@ use Core\Config\SettingException;
 use Core\Config\SettingService;
 use Core\Import\FeeCategoryRepository;
 use Core\Service\DateInput;
+use Core\Member\HouseholdFeeCategory;
+use Modules\Fees\Support\ShippedFederalScale;
 use Modules\Fees\FeeTariff;
 
 /** Validates and stores one complete scale, including its annual guest policy. */
@@ -24,7 +26,8 @@ class TariffConfigurationService
     public function __construct(
         private HouseholdTariffService $tariffs,
         private FeeCategoryRepository $feeCategories,
-        private SettingService $settings
+        private SettingService $settings,
+        private string $shippedPath = ShippedFederalScale::PATH
     ) {
     }
 
@@ -48,12 +51,41 @@ class TariffConfigurationService
         return FederalScaleLookupService::normalizeYear($year) === $year ? $year : null;
     }
 
-    /** @return array{from: \DateTimeImmutable, until: \DateTimeImmutable}|null */
+    /** A saved amount is evidence only for the explicitly confirmed season. */
+    public function amountForYear(string $year, FeeTariff|HouseholdFeeCategory $tariff): ?int
+    {
+        return $this->referenceYear() === $year ? $this->tariffs->amountCentsFor($tariff) : null;
+    }
+
+    /**
+     * A confirmed policy or the exact defaults published for this season.
+     *
+     * @return array{from: \DateTimeImmutable, until: \DateTimeImmutable}|null
+     */
     public function periodForYear(string $year): ?array
     {
         $fields = $this->fields();
+        $confirmed = $this->referenceYear();
+        if (($confirmed !== null && $confirmed !== $year)
+            || ($confirmed === null && !$this->defaultPeriodMatches($year, $fields))) {
+            return null;
+        }
 
         return self::periodFromFields($year, $fields['from'], $fields['until']);
+    }
+
+    /** @param array{from: string, until: string, year: string} $fields */
+    private function defaultPeriodMatches(string $year, array $fields): bool
+    {
+        try {
+            $reference = ShippedFederalScale::load($this->shippedPath);
+        } catch (\UnexpectedValueException) {
+            return false;
+        }
+
+        return $reference->year === $year
+            && self::dayMonthOrNull($fields['from'], $year) === $reference->guestFromDayMonth
+            && self::dayMonthOrNull($fields['until'], $year) === $reference->guestUntilDayMonth;
     }
 
     /** A canonical annual date, valid in the season's ENDING calendar year. */

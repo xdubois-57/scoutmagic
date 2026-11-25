@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Core\Import;
 
+use Core\Config\ScoutYearService;
 use Core\Service\DateInput;
 
 /**
@@ -27,8 +28,8 @@ use Core\Service\DateInput;
  * constraint.
  *
  * The write path runs inside the Desk import's own transaction
- * (`Core\Import\DeskImportService`), which is why {@see capture()} is two
- * bounded statements and an update — an `INSERT ... SELECT` over the whole
+ * (`Core\Import\DeskImportService`), which is why {@see capture()} uses a
+ * season-label read, two bounded inserts and an update — an `INSERT ... SELECT` over the whole
  * roster rather than a loop issuing one INSERT per member. A per-member
  * loop on a 300-member unit is 300 round trips inside a transaction that
  * already holds the entire roster's locks, and any of them failing rolls
@@ -38,6 +39,63 @@ class RosterSnapshotRepository
 {
     public function __construct(private \PDO $pdo)
     {
+    }
+
+    /** @return array<int, RosterMembershipFacts> active persistent member id => current facts */
+    public function findMembershipFactsForYear(int $scoutYearId, \DateTimeImmutable $asOf): array
+    {
+        $previousLabel = $this->previousYearLabel($scoutYearId);
+        $statement = $this->pdo->prepare(
+            'SELECT my.member_id, ' . self::membershipProjection() . '
+             FROM member_years my
+             WHERE my.scout_year_id = ? AND my.is_active = 1'
+        );
+        $statement->execute([$previousLabel, $previousLabel, $asOf->format('Y-m-d H:i:s'), $scoutYearId]);
+        $facts = [];
+        foreach ($statement->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $facts[(int) $row['member_id']] = self::membershipFacts($row);
+        }
+
+        return $facts;
+    }
+
+    /** The same projection feeds live reads and the bounded snapshot INSERT. */
+    private static function membershipProjection(): string
+    {
+        return '(SELECT MIN(starts.start_date) FROM member_functions starts
+                 WHERE starts.member_year_id = my.id) AS first_function_start,
+                (SELECT CASE WHEN COUNT(*) > 0 AND COUNT(starts.start_date) = COUNT(*) THEN 1 ELSE 0 END
+                 FROM member_functions starts WHERE starts.member_year_id = my.id) AS function_starts_complete,
+                CASE WHEN EXISTS (
+                    SELECT 1 FROM member_years previous_member
+                    WHERE previous_member.member_id = my.member_id
+                      AND previous_member.scout_year_id IN (SELECT id FROM scout_years WHERE label = ?)
+                ) THEN 1 WHEN EXISTS (
+                    SELECT 1 FROM import_journal previous_import
+                    WHERE previous_import.scout_year_id IN (SELECT id FROM scout_years WHERE label = ?)
+                      AND previous_import.imported_at <= ?
+                ) THEN 0 ELSE NULL END AS present_previous_year';
+    }
+
+    private function previousYearLabel(int $scoutYearId): ?string
+    {
+        $statement = $this->pdo->prepare('SELECT label FROM scout_years WHERE id = ?');
+        $statement->execute([$scoutYearId]);
+        $label = $statement->fetchColumn();
+
+        return $label === false ? null : ScoutYearService::previousLabel((string) $label);
+    }
+
+    /** @param array<string, mixed> $row */
+    private static function membershipFacts(array $row): RosterMembershipFacts
+    {
+        return new RosterMembershipFacts(
+            DateInput::fromStorage(
+                $row['first_function_start'] === null ? null : (string) $row['first_function_start']
+            ),
+            $row['function_starts_complete'] === null ? null : (bool) $row['function_starts_complete'],
+            $row['present_previous_year'] === null ? null : (bool) $row['present_previous_year']
+        );
     }
 
     /**
@@ -57,6 +115,7 @@ class RosterSnapshotRepository
      */
     public function capture(int $scoutYearId, \DateTimeImmutable $takenAt, ?int $importJournalId = null): RosterSnapshot
     {
+        $previousLabel = $this->previousYearLabel($scoutYearId);
         $stmt = $this->pdo->prepare(
             'INSERT INTO fees_roster_snapshots (scout_year_id, import_journal_id, taken_at, member_count) VALUES (?, '
                 . '?, ?, 0)'
@@ -67,8 +126,9 @@ class RosterSnapshotRepository
         $stmt = $this->pdo->prepare(
             'INSERT INTO fees_roster_snapshot_members
                  (snapshot_id, member_id, fee_category_id, section_id, function_role, function_id, formation_level, '
-                . 'leaving)
-             SELECT ?, my.member_id, my.fee_category_id, mf.section_id, f.role, f.id, my.formation_level, my.leaving
+                . 'leaving, first_function_start, function_starts_complete, present_previous_year)
+             SELECT ?, my.member_id, my.fee_category_id, mf.section_id, f.role, f.id, my.formation_level, my.leaving, '
+                . self::membershipProjection() . '
              FROM member_years my
              LEFT JOIN member_functions mf ON mf.id = (
                  SELECT mf2.id FROM member_functions mf2
@@ -80,7 +140,7 @@ class RosterSnapshotRepository
              WHERE my.scout_year_id = ?
                AND my.is_active = 1'
         );
-        $stmt->execute([$snapshotId, $scoutYearId]);
+        $stmt->execute([$snapshotId, $previousLabel, $previousLabel, $takenAt->format('Y-m-d H:i:s'), $scoutYearId]);
         $memberCount = $stmt->rowCount();
 
         $stmt = $this->pdo->prepare('UPDATE fees_roster_snapshots SET member_count = ? WHERE id = ?');
@@ -131,7 +191,8 @@ class RosterSnapshotRepository
     public function findMembers(int $snapshotId): array
     {
         $stmt = $this->pdo->prepare(
-            'SELECT member_id, fee_category_id, section_id, function_role, function_id, formation_level, leaving
+            'SELECT member_id, fee_category_id, section_id, function_role, function_id, formation_level, leaving,
+                    first_function_start, function_starts_complete, present_previous_year
              FROM fees_roster_snapshot_members
              WHERE snapshot_id = ?
              ORDER BY member_id'
@@ -146,7 +207,8 @@ class RosterSnapshotRepository
                 $row['function_role'] === null ? null : (string) $row['function_role'],
                 $row['formation_level'] === null ? null : (string) $row['formation_level'],
                 $row['function_id'] === null ? null : (int) $row['function_id'],
-                (bool) $row['leaving']
+                (bool) $row['leaving'],
+                self::membershipFacts($row)
             ),
             $stmt->fetchAll(\PDO::FETCH_ASSOC)
         );

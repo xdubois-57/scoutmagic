@@ -1683,14 +1683,13 @@ intermédiaire. Comparer une facture de février à la situation de mars
 fabriquerait de faux écarts, et ce sont ces faux écarts qui feraient
 abandonner l'outil.
 
-À chaque import Desk, le module fige donc la composition du roster.
+À chaque import Desk, le cœur du site fige donc la composition du roster, même si Cotisations est désactivé.
 
-**Cette photographie ne contient aucune donnée personnelle** : pour chaque
-membre, son identifiant interne et des codes — catégorie tarifaire,
-section, rôle de sa fonction, niveau de formation, et le fait qu'un départ
-ait été annoncé. Les noms et les dates de naissance restent dans la fiche
-annuelle du membre, qui persiste toute l'année même pour quelqu'un devenu
-inactif.
+La photographie garde l’identifiant interne et les codes (tarif, section,
+fonction, formation), le départ annoncé et les faits génériques d’appartenance :
+première date connue de toutes les fonctions, complétude des dates et présence
+précédente. Aucun nom ni date de naissance n’est copié. Les faits nouveaux sont
+NULL pour les anciennes photographies, jamais reconstruits depuis l’état actuel.
 
 Le drapeau « départ annoncé » est enregistré tel quel, jamais utilisé
 comme filtre : Desk contient encore la personne, et la fédération la
@@ -1699,13 +1698,11 @@ facture encore.
 Deux imports laissent deux photographies. Une photographie ancienne n'est
 jamais réécrite : c'est elle qui rend une facture ancienne vérifiable.
 
-### 31.3 La mémoire commence à l'activation
+### 31.3 La mémoire commence au premier import du site
 
-**Les factures antérieures à la première photographie ne seront jamais
-vérifiables ligne par ligne.** La page d'accueil du module le dit, plutôt
-que de laisser l'utilisateur le découvrir. Opérationnellement, le module
-doit être activé avant la facture d'acompte de novembre pour que la saison
-soit exploitable.
+Les factures antérieures à la première photographie ne sont pas vérifiables
+ligne par ligne. La photographie existe dès le premier import Desk du site,
+sans activation préalable de Cotisations.
 
 ### 31.4 La page d'accueil
 
@@ -1721,15 +1718,15 @@ qu'implique le nombre de personnes au même foyer. On corrige ensuite dans
 Desk ; le site n'y écrit jamais.
 
 **Deux onglets d'action, et c'est la correction d'une erreur de
-conception.** Un foyer dont un départ est annoncé n'est *pas* en écart
-aujourd'hui : Desk contient encore l'ancienne composition, et c'est celle-là
-que la fédération facture.
+conception.** Un départ annoncé ne change pas l’effectif retenu aujourd’hui :
+Desk contient encore la personne. Les écarts déjà présents restent indépendants
+et peuvent nécessiter une correction.
 
 - **« À corriger dans Desk »** — l'encodage ne correspond pas au compte
-  *Desk*. Action immédiate, chiffrée en euros parce qu'elle pèse sur la
-  prochaine facture.
-- **« À prévoir »** — le foyer est correct aujourd'hui et basculera quand le
-  fait sera acté. Chaque carte nomme son déclencheur (« Camille — départ
+  retenu à partir des données *Desk*. Action immédiate, chiffrée si tous les
+  contrôles et montants nécessaires sont déterminables.
+- **« À prévoir »** — un mouvement connu changera certainement le tarif du foyer
+  quand il sera acté ; cela n’efface pas les éventuels écarts présents. Chaque carte nomme son déclencheur (« Camille — départ
   annoncé le 06/01/2026 »). Montant étiqueté « à la bascule », jamais « en
   écart », sous un bandeau qui dit de ne pas y toucher maintenant.
 
@@ -1738,8 +1735,8 @@ l'arbitrage — corriger maintenant puis à la bascule fait deux modifications,
 attendre n'en fait qu'une au prix d'une facture intermédiaire inexacte — et
 ne tranche pas à la place du trésorier.
 
-Deux onglets de contexte complètent l'écran : **« Ignorés »** et **« Sans
-adresse »**.
+Trois onglets de contexte complètent l’écran : **« Non déterminables »**,
+**« Ignorés »** et **« Sans adresse »**.
 
 Un changement de compte qui ne change pas de catégorie (quatre personnes qui
 passent à trois restent « famille ») n'apparaît nulle part : ce ne serait pas
@@ -1747,15 +1744,25 @@ une action.
 
 ### 31.6 Ce que chaque foyer affiche
 
-Une ligne de décompte explicite — « 3 membres dans Desk — tarif attendu
-Famille » — qui porte l'explication, puis la comparaison membre par membre :
-le code Desk encodé et le code Desk attendu côte à côte, avec l'état écrit
-(« Conforme », « À corriger », « Non comparé »). Rien n'est barré, et le nom
-de chaque membre ouvre sa fiche.
+La carte distingue membres physiques dans Desk et membres retenus pour le tarif,
+avec une plage si certains pourraient être Invités. Le tarif du foyer n’est certain
+que si toute la plage mène à la même catégorie. Trois membres certains suffisent
+pour Familiale, sans masquer l’incertitude individuelle d’un quatrième.
 
-Un membre sur un tarif qui n'est pas un tarif de foyer (animateur, réduit,
-iAM) est **compté** dans le foyer — la fédération compte des personnes — mais
-n'est jamais comparé ni signalé comme une erreur.
+Les Invités sont nouveaux dans l’année (aucune fiche précédente, même inactive)
+et leur première de toutes les fonctions commence dans la période inclusive.
+L’absence précédente exige un import de cette saison à la date observée ; sans
+preuve, le résultat reste non déterminable. Les Invités prouvés ne comptent pas
+pour Couple/Familial, même si Desk n’a pas de code Invités. Les IAmA comptent
+et gardent le tarif choisi dans Desk : aucune éligibilité IAmA n’est devinée.
+
+Le code encodé, le tarif applicable et le verdict sont écrits pour chaque membre.
+Les départs comptent aujourd’hui ; la projection ne change que les membres ordinaires
+restants. Les inscriptions acceptées n’ont pas encore toutes les données permettant
+de savoir qui comptera : elles élargissent la plage projetée. Un contrôle incomplet
+figure dans son onglet, l’export, l’étape Année scoute et les points d’attention.
+Les montants exigent un barème confirmé pour la même saison ; un total incomplet
+n’affiche pas la seule somme des valeurs connues. Aucune donnée historique n’est réécrite.
 
 **« Ignorer ce foyer »** le met de côté avec un motif libre : c'est la
 réponse à la garde alternée et aux colocations, sans construire de fusion ni

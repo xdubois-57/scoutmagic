@@ -59,4 +59,14 @@ class FeesStepCheckTest extends TestCase
         $this->assertSame([], $check->pointsToCheck);
         $this->assertSame([], $check->details);
     }
+    public function testIndeterminateChecksRemainAPointEvenWithoutAnEncodingError(): void
+    {
+        $provider = $this->createStub(FeeAccuracySummaryProvider::class);
+        $provider->method('summaryForYear')->willReturn(new FeeAccuracySummary(0, 0, 0, 8, 2));
+        $check = (new FeesStepCheck($provider))->check(CheckFixtures::context());
+        self::assertSame([['2 foyers avec des contrôles non déterminables'], 2], [
+            $check->pointsToCheck, $check->details['households_indeterminate'],
+        ]);
+    }
+
 }

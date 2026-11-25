@@ -602,8 +602,8 @@ CREATE TABLE import_journal (
 -- any installation that already has one, and this schema's migration
 -- runner never drops a table or a constraint (see `SchemaComparator`).
 --
--- **No personal data, deliberately.** Every column below is a foreign key
--- or a code. Names and birth dates stay where they already are, in
+-- Operational identifiers, codes, dates and flags stay in clear, without
+-- copying identity fields. Names and birth dates stay where they are, in
 -- `member_years`, which persists for the whole scout year even for a
 -- member gone inactive — so a snapshot row joins back to a readable person
 -- through (member_id, the snapshot's scout_year_id) whenever a screen
@@ -666,6 +666,12 @@ CREATE TABLE fees_roster_snapshot_members (
     -- what to do with the flag belongs to whoever reads the snapshot. A
     -- snapshot that filtered could not answer "what did Desk contain".
     leaving BOOLEAN NOT NULL DEFAULT FALSE,
+    -- Generic membership facts frozen at capture. No backfill from today's roster:
+    -- older snapshots keep NULL. The minimum covers ALL functions, and absence
+    -- in the previous season needs a dated import of that season.
+    first_function_start DATE NULL,
+    function_starts_complete BOOLEAN NULL,
+    present_previous_year BOOLEAN NULL,
     UNIQUE INDEX idx_frsm_snapshot_member (snapshot_id, member_id),
     INDEX idx_frsm_snapshot_section (snapshot_id, section_id),
     CONSTRAINT fk_frsm_snapshot FOREIGN KEY (snapshot_id) REFERENCES fees_roster_snapshots(id) ON DELETE CASCADE,

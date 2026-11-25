@@ -197,4 +197,58 @@ final class TariffConfigurationServiceTest extends TestCase
 
         return [$rows, $config->fields()];
     }
+    public function testPublicDefaultPeriodIsEvidenceOnlyForThePublishedSeason(): void
+    {
+        $period = $this->service->periodForYear('2026-2027');
+        self::assertSame(['2027-06-01', '2027-08-31', null], [
+            $period['from']->format('Y-m-d'), $period['until']->format('Y-m-d'),
+            $this->service->periodForYear('2025-2026'),
+        ]);
+    }
+
+    public function testConfirmedCustomPeriodDoesNotRewriteAnotherSeason(): void
+    {
+        $input = $this->input();
+        $input['guest_from'] = '15/05';
+        $this->service->save('2026-2027', $input);
+        self::assertSame(['2027-05-15', null], [
+            $this->service->periodForYear('2026-2027')['from']->format('Y-m-d'),
+            $this->service->periodForYear('2025-2026'),
+        ]);
+    }
+
+    public function testUnconfirmedCustomBoundsAreUnknown(): void
+    {
+        $this->settings->setInternal(TariffConfigurationService::SETTING_GUEST_FROM, '02/06', 'fees');
+        self::assertNull($this->service->periodForYear('2026-2027'));
+    }
+
+    public function testMissingPublishedReferenceDoesNotQualifyUnconfirmedDefaults(): void
+    {
+        $service = new TariffConfigurationService(
+            $this->tariffs,
+            $this->categories,
+            $this->settings,
+            '/missing/synthetic.json'
+        );
+        self::assertNull($service->periodForYear('2026-2027'));
+    }
+
+    public function testMoneyRequiresTheConfirmedSeasonAndPreservesZeroAndNull(): void
+    {
+        $this->service->save('2026-2027', $this->input());
+        self::assertSame([5750, 0, null, null], [
+            $this->service->amountForYear('2026-2027', FeeTariff::NORMAL),
+            $this->service->amountForYear('2026-2027', FeeTariff::FAMILY),
+            $this->service->amountForYear('2026-2027', FeeTariff::COUPLE),
+            $this->service->amountForYear('2025-2026', FeeTariff::NORMAL),
+        ]);
+    }
+
+    public function testLegacyAmountWithoutReferenceYearIsNotHistoricalEvidence(): void
+    {
+        $this->tariffs->save(FeeTariff::NORMAL, null, 5750);
+        self::assertNull($this->service->amountForYear('2026-2027', FeeTariff::NORMAL));
+    }
+
 }
