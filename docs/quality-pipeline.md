@@ -1848,6 +1848,15 @@ Red is not the danger. Every layer above is loud when it fails. What has
 actually gone wrong here, repeatedly, is **something green that proved
 nothing**:
 
+- **Un garde sur une extraction vide peut passer sans rien contrôler.**
+  Le test des données des photographies d’effectifs exige désormais que
+  l’extraction du DDL reconnaisse réellement chaque table, puis vérifie une
+  colonne attendue avant les exclusions. Un motif qui exigeait `IF NOT EXISTS`
+  ne lisait aucune table du schéma du cœur et rendait toutes les exclusions
+  vertes sur une chaîne vide. `ModuleManifestTest` couvre les deux formes de
+  déclaration ; ses contre-épreuves injectent les colonnes interdites dans
+  les seules fixtures, sans toucher au schéma livré.
+
 - Database-backed tests **skip** rather than fail without a server, so
   `phpunit` is green having tested none of them.
 - `Claude review` exits **success** when it refuses to run over a

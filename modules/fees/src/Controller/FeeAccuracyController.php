@@ -31,7 +31,6 @@ use Modules\Fees\Service\TariffConfigurationService;
 use Modules\Fees\Support\SuggestedScale;
 use Modules\Fees\Value\FeeAccuracyReport;
 use Modules\Fees\Value\HouseholdReview;
-use Modules\Fees\Value\HouseholdReviewMember;
 use PhpOffice\PhpSpreadsheet\Cell\DataType;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
@@ -41,7 +40,7 @@ use Twig\Environment;
  * « Justesse des tarifs » — the encoded fee category against the number of
  * people at the same address.
  *
- * Four views of one report, selected by `?vue=`, each a real URL so the
+ * Five views of one report, selected by `?vue=`, each a real URL so the
  * page works with no JavaScript and a treasurer can keep one open in a tab
  * next to Desk.
  */
@@ -52,6 +51,7 @@ class FeeAccuracyController extends AbstractController
     private const VIEWS = [
         'corriger' => 'À corriger dans Desk',
         'prevoir' => 'À prévoir',
+        'indeterminables' => 'Non déterminables',
         'ignores' => 'Ignorés',
         'sans-adresse' => 'Sans adresse',
     ];
@@ -98,6 +98,7 @@ class FeeAccuracyController extends AbstractController
             'view_counts' => [
                 'corriger' => count($report->toCorrect),
                 'prevoir' => count($report->upcoming),
+                'indeterminables' => count($report->indeterminate),
                 'ignores' => count($report->ignored),
                 'sans-adresse' => $report->withoutAddressCount(),
             ],
@@ -112,6 +113,7 @@ class FeeAccuracyController extends AbstractController
             'scale_draft' => $draft,
             'scale_year' => FederalScaleLookupService::normalizeYear($year->label),
             'guest_period' => $this->configuration->fields(),
+            'scale_confirmed' => $this->configuration->referenceYear() === $year->label,
         ]);
     }
 
@@ -351,6 +353,7 @@ class FeeAccuracyController extends AbstractController
         $columns = [
             'Onglet', 'Adresse', 'Membres dans Desk', 'Tarif attendu',
             'Membre', 'Tarif encodé', 'Verdict', 'Écart (€)', 'Déclencheur',
+            'Membres retenus pour le foyer', 'Limite du contrôle',
         ];
         foreach ($columns as $index => $header) {
             $sheet->setCellValueExplicit([$index + 1, 1], $header, DataType::TYPE_STRING);
@@ -360,6 +363,7 @@ class FeeAccuracyController extends AbstractController
         foreach ([
             'À corriger dans Desk' => $report->toCorrect,
             'À prévoir' => $report->upcoming,
+            'Non déterminables' => $report->indeterminate,
             'Ignorés' => $report->ignored
         ] as $tab => $reviews) {
             foreach ($reviews as $review) {
@@ -373,7 +377,7 @@ class FeeAccuracyController extends AbstractController
                     $sheet->setCellValueExplicit([3, $rowNum], (string) $review->deskSize, DataType::TYPE_NUMERIC);
                     $sheet->setCellValueExplicit(
                         [4, $rowNum],
-                        HouseholdCategoryLabel::for($review->expectedCategory),
+                        $member->expectedCategory?->label() ?? 'Non déterminable',
                         DataType::TYPE_STRING
                     );
                     $sheet->setCellValueExplicit(
@@ -386,7 +390,7 @@ class FeeAccuracyController extends AbstractController
                         $member->encodedFeeCategoryLabel ?? '',
                         DataType::TYPE_STRING
                     );
-                    $sheet->setCellValueExplicit([7, $rowNum], self::verdict($review, $member), DataType::TYPE_STRING);
+                    $sheet->setCellValueExplicit([7, $rowNum], $member->statusLabel(), DataType::TYPE_STRING);
                     if ($review->differenceCents !== null) {
                         $sheet->setCellValueExplicit(
                             [8, $rowNum],
@@ -395,21 +399,21 @@ class FeeAccuracyController extends AbstractController
                         );
                     }
                     $sheet->setCellValueExplicit([9, $rowNum], self::trigger($review), DataType::TYPE_STRING);
+                    $count = $review->retainedCount;
+                    $countLabel = $count->minimum === $count->maximum
+                        ? (string) $count->minimum : $count->minimum . ' à ' . $count->maximum;
+                    $sheet->setCellValueExplicit([10, $rowNum], $countLabel, DataType::TYPE_STRING);
+                    $limit = $member->reasonLabel();
+                    if ($review->projectionIndeterminate) {
+                        $limit = trim(($limit ?? '') . ' Tarif futur non déterminable.');
+                    }
+                    $sheet->setCellValueExplicit([11, $rowNum], $limit ?? '', DataType::TYPE_STRING);
                     $rowNum++;
                 }
             }
         }
 
         return $spreadsheet;
-    }
-
-    private static function verdict(HouseholdReview $review, HouseholdReviewMember $member): string
-    {
-        if (!$member->comparable) {
-            return 'Hors tarif de foyer';
-        }
-
-        return $member->matches($review->expectedCategory) ? 'Conforme' : 'À corriger';
     }
 
     private static function trigger(HouseholdReview $review): string

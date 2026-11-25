@@ -35,7 +35,9 @@ class ImportSchemaDeclarationTest extends TestCase
         'fees_roster_snapshots' => ['import_journal_id'],
         // The main function's own id, which the diff reports alongside
         // the role it resolves to.
-        'fees_roster_snapshot_members' => ['function_id'],
+        'fees_roster_snapshot_members' => [
+            'function_id', 'first_function_start', 'function_starts_complete', 'present_previous_year',
+        ],
         // Merging two records of one person (§8.80).
         'members' => ['merged_into_member_id', 'merged_at'],
         'member_desk_id_aliases' => ['member_id', 'desk_id'],

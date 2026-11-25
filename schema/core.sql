@@ -666,6 +666,12 @@ CREATE TABLE fees_roster_snapshot_members (
     -- what to do with the flag belongs to whoever reads the snapshot. A
     -- snapshot that filtered could not answer "what did Desk contain".
     leaving BOOLEAN NOT NULL DEFAULT FALSE,
+    -- Generic membership facts frozen at capture. No backfill from today's roster:
+    -- older snapshots keep NULL. The minimum covers ALL functions, and absence
+    -- in the previous season needs a dated import of that season.
+    first_function_start DATE NULL,
+    function_starts_complete BOOLEAN NULL,
+    present_previous_year BOOLEAN NULL,
     UNIQUE INDEX idx_frsm_snapshot_member (snapshot_id, member_id),
     INDEX idx_frsm_snapshot_section (snapshot_id, section_id),
     CONSTRAINT fk_frsm_snapshot FOREIGN KEY (snapshot_id) REFERENCES fees_roster_snapshots(id) ON DELETE CASCADE,

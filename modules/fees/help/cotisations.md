@@ -25,17 +25,20 @@ réécrit la liste des membres à chaque import : il ne garde aucune trace
 de l'état précédent. Comparer une facture de février à la situation de
 mars ferait donc apparaître des écarts qui n'ont jamais existé.
 
-Depuis que ce module est actif, chaque import Desk laisse derrière lui
+À chaque import Desk, même si ce module est désactivé, le cœur du site laisse
 une photographie de la composition du roster. C'est elle, et non la
 situation du jour, qui sera comparée à une facture.
 
-Cette photographie ne retient que des identifiants et des codes : la
-catégorie tarifaire, la section, la fonction, le niveau de formation.
+Cette photographie retient les identifiants et les codes (tarif, section,
+fonction, formation), les indicateurs de départ, la première date connue de
+toutes les fonctions, la complétude de ces dates et la présence précédente.
+Les anciennes photographies sans ces faits restent non déterminables :
+le site ne les complète pas avec la situation actuelle.
 Aucun nom, aucune date de naissance n'y est recopié.
 
 > Les factures antérieures à votre première photographie ne seront
-> jamais vérifiables ligne par ligne. Activez le module avant la facture
-> d'acompte de novembre pour que la saison entière soit exploitable.
+> jamais vérifiables ligne par ligne. La mémoire commence au premier import
+> Desk du site, sans devoir activer ce module auparavant.
 
 ## Ce que la page affiche aujourd'hui
 

@@ -32,17 +32,24 @@ class FeesAttentionProviderTest extends TestCase
     {
         $pdo = DatabaseTestHelper::createTestDatabase();
         FeesTestHelper::createTables($pdo);
-        $pdo->exec("INSERT INTO scout_years (label, start_date, end_date) VALUES ('2025-2026', '2025-09-01', '2026-08-31')");
+        $pdo->exec(
+            "INSERT INTO scout_years (label, start_date, end_date) VALUES ('2025-2026', '2025-09-01', "
+            . "'2026-08-31')"
+        );
         $scoutYearId = (int) $pdo->lastInsertId();
 
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $feeCategories = new FeeCategoryRepository($pdo);
+        $tariffs = new HouseholdTariffService(new HouseholdTariffRepository($pdo), $feeCategories);
         $provider = new FeesAttentionProvider(new FeeAccuracyService(
             new HouseholdService(new HouseholdRepository($pdo, $encryption)),
             new HouseholdDetailRepository($pdo, $encryption),
-            new HouseholdTariffService(new HouseholdTariffRepository($pdo), $feeCategories),
+            $tariffs,
             new IgnoredHouseholdRepository($pdo, $encryption),
-            $feeCategories
+            $feeCategories,
+            new \Core\Import\RosterSnapshotRepository($pdo),
+            FeesTestHelper::configuration($pdo, $tariffs, $feeCategories),
+            new \Core\Config\ScoutYearService($pdo)
         ));
 
         $this->assertSame([], $provider->collect($scoutYearId));

@@ -28,7 +28,7 @@ use Modules\Fees\Api\FeeAccuracySummaryProvider;
  * not on the page.
  *
  * $details: households_checked, households_to_correct,
- * members_without_address, households_set_aside, imported_at; absent
+ * members_without_address, households_set_aside, households_indeterminate, imported_at; absent
  * before the import.
  */
 final class FeesStepCheck implements StepCheckProvider
@@ -71,6 +71,14 @@ final class FeesStepCheck implements StepCheckProvider
             );
         }
 
+        if ($summary->householdsIndeterminate > 0) {
+            $points[] = CheckText::count(
+                $summary->householdsIndeterminate,
+                'foyer avec des contrôles non déterminables',
+                'foyers avec des contrôles non déterminables'
+            );
+        }
+
         return new StepCheck(
             pointsToCheck: $points,
             primaryAction: $action,
@@ -80,6 +88,7 @@ final class FeesStepCheck implements StepCheckProvider
                 'households_to_correct' => $summary->householdsToCorrect,
                 'members_without_address' => $summary->membersWithoutAddress,
                 'households_set_aside' => $summary->householdsSetAside,
+                'households_indeterminate' => $summary->householdsIndeterminate,
                 'imported_at' => $context->latestTargetImport?->importedAt,
             ]
         );

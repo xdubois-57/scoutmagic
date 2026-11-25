@@ -8,44 +8,26 @@ declare(strict_types=1);
 
 namespace Modules\Fees\Service;
 
+use Core\Config\AppClock;
+use Core\Config\ScoutYearService;
 use Core\Import\FeeCategoryRepository;
+use Core\Import\RosterSnapshotRepository;
 use Core\Member\Household\Household;
 use Core\Member\Household\HouseholdService;
+use Modules\Fees\FeeTariff;
 use Modules\Fees\Repository\HouseholdDetailRepository;
 use Modules\Fees\Repository\IgnoredHouseholdRepository;
 use Modules\Fees\Value\FeeAccuracyReport;
+use Modules\Fees\Value\GuestEligibility;
+use Modules\Fees\Value\HouseholdFeeCount;
 use Modules\Fees\Value\HouseholdReview;
 use Modules\Fees\Value\HouseholdReviewMember;
 use Modules\Fees\Value\IgnoredHousehold;
 
 /**
- * Confronts the fee category encoded in Desk with the one the number of
- * people at the same address implies.
- *
- * **What it compares against is the DESK count**, never the projected one
- * (`Core\Member\Household\Household`, ARCHITECTURE.md §8.34). The
- * federation bills what Desk contains, so a household with a departure
- * announced is not in breach today — it is correct today and will move
- * later, which is a different tab and a different sentence.
- *
- * **The two verdicts are independent.** A household can need correcting AND
- * be about to move; the screen shows both and lets the treasurer arbitrate.
- *
- * **A member on a tariff outside the three is not judged.** Their holder
- * is counted in the household's size — the federation counts people, not
- * tariffs — but is never reported as wrong.
- *
- * Desk offers a unit exactly three cotisation types today
- * (`N_COTISATION_NORMALE`, `C_COTISATION_COUPLE`, `F_COTISATION_FAMILLE`),
- * and every member carries one of them — an animateur is billed like
- * anybody else. So this case is not about a category the federation has
- * already invented; it is about the ones it has not invented YET, and
- * about a unit whose export spells one of the three in a wording
- * `FeeCategoryClassifier` does not recognise. Both arrive the same way: an
- * unknown "Tarif" value is imported and kept like any other, classified as
- * none of the three, and left out of the comparison until somebody maps it
- * by hand on the barème panel. That is why this path exists and why it
- * refuses rather than guesses.
+ * Uses the core's physical households, but counts only proven non-guests
+ * towards their tariff. IAmA counts and retains the tariff encoded in Desk.
+ * Departures still count today; projected changes are a separate verdict.
  */
 class FeeAccuracyService
 {
@@ -54,7 +36,10 @@ class FeeAccuracyService
         private HouseholdDetailRepository $details,
         private HouseholdTariffService $tariffs,
         private IgnoredHouseholdRepository $ignoredHouseholds,
-        private FeeCategoryRepository $feeCategories
+        private FeeCategoryRepository $feeCategories,
+        private RosterSnapshotRepository $snapshots,
+        private TariffConfigurationService $configuration,
+        private ScoutYearService $years
     ) {
     }
 
@@ -62,53 +47,53 @@ class FeeAccuracyService
     {
         $households = $this->households->householdsForYear($scoutYearId);
         $ignored = $this->ignoredHouseholds->findAllForYear($scoutYearId);
-
+        $year = $this->years->findById($scoutYearId)['label'] ?? '';
+        $period = $this->configuration->periodForYear($year);
+        $facts = $this->snapshots->findMembershipFactsForYear($scoutYearId, AppClock::now());
+        $guests = [];
+        foreach ($facts as $memberId => $membership) {
+            $guests[$memberId] = GuestTariffRule::evaluate($membership, $year, $period);
+        }
+        $amounts = [];
+        foreach (FeeTariff::cases() as $tariff) {
+            $amounts[$tariff->value] = $this->configuration->amountForYear($year, $tariff);
+        }
         $memberYearIds = [];
         foreach ($households as $household) {
-            foreach ($household->memberYearIds() as $id) {
-                $memberYearIds[] = $id;
-            }
+            array_push($memberYearIds, ...$household->memberYearIds());
         }
-
         $memberRows = $this->details->findMembers($memberYearIds);
         $addressLabels = $this->details->findAddressLabels(array_keys($households));
         $feeCategories = $this->feeCategoriesById();
-
-        $toCorrect = [];
-        $upcoming = [];
-        $setAside = [];
-
+        $toCorrect = $upcoming = $setAside = $indeterminate = [];
         foreach ($households as $blindIndex => $household) {
-            // A decision taken about a different set of people does not
-            // cover this one: the household comes back rather than staying
-            // silently excluded (Value\IgnoredHousehold::stillApplies()).
-            // The stale row is left where it is — a GET writes nothing —
-            // and is replaced the next time somebody sets this household
-            // aside.
-            $ignoredEntry = $ignored[$blindIndex] ?? null;
-            if ($ignoredEntry !== null && !$ignoredEntry->stillApplies(self::compositionHash($household))) {
-                $ignoredEntry = null;
+            // A stale ignore decision does not cover a changed household.
+            // Reading never deletes it; a new decision replaces it.
+            $entry = $ignored[$blindIndex] ?? null;
+            if ($entry !== null && !$entry->stillApplies(self::compositionHash($household))) {
+                $entry = null;
             }
-
             $review = $this->review(
                 $household,
-                $blindIndex,
                 $memberRows,
-                $addressLabels,
+                $addressLabels[$blindIndex] ?? 'Adresse inconnue',
                 $feeCategories,
-                $ignoredEntry
+                $guests,
+                $amounts,
+                $entry
             );
-
-            if ($ignoredEntry !== null) {
+            if ($entry !== null) {
                 $setAside[] = $review;
                 continue;
             }
-
             if ($review->needsCorrection) {
                 $toCorrect[] = $review;
             }
             if ($review->willChange) {
                 $upcoming[] = $review;
+            }
+            if ($review->hasIndeterminateChecks()) {
+                $indeterminate[] = $review;
             }
         }
 
@@ -117,18 +102,11 @@ class FeeAccuracyService
             $upcoming,
             $setAside,
             $this->households->memberYearIdsWithoutUsableAddress($scoutYearId),
-            count($households)
+            count($households),
+            $indeterminate
         );
     }
 
-    /**
-     * The fingerprint an "ignore this household" decision is taken about.
-     *
-     * Member ids, sorted, hashed — a household coming back is exactly the
-     * event of someone arriving or leaving, and a decision taken about
-     * three people should not silently cover a fourth. Sorted because the
-     * query's own order is not a promise.
-     */
     public static function compositionHash(Household $household): string
     {
         $ids = $household->memberYearIds();
@@ -138,118 +116,159 @@ class FeeAccuracyService
     }
 
     /**
-     * @param array<
-     *     int,
-     *     array{
-     *         member_id: int,
-     *         first_name: string,
-     *         last_name: string,
-     *         totem: ?string,
-     *         fee_category_id: ?int,
-     *         leaving: bool,
-     *         leaving_marked_at: ?string
-     *     }
-     * > $memberRows
-     * @param array<string, string> $addressLabels
-     * @param array<int, array{desk_code: string, label: string}> $feeCategories
+     * @param array<int, array{member_id: int, first_name: string, last_name: string, totem: ?string,
+     *     fee_category_id: ?int, leaving: bool, leaving_marked_at: ?string}> $rows
+     * @param array<int, array{desk_code: string, label: string}> $categories
+     * @param array<int, GuestEligibility> $guests
+     * @param array<string, ?int> $amounts
      */
     private function review(
         Household $household,
-        string $blindIndex,
-        array $memberRows,
-        array $addressLabels,
-        array $feeCategories,
+        array $rows,
+        string $address,
+        array $categories,
+        array $guests,
+        array $amounts,
         ?IgnoredHousehold $ignored
     ): HouseholdReview {
-        $expected = $household->deskCategory();
-        $projected = $household->projectedCategory();
-
+        $retained = self::count($household, $guests, false);
+        $projectedCount = self::count($household, $guests, true);
+        $expected = $retained->category();
+        $projected = $projectedCount->category();
         $members = [];
-        foreach ($household->members as $householdMember) {
-            $row = $memberRows[$householdMember->memberYearId] ?? null;
+        foreach ($household->members as $person) {
+            $row = $rows[$person->memberYearId] ?? null;
             if ($row === null) {
                 continue;
             }
-
-            $encodedCategory = $this->tariffs->categoryForFeeCategoryId($row['fee_category_id']);
-            $encodedFeeCategory = $row['fee_category_id'] === null
-                ? null
-                : ($feeCategories[$row['fee_category_id']] ?? null);
+            $encoded = $this->tariffs->tariffForFeeCategoryId($row['fee_category_id']);
+            $category = $categories[$row['fee_category_id']] ?? null;
+            $guest = $guests[$person->memberId] ?? new GuestEligibility(null, GuestEligibility::UNKNOWN_STARTS);
+            $applicable = match (true) {
+                $guest->qualifies === true => FeeTariff::GUEST,
+                $guest->qualifies === null => null,
+                $encoded === FeeTariff::IAMA => FeeTariff::IAMA,
+                default => $expected === null ? null : FeeTariff::from($expected->value),
+            };
             $members[] = new HouseholdReviewMember(
-                $householdMember->memberId,
-                $householdMember->memberYearId,
+                $person->memberId,
+                $person->memberYearId,
                 $row['first_name'],
                 $row['last_name'],
                 $row['totem'],
                 $row['fee_category_id'],
-                $encodedFeeCategory['label'] ?? null,
-                $encodedFeeCategory['desk_code'] ?? null,
-                $encodedCategory,
-                $encodedCategory !== null,
-                $householdMember->leaving,
+                $category['label'] ?? null,
+                $category['desk_code'] ?? null,
+                $encoded,
+                $applicable,
+                $guest,
+                $applicable === null ? [] : $this->tariffs->deskCodesFor($applicable),
+                $person->leaving,
                 $row['leaving_marked_at']
             );
         }
-
-        $mismatched = array_filter(
+        $mismatches = array_values(array_filter(
             $members,
-            static fn(HouseholdReviewMember $m): bool => $m->comparable && !$m->matches($expected)
+            static fn(HouseholdReviewMember $m): bool => $m->needsCorrection()
+        ));
+        $unknownMembers = array_filter($members, static fn(HouseholdReviewMember $m): bool => $m->isIndeterminate());
+        $difference = $mismatches === [] || $unknownMembers !== []
+            ? null : self::correctionDifference($mismatches, $amounts);
+        $ordinaryRemaining = array_filter(
+            $members,
+            static fn(HouseholdReviewMember $m): bool => !$m->leaving && $m->guest->qualifies === false
+                && $m->encodedCategory !== null && $m->encodedCategory !== FeeTariff::IAMA
         );
-
-        $difference = null;
-        foreach ($mismatched as $member) {
-            $memberDifference = $this->tariffs->differenceCents($expected, $member->encodedCategory);
-            if ($memberDifference !== null) {
-                $difference = ($difference ?? 0) + $memberDifference;
-            }
-        }
-
-        // What the household will cost once the known movement is acted on,
-        // minus what those same people cost today: the projected size at the
-        // projected tariff against the same size at today's tariff. Labelled
-        // "à la bascule" on screen, never "en écart" — nothing about it is
-        // wrong yet. Only computed when the category actually moves: four
-        // people becoming three is famille either way, and a figure there
-        // would be an invented change.
+        $willChange = $ordinaryRemaining !== [] && $expected !== null
+            && $projected !== null && $expected !== $projected;
         $projectedDifference = null;
-        if ($expected !== $projected) {
-            $perMember = $this->tariffs->differenceCents($projected, $expected);
-            if ($perMember !== null) {
-                $projectedDifference = $perMember * max(0, $household->projectedSize());
+        if ($willChange && $household->incomingRegistrations === 0) {
+            $perPerson = self::difference($amounts, $projected->value, $expected->value);
+            if ($perPerson !== null) {
+                $projectedDifference = $perPerson * count($ordinaryRemaining);
             }
         }
 
         return new HouseholdReview(
-            $blindIndex,
-            $addressLabels[$blindIndex] ?? 'Adresse inconnue',
+            $household->addressBlindIndex,
+            $address,
             $members,
             $household->deskSize(),
             $household->projectedSize(),
             $expected,
             $projected,
-            $this->tariffs->deskCodesFor($expected),
-            $mismatched !== [],
-            $household->categoriesDiffer(),
+            $mismatches !== [],
+            $willChange,
             $difference,
             $projectedDifference,
             $household->leavingMemberYearIds(),
             $household->incomingRegistrations,
+            $retained,
+            $projectedCount,
+            $ordinaryRemaining !== [] && $projected === null
+                && ($household->leavingMemberYearIds() !== [] || $household->incomingRegistrations > 0),
             $ignored
         );
     }
 
-    /**
-     * One read for both what the card names a category (its label) and what
-     * it shows for it (its Desk code), so a page of households costs one
-     * query however many members it draws.
-     *
-     * @return array<int, array{desk_code: string, label: string}>
+    /** @param array<int, GuestEligibility> $guests */
+    private static function count(Household $household, array $guests, bool $projected): HouseholdFeeCount
+    {
+        $minimum = 0;
+        $maximum = 0;
+        foreach ($household->members as $person) {
+            if ($projected && $person->leaving) {
+                continue;
+            }
+            $guest = $guests[$person->memberId]->qualifies ?? null;
+            $minimum += $guest === false ? 1 : 0;
+            $maximum += $guest === true ? 0 : 1;
+        }
+        // Accepted registrations carry only a count here, not individual
+        // membership dates or tariffs. Each may or may not count.
+        if ($projected) {
+            $maximum += $household->incomingRegistrations;
+        }
+
+        return new HouseholdFeeCount($minimum, $maximum);
+    }
+
+    /** @param list<HouseholdReviewMember> $members
+     *  @param array<string, ?int> $amounts
      */
+    private static function correctionDifference(array $members, array $amounts): ?int
+    {
+        $total = 0;
+        foreach ($members as $member) {
+            $difference = self::difference(
+                $amounts,
+                $member->expectedCategory?->value,
+                $member->encodedCategory?->value
+            );
+            if ($difference === null) {
+                return null;
+            }
+            $total += $difference;
+        }
+
+        return $total;
+    }
+
+    /** @param array<string, ?int> $amounts */
+    private static function difference(array $amounts, ?string $expected, ?string $encoded): ?int
+    {
+        $expectedAmount = $amounts[$expected] ?? null;
+        $encodedAmount = $amounts[$encoded] ?? null;
+
+        return $expectedAmount === null || $encodedAmount === null ? null : $expectedAmount - $encodedAmount;
+    }
+
+    /** @return array<int, array{desk_code: string, label: string}> */
     private function feeCategoriesById(): array
     {
         $byId = [];
-        foreach ($this->feeCategories->findAll() as $feeCategory) {
-            $byId[$feeCategory['id']] = ['desk_code' => $feeCategory['desk_code'], 'label' => $feeCategory['label']];
+        foreach ($this->feeCategories->findAll() as $category) {
+            $byId[$category['id']] = ['desk_code' => $category['desk_code'], 'label' => $category['label']];
         }
 
         return $byId;

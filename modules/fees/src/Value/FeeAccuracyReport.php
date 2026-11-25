@@ -8,22 +8,14 @@ declare(strict_types=1);
 
 namespace Modules\Fees\Value;
 
-/**
- * Everything the "Justesse des tarifs" screen shows, in the four buckets it
- * shows it in — and the two numbers that stop the summary from claiming a
- * coverage it does not have.
- *
- * `$withoutAddressCount` is the second of those, and it is not a detail: a
- * member whose address normalises to nothing is neither compliant nor in
- * breach, and a screen that quietly left them out would read as "everybody
- * was checked".
- */
+/** The page's five views, with explicit incomplete coverage and unknown amounts. */
 final class FeeAccuracyReport
 {
     /**
      * @param HouseholdReview[] $toCorrect households whose encoding does not match what Desk holds today
      * @param HouseholdReview[] $upcoming households correct today that a known movement will move
      * @param HouseholdReview[] $ignored households a chef d'unité set aside, with their reason
+     * @param HouseholdReview[] $indeterminate households with incomplete current or projected checks
      * @param int[] $withoutAddressMemberYearIds members no household statement covers
      */
     public function __construct(
@@ -31,7 +23,8 @@ final class FeeAccuracyReport
         public readonly array $upcoming,
         public readonly array $ignored,
         public readonly array $withoutAddressMemberYearIds,
-        public readonly int $householdCount
+        public readonly int $householdCount,
+        public readonly array $indeterminate
     ) {
     }
 
@@ -42,7 +35,7 @@ final class FeeAccuracyReport
 
     /**
      * The signed total of what is wrong TODAY, in cents, or null when the
-     * barème carries no amount for one of the categories involved.
+     * roster or barème leaves any current check or amount unknown.
      *
      * Positive means the unit is declaring less than it owes — the amount
      * that comes back in the regularisation invoice, and the reason the
@@ -50,11 +43,16 @@ final class FeeAccuracyReport
      */
     public function toCorrectDifferenceCents(): ?int
     {
+        foreach ($this->indeterminate as $review) {
+            if ($review->indeterminateMembers() !== []) {
+                return null;
+            }
+        }
         $total = 0;
         $known = false;
         foreach ($this->toCorrect as $review) {
             if ($review->differenceCents === null) {
-                continue;
+                return null;
             }
             $total += $review->differenceCents;
             $known = true;

@@ -449,6 +449,15 @@ s'exécute même si l'unité a cessé d'importer ; (f) qu'une demande d'effaceme
 un fichier conservé se traduit par la suppression du fichier entier concerné, un CSV ne pouvant être retouché sans
 perdre sa raison d'être. Ne présente jamais cette conservation comme facultative ni comme propre au module Cotisations
 : elle est le fait du cœur du site, indépendamment de tout module.
+Photographies d’effectifs :
+Chaque import conserve l’identifiant interne du membre, ses codes (tarif, section, fonction et formation),
+les indicateurs de départ et les faits suivants : première date de début de fonction connue parmi toutes les fonctions,
+indication que toutes les dates de début sont connues et présence dans l’année précédente (y compris inactive).
+Ces identifiants, codes, dates et indicateurs sont conservés en clair, sans dupliquer les données d’identité :
+aucun nom ni aucune date de naissance n’est recopié. La photographie est prise par le cœur du site,
+même si le module Cotisations est désactivé. Les données absentes des anciennes photographies restent inconnues,
+jamais reconstruites à partir des données actuelles. La conservation suit celle des imports Desk :
+deux années scoutes par défaut, durée configurable, puis suppression de la saison entière.
 4quinquies. **Fusion de fiches membres (fonctionnalité core, PAS un module)** : Section 2.2 doit conserver que,
 lorsqu'un membre revient après une absence et a été recréé dans Desk au lieu de voir son ancienne fiche rouverte, un
 chef d'unité peut réunir les deux fiches ; que **rien n'est supprimé** (l'historique est rattaché à la fiche conservée
@@ -1119,7 +1128,9 @@ IA** : ne l'ajoute ni en section 4 ni en section 5.2.
 retire entièrement la sous-section "Module Cotisations" de la section 2.4. Si "fees" est actif, conserve-la
 intégralement et sans l'édulcorer. Conserve en particulier : (a) que la photographie du roster prise à chaque import
 Desk ne contient **aucun nom ni aucune date de naissance**, uniquement un identifiant interne de membre et des codes
-(catégorie tarifaire, section, rôle de la fonction, niveau de formation, départ annoncé) ; (b) que cette photographie
+(catégorie tarifaire, section, rôle de la fonction, niveau de formation, départ annoncé), ainsi que les faits
+opérationnels de première date connue, complétude des dates et présence précédente décrits en 2.2 ;
+(b) que cette photographie
 est désormais prise par le cœur du site à chaque import, et non par ce module — elle existe donc même si le module n'a
 jamais été activé — et qu'elle suit la durée de conservation des imports Desk décrite en section 3.1 (années scoutes,
 2 par défaut), parce qu'elle est le seul état passé du roster que le site garde ; (c) que le module **n'écrit jamais

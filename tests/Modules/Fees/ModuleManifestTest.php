@@ -216,22 +216,10 @@ class ModuleManifestTest extends TestCase
         $this->assertStringNotContainsString('birth', $tables);
     }
 
-    /**
-     * The snapshot holds foreign keys and codes, never a person. Names and
-     * birth dates stay in `member_years`, which persists all year — so
-     * there is no BLOB in either snapshot table, and one paragraph to add
-     * to the RGPD page instead of a retention rule to invent.
-     *
-     * The module's one encrypted column lives elsewhere, in
-     * `fees_ignored_households`: a chief's free-text reason about a
-     * family's arrangements, held to the same rule as
-     * `member_years.leaving_comment_encrypted`.
-     */
-    public function testTheSnapshotStoresNoPersonalData(): void
+    /** Snapshot operational metadata does not duplicate encrypted names or birth dates. */
+    public function testTheSnapshotKeepsNamesAndBirthDatesInMemberYears(): void
     {
-        // In the core now, not this module — but still checked from here:
-        // this module is what reads the snapshot, and the claim that it
-        // carries no personal data is the reason it can be read freely.
+        // Owned by the core and readable without copying identity fields.
         $schema = file_get_contents(dirname(__DIR__, 3) . '/schema/core.sql');
         $this->assertNotFalse($schema);
         // Comments explain the rule and therefore name what it forbids —
@@ -241,9 +229,12 @@ class ModuleManifestTest extends TestCase
         $snapshotTables = self::tableDdl($ddl, 'fees_roster_snapshots')
             . self::tableDdl($ddl, 'fees_roster_snapshot_members');
 
+        $this->assertStringContainsString('member_id', $snapshotTables);
         $this->assertStringNotContainsString('BLOB', $snapshotTables);
         $this->assertStringNotContainsString('_encrypted', $snapshotTables);
         $this->assertStringNotContainsString('blind_index', $snapshotTables);
+        $this->assertStringNotContainsString('first_name', $snapshotTables);
+        $this->assertStringNotContainsString('birth', $snapshotTables);
     }
 
     /**
@@ -262,8 +253,12 @@ class ModuleManifestTest extends TestCase
 
     private static function tableDdl(string $ddl, string $table): string
     {
-        preg_match('/CREATE TABLE IF NOT EXISTS ' . preg_quote($table, '/') . '\s*\((.*?)\n\)/s', $ddl, $matches);
+        self::assertSame(1, preg_match(
+            '/CREATE TABLE (?:IF NOT EXISTS )?' . preg_quote($table, '/') . '\s*\((.*?)\n\)/s',
+            $ddl,
+            $matches
+        ));
 
-        return $matches[1] ?? '';
+        return $matches[1];
     }
 }

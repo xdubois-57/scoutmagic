@@ -26,7 +26,9 @@ final class FeeAccuracySummary
         /** Households a chef d'unité set aside, whose decision still covers the same people (« Ignorés »). */
         public readonly int $householdsSetAside,
         /** Every household the report looked at, set-aside ones included. */
-        public readonly int $householdsChecked
+        public readonly int $householdsChecked,
+        /** Households with incomplete membership, tariff or projected checks. */
+        public readonly int $householdsIndeterminate = 0
     ) {
     }
 }

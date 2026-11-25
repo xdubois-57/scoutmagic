@@ -2,26 +2,9 @@
  ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
  Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
 #}
-{#
-  One household, in whichever tab it appears.
-
-  The decisive line is the sentence under the address — « 3 membres dans
-  Desk — tarif attendu Famille ». That is what carries the explanation; a
-  coloured badge saying "écart" explains nothing and invites a treasurer to
-  guess at the reason.
-
-  The table speaks the language of Desk: both columns carry the real
-  `desk_code`, the member's name opens their record, and nothing is ever
-  struck through — a tariff recorded in Desk stays readable whatever its
-  state. The state is written out (« Conforme », « À corriger », « Non
-  comparé »), never carried by a colour alone (#1326).
-
-  Usage:
-  {% include '@fees/partials/_household_card.html.twig' with {
-      review: review, mode: 'corriger'|'prevoir'|'ignores',
-      category_labels: category_labels,
-  } only %}
-#}
+{# Physical Desk size and retained tariff count are deliberately separate.
+   Each row carries its own expected tariff and uncertainty, including IAmA
+   and date-based guests. Real Desk codes are displayed without guessing. #}
 <div class="card mb-3">
     <div class="card-body">
         <div class="d-flex flex-column flex-sm-row justify-content-between gap-2 mb-2">
@@ -29,7 +12,18 @@
                 <h3 class="h6 mb-1">{{ review.addressLabel }}</h3>
                 <p class="small text-body-secondary mb-0">
                     {{ review.deskSize }} membre{{ review.deskSize > 1 ? 's' : '' }} dans Desk —
-                    tarif attendu {{ category_labels[review.expectedCategory.value] }}
+                    {% if review.retainedCount.minimum == review.retainedCount.maximum %}
+                        {{ review.retainedCount.minimum }} retenu(s) pour le tarif du foyer
+                    {% else %}
+                        {{ review.retainedCount.minimum }} à {{ review.retainedCount.maximum }} retenus pour le tarif du foyer
+                    {% endif %}
+                    {% if review.expectedCategory %}
+                        — tarif attendu {{ category_labels[review.expectedCategory.value] }}
+                    {% elseif review.retainedCount.maximum == 0 %}
+                        — uniquement des Invités
+                    {% else %}
+                        — tarif du foyer non déterminable
+                    {% endif %}
                 </p>
             </div>
             <div class="text-sm-end flex-shrink-0">
@@ -51,7 +45,7 @@
             <p class="small mb-2">
                 <i class="bi bi-hourglass-split" aria-hidden="true"></i>
                 Passera à {{ category_labels[review.projectedCategory.value] }}
-                ({{ review.projectedSize }} membre{{ review.projectedSize > 1 ? 's' : '' }}) —
+                ({{ review.projectedCount.minimum }}{% if review.projectedCount.minimum != review.projectedCount.maximum %} à {{ review.projectedCount.maximum }}{% endif %} retenu(s)) —
                 {% for member in review.leavingMembers %}
                     {{ member.nameParts|display_name_full }} — départ annoncé{% if member.leavingMarkedAt %} le {{ member.leavingMarkedAt|date_fr }}{% endif %}{{ not loop.last or review.incomingRegistrations > 0 ? ' ; ' : '' }}
                 {% endfor %}
@@ -66,6 +60,10 @@
                 <i class="bi bi-eye-slash" aria-hidden="true"></i>
                 Ignoré le {{ review.ignored.createdAt|date_fr }} : {{ review.ignored.reason }}
             </p>
+        {% endif %}
+
+        {% if review.projectionIndeterminate %}
+            <p class="small text-body-secondary">Tarif futur non déterminable : le nombre de membres qui compteront pour le foyer reste incertain.</p>
         {% endif %}
 
         <div class="table-responsive">
@@ -89,28 +87,19 @@
                                 {% endif %}
                             </td>
                             <td>
-                                {% if not member.comparable %}
-                                    <span class="small">
-                                        <i class="bi bi-dash-circle" aria-hidden="true"></i>
-                                        Hors tarif de foyer — <span class="fw-semibold">Non comparé</span>
-                                    </span>
-                                {% elseif member.matches(review.expectedCategory) %}
-                                    <code class="text-body">{{ review.expectedDeskCodes|join(' ou ') }}</code>
-                                    <span class="small">
-                                        <i class="bi bi-check-circle" aria-hidden="true"></i>
-                                        <span class="fw-semibold">Conforme</span>
-                                    </span>
+                                {% if member.guest.qualifies is same as(true) %}
+                                    <span class="small fw-semibold">{{ member.statusLabel }}</span>
+                                    <div class="small text-body-secondary">Ne compte pas pour le tarif Couple/Familial.</div>
+                                {% elseif member.isIndeterminate %}
+                                    <span class="small fw-semibold">{{ member.statusLabel }}</span>
+                                    <div class="small text-body-secondary">{{ member.reasonLabel }}</div>
                                 {% else %}
-                                    {% if review.expectedDeskCodes is not empty %}
-                                        <code class="text-body">{{ review.expectedDeskCodes|join(' ou ') }}</code>
-                                    {% else %}
-                                        {# No code is made up: the tariff has no Desk category yet. #}
-                                        <span class="small">Aucun code Desk n'est associé à {{ category_labels[review.expectedCategory.value] }} (à associer dans le barème).</span>
+                                    {% if member.expectedDeskCodes is not empty %}
+                                        <code class="text-body">{{ member.expectedDeskCodes|join(' ou ') }}</code>
+                                    {% elseif member.expectedCategory %}
+                                        <span class="small">Aucun code Desk n'est associé à {{ member.expectedCategory.label }} (à associer dans le barème).</span>
                                     {% endif %}
-                                    <span class="small">
-                                        <i class="bi bi-exclamation-circle" aria-hidden="true"></i>
-                                        <span class="fw-semibold">À corriger</span>
-                                    </span>
+                                    <span class="small fw-semibold">{{ member.statusLabel }}</span>
                                 {% endif %}
                             </td>
                         </tr>

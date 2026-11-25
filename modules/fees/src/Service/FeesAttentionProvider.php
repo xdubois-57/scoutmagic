@@ -43,25 +43,39 @@ class FeesAttentionProvider implements AttentionPointProvider
     {
         $report = $this->accuracy->report($scoutYearId);
 
+        $points = [];
+        $unknown = count($report->indeterminate);
+        if ($unknown > 0) {
+            $points[] = new AttentionPoint(
+                title: $unknown . ($unknown === 1 ? ' foyer avec' : ' foyers avec')
+                    . ' des contrôles non déterminables',
+                why: 'Les dates de fonction, l’année précédente, la période Invités ou le tarif Desk'
+                    . ' ne permettent pas de conclure.',
+                actionLabel: 'Examiner les contrôles non déterminables',
+                actionUrl: '/admin/fees/tarifs?vue=indeterminables',
+                severity: AttentionPoint::SEVERITY_ATTENTION
+            );
+        }
         $wrong = count($report->toCorrect);
         if ($wrong === 0) {
-            return [];
+            return $points;
         }
 
         $difference = $report->toCorrectDifferenceCents();
         $why = $difference !== null
             ? 'Écart estimé de ' . number_format(abs($difference) / 100, 2, ',', ' ') . ' € sur la prochaine facture '
                 . 'de la fédération.'
-            : "L'écart en euros n'est pas chiffrable tant que le barème ne porte pas de montant pour les catégories "
-                . "concernées.";
+            : "Certains contrôles ou montants ne permettent pas de chiffrer un total complet.";
 
-        return [new AttentionPoint(
+        $points[] = new AttentionPoint(
             title: $wrong . ' foyer' . ($wrong > 1 ? 's portent' : ' porte') . ' une catégorie tarifaire devenue '
                 . 'fausse',
             why: $why . " La catégorie encodée dans Desk ne suit pas automatiquement un mouvement de membre.",
             actionLabel: 'Ouvrir la justesse des tarifs',
             actionUrl: '/admin/fees/tarifs',
             severity: AttentionPoint::SEVERITY_ATTENTION
-        )];
+        );
+
+        return $points;
     }
 }

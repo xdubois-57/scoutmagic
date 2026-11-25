@@ -119,10 +119,12 @@ class StepDetailTemplatesTest extends TestCase
     {
         $html = $this->render('fees', [
             'households_checked' => 48, 'households_to_correct' => 3, 'members_without_address' => 4,
-            'households_set_aside' => 2, 'imported_at' => new \DateTimeImmutable('2026-07-18'),
+            'households_set_aside' => 2, 'households_indeterminate' => 5,
+            'imported_at' => new \DateTimeImmutable('2026-07-18'),
         ]);
 
-        $this->assertStringContainsString('48 foyers contrôlés', $html);
+        $this->assertStringContainsString('48 foyers examinés', $html);
+        $this->assertStringContainsString('5 avec des contrôles non déterminables', $html);
         $this->assertStringContainsString('3 à corriger', $html);
         $this->assertStringContainsString('Factures et paiements ne sont pas vérifiés ici', $html);
     }

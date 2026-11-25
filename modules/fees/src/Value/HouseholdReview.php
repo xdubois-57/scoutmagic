@@ -11,27 +11,14 @@ namespace Modules\Fees\Value;
 use Core\Member\HouseholdFeeCategory;
 
 /**
- * One household, judged.
- *
- * The two verdicts are independent and a household can carry both, which is
- * the whole reason they are two fields rather than one status:
- *
- * - $needsCorrection — what Desk holds today does not match the number of
- *   people Desk holds at this address. It is wrong now, it is on the next
- *   invoice, and it is worth a correction today.
- * - $willChange — Desk is right today and will stop being right once a
- *   movement already announced is acted on. Nothing to do yet; touching it
- *   now means two corrections instead of one.
- *
- * A household in both states is an arbitrage the screen shows and does not
- * make: correct now and again at the switch (two edits), or wait (one edit,
- * at the price of one inexact invoice in between).
+ * One physical household and its retained tariff range. Certain encoding
+ * errors, known future changes and incomplete checks are independent:
+ * the same household may legitimately appear in several views.
  */
 final class HouseholdReview
 {
     /**
      * @param HouseholdReviewMember[] $members
-     * @param list<string> $expectedDeskCodes the Desk codes the expected tariff stands for; empty when unmapped
      * @param int[] $leavingMemberYearIds
      */
     public function __construct(
@@ -40,37 +27,41 @@ final class HouseholdReview
         public readonly array $members,
         public readonly int $deskSize,
         public readonly int $projectedSize,
-        public readonly HouseholdFeeCategory $expectedCategory,
-        public readonly HouseholdFeeCategory $projectedCategory,
-        public readonly array $expectedDeskCodes,
+        public readonly ?HouseholdFeeCategory $expectedCategory,
+        public readonly ?HouseholdFeeCategory $projectedCategory,
         public readonly bool $needsCorrection,
         public readonly bool $willChange,
         public readonly ?int $differenceCents,
         public readonly ?int $projectedDifferenceCents,
         public readonly array $leavingMemberYearIds,
         public readonly int $incomingRegistrations,
+        public readonly HouseholdFeeCount $retainedCount,
+        public readonly HouseholdFeeCount $projectedCount,
+        public readonly bool $projectionIndeterminate,
         public readonly ?IgnoredHousehold $ignored = null
     ) {
     }
 
-    /** @return HouseholdReviewMember[] the ones the comparison actually judged */
-    public function comparableMembers(): array
+    public function hasIndeterminateChecks(): bool
     {
-        return array_values(array_filter($this->members, static fn(HouseholdReviewMember $m): bool => $m->comparable));
+        return $this->projectionIndeterminate || $this->indeterminateMembers() !== [];
     }
 
-    /** @return HouseholdReviewMember[] on a tariff outside the three, or on none at all */
-    public function unclassifiedMembers(): array
+    /** @return HouseholdReviewMember[] */
+    public function indeterminateMembers(): array
     {
-        return array_values(array_filter($this->members, static fn(HouseholdReviewMember $m): bool => !$m->comparable));
+        return array_values(array_filter(
+            $this->members,
+            static fn(HouseholdReviewMember $m): bool => $m->isIndeterminate()
+        ));
     }
 
     /** @return HouseholdReviewMember[] the ones actually on the wrong tariff */
     public function mismatchedMembers(): array
     {
         return array_values(array_filter(
-            $this->comparableMembers(),
-            fn(HouseholdReviewMember $m): bool => !$m->matches($this->expectedCategory)
+            $this->members,
+            static fn(HouseholdReviewMember $m): bool => $m->needsCorrection()
         ));
     }
 

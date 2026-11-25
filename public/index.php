@@ -13412,6 +13412,22 @@ if ($isEnabled('fees')) {
         $feeCategoryRepo
     );
 
+    $feesTariffConfiguration = new \Modules\Fees\Service\TariffConfigurationService(
+        $feesTariffService,
+        $feeCategoryRepo,
+        $settingService
+    );
+    $feesAccuracyService = new \Modules\Fees\Service\FeeAccuracyService(
+        $householdService,
+        new \Modules\Fees\Repository\HouseholdDetailRepository($pdo, $encryptionService),
+        $feesTariffService,
+        $feesIgnoredHouseholdRepo,
+        $feeCategoryRepo,
+        $rosterSnapshotRepository,
+        $feesTariffConfiguration,
+        $scoutYearService
+    );
+
     $frontController->registerController(
         \Modules\Fees\Controller\FeesController::class,
         new \Modules\Fees\Controller\FeesController(
@@ -13425,13 +13441,7 @@ if ($isEnabled('fees')) {
         \Modules\Fees\Controller\FeeAccuracyController::class,
         new \Modules\Fees\Controller\FeeAccuracyController(
             $twig,
-            new \Modules\Fees\Service\FeeAccuracyService(
-                $householdService,
-                new \Modules\Fees\Repository\HouseholdDetailRepository($pdo, $encryptionService),
-                $feesTariffService,
-                $feesIgnoredHouseholdRepo,
-                $feeCategoryRepo
-            ),
+            $feesAccuracyService,
             $feesTariffService,
             $feesIgnoredHouseholdRepo,
             $householdService,
@@ -13452,25 +13462,14 @@ if ($isEnabled('fees')) {
             // The federal scale shipped in modules/fees/data (issue #355),
             // proposed only for unsaved rows and its own season.
             new \Modules\Fees\Service\ShippedScaleService($feesTariffService),
-            new \Modules\Fees\Service\TariffConfigurationService(
-                $feesTariffService,
-                $feeCategoryRepo,
-                $settingService
-            )
+            $feesTariffConfiguration
         )
     );
 
-    $feesAccuracyService = new \Modules\Fees\Service\FeeAccuracyService(
-        $householdService,
-        new \Modules\Fees\Repository\HouseholdDetailRepository($pdo, $encryptionService),
-        $feesTariffService,
-        $feesIgnoredHouseholdRepo,
-        $feeCategoryRepo
-    );
     $attentionProviders[] = new \Modules\Fees\Service\FeesAttentionProvider($feesAccuracyService);
 
     // Api\FeeAccuracySummaryProvider (ARCHITECTURE.md §7.5), the module's
-    // first public contract: « Justesse des tarifs » as three counts for an
+    // first public contract: « Justesse des tarifs » as counts for an
     // explicit scout year, for the "Année scoute" workflow's fees step. The
     // same report as the attention point above, never a second reading.
     // Null outside this block, which is what drops that step.
