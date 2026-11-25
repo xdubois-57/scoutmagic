@@ -16,6 +16,7 @@ if (!defined('E2E_SUPPORT_TEST')) {
 }
 require_once dirname(__DIR__, 3) . '/scripts/e2e-support.php';
 
+#[\PHPUnit\Framework\Attributes\Group('database')]
 final class E2eFeesHouseholdYearTest extends TestCase
 {
     public function testTheFixtureKeepsThePublicYearEvenWhenTheCalendarHasMovedOn(): void
