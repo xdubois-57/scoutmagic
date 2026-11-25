@@ -3893,14 +3893,16 @@ identifiants techniques, jamais le contenu du roster (SECURITY.md §11).
 
 **Two imports are two snapshots**, never one overwritten: an old snapshot is what makes an old invoice checkable.
 
-**That last point used to be the other way round**, and it is worth stating because the module's own page still carries the older, more cautious wording in places: the snapshot was this module's, so it had no memory before the module was switched on, and enabling it before November's deposit invoice was an operational requirement. Since the snapshot moved into the core it is taken at every Desk import whether or not this module has ever been enabled — the earliest checkable invoice is now the one issued after the site's first import, not after the module's activation.
-
-
 ### 8.75 « Justesse des tarifs » (`Modules\Fees\Service\FeeAccuracyService`)
 
-The encoded fee category against the number of people at the same address, and the correction of a design mistake worth stating first.
+La page confronte le tarif saisi dans Desk au tarif applicable du foyer.
 
-**Two tabs, not a badge.** A household whose departure has been announced is **not** in breach today: Desk still holds the old composition, and the federation bills Desk. So « À corriger dans Desk » (the encoding does not match the **Desk** count, §8.34 — costed in euros because it is on the next invoice) and « À prévoir » (correct today, will move when the fact is acted on — labelled *à la bascule*, never *en écart*, under a banner saying not to touch it yet) are two independent verdicts on the same `Value\HouseholdReview`, and a household legitimately carries both. The screen then shows the arbitrage rather than making it: correct now and again at the switch is two edits, waiting is one at the price of one inexact invoice. Trois vues de contexte complètent l’écran : « Non déterminables », « Ignorés » et « Sans adresse ».
+**Deux verdicts indépendants.** Un départ annoncé ne change pas le décompte
+courant : Desk contient encore la personne. « À corriger dans Desk » signale
+les écarts certains aujourd’hui ; « À prévoir » signale un changement certain
+après un mouvement connu. Un même foyer peut porter les deux. Le montant futur
+est étiqueté « à la bascule » et les écarts présents restent distincts.
+Trois vues de contexte complètent l’écran : Non déterminables, Ignorés et Sans adresse.
 
 **Décompte propre aux cotisations.** Le regroupement physique reste celui de
 `Core\Member\Household\HouseholdService`, sans élargir l’enum Core à trois tailles.

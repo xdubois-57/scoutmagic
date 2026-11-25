@@ -25,7 +25,7 @@ réécrit la liste des membres à chaque import : il ne garde aucune trace
 de l'état précédent. Comparer une facture de février à la situation de
 mars ferait donc apparaître des écarts qui n'ont jamais existé.
 
-À chaque import Desk, même si ce module est désactivé, le cœur du site laisse
+À chaque import Desk, même si ce module est désactivé, le site laisse
 une photographie de la composition du roster. C'est elle, et non la
 situation du jour, qui sera comparée à une facture.
 

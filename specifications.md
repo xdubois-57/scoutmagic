@@ -1718,15 +1718,15 @@ qu'implique le nombre de personnes au même foyer. On corrige ensuite dans
 Desk ; le site n'y écrit jamais.
 
 **Deux onglets d'action, et c'est la correction d'une erreur de
-conception.** Un foyer dont un départ est annoncé n'est *pas* en écart
-aujourd'hui : Desk contient encore l'ancienne composition, et c'est celle-là
-que la fédération facture.
+conception.** Un départ annoncé ne change pas l’effectif retenu aujourd’hui :
+Desk contient encore la personne. Les écarts déjà présents restent indépendants
+et peuvent nécessiter une correction.
 
 - **« À corriger dans Desk »** — l'encodage ne correspond pas au compte
-  *Desk*. Action immédiate, chiffrée en euros parce qu'elle pèse sur la
-  prochaine facture.
-- **« À prévoir »** — le foyer est correct aujourd'hui et basculera quand le
-  fait sera acté. Chaque carte nomme son déclencheur (« Camille — départ
+  retenu à partir des données *Desk*. Action immédiate, chiffrée si tous les
+  contrôles et montants nécessaires sont déterminables.
+- **« À prévoir »** — un mouvement connu changera certainement le tarif du foyer
+  quand il sera acté ; cela n’efface pas les éventuels écarts présents. Chaque carte nomme son déclencheur (« Camille — départ
   annoncé le 06/01/2026 »). Montant étiqueté « à la bascule », jamais « en
   écart », sous un bandeau qui dit de ne pas y toucher maintenant.
 
