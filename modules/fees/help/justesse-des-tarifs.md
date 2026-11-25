@@ -1,7 +1,7 @@
 ---
 id: justesse-des-tarifs
 title: Corriger les tarifs de cotisation dans Desk
-summary: Les foyers dont la catégorie encodée ne correspond pas au nombre de personnes qui y vivent.
+summary: Comparer les tarifs saisis aux personnes retenues pour le foyer.
 category: Espace chefs d'U
 role_min: admin
 discovery: 1
@@ -12,81 +12,58 @@ paths: /admin/fees/tarifs
 related: cotisations, import-desk, membres-admin
 ---
 
-La fédération facture ce que Desk contient. Cette page compare la catégorie
-encodée au nombre de personnes à la même adresse. Corrigez dans Desk : le
-site n’y écrit jamais.
+Le site compare les tarifs saisis dans Desk aux personnes retenues au même
+foyer. Corrigez dans Desk : le site n’y écrit jamais.
 
-## Comprendre les résultats
+## Lire les résultats
 
-Chaque foyer explique son verdict, puis montre pour chacun le code encodé,
-le code attendu s’il est connu et l’état : Conforme, À corriger ou Non déterminable.
-Le nombre de membres dans Desk et le nombre retenu pour le foyer sont séparés.
+La carte distingue le nombre de membres dans Desk du décompte retenu pour
+le tarif. Elle montre les codes réels, le tarif applicable et les limites.
 
-- **À corriger dans Desk** : un écart aujourd’hui, chiffré si les montants sont connus.
-- **À prévoir** : le tarif changera après un départ ou une arrivée annoncés.
-  Ne corrigez pas encore : Desk contient l’ancienne composition.
-- **Non déterminables** : une date, l’année précédente, la période Invités ou
-  le tarif Desk ne permet pas de conclure. Ces cas ne sont pas déclarés conformes.
-- **Ignorés** : foyers mis de côté avec votre motif, par exemple une garde
-  alternée. Une nouvelle composition les fait réapparaître.
-- **Sans adresse** : membres non vérifiables, ni conformes ni en écart.
+- **À corriger dans Desk** : écarts certains aujourd’hui.
+- **À prévoir** : changement certain après un mouvement annoncé. Les départs
+  comptent encore aujourd’hui ; n’anticipez pas leur retrait.
+- **Non déterminables** : données insuffisantes pour conclure.
+- **Ignorés** : foyers écartés avec votre motif ; une nouvelle composition
+  les fait réapparaître.
+- **Sans adresse** : membres sans foyer vérifiable.
 
-Un foyer peut nécessiter une correction maintenant et une autre à la bascule.
-Un écart positif signifie « à déclarer en plus », donc une régularisation
-à prévoir ; négatif signifie « déclaré en trop ».
+Un foyer peut avoir plusieurs verdicts. Un écart positif signifie « à déclarer
+en plus », négatif « déclaré en trop ». Un total incomplet reste inconnu.
+L’export reprend ces résultats.
 
-## Le barème
+## Invités et IAmA
 
-**Barème des cotisations**, en haut, regroupe cinq montants par personne :
-Normale, Couple, Familiale, IAmA liés à l’unité et Invités. Vide signifie
-inconnu ; zéro est conservé. Ces valeurs ne créent aucune demande de paiement.
+Un Invité est absent de l’année précédente et sa première de **toutes** les
+fonctions commence dans la période inclusive. Une présence précédente,
+même inactive, l’exclut ; sans import précédent, l’absence n’est pas prouvée.
 
-Pour l’année affichée, seules les lignes jamais enregistrées reçoivent les
-valeurs fédérales livrées avec le site. Les lignes déjà enregistrées, même
-vides, restent les vôtres. Le bandeau précise l’année, la source et la date
-du relevé. Vérifiez, puis **Enregistrer le barème**.
+Les **Invités prouvés ne comptent pas** pour Couple/Familial, même sans code
+Invités dans Desk. Les **IAmA comptent** et gardent le tarif choisi dans Desk ;
+le site ne décide pas qui devrait être IAmA.
 
-Les sélecteurs corrigent les correspondances devinées avec vos tarifs Desk.
-Sans tarif Invités importé, son sélecteur est absent : aucun code n’est inventé.
+Un invité potentiel contribue zéro ou un : le décompte affiche une plage.
+Trois personnes certaines suffisent pour Familiale. Les inscriptions acceptées
+sans informations suffisantes élargissent aussi la plage projetée.
 
-## La période Invités
+## Confirmer le barème
 
-Début et fin inclus se règlent au format **jour/mois**, par défaut
-**01/06–31/08** ; montant fédéral Invités : **18,25 €**. Les dates se situent
-dans l’année civile de fin de saison : 2027 pour 2026-2027. Le texte sous les
-champs reflète votre saisie.
+Les cinq montants sont Normale, Couple, Familiale, IAmA et Invités.
+Vide signifie inconnu ; zéro est conservé. Les correspondances utilisent les
+vrais codes Desk ; aucun code Invités n’est inventé.
 
-Une nouvelle inscription concerne une personne absente de l’année précédente,
-dont la première de **toutes** les fonctions de l’année commence dans cette période.
-Une présence inactive l’année précédente exclut aussi le tarif Invités.
-Sans import de l’année précédente, l’absence n’est pas prouvée. Une
-réinscription ou un changement de section n’est pas une nouvelle inscription.
-
-Les **Invités prouvés ne comptent pas** pour le seuil Couple/Familial, même si
-leur tarif Desk est ordinaire ; aucun code Invités n’est demandé pour cette
-application par les dates. Les **IAmA comptent** et gardent leur tarif choisi
-dans Desk. Le site ne prétend pas décider qui devrait être IAmA.
-
-Si certains membres pourraient être Invités sans preuve suffisante, le décompte
-affiche une plage. Trois membres certainement retenus suffisent à établir le
-tarif Familial, même si un quatrième reste non déterminable. Les inscriptions
-acceptées n’ont pas encore toutes les informations nécessaires : elles
-élargissent la plage projetée, sans inventer leur tarif.
-
-Le barème enregistré confirme ses montants et ses dates pour **l’année affichée**.
-Une ancienne année ne prend pas les prix actuels. Un montant inconnu reste
-inconnu ; le total n’affiche pas la somme partielle des seuls écarts chiffrables.
+La période se règle en **jour/mois**, début et fin inclus : **01/06–31/08**
+par défaut. Elle se situe dans l’année civile de fin de saison : 2027 pour
+2026-2027. **Enregistrer le barème** confirme montants et dates pour l’année
+affichée ; les prix courants ne chiffrent pas une autre année.
 
 ## Chercher les valeurs fédérales
 
 Avec l’IA configurée, **Chercher les montants et la période** conserve vos
-champs et propose séparément les valeurs trouvées pour l’année affichée.
-La proposition indique source, année et champs manquants. Un échec conserve
-votre saisie ; une année absente ou différente ne produit aucune proposition.
+champs et propose séparément les valeurs trouvées, leur source et les manques.
+Une année absente ou différente ne produit aucune proposition.
 
-**Reprendre les montants** garde vos dates ; **Reprendre les montants et la
-période** reprend aussi les bornes trouvées. Seules les valeurs trouvées
-remplacent les champs ; complétez les autres. Rien n’est enregistré avant
-**Enregistrer le barème**. Une proposition remplacée dans un autre onglet
-ou liée à une autre année est refusée. L’adresse de la source se règle dans
-Configuration > Réglages.
+**Reprendre les montants** garde vos dates ; l’autre bouton reprend aussi
+la période. Seuls les champs trouvés remplacent votre saisie. Rien n’est
+sauvé avant **Enregistrer le barème**. Une proposition remplacée dans un autre
+onglet est refusée. L’adresse de la source se règle dans Configuration > Réglages.

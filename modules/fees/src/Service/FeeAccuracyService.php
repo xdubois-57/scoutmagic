@@ -14,6 +14,7 @@ use Core\Import\FeeCategoryRepository;
 use Core\Import\RosterSnapshotRepository;
 use Core\Member\Household\Household;
 use Core\Member\Household\HouseholdService;
+use Core\Member\HouseholdFeeCategory;
 use Modules\Fees\FeeTariff;
 use Modules\Fees\Repository\HouseholdDetailRepository;
 use Modules\Fees\Repository\IgnoredHouseholdRepository;
@@ -135,38 +136,7 @@ class FeeAccuracyService
         $projectedCount = self::count($household, $guests, true);
         $expected = $retained->category();
         $projected = $projectedCount->category();
-        $members = [];
-        foreach ($household->members as $person) {
-            $row = $rows[$person->memberYearId] ?? null;
-            if ($row === null) {
-                continue;
-            }
-            $encoded = $this->tariffs->tariffForFeeCategoryId($row['fee_category_id']);
-            $category = $categories[$row['fee_category_id']] ?? null;
-            $guest = $guests[$person->memberId] ?? new GuestEligibility(null, GuestEligibility::UNKNOWN_STARTS);
-            $applicable = match (true) {
-                $guest->qualifies === true => FeeTariff::GUEST,
-                $guest->qualifies === null => null,
-                $encoded === FeeTariff::IAMA => FeeTariff::IAMA,
-                default => $expected === null ? null : FeeTariff::from($expected->value),
-            };
-            $members[] = new HouseholdReviewMember(
-                $person->memberId,
-                $person->memberYearId,
-                $row['first_name'],
-                $row['last_name'],
-                $row['totem'],
-                $row['fee_category_id'],
-                $category['label'] ?? null,
-                $category['desk_code'] ?? null,
-                $encoded,
-                $applicable,
-                $guest,
-                $applicable === null ? [] : $this->tariffs->deskCodesFor($applicable),
-                $person->leaving,
-                $row['leaving_marked_at']
-            );
-        }
+        $members = $this->reviewMembers($household, $rows, $categories, $guests, $expected);
         $mismatches = array_values(array_filter(
             $members,
             static fn(HouseholdReviewMember $m): bool => $m->needsCorrection()
@@ -209,6 +179,56 @@ class FeeAccuracyService
                 && ($household->leavingMemberYearIds() !== [] || $household->incomingRegistrations > 0),
             $ignored
         );
+    }
+
+    /**
+     * @param array<int, array{member_id: int, first_name: string, last_name: string, totem: ?string,
+     *     fee_category_id: ?int, leaving: bool, leaving_marked_at: ?string}> $rows
+     * @param array<int, array{desk_code: string, label: string}> $categories
+     * @param array<int, GuestEligibility> $guests
+     * @return list<HouseholdReviewMember>
+     */
+    private function reviewMembers(
+        Household $household,
+        array $rows,
+        array $categories,
+        array $guests,
+        ?HouseholdFeeCategory $expected
+    ): array {
+        $members = [];
+        foreach ($household->members as $person) {
+            $row = $rows[$person->memberYearId] ?? null;
+            if ($row === null) {
+                continue;
+            }
+            $encoded = $this->tariffs->tariffForFeeCategoryId($row['fee_category_id']);
+            $category = $categories[$row['fee_category_id']] ?? null;
+            $guest = $guests[$person->memberId] ?? new GuestEligibility(null, GuestEligibility::UNKNOWN_STARTS);
+            $applicable = match (true) {
+                $guest->qualifies === true => FeeTariff::GUEST,
+                $guest->qualifies === null => null,
+                $encoded === FeeTariff::IAMA => FeeTariff::IAMA,
+                default => $expected === null ? null : FeeTariff::from($expected->value),
+            };
+            $members[] = new HouseholdReviewMember(
+                $person->memberId,
+                $person->memberYearId,
+                $row['first_name'],
+                $row['last_name'],
+                $row['totem'],
+                $row['fee_category_id'],
+                $category['label'] ?? null,
+                $category['desk_code'] ?? null,
+                $encoded,
+                $applicable,
+                $guest,
+                $applicable === null ? [] : $this->tariffs->deskCodesFor($applicable),
+                $person->leaving,
+                $row['leaving_marked_at']
+            );
+        }
+
+        return $members;
     }
 
     /** @param array<int, GuestEligibility> $guests */
