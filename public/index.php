@@ -13453,7 +13453,9 @@ if ($isEnabled('fees')) {
             // proposed only for unsaved rows and its own season.
             new \Modules\Fees\Service\ShippedScaleService($feesTariffService),
             new \Modules\Fees\Service\TariffConfigurationService(
-                $feesTariffService, $feeCategoryRepo, $settingService
+                $feesTariffService,
+                $feeCategoryRepo,
+                $settingService
             )
         )
     );

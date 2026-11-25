@@ -104,7 +104,8 @@ class FederalScaleLookupService
             ],
             'iama' => [
                 'type' => ['string', 'null'],
-                'description' => 'Cotisation IAmA liés à une unité ou un clan, par personne, en euros. null si absente.',
+                'description' => 'Cotisation IAmA liés à une unité ou un clan, '
+                    . 'par personne, en euros. null si absente.',
             ],
             'invites' => [
                 'type' => ['string', 'null'],
@@ -201,7 +202,10 @@ class FederalScaleLookupService
         $section = $expected === null ? null : FederalScaleExtractor::sectionForYear($html, $expected);
         if ($section === null) {
             $this->log(
-                'fees_federal_scale_year_missing', 'Recherche fédérale : année demandée absente', $url, $actorId
+                'fees_federal_scale_year_missing',
+                'Recherche fédérale : année demandée absente',
+                $url,
+                $actorId
             );
 
             return FederalScaleLookup::yearMissing($url);
@@ -292,7 +296,10 @@ class FederalScaleLookupService
         }
         if ($amounts === [] && $from === null && $until === null) {
             $this->log(
-                'fees_federal_scale_unreadable', 'Recherche fédérale : aucune valeur exploitable', $url, $actorId
+                'fees_federal_scale_unreadable',
+                'Recherche fédérale : aucune valeur exploitable',
+                $url,
+                $actorId
             );
 
             return FederalScaleLookup::unreadable($url);

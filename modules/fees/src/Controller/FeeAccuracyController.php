@@ -216,16 +216,24 @@ class FeeAccuracyController extends AbstractController
             $this->configuration->save($year->label, $request->getBodyAll());
         } catch (\Throwable $error) {
             SuggestedScale::rememberDraft($year->label, $request->getBodyAll());
-            FlashMessage::set('error', UserFacingMessage::from(
-                $error, 'Le barème n’a pas pu être enregistré. Vérifiez les valeurs puis réessayez.'
-            ));
+            FlashMessage::set(
+                'error',
+                UserFacingMessage::from(
+                    $error,
+                    'Le barème n’a pas pu être enregistré. Vérifiez les valeurs puis réessayez.'
+                )
+            );
 
             return $this->redirect(self::PATH);
         }
         SuggestedScale::clear();
         $this->journal->log(
-            'fees', 'fees_tariff_scale_saved', 'info', 'Barème des cotisations enregistré',
-            ['scout_year_id' => $year->id], AuthSession::getUserAccountId()
+            'fees',
+            'fees_tariff_scale_saved',
+            'info',
+            'Barème des cotisations enregistré',
+            ['scout_year_id' => $year->id],
+            AuthSession::getUserAccountId()
         );
         FlashMessage::set('success', 'Barème enregistré.');
 
@@ -283,14 +291,21 @@ class FeeAccuracyController extends AbstractController
             $mode = $request->getBody('apply_scale');
             $draft = in_array($mode, ['amounts', 'all'], true)
                 ? SuggestedScale::apply(
-                    $year->label, $request->getBody('proposal_token'), $request->getBodyAll(), $mode === 'all'
+                    $year->label,
+                    $request->getBody('proposal_token'),
+                    $request->getBodyAll(),
+                    $mode === 'all'
                 ) : null;
             if ($draft === null) {
-                FlashMessage::set('error', 'Cette proposition a expiré ou a été remplacée. '
-                    . 'Vérifiez les valeurs affichées avant de continuer.');
+                FlashMessage::set(
+                    'error',
+                    'Cette proposition a expiré ou a été remplacée. '
+                        . 'Vérifiez les valeurs affichées avant de continuer.'
+                );
             } else {
                 FlashMessage::set(
-                    'success', 'Proposition reprise dans le formulaire. Enregistrez le barème pour la conserver.'
+                    'success',
+                    'Proposition reprise dans le formulaire. Enregistrez le barème pour la conserver.'
                 );
             }
         } catch (\Core\Config\SettingException $error) {

@@ -104,7 +104,9 @@ class TariffConfigurationService
             });
         } catch (SettingException $error) {
             throw new SettingException(
-                'Le barème n’a pas pu être enregistré. Rechargez la page puis réessayez.', 0, $error
+                'Le barème n’a pas pu être enregistré. Rechargez la page puis réessayez.',
+                0,
+                $error
             );
         } finally {
             $this->settings->clearCache();

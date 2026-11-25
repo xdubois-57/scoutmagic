@@ -45,7 +45,7 @@ final class FederalScale
     public function describe(): string
     {
         return sprintf(
-            '%snormale %s, couple %s, familiale %s, IAmA %s, invités %s, période Invités %s–%s inclus',
+            '%snormal %s, couple %s, family %s, IAmA %s, guests %s, guest period %s–%s inclusive',
             $this->year !== null ? $this->year . ': ' : '',
             self::euros($this->normalCents),
             self::euros($this->coupleCents),

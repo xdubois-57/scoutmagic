@@ -195,33 +195,33 @@ final class ExternalSourceChecker
     private function compareScale(?FederalScale $scale): array
     {
         if ($scale === null) {
-            return [['Les cinq montants et la période payante Invités ne peuvent pas tous être lus sur la page.'], []];
+            return [['The five amounts and paid guest period cannot all be read from the page.'], []];
         }
 
-        $notes = ['Barème lu sur la page : ' . $scale->describe()];
+        $notes = ['Scale read from the page: ' . $scale->describe()];
         if ($this->referenceScale === null) {
-            $notes[] = 'Aucun barème livré pour la comparaison : valeurs relevées, sans comparaison.';
+            $notes[] = 'No shipped reference scale: values read without comparison.';
 
             return [[], $notes];
         }
 
         $divergences = [];
         if (!$scale->sameAmountsAs($this->referenceScale)) {
-            $divergences[] = 'Montants modifiés : la page annonce ' . $scale->describe()
-                . ' ; le barème livré annonce ' . $this->referenceScale->describe();
+            $divergences[] = 'Amounts changed: the page states ' . $scale->describe()
+                . '; the shipped scale states ' . $this->referenceScale->describe();
         }
         if (!$scale->sameGuestPeriodAs($this->referenceScale)) {
-            $divergences[] = 'Période Invités modifiée : la page annonce '
+            $divergences[] = 'Guest period changed: the page states '
                 . $scale->guestFromDayMonth . '–' . $scale->guestUntilDayMonth
-                . ' ; le barème livré annonce ' . $this->referenceScale->guestFromDayMonth
+                . '; the shipped scale states ' . $this->referenceScale->guestFromDayMonth
                 . '–' . $this->referenceScale->guestUntilDayMonth . '.';
         }
         if ($this->referenceScale->year !== null && $scale->year !== $this->referenceScale->year) {
             $divergences[] = $scale->year === null
-                ? 'L’année scoute ne peut pas être identifiée : le barème livré concerne '
+                ? 'The scout year cannot be identified: the shipped scale covers '
                     . $this->referenceScale->year . '.'
-                : 'Année scoute modifiée : la page concerne ' . $scale->year
-                    . ' ; le barème livré concerne ' . $this->referenceScale->year . '.';
+                : 'Scout year changed: the page covers ' . $scale->year
+                    . '; the shipped scale covers ' . $this->referenceScale->year . '.';
         }
 
         return [$divergences, $notes];

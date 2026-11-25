@@ -123,8 +123,8 @@ final class ExternalSourcesCommandTest extends TestCase
         [, $same] = self::execute($fetcher, [], static fn (): FederalScale => new FederalScale(5750, 4600, 3900, 2500, 1825, '01/06', '31/08'));
         [, $other] = self::execute($fetcher, [], static fn (): FederalScale => new FederalScale(1, 2, 3, 2500, 1825, '01/06', '31/08'));
 
-        $this->assertStringNotContainsString('Montants modifiés', $same);
-        $this->assertStringContainsString('Montants modifiés', $other);
+        $this->assertStringNotContainsString('Amounts changed', $same);
+        $this->assertStringContainsString('Amounts changed', $other);
     }
 
     /** The weekly check: one request per source, whatever the host does. */

@@ -78,8 +78,8 @@ final class ExternalSourceCheckerTest extends TestCase
         ]);
         $this->assertSame('2026-2027', $result->scale->year);
         $this->assertContains(
-            'Barème lu sur la page : 2026-2027: normale 57,50 €, couple 46,00 €, familiale 39,00 €, '
-                . 'IAmA 25,00 €, invités 18,25 €, période Invités 01/06–31/08 inclus',
+            'Scale read from the page: 2026-2027: normal 57,50 €, couple 46,00 €, family 39,00 €, '
+                . 'IAmA 25,00 €, guests 18,25 €, guest period 01/06–31/08 inclusive',
             $result->notes
         );
     }
@@ -96,7 +96,7 @@ final class ExternalSourceCheckerTest extends TestCase
 
         $this->assertTrue($result->isConform());
         $this->assertContains(
-            'Aucun barème livré pour la comparaison : valeurs relevées, sans comparaison.',
+            'No shipped reference scale: values read without comparison.',
             $result->notes
         );
     }
@@ -111,11 +111,11 @@ final class ExternalSourceCheckerTest extends TestCase
         $this->assertFalse($result->isConform());
         $this->assertSame(
             [
-                'Montants modifiés : la page annonce 2027-2028: normale 59,00 €, couple 47,50 €, familiale 40,25 €, '
-                    . 'IAmA 25,00 €, invités 18,25 €, période Invités 01/06–31/08 inclus ; '
-                    . 'le barème livré annonce 2026-2027: normale 57,50 €, couple 46,00 €, familiale 39,00 €, '
-                    . 'IAmA 25,00 €, invités 18,25 €, période Invités 01/06–31/08 inclus',
-                'Année scoute modifiée : la page concerne 2027-2028 ; le barème livré concerne 2026-2027.',
+                'Amounts changed: the page states 2027-2028: normal 59,00 €, couple 47,50 €, family 40,25 €, '
+                    . 'IAmA 25,00 €, guests 18,25 €, guest period 01/06–31/08 inclusive; '
+                    . 'the shipped scale states 2026-2027: normal 57,50 €, couple 46,00 €, family 39,00 €, '
+                    . 'IAmA 25,00 €, guests 18,25 €, guest period 01/06–31/08 inclusive',
+                'Scout year changed: the page covers 2027-2028; the shipped scale covers 2026-2027.',
             ],
             $result->divergences
         );
@@ -139,7 +139,7 @@ final class ExternalSourceCheckerTest extends TestCase
             ->check(self::feesSource());
 
         $this->assertSame(
-            ['Année scoute modifiée : la page concerne 2026-2027 ; le barème livré concerne 2025-2026.'],
+            ['Scout year changed: the page covers 2026-2027; the shipped scale covers 2025-2026.'],
             $result->divergences
         );
     }
@@ -147,10 +147,10 @@ final class ExternalSourceCheckerTest extends TestCase
     /** @return iterable<string, array{string, string, string}> */
     public static function changedNewFacts(): iterable
     {
-        yield 'IAmA amount only' => ['de 25€', 'de 26€', 'Montants modifiés'];
-        yield 'guest amount only' => ['18,25 €', '19 €', 'Montants modifiés'];
-        yield 'paid window end only' => ['et le 31 aout', 'et le 30 aout', 'Période Invités modifiée'];
-        yield 'paid window start only' => ['Entre le 1er juin', 'Entre le 2 juin', 'Période Invités modifiée'];
+        yield 'IAmA amount only' => ['de 25€', 'de 26€', 'Amounts changed'];
+        yield 'guest amount only' => ['18,25 €', '19 €', 'Amounts changed'];
+        yield 'paid window end only' => ['et le 31 aout', 'et le 30 aout', 'Guest period changed'];
+        yield 'paid window start only' => ['Entre le 1er juin', 'Entre le 2 juin', 'Guest period changed'];
     }
 
     #[\PHPUnit\Framework\Attributes\DataProvider('changedNewFacts')]
@@ -174,7 +174,7 @@ final class ExternalSourceCheckerTest extends TestCase
         $reference = new FederalScale(5750, 4600, 3900, 2500, 1825, '01/06', '31/08', '2026-2027');
         $result = self::checker(new FetchedPage(200, $page), $reference)->check(self::feesSource());
 
-        self::assertSame([false, ['L’année scoute ne peut pas être identifiée : le barème livré concerne 2026-2027.']], [
+        self::assertSame([false, ['The scout year cannot be identified: the shipped scale covers 2026-2027.']], [
             $result->isConform(), $result->divergences,
         ]);
     }
@@ -204,7 +204,7 @@ final class ExternalSourceCheckerTest extends TestCase
             $result->divergences
         );
         $this->assertContains(
-            'Les cinq montants et la période payante Invités ne peuvent pas tous être lus sur la page.',
+            'The five amounts and paid guest period cannot all be read from the page.',
             $result->divergences
         );
     }

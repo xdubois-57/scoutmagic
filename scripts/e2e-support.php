@@ -159,10 +159,15 @@ function e2eSupportMain(array $argv): void
                 fwrite(STDERR, "The E2E session must already be authenticated.\n");
                 exit(1);
             }
-            Modules\Fees\Support\SuggestedScale::set(Modules\Fees\Value\FederalScaleLookup::found(
-                'https://example.invalid/federal-scale', $year,
-                ['normal' => 5812, 'iama' => 2613, 'guest' => 1914], '02/06', '14/09'
-            ));
+            Modules\Fees\Support\SuggestedScale::set(
+                Modules\Fees\Value\FederalScaleLookup::found(
+                    'https://example.invalid/federal-scale',
+                    $year,
+                    ['normal' => 5812, 'iama' => 2613, 'guest' => 1914],
+                    '02/06',
+                    '14/09'
+                )
+            );
             session_write_close();
             exit(0);
 
