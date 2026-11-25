@@ -154,7 +154,11 @@ class FeeAccuracyService
         $willChange = $remainingCandidates !== [] && $expected !== null
             && $projected !== null && $expected !== $projected;
         $projectedDifference = $willChange ? self::projectedDifference(
-            $members, $amounts, $expected, $projected, $household->incomingRegistrations
+            $members,
+            $amounts,
+            $expected,
+            $projected,
+            $household->incomingRegistrations
         ) : null;
 
         return new HouseholdReview(
@@ -268,7 +272,8 @@ class FeeAccuracyService
         }
         $count = 0;
         foreach ($members as $member) {
-            if ($member->leaving || $member->guest->qualifies === true || $member->encodedCategory === FeeTariff::IAMA) {
+            if ($member->leaving || $member->guest->qualifies === true
+                || $member->encodedCategory === FeeTariff::IAMA) {
                 continue;
             }
             if ($member->guest->qualifies !== false || $member->encodedCategory === null) {

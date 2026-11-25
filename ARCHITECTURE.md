@@ -3983,36 +3983,35 @@ year. A draft or explicit proposal takes precedence. The same five prices and
 annual bounds are the external-sources reference (§8.123); none is written by
 opening the page. Historical comparisons require an explicit compatible
 reference year rather than treating current defaults as historical evidence.
-`TariffConfigurationService::amountForYear()` refuse tout montant dont l’année n’est
-pas confirmée. `periodForYear()` accepte une période explicitement confirmée ou les
-bornes initiales exactes publiées pour la saison livrée ; une ancienne saison ou des
-bornes personnalisées non qualifiées restent inconnues. Aucun historique de prix parallèle.
-Un total de corrections reste NULL dès qu’un de ses écarts n’est pas chiffrable.
+`TariffConfigurationService::amountForYear()` refuses amounts whose reference year
+has not been confirmed. `periodForYear()` accepts an explicitly confirmed window
+or the exact initial bounds published for the shipped season; an older season or
+unqualified custom bounds remain unknown. There is no parallel price history.
+A correction total remains NULL whenever one of its discrepancies cannot be priced.
 
 **A household with no usable address is neither compliant nor in breach.** `HouseholdService::memberYearIdsWithoutUsableAddress()` (§8.34) feeds a tab of its own and a line in the summary, so the page never reads as "everybody was checked".
 
 **« Ignorer ce foyer » is the answer to shared custody**, and deliberately not a merge/split of households — a data model nobody could keep true. The reason is free text about a family's arrangements, so it is BLOB + encrypted in `Repository\IgnoredHouseholdRepository` and **never journaled**: the journal records that a household was set aside, not which one nor why. The decision carries a `composition_hash` of the member ids it was taken about, so an arrival or a departure brings the household back rather than leaving it silently excluded on the strength of a judgement about different people.
 
-**La carte parle le langage de Desk.** Le code encodé et les codes attendus
-réels viennent de `FeeCategoryRepository` et de la correspondance utilisée par
-le calcul (`HouseholdTariffService::deskCodesFor()`). Chaque
-`HouseholdReviewMember` porte son tarif applicable et son verdict, y compris
-IAmA et Invités. Un tarif sans correspondance n’invente aucun code. L’état est
-écrit, jamais porté seulement par une couleur ; le nom ouvre la fiche membre.
-Les identités ne sont pas recopiées dans les photographies.
+**The household card speaks Desk's language.** The encoded code and real expected
+codes come from `FeeCategoryRepository` and the mapping used by the calculation
+(`HouseholdTariffService::deskCodesFor()`). Each `HouseholdReviewMember` carries
+its applicable tariff and verdict, including IAmA and guests. An unmapped tariff
+never invents a code. The state is written rather than conveyed by colour alone;
+the name opens the member's record. Identities are not copied into snapshots.
 
-**Cinq vues, cinq URL réelles** (`?vue=`), via le sélecteur commun de §8.30 :
-À corriger, À prévoir, Non déterminables, Ignorés et Sans adresse. Le parcours
-reste utilisable sans JavaScript et indique l’import sur lequel il se fonde.
-L’export écrit les textes explicitement comme chaînes, même ceux qui commencent
-par un caractère de formule, et reprend le décompte retenu et les limites.
+**Five views, five real URLs** (`?vue=`), through the shared picker in §8.30:
+« À corriger », « À prévoir », « Non déterminables », « Ignorés » and « Sans adresse ».
+The workflow remains usable without JavaScript and names the import it relies on.
+The export writes text explicitly as strings, including values starting with a
+formula character, and carries the retained count and the limitations.
 
-**Contrat public de résumé.** `Api\FeeAccuracySummaryProvider`, implémenté par
-`FeeAccuracySummaryService`, expose pour la saison demandée les foyers à corriger,
-les membres sans adresse, les foyers ignorés, examinés et partiellement contrôlés.
-Il reprend le même rapport que la page et les points d’attention, construit par
-une seule instance partagée de `FeeAccuracyService` dans `public/index.php`.
-Il ne transmet ni adresse, ni nom, ni montant, ni information sur les paiements.
+**The public summary contract.** `Api\FeeAccuracySummaryProvider`, implemented by
+`FeeAccuracySummaryService`, reports households to correct, members without an
+address, and ignored, examined and partially checked households for the requested
+season. It uses the same report as the page and attention points, built by one
+shared `FeeAccuracyService` instance in `public/index.php`. It transmits no address,
+name, amount or payment information.
 
 ### 8.76 Reading a federation invoice (`Modules\Fees\Invoice`)
 
