@@ -83,7 +83,7 @@
                                 {% if member.encodedDeskCode is not null %}
                                     <code class="text-body">{{ member.encodedDeskCode }}</code>
                                 {% else %}
-                                    {{ member.comparable ? 'aucun tarif' : '—' }}
+                                    {{ member.encodedFeeCategoryId is null ? 'aucun tarif' : '—' }}
                                 {% endif %}
                             </td>
                             <td>

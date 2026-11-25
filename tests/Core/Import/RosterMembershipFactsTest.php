@@ -155,6 +155,53 @@ final class RosterMembershipFactsTest extends TestCase
         self::assertSame([null, null, null], self::values($this->repository->findMembers(1)[0]->membershipFacts));
     }
 
+    /** @return iterable<string, array{?bool}> */
+    public static function duplicatePreviousEvidence(): iterable
+    {
+        yield 'no evidence' => [null];
+        yield 'absence evidenced in the second season' => [false];
+        yield 'inactive presence in the second season' => [true];
+    }
+
+    #[DataProvider('duplicatePreviousEvidence')]
+    public function testDuplicatePreviousSeasonLabelsNeverMultiplyMembers(?bool $previous): void
+    {
+        $this->assertDuplicatePreviousSeasonFacts($previous);
+    }
+
+    public function testDuplicatePreviousSeasonLabelsAreSafeOnTheDeclaredMysqlSchema(): void
+    {
+        $this->pdo = $this->productionEngine();
+        $this->seed();
+        $this->assertDuplicatePreviousSeasonFacts(true);
+    }
+
+    private function assertDuplicatePreviousSeasonFacts(?bool $previous): void
+    {
+        $this->addStart('2027-06-01');
+        $this->pdo->exec("INSERT INTO scout_years (id, label, start_date, end_date)
+            VALUES (13, '2025-2026', '2025-09-01', '2026-08-31')");
+        if ($previous === false) {
+            $this->pdo->exec("INSERT INTO import_journal (scout_year_id, line_count, member_count, imported_at)
+                VALUES (13, 0, 0, '2026-08-01')");
+        } elseif ($previous === true) {
+            $this->previousImport('2026-08-01');
+            $this->pdo->exec("INSERT INTO member_years (member_id, scout_year_id,
+                    first_name_encrypted, last_name_encrypted, is_active)
+                VALUES (1, 13, 'enc', 'enc', 0)");
+        }
+        $asOf = new \DateTimeImmutable('2027-07-01');
+        $snapshot = $this->repository->capture(10, $asOf);
+        $frozen = $this->repository->findMembers($snapshot->id);
+        $live = $this->repository->findMembershipFactsForYear(10, $asOf);
+        self::assertSame([1, [1], [1]], [
+            $snapshot->memberCount, array_column($frozen, 'memberId'), array_keys($live),
+        ]);
+        self::assertSame([$previous, $previous], [
+            $frozen[0]->membershipFacts->presentPreviousYear, $live[1]->presentPreviousYear,
+        ]);
+    }
+
     public function testTheProjectionRunsOnTheDeclaredMysqlSchema(): void
     {
         $this->pdo = $this->productionEngine();

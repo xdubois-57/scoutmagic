@@ -1126,7 +1126,9 @@ IA** : ne l'ajoute ni en section 4 ni en section 5.2.
 
 32. **Module Cotisations (module fees)** : Si "fees" ne figure PAS dans la liste des modules actifs ({$modulesText}),
 retire entièrement la sous-section "Module Cotisations" de la section 2.4. Si "fees" est actif, conserve-la
-intégralement et sans l'édulcorer. Conserve en particulier : (a) que la photographie du roster prise à chaque import
+intégralement et sans l'édulcorer. Précise les deux finalités du barème : les montants chiffrent les écarts en euros ;
+les dates déterminent le tarif Invités et le décompte retenu pour Couple/Familial.
+Conserve en particulier : (a) que la photographie du roster prise à chaque import
 Desk ne contient **aucun nom ni aucune date de naissance**, uniquement un identifiant interne de membre et des codes
 (catégorie tarifaire, section, rôle de la fonction, niveau de formation, départ annoncé), ainsi que les faits
 opérationnels de première date connue, complétude des dates et présence précédente décrits en 2.2 ;

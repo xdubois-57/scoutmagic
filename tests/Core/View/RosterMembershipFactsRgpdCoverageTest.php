@@ -46,4 +46,20 @@ final class RosterMembershipFactsRgpdCoverageTest extends TestCase
             self::assertStringContainsString($text, $paragraph, $path);
         }
     }
+    public function testTheScaleNoticeSeparatesMoneyFromGuestEligibility(): void
+    {
+        foreach (['core/View/rgpd_default.html', 'core/View/RgpdContentService.php'] as $file) {
+            $source = (string) file_get_contents(dirname(__DIR__, 3) . '/' . $file);
+            $pattern = str_ends_with($file, '.html')
+                ? '/<p><strong>Recherche des montants de cotisation.*?<\/p>/su'
+                : '/32\. \*\*Module Cotisations.*?33\./su';
+            self::assertSame(1, preg_match($pattern, $source, $match), $file);
+            $notice = $match[0];
+            self::assertStringContainsString('les montants chiffrent les écarts en euros', $notice, $file);
+            self::assertStringContainsString(
+                'les dates déterminent le tarif Invités et le décompte retenu pour Couple/Familial', $notice, $file
+            );
+        }
+    }
+
 }

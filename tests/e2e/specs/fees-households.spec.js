@@ -32,7 +32,7 @@ test('household uncertainty and IAmA are readable on mobile and desktop', async 
         await expect(card).toContainText('2 à 3 retenus pour le tarif du foyer');
         await expect(card).toContainText('Tarif IAmA saisi dans Desk');
         await expect(card).toContainText('Dates de début de fonction absentes ou incomplètes.');
-        const rows = card.locator('tbody tr');
+        const rows = card.getByRole('row').filter({ has: page.getByRole('cell') });
         await expect(rows).toHaveCount(3);
         await expect(rows.filter({ hasText: 'À corriger' })).toHaveCount(0);
         for (const width of [375, 1280]) {

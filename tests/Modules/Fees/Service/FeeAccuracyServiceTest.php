@@ -464,6 +464,66 @@ class FeeAccuracyServiceTest extends TestCase
         self::assertSame(500, $this->service->report($this->scoutYearId)->upcoming[0]->projectedDifferenceCents);
     }
 
+    /** @return iterable<string, array{bool, bool}> */
+    public static function unresolvedTariffs(): iterable
+    {
+        yield 'one missing code' => [false, false];
+        yield 'one unmapped code' => [true, false];
+        yield 'both missing codes' => [false, true];
+        yield 'both unmapped codes' => [true, true];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('unresolvedTariffs')]
+    public function testAnUnresolvedRemainingTariffPreventsAPartialProjectedAmount(bool $hasCode, bool $allUnknown): void
+    {
+        $this->tariffs->save(FeeTariff::COUPLE, null, 3500);
+        $this->tariffs->save(FeeTariff::FAMILY, null, 3000);
+        $unresolved = $hasCode ? $this->unrecognisedFeeId : null;
+        $this->createMember('A', 'Test', $allUnknown ? $unresolved : $this->familyFeeId);
+        $this->createMember('B', 'Test', $unresolved);
+        $this->createMember('C', 'Test', $this->familyFeeId, leaving: true);
+        $report = $this->service->report($this->scoutYearId);
+        self::assertCount(1, $report->upcoming);
+        $review = $report->upcoming[0];
+        self::assertSame([HouseholdFeeCategory::COUPLE, null], [
+            $review->projectedCategory, $review->projectedDifferenceCents,
+        ]);
+    }
+
+    public function testProvenGuestEligibilityTakesPriorityOverAnEncodedIamaTariff(): void
+    {
+        $this->importPreviousYear();
+        $iama = (new FeeCategoryRepository($this->pdo))->create('L_L_COTISATION IAMA', 'Cotisation IAMA');
+        $this->createMember('A', 'Test', $this->normalFeeId);
+        $this->createMember('B', 'Test', $this->coupleFeeId);
+        $this->createMember('C', 'Test', $iama, startDate: '2026-06-01');
+        $report = $this->service->report($this->scoutYearId);
+        self::assertCount(1, $report->toCorrect);
+        $review = $report->toCorrect[0];
+        self::assertSame([2, 2, HouseholdFeeCategory::COUPLE], [
+            $review->retainedCount->minimum, $review->retainedCount->maximum, $review->expectedCategory,
+        ]);
+        $guest = $review->members[2];
+        self::assertSame([FeeTariff::IAMA, FeeTariff::GUEST, true, false], [
+            $guest->encodedCategory, $guest->expectedCategory, $guest->guest->qualifies, $guest->needsCorrection(),
+        ]);
+    }
+
+    public function testAnIamaCodeDoesNotInventMissingGuestEvidence(): void
+    {
+        $iama = (new FeeCategoryRepository($this->pdo))->create('L_L_COTISATION IAMA', 'Cotisation IAMA');
+        $this->createMember('A', 'Test', $this->coupleFeeId);
+        $this->createMember('B', 'Test', $this->coupleFeeId);
+        $this->createMember('C', 'Test', $iama, startDate: null);
+        $report = $this->service->report($this->scoutYearId);
+        self::assertCount(1, $report->indeterminate);
+        $review = $report->indeterminate[0];
+        self::assertSame([2, 3, null, null], [
+            $review->retainedCount->minimum, $review->retainedCount->maximum,
+            $review->expectedCategory, $review->members[2]->expectedCategory,
+        ]);
+    }
+
     public function testAnAllGuestHouseholdHasNoOrdinaryTariffToCorrect(): void
     {
         $this->importPreviousYear();

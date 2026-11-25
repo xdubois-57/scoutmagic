@@ -2435,6 +2435,16 @@ function e2eSeedSharedAddressSiblings(string $instanceDir, string $stamp): array
     ];
 }
 
+/** @return array{id: int, label: string, start_date: string, end_date: string} */
+function e2eFeesHouseholdYear(PDO $pdo): array
+{
+    return (new Core\ScoutYear\ScoutYearResolver(
+        new Core\Config\ScoutYearService($pdo),
+        new Core\Config\SettingService(new Core\Config\SettingRepository($pdo)),
+        new Core\Import\MemberYearRepository($pdo)
+    ))->getCurrentPublicYear();
+}
+
 /** A synthetic household; no account, authentication shortcut or HTTP endpoint. */
 function e2eFeesHouseholdFixture(string $instanceDir, string $stamp, bool $clear): void
 {
@@ -2471,7 +2481,7 @@ function e2eFeesHouseholdFixture(string $instanceDir, string $stamp, bool $clear
         (string) ($secrets['encryption_key'] ?? ''),
         (string) ($secrets['blind_index_key'] ?? '')
     );
-    $year = (new Core\Config\ScoutYearService($pdo))->getCurrentYear();
+    $year = e2eFeesHouseholdYear($pdo);
     $categories = new Core\Import\FeeCategoryRepository($pdo);
     $ids = [];
     foreach (['NORMAL' => 'Cotisation normale', 'IAMA' => 'Cotisation IAMA'] as $code => $label) {

@@ -48,10 +48,9 @@ class RosterSnapshotRepository
         $statement = $this->pdo->prepare(
             'SELECT my.member_id, ' . self::membershipProjection() . '
              FROM member_years my
-             LEFT JOIN scout_years previous_year ON previous_year.label = ?
              WHERE my.scout_year_id = ? AND my.is_active = 1'
         );
-        $statement->execute([$asOf->format('Y-m-d H:i:s'), $previousLabel, $scoutYearId]);
+        $statement->execute([$previousLabel, $previousLabel, $asOf->format('Y-m-d H:i:s'), $scoutYearId]);
         $facts = [];
         foreach ($statement->fetchAll(\PDO::FETCH_ASSOC) as $row) {
             $facts[(int) $row['member_id']] = self::membershipFacts($row);
@@ -70,10 +69,11 @@ class RosterSnapshotRepository
                 CASE WHEN EXISTS (
                     SELECT 1 FROM member_years previous_member
                     WHERE previous_member.member_id = my.member_id
-                      AND previous_member.scout_year_id = previous_year.id
+                      AND previous_member.scout_year_id IN (SELECT id FROM scout_years WHERE label = ?)
                 ) THEN 1 WHEN EXISTS (
                     SELECT 1 FROM import_journal previous_import
-                    WHERE previous_import.scout_year_id = previous_year.id AND previous_import.imported_at <= ?
+                    WHERE previous_import.scout_year_id IN (SELECT id FROM scout_years WHERE label = ?)
+                      AND previous_import.imported_at <= ?
                 ) THEN 0 ELSE NULL END AS present_previous_year';
     }
 
@@ -130,7 +130,6 @@ class RosterSnapshotRepository
              SELECT ?, my.member_id, my.fee_category_id, mf.section_id, f.role, f.id, my.formation_level, my.leaving, '
                 . self::membershipProjection() . '
              FROM member_years my
-             LEFT JOIN scout_years previous_year ON previous_year.label = ?
              LEFT JOIN member_functions mf ON mf.id = (
                  SELECT mf2.id FROM member_functions mf2
                  WHERE mf2.member_year_id = my.id
@@ -141,7 +140,7 @@ class RosterSnapshotRepository
              WHERE my.scout_year_id = ?
                AND my.is_active = 1'
         );
-        $stmt->execute([$snapshotId, $takenAt->format('Y-m-d H:i:s'), $previousLabel, $scoutYearId]);
+        $stmt->execute([$snapshotId, $previousLabel, $previousLabel, $takenAt->format('Y-m-d H:i:s'), $scoutYearId]);
         $memberCount = $stmt->rowCount();
 
         $stmt = $this->pdo->prepare('UPDATE fees_roster_snapshots SET member_count = ? WHERE id = ?');

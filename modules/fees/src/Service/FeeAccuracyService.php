@@ -27,7 +27,9 @@ use Modules\Fees\Value\IgnoredHousehold;
 
 /**
  * Uses the core's physical households, but counts only proven non-guests
- * towards their tariff. IAmA counts and retains the tariff encoded in Desk.
+ * towards their tariff. Proven guest eligibility takes precedence over the
+ * Desk tariff. IAmA counts and keeps its encoded rate once guest eligibility
+ * is excluded; unresolved guest facts retain uncertainty for every code.
  * Departures still count today; projected changes are a separate verdict.
  */
 class FeeAccuracyService
@@ -144,20 +146,16 @@ class FeeAccuracyService
         $unknownMembers = array_filter($members, static fn(HouseholdReviewMember $m): bool => $m->isIndeterminate());
         $difference = $mismatches === [] || $unknownMembers !== []
             ? null : self::correctionDifference($mismatches, $amounts);
-        $ordinaryRemaining = array_filter(
+        $remainingCandidates = array_filter(
             $members,
             static fn(HouseholdReviewMember $m): bool => !$m->leaving && $m->guest->qualifies === false
-                && $m->encodedCategory !== null && $m->encodedCategory !== FeeTariff::IAMA
+                && $m->encodedCategory !== FeeTariff::IAMA
         );
-        $willChange = $ordinaryRemaining !== [] && $expected !== null
+        $willChange = $remainingCandidates !== [] && $expected !== null
             && $projected !== null && $expected !== $projected;
-        $projectedDifference = null;
-        if ($willChange && $household->incomingRegistrations === 0) {
-            $perPerson = self::difference($amounts, $projected->value, $expected->value);
-            if ($perPerson !== null) {
-                $projectedDifference = $perPerson * count($ordinaryRemaining);
-            }
-        }
+        $projectedDifference = $willChange ? self::projectedDifference(
+            $members, $amounts, $expected, $projected, $household->incomingRegistrations
+        ) : null;
 
         return new HouseholdReview(
             $household->addressBlindIndex,
@@ -175,7 +173,7 @@ class FeeAccuracyService
             $household->incomingRegistrations,
             $retained,
             $projectedCount,
-            $ordinaryRemaining !== [] && $projected === null
+            $remainingCandidates !== [] && $projected === null
                 && ($household->leavingMemberYearIds() !== [] || $household->incomingRegistrations > 0),
             $ignored
         );
@@ -251,6 +249,35 @@ class FeeAccuracyService
         }
 
         return new HouseholdFeeCount($minimum, $maximum);
+    }
+
+    /**
+     * @param list<HouseholdReviewMember> $members
+     * @param array<string, ?int> $amounts
+     */
+    private static function projectedDifference(
+        array $members,
+        array $amounts,
+        ?HouseholdFeeCategory $expected,
+        ?HouseholdFeeCategory $projected,
+        int $incoming
+    ): ?int {
+        $perPerson = self::difference($amounts, $projected?->value, $expected?->value);
+        if ($perPerson === null || $incoming > 0) {
+            return null;
+        }
+        $count = 0;
+        foreach ($members as $member) {
+            if ($member->leaving || $member->guest->qualifies === true || $member->encodedCategory === FeeTariff::IAMA) {
+                continue;
+            }
+            if ($member->guest->qualifies !== false || $member->encodedCategory === null) {
+                return null;
+            }
+            $count++;
+        }
+
+        return $perPerson * $count;
     }
 
     /** @param list<HouseholdReviewMember> $members

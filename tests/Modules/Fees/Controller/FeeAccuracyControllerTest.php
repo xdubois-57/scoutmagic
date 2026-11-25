@@ -1220,4 +1220,18 @@ class FeeAccuracyControllerTest extends TestCase
         );
     }
 
+    public function testAMissingDeskTariffIsExplicitInTheMembersOwnRow(): void
+    {
+        $memberYearId = $this->createMember('Absent', null);
+        $this->createMember('Connu', $this->normalFeeId);
+        AuthSession::login(1, 'admin@test.be', 'admin');
+        $body = (string) $this->dispatch('GET', '/admin/fees/tarifs?vue=indeterminables', 'index')->getBody();
+        $document = \Dom\HTMLDocument::createFromString($body, LIBXML_NOERROR);
+        $link = $document->querySelector('a[href="/admin/members/' . $memberYearId . '"]');
+        self::assertNotNull($link);
+        $row = $link->parentElement?->parentElement;
+        self::assertNotNull($row);
+        self::assertSame('aucun tarif', trim($row->getElementsByTagName('td')->item(1)->textContent));
+    }
+
 }

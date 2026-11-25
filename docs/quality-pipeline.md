@@ -1848,14 +1848,12 @@ Red is not the danger. Every layer above is loud when it fails. What has
 actually gone wrong here, repeatedly, is **something green that proved
 nothing**:
 
-- **Un garde sur une extraction vide peut passer sans rien contrôler.**
-  Le test des données des photographies d’effectifs exige désormais que
-  l’extraction du DDL reconnaisse réellement chaque table, puis vérifie une
-  colonne attendue avant les exclusions. Un motif qui exigeait `IF NOT EXISTS`
-  ne lisait aucune table du schéma du cœur et rendait toutes les exclusions
-  vertes sur une chaîne vide. `ModuleManifestTest` couvre les deux formes de
-  déclaration ; ses contre-épreuves injectent les colonnes interdites dans
-  les seules fixtures, sans toucher au schéma livré.
+- **A guard over an empty extraction can pass without checking anything.**
+  The roster-snapshot data test now requires its DDL extraction to match each table
+  and verifies an expected column before checking exclusions. A pattern requiring
+  `IF NOT EXISTS` previously read no Core table and passed every exclusion against
+  an empty string. `ModuleManifestTest` covers both declaration forms; its
+  counterproofs inject forbidden columns only into fixtures, never shipped schemas.
 
 - Database-backed tests **skip** rather than fail without a server, so
   `phpunit` is green having tested none of them.

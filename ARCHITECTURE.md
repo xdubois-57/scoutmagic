@@ -3869,70 +3869,70 @@ What the federation invoices a unit is what **Desk** contained on the day the in
 
 **It belongs to the core, and its table names are history.** The snapshot was born in `modules/fees` — `fees_roster_snapshots` / `fees_roster_snapshot_members` — because that module was the first thing that needed it. It moved into `schema/core.sql`, and the capture moved from a `DeskImportListener` into the import service itself, for the reason §7.4 states: a core that needs an optional module in order to describe its own import is the dependency running the wrong way, and everything since built on the snapshot (the import report, the diff between two imports) is core's own. `fees` is now one consumer among others — a module → core dependency, which needs no interface; the indirection is only ever necessary in the other direction. Same history as `Core\File\EncryptedFileStorageService`, born of the finance receipts, and `list_editor`, born of the banners. The tables kept their prefix on the way over: renaming them would strand `fees_invoices`' foreign key on any installation that already has one, and `Core\Database\SchemaComparator` deliberately never drops a table or a constraint. Two consequences worth stating: a snapshot now exists from the site's first Desk import whether or not `fees` was ever enabled, and `FeesDeskImportListener` no longer exists.
 
-**Faits opérationnels génériques, sans copie d’identité.** Outre les identifiants,
-codes, formation et départ, `RosterMembershipFacts` porte trois faits nullable :
-`first_function_start` (minimum de toutes les fonctions), `function_starts_complete`
-et `present_previous_year`. Une présence précédente inclut les membres inactifs ;
-une absence n’est établie que si un import de cette saison existe à la date observée.
-La saison précédente se résout par son libellé, jamais par l’identifiant diminué de un.
-La même projection SQL alimente `findMembershipFactsForYear()` et le `INSERT SELECT`
-de capture. Les anciennes photographies restent NULL ; aucune lecture des données
-actuelles ne les complète. Les noms et dates de naissance restent dans `member_years`.
-Ces faits en clair et leur conservation sont déclarés dans SECURITY.md §5 et les deux
-sources de la notice RGPD du cœur, même si Cotisations est désactivé.
+**Generic operational facts, without copied identity.** Alongside identifiers,
+codes, training and departure flags, `RosterMembershipFacts` carries three nullable
+facts: `first_function_start` (the minimum of all function starts),
+`function_starts_complete` and `present_previous_year`. Previous presence includes
+inactive members; absence requires an import of that season dated no later than
+the observation. The previous season is matched by label across all matching ids,
+never by subtracting one from an id or by assuming labels are unique. One SQL
+projection feeds both `findMembershipFactsForYear()` and the capture's `INSERT SELECT`.
+Old snapshots retain NULL; live reads never fill them in. Names and birth dates
+remain in `member_years`. SECURITY.md §5 and both core privacy-notice sources disclose
+these clear-text facts and their retention, even with the fees module disabled.
 
 **One row per member, from the main function.** A member holding two functions gets one row, carrying their **main** function's section and role (their first function when Desk flagged none). An invoice bills a person once, under one section; two rows would report an expected quantity nobody could reconcile against it.
 
 **`leaving` is recorded, never applied.** Desk still holds a member whose departure has been announced and the federation still bills them (§8.34's Desk-vs-projected distinction, same reasoning). Filtering here would leave the snapshot unable to answer the one question it exists for.
 
-**Capture bornée.** Elle reste dans la transaction de l’import ; un échec
-annule celui-ci. Une lecture du libellé de saison, deux insertions bornées et
-une mise à jour remplacent toute boucle de requêtes par membre. La capture
-n’émet ni courrier ni requête HTTP ; le journal ne conserve que compte et
-identifiants techniques, jamais le contenu du roster (SECURITY.md §11).
+**Bounded capture.** It stays in the import's transaction, and a failure rolls
+the import back. A season-label read, two bounded inserts and an update replace
+per-member query loops. Capture sends no mail or HTTP request; its journal records
+counts and technical identifiers, never roster contents (SECURITY.md §11).
 
 **Two imports are two snapshots**, never one overwritten: an old snapshot is what makes an old invoice checkable.
 
 ### 8.75 « Justesse des tarifs » (`Modules\Fees\Service\FeeAccuracyService`)
 
-La page confronte le tarif saisi dans Desk au tarif applicable du foyer.
+The page compares the Desk-encoded tariff with the household's applicable tariff.
 
-**Deux verdicts indépendants.** Un départ annoncé ne change pas le décompte
-courant : Desk contient encore la personne. « À corriger dans Desk » signale
-les écarts certains aujourd’hui ; « À prévoir » signale un changement certain
-après un mouvement connu. Un même foyer peut porter les deux. Le montant futur
-est étiqueté « à la bascule » et les écarts présents restent distincts.
-Trois vues de contexte complètent l’écran : Non déterminables, Ignorés et Sans adresse.
+**Two independent verdicts.** An announced departure does not change today's count:
+Desk still holds that member. « À corriger dans Desk » reports certain discrepancies
+today; « À prévoir » reports a certain household-category change after a known movement.
+A household can appear in both views. The future amount is labelled « à la bascule »
+and remains separate from today's correction. Three context views complete the page:
+« Non déterminables », « Ignorés » and « Sans adresse ».
 
-**Décompte propre aux cotisations.** Le regroupement physique reste celui de
-`Core\Member\Household\HouseholdService`, sans élargir l’enum Core à trois tailles.
-`GuestTariffRule` est la règle pure commune, fondée sur les faits d’appartenance :
-absence précédente prouvée et première de toutes les fonctions dans la période
-inclusive de l’année civile terminale. Une présence précédente ou un minimum déjà
-antérieur à la période suffit à exclure Invités ; des dates manquantes restent inconnues.
-Les Invités prouvés sortent du seuil familial indépendamment du code Desk, sans exiger
-un code Invités inventé. Les IAmA comptent, mais leur tarif est seulement celui choisi
-explicitement dans Desk, sans verdict d’éligibilité inventé.
+**A fees-specific count.** Physical grouping remains owned by
+`Core\Member\Household\HouseholdService`, without extending Core's three-size enum.
+The shared pure `GuestTariffRule` uses membership facts: proven absence in the previous
+season and the first of all function starts inside the inclusive window in the
+season's ending calendar year. Previous presence or a known minimum before the
+window excludes guest eligibility; missing dates remain unknown. Proven guests do
+not count toward household thresholds, regardless of their Desk code, and no guest
+code is fabricated. IAmA eligibility is never inferred: its tariff is recognised
+only from the choice encoded in Desk.
 
-`HouseholdFeeCount` porte minimum et maximum : un membre au statut Invités inconnu
-contribue zéro ou un. Le tarif du foyer n’est certain que si toute la plage mène à la
-même catégorie ; trois personnes certaines suffisent pour Familiale. Un invité potentiel
-reste individuellement non déterminable même si la catégorie du foyer est certaine.
-La projection retire les départs et ajoute les inscriptions acceptées au seul maximum,
-car ce contrat Core ne fournit pas leurs dates ni leurs tarifs. Le changement tarifaire
-est annoncé uniquement si les deux catégories sont certaines et au moins un membre
-ordinaire restant est concerné. Le coût projeté ne multiplie pas le tarif ordinaire
-par les IAmA ; avec des entrants non qualifiés, il reste inconnu.
+`HouseholdFeeCount` carries minimum and maximum: uncertain guest eligibility adds
+zero or one. A household tariff is certain only when the entire range implies one
+category; three certain members suffice for the family tariff. An uncertain guest
+remains individually undetermined even when the household category is certain.
+Projection removes departures and adds accepted registrations only to the maximum,
+because that Core contract supplies neither their dates nor their tariffs. A
+category change is shown when both categories are certain and at least one remaining
+non-guest could be affected rather than already being known to have the fixed IAmA
+tariff. Unmapped Desk tariffs do not hide that forecast, but leave its amount unknown.
+Projected cost excludes fixed IAmA members and remains unknown with unqualified arrivals.
 
 **Which Desk tariff means what.** `member_years.fee_category_id` points at whatever string the CSV's "Tarif" column carried, and only the unit knows which of its own codes means "couple". `Service\FeeCategoryClassifier` recognises the usual wordings from the folded text (`TextNormalizerService::fold()`, §8.0) so the screen works the day the module is enabled; `fees_household_tariffs` overrides it per category for a unit whose wording it misses. Same heuristic-plus-hand-mapping shape as `leadership_formation_levels` (§8.65), and for the same reason.
 
-**Contrôles incomplets visibles.** L’onglet « Non déterminables » et l’export
-montrent les limites de date, de saison précédente, de correspondance Desk et de
-projection. Un tarif inconnu compte dans la plage du foyer, mais n’est jamais une
-correction inventée. Un foyer peut porter un écart certain et un contrôle incomplet.
-`Api\FeeAccuracySummary` ajoute un compteur optionnel `householdsIndeterminate`
-(par défaut zéro pour les fournisseurs existants). L’étape Année scoute et les points
-d’attention reprennent ces mêmes compteurs ; « examinés » ne signifie pas « tous vérifiés ».
+**Incomplete checks stay visible.** The « Non déterminables » view and the export
+show limits involving dates, the previous season, Desk mapping and projection.
+An unknown tariff still contributes to the household range, without inventing a
+correction. One household can carry a certain discrepancy and an incomplete check.
+`Api\FeeAccuracySummary` adds the optional `householdsIndeterminate` counter, defaulting
+to zero for existing providers. The scout-year step and attention points use those
+same counters: examined households are not claimed to be completely verified.
 
 **The five-tariff scale is fees-owned.** `FeeTariff` covers normal, couple,
 family, local IAmA and guests. Core's `HouseholdFeeCategory` remains the generic
