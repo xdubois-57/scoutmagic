@@ -2,138 +2,148 @@
  ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
  Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
 #}
-{#
-  The barème, folded away.
-
-  It answers two questions a unit only has to settle once: which of its own
-  Desk tariffs means "couple", and what one person on each tariff costs. The
-  first is pre-filled by Modules\Fees\Service\FeeCategoryClassifier, so a
-  unit whose wording is ordinary never opens this. The second exists only to
-  turn a discrepancy into euros — nothing is computed from it and no screen
-  presents it as an amount owed.
-
-  « Chercher les montants » (Modules\Fees\Service\FederalScaleLookupService)
-  reads the federation's own page and PROPOSES the three amounts. It is a
-  second submit button on this same form rather than a nested form, which
-  HTML does not allow — `formaction` sends it elsewhere and the CSRF token
-  above is the same one. It is rendered only while `scale_lookup_available`
-  is true, i.e. while the llm_connector module is enabled AND has a model on
-  the cheap tier (ARCHITECTURE.md §7.5): with no AI, this block is exactly
-  what it always was.
-
-  Nothing about a proposal is saved. `scale_suggestion` carries the amounts
-  through one redirect (Modules\Fees\Support\SuggestedScale), fills the
-  fields, opens the block, and says which page and which scout year the
-  figures came from — validating a number without knowing what it rests on
-  is the thing this banner exists to prevent. The chef d'unité still has to
-  click « Enregistrer le barème ».
-
-  The same variable carries the scale shipped with the site
-  (Modules\Fees\Service\ShippedScaleService, issue #355) when the unit has
-  stored no amount yet and the shipped file is for the year on screen. Its
-  `origin` is 'shipped', and the banner then names the year, the day the
-  figures were read and the federal page — still a proposal, still unsaved.
-#}
+{# A lookup is a separate, persistent proposal. Only Save writes the scale. #}
 {% set _suggested = scale_suggestion|default(null) %}
+{% set _proposal = scale_proposal|default(null) %}
+{% set _draft = scale_draft|default({}) %}
+{% set _open = _suggested or _proposal or _draft %}
+{% set _from = _draft.guest_from is defined ? _draft.guest_from : guest_period.from %}
+{% set _until = _draft.guest_until is defined ? _draft.guest_until : guest_period.until %}
 <div class="card mb-3">
     <div class="card-body py-2">
         <button type="button" class="btn btn-link btn-sm p-0 text-decoration-none"
                 data-bs-toggle="collapse" data-bs-target="#fees-scale"
-                aria-expanded="{{ _suggested ? 'true' : 'false' }}" aria-controls="fees-scale">
+                aria-expanded="{{ _open ? 'true' : 'false' }}" aria-controls="fees-scale">
             <i class="bi bi-sliders" aria-hidden="true"></i> Barème des cotisations
         </button>
-        <div class="collapse mt-3{{ _suggested ? ' show' : '' }}" id="fees-scale">
+        <div class="collapse mt-3{{ _open ? ' show' : '' }}" id="fees-scale">
             <p class="small text-body-secondary">
-                Saisi à la main, uniquement pour traduire un écart en euros. Laissé vide, un écart s'affiche sans
-                montant plutôt qu'avec un montant faux. La catégorie Desk n'est à préciser que si le site s'est
-                trompé en la devinant.
+                Indiquez les montants fédéraux par personne pour {{ scale_year }} et les tarifs correspondants dans Desk.
+                Un montant laissé vide reste inconnu : aucun écart en euros ne sera inventé.
             </p>
-            {% if _suggested %}
-                {#
-                  An <output>, not a div with role="status": this IS the
-                  result of an action the visitor just triggered, which is
-                  the element's own definition, and it carries the live-region
-                  semantics natively instead of borrowing them from a role
-                  (Sonar Web:S6819). `d-block` because <output> is inline by
-                  default and `.alert` does not set a display of its own.
-                #}
-                {% if _suggested.origin|default('') == 'shipped' %}
-                    <output class="alert alert-info py-2 small d-block">
-                        Montants fédéraux <strong>{{ _suggested.year }}</strong>, relevés le
-                        {{ _suggested.verified_on|french_date }} sur
-                        <a href="{{ _suggested.url }}" target="_blank"
-                           rel="noopener noreferrer">{{ _suggested.host }}</a>
-                        — vérifiez puis enregistrez. Rien n'est enregistré tant que vous n'avez pas cliqué sur
-                        « Enregistrer le barème ».
-                    </output>
-                {% else %}
-                    <output class="alert alert-info py-2 small d-block">
-                        Montants proposés pour l'année <strong>{{ _suggested.year }}</strong>, lus sur
-                        <a href="{{ _suggested.url }}" target="_blank"
-                           rel="noopener noreferrer">{{ _suggested.url }}</a>.
-                        Rien n'est enregistré tant que vous n'avez pas cliqué sur « Enregistrer le barème ».
-                    </output>
-                {% endif %}
+            {% if guest_period.year and guest_period.year != scale_year %}
+                <p class="alert alert-warning small">
+                    Le barème enregistré a été confirmé pour {{ guest_period.year }}. Vérifiez les valeurs pour
+                    {{ scale_year }} avant de l’enregistrer pour cette année.
+                </p>
             {% endif %}
-            <form method="post" action="/admin/fees/tarifs/bareme">
+            {% if _suggested %}
+                <output class="alert alert-info py-2 small d-block">
+                    Montants fédéraux <strong>{{ _suggested.year }}</strong>, relevés le
+                    {{ _suggested.verified_on|french_date }} sur
+                    <a href="{{ _suggested.url }}" target="_blank" rel="noopener noreferrer">{{ _suggested.host }}</a>
+                    — vérifiez puis enregistrez. Seules les cotisations jamais enregistrées sont pré-remplies.
+                    Rien n’est enregistré tant que vous n’avez pas cliqué sur « Enregistrer le barème ».
+                </output>
+            {% endif %}
+            <form method="post" action="/admin/fees/tarifs/bareme" id="fees-scale-form">
                 {{ csrf_field()|raw }}
+                <input type="hidden" name="scale_year" value="{{ scale_year }}">
                 <div class="row g-3">
                     {% for key, line in tariff_panel %}
-                        {% set _amount_cents = _suggested ? _suggested.amount_cents[key] : line.amount_cents %}
-                        <div class="col-12 col-md-4">
-                            <div class="border rounded p-2">
-                                <p class="fw-semibold small mb-2">{{ category_labels[key] }}</p>
-                                {% set _options = [{ value: '', label: '— Deviné par le site —', selected: line.fee_category_id is null }] %}
-                                {% for category in fee_categories %}
-                                    {% set _suffix = category.id == line.suggested_fee_category_id ? ' (deviné)' : '' %}
-                                    {% set _options = _options|merge([{
-                                        value: category.id,
-                                        label: category.label ~ _suffix,
-                                        selected: category.id == line.fee_category_id,
-                                    }]) %}
-                                {% endfor %}
+                        {% set _amount_key = 'amount_' ~ key %}
+                        {% set _category_key = 'fee_category_' ~ key %}
+                        {% set _cents = _suggested.amount_cents[key] ?? line.amount_cents %}
+                        {% set _amount = _draft[_amount_key] is defined ? _draft[_amount_key]
+                            : (_cents is null ? '' : (_cents / 100)|number_format(2, ',', '')) %}
+                        {% set _category = _draft[_category_key] is defined ? _draft[_category_key] : line.fee_category_id %}
+                        <div class="col-12 col-md-6 col-xl-4">
+                            <fieldset class="border rounded p-3 h-100">
+                                <legend class="float-none w-auto fs-6 px-1">{{ line.category.label }}</legend>
                                 {% include 'partials/form_field.html.twig' with {
-                                    field_id: 'fees-category-' ~ key,
-                                    field_name: 'fee_category_' ~ key,
-                                    label: 'Tarif Desk correspondant',
-                                    type: 'select',
-                                    options: _options,
-                                    size: 'sm',
+                                    field_id: 'fees-amount-' ~ key, field_name: _amount_key,
+                                    label: 'Montant par personne (€)', label_suffix: ' — ' ~ line.category.label,
+                                    type: 'text', inputmode: 'decimal', value: _amount, size: 'sm',
                                 } only %}
-                                {% include 'partials/form_field.html.twig' with {
-                                    field_id: 'fees-amount-' ~ key,
-                                    field_name: 'amount_' ~ key,
-                                    label: 'Montant par personne (€)',
-                                    type: 'text',
-                                    inputmode: 'decimal',
-                                    value: _amount_cents is null ? '' : (_amount_cents / 100)|number_format(2, ',', ''),
-                                    size: 'sm',
-                                    wrapper_class: 'mb-0',
-                                } only %}
-                            </div>
+                                {% if key != 'guest' or line.suggested_fee_category_id is not null or _category %}
+                                    {% set _options = [{ value: '', label: '— Deviné par le site —', selected: _category is null }] %}
+                                    {% for category in fee_categories %}
+                                        {% set _options = _options|merge([{
+                                            value: category.id,
+                                            label: category.label ~ (category.id == line.suggested_fee_category_id ? ' (deviné)' : ''),
+                                        }]) %}
+                                    {% endfor %}
+                                    {% include 'partials/form_field.html.twig' with {
+                                        field_id: 'fees-category-' ~ key, field_name: _category_key,
+                                        label: 'Tarif Desk correspondant', label_suffix: ' — ' ~ line.category.label,
+                                        type: 'select', options: _options, value: _category ?? '', size: 'sm',
+                                        wrapper_class: 'mb-0',
+                                    } only %}
+                                {% else %}
+                                    <input type="hidden" name="{{ _category_key }}" value="">
+                                    <p class="small text-body-secondary mb-0">
+                                        Aucun tarif Invités n’a été trouvé dans Desk. La période d’inscription détermine ce tarif.
+                                    </p>
+                                {% endif %}
+                            </fieldset>
                         </div>
                     {% endfor %}
                 </div>
-                {#
-                  « Enregistrer le barème » stays the FIRST submit button of
-                  the form on purpose: it is the one a browser fires when
-                  someone presses Enter in an amount field, and a stray
-                  Enter must never become an AI request.
-                #}
+                <fieldset class="border rounded p-3 mt-3">
+                    <legend class="float-none w-auto fs-6 px-1">Période Invités</legend>
+                    <div class="row g-3">
+                        {% for key, label in {from: 'Du (jour/mois)', until: 'Au (jour/mois), inclus'} %}
+                            <div class="col-12 col-sm-6">
+                                {% include 'partials/form_field.html.twig' with {
+                                    field_id: 'fees-guest-' ~ key, field_name: 'guest_' ~ key,
+                                    label: label, type: 'text', value: key == 'from' ? _from : _until,
+                                    placeholder: key == 'from' ? '01/06' : '31/08', maxlength: 5,
+                                    size: 'sm', wrapper_class: 'mb-0', help: 'Format : jour/mois, par exemple 01/06.',
+                                } only %}
+                            </div>
+                        {% endfor %}
+                    </div>
+                    <p class="small mt-3 mb-1" id="fees-guest-rule">
+                        Pour {{ scale_year }}, la cotisation Invités s’applique aux nouvelles inscriptions du
+                        {{ _from }} au {{ _until }} inclus, pendant l’année civile {{ scale_year|slice(5, 4) }}.
+                    </p>
+                    <p class="small text-body-secondary mb-0">
+                        Une nouvelle inscription concerne une personne absente de l’année scoute précédente :
+                        sa première date de fonction de l’année doit être dans cette période.
+                        Une réinscription ou un changement de section n’est pas une nouvelle inscription.
+                    </p>
+                </fieldset>
+                {# Save MUST remain the first submit: Enter must never call the AI. #}
                 <div class="d-flex flex-wrap gap-2 mt-3">
                     <button type="submit" class="btn btn-sm btn-outline-secondary">Enregistrer le barème</button>
                     {% if scale_lookup_available|default(false) %}
                         <button type="submit" class="btn btn-sm btn-outline-secondary"
                                 formaction="/admin/fees/tarifs/bareme/chercher">
-                            <i class="bi bi-magic" aria-hidden="true"></i> Chercher les montants
+                            <i class="bi bi-magic" aria-hidden="true"></i> Chercher les montants et la période
                         </button>
                     {% endif %}
                 </div>
                 {% if scale_lookup_available|default(false) %}
                     <p class="form-text mt-2 mb-0">
-                        « Chercher les montants » lit la page des cotisations de la fédération et pré-remplit les trois
-                        champs ci-dessus, sans rien enregistrer. Vérifiez-les, puis enregistrez.
+                        La recherche lit la page fédérale pour l’année affichée et propose les valeurs trouvées,
+                        sans modifier vos champs. Choisissez ensuite quoi reprendre, vérifiez et enregistrez.
                     </p>
+                {% endif %}
+                {% if _proposal %}
+                    <section class="alert alert-info mt-3 mb-0" aria-labelledby="fees-proposal-title">
+                        <h3 class="h6" id="fees-proposal-title">Proposition fédérale pour {{ _proposal.year }}</h3>
+                        <p class="small text-break">
+                            Source : <a href="{{ _proposal.url }}" target="_blank" rel="noopener noreferrer">{{ _proposal.url }}</a>.
+                            Rien n’est enregistré. Seules les valeurs trouvées remplaceront vos champs.
+                        </p>
+                        <ul class="small">
+                            {% for key, cents in _proposal.amount_cents %}
+                                <li>{{ tariff_panel[key].category.label }} : {{ (cents / 100)|number_format(2, ',', ' ') }} €</li>
+                            {% endfor %}
+                            {% if _proposal.guest_from %}<li>Début Invités : {{ _proposal.guest_from }}</li>{% endif %}
+                            {% if _proposal.guest_until %}<li>Fin Invités : {{ _proposal.guest_until }}, inclus</li>{% endif %}
+                        </ul>
+                        {% if _proposal.missing_fields %}
+                            <p class="small fw-semibold">À compléter : {{ _proposal.missing_fields|join(', ') }}.</p>
+                        {% endif %}
+                        <input type="hidden" name="proposal_token" value="{{ _proposal.token }}">
+                        <div class="d-flex flex-wrap gap-2">
+                            <button type="submit" class="btn btn-sm btn-outline-primary" name="apply_scale" value="amounts"
+                                    formaction="/admin/fees/tarifs/bareme/appliquer">Reprendre les montants</button>
+                            <button type="submit" class="btn btn-sm btn-outline-primary" name="apply_scale" value="all"
+                                    formaction="/admin/fees/tarifs/bareme/appliquer">Reprendre les montants et la période</button>
+                        </div>
+                    </section>
                 {% endif %}
             </form>
         </div>

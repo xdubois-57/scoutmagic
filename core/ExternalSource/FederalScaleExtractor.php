@@ -8,25 +8,31 @@ declare(strict_types=1);
 
 namespace Core\ExternalSource;
 
+use Core\Service\DateInput;
+use Core\Service\TextNormalizerService;
+
 /**
- * Reads the three household tariffs off the federal fees page,
+ * Reads the five tariffs and paid guest window off the federal fees page,
  * deterministically — no model involved, which is the point: this is the
  * check that tells whether the page still says what the AI-assisted
  * « Chercher les montants » and the shipped scale assume it says.
  *
- * What the page looked like on 24 September 2026, and what the patterns
+ * What the page looked like on 24 November 2026, and what the patterns
  * are written for:
  *
  *     COTISATIONS 2026-2027
  *     Cotisation normale : 57,50 €.
  *     Cotisation couple pour deux membres d'un même ménage […] : 46 € par personne.
  *     Cotisation familiale pour trois membres et plus […] : 39 € par personne.
+ *     Cotisation invités et demi-année […] : 18,25 €.
+ *     IAmA liés à ton unité […] devront payer une cotisation de 25€.
+ *     Entre le 1er juin et le 31 aout […] coute une cotisation invité.
  *
  * Decimals are optional (« 46 € » beside « 57,50 € »). Earlier years
  * printed last year's amount in parentheses after this year's; the first
  * amount after the colon is the one taken, so that shape reads correctly
- * too. The other amounts on the page (solidarité, invités, IAmA) are
- * never matched, because each pattern is anchored on its category word.
+ * too. Local IAmA and the paid guest clause are selected explicitly:
+ * federal-only IAmA and the neighbouring free window are different facts.
  */
 final class FederalScaleExtractor
 {
@@ -37,15 +43,25 @@ final class FederalScaleExtractor
         'normal' => 'normale',
         'couple' => 'couple',
         'family' => 'familiale',
+        'guest' => 'invit[eé]s?',
+    ];
+
+    private const MONTHS = [
+        'janvier' => 1, 'fevrier' => 2, 'mars' => 3, 'avril' => 4,
+        'mai' => 5, 'juin' => 6, 'juillet' => 7, 'aout' => 8,
+        'septembre' => 9, 'octobre' => 10, 'novembre' => 11, 'decembre' => 12,
     ];
 
     /**
-     * The scale, or null when any of the three amounts cannot be found —
-     * a page that lost one of them has changed in a way a human must read.
+     * A complete scale, or null: the deterministic watch must never call a
+     * partial reading conforming. The AI proposal may be partial instead.
      */
     public static function extract(string $html): ?FederalScale
     {
         [$year, $text] = self::latestSeason(self::text($html));
+        if ($year !== null) {
+            $text = self::withGlobalGuestPolicy($html, $text, $year);
+        }
         $cents = [];
 
         foreach (self::CATEGORY_WORDS as $key => $word) {
@@ -56,7 +72,78 @@ final class FederalScaleExtractor
             $cents[$key] = self::toCents($matches[1]);
         }
 
-        return new FederalScale($cents['normal'], $cents['couple'], $cents['family'], $year);
+        $localIama = '/\biama\s+li[eé](?:s|es)?\s+[aà]\s+(?:ton|ta|une?|l[\'’])\s*(?:unit[eé]|clan)\b'
+            . '[^\n]*?\b(?:devront|doivent|doit|devra)\s+payer\s+une?\s+cotisation(?:\s+de)?\s*'
+            . self::AMOUNT . '/iu';
+        if (preg_match($localIama, $text, $iama) !== 1) {
+            return null;
+        }
+        $period = self::paidGuestPeriod($text, $year);
+        if ($period === null) {
+            return null;
+        }
+
+        return new FederalScale(
+            $cents['normal'],
+            $cents['couple'],
+            $cents['family'],
+            self::toCents($iama[1]),
+            $cents['guest'],
+            $period[0],
+            $period[1],
+            $year
+        );
+    }
+
+    /** The requested year's complete text, including its IAmA/guest subheadings. */
+    public static function sectionForYear(string $html, string $year): ?string
+    {
+        $section = self::seasonSection(self::text($html), $year);
+
+        return $section === null ? null : self::withGlobalGuestPolicy($html, $section, $year);
+    }
+
+    /** Keep seasonal prices separate from the page's shared annual guest policy. */
+    private static function withGlobalGuestPolicy(string $html, string $section, string $year): string
+    {
+        if (self::paidGuestPeriod($section, $year) !== null) {
+            return $section;
+        }
+        $policy = self::globalGuestPolicy($html, $year);
+
+        return $policy === '' ? $section : $section . "\n" . $policy;
+    }
+
+    /**
+     * The federal page puts seasonal prices (including local IAmA) in
+     * cmpt-banner-noLink blocks, and the recurring guest window outside.
+     * Remove EVERY season banner before reading that common policy: a
+     * missing current value must never borrow an older season's prices
+     * or dates. An unrecognised layout stays undetermined.
+     */
+    private static function globalGuestPolicy(string $html, string $year): string
+    {
+        $document = \Dom\HTMLDocument::createFromString($html, LIBXML_NOERROR, 'UTF-8');
+        $removed = false;
+        foreach ($document->querySelectorAll('.cmpt-banner-noLink') as $banner) {
+            if (self::seasonHeadings(self::text($document->saveHtml($banner))) !== []) {
+                $banner->remove();
+                $removed = true;
+            }
+        }
+        $remaining = self::text($document->saveHtml());
+        if (!$removed || self::seasonHeadings($remaining) !== []) {
+            return '';
+        }
+
+        $policies = [];
+        foreach (explode("\n", $remaining) as $line) {
+            if (self::paidGuestPeriod($line, $year) !== null) {
+                $policies[] = $line;
+            }
+        }
+
+        return count($policies) === 1 ? $policies[0] : '';
     }
 
     /**
@@ -70,34 +157,95 @@ final class FederalScaleExtractor
      */
     private static function latestSeason(string $text): array
     {
-        $found = preg_match_all(
-            '/cotisations\s+(\d{4})\s*[-–]\s*(\d{4})/iu',
+        $matches = self::seasonHeadings($text);
+        $years = [];
+        foreach ($matches as $match) {
+            if ((int) $match[2][0] === (int) $match[1][0] + 1) {
+                $years[] = $match[1][0] . '-' . $match[2][0];
+            }
+        }
+        if ($years === []) {
+            return [null, $text];
+        }
+
+        $year = max($years);
+
+        return [$year, self::seasonSection($text, $year) ?? ''];
+    }
+
+    /** @return list<array<int, array{string, int}>> */
+    private static function seasonHeadings(string $text): array
+    {
+        preg_match_all(
+            '/^cotisations[ \t]+(\d{4})[ \t]*[-–—\/][ \t]*(\d{4})[ \t]*$/imu',
             $text,
             $matches,
             PREG_SET_ORDER | PREG_OFFSET_CAPTURE
         );
-        if ($found === false || $found === 0) {
-            return [null, $text];
+
+        return $matches;
+    }
+
+    private static function seasonSection(string $text, string $year): ?string
+    {
+        if (
+            preg_match('/^(\d{4})-(\d{4})$/', $year, $years) !== 1
+            || (int) $years[2] !== (int) $years[1] + 1
+        ) {
+            return null;
         }
 
-        $latest = max(array_map(static fn (array $match): int => (int) $match[1][0], $matches));
-
-        // From the first mention of that season to the first mention of
-        // another one: a season is often named again in its own section.
         $start = null;
         $end = strlen($text);
-        foreach ($matches as $match) {
-            $isLatest = (int) $match[1][0] === $latest;
-            if ($start === null && $isLatest) {
+        foreach (self::seasonHeadings($text) as $match) {
+            $matchesYear = $match[1][0] . '-' . $match[2][0] === $year;
+            if ($start === null && $matchesYear) {
                 $start = $match[0][1];
-                $year = $match[1][0] . '-' . $match[2][0];
-            } elseif ($start !== null && !$isLatest) {
+            } elseif ($start !== null && !$matchesYear) {
                 $end = $match[0][1];
                 break;
             }
         }
 
-        return [$year ?? null, substr($text, (int) $start, $end - (int) $start)];
+        return $start === null ? null : trim(substr($text, $start, $end - $start));
+    }
+
+    /** @return array{string, string}|null */
+    private static function paidGuestPeriod(string $text, ?string $year): ?array
+    {
+        $months = 'janvier|f[eé]vrier|mars|avril|mai|juin|juillet|ao[uû]t|septembre|octobre|novembre|d[eé]cembre';
+        $date = '(\d{1,2})(?:er)?\s+(' . $months . ')';
+        $pattern = '/\bentre\s+le\s+' . $date . '\s+et\s+le\s+' . $date
+            . '[^\n]*?\bco[uû]te\s+une?\s+cotisation\s+invit[eé]\b/iu';
+        // A free window cannot borrow the paid predicate of the next range,
+        // even when both ranges share one paragraph or have no punctuation.
+        $windows = preg_split('/(?=\bentre\s+le\s+\d)/iu', $text) ?: [];
+        foreach ($windows as $window) {
+            if (preg_match($pattern, $window, $match) !== 1) {
+                continue;
+            }
+
+            $calendarYear = $year === null ? '2000' : substr($year, 5, 4);
+            $from = sprintf(
+                '%02d/%02d',
+                (int) $match[1],
+                self::MONTHS[TextNormalizerService::fold($match[2])]
+            );
+            $until = sprintf(
+                '%02d/%02d',
+                (int) $match[3],
+                self::MONTHS[TextNormalizerService::fold($match[4])]
+            );
+            $start = DateInput::parse('!d/m/Y', $from . '/' . $calendarYear);
+            $end = DateInput::parse('!d/m/Y', $until . '/' . $calendarYear);
+            if ($start === null || $end === null || $end < $start) {
+                return null;
+            }
+
+            return [$from, $until];
+        }
+
+        return null;
     }
 
     /**

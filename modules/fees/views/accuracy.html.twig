@@ -40,7 +40,10 @@
         {% include '@fees/partials/_scale.html.twig' with {
             tariff_panel: tariff_panel,
             fee_categories: fee_categories,
-            category_labels: category_labels,
+            scale_draft: scale_draft,
+            scale_proposal: scale_proposal,
+            scale_year: scale_year,
+            guest_period: guest_period,
             scale_lookup_available: scale_lookup_available,
             scale_suggestion: scale_suggestion,
         } only %}
@@ -139,4 +142,8 @@
             {% endif %}
         {% endif %}
     </div>
+{% endblock %}
+
+{% block scripts %}
+    <script src="{{ asset('/assets/js/fees-scale.js') }}" nonce="{{ csp_nonce }}" defer></script>
 {% endblock %}

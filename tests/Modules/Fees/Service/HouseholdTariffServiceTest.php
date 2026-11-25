@@ -6,6 +6,7 @@ namespace Tests\Modules\Fees\Service;
 
 use Core\Import\FeeCategoryRepository;
 use Core\Member\HouseholdFeeCategory;
+use Modules\Fees\FeeTariff;
 use Modules\Fees\Repository\HouseholdTariffRepository;
 use Modules\Fees\Service\HouseholdTariffService;
 use PHPUnit\Framework\TestCase;
@@ -145,13 +146,13 @@ class HouseholdTariffServiceTest extends TestCase
         $this->assertTrue($this->service->hasAnyAmount());
     }
 
-    public function testThePanelAlwaysCarriesTheThreeLinesAndWhatTheSiteGuessed(): void
+    public function testThePanelAlwaysCarriesTheFiveTariffsAndWhatTheSiteGuessed(): void
     {
         $this->service->save(HouseholdFeeCategory::NORMAL, $this->unrecognisedFeeId, 4200);
 
         $panel = $this->service->panel();
 
-        $this->assertSame(['normal', 'couple', 'family'], array_keys($panel));
+        $this->assertSame(['normal', 'couple', 'family', 'iama', 'guest'], array_keys($panel));
         $this->assertSame($this->unrecognisedFeeId, $panel['normal']['fee_category_id']);
         $this->assertSame(4200, $panel['normal']['amount_cents']);
         // The guess is still offered beside the override, so a chief can see
@@ -176,5 +177,45 @@ class HouseholdTariffServiceTest extends TestCase
         $this->service->save(HouseholdFeeCategory::FAMILY, null, null);
 
         $this->assertNull($this->service->amountCentsFor(HouseholdFeeCategory::FAMILY));
+    }
+
+    public function testTheNewTariffsRoundTripWithoutBecomingHouseholdSizes(): void
+    {
+        $iama = $this->feeCategories->create('L_L_COTISATION IAMA', 'Cotisation IAmA');
+        $this->service->save(FeeTariff::IAMA, $iama, 2500);
+        $this->service->save(FeeTariff::GUEST, null, 1825);
+        $fresh = new HouseholdTariffService(new HouseholdTariffRepository($this->pdo), $this->feeCategories);
+
+        self::assertSame([FeeTariff::IAMA, FeeTariff::GUEST, 2500, 1825, null, null, 675], [
+            $fresh->tariffForFeeCategoryId($iama),
+            $fresh->tariffForFeeCategoryId($this->unrecognisedFeeId),
+            $fresh->amountCentsFor(FeeTariff::IAMA),
+            $fresh->amountCentsFor(FeeTariff::GUEST),
+            $fresh->categoryForFeeCategoryId($iama),
+            $fresh->categoryForFeeCategoryId($this->unrecognisedFeeId),
+            $fresh->differenceCents(FeeTariff::IAMA, FeeTariff::GUEST),
+        ]);
+    }
+
+    public function testASavedEmptyNewTariffIsDistinctFromAnAbsentRow(): void
+    {
+        $before = $this->service->wasSaved(FeeTariff::IAMA);
+        $this->service->save(FeeTariff::IAMA, null, null);
+
+        self::assertSame([false, true, null, ['L_L_COTISATION IAMA']], [
+            $before, $this->service->wasSaved(FeeTariff::IAMA),
+            $this->service->amountCentsFor(FeeTariff::IAMA),
+            $this->codesAfterImportingIama(),
+        ]);
+    }
+
+    /** Resolving an imported Desk category must refresh the mapping after a scale write. */
+    /** @return list<string> */
+    private function codesAfterImportingIama(): array
+    {
+        $id = $this->feeCategories->create('L_L_COTISATION IAMA', 'Cotisation IAmA');
+        $this->service->save(FeeTariff::IAMA, $id, null);
+
+        return $this->service->deskCodesFor(FeeTariff::IAMA);
     }
 }

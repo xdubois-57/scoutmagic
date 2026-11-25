@@ -1764,15 +1764,38 @@ export tableur reprend les mêmes lignes.
 
 ### 31.7 Le barème, et ce qu'il ne fait pas
 
-Trois montants (normal / couple / famille), repliés, saisis à la main, qui ne
-servent qu'à traduire un écart en euros. Sans eux, un écart s'affiche sans
-montant plutôt qu'avec un montant faux.
+Cinq montants fédéraux par personne : **Normale, Couple, Familiale, IAmA liés
+à l’unité et Invités**. Un champ vide signifie inconnu ; zéro reste un montant
+explicite. Les correspondances Desk utilisent les tarifs réellement importés,
+devinés ou choisis. Aucun code Invités n’est inventé : sans code correspondant,
+le formulaire explique que la période d’inscription détermine cette cotisation.
 
-Le site devine seul lequel des tarifs Desk de l'unité signifie « couple » ou
-« famille » ; le sélecteur n'existe que pour le corriger.
+La **période Invités** se règle sur la même page, avec début et fin inclus au
+format jour/mois, par défaut **01/06–31/08**, et un montant de référence de
+**18,25 €**. Les dates appartiennent à l’année civile de fin de l’année scoute
+(2027 pour 2026-2027). La règle affichée évolue avec les dates et le montant.
+La règle concerne les personnes absentes de l’année précédente et dont la
+première fonction de l’année commence dans cette période ; ni une réinscription
+ni un changement de section ne constitue une nouvelle inscription.
 
-**L'écart va dans les deux sens** et le signe n'est jamais masqué :
-sous-déclarer revient dans la facture de régularisation, sur-déclarer non.
+La référence livrée pré-remplit seulement les lignes jamais enregistrées,
+pour sa propre année, en nommant sa source et sa date de vérification. Un ancien
+barème à trois lignes peut recevoir les deux nouvelles sans écraser les autres,
+y compris une valeur vide ou zéro enregistrée volontairement.
+
+**Chercher les montants et la période**, disponible si l’IA est configurée,
+conserve le formulaire et présente une proposition distincte, totale ou
+partielle, pour l’année affichée uniquement. Les champs non trouvés sont nommés.
+**Reprendre les montants** conserve les dates ; **Reprendre les montants et la
+période** reprend aussi les bornes trouvées. L’application utilise les champs
+actuellement soumis, refuse une proposition remplacée ou une autre année, et
+n’enregistre rien. Seul **Enregistrer le barème** valide puis stocke ensemble
+les cinq lignes, la période et l’année de référence. Une erreur ne laisse
+aucune écriture partielle ; les champs saisis restent affichés.
+
+Ces valeurs servent aux comparaisons, pas à créer une créance. **L’écart va
+dans les deux sens** et son signe reste visible : sous-déclarer revient dans
+la facture de régularisation, sur-déclarer non.
 
 ### 31.8 Ce que l'écran ne prétend pas savoir
 

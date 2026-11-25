@@ -9,29 +9,13 @@ declare(strict_types=1);
 namespace Modules\Fees\Service;
 
 use Modules\Fees\Support\ShippedFederalScale;
+use Modules\Fees\FeeTariff;
 
 /**
- * Decides whether the barème opens pre-filled with the federal scale the
- * site ships (`Support\ShippedFederalScale`, issue #355).
- *
- * Two conditions, both required:
- *
- * - **the barème was never saved** — a unit that saved it, even with its
- *   amounts left empty on purpose, has made it its own, and a shipped
- *   figure must never sit over it; offered again on every visit, it would
- *   be saved by the next unrelated change to the panel;
- * - **the file's year is the year the screen is about** — the effective
- *   scout year, the same one « Chercher les montants » compares its answer
- *   with. Last season's amounts in this season's fields would be three
- *   plausible numbers from the wrong year, which is exactly what the AI
- *   lookup refuses to propose.
- *
- * The answer has the shape `Support\SuggestedScale::take()` returns, so the
- * panel fills its fields through the one path it already has, plus
- * `origin` and `verified_on` so the banner can say where the figures come
- * from and when they were read. **Nothing is written**: this service holds
- * no repository of its own, and only « Enregistrer le barème » stores the
- * amounts.
+ * Offers shipped amounts only for rows never saved and only for the
+ * displayed season. A saved NULL or zero remains the unit's choice.
+ * Older three-row scales can therefore gain IAmA and guests without
+ * changing their existing amounts. This service never writes anything.
  */
 class ShippedScaleService
 {
@@ -55,10 +39,6 @@ class ShippedScaleService
      */
     public function suggestionFor(string $scoutYearLabel): ?array
     {
-        if ($this->tariffs->wasEverSaved()) {
-            return null;
-        }
-
         $scale = $this->load();
         if ($scale === null) {
             return null;
@@ -69,12 +49,22 @@ class ShippedScaleService
             return null;
         }
 
+        $amounts = [];
+        foreach ($scale->amountCents as $key => $cents) {
+            if (!$this->tariffs->wasSaved(FeeTariff::from($key))) {
+                $amounts[$key] = $cents;
+            }
+        }
+        if ($amounts === []) {
+            return null;
+        }
+
         $host = (string) parse_url($scale->sourceUrl, PHP_URL_HOST);
 
         return [
             'url' => $scale->sourceUrl,
             'year' => $scale->year,
-            'amount_cents' => $scale->amountCents,
+            'amount_cents' => $amounts,
             'origin' => self::ORIGIN,
             'verified_on' => $scale->verifiedOn,
             'host' => preg_replace('/^www\./', '', $host) ?? $host,

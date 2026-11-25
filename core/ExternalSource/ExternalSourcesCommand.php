@@ -53,7 +53,7 @@ final class ExternalSourcesCommand
         }
 
         // The scale shipped with the site is the reference: the fees page's
-        // three amounts must equal it, or the fees source diverges and the
+        // five amounts and paid guest window must equal it, or the source diverges and the
         // report names both. A shipped file that cannot be read is a broken
         // checkout, not a finding about the page.
         try {

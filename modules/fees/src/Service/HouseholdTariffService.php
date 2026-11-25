@@ -10,29 +10,22 @@ namespace Modules\Fees\Service;
 
 use Core\Import\FeeCategoryRepository;
 use Core\Member\HouseholdFeeCategory;
+use Modules\Fees\FeeTariff;
 use Modules\Fees\Repository\HouseholdTariffRepository;
 use Modules\Fees\Value\HouseholdTariff;
 
 /**
- * The barème, resolved: which Desk fee category means each household
- * tariff, and what one person on it costs.
+ * Five applicable tariffs, their Desk mapping and their per-person amounts.
  *
- * The mapping is `explicit override ?? heuristic`, in that order, and the
- * heuristic is what makes the screen work on the day the module is switched
- * on. A category the classifier does not recognise and nobody mapped is not
- * treated as a household tariff at all: a member carrying one is simply
- * outside the comparison rather than reported as wrong.
- *
- * Desk offers three cotisation types today and a unit's members all carry
- * one of them, so that case is not a category the federation already
- * publishes — it is a wording this heuristic misses, or a type the
- * federation adds later. Either way the answer is the same, and the
- * override is how a unit settles it in one click.
+ * Explicit mappings win over the shared wording classifier. The core still
+ * models only three household sizes: categoryForFeeCategoryId() exposes
+ * that projection, while tariffForFeeCategoryId() preserves IAmA and guests.
+ * Recognising a guest wording is not a decision about guest eligibility.
  */
 class HouseholdTariffService
 {
-    /** @var array<int, HouseholdFeeCategory>|null fee_categories.id => household category */
-    private ?array $categoryByFeeCategoryId = null;
+    /** @var array<int, FeeTariff>|null fee_categories.id => household category */
+    private ?array $tariffByFeeCategoryId = null;
 
     /** @var array<string, HouseholdTariff>|null */
     private ?array $tariffs = null;
@@ -51,6 +44,13 @@ class HouseholdTariffService
      * none of the three.
      */
     public function categoryForFeeCategoryId(?int $feeCategoryId): ?HouseholdFeeCategory
+    {
+        $tariff = $this->tariffForFeeCategoryId($feeCategoryId);
+
+        return $tariff === null ? null : HouseholdFeeCategory::tryFrom($tariff->value);
+    }
+
+    public function tariffForFeeCategoryId(?int $feeCategoryId): ?FeeTariff
     {
         if ($feeCategoryId === null) {
             return null;
@@ -71,7 +71,7 @@ class HouseholdTariffService
      *
      * @return list<string>
      */
-    public function deskCodesFor(HouseholdFeeCategory $category): array
+    public function deskCodesFor(FeeTariff|HouseholdFeeCategory $category): array
     {
         if ($this->deskCodesByCategory === null) {
             $codeById = [];
@@ -97,7 +97,7 @@ class HouseholdTariffService
     }
 
     /** What one person on this tariff costs, in cents, or null when nobody entered it. */
-    public function amountCentsFor(HouseholdFeeCategory $category): ?int
+    public function amountCentsFor(FeeTariff|HouseholdFeeCategory $category): ?int
     {
         return $this->all()[$category->value]?->amountCents;
     }
@@ -111,8 +111,10 @@ class HouseholdTariffService
      * Null as soon as either side has no amount: a discrepancy shown
      * without a figure is honest, a discrepancy shown as 0,00 € is not.
      */
-    public function differenceCents(HouseholdFeeCategory $expected, ?HouseholdFeeCategory $encoded): ?int
-    {
+    public function differenceCents(
+        FeeTariff|HouseholdFeeCategory $expected,
+        FeeTariff|HouseholdFeeCategory|null $encoded
+    ): ?int {
         if ($encoded === null) {
             return null;
         }
@@ -128,13 +130,13 @@ class HouseholdTariffService
 
     /**
      * The barème as the panel renders it: one entry per household category,
-     * always all three, carrying the stored override and amount plus the
+     * always all five, carrying the stored override and amount plus the
      * fee category the heuristic would pick when nothing was overridden.
      *
      * @return array<
      *     string,
      *     array{
-     *         category: HouseholdFeeCategory,
+     *         category: FeeTariff,
      *         fee_category_id: ?int,
      *         amount_cents: ?int,
      *         suggested_fee_category_id: ?int
@@ -147,7 +149,7 @@ class HouseholdTariffService
         $suggested = $this->heuristicMapping();
 
         $panel = [];
-        foreach (HouseholdFeeCategory::cases() as $category) {
+        foreach (FeeTariff::cases() as $category) {
             $suggestedId = array_search($category, $suggested, true);
             $panel[$category->value] = [
                 'category' => $category,
@@ -160,15 +162,18 @@ class HouseholdTariffService
         return $panel;
     }
 
-    public function save(HouseholdFeeCategory $category, ?int $feeCategoryId, ?int $amountCents): void
-    {
+    public function save(
+        FeeTariff|HouseholdFeeCategory $category,
+        ?int $feeCategoryId,
+        ?int $amountCents
+    ): void {
         $this->repository->save($category, $feeCategoryId, $amountCents);
         $this->tariffs = null;
-        $this->categoryByFeeCategoryId = null;
+        $this->tariffByFeeCategoryId = null;
         $this->deskCodesByCategory = null;
     }
 
-    /** True once at least one of the three tariffs carries an amount. */
+    /** True once at least one of the five tariffs carries an amount. */
     public function hasAnyAmount(): bool
     {
         foreach ($this->all() as $tariff) {
@@ -182,7 +187,7 @@ class HouseholdTariffService
 
     /**
      * True once the barème has been saved at all, even with every amount
-     * left empty — the panel always saves its three lines together, and an
+     * left empty — the panel always saves its five lines together, and an
      * empty one is a choice (« Laissé vide, un écart s'affiche sans
      * montant »), not a blank to fill.
      */
@@ -195,7 +200,25 @@ class HouseholdTariffService
         return $this->tariffs !== [];
     }
 
-    /** @return array<string, ?HouseholdTariff> always the three keys */
+    /** A saved NULL amount is still an explicit choice, unlike a missing row. */
+    public function wasSaved(FeeTariff $category): bool
+    {
+        return $this->all()[$category->value] !== null;
+    }
+
+    /** @param callable(): void $writes */
+    public function transactionally(callable $writes): void
+    {
+        try {
+            $this->repository->transactionally($writes);
+        } finally {
+            $this->tariffs = null;
+            $this->tariffByFeeCategoryId = null;
+            $this->deskCodesByCategory = null;
+        }
+    }
+
+    /** @return array<string, ?HouseholdTariff> always the five keys */
     private function all(): array
     {
         if ($this->tariffs === null) {
@@ -203,18 +226,18 @@ class HouseholdTariffService
         }
 
         $complete = [];
-        foreach (HouseholdFeeCategory::cases() as $category) {
+        foreach (FeeTariff::cases() as $category) {
             $complete[$category->value] = $this->tariffs[$category->value] ?? null;
         }
 
         return $complete;
     }
 
-    /** @return array<int, HouseholdFeeCategory> */
+    /** @return array<int, FeeTariff> */
     private function mapping(): array
     {
-        if ($this->categoryByFeeCategoryId !== null) {
-            return $this->categoryByFeeCategoryId;
+        if ($this->tariffByFeeCategoryId !== null) {
+            return $this->tariffByFeeCategoryId;
         }
 
         $mapping = $this->heuristicMapping();
@@ -234,15 +257,15 @@ class HouseholdTariffService
             $mapping[$tariff->feeCategoryId] = $tariff->category;
         }
 
-        return $this->categoryByFeeCategoryId = $mapping;
+        return $this->tariffByFeeCategoryId = $mapping;
     }
 
-    /** @return array<int, HouseholdFeeCategory> */
+    /** @return array<int, FeeTariff> */
     private function heuristicMapping(): array
     {
         $mapping = [];
         foreach ($this->feeCategories->findAll() as $feeCategory) {
-            $category = FeeCategoryClassifier::classify($feeCategory['desk_code'], $feeCategory['label']);
+            $category = FeeCategoryClassifier::classifyTariff($feeCategory['desk_code'], $feeCategory['label']);
             if ($category !== null) {
                 $mapping[$feeCategory['id']] = $category;
             }

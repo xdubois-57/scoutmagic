@@ -49,20 +49,27 @@ when the report names one, the address it redirects to.
   `FederalScaleLookupService::fetchPage()` refuses redirects on purpose, so
   the button breaks. The fix is the new address, in the register and in
   `modules/fees/module.json`.
-- **The fees amounts could not be read, or changed**: read the page and
-  give the three amounts yourself — normale, couple (par personne),
-  familiale (par personne) — with the scout year they are published for.
+- **The fees scale could not be read, or changed**: read the page and
+  give all five per-person amounts — normale, couple, familiale, IAmA
+  linked to a unit/clan, and Invités — plus the paid guest period's two
+  inclusive day/month bounds, with the scout year they are published for.
+  Federal-only IAmA and the neighbouring free guest window are different
+  rules; never substitute their amounts or dates. Use an actual season
+  heading, not a historical year mentioned in prose.
   Decimals are optional on the page (« 46 € » beside « 57,50 € »). Say
   what the page shows word for word, and quote it. « Changed » is measured
   against the scale shipped with the site,
   `modules/fees/data/federal-scale.json` (the script passes it to the
   checker as its reference, and the `✗` line names both sides): the fix is
-  that file — the new `year`, the three `amount_cents`, and `verified_on`
+  that file — the new `year`, five `amount_cents`, `guest_period.start`
+  and `guest_period.end`, and `verified_on`
   set to the day you read the page — and every installed site's barème
   proposes the new figures from the release that carries it. A new season
-  whose amounts did not move is a divergence too (« season changed »): the
-  barème only proposes the file for its own year, so the fix is the file's
-  `year` and `verified_on`, amounts untouched.
+  whose five amounts AND both paid guest bounds did not move is a divergence
+  too (« Scout year changed »): the barème only proposes the file for its
+  own year, so only then is the fix limited to `year` and `verified_on`.
+  When amounts or bounds also change, update those values too. A period-only
+  change is a divergence too: update the two bounds and verification date.
 - **A console or legal link is dead**: find the provider's current page for
   the same thing (API keys, privacy policy, DPA…) on the provider's own
   site.

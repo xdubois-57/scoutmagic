@@ -169,6 +169,15 @@
       "menu": "espace_admin",
       "label": "",
       "role_min": "admin"
+    },
+    {
+      "path": "/admin/fees/tarifs/bareme/appliquer",
+      "method": "POST",
+      "controller": "Modules\\Fees\\Controller\\FeeAccuracyController",
+      "action": "applyTariffs",
+      "menu": "espace_admin",
+      "label": "",
+      "role_min": "admin"
     }
   ],
   "settings": [
@@ -177,7 +186,31 @@
       "default_value": "https://www.lesscouts.be/fr/ressources-scouts/administratif-1/inscriptions-et-cotisations/inscriptions-et-cotisations",
       "type": "url",
       "label": "Page des cotisations de la fédération",
-      "description": "Page lue par le bouton « Chercher les montants » du barème, dans Justesse des tarifs. Le site n'utilise aucun moteur de recherche : le jour où la fédération déplace cette page, c'est ce champ qu'il faut corriger. Sans connecteur IA actif, ce réglage ne sert à rien et le bouton n'est pas proposé."
+      "description": "Page lue par le bouton « Chercher les montants et la période » du barème, dans Justesse des tarifs. Le site n'utilise aucun moteur de recherche : le jour où la fédération déplace cette page, c'est ce champ qu'il faut corriger. Sans connecteur IA actif, ce réglage ne sert à rien et le bouton n'est pas proposé."
+    },
+    {
+      "key": "fees_guest_from",
+      "default_value": "01/06",
+      "type": "text",
+      "label": "Début du tarif Invités",
+      "description": "Borne annuelle incluse du tarif Invités, configurée dans le barème des cotisations.",
+      "editable": false
+    },
+    {
+      "key": "fees_guest_until",
+      "default_value": "31/08",
+      "type": "text",
+      "label": "Fin du tarif Invités",
+      "description": "Borne annuelle incluse du tarif Invités, configurée dans le barème des cotisations.",
+      "editable": false
+    },
+    {
+      "key": "fees_scale_year",
+      "default_value": "",
+      "type": "text",
+      "label": "Année du barème confirmé",
+      "description": "Année scoute pour laquelle les montants et la période ont été confirmés par un enregistrement du barème.",
+      "editable": false
     }
   ],
   "cookies": [],

@@ -8,11 +8,11 @@ declare(strict_types=1);
 
 namespace Modules\Fees\Value;
 
-use Core\Member\HouseholdFeeCategory;
+use Modules\Fees\FeeTariff;
 
 /**
  * One line of the barème: which Desk fee category this unit uses for a
- * household tariff, and what one person on it costs.
+ * tariff, and what one person on it costs.
  *
  * Both halves are optional and mean different things when absent.
  * $feeCategoryId absent means "nobody overrode the heuristic", not "no
@@ -23,7 +23,7 @@ use Core\Member\HouseholdFeeCategory;
 final class HouseholdTariff
 {
     public function __construct(
-        public readonly HouseholdFeeCategory $category,
+        public readonly FeeTariff $category,
         public readonly ?int $feeCategoryId,
         public readonly ?int $amountCents
     ) {

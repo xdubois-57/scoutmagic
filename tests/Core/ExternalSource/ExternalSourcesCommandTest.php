@@ -50,7 +50,7 @@ final class ExternalSourcesCommandTest extends TestCase
         self::assertIsResource($out);
         self::assertIsResource($err);
 
-        $exit = (new ExternalSourcesCommand($fetcher, $loadScale ?? static fn (): FederalScale => new FederalScale(5750, 4600, 3900)))
+        $exit = (new ExternalSourcesCommand($fetcher, $loadScale ?? static fn (): FederalScale => new FederalScale(5750, 4600, 3900, 2500, 1825, '01/06', '31/08')))
             ->run($arguments, $out, $err);
 
         rewind($out);
@@ -120,11 +120,11 @@ final class ExternalSourcesCommandTest extends TestCase
             }
         };
 
-        [, $same] = self::execute($fetcher, [], static fn (): FederalScale => new FederalScale(5750, 4600, 3900));
-        [, $other] = self::execute($fetcher, [], static fn (): FederalScale => new FederalScale(1, 2, 3));
+        [, $same] = self::execute($fetcher, [], static fn (): FederalScale => new FederalScale(5750, 4600, 3900, 2500, 1825, '01/06', '31/08'));
+        [, $other] = self::execute($fetcher, [], static fn (): FederalScale => new FederalScale(1, 2, 3, 2500, 1825, '01/06', '31/08'));
 
-        $this->assertStringNotContainsString('amounts changed', $same);
-        $this->assertStringContainsString('amounts changed', $other);
+        $this->assertStringNotContainsString('Amounts changed', $same);
+        $this->assertStringContainsString('Amounts changed', $other);
     }
 
     /** The weekly check: one request per source, whatever the host does. */

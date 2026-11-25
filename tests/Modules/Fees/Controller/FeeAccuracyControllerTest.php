@@ -24,7 +24,10 @@ use Core\ScoutYear\ScoutYearResolver;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\Security\EncryptionService;
-use Core\View\TwigFactory;
+use Tests\TestTwig;
+use Modules\Fees\FeeTariff;
+use Modules\Fees\Support\SuggestedScale;
+use Modules\Fees\Value\FederalScaleLookup;
 use Modules\Fees\Controller\FeeAccuracyController;
 use Modules\Fees\Repository\FeesImportRepository;
 use Modules\Fees\Repository\HouseholdDetailRepository;
@@ -42,7 +45,7 @@ use Tests\Modules\Fees\Support\StubbedFederalScaleLookupService;
 use Twig\Environment;
 
 /**
- * The five routes of « Justesse des tarifs », and their RBAC boundary:
+ * The routes of « Justesse des tarifs », and their RBAC boundary:
  * allowed at `admin` (the Espace chefs d'U floor), refused one level below
  * at `chief` — reads, writes and the export alike.
  *
@@ -74,6 +77,13 @@ class FeeAccuracyControllerTest extends TestCase
 
         $settingService = new SettingService(new SettingRepository($this->pdo));
         $this->settingService = $settingService;
+        $manifest = json_decode((string) file_get_contents(dirname(__DIR__, 4) . '/modules/fees/module.json'), true);
+        foreach ($manifest['settings'] as $setting) {
+            $settingService->register(
+                $setting['key'], $setting['default_value'], $setting['type'], $setting['label'],
+                $setting['description'], 'fees', null, null, $setting['editable'] ?? true
+            );
+        }
         $settingService->register(ScoutYearResolver::SETTING_PUBLIC_YEAR, '0', 'number', 'Public', 'desc', null, '^[0-9]+$', null, false);
         $settingService->register(ScoutYearResolver::SETTING_STAFF_YEAR, '0', 'number', 'Staff', 'desc', null, '^[0-9]+$', null, false);
 
@@ -91,9 +101,7 @@ class FeeAccuracyControllerTest extends TestCase
         $this->tariffs = new HouseholdTariffService(new HouseholdTariffRepository($this->pdo), $feeCategories);
         $this->journalService = new JournalService(new JournalRepository($this->pdo));
 
-        $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
-        $moduleViews = dirname(__DIR__, 4) . '/modules/fees/views';
-        $twig = TwigFactory::create($templateDir, false, ['fees' => $moduleViews]);
+        $twig = TestTwig::create(['fees']);
         $twig->addGlobal('site_name', 'Unité Test');
         $twig->addGlobal('is_authenticated', true);
         $twig->addGlobal('current_user_role', 'admin');
@@ -143,7 +151,10 @@ class FeeAccuracyControllerTest extends TestCase
             $this->scoutYearResolver,
             $this->journalService,
             $lookup,
-            new ShippedScaleService($this->tariffs)
+            new ShippedScaleService($this->tariffs),
+            new \Modules\Fees\Service\TariffConfigurationService(
+                $this->tariffs, $this->feeCategories, $this->settingService
+            )
         );
     }
 
@@ -209,6 +220,7 @@ class FeeAccuracyControllerTest extends TestCase
             'putting one back' => ['POST', '/admin/fees/tarifs/reprendre', 'unignore'],
             'saving the scale' => ['POST', '/admin/fees/tarifs/bareme', 'saveTariffs'],
             'looking the amounts up' => ['POST', '/admin/fees/tarifs/bareme/chercher', 'lookupTariffs'],
+            'applying a proposal' => ['POST', '/admin/fees/tarifs/bareme/appliquer', 'applyTariffs'],
         ];
     }
 
@@ -645,15 +657,14 @@ class FeeAccuracyControllerTest extends TestCase
     {
         AuthSession::login(1, 'admin@test.be', 'admin');
 
-        $this->dispatch('POST', '/admin/fees/tarifs/bareme', 'saveTariffs', [
-            '_csrf_token' => CsrfGuard::generateToken(),
+        $this->dispatch('POST', '/admin/fees/tarifs/bareme', 'saveTariffs', array_replace($this->validBody(), [
             'amount_normal' => '39,50',
             'amount_couple' => '35.00',
             'amount_family' => '',
             'fee_category_normal' => (string) $this->normalFeeId,
             'fee_category_couple' => '',
             'fee_category_family' => (string) $this->familyFeeId,
-        ]);
+        ]));
 
         $this->assertSame(3950, $this->tariffs->amountCentsFor(HouseholdFeeCategory::NORMAL));
         $this->assertSame(3500, $this->tariffs->amountCentsFor(HouseholdFeeCategory::COUPLE));
@@ -724,65 +735,192 @@ class FeeAccuracyControllerTest extends TestCase
     {
         AuthSession::login(1, 'admin@test.be', 'admin');
 
-        $response = $this->dispatch('POST', '/admin/fees/tarifs/bareme/chercher', 'lookupTariffs', [
-            '_csrf_token' => CsrfGuard::generateToken(),
-        ]);
+        $response = $this->dispatch('POST', '/admin/fees/tarifs/bareme/chercher', 'lookupTariffs', $this->validBody());
 
         $this->assertSame(302, $response->getStatusCode());
         $this->assertNull($this->tariffs->amountCentsFor(HouseholdFeeCategory::NORMAL));
     }
 
-    /**
-     * The heart of the feature: a successful lookup PRE-FILLS and saves
-     * nothing. The three fields come back filled, the block names the page
-     * and the year the figures rest on, and `fees_household_tariffs` is
-     * still empty until somebody clicks « Enregistrer le barème ».
-     */
-    public function testASuccessfulLookupPreFillsTheFieldsAndWritesNothing(): void
+    public function testLookupOffersValuesSeparatelyAndPreservesTheDraftAcrossRenders(): void
     {
         $this->useLookupService($this->lookupAnswering(
-            '{"annee": "2025-2026", "normale": "57,50", "couple": "46", "familiale": "39"}'
+            '{"annee":"2025-2026","normale":"57,50","iama":"25","invites":"18,25",'
+            . '"debut_invites":"01/06","fin_invites":"31/08"}'
         ));
         AuthSession::login(1, 'admin@test.be', 'admin');
-
-        $response = $this->dispatch('POST', '/admin/fees/tarifs/bareme/chercher', 'lookupTariffs', [
-            '_csrf_token' => CsrfGuard::generateToken(),
+        $this->tariffs->save(HouseholdFeeCategory::COUPLE, null, 4600);
+        $this->tariffs->save(FeeTariff::GUEST, null, 1825);
+        $before = $this->storedScaleState();
+        $posted = array_replace($this->validBody(), [
+            'amount_normal' => '61,11', 'amount_couple' => '', 'amount_guest' => '0',
+            'guest_from' => '02/06', 'guest_until' => '15/09',
+            'fee_category_normal' => (string) $this->normalFeeId,
         ]);
-        $this->assertSame(302, $response->getStatusCode());
+        $this->dispatch('POST', '/admin/fees/tarifs/bareme/chercher', 'lookupTariffs', $posted);
 
-        // Nothing reached the database from the model's answer.
-        $this->assertNull($this->tariffs->amountCentsFor(HouseholdFeeCategory::NORMAL));
-        $this->assertNull($this->tariffs->amountCentsFor(HouseholdFeeCategory::COUPLE));
-        $this->assertNull($this->tariffs->amountCentsFor(HouseholdFeeCategory::FAMILY));
-        $this->assertSame(
-            0,
-            (int) $this->pdo->query('SELECT COUNT(*) FROM fees_household_tariffs')->fetchColumn()
-        );
+        for ($visit = 0; $visit < 2; $visit++) {
+            $body = (string) $this->dispatch('GET', '/admin/fees/tarifs', 'index')->getBody();
+            $this->assertSame('61,11', $this->fieldValue($body, 'amount_normal'));
+            $this->assertSame('', $this->fieldValue($body, 'amount_couple'));
+            $this->assertSame('0', $this->fieldValue($body, 'amount_guest'));
+            $this->assertSame('15/09', $this->fieldValue($body, 'guest_until'));
+            $this->assertStringContainsString('57,50 €', $body);
+            $this->assertStringContainsString('À compléter : Couple, Familiale', $body);
+            $this->assertStringContainsString(FederalScaleLookupService::DEFAULT_URL, $body);
+            $this->assertSame($before, $this->storedScaleState());
+        }
+        $this->assertNotNull(SuggestedScale::peek('2025-2026'));
+    }
 
+    /** @return array<string, array{string, string, string}> */
+    public static function applicationModes(): array
+    {
+        return ['amounts only' => ['amounts', '02/06', '15/09'], 'with period' => ['all', '01/06', '31/08']];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('applicationModes')]
+    public function testApplyingUsesCurrentFieldsAndDoesNotSave(string $mode, string $from, string $until): void
+    {
+        AuthSession::login(1, 'admin@test.be', 'admin');
+        $this->tariffs->save(HouseholdFeeCategory::FAMILY, null, 3900);
+        $before = DatabaseTestHelper::snapshot($this->pdo);
+        SuggestedScale::rememberDraft('2025-2026', array_replace($this->validBody(), [
+            'amount_couple' => '45', 'amount_family' => '39,00', 'amount_guest' => '18,25',
+        ]));
+        SuggestedScale::set(FederalScaleLookup::found(
+            FederalScaleLookupService::DEFAULT_URL, '2025-2026', ['normal' => 5750, 'iama' => 2500], '01/06', '31/08'
+        ));
+        $token = SuggestedScale::peek('2025-2026')['token'];
+        $posted = array_replace($this->validBody(), [
+            'proposal_token' => $token, 'apply_scale' => $mode,
+            'amount_couple' => '49,12', 'amount_family' => '', 'amount_guest' => '0',
+            'fee_category_normal' => (string) $this->normalFeeId,
+            'guest_from' => '02/06', 'guest_until' => '15/09',
+        ]);
+        $this->dispatch('POST', '/admin/fees/tarifs/bareme/appliquer', 'applyTariffs', $posted);
         $body = (string) $this->dispatch('GET', '/admin/fees/tarifs', 'index')->getBody();
-
-        $this->assertStringContainsString('value="57,50"', $body);
-        $this->assertStringContainsString('value="46,00"', $body);
-        $this->assertStringContainsString('value="39,00"', $body);
-        // Without these two a treasurer validates a number without knowing
-        // what it rests on.
-        $this->assertStringContainsString('2025-2026', $body);
-        $this->assertStringContainsString(FederalScaleLookupService::DEFAULT_URL, $body);
+        foreach (['amount_normal' => '57,50', 'amount_iama' => '25,00', 'amount_couple' => '49,12',
+            'amount_family' => '', 'amount_guest' => '0', 'guest_from' => $from, 'guest_until' => $until,
+            'fee_category_normal' => (string) $this->normalFeeId] as $name => $value) {
+            $this->assertSame($value, $this->fieldValue($body, $name), $name);
+        }
+        $this->assertSame($before, DatabaseTestHelper::snapshot($this->pdo));
+        $this->assertNull(SuggestedScale::peek('2025-2026'));
+        // A replay cannot overwrite what was filled by the first application.
+        $applied = SuggestedScale::draftFor('2025-2026');
+        $this->dispatch('POST', '/admin/fees/tarifs/bareme/appliquer', 'applyTariffs', $posted);
+        $this->assertSame(['error', $applied], [
+            FlashMessage::get()['type'], SuggestedScale::draftFor('2025-2026'),
+        ]);
     }
 
-    /** The suggestion survives exactly one render, then it is gone. */
-    public function testThePreFillIsConsumedByTheFirstRenderOnly(): void
+    public function testAReplacedProposalAndAnotherYearCannotBeApplied(): void
     {
-        $this->useLookupService($this->lookupAnswering(
-            '{"annee": "2025-2026", "normale": "57,50", "couple": "46", "familiale": "39"}'
-        ));
         AuthSession::login(1, 'admin@test.be', 'admin');
-        $this->dispatch('POST', '/admin/fees/tarifs/bareme/chercher', 'lookupTariffs', [
-            '_csrf_token' => CsrfGuard::generateToken(),
+        $lookup = FederalScaleLookup::found(FederalScaleLookupService::DEFAULT_URL, '2025-2026', ['guest' => 1825]);
+        SuggestedScale::set($lookup);
+        $oldToken = SuggestedScale::peek('2025-2026')['token'];
+        SuggestedScale::set($lookup);
+        $current = SuggestedScale::peek('2025-2026');
+        SuggestedScale::rememberDraft('2025-2026', array_replace($this->validBody(), ['amount_couple' => '44,00']));
+        $posted = array_replace($this->validBody(), [
+            'proposal_token' => $oldToken, 'apply_scale' => 'all',
+            'amount_couple' => '47,23', 'amount_normal' => '61,11',
         ]);
+        $this->dispatch('POST', '/admin/fees/tarifs/bareme/appliquer', 'applyTariffs', $posted);
+        $draft = SuggestedScale::draftFor('2025-2026');
+        $this->assertSame(['error', $current, '47,23', '61,11', 0], [
+            FlashMessage::get()['type'], SuggestedScale::peek('2025-2026'),
+            $draft['amount_couple'] ?? null, $draft['amount_normal'] ?? null, $this->storedTariffRows(),
+        ]);
+        $this->switchToTheShippedYear();
+        $posted['proposal_token'] = $current['token'];
+        $this->dispatch('POST', '/admin/fees/tarifs/bareme/appliquer', 'applyTariffs', $posted);
+        $this->assertStringContainsString('année scoute', FlashMessage::get()['message']);
+        $this->assertNull(SuggestedScale::draftFor('2026-2027'));
+        $this->assertSame(0, $this->storedTariffRows());
+    }
 
-        $this->assertStringContainsString('value="57,50"', (string) $this->dispatch('GET', '/admin/fees/tarifs', 'index')->getBody());
-        $this->assertStringNotContainsString('value="57,50"', (string) $this->dispatch('GET', '/admin/fees/tarifs', 'index')->getBody());
+    public function testAnInvalidScaleKeepsAllFieldsAndWritesNothing(): void
+    {
+        AuthSession::login(1, 'admin@test.be', 'admin');
+        $posted = array_replace($this->validBody(), ['amount_iama' => '-2', 'guest_until' => '15/09']);
+        $this->dispatch('POST', '/admin/fees/tarifs/bareme', 'saveTariffs', $posted);
+        $this->assertSame('error', FlashMessage::get()['type']);
+        $body = (string) $this->dispatch('GET', '/admin/fees/tarifs', 'index')->getBody();
+        $this->assertSame('-2', $this->fieldValue($body, 'amount_iama'));
+        $this->assertSame('15/09', $this->fieldValue($body, 'guest_until'));
+        $this->assertSame(0, $this->storedTariffRows());
+    }
+
+    /** @return array<string, array{string, string}> */
+    public static function scalePostRoutes(): array
+    {
+        return [
+            'save' => ['saveTariffs', '/bareme'],
+            'lookup' => ['lookupTariffs', '/bareme/chercher'],
+            'apply' => ['applyTariffs', '/bareme/appliquer'],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('scalePostRoutes')]
+    public function testAllScalePostsRequireCsrfIncludingApplication(string $action, string $suffix): void
+    {
+        AuthSession::login(1, 'admin@test.be', 'admin');
+        $this->useLookupService($this->lookupAnswering('{"annee":"2025-2026","normale":"59"}'));
+        SuggestedScale::set(FederalScaleLookup::found(
+            FederalScaleLookupService::DEFAULT_URL, '2025-2026', ['normal' => 5750]
+        ));
+        $proposal = SuggestedScale::peek('2025-2026');
+        $before = DatabaseTestHelper::snapshot($this->pdo);
+        // Every allowed path would change this state: save writes five rows,
+        // lookup writes its journal and replaces the proposal, apply consumes
+        // it and retains the current form. A refusal therefore has an effect
+        // to prevent, including on the two routes that do not save prices.
+        $posted = array_replace($this->validBody(), [
+            '_csrf_token' => 'wrong', 'proposal_token' => $proposal['token'],
+            'apply_scale' => 'all', 'amount_normal' => '61,11',
+        ]);
+        $this->dispatch('POST', '/admin/fees/tarifs' . $suffix, $action, $posted);
+        $this->assertSame([$before, $proposal, null], [
+            DatabaseTestHelper::snapshot($this->pdo), SuggestedScale::peek('2025-2026'),
+            SuggestedScale::draftFor('2025-2026'),
+        ]);
+    }
+
+    public function testTheLiveRuleScriptHasAnAbsoluteVersionedUrl(): void
+    {
+        AuthSession::login(1, 'admin@test.be', 'admin');
+        $body = (string) $this->dispatch('GET', '/admin/fees/tarifs', 'index')->getBody();
+        $this->assertStringContainsString('src="/assets/js/fees-scale.js?v=', $body);
+    }
+
+    public function testTheGuestSelectorRequiresAnActualImportedTariff(): void
+    {
+        AuthSession::login(1, 'admin@test.be', 'admin');
+        $body = (string) $this->dispatch('GET', '/admin/fees/tarifs', 'index')->getBody();
+        $dom = \Dom\HTMLDocument::createFromString($body, LIBXML_NOERROR);
+        $this->assertSame('hidden', $dom->querySelector('[name="fee_category_guest"]')->getAttribute('type'));
+        $this->feeCategories->create('COT_INVITE', 'Invités');
+        // A fresh service reads the newly imported category just as a new request does.
+        $fresh = new HouseholdTariffService(new HouseholdTariffRepository($this->pdo), $this->feeCategories);
+        $this->tariffs = $fresh;
+        $this->useLookupService(new FederalScaleLookupService(null, $this->settingService, $this->journalService));
+        $body = (string) $this->dispatch('GET', '/admin/fees/tarifs', 'index')->getBody();
+        $dom = \Dom\HTMLDocument::createFromString($body, LIBXML_NOERROR);
+        $this->assertSame('SELECT', $dom->querySelector('[name="fee_category_guest"]')->tagName);
+        $this->assertStringContainsString('Invités (deviné)', $body);
+    }
+
+    private function fieldValue(string $body, string $name): string
+    {
+        $dom = \Dom\HTMLDocument::createFromString($body, LIBXML_NOERROR);
+        $node = $dom->querySelector('[name="' . $name . '"]');
+        $this->assertNotNull($node, $name);
+        if ($node->tagName === 'SELECT') {
+            return $node->querySelector('option[selected]')?->getAttribute('value') ?? '';
+        }
+        return $node->getAttribute('value');
     }
 
     /**
@@ -797,9 +935,7 @@ class FeeAccuracyControllerTest extends TestCase
         ));
         AuthSession::login(1, 'admin@test.be', 'admin');
 
-        $this->dispatch('POST', '/admin/fees/tarifs/bareme/chercher', 'lookupTariffs', [
-            '_csrf_token' => CsrfGuard::generateToken(),
-        ]);
+        $this->dispatch('POST', '/admin/fees/tarifs/bareme/chercher', 'lookupTariffs', $this->validBody());
 
         $body = (string) $this->dispatch('GET', '/admin/fees/tarifs', 'index')->getBody();
 
@@ -822,6 +958,14 @@ class FeeAccuracyControllerTest extends TestCase
         $this->settingService->setInternal(ScoutYearResolver::SETTING_PUBLIC_YEAR, (string) $shippedYearId);
     }
 
+    /** @return array<string, list<string>> */
+    private function storedScaleState(): array
+    {
+        $snapshot = DatabaseTestHelper::snapshot($this->pdo);
+
+        return ['tariffs' => $snapshot['fees_household_tariffs'], 'settings' => $snapshot['settings']];
+    }
+
     private function storedTariffRows(): int
     {
         return (int) $this->pdo->query('SELECT COUNT(*) FROM fees_household_tariffs')->fetchColumn();
@@ -838,7 +982,7 @@ class FeeAccuracyControllerTest extends TestCase
         $this->assertStringContainsString('value="46,00"', $body);
         $this->assertStringContainsString('value="39,00"', $body);
         $this->assertStringContainsString('Montants fédéraux <strong>2026-2027</strong>', $body);
-        $this->assertStringContainsString('24 septembre 2026', $body);
+        $this->assertStringContainsString('24 novembre 2026', $body);
         $this->assertStringContainsString('href="' . FederalScaleLookupService::DEFAULT_URL . '"', $body);
         $this->assertStringContainsString('lesscouts.be</a>', $body);
         $this->assertStringContainsString('vérifiez puis enregistrez', $body);
@@ -848,8 +992,8 @@ class FeeAccuracyControllerTest extends TestCase
 
     /**
      * A failed lookup says nothing was pre-filled: the page it redirects to
-     * must not open pre-filled from the shipped scale either. The next
-     * visit offers it again.
+     * must retain the draft rather than opening shipped defaults, on
+     * this render and subsequent visits alike.
      */
     public function testAFailedLookupIsNotContradictedByTheShippedScale(): void
     {
@@ -859,9 +1003,7 @@ class FeeAccuracyControllerTest extends TestCase
         ));
         AuthSession::login(1, 'admin@test.be', 'admin');
 
-        $this->dispatch('POST', '/admin/fees/tarifs/bareme/chercher', 'lookupTariffs', [
-            '_csrf_token' => CsrfGuard::generateToken(),
-        ]);
+        $this->dispatch('POST', '/admin/fees/tarifs/bareme/chercher', 'lookupTariffs', $this->validBody());
         $this->assertSame('error', FlashMessage::get()['type'] ?? null);
 
         $body = (string) $this->dispatch('GET', '/admin/fees/tarifs', 'index')->getBody();
@@ -869,7 +1011,7 @@ class FeeAccuracyControllerTest extends TestCase
         $this->assertStringNotContainsString('Montants fédéraux', $body);
 
         $again = (string) $this->dispatch('GET', '/admin/fees/tarifs', 'index')->getBody();
-        $this->assertStringContainsString('value="57,50"', $again);
+        $this->assertStringNotContainsString('value="57,50"', $again);
     }
 
     /** The shipped file is 2026-2027; this unit's screen is about 2025-2026. */
@@ -884,7 +1026,7 @@ class FeeAccuracyControllerTest extends TestCase
         $this->assertSame(0, $this->storedTariffRows());
     }
 
-    /** One amount the unit saved and the barème is theirs: nothing shipped sits over it. */
+    /** Saved rows remain unchanged while missing rows can receive shipped defaults. */
     public function testTheShippedScaleNeverCoversAStoredAmount(): void
     {
         $this->switchToTheShippedYear();
@@ -895,7 +1037,8 @@ class FeeAccuracyControllerTest extends TestCase
 
         $this->assertStringContainsString('value="39,50"', $body);
         $this->assertStringNotContainsString('value="57,50"', $body);
-        $this->assertStringNotContainsString('Montants fédéraux', $body);
+        $this->assertStringContainsString('value="25,00"', $body);
+        $this->assertStringContainsString('Montants fédéraux', $body);
     }
 
     /**
@@ -909,15 +1052,16 @@ class FeeAccuracyControllerTest extends TestCase
         AuthSession::login(1, 'admin@test.be', 'admin');
         $this->dispatch('GET', '/admin/fees/tarifs', 'index');
 
-        $response = $this->dispatch('POST', '/admin/fees/tarifs/bareme', 'saveTariffs', [
-            '_csrf_token' => CsrfGuard::generateToken(),
+        $response = $this->dispatch('POST', '/admin/fees/tarifs/bareme', 'saveTariffs', array_replace($this->validBody(), [
             'amount_normal' => '57,50',
             'amount_couple' => '46,00',
             'amount_family' => '39,00',
             'fee_category_normal' => '',
             'fee_category_couple' => '',
             'fee_category_family' => '',
-        ]);
+            'amount_iama' => '25',
+            'amount_guest' => '18,25',
+        ]));
 
         $this->assertSame(302, $response->getStatusCode());
         $this->assertSame(5750, $this->tariffs->amountCentsFor(HouseholdFeeCategory::NORMAL));
@@ -935,14 +1079,13 @@ class FeeAccuracyControllerTest extends TestCase
             '{"annee": "2026-2027", "normale": "58", "couple": "47", "familiale": "40"}'
         ));
         AuthSession::login(1, 'admin@test.be', 'admin');
-        $this->dispatch('POST', '/admin/fees/tarifs/bareme/chercher', 'lookupTariffs', [
-            '_csrf_token' => CsrfGuard::generateToken(),
-        ]);
+        $this->dispatch('POST', '/admin/fees/tarifs/bareme/chercher', 'lookupTariffs', $this->validBody());
 
         $body = (string) $this->dispatch('GET', '/admin/fees/tarifs', 'index')->getBody();
 
-        $this->assertStringContainsString('value="58,00"', $body);
-        $this->assertStringContainsString("Montants proposés pour l'année", $body);
+        $this->assertStringContainsString('58,00 €', $body);
+        $this->assertSame('', $this->fieldValue($body, 'amount_normal'));
+        $this->assertStringContainsString('Proposition fédérale pour 2026-2027', $body);
         $this->assertStringNotContainsString('Montants fédéraux', $body);
     }
 
@@ -952,7 +1095,7 @@ class FeeAccuracyControllerTest extends TestCase
             new FakeLlmConnector(tierAvailable: true, content: $content),
             $this->settingService,
             $this->journalService,
-            '<html><body><h2>COTISATIONS</h2></body></html>'
+            '<h3>Cotisations 2025-2026</h3><p>Barème</p><h3>Cotisations 2026-2027</h3><p>Barème</p>'
         );
     }
 
@@ -979,6 +1122,12 @@ class FeeAccuracyControllerTest extends TestCase
             '_csrf_token' => CsrfGuard::generateToken(),
             'address_blind_index' => $this->blindIndex(),
             'reason' => 'Motif',
+            'scale_year' => $this->scoutYearResolver->getEffectiveYear(null, \Core\Security\Role::ADMIN)->label,
+            'guest_from' => '01/06', 'guest_until' => '31/08',
+            'amount_normal' => '', 'amount_couple' => '', 'amount_family' => '',
+            'amount_iama' => '', 'amount_guest' => '',
+            'fee_category_normal' => '', 'fee_category_couple' => '', 'fee_category_family' => '',
+            'fee_category_iama' => '', 'fee_category_guest' => '',
         ];
     }
 

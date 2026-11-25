@@ -40,9 +40,9 @@ final class ShippedScaleServiceTest extends TestCase
         $suggestion = (new ShippedScaleService($this->tariffs))->suggestionFor('2026-2027');
 
         $this->assertNotNull($suggestion);
-        $this->assertSame(['normal' => 5750, 'couple' => 4600, 'family' => 3900], $suggestion['amount_cents']);
+        $this->assertSame(['normal' => 5750, 'couple' => 4600, 'family' => 3900, 'iama' => 2500, 'guest' => 1825], $suggestion['amount_cents']);
         $this->assertSame('2026-2027', $suggestion['year']);
-        $this->assertSame('2026-09-24', $suggestion['verified_on']);
+        $this->assertSame('2026-11-24', $suggestion['verified_on']);
         $this->assertSame(ExternalSources::FEES_PAGE, $suggestion['url']);
         $this->assertSame('lesscouts.be', $suggestion['host']);
         $this->assertSame(ShippedScaleService::ORIGIN, $suggestion['origin']);
@@ -63,12 +63,17 @@ final class ShippedScaleServiceTest extends TestCase
         $this->assertNull($service->suggestionFor(''));
     }
 
-    /** One stored amount is enough: the barème is the unit's own. */
-    public function testABaremeWithAnyAmountIsNotPreFilled(): void
+    /** Missing rows may be proposed; a stored amount is never covered. */
+    public function testOnlyUnstoredTariffsAreProposedBesideACustomAmount(): void
     {
         $this->tariffs->save(HouseholdFeeCategory::FAMILY, null, 3800);
 
-        $this->assertNull((new ShippedScaleService($this->tariffs))->suggestionFor('2026-2027'));
+        $suggestion = (new ShippedScaleService($this->tariffs))->suggestionFor('2026-2027');
+
+        $this->assertSame(
+            ['normal' => 5750, 'couple' => 4600, 'iama' => 2500, 'guest' => 1825],
+            $suggestion['amount_cents'] ?? null
+        );
     }
 
     /**
@@ -76,11 +81,16 @@ final class ShippedScaleServiceTest extends TestCase
      * again on every visit, the shipped figures would be saved by the next
      * unrelated change to the panel.
      */
-    public function testABaremeSavedEmptyIsNotPreFilled(): void
+    public function testAnExplicitlyEmptyTariffIsNotProposedAgain(): void
     {
         $this->tariffs->save(HouseholdFeeCategory::COUPLE, null, null);
 
-        $this->assertNull((new ShippedScaleService($this->tariffs))->suggestionFor('2026-2027'));
+        $suggestion = (new ShippedScaleService($this->tariffs))->suggestionFor('2026-2027');
+
+        $this->assertSame(
+            ['normal' => 5750, 'family' => 3900, 'iama' => 2500, 'guest' => 1825],
+            $suggestion['amount_cents'] ?? null
+        );
     }
 
     public function testNothingIsWritten(): void

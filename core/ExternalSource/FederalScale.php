@@ -9,9 +9,8 @@ declare(strict_types=1);
 namespace Core\ExternalSource;
 
 /**
- * The three household tariffs the federation publishes, in cents: normal
- * (one member), couple and family (each per person). `year` is the
- * `YYYY-YYYY` heading they were published under, when the page gave one.
+ * The five per-person tariffs and the annual paid guest window.
+ * `year` is the `YYYY-YYYY` heading they were published under, when given.
  */
 final class FederalScale
 {
@@ -19,26 +18,42 @@ final class FederalScale
         public readonly int $normalCents,
         public readonly int $coupleCents,
         public readonly int $familyCents,
+        public readonly int $iamaCents,
+        public readonly int $guestCents,
+        public readonly string $guestFromDayMonth,
+        public readonly string $guestUntilDayMonth,
         public readonly ?string $year = null,
     ) {
     }
 
-    /** Same three amounts; the checker compares the year on its own. */
+    /** The checker compares the year and annual window separately. */
     public function sameAmountsAs(self $other): bool
     {
         return $this->normalCents === $other->normalCents
             && $this->coupleCents === $other->coupleCents
-            && $this->familyCents === $other->familyCents;
+            && $this->familyCents === $other->familyCents
+            && $this->iamaCents === $other->iamaCents
+            && $this->guestCents === $other->guestCents;
+    }
+
+    public function sameGuestPeriodAs(self $other): bool
+    {
+        return $this->guestFromDayMonth === $other->guestFromDayMonth
+            && $this->guestUntilDayMonth === $other->guestUntilDayMonth;
     }
 
     public function describe(): string
     {
         return sprintf(
-            '%snormal %s, couple %s, family %s',
+            '%snormal %s, couple %s, family %s, IAmA %s, guests %s, guest period %s–%s inclusive',
             $this->year !== null ? $this->year . ': ' : '',
             self::euros($this->normalCents),
             self::euros($this->coupleCents),
-            self::euros($this->familyCents)
+            self::euros($this->familyCents),
+            self::euros($this->iamaCents),
+            self::euros($this->guestCents),
+            $this->guestFromDayMonth,
+            $this->guestUntilDayMonth
         );
     }
 

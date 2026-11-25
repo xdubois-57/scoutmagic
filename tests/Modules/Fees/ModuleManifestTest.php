@@ -74,7 +74,8 @@ class ModuleManifestTest extends TestCase
     }
 
     /**
-     * The one setting the module has: the federal page the barème's
+     * The editable federal page setting and the internal annual-policy settings.
+     * The barème's
      * « Chercher les montants » button reads. Declared with a description
      * (AGENTS.md § Module creation checklist) and defaulting to the real
      * page, so a unit that never touches Configuration > Réglages still
@@ -83,7 +84,14 @@ class ModuleManifestTest extends TestCase
     public function testTheFederalScalePageIsADeclaredSetting(): void
     {
         $keys = array_column($this->manifest->settings, 'key');
-        $this->assertSame(['fees_federal_scale_url'], $keys);
+        $this->assertSame([
+            'fees_federal_scale_url', 'fees_guest_from', 'fees_guest_until', 'fees_scale_year',
+        ], $keys);
+        foreach (array_slice($this->manifest->settings, 1) as $internal) {
+            $this->assertFalse($internal['editable']);
+            $this->assertSame('text', $internal['type']);
+            $this->assertNotSame('', $internal['description']);
+        }
 
         $setting = $this->manifest->settings[0];
         $this->assertSame('url', $setting['type']);

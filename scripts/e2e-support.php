@@ -35,6 +35,10 @@ declare(strict_types=1);
  *                              repository ships activated — see
  *                              e2eActivateAllModules() for why all of
  *                              them and not just the default three.
+ *   seed-fees-scale-proposal <session-id> <year>
+ *                              Put a fictitious federal proposal in an
+ *                              already authenticated E2E session; no AI
+ *                              request, account or database write.
  *   set-public-year <label>    Put the site's public scout year on <label>
  *                              (created if missing) and print its id —
  *                              the one state no page can move backwards;
@@ -135,6 +139,37 @@ function e2eSupportMain(array $argv): void
                 exit(1);
             }
             exit(e2eRunScheduler($instanceDir));
+
+        case 'seed-fees-scale-proposal':
+            $sessionId = $argv[2] ?? '';
+            $year = $argv[3] ?? '';
+            if (!getenv('E2E_DB_NAME') || preg_match('/^[a-zA-Z0-9,-]{16,128}$/D', $sessionId) !== 1
+                || !is_file($repoRoot . '/storage/temp/sessions/sess_' . $sessionId)) {
+                fwrite(STDERR, "An existing E2E session is required.\n");
+                exit(1);
+            }
+            require_once $repoRoot . '/vendor/autoload.php';
+            if (Modules\Fees\Service\FederalScaleLookupService::normalizeYear($year) !== $year) {
+                fwrite(STDERR, "A canonical scout year is required.\n");
+                exit(1);
+            }
+            session_id($sessionId);
+            Core\Security\SessionManager::start();
+            if (!Core\Security\AuthSession::isAuthenticated()) {
+                fwrite(STDERR, "The E2E session must already be authenticated.\n");
+                exit(1);
+            }
+            Modules\Fees\Support\SuggestedScale::set(
+                Modules\Fees\Value\FederalScaleLookup::found(
+                    'https://example.invalid/federal-scale',
+                    $year,
+                    ['normal' => 5812, 'iama' => 2613, 'guest' => 1914],
+                    '02/06',
+                    '14/09'
+                )
+            );
+            session_write_close();
+            exit(0);
 
         case 'set-public-year':
             $label = $argv[2] ?? '';
