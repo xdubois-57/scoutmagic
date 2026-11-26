@@ -3366,7 +3366,10 @@ $attentionProviders = [
     new \Core\Alert\OperationalAttentionProvider(
         new \Core\Alert\OperationalAlertRepository($pdo),
         \Core\Alert\AlertSurfaces::labels(),
-        \Core\Alert\AlertSurfaces::destinations()
+        \Core\Alert\AlertSurfaces::destinations(),
+        // The page is role_min: admin; the host security readings are for
+        // superadmins only (issue #1358).
+        \Core\Alert\AlertSurfaces::superadminOnlyKeys()
     ),
     new \Core\Member\Duplicate\DuplicateAttentionProvider(
         new \Core\Member\Duplicate\DuplicateMemberRepository($pdo, $encryptionService)
