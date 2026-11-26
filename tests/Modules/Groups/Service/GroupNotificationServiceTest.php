@@ -737,6 +737,27 @@ class GroupNotificationServiceTest extends TestCase
         $this->assertSame([], $this->rows());
     }
 
+    /**
+     * Review of #1413. Resolving who to tell reads the database too — the
+     * thread's participants, their memberships — and it runs after the
+     * reply is stored. A lookup that throws must not fail that request,
+     * or a retry would store the reply twice.
+     */
+    public function testARecipientLookupFailureNeverEscapesToTheCaller(): void
+    {
+        $post = $this->post('question');
+        $reply = $this->reply($post->id, 'réponse', accountId: self::ACTOR_ACCOUNT, memberId: 9);
+        $resolver = $this->createStub(GroupRecipientResolver::class);
+        $resolver->method('accountsThatCanRead')->willThrowException(new \PDOException('server gone away'));
+        $resolver->method('forGroupExcluding')->willThrowException(new \PDOException('server gone away'));
+
+        $service = $this->serviceWith($resolver);
+        $service->replyReceived($this->group(), $post, $reply, 1);
+        $service->postPublished($this->group(), $post, 1);
+
+        $this->assertSame([], $this->rows());
+    }
+
     // ---- fixtures ----
 
     private int $yearId = 0;

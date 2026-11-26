@@ -13,6 +13,8 @@ use Core\Import\MemberYearRepository;
 use Core\Member\MemberAccountResolver;
 use Core\Member\MemberEmailRepository;
 use Core\Member\SectionMembershipRepository;
+use Core\ScoutYear\ScoutYearResolver;
+use Core\ScoutYear\StaffYearEligibility;
 use Core\Security\DecryptionException;
 use Core\Security\Role;
 use Core\Security\RoleResolver;
@@ -59,9 +61,12 @@ class GroupRecipientResolver
         private MemberEmailRepository $memberEmailRepository,
         private UserAccountRepository $userAccountRepository,
         private ?RoleResolver $roleResolver = null,
-        private ?ScoutYearService $scoutYearService = null
+        private ?ScoutYearService $scoutYearService = null,
+        private ?ScoutYearResolver $scoutYearResolver = null
     ) {
     }
+
+    private ?StaffYearEligibility $staffYearEligibility = null;
 
     private ?MemberAccountResolver $memberAccounts = null;
 
@@ -228,6 +233,16 @@ class GroupRecipientResolver
      * account's side, at send time: somebody who left the section since
      * they wrote drops out on their own.
      *
+     * **In each account's OWN authorization year**, not the actor's: during
+     * a year transition the staff year is served only to the accounts that
+     * reach `intendant` in it (Core\ScoutYear\ScoutYearResolver), so the
+     * chief who replies and the parent who answered before them open the
+     * group in two different years. Judging the parent in the chief's
+     * year could hand them a reply's text for a group their own session
+     * would refuse. $effectiveScoutYearId is only the fallback when this
+     * resolver was built without a ScoutYearResolver (a narrow unit test,
+     * never the composition root).
+     *
      * An account none of whose members is in the group can still open it
      * when it is a site admin, the one bypass canRead() knows — the author
      * of issue #158, who posts with a borrowed member and must still hear
@@ -244,12 +259,12 @@ class GroupRecipientResolver
             return [];
         }
 
-        $inGroup = array_flip($this->memberIdsFor($group, $effectiveScoutYearId));
         $indexes = $this->userAccountRepository->findEmailBlindIndexesByIds($accountIds);
-        $deskMembers = $this->memberYearRepository->findMemberIdsByEmailBlindIndexes(
-            array_values($indexes),
-            $effectiveScoutYearId
-        );
+
+        // Membership and Desk links are read once per distinct year, which
+        // outside a transition is one year for everybody.
+        $inGroupByYear = [];
+        $deskMembersByYear = [];
 
         $recipients = [];
         foreach ($accountIds as $accountId) {
@@ -259,9 +274,16 @@ class GroupRecipientResolver
                 continue;
             }
 
+            $yearId = $this->authorizationYearIdFor($accountId, $effectiveScoutYearId);
+            $inGroupByYear[$yearId] ??= array_flip($this->memberIdsFor($group, $yearId));
+            $deskMembersByYear[$yearId] ??= $this->memberYearRepository->findMemberIdsByEmailBlindIndexes(
+                array_values($indexes),
+                $yearId
+            );
+
             $memberId = $this->firstMemberInGroup(
-                [...($deskMembers[$index] ?? []), ...$this->secondaryMemberIds($index, $effectiveScoutYearId)],
-                $inGroup
+                [...($deskMembersByYear[$yearId][$index] ?? []), ...$this->secondaryMemberIds($index, $yearId)],
+                $inGroupByYear[$yearId]
             );
             if ($memberId !== null) {
                 $recipients[] = ['userAccountId' => $accountId, 'memberId' => $memberId];
@@ -271,6 +293,48 @@ class GroupRecipientResolver
         }
 
         return $this->deduplicate($recipients);
+    }
+
+    /**
+     * The year this account's own session would decide access in —
+     * GroupSessionContextFactory's year (ScoutYearResolver::
+     * getAuthorizationYear()) computed for an account that is not the one
+     * signed in: the staff year when it is served to this account (it
+     * reaches `intendant` in it, through the same Core\ScoutYear\
+     * StaffYearEligibility the request uses, and the year is adjacent to
+     * the public one), the public year otherwise.
+     *
+     * The address is decrypted only if a staff year is configured at all,
+     * which is the only branch that asks for it; one that cannot be read
+     * is not served the staff year, the safe direction.
+     */
+    private function authorizationYearIdFor(int $accountId, int $fallbackYearId): int
+    {
+        if ($this->scoutYearResolver === null) {
+            return $fallbackYearId;
+        }
+
+        return $this->scoutYearResolver->getEffectiveYear(
+            null,
+            Role::PUBLIC,
+            function (int $staffYearId) use ($accountId): bool {
+                if ($this->roleResolver === null) {
+                    return false;
+                }
+                try {
+                    $account = $this->userAccountRepository->findById($accountId);
+                } catch (DecryptionException) {
+                    return false;
+                }
+                if ($account === null) {
+                    return false;
+                }
+
+                $this->staffYearEligibility ??= new StaffYearEligibility($this->roleResolver);
+
+                return $this->staffYearEligibility->isEligible($account->email, $staffYearId);
+            }
+        )->id;
     }
 
     /**

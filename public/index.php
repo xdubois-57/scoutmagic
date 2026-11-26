@@ -10364,7 +10364,10 @@ if ($isEnabled('groups')) {
         $memberEmailRepository,
         $userAccountRepo,
         $roleResolver,
-        $scoutYearService
+        $scoutYearService,
+        // Each reply participant is judged in their own authorization
+        // year, which differs from the actor's during a transition.
+        $scoutYearResolver
     );
     // A moderator row granted before the flag named a login binds itself
     // to the one account behind that member, when there is exactly one

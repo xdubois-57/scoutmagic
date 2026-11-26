@@ -556,12 +556,16 @@ class GroupNotificationService
             return;
         }
 
-        $resolved = $recipients();
-        if ($resolved === []) {
-            return;
-        }
-
         try {
+            // Resolving the audience reads the database too, so it sits
+            // inside the same guard as the dispatch: a lookup that throws
+            // must not fail a request whose post or reply is already
+            // stored — a retry would write it twice.
+            $resolved = $recipients();
+            if ($resolved === []) {
+                return;
+            }
+
             $this->notificationService->dispatch($typeId, $resolved, $payload, $actorUserAccountId);
         } catch (\Throwable) {
             // A post that published perfectly well is never rolled back
