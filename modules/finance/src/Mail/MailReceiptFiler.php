@@ -260,16 +260,18 @@ class MailReceiptFiler
      * looked yet » are the same thing to a reader of the table: a receipt
      * a treasurer confirmed that the store refused read « pas encore
      * traité » for ever, since the catch-up skips every association a
-     * person made. Written where the refusal is said in the journal.
+     * person made. Written where the refusal is said in the journal — and
+     * with a reason that settles nothing (`REASON_PERSON_REFUSED`): it must
+     * not stop a later pass from filing the attachment.
      */
-    public function rememberNotFiled(InboundMessage $message, InboundAttachment $attachment): void
+    public function rememberRefusedForPerson(InboundMessage $message, InboundAttachment $attachment): void
     {
         try {
             $this->sources->record(
                 $attachment->id,
                 $message->id,
                 null,
-                ReceiptMailSourceRepository::REASON_NOT_FILED
+                ReceiptMailSourceRepository::REASON_PERSON_REFUSED
             );
         } catch (\Throwable $e) {
             $this->sayNotFiled($e, $attachment);

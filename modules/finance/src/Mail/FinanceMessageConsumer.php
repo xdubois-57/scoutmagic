@@ -363,9 +363,18 @@ class FinanceMessageConsumer implements
     ): AttachmentFate {
         $state = match (true) {
             $reason === null => AttachmentFate::PENDING,
-            $reason === ReceiptMailSourceRepository::REASON_NOT_FILED => AttachmentFate::REFUSED,
+            $reason === ReceiptMailSourceRepository::REASON_NOT_FILED,
+            $reason === ReceiptMailSourceRepository::REASON_PERSON_REFUSED => AttachmentFate::REFUSED,
             $reason === ReceiptMailSourceRepository::REASON_UNREADABLE => AttachmentFate::UNREADABLE,
-            $receipt !== null && $receipt->status === Attachment::STATUS_ARCHIVED => AttachmentFate::DELETED,
+            // Two different histories behind a receipt that is gone: finance
+            // held an identical one that was deleted (nothing was created
+            // from this attachment), or a receipt was created from THIS
+            // attachment and deleted afterwards. « Identique » is true of
+            // the first only.
+            $receipt !== null && $receipt->status === Attachment::STATUS_ARCHIVED
+                => $reason === ReceiptMailSourceRepository::REASON_ALREADY_HELD
+                    ? AttachmentFate::DELETED
+                    : AttachmentFate::REMOVED,
             $reason === ReceiptMailSourceRepository::REASON_ALREADY_HELD => AttachmentFate::ALREADY_PRESENT,
             default => AttachmentFate::CREATED,
         };
@@ -374,6 +383,7 @@ class FinanceMessageConsumer implements
             AttachmentFate::CREATED => 'Reçu créé',
             AttachmentFate::ALREADY_PRESENT => 'Reçu déjà présent dans Finance',
             AttachmentFate::DELETED => 'Reçu identique supprimé dans Finance — non recréé',
+            AttachmentFate::REMOVED => 'Reçu supprimé dans Finance — non recréé',
             AttachmentFate::REFUSED => 'Reçu refusé par Finance — voir le journal',
             AttachmentFate::UNREADABLE => 'Pièce jointe illisible — aucun reçu créé',
             default => 'Pas encore traité par Finance',
@@ -797,7 +807,7 @@ class FinanceMessageConsumer implements
             if ($filer !== null) {
                 foreach (MailReceiptFiler::receiptAttachmentsOf($message, $link) as $attachment) {
                     $filer->said(MailReceiptTrace::PERSON_UNRESOLVED, $message, $attachment);
-                    $filer->rememberNotFiled($message, $attachment);
+                    $filer->rememberRefusedForPerson($message, $attachment);
                 }
             }
 
@@ -870,7 +880,7 @@ class FinanceMessageConsumer implements
                 // message shows as filed, the receipts screen is empty,
                 // and there is nothing anywhere to read (#175).
                 $filer->sayNotFiled($e, $attachment);
-                $filer->rememberNotFiled($message, $attachment);
+                $filer->rememberRefusedForPerson($message, $attachment);
 
                 continue;
             }

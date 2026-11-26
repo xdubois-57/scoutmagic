@@ -290,7 +290,7 @@ final class ReceiptOutcomeJournalTest extends TestCase
         $this->assertSame('/finance/receipts?account_id=unassigned', $fates[0]->url);
     }
 
-    public function testADeletedReceiptIsReportedAsNotRecreatedAndPointsAtNothing(): void
+    public function testAReceiptCreatedFromThisAttachmentAndDeletedSinceIsNotCalledIdentical(): void
     {
         $fileId = $this->inboundPdf('text_receipt.pdf');
         $consumer = $this->consumer();
@@ -300,9 +300,29 @@ final class ReceiptOutcomeJournalTest extends TestCase
 
         $fates = $consumer->attachmentFates($message, $this->unknownLink(), 'admin', []);
 
+        $this->assertSame(AttachmentFate::REMOVED, $fates[0]->state, 'there was never a duplicate');
+        $this->assertSame('Reçu supprimé dans Finance — non recréé', $fates[0]->label);
+        $this->assertNull($fates[0]->url, 'an archived receipt is on no screen');
+    }
+
+    public function testAnIdenticalReceiptDeletedBeforeIsReportedAsNotRecreated(): void
+    {
+        $fileId = $this->inboundPdf('text_receipt.pdf');
+        $consumer = $this->consumer();
+        $consumer->onLinked($this->generalMessage($fileId), $this->unknownLink());
+        $this->receiptService()->delete($this->attachments->findActiveOrdered()[0]->id);
+
+        // A second attachment of the SAME message with the same bytes: the
+        // receipt that held them is archived and came from this message, so
+        // it is not brought back (decision 3) — and it is an identical one.
+        $second = $this->generalMessage($fileId, messageId: 56, attachmentId: 92);
+        $consumer->onLinked($second, $this->unknownLink());
+
+        $fates = $consumer->attachmentFates($second, $this->unknownLink(), 'admin', []);
+
         $this->assertSame(AttachmentFate::DELETED, $fates[0]->state);
         $this->assertSame('Reçu identique supprimé dans Finance — non recréé', $fates[0]->label);
-        $this->assertNull($fates[0]->url, 'an archived receipt is on no screen');
+        $this->assertSame([], $this->attachments->findActiveOrdered(), 'and nothing came back');
     }
 
     /**
@@ -350,6 +370,61 @@ final class ReceiptOutcomeJournalTest extends TestCase
         $this->assertSame(
             AttachmentFate::REFUSED,
             $consumer->attachmentFates($message, $link, 'admin', [])[0]->state
+        );
+    }
+
+    /**
+     * A person's refusal says nothing about the document: it must not count
+     * as « through finance », or a machine-made link on the same attachment
+     * would lose its chance to file for good.
+     */
+    public function testARefusalForAPersonDoesNotSettleTheAttachment(): void
+    {
+        $message = $this->generalMessage($this->inboundPdf('text_receipt.pdf'));
+        $personLink = new MessageLink(
+            FinanceMessageConsumer::CONSUMER_ID,
+            FinanceMessageConsumer::REFERENCE_UNKNOWN,
+            LinkOrigin::MANUAL,
+            0,
+            77
+        );
+        $this->consumer(
+            new \Tests\Modules\Finance\Mail\RefusingExpenseReceipts(),
+            static fn(int $userAccountId): array => ['role' => 'admin', 'member_ids' => []]
+        )->onLinked($message, $personLink);
+
+        // A machine-made link on the same attachment, afterwards.
+        $this->consumer()->onLinked($message, $this->unknownLink());
+
+        $this->assertCount(1, $this->attachments->findActiveOrdered(), 'the receipt is filed after all');
+        $this->assertSame(
+            AttachmentFate::CREATED,
+            $this->consumer()->attachmentFates($message, $this->unknownLink(), 'admin', [])[0]->state,
+            'and the refusal gave way to the filing'
+        );
+    }
+
+    public function testARefusalForAPersonNeverReplacesWhatIsAlreadyKnown(): void
+    {
+        $message = $this->generalMessage($this->inboundPdf('text_receipt.pdf'));
+        $this->consumer(readFile: static fn(int $fileId): ?string => null)
+            ->onLinked($message, $this->unknownLink());
+        $personLink = new MessageLink(
+            FinanceMessageConsumer::CONSUMER_ID,
+            FinanceMessageConsumer::REFERENCE_UNKNOWN,
+            LinkOrigin::MANUAL,
+            0,
+            77
+        );
+
+        // The person cannot be resolved: a refusal, written over nothing.
+        $consumer = $this->consumer();
+        $consumer->onLinked($message, $personLink);
+
+        $this->assertSame(
+            AttachmentFate::UNREADABLE,
+            $consumer->attachmentFates($message, $personLink, 'admin', [])[0]->state,
+            'the retryable « illisible » stays what the page says'
         );
     }
 

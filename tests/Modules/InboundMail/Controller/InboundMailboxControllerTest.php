@@ -569,7 +569,7 @@ class InboundMailboxControllerTest extends TestCase
         $this->assertStringNotContainsString('/objets/camp-1', $response->getBody());
     }
 
-    // ── Ce que chaque pièce jointe est devenue (#1406) ──────────────────
+    // ── What became of each attachment (#1406) ─────────────────────────
 
     public function testALinkShowsWhatBecameOfEachAttachmentItCovers(): void
     {

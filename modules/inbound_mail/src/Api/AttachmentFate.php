@@ -34,8 +34,11 @@ final class AttachmentFate
     /** The consumer already held an identical document: nothing was created. */
     public const ALREADY_PRESENT = 'already_present';
 
-    /** An identical document was deleted on purpose and is not brought back. */
+    /** An identical document the consumer held was deleted on purpose and is not brought back. */
     public const DELETED = 'deleted';
+
+    /** A receipt was created from this very attachment, and deleted since. */
+    public const REMOVED = 'removed';
 
     /** The consumer refused to file it (the journal says why). */
     public const REFUSED = 'refused';

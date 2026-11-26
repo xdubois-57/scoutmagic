@@ -49,6 +49,20 @@ class ReceiptMailSourceRepository
      */
     public const REASON_UNREADABLE = 'unreadable';
 
+    /**
+     * Finance tried to file this attachment for a PERSON who confirmed it
+     * and did not (the store refused, or the person has no known role): said
+     * in the journal, and shown on the message page (#1406).
+     *
+     * **Retryable, like `unreadable`, and unlike `not_filed`.** The refusal
+     * is a statement about that person's attempt, not about the document:
+     * it must not count as « through finance » (`has()`), nor settle the
+     * catch-up (`settled()`), or a later machine-made link on the same
+     * attachment would lose its chance to file for good. A filing replaces
+     * it; a later refusal never replaces another row.
+     */
+    public const REASON_PERSON_REFUSED = 'person_refused';
+
     /** How many runs of the catch-up try an unreadable file before leaving it. */
     public const MAX_UNREADABLE_TRIES = 3;
 
@@ -71,12 +85,27 @@ class ReceiptMailSourceRepository
     {
         $reason = mb_substr($reason, 0, 20);
         if ($this->exists($inboundAttachmentId)) {
+            // A person's refusal is the weakest thing a row can say: it
+            // never replaces what is already known about the attachment.
+            if ($reason === self::REASON_PERSON_REFUSED) {
+                return;
+            }
+
             // An unreadable file that has since been read is whatever came
             // of it now; a row where nothing was filed gives way to a
             // filing; any other row is completed only by a receipt.
             $isFiling = $attachmentId !== null
-                && !in_array($reason, [self::REASON_ALREADY_HELD, self::REASON_NOT_FILED, self::REASON_UNREADABLE], true);
-            $replaceable = [self::REASON_UNREADABLE];
+                && !in_array(
+                    $reason,
+                    [
+                        self::REASON_ALREADY_HELD,
+                        self::REASON_NOT_FILED,
+                        self::REASON_UNREADABLE,
+                        self::REASON_PERSON_REFUSED,
+                    ],
+                    true
+                );
+            $replaceable = [self::REASON_UNREADABLE, self::REASON_PERSON_REFUSED];
             if ($isFiling) {
                 $replaceable[] = self::REASON_ALREADY_HELD;
                 $replaceable[] = self::REASON_NOT_FILED;
@@ -133,9 +162,14 @@ class ReceiptMailSourceRepository
     {
         $stmt = $this->pdo->prepare(
             'SELECT 1 FROM finance_receipt_mail_sources
-              WHERE inbound_attachment_id = ? AND (reason <> ? OR attempts >= ?) LIMIT 1'
+              WHERE inbound_attachment_id = ? AND (reason NOT IN (?, ?) OR attempts >= ?) LIMIT 1'
         );
-        $stmt->execute([$inboundAttachmentId, self::REASON_UNREADABLE, self::MAX_UNREADABLE_TRIES]);
+        $stmt->execute([
+            $inboundAttachmentId,
+            self::REASON_UNREADABLE,
+            self::REASON_PERSON_REFUSED,
+            self::MAX_UNREADABLE_TRIES,
+        ]);
 
         return $stmt->fetchColumn() !== false;
     }
@@ -157,7 +191,8 @@ class ReceiptMailSourceRepository
 
     /**
      * Whether this inbound attachment has already been through finance — a
-     * file that could not be read has not.
+     * file that could not be read has not, and neither has one finance
+     * refused to file for a person.
      *
      * Impure: another pass can write the row between two calls.
      *
@@ -166,9 +201,10 @@ class ReceiptMailSourceRepository
     public function has(int $inboundAttachmentId): bool
     {
         $stmt = $this->pdo->prepare(
-            'SELECT 1 FROM finance_receipt_mail_sources WHERE inbound_attachment_id = ? AND reason <> ? LIMIT 1'
+            'SELECT 1 FROM finance_receipt_mail_sources
+              WHERE inbound_attachment_id = ? AND reason NOT IN (?, ?) LIMIT 1'
         );
-        $stmt->execute([$inboundAttachmentId, self::REASON_UNREADABLE]);
+        $stmt->execute([$inboundAttachmentId, self::REASON_UNREADABLE, self::REASON_PERSON_REFUSED]);
 
         return $stmt->fetchColumn() !== false;
     }
