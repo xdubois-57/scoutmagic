@@ -58,8 +58,8 @@ avec le contrat et la facture.
 
 ## Bailleur
 
-Qui le contrat et la facture nomment comme bailleur, si ce bien en a un
-autre que l'unité.
+Le bailleur par défaut, ou un bailleur spécifique à ce bien — une ASBL
+propriétaire des locaux, par exemple.
 
 ## Contrat
 
@@ -72,12 +72,12 @@ contrat dit que la période sans indemnité ne s'applique pas.
 
 ## Rappels
 
-Une ligne par rappel : un nombre de jours et une case « Actif ».
+Un résumé, puis « Modifier » : chaque rappel, son destinataire, un
+délai en jours et une case « Actif ».
 
 Un champ vide **reprend la valeur de l'unité**, affichée juste en dessous.
 **0** veut dire « le jour même ». Vide ne veut donc jamais dire « jamais » :
-pour supprimer un rappel sur ce bien, décochez la case — ce qu'on fait sur
-une remorque, qui n'a ni état des lieux ni caution.
+pour supprimer un rappel sur ce bien, décochez la case.
 
 > Modifier ces réglages ne change **aucune réservation existante** : le
 > prix annoncé est figé au moment de la demande, et le prix convenu au

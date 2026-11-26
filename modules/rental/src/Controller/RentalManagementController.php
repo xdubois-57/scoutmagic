@@ -373,6 +373,9 @@ class RentalManagementController extends AbstractController
             // so the card says who it is today and where that comes from,
             // not only what this asset overrides.
             'landlord' => $this->documentService?->landlordFor($asset),
+            // The other choice of « Bailleur » (issue #1355, D14): who the
+            // documents name when this asset has no landlord of its own.
+            'default_landlord' => $this->documentService?->defaultLandlord(),
             'csrf_token' => CsrfGuard::generateToken(),
             'current_path' => '/mes-locations/' . $asset->slug . '/reglages',
         ]);
@@ -5001,6 +5004,11 @@ class RentalManagementController extends AbstractController
                 'default_days' => $schedule->defaultDaysFor($kind),
                 'active' => $schedule->isActive($kind),
                 'repeats' => $kind->repeatAfterDays($schedule->daysFor($kind)) !== null,
+                // Who it is for (issue #1355, D15), from the reminder's own
+                // definition. Without a reachable manager the internal ones
+                // still go to the Staff d'U (ManagerRecipientResolver); the
+                // screen does not say so.
+                'internal' => $kind->isInternal(),
             ];
         }
 

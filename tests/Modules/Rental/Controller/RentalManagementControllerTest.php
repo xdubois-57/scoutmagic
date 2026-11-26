@@ -8640,6 +8640,49 @@ class RentalManagementControllerTest extends TestCase
      * default the day somebody presses « Enregistrer » without changing
      * anything, and the number then stops following the unit's setting.
      */
+    /**
+     * The section is a summary of what is stored (issue #1355, D15): active
+     * reminders per recipient, the delays this asset changes, the ones it
+     * switches off. The fields live in « Modifier les rappels », each named
+     * with who it goes to, from ReminderKind::isInternal().
+     */
+    public function testTheRemindersSectionSummarisesWhatIsStoredAndTheDialogNamesEachRecipient(): void
+    {
+        $this->loginAsManager();
+        $repository = new RentalAssetReminderRepository($this->pdo);
+        $repository->save($this->assetId, \Modules\Rental\Reminder\ReminderKind::UNANSWERED_REQUEST, 7, true);
+        $repository->save($this->assetId, \Modules\Rental\Reminder\ReminderKind::PRACTICAL_INFO, null, false);
+
+        $html = $this->settingsPage();
+        $flat = (string) preg_replace('/\s+/', ' ', html_entity_decode($html, ENT_QUOTES));
+
+        $internal = count(array_filter(
+            \Modules\Rental\Reminder\ReminderKind::cases(),
+            static fn($kind) => $kind->isInternal()
+        ));
+        $renter = count(\Modules\Rental\Reminder\ReminderKind::cases()) - $internal;
+        $this->assertMatchesRegularExpression('#data-reminders-managers>\s*' . $internal . ' rappels actifs#', $html);
+        $this->assertMatchesRegularExpression(
+            '#data-reminders-renter>\s*' . ($renter - 1) . ' rappels? actifs?#',
+            $html
+        );
+        $this->assertStringContainsString(
+            \Modules\Rental\Reminder\ReminderKind::UNANSWERED_REQUEST->label() . ' : 7 j (défaut 3)',
+            $flat
+        );
+        $this->assertStringContainsString(\Modules\Rental\Reminder\ReminderKind::PRACTICAL_INFO->label(), $flat);
+        $this->assertStringNotContainsString("Ce que ce bien change aux rappels de l'unité.", $flat);
+
+        // The form is in the dialog, one recipient per reminder.
+        $this->assertStringContainsString('id="rappels-edit"', $html);
+        $this->assertStringContainsString('id="reminders-form"', $html);
+        $this->assertSame(
+            $internal,
+            preg_match_all('#data-reminder-recipient>\s*Aux gestionnaires du bien#', $html)
+        );
+        $this->assertSame($renter, preg_match_all('#data-reminder-recipient>\s*Au locataire#', $html));
+    }
+
     public function testAnInheritedDelayLeavesTheFieldEmptyAndShowsTheDefaultUnderIt(): void
     {
         $this->loginAsManager();
@@ -8756,8 +8799,58 @@ class RentalManagementControllerTest extends TestCase
         $this->assertStringContainsString('id="bailleur"', $html);
         $this->assertStringContainsString('ASBL Les Amis du Local', $html);
         $this->assertStringContainsString('Place du Parc 3<br />', $html);
-        $this->assertStringContainsString('Le bailleur propre à ce bien.', $html);
+        $this->assertStringContainsString('Spécifique à ce bien', $html);
         $this->assertStringContainsString('action="/mes-locations/local-saint-georges/reglages/bailleur"', $html);
+        // The line « Origine » and « bailleur habituel » are gone (issue #1355, D14).
+        $this->assertStringNotContainsString('Origine', $html);
+        $this->assertStringNotContainsString('bailleur habituel', $html);
+        // The default stays named, and the dialog offers both choices.
+        $this->assertStringContainsString('Bailleur par défaut, non utilisé ici', $html);
+        $this->assertMatchesRegularExpression('#id="landlord-mode-specific"\s+value="specific" checked#', $html);
+        $this->assertStringContainsString('data-landlord-specific', $html);
+    }
+
+    private function setRentalSetting(string $key, string $value): void
+    {
+        $settings = new SettingService(new SettingRepository($this->pdo));
+        $settings->register($key, '', 'text', $key, $key, 'rental');
+        $settings->set($key, $value, 'rental');
+    }
+
+    /**
+     * An asset with no landlord of its own says it uses the default one, and
+     * the dialog names that default — the module's, computed without this
+     * asset's (D14).
+     */
+    public function testAnAssetWithNoLandlordOfItsOwnUsesTheNamedDefault(): void
+    {
+        $this->loginAsManager();
+        $this->setRentalSetting('landlord_name', 'ASBL Unité Fictive', 'rental');
+        $this->setRentalSetting('landlord_address', "Rue des Tilleuls 12\n5000 Namur", 'rental');
+
+        $flat = (string) preg_replace('/\s+/', ' ', html_entity_decode($this->settingsPage(), ENT_QUOTES));
+
+        $this->assertStringContainsString('Bailleur par défaut', $flat);
+        $this->assertStringContainsString(
+            'Utiliser le bailleur par défaut :</strong> ASBL Unité Fictive, Rue des Tilleuls 12, 5000 Namur',
+            $flat
+        );
+        $this->assertMatchesRegularExpression('#id="landlord-mode-default" value="default" checked#', $flat);
+        $this->assertStringNotContainsString('non utilisé ici', $flat);
+    }
+
+    /** A default landlord with no address says so, and where it is set. */
+    public function testADefaultLandlordWithNoAddressSaysWhereToSetIt(): void
+    {
+        $this->loginAsManager();
+        $this->setRentalSetting('landlord_name', 'ASBL Unité Fictive', 'rental');
+
+        $flat = (string) preg_replace('/\s+/', ' ', html_entity_decode($this->settingsPage(), ENT_QUOTES));
+
+        $this->assertStringContainsString(
+            'Aucune adresse : les documents impriment « — ». Elle se règle dans Configuration › Réglages › Locations.',
+            $flat
+        );
     }
 
     // ── Modifications through a replacement contract (#927, lot D) ──────
