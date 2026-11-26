@@ -558,6 +558,35 @@ uses the core's map rather than a copy of it (ARCHITECTURE.md §8.119):
   filled in goes through `Core\Geo\AddressLocator` instead — cached,
   throttled site-wide and per account (`ARCHITECTURE.md` §8.119) — from a
   route of your module, never from the browser.
+- **A form that asks for a point uses the core's point picker** (#1353,
+  ARCHITECTURE.md §8.119), never a map of its own: a click or a touch
+  places the pin, a drag moves it, « Retirer » removes it, and leaving the
+  address field looks the address up through your route.
+
+  ```twig
+  {% include 'partials/point_picker.html.twig' with {
+      id_prefix: 'place',                  -- ids: place-latitude, place-longitude
+      latitude: values.latitude, longitude: values.longitude,
+      manual: point_is_manual,             -- PointSubmission::showsManual()
+      automatic: values.point_automatic|default('0'),
+      point_address: values.point_address|default(''),
+      address_field: 'place-address',      -- id of your address input
+      address_status: 'place-address-status', -- id of a <p> under it
+      locate_url: lookup_on ? '/my-module/adresse' : '',
+      legend: 'Coordonnées', pin_label: 'Entrée du terrain',
+      address_label: 'Adresse du lieu', help: 'Facultatif : …',
+  } only %}
+  ```
+
+  Link `/assets/vendor/leaflet/leaflet.css` and `/assets/css/components.css`
+  (the map's height) in `{% block stylesheets %}`, and load `leaflet.js`,
+  `map.js` then `point-picker.js`. On the server, read the form with
+  `Core\Geo\PointSubmission::fromInput($input, $address)`: save its
+  `point` with `GeoPointStore::recordGeocoding()` when it is `automatic`,
+  `setManual()` otherwise, and only when `changes()` says it differs from
+  what is saved. A script of yours that fills the address itself calls
+  `window.ScoutMagicPointPicker.wire(box).locate()`; a picker inside a block
+  shown later calls `refresh()` when the block appears.
 - **Draw with `public/assets/js/map.js`** (`window.ScoutMagicMap.create()`),
   loaded after `/assets/vendor/leaflet/leaflet.js`, and set `$mapTileOrigin
   = \Core\Geo\MapTiles::ORIGIN` in your wiring block of `public/index.php`

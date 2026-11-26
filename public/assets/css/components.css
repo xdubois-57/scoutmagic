@@ -1346,23 +1346,23 @@
 }
 
 /* ---------------------------------------------------------------------
-   The carpool organiser's point picker (public/assets/js/
-   covoiturage-organize.js). A height is the one thing Leaflet cannot do
-   without: a map in a zero-height box renders nothing at all.
+   The core's point picker (partials/point_picker.html.twig, public/
+   assets/js/point-picker.js, #1353) — the carpool organiser's and the
+   camps place's. A height is the one thing Leaflet cannot do without: a
+   map in a zero-height box renders nothing at all.
    --------------------------------------------------------------------- */
-.carpool-point-map {
+.point-picker-map {
     height: 14rem;
 }
 
 /* The address's fixed marker on that map (issue #642): a ring, so it can
-   never be taken for the draggable pin Leaflet draws for the meeting
-   point. Built by L.divIcon, whose own white square is cleared here. */
-.leaflet-marker-icon.carpool-address-marker {
+   never be taken for the draggable pin Leaflet draws for the point. Built by L.divIcon, whose own white square is cleared here. */
+.leaflet-marker-icon.point-picker-address-marker {
     background: transparent;
     border: 0;
 }
 
-.carpool-address-marker::before {
+.point-picker-address-marker::before {
     content: "";
     display: block;
     width: 18px;

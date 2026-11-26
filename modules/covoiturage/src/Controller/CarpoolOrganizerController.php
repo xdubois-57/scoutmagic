@@ -10,8 +10,8 @@ namespace Modules\Covoiturage\Controller;
 
 use Core\Geo\AddressLocator;
 use Core\Geo\AddressLookup;
-use Core\Geo\GeoPoint;
 use Core\Geo\GeoPointException;
+use Core\Geo\PointSubmission;
 use Core\Http\Controller\AbstractController;
 use Core\Http\FlashMessage;
 use Core\Http\Request;
@@ -280,56 +280,11 @@ class CarpoolOrganizerController extends AbstractController
             'duplicate_of' => $error instanceof DuplicateCarpoolException ? $error->existingCarpoolId : null,
             'location_mismatch' => $error instanceof LocationMismatchException ? $error->locations : [],
             'point' => $carpool?->point,
-            'point_is_manual' => $this->pointIsManual($carpool, $submitted),
+            // Placed — or removed — by a human (Core\Geo\PointSubmission).
+            'point_is_manual' => PointSubmission::showsManual($submitted, $carpool?->point, $carpool->pointIsManual ?? false),
             'address_lookup' => $this->locator !== null,
             'breadcrumb_current' => $carpool !== null ? 'Modifier le covoiturage' : null,
         ]);
-    }
-
-    /**
-     * Whether the pin the form shows was placed — or removed — by a human.
-     * A form shown again after a refusal carries the answer itself: the
-     * script posts `point_manual`; without the script, a point posted
-     * without `point_automatic` was typed — unless it is the carpool's own
-     * automatic point, which the edit form posts back untouched.
-     *
-     * @param array<string, mixed> $submitted
-     */
-    private function pointIsManual(?Carpool $carpool, array $submitted): bool
-    {
-        if ($carpool !== null && $carpool->pointIsManual) {
-            return true;
-        }
-        if ($submitted === []) {
-            return false;
-        }
-        if ((string) ($submitted['point_manual'] ?? '') === '1') {
-            return true;
-        }
-
-        if (
-            trim((string) ($submitted['latitude'] ?? '')) === ''
-            || (string) ($submitted['point_automatic'] ?? '') === '1'
-        ) {
-            return false;
-        }
-
-        return $carpool?->point === null || $carpool->point->line() !== $this->postedPointLine($submitted);
-    }
-
-    /**
-     * @param array<string, mixed> $submitted
-     */
-    private function postedPointLine(array $submitted): ?string
-    {
-        try {
-            return GeoPoint::fromInput(
-                (string) ($submitted['latitude'] ?? ''),
-                (string) ($submitted['longitude'] ?? '')
-            )?->line();
-        } catch (GeoPointException) {
-            return null;
-        }
     }
 
     /**

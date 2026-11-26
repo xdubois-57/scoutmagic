@@ -1,0 +1,84 @@
+{#
+  The core's point picker (#1353): a point on the map for a form — placed
+  with a click or a touch, dragged, removed — found from an address when
+  the page can look one up. Driven by public/assets/js/point-picker.js;
+  what the form meant is read back by Core\Geo\PointSubmission. ARCHITECTURE.md
+  §8.119 has the contract.
+
+  Without JavaScript or without the map, the two coordinate fields stay
+  and are the form: a point typed there is a human's.
+
+  The page loads, besides this partial:
+    - the vendored Leaflet (/assets/vendor/leaflet/leaflet.css and .js),
+    - /assets/css/components.css — `.point-picker-map` gives the map its
+      height, and base.html.twig does not load that file (issue #570),
+    - /assets/js/map.js, then /assets/js/point-picker.js.
+
+  Parameters:
+    id_prefix       prefix of the two coordinate fields' ids (required)
+    latitude        the coordinates the form shows, as text ('' for none)
+    longitude
+    manual          the pin is a human's (Core\Geo\PointSubmission::showsManual())
+    automatic       the posted `point_automatic`, '0' or '1' (a refused form)
+    point_address   the posted `point_address` (a refused form)
+    address_field   id of the address input the lookup reads (optional)
+    address_status  id of the sentence under that input (optional)
+    locate_url      the page's own address lookup route; none, no lookup
+    legend          the fieldset's legend
+    pin_label       what the pin is, e.g. « Point de rendez-vous »
+    address_label   what the fixed ring is, e.g. « Adresse du covoiturage »
+    help            the sentence under the map (plain text)
+#}
+<fieldset class="mb-3" data-point-picker
+          data-manual="{{ manual|default(false) ? '1' : '0' }}"
+          data-pin-label="{{ pin_label|default('Point sur la carte') }}"
+          data-address-label="{{ address_label|default('Adresse') }}"
+          {% if address_field|default('') %}data-address-field="{{ address_field }}"{% endif %}
+          {% if address_status|default('') %}data-address-status="{{ address_status }}"{% endif %}
+          {% if locate_url|default('') %}data-locate-url="{{ locate_url }}"{% endif %}>
+    <legend class="form-label fs-6">{{ legend|default('Point sur la carte (facultatif)') }}</legend>
+    <input type="hidden" name="point_automatic" value="{{ automatic|default('0') }}" data-point-picker-automatic>
+    <input type="hidden" name="point_address" value="{{ point_address|default('') }}" data-point-picker-address>
+    {# Read back only when the form is shown again after a refusal: a point
+       removed by hand must not be put back by the lookup. #}
+    <input type="hidden" name="point_manual" value="{{ manual|default(false) ? '1' : '0' }}" data-point-picker-manual>
+    <div class="row g-2" data-point-picker-fields>
+        <div class="col-6">
+            {% include 'partials/form_field.html.twig' with {
+                field_id: id_prefix ~ '-latitude',
+                field_name: 'latitude',
+                label: 'Latitude',
+                value: latitude|default(''),
+                inputmode: 'decimal',
+                size: 'sm',
+                wrapper_class: 'mb-0',
+                data: {'point-picker-latitude': '1'},
+            } only %}
+        </div>
+        <div class="col-6">
+            {% include 'partials/form_field.html.twig' with {
+                field_id: id_prefix ~ '-longitude',
+                field_name: 'longitude',
+                label: 'Longitude',
+                value: longitude|default(''),
+                inputmode: 'decimal',
+                size: 'sm',
+                wrapper_class: 'mb-0',
+                data: {'point-picker-longitude': '1'},
+            } only %}
+        </div>
+    </div>
+    <div class="d-none border rounded overflow-hidden" data-point-picker-map-box>
+        <div class="point-picker-map" data-point-picker-map></div>
+        <div class="d-flex flex-wrap align-items-center gap-2 border-top px-3 py-2 small">
+            <span data-point-picker-line></span>
+            <span class="badge text-bg-light border" data-point-picker-origin></span>
+            <span class="flex-grow-1"></span>
+            <button type="button" class="btn btn-sm btn-outline-secondary" data-point-picker-remove>Retirer</button>
+        </div>
+    </div>
+    <button type="button" class="btn btn-sm btn-outline-primary d-none" data-point-picker-place>Placer le point sur la carte</button>
+    {% if help|default('') %}
+        <p class="form-text mb-0" data-point-picker-help>{{ help }}</p>
+    {% endif %}
+</fieldset>

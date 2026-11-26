@@ -4,7 +4,7 @@
 {% block stylesheets %}
     {# Leaflet is vendored, never a CDN (ARCHITECTURE.md §8.119). #}
     <link rel="stylesheet" href="{{ asset('/assets/vendor/leaflet/leaflet.css') }}">
-    {# The map's height lives in components.css (.carpool-point-map), which
+    {# The map's height lives in components.css (.point-picker-map), which
        base.html.twig deliberately does not load. Without this link the map
        box is zero pixels tall and « Placer le point sur la carte » shows
        nothing at all (issue #570). #}
@@ -20,9 +20,10 @@
   does: an event that already has a carpool is refused with a link to join
   it, and events giving different places need an explicit confirmation.
 
-  The point: without JavaScript, two plain coordinate fields; with it,
-  public/assets/js/covoiturage-organize.js turns them into a map with a pin
-  to drag. When the address field is left, the script asks the site's own
+  The point: the core's point picker (partials/point_picker.html.twig,
+  #1353). Without JavaScript, two plain coordinate fields; with it,
+  public/assets/js/point-picker.js turns them into a map with a pin to
+  drag. When the address field is left, the script asks the site's own
   route for the address's point (Core\Geo\AddressLocator, issue #642): the
   map centres on it, a fixed marker shows it, and a pin nobody touched
   moves there. `point_automatic` tells the server such a pin is not a
@@ -103,11 +104,11 @@
             describedby_extra: 'carpool-address-status',
             wrapper_class: 'mb-1',
         } only %}
-        {# Filled by covoiturage-organize.js when the map could not place the
+        {# Filled by the point picker when the map could not place the
            address (issue #692): the lookup used to fail in silence, and a
            venue name Nominatim does not know looked exactly like a lookup
            that never ran. #}
-        <p class="form-text text-warning-emphasis mb-3 d-none" id="carpool-address-status" aria-live="polite" data-carpool-address-status></p>
+        <p class="form-text text-warning-emphasis mb-3 d-none" id="carpool-address-status" aria-live="polite"></p>
 
         <div class="alert alert-warning small {{ location_mismatch is empty ? 'd-none' : '' }}" id="carpool-location-warning" aria-live="polite" aria-atomic="true">
             Les évènements retenus n'indiquent pas tous le même lieu<span data-carpool-locations>{% if location_mismatch is not empty %} ({{ location_mismatch|join(' ; ') }}){% endif %}</span>. Vérifiez : un covoiturage n'a qu'une destination, et s'ils divergent c'est qu'ils n'appartiennent probablement pas au même trajet.
@@ -118,59 +119,30 @@
             </div>
         </div>
 
-        <fieldset class="mb-3" data-carpool-point
-                  data-manual="{{ point_is_manual ? '1' : '0' }}"
-                  {% if address_lookup %}data-locate-url="/covoiturage/organiser/adresse"{% endif %}>
-            <legend class="form-label fs-6">Point sur la carte (facultatif)</legend>
-            <input type="hidden" name="point_automatic" value="{{ values.point_automatic|default('0') }}" data-carpool-point-automatic>
-            <input type="hidden" name="point_address" value="{{ values.point_address|default('') }}" data-carpool-point-address>
-            {# Read back only when the form is shown again after a refusal:
-               a point removed by hand must not be put back by the lookup. #}
-            <input type="hidden" name="point_manual" value="{{ point_is_manual ? '1' : '0' }}" data-carpool-point-manual>
-            <div class="row g-2" data-carpool-point-fields>
-                <div class="col-6">
-                    {% include 'partials/form_field.html.twig' with {
-                        field_id: 'carpool-latitude',
-                        field_name: 'latitude',
-                        label: 'Latitude',
-                        value: values.latitude|default(''),
-                        inputmode: 'decimal',
-                        size: 'sm',
-                        wrapper_class: 'mb-0',
-                    } only %}
-                </div>
-                <div class="col-6">
-                    {% include 'partials/form_field.html.twig' with {
-                        field_id: 'carpool-longitude',
-                        field_name: 'longitude',
-                        label: 'Longitude',
-                        value: values.longitude|default(''),
-                        inputmode: 'decimal',
-                        size: 'sm',
-                        wrapper_class: 'mb-0',
-                    } only %}
-                </div>
-            </div>
-            <div class="d-none border rounded overflow-hidden" data-carpool-point-map-box>
-                <div class="carpool-point-map" data-carpool-point-map></div>
-                <div class="d-flex flex-wrap align-items-center gap-2 border-top px-3 py-2 small">
-                    <span data-carpool-point-line></span>
-                    <span class="badge text-bg-light border" data-carpool-point-origin></span>
-                    <span class="flex-grow-1"></span>
-                    <button type="button" class="btn btn-sm btn-outline-secondary" data-carpool-point-remove>Retirer</button>
-                </div>
-            </div>
-            <button type="button" class="btn btn-sm btn-outline-primary d-none" data-carpool-point-place>Placer le point sur la carte</button>
-            <p class="form-text mb-0" data-carpool-point-help>
-                {% if point is null %}
-                    Facultatif : sans point, le lien de carte ouvrira simplement l'adresse. Le point est cherché automatiquement depuis l'adresse ; déplacez l'épingle quand l'adresse est imprécise — un pré, une entrée de bois, un gîte isolé.
-                {% elseif point_is_manual %}
-                    Déplacé à la main : aucune reprise automatique ne le réécrira, même si l'adresse change.
-                {% else %}
-                    Trouvé depuis l'adresse. Déplacez l'épingle si le point est à côté — c'est fréquent pour un terrain ou une entrée de bois. Le point déplacé est alors figé.
-                {% endif %}
-            </p>
-        </fieldset>
+        {# The core's point picker (#1353): the same markup and script as every
+           form with a point; only the words and the route are the carpool's. #}
+        {% if point is null %}
+            {% set point_help = 'Facultatif : sans point, le lien de carte ouvrira simplement l\'adresse. Le point est cherché automatiquement depuis l\'adresse ; déplacez l\'épingle quand l\'adresse est imprécise — un pré, une entrée de bois, un gîte isolé.' %}
+        {% elseif point_is_manual %}
+            {% set point_help = 'Déplacé à la main : aucune reprise automatique ne le réécrira, même si l\'adresse change.' %}
+        {% else %}
+            {% set point_help = 'Trouvé depuis l\'adresse. Déplacez l\'épingle si le point est à côté — c\'est fréquent pour un terrain ou une entrée de bois. Le point déplacé est alors figé.' %}
+        {% endif %}
+        {% include 'partials/point_picker.html.twig' with {
+            id_prefix: 'carpool',
+            latitude: values.latitude|default(''),
+            longitude: values.longitude|default(''),
+            manual: point_is_manual,
+            automatic: values.point_automatic|default('0'),
+            point_address: values.point_address|default(''),
+            address_field: 'carpool-address',
+            address_status: 'carpool-address-status',
+            locate_url: address_lookup ? '/covoiturage/organiser/adresse' : '',
+            legend: 'Point sur la carte (facultatif)',
+            pin_label: 'Point de rendez-vous',
+            address_label: 'Adresse du covoiturage',
+            help: point_help,
+        } only %}
 
         <div class="row g-2">
             <div class="col-sm-6">
@@ -210,5 +182,6 @@
     {% endif %}
     <script src="{{ asset('/assets/vendor/leaflet/leaflet.js') }}"></script>
     <script src="{{ asset('/assets/js/map.js') }}"></script>
+    <script src="{{ asset('/assets/js/point-picker.js') }}"></script>
     <script src="{{ asset('/assets/js/covoiturage-organize.js') }}"></script>
 {% endblock %}
