@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\Gallery\Service;
 
+use Core\File\TemporaryFile;
 use Core\File\UploadException;
 use Core\File\UploadHandler;
 
@@ -35,15 +36,23 @@ class OgImageStore
     {
     }
 
-    /** The new `files` id, or null when the image was not kept. */
-    public function store(int $albumId, string $bytes, int $createdBy): ?int
+    /**
+     * The new `files` id, or null when the image was not kept.
+     *
+     * The upload pipeline takes a path, so the bytes are copied to a
+     * temporary file in `$temporaryDirectory` — an importer's working
+     * directory, swept by its purge if the request dies before the
+     * `finally` below (issue #1259) — or in the system's when none is given.
+     */
+    public function store(int $albumId, string $bytes, int $createdBy, ?string $temporaryDirectory = null): ?int
     {
         if ($bytes === '') {
             return null;
         }
 
-        $tmpPath = tempnam(sys_get_temp_dir(), 'gallery_og_');
-        if ($tmpPath === false) {
+        try {
+            $tmpPath = TemporaryFile::createIn($temporaryDirectory ?? sys_get_temp_dir(), 'gallery_og_');
+        } catch (\RuntimeException) {
             return null;
         }
 

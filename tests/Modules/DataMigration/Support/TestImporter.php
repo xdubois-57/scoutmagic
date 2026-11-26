@@ -12,10 +12,10 @@ use Core\Archive\ArchiveLimits;
 use Modules\DataMigration\Importer\AnalysisSummary;
 use Modules\DataMigration\Importer\ArchiveFormat;
 use Modules\DataMigration\Importer\ImportContext;
-use Modules\DataMigration\Importer\Importer;
 use Modules\DataMigration\Importer\ImportSource;
 use Modules\DataMigration\Importer\ItemVerdict;
 use Modules\DataMigration\Importer\PreviewNote;
+use Modules\DataMigration\Importer\ReportingImporter;
 use Modules\DataMigration\Importer\SourceItem;
 use Modules\DataMigration\Importer\WrittenTarget;
 
@@ -31,7 +31,7 @@ use Modules\DataMigration\Importer\WrittenTarget;
  * really happened against the correspondence table — and it writes it on
  * the module's own connection, inside the transaction the module opened.
  */
-final class TestImporter implements Importer
+final class TestImporter implements ReportingImporter
 {
     public const FORMAT = 'scoutmagic-test';
 
@@ -145,6 +145,11 @@ final class TestImporter implements Importer
     public function previewNotes(AnalysisSummary $summary): array
     {
         return [PreviewNote::info($summary->tag('named') . ' éléments portent un nom.')];
+    }
+
+    public function reportNotes(array $tags): array
+    {
+        return [PreviewNote::warning(($tags['named'] ?? 0) . ' éléments importés portaient un nom.')];
     }
 
     public function effects(): array

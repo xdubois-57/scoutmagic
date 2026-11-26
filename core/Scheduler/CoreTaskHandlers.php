@@ -79,6 +79,10 @@ final class CoreTaskHandlers
             \Core\Support\Task\PurgeSupportPackagesHandler::TASK_KEY =>
                 \Core\Support\Task\PurgeSupportPackagesHandler::class,
             \Core\Import\Task\PurgeImportsHandler::TASK_KEY => \Core\Import\Task\PurgeImportsHandler::class,
+            // The data migration module's deposits, purged whether or not
+            // that module is still enabled (#1259).
+            \Core\File\Task\PurgeDataMigrationDepositsHandler::TASK_KEY =>
+                \Core\File\Task\PurgeDataMigrationDepositsHandler::class,
             \Core\Mail\Task\PurgeSentEmailClaimsHandler::TASK_KEY =>
                 \Core\Mail\Task\PurgeSentEmailClaimsHandler::class,
             // The documents the installed application put aside (#502).

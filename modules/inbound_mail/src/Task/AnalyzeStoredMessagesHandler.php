@@ -147,6 +147,7 @@ class AnalyzeStoredMessagesHandler implements TaskHandlerInterface
         $linked = 0;
         $proposed = 0;
         $requeued = 0;
+        $filed = 0;
 
         foreach ($messages->findMessagesAwaitingStoredAnalysis(self::BATCH_SIZE) as $messageId) {
             // Marked before the work, not after. A message whose analysis
@@ -176,6 +177,7 @@ class AnalyzeStoredMessagesHandler implements TaskHandlerInterface
             foreach ($results as $result) {
                 $linked += count($result->links);
                 $proposed += count($result->candidates);
+                $filed += $result->filed;
             }
 
             // The one thing that undoes the marker set above, and only
@@ -195,7 +197,7 @@ class AnalyzeStoredMessagesHandler implements TaskHandlerInterface
         // A summary rather than a line per message: the arrival pass
         // already wrote one for each of these, and this pass exists to say
         // whether the *content* reading added anything.
-        $this->analysisJournal?->storedPassDone($examined, $linked, $proposed, $requeued);
+        $this->analysisJournal?->storedPassDone($examined, $linked, $proposed, $requeued, $filed);
     }
 
     /**

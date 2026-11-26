@@ -8,6 +8,8 @@ declare(strict_types=1);
 
 namespace Modules\DataMigration\Service;
 
+use Core\File\DataMigrationDeposits;
+
 /**
  * Where deposited files live: `storage/temp/data_migration/`.
  *
@@ -17,10 +19,22 @@ namespace Modules\DataMigration\Service;
  * read from the ZIP through `Core\Archive\BoundedZipReader`, so the one file
  * a run owns is the one deleted when it goes. A form source gets a
  * workspace directory of its own, deleted with it.
+ *
+ * The one thing besides is a slice's **working copies** — an attachment or
+ * an image streamed out of the archive for the target module's upload
+ * pipeline, which takes a path. They go in `copies-<run id>/`, emptied
+ * when each slice of that run starts and when it ends (issue #1259): a
+ * request killed by a timeout or its memory limit skips every `finally`,
+ * and its copies are then removed by the run's next slice, or by the purge.
+ *
+ * The directory is also swept by the core, whether this module is enabled
+ * or not (`Core\File\DataMigrationDeposits`), on the time of each entry's
+ * last modification: {@see markMoved()} is what keeps a run's file as young
+ * as its last movement.
  */
 class UploadStorage
 {
-    public const DIR = 'temp/data_migration';
+    public const DIR = DataMigrationDeposits::DIR;
 
     public function __construct(private string $storagePath)
     {
@@ -44,6 +58,51 @@ class UploadStorage
         }
 
         return $relative;
+    }
+
+    /**
+     * Stamps a run's file with the moment the run moved, so that the core's
+     * sweep, which reads only the disk, sees it as young as the run.
+     * Nothing for a run that holds no file.
+     */
+    public function markMoved(?string $relative, \DateTimeImmutable $at): void
+    {
+        if ($relative === null || $relative === '') {
+            return;
+        }
+        try {
+            $absolute = $this->absolute($relative);
+        } catch (\InvalidArgumentException) {
+            return;
+        }
+        if (file_exists($absolute)) {
+            @touch($absolute, $at->getTimestamp());
+        }
+    }
+
+    /**
+     * An empty directory for the working copies of one slice of a run —
+     * whatever an earlier slice of that run left there is deleted first.
+     * Absolute path.
+     */
+    public function freshCopiesDirectory(int $runId): string
+    {
+        $this->discardCopies($runId);
+        $absolute = $this->absolute(self::copiesPath($runId));
+        if (!is_dir($absolute) && !@mkdir($absolute, 0700, true) && !is_dir($absolute)) {
+            throw new \RuntimeException('Cannot create the data migration working directory.');
+        }
+
+        return $absolute;
+    }
+
+    /** Deletes a run's working copies, if any. */
+    public function discardCopies(int $runId): void
+    {
+        $absolute = $this->absolute(self::copiesPath($runId));
+        if (is_dir($absolute)) {
+            self::removeTree($absolute);
+        }
     }
 
     /** Relative path → absolute, refusing anything outside the directory. */
@@ -122,6 +181,11 @@ class UploadStorage
         }
 
         return $orphans;
+    }
+
+    private static function copiesPath(int $runId): string
+    {
+        return self::DIR . '/copies-' . $runId;
     }
 
     private function ensureDirectory(): void

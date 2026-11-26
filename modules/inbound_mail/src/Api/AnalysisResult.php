@@ -27,6 +27,7 @@ class AnalysisResult
      * @param MessageLink[] $links
      * @param MessageCandidate[] $candidates
      * @param bool $readingFailed see {@see self::$readingFailed}
+     * @param int $filed see {@see self::$filed}
      */
     public function __construct(
         public readonly array $links = [],
@@ -47,7 +48,21 @@ class AnalysisResult
          * Nothing here promises a retry; a consumer that sets it on every
          * empty answer gets its budget spent and the same silence back.
          */
-        public readonly bool $readingFailed = false
+        public readonly bool $readingFailed = false,
+        /**
+         * How many documents the consumer put in a pile of its own while
+         * reading this message, **without associating the message**.
+         *
+         * Finance does this for a receipt on the unit's general address:
+         * the receipt goes to « Compte inconnu » and the message is not
+         * linked, because a link would open the whole message to every
+         * treasurer (#1333). So the answer is neither a link nor a
+         * proposition, and « 0 rattachement, 0 proposition » was the
+         * journal's summary of a run that had in fact filed something
+         * (#1406). The count only feeds that summary: it creates nothing
+         * and leaves `isEmpty()` as it was.
+         */
+        public readonly int $filed = 0
     ) {
     }
 
@@ -82,6 +97,14 @@ class AnalysisResult
     public static function readingFailed(): self
     {
         return new self([], [], true);
+    }
+
+    /**
+     * « Je n'ai rien rattaché, mais j'ai rangé $count document(s) chez moi. »
+     */
+    public static function filedElsewhere(int $count): self
+    {
+        return new self([], [], false, max(0, $count));
     }
 
     /** One proposition and nothing else. */

@@ -299,6 +299,8 @@ final class DataMigrationControllerTest extends TestCase
         $body = $this->page($page);
         $this->assertStringContainsString('Import terminé le', $body);
         $this->assertStringContainsString('Ignorés : données manquantes ou non reconnues', $body);
+        // The import's report notes, from the tags of the items it wrote (#1259).
+        $this->assertStringContainsString('2 éléments importés portaient un nom.', $body);
         $this->assertStringContainsString('Relancer le même fichier', $body);
         $this->assertSame(2, (int) $this->pdo->query('SELECT COUNT(*) FROM data_migration_items')->fetchColumn());
         $this->assertNotNull((new ScoutYearService($this->pdo))->findByLabel($pastYear));

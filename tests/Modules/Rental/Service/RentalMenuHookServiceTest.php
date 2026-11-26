@@ -60,9 +60,13 @@ class RentalMenuHookServiceTest extends TestCase
     /**
      * @param array<string, int[]> $membersByEmail
      * @param string[] $unitStaffEmails
+     * @param string[] $superAdminEmails whose account carries the superadmin flag
      */
-    private function hook(array $membersByEmail = [], array $unitStaffEmails = []): RentalMenuHookService
-    {
+    private function hook(
+        array $membersByEmail = [],
+        array $unitStaffEmails = [],
+        array $superAdminEmails = []
+    ): RentalMenuHookService {
         $memberService = new class ($membersByEmail, $unitStaffEmails) extends MemberService {
             /**
              * @param array<string, int[]> $membersByEmail
@@ -106,9 +110,21 @@ class RentalMenuHookServiceTest extends TestCase
             }
         };
 
+        $superAdmins = new class ($superAdminEmails) extends \Modules\Rental\Service\SuperAdminRecognizer {
+            /** @param string[] $emails */
+            public function __construct(private array $emails)
+            {
+            }
+
+            public function isSuperAdmin(?string $email): bool
+            {
+                return in_array($email, $this->emails, true);
+            }
+        };
+
         return new RentalMenuHookService(
             $this->assetRepository,
-            new RentalAuthorizationService($memberService, $this->assetRepository, $this->managerRepository),
+            new RentalAuthorizationService($memberService, $this->assetRepository, $this->managerRepository, $superAdmins),
             self::YEAR
         );
     }
@@ -237,6 +253,26 @@ class RentalMenuHookServiceTest extends TestCase
         $urls = array_column($this->simplify($hook->getMenuEntries('chief@example.org')), 'url');
 
         $this->assertContains('/mes-locations', $urls);
+    }
+
+    /**
+     * A superadmin linked only to two animés — no Staff d'U, no grant —
+     * finds « Gérer mes locations » where a unit chief does (issue #1355),
+     * and, as for a unit chief, not on an installation with no asset.
+     */
+    public function testGererMesLocationsAppearsForASuperadminWithoutStaffOrGrant(): void
+    {
+        $this->assertSame([], $this->hook(['super@example.org' => [7, 8]], [], ['super@example.org'])
+            ->getMenuEntries('super@example.org'));
+
+        $this->createAsset('Local', 'local', false);
+        $entries = $this->hook(['super@example.org' => [7, 8]], [], ['super@example.org'])
+            ->getMenuEntries('super@example.org');
+
+        $this->assertSame(['Gérer mes locations'], array_map(static fn(MenuEntry $e) => $e->label, $entries));
+        $this->assertSame('unite', $entries[0]->menuGroup);
+        $this->assertSame([], $this->hook(['admin@example.org' => [9]], [], ['super@example.org'])
+            ->getMenuEntries('admin@example.org'));
     }
 
     public function testGererMesLocationsIsGatedOnIdentifiedAndSitsInLUnite(): void

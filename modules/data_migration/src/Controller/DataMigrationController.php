@@ -20,6 +20,7 @@ use Modules\DataMigration\Importer\FormSourceImporter;
 use Modules\DataMigration\Importer\Importer;
 use Modules\DataMigration\Importer\ImporterRegistry;
 use Modules\DataMigration\Importer\PreviewNote;
+use Modules\DataMigration\Importer\ReportingImporter;
 use Modules\DataMigration\Importer\SourceRejectedException;
 use Modules\DataMigration\Repository\Run;
 use Modules\DataMigration\Service\ImportEngine;
@@ -385,7 +386,7 @@ class DataMigrationController extends AbstractController
             in_array($run->state, [Run::RUNNING, Run::INTERRUPTED, Run::CONFIRMED, Run::DONE], true)
             || ($run->state === Run::ABANDONED && $run->report !== [])
         )) {
-            $context['report'] = self::reportView($run);
+            $context['report'] = self::reportView($importer, $run);
         }
 
         return $context;
@@ -431,11 +432,14 @@ class DataMigrationController extends AbstractController
     /**
      * @return array<string, mixed>
      */
-    private static function reportView(Run $run): array
+    private static function reportView(Importer $importer, Run $run): array
     {
         $report = $run->report;
         $ignored = array_map('intval', (array) ($report['ignored'] ?? []));
         arsort($ignored);
+        $notes = $importer instanceof ReportingImporter
+            ? $importer->reportNotes(array_map('intval', (array) ($report['tags'] ?? [])))
+            : [];
 
         return [
             'imported' => (int) ($report['imported'] ?? 0),
@@ -448,6 +452,10 @@ class DataMigrationController extends AbstractController
             'to_import' => (int) ($run->analysis['to_import'] ?? 0),
             'total' => (int) ($run->analysis['total'] ?? 0),
             'percent' => self::executionPercent($run),
+            'notes' => array_map(
+                static fn (PreviewNote $note): array => ['level' => $note->level, 'text' => $note->text],
+                $notes
+            ),
         ];
     }
 

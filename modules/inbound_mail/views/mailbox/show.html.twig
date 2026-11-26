@@ -55,6 +55,15 @@
                     <div class="small text-body-secondary">
                         {{ link.origin.label }}{% if not link.origin.isCertain %} · rattachement incertain{% endif %}
                     </div>
+                    {% for fate in link_fates[loop.index0]|default([]) %}
+                        <div class="small" data-attachment-fate="{{ fate.state }}">
+                            <i class="bi bi-paperclip" aria-hidden="true"></i>
+                            {{ fate.label }}
+                            {% if fate.url %}
+                                — <a href="{{ fate.url }}">{{ fate.targetLabel }}</a>
+                            {% endif %}
+                        </div>
+                    {% endfor %}
                 </div>
                 <form method="post" action="/courrier/{{ message.id }}/association/retrait"
                       data-confirm="Détacher ce message ? Il reste dans le courrier de l'unité.">

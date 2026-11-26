@@ -88,6 +88,30 @@ final class ExternalAlbumImportServiceTest extends TestCase
         $this->assertSame('Ce que la page dit', $album->ogDescription);
     }
 
+    /** The importer's working directory reaches the image store (#1259). */
+    public function testTheImagesCopyGoesInTheDirectoryTheImporterNames(): void
+    {
+        $images = $this->createMock(OgImageStore::class);
+        $images->expects($this->once())->method('store')
+            ->with($this->greaterThan(0), 'image-bytes', $this->authorId, '/srv/storage/temp/data_migration/copies-4')
+            ->willReturn(null);
+
+        $album = $this->album(ogImageBytes: 'image-bytes');
+        $this->service($images)->createImportedExternalAlbum(new ImportedExternalAlbum(
+            $album->url,
+            $album->title,
+            $album->subtitle,
+            $album->albumDate,
+            $album->sectionId,
+            $album->scoutYearId,
+            $album->createdBy,
+            $album->ogTitle,
+            $album->ogDescription,
+            $album->ogImageBytes,
+            '/srv/storage/temp/data_migration/copies-4'
+        ));
+    }
+
     public function testThePagesImageIsKeptAsTheAlbumsOwnFile(): void
     {
         $this->pdo->exec(

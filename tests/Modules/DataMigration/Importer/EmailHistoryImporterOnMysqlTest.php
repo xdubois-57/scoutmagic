@@ -24,6 +24,10 @@ use Modules\DataMigration\Service\ImportEngine;
 use Modules\DataMigration\Service\MissingScoutYears;
 use Modules\DataMigration\Service\RunService;
 use Modules\DataMigration\Service\UploadStorage;
+use Modules\MassMail\Api\EmailHistoryImportInterface;
+use Modules\MassMail\Api\ImportedEmail;
+use Modules\MassMail\Api\ImportedEmailResult;
+use Modules\MassMail\Api\SenderSection;
 use Modules\MassMail\Repository\Delivery;
 use Modules\MassMail\Repository\DeliveryRepository;
 use Modules\MassMail\Repository\EmailRepository;
@@ -456,6 +460,147 @@ final class EmailHistoryImporterOnMysqlTest extends TestCase
         $this->assertSame(1, $this->rows('mass_mail_attachments'));
     }
 
+    /**
+     * Issue #1259, point 2: the copy of an attachment the import hands to
+     * mass_mail is written under storage/temp/data_migration/, in the run's
+     * own working directory, never in the system's temporary directory —
+     * and nothing of it is left once the slice is over.
+     */
+    public function testTheAttachmentCopiesAreWrittenInTheRunsWorkingDirectoryAndGoneAfter(): void
+    {
+        $seen = [];
+        $this->importer = new EmailHistoryImporter(
+            $this->recordingImport($seen),
+            new MemberRepository($this->pdo),
+            new HtmlSanitizer()
+        );
+        [$entries, $files] = self::pdfAttachments(2);
+
+        $run = $this->ran($this->singleEmailArchive('ancien-site', 'c-1', $entries, $files));
+
+        $this->assertSame(1, $run->report['imported']);
+        $this->assertCount(2, $seen);
+        $copies = $this->storage . '/' . UploadStorage::DIR . '/copies-' . $run->id;
+        foreach ($seen as [$path, $existed]) {
+            $this->assertSame($copies, dirname($path), 'the copy is in the run\'s working directory');
+            $this->assertTrue($existed, 'and was there when mass_mail read it');
+            $this->assertFileDoesNotExist($path);
+        }
+        $this->assertDirectoryDoesNotExist($copies, 'the slice leaves no working directory behind');
+    }
+
+    /**
+     * A slice killed by a timeout or its memory limit skips every `finally`:
+     * the copies it was holding are deleted by the run's next slice, under
+     * its lock, before it writes anything — and not only when it ends.
+     */
+    public function testWhatAKilledSliceLeftIsDeletedByTheNextOneBeforeItWrites(): void
+    {
+        $orphan = null;
+        $orphanAtImport = [];
+        $seen = [];
+        $this->importer = new EmailHistoryImporter(
+            $this->recordingImport($seen, static function () use (&$orphan, &$orphanAtImport): void {
+                $orphanAtImport[] = $orphan !== null && file_exists($orphan);
+            }),
+            new MemberRepository($this->pdo),
+            new HtmlSanitizer()
+        );
+        [$entries, $files] = self::pdfAttachments(1);
+        $run = $this->service->confirm(
+            $this->drive($this->deposit($this->singleEmailArchive('ancien-site', 'c-1', $entries, $files))),
+            []
+        ) ?? $this->fail('Not confirmed.');
+        $orphan = $this->storage . '/' . UploadStorage::DIR . '/copies-' . $run->id . '/sm_mail_orphan';
+        mkdir(dirname($orphan), 0700, true);
+        file_put_contents($orphan, 'pièce jointe d\'une tranche interrompue');
+
+        $run = $this->drive($run);
+
+        $this->assertSame(1, $run->report['imported']);
+        $this->assertSame([false], $orphanAtImport, 'gone before the e-mail was written');
+        $this->assertFileDoesNotExist($orphan);
+    }
+
+    /**
+     * A slice is a movement: it stamps the run's archive, so the core's
+     * sweep — which reads the disk alone — never takes the file of a run
+     * that moved within the day, however old the deposit.
+     */
+    public function testASliceStampsTheRunsArchive(): void
+    {
+        $run = $this->deposit($this->singleEmailArchive('ancien-site', 'c-1', []));
+        $archive = $this->storage . '/' . (string) $run->filePath;
+        touch($archive, time() - 3 * 86400);
+
+        $this->service->advance($this->importer, $run);
+
+        clearstatcache();
+        $this->assertGreaterThan(time() - 3600, (int) filemtime($archive));
+    }
+
+    /**
+     * Issue #1259, point 3: one e-mail citing more attachments than the
+     * ceiling is imported with the first ones, the rest set aside unread —
+     * the run moves past it — and both the preview and the report say how
+     * many were set aside.
+     */
+    public function testAnEmailBeyondTheAttachmentCountIsImportedWithoutTheRest(): void
+    {
+        $over = EmailHistoryImporter::MAX_ATTACHMENTS_PER_EMAIL + 5;
+        [$entries, $files] = self::pdfAttachments($over);
+        $zip = $this->singleEmailArchive('ancien-site', 'c-1', $entries, $files);
+
+        $analysed = $this->drive($this->deposit($zip));
+        $this->assertSame(Run::ANALYSED, $analysed->state, (string) $analysed->rejectionReason);
+        $this->assertSame(5, $analysed->analysis['tags'][EmailHistoryImporter::TAG_ATTACHMENT_SET_ASIDE] ?? 0);
+        $this->assertContains(
+            '5 pièces jointes seront écartées (au-delà de 20 pièces jointes ou de 25 Mio par courriel). '
+                . 'Leur courriel est importé sans elles.',
+            array_map(static fn ($note): string => $note->text, $this->importer->previewNotes(self::summary($analysed)))
+        );
+
+        $run = $this->drive($this->service->confirm($analysed, []) ?? $this->fail('Not confirmed.'));
+        @unlink($zip);
+
+        $this->assertSame(Run::DONE, $run->state);
+        $this->assertSame(1, $run->report['imported']);
+        $this->assertSame(EmailHistoryImporter::MAX_ATTACHMENTS_PER_EMAIL, $this->rows('mass_mail_attachments'));
+        $this->assertSame(5, $run->report['tags'][EmailHistoryImporter::TAG_ATTACHMENT_SET_ASIDE] ?? 0);
+        $this->assertSame(
+            ['5 pièces jointes ont été écartées (au-delà de 20 pièces jointes ou de 25 Mio par courriel). '
+                . 'Leurs courriels ont été importés sans elles.'],
+            array_map(
+                static fn ($note): string => $note->text,
+                $this->importer->reportNotes($run->report['tags'])
+            )
+        );
+    }
+
+    /**
+     * The same for the bytes: past 25 MiB read for one e-mail, an
+     * attachment mass_mail would accept on its own is set aside, and so is
+     * every later one.
+     */
+    public function testAnEmailBeyondTheAttachmentBytesIsImportedWithoutTheRest(): void
+    {
+        // Three of 9 MiB: 18 MiB fit, the third would make 27.
+        [$entries, $files] = self::pdfAttachments(3, 9 * 1024 * 1024);
+        [$small, $smallFiles] = self::pdfAttachments(1);
+
+        $run = $this->ran($this->singleEmailArchive(
+            'ancien-site',
+            'c-1',
+            [...$entries, ...$small],
+            $files + $smallFiles
+        ));
+
+        $this->assertSame(1, $run->report['imported']);
+        $this->assertSame(2, $this->rows('mass_mail_attachments'));
+        $this->assertSame(2, $run->report['tags'][EmailHistoryImporter::TAG_ATTACHMENT_SET_ASIDE] ?? 0);
+        $this->assertArrayNotHasKey(EmailHistoryImporter::TAG_ATTACHMENT_INVALID, $run->report['tags']);
+    }
+
     public function testAnArchiveMissingFromItsOwnInventoryIsRefusedWhole(): void
     {
         $zip = TestArchive::build(
@@ -588,6 +733,86 @@ final class EmailHistoryImporterOnMysqlTest extends TestCase
         $stmt->execute($values);
 
         return $stmt;
+    }
+
+    /**
+     * `$count` distinct PDF attachments, each `$size` bytes or the bare
+     * fixture's size, as archive entries and archive files.
+     *
+     * @return array{0: list<array<string, string>>, 1: array<string, string>}
+     */
+    private static function pdfAttachments(int $count, int $size = 0): array
+    {
+        $pdf = ImportedEmailFixture::pdf();
+        $base = (string) file_get_contents($pdf);
+        @unlink($pdf);
+
+        $entries = [];
+        $files = [];
+        for ($i = 0; $i < $count; $i++) {
+            $bytes = $base . '%' . $i . '-' . bin2hex(random_bytes(4)) . "\n";
+            if ($size > strlen($bytes)) {
+                $bytes .= str_repeat('%', $size - strlen($bytes));
+            }
+            $hash = hash('sha256', $bytes);
+            $entries[] = ['path' => 'attachments/' . $hash, 'sha256' => $hash, 'filename' => 'piece-' . $i . '.pdf'];
+            $files['attachments/' . $hash] = $bytes;
+        }
+
+        return [$entries, $files];
+    }
+
+    /**
+     * mass_mail's real import, recording the path and presence of every
+     * attachment it is handed, and calling `$onImport` first.
+     *
+     * @param list<array{0: string, 1: bool}> $seen
+     */
+    private function recordingImport(array &$seen, ?\Closure $onImport = null): EmailHistoryImportInterface
+    {
+        $real = ImportedEmailFixture::service($this->pdo, $this->storage);
+
+        return new class ($real, $seen, $onImport) implements EmailHistoryImportInterface {
+            /** @param list<array{0: string, 1: bool}> $seen */
+            public function __construct(
+                private EmailHistoryImportInterface $real,
+                private array &$seen,
+                private ?\Closure $onImport
+            ) {
+            }
+
+            public function senderSection(string $senderAddress): ?SenderSection
+            {
+                return $this->real->senderSection($senderAddress);
+            }
+
+            public function findImported(string $importSource): ?int
+            {
+                return $this->real->findImported($importSource);
+            }
+
+            public function acceptedAttachmentTypes(): array
+            {
+                return $this->real->acceptedAttachmentTypes();
+            }
+
+            public function maxAttachmentBytes(): int
+            {
+                return $this->real->maxAttachmentBytes();
+            }
+
+            public function import(ImportedEmail $email): ImportedEmailResult
+            {
+                if ($this->onImport !== null) {
+                    ($this->onImport)();
+                }
+                foreach ($email->attachments as $attachment) {
+                    $this->seen[] = [$attachment->path, is_file($attachment->path)];
+                }
+
+                return $this->real->import($email);
+            }
+        };
     }
 
     private static function summary(Run $run): AnalysisSummary

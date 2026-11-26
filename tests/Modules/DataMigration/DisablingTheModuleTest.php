@@ -11,14 +11,27 @@ namespace Tests\Modules\DataMigration;
 use Core\Config\SettingRepository;
 use Core\Config\SettingService;
 use Core\Cookie\CookieConsentService;
+use Core\Database\Connection;
+use Core\File\DataMigrationDeposits;
+use Core\File\Task\PurgeDataMigrationDepositsHandler;
 use Core\Http\Router;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Module\ModuleManager;
 use Core\Module\ModuleRegistryRepository;
+use Core\Mail\MailService;
 use Core\Offline\OfflineWhitelist;
+use Core\Scheduler\CoreTaskHandlers;
+use Core\Scheduler\SchedulerRepository;
+use Core\Scheduler\SchedulerRunner;
+use Core\Scheduler\SchedulerService;
+use Core\Scheduler\TaskContext;
+use Core\Security\EncryptionService;
 use Core\Security\Role;
+use Core\Security\UserAccountRepository;
 use Core\View\MenuBuilder;
+use Modules\DataMigration\Service\UploadStorage;
+use Modules\DataMigration\Task\PurgeUploadsHandler;
 use Modules\MassMail\Repository\EmailRepository;
 use Modules\News\Repository\Article;
 use Modules\News\Repository\ArticleRepository;
@@ -151,6 +164,65 @@ final class DisablingTheModuleTest extends TestCase
         // ResponseService, NewsController, FormController); their refusals
         // are ImportedArticleLockTest's.
         $this->assertTrue($article?->isImported(), 'the lock column is untouched');
+    }
+
+    /**
+     * Issue #1259: once the module is disabled its own hourly purge has no
+     * handler any more — the scheduler marks it failed and never re-arms it
+     * — and the archives it deposited would stay on the disk for good. The
+     * core's purge runs on the same scheduler pass regardless, and empties
+     * what nothing has touched for a day: an archive, a workspace, a
+     * slice's orphaned working copies.
+     */
+    public function testTheDepositsAreStillPurgedOnceTheModuleIsDisabled(): void
+    {
+        $directory = $this->storage . '/' . UploadStorage::DIR;
+        mkdir($directory . '/ws-abc/', 0700, true);
+        mkdir($directory . '/copies-3/', 0700, true);
+        $old = time() - DataMigrationDeposits::RETENTION_SECONDS - 60;
+        foreach (['run-old.zip', 'ws-abc/calendar.ics', 'copies-3/sm_mail_x'] as $relative) {
+            file_put_contents($directory . '/' . $relative, 'données');
+            touch($directory . '/' . $relative, $old);
+        }
+        touch($directory . '/ws-abc', $old);
+        touch($directory . '/copies-3', $old);
+        file_put_contents($directory . '/run-recent.zip', 'données');
+
+        $this->registry->upsert('data_migration', true, '1.0.0', 1);
+        $manager = $this->manager();
+        $manager->deactivate('data_migration', 1);
+        $manager->loadEnabledModules();
+        $this->assertNull(
+            $manager->getTaskHandler(PurgeUploadsHandler::MODULE_ID, PurgeUploadsHandler::TASK_KEY),
+            'premise: a disabled module\'s own purge has no handler'
+        );
+
+        $scheduler = new SchedulerService(new SchedulerRepository($this->pdo));
+        $due = new \DateTimeImmutable('-1 minute');
+        $scheduler->seed(PurgeUploadsHandler::MODULE_ID, PurgeUploadsHandler::TASK_KEY, PurgeUploadsHandler::REFERENCE, $due);
+        $scheduler->seed(
+            'core',
+            PurgeDataMigrationDepositsHandler::TASK_KEY,
+            PurgeDataMigrationDepositsHandler::REFERENCE,
+            $due
+        );
+        $journal = new JournalService(new JournalRepository($this->pdo));
+        $runner = new SchedulerRunner(new SchedulerRepository($this->pdo), $journal);
+        CoreTaskHandlers::registerAll($runner);
+        $runner->setModuleManager($manager);
+        $runner->setTaskContext(new TaskContext(
+            Connection::withPdo($this->pdo),
+            new EncryptionService(str_repeat('k', 32), str_repeat('b', 32)),
+            $this->createStub(MailService::class),
+            $journal,
+            new SettingService(new SettingRepository($this->pdo)),
+            $this->createStub(UserAccountRepository::class),
+            $this->storage
+        ));
+
+        $runner->processOverdue();
+
+        $this->assertSame(['run-recent.zip'], array_map('basename', glob($directory . '/*') ?: []));
     }
 
     /**
