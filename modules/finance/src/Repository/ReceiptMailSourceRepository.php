@@ -148,6 +148,19 @@ class ReceiptMailSourceRepository
             return;
         }
 
+        // A person's refusal gives way to what is now known about the file:
+        // it is unreadable, and this is the first try that says so. Left as
+        // it was, nothing would ever advance the row's attempts and the
+        // catch-up would walk this attachment on every run, for ever.
+        $converted = $this->pdo->prepare(
+            'UPDATE finance_receipt_mail_sources SET reason = ?, attempts = 1
+              WHERE inbound_attachment_id = ? AND reason = ?'
+        );
+        $converted->execute([self::REASON_UNREADABLE, $inboundAttachmentId, self::REASON_PERSON_REFUSED]);
+        if ($converted->rowCount() > 0) {
+            return;
+        }
+
         $this->pdo->prepare(
             'UPDATE finance_receipt_mail_sources SET attempts = attempts + 1
               WHERE inbound_attachment_id = ? AND reason = ?'
