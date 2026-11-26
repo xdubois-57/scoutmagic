@@ -2,7 +2,7 @@
   "id": "camps",
   "name": "Camps",
   "description": "Les lieux de camp de l'unité et les séjours qui s'y sont tenus.",
-  "version": "1.19.0",
+  "version": "1.20.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -49,6 +49,15 @@
       "method": "POST",
       "controller": "Modules\\Camps\\Controller\\CampsChiefController",
       "action": "store",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/chefs/camps/adresse",
+      "method": "GET",
+      "controller": "Modules\\Camps\\Controller\\CampsAddressController",
+      "action": "locateAddress",
       "menu": "espace_chefs",
       "role_min": "chief",
       "label": ""
@@ -572,7 +581,7 @@
       "default_value": "1",
       "type": "boolean",
       "label": "Géocoder automatiquement les lieux",
-      "description": "Cherche les coordonnées d'un lieu à partir de son adresse, via OpenStreetMap (Nominatim). Un lieu dont les coordonnées ont été saisies ou corrigées à la main n'est jamais retouché. Désactivez ce réglage pour n'envoyer aucune adresse à un service extérieur."
+      "description": "Cherche les coordonnées d'un lieu à partir de son adresse, via OpenStreetMap (Nominatim) : en tâche de fond, et pendant la saisie d'un lieu pour placer le point sur la carte. Un lieu dont les coordonnées ont été saisies ou corrigées à la main n'est jamais retouché. Désactivez ce réglage pour n'envoyer aucune adresse à un service extérieur."
     },
     {
       "key": "camps_short_stay_max_days",
