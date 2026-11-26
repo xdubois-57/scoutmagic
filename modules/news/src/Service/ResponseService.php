@@ -70,7 +70,16 @@ class ResponseService
          * capacity check falls back on summing the whole column, which is
          * what every caller did before.
          */
-        private ?FormFieldRepository $fieldRepository = null
+        private ?FormFieldRepository $fieldRepository = null,
+        /**
+         * Who the Desk ids of a « Membres » answer designate now — the
+         * read half of MemberAnswer. Trailing-optional like the one
+         * above; without it the members of the account are still offered
+         * and validated, but an answer read back can name nobody and
+         * shows MemberAnswer::UNAVAILABLE_LABEL, and a code kept from
+         * before a merge is not recognised.
+         */
+        private ?MemberAnswerResolver $memberAnswers = null
     ) {
     }
 
@@ -156,10 +165,17 @@ class ResponseService
     }
 
     /**
-     * @return array<
-     *     int,
-     *     string
-     * > memberYearId => display name — 'members' options_source, unavailable in public access (module spec)
+     * The members this account may name, this scout year: the options of
+     * a `members` field and of the « Membre concerné » selector alike.
+     * Nobody for an anonymous visitor (module spec: unavailable in public
+     * access).
+     *
+     * Labelled « Totem (Prénom Nom) » or « Prénom Nom »
+     * (`MemberProfile::getDisplayNameFull()`, the Contact page's rule):
+     * the bare totem used to be the whole label, and two children sharing
+     * a first name were two identical options.
+     *
+     * @return array<int, MemberOption> memberYearId => option
      */
     public function resolveMemberOptions(?string $email, int $scoutYearId): array
     {
@@ -173,10 +189,171 @@ class ResponseService
         $options = [];
         foreach ($memberYearIds as $memberYearId) {
             if (isset($profiles[$memberYearId])) {
-                $options[$memberYearId] = $profiles[$memberYearId]->getDisplayName();
+                $profile = $profiles[$memberYearId];
+                $options[$memberYearId] = new MemberOption(
+                    $memberYearId,
+                    $profile->deskId,
+                    $profile->getDisplayNameFull()
+                );
             }
         }
         return $options;
+    }
+
+    /**
+     * The options one field offers, as value and label: a manual option is
+     * both, a member is their Desk id and their name. The one place the
+     * entry form, the edit form and the editor's preview take them from.
+     *
+     * `$storedAnswer` is the answer being edited. A member it holds whom
+     * this account can no longer name (left the unit, another year, an
+     * administrator correcting somebody else's answer) stays an option,
+     * still selected, under MemberAnswer::UNAVAILABLE_LABEL — dropped, the
+     * next save would erase the choice; named, the page would show a
+     * member to someone outside their scope.
+     *
+     * @param array<int, MemberOption> $memberOptions
+     * @return list<array{value: string, label: string}>
+     */
+    public function optionsFor(FormField $field, array $memberOptions, ?string $storedAnswer = null): array
+    {
+        if (!$field->isMemberSourced()) {
+            return array_map(
+                static fn(string $option): array => ['value' => $option, 'label' => $option],
+                $field->manualOptions()
+            );
+        }
+
+        $options = [];
+        foreach ($memberOptions as $option) {
+            $options[] = ['value' => $option->deskId, 'label' => $option->label];
+        }
+
+        if ($storedAnswer !== null) {
+            $offered = array_column($options, 'value');
+            foreach ($this->editableMemberAnswer($storedAnswer, $memberOptions) as $deskId) {
+                if (!in_array($deskId, $offered, true)) {
+                    $options[] = ['value' => $deskId, 'label' => MemberAnswer::UNAVAILABLE_LABEL];
+                }
+            }
+        }
+
+        return $options;
+    }
+
+    /**
+     * Stored answers as the edit form pre-fills them: a `members` answer
+     * becomes the option values it selects — one Desk id, or a list for
+     * checkboxes — with a code kept from before a merge translated to the
+     * member's current one when that member is offered. Every other
+     * answer is as stored.
+     *
+     * @param FormField[] $fields
+     * @param array<int, string> $storedAnswers
+     * @param array<int, MemberOption> $memberOptions
+     * @return array<int, string|list<string>>
+     */
+    public function formValues(array $fields, array $storedAnswers, array $memberOptions): array
+    {
+        $values = $storedAnswers;
+        foreach ($fields as $field) {
+            if (!$field->isMemberSourced() || !isset($storedAnswers[$field->id])) {
+                continue;
+            }
+            $deskIds = $this->editableMemberAnswer($storedAnswers[$field->id], $memberOptions);
+            $values[$field->id] = $field->fieldType === FormField::TYPE_CHECKBOX ? $deskIds : ($deskIds[0] ?? '');
+        }
+
+        return $values;
+    }
+
+    /**
+     * The Desk ids an answer holds, each one the code the account's
+     * options use for that member when the account may name them (a merge
+     * may have changed it), as stored otherwise.
+     *
+     * @param array<int, MemberOption> $memberOptions
+     * @return list<string>
+     */
+    private function editableMemberAnswer(string $storedAnswer, array $memberOptions): array
+    {
+        $stored = MemberAnswer::decode($storedAnswer);
+        $offered = array_map(static fn(MemberOption $option): string => $option->deskId, $memberOptions);
+        $unknown = array_values(array_filter($stored, static fn(string $id): bool => !in_array($id, $offered, true)));
+        $current = $unknown !== [] && $this->memberAnswers !== null ? $this->memberAnswers->resolve($unknown) : [];
+
+        $deskIds = [];
+        foreach ($stored as $deskId) {
+            $currentId = $current[$deskId]->deskId ?? null;
+            $deskIds[] = $currentId !== null && in_array($currentId, $offered, true) ? $currentId : $deskId;
+        }
+
+        return array_values(array_unique($deskIds));
+    }
+
+    /**
+     * The answers as people read them: every `members` answer becomes
+     * the names of the members it designates now, « , »-separated, a code
+     * that designates nobody reading MemberAnswer::UNAVAILABLE_LABEL — a
+     * Desk code is never shown on its own. Every other answer is
+     * returned as stored.
+     *
+     * For a whole set of responses at once, and resolved in one batch
+     * (MemberAnswerResolver), so the responses page, the export and the
+     * mail merge cost the same few queries whatever their size.
+     *
+     * @param FormField[] $fields
+     * @param array<int, array<int, string>> $answersByResponse response id => field id => stored answer
+     * @return array<int, array<int, string>> the same, readable
+     */
+    public function readableAnswers(array $fields, array $answersByResponse): array
+    {
+        $memberFields = array_filter(
+            $fields,
+            static fn(FormField $field): bool => $field->isMemberSourced()
+        );
+        if ($memberFields === []) {
+            return $answersByResponse;
+        }
+
+        $deskIds = [];
+        foreach ($answersByResponse as $answers) {
+            foreach ($memberFields as $field) {
+                array_push($deskIds, ...MemberAnswer::decode($answers[$field->id] ?? null));
+            }
+        }
+        $resolved = $deskIds !== [] && $this->memberAnswers !== null
+            ? $this->memberAnswers->resolve(array_values(array_unique($deskIds)))
+            : [];
+
+        foreach ($answersByResponse as $responseId => $answers) {
+            foreach ($memberFields as $field) {
+                $stored = $answers[$field->id] ?? null;
+                if ($stored === null || $stored === '') {
+                    continue;
+                }
+                $labels = array_map(
+                    static fn(string $deskId): string => $resolved[$deskId]->label ?? MemberAnswer::UNAVAILABLE_LABEL,
+                    MemberAnswer::decode($stored)
+                );
+                $answersByResponse[$responseId][$field->id] = $labels !== []
+                    ? implode(', ', $labels)
+                    : MemberAnswer::UNAVAILABLE_LABEL;
+            }
+        }
+
+        return $answersByResponse;
+    }
+
+    /**
+     * One response's answers, readable — see readableAnswers().
+     *
+     * @param FormField[] $fields
+     * @return array<int, string>
+     */
+    public function readableAnswersOf(array $fields, int $responseId): array
+    {
+        return $this->readableAnswers($fields, [$responseId => $this->getAnswers($responseId)])[$responseId];
     }
 
     /**
@@ -507,7 +684,13 @@ class ResponseService
         $memberOptions = $form->access === NewsForm::ACCESS_IDENTIFIED
             ? $this->resolveMemberOptions($userEmail, $scoutYearId)
             : [];
-        $normalizedAnswers = $this->validateAndNormalizeAnswers($fields, $answers, $memberOptions, $response->id);
+        $normalizedAnswers = $this->validateAndNormalizeAnswers(
+            $fields,
+            $answers,
+            $memberOptions,
+            $response->id,
+            $this->responseRepository->getValues($response->id)
+        );
 
         $this->responseRepository->beginTransaction();
         try {
@@ -555,16 +738,18 @@ class ResponseService
     /**
      * @param FormField[] $fields
      * @param array<int, string|string[]> $answers
-     * @param array<int, string> $memberOptions
+     * @param array<int, MemberOption> $memberOptions
      * @param ?int $excludeResponseId the response being edited, whose own
      *        consumption is returned to the capacity pool (see remainingCapacity())
+     * @param array<int, string> $previousAnswers the stored answers of the response being edited
      * @return array<int, string>
      */
     private function validateAndNormalizeAnswers(
         array $fields,
         array $answers,
         array $memberOptions,
-        ?int $excludeResponseId
+        ?int $excludeResponseId,
+        array $previousAnswers = []
     ): array
     {
         $normalized = [];
@@ -576,12 +761,22 @@ class ResponseService
 
             $raw = $answers[$field->id] ?? null;
 
+            if ($field->isMemberSourced()) {
+                $normalized[$field->id] = $this->normalizeMemberAnswer(
+                    $field,
+                    $raw,
+                    $memberOptions,
+                    $previousAnswers[$field->id] ?? null
+                );
+                continue;
+            }
+
             if ($field->fieldType === FormField::TYPE_CHECKBOX) {
                 $values = is_array($raw) ? $raw : ($raw !== null && $raw !== '' ? [$raw] : []);
                 if ($field->isRequired && $values === []) {
                     throw new NewsException('Le champ "' . $field->label . '" est obligatoire.');
                 }
-                $this->assertValidOptions($field, $values, $memberOptions);
+                $this->assertValidOptions($field, $values);
                 $normalized[$field->id] = implode(', ', $values);
                 continue;
             }
@@ -598,7 +793,7 @@ class ResponseService
             }
 
             if (in_array($field->fieldType, [FormField::TYPE_DROPDOWN, FormField::TYPE_RADIO], true) && $value !== '') {
-                $this->assertValidOptions($field, [$value], $memberOptions);
+                $this->assertValidOptions($field, [$value]);
             }
 
             if ($field->fieldType === FormField::TYPE_NUMBER && $value !== '' && !is_numeric($value)) {
@@ -636,20 +831,87 @@ class ResponseService
     }
 
     /**
-     * @param string[] $values
-     * @param array<int, string> $memberOptions
+     * A manual option is checked against the options the editor wrote; a
+     * `members` field never comes here (normalizeMemberAnswer()).
+     *
+     * @param array<mixed> $values
      */
-    private function assertValidOptions(FormField $field, array $values, array $memberOptions): void
+    private function assertValidOptions(FormField $field, array $values): void
     {
-        $validOptions = $field->optionsSource === FormField::OPTIONS_SOURCE_MEMBERS
-            ? array_values($memberOptions)
-            : $field->manualOptions();
+        $validOptions = $field->manualOptions();
 
         foreach ($values as $value) {
             if (!in_array($value, $validOptions, true)) {
                 throw new NewsException('Valeur invalide pour le champ "' . $field->label . '".');
             }
         }
+    }
+
+    /**
+     * A `members` answer as it is stored (MemberAnswer): the Desk ids
+     * chosen, each one checked against WHO this account may name this
+     * scout year — never against a label, which two members can share.
+     *
+     * A code is accepted when it is:
+     * - one of the account's members (`$memberOptions`);
+     * - or a code an old record carried, before a merge, for one of them
+     *   (MemberAnswerResolver) — stored under the member's current code;
+     * - or, on an edit, a code this very answer already held: a member
+     *   the account can no longer name is kept as chosen rather than
+     *   erased by a save that did not touch the field. The edit form
+     *   offers it as MemberAnswer::UNAVAILABLE_LABEL.
+     * Anything else — a forged code, a member of another family, another
+     * year's record — refuses the whole submission.
+     *
+     * @param array<int, MemberOption> $memberOptions
+     */
+    private function normalizeMemberAnswer(
+        FormField $field,
+        mixed $raw,
+        array $memberOptions,
+        ?string $previousAnswer
+    ): string {
+        $invalid = 'Valeur invalide pour le champ "' . $field->label . '".';
+
+        if ($field->fieldType === FormField::TYPE_CHECKBOX) {
+            $values = is_array($raw) ? array_values($raw) : ($raw !== null && $raw !== '' ? [$raw] : []);
+        } else {
+            if (is_array($raw)) {
+                throw new NewsException($invalid);
+            }
+            $values = $raw !== null && $raw !== '' ? [$raw] : [];
+        }
+        $chosen = [];
+        foreach ($values as $value) {
+            if (!is_string($value) || $value === '') {
+                throw new NewsException($invalid);
+            }
+            $chosen[$value] = $value;
+        }
+        $values = array_values($chosen);
+
+        if ($field->isRequired && $values === []) {
+            throw new NewsException('Le champ "' . $field->label . '" est obligatoire.');
+        }
+
+        $offered = array_map(static fn(MemberOption $option): string => $option->deskId, $memberOptions);
+        $previous = MemberAnswer::decode($previousAnswer);
+
+        $unknown = array_values(array_filter($values, static fn(string $id): bool => !in_array($id, $offered, true)));
+        $current = $unknown !== [] && $this->memberAnswers !== null ? $this->memberAnswers->resolve($unknown) : [];
+
+        $deskIds = [];
+        foreach ($values as $value) {
+            $currentId = $current[$value]->deskId ?? null;
+            $deskIds[] = match (true) {
+                in_array($value, $offered, true) => $value,
+                $currentId !== null && in_array($currentId, $offered, true) => $currentId,
+                in_array($value, $previous, true) => $value,
+                default => throw new NewsException($invalid),
+            };
+        }
+
+        return MemberAnswer::encode($deskIds);
     }
 
     /**
@@ -663,7 +925,9 @@ class ResponseService
         float $total
     ): void
     {
-        $answers = $this->responseRepository->getValues($response->id);
+        // Readable: a « Membres » answer is Desk ids, and the e-mail names
+        // the members instead (readableAnswers()).
+        $answers = $this->readableAnswersOf($fields, $response->id);
         $answerLines = [];
         foreach ($fields as $field) {
             if ($field->isNonInput() || !isset($answers[$field->id])) {

@@ -22,6 +22,11 @@ laquelle l'unité vous écrira au sujet de cette inscription.
 « Enregistrer les modifications » remplace la réponse précédente ;
 « Annuler » vous ramène à l'article sans rien changer.
 
+Les membres que vous aviez choisis restent cochés. Un membre que votre
+compte ne rejoint plus cette année apparaît comme « Membre
+indisponible » : laissé coché, il reste dans votre réponse ; décoché, il
+en sort, et vous ne pourrez plus le choisir à nouveau.
+
 ## Quand c'est possible
 
 Il faut deux choses : que vous ayez répondu **en étant connecté**, et

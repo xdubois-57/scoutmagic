@@ -138,8 +138,12 @@
                                 <label class="form-label" for="member_year_id">Membre concerné <span class="text-danger">*</span></label>
                                 <select class="form-select" id="member_year_id" name="member_year_id" required>
                                     <option value="">Choisissez…</option>
-                                    {% for member_id, member_name in member_options %}
-                                        <option value="{{ member_id }}" {{ (member_year_id_selected|default('')) == member_id ? 'selected' : '' }}>{{ member_name }}</option>
+                                    {# The member's full name (Service\MemberOption), the
+                                       same label as a « Membres » field; the value
+                                       stays the annual record the response is
+                                       attached to (news_form_responses.member_year_id). #}
+                                    {% for member_year_id, option in member_options %}
+                                        <option value="{{ member_year_id }}" {{ (member_year_id_selected|default('')) == member_year_id ? 'selected' : '' }}>{{ option.label }}</option>
                                     {% endfor %}
                                 </select>
                             </div>

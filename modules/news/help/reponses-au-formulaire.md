@@ -18,7 +18,8 @@ formulaire.
 ## Lire les réponses
 
 Chaque ligne montre l'adresse de contact utilisée pour répondre et les
-réponses données, question par question.
+réponses données, question par question. Un membre choisi porte son nom
+actuel ; « Membre indisponible » : fiche introuvable.
 
 Le bouton « Modifier » n'apparaît que sur les lignes que vous pouvez
 corriger : les vôtres tant que le formulaire est ouvert, et — pour un
@@ -61,8 +62,7 @@ seconde liste contient donc peut-être des personnes en règle.
 mais aussi le montant attendu, le montant reçu, la communication
 structurée et l'état du paiement — de quoi écrire un rappel qui dit à
 chacun ce qu'il doit. Rien ne part avant que vous ne l'envoyiez. Le
-bouton demande le rôle animateur et n'apparaît pas si le module Envoi
-de mails est désactivé.
+bouton demande le rôle animateur et le module Envoi de mails.
 
 Sur un évènement billetté, le brouillon s'ouvre sur un bloc portant la
 référence et le code QR de chaque destinataire : c'est ce qui permet de

@@ -299,12 +299,13 @@ class FormController extends AbstractController
         $fields = $this->formService->getFields($form->id);
         $storedAnswers = $this->responseService->getAnswers($response->id);
         $total = $this->responseService->computeTotal($fields, $storedAnswers);
+        $readableAnswers = $this->responseService->readableAnswers($fields, [$response->id => $storedAnswers]);
 
         return $this->render('@news/confirmation.html.twig', [
             'article' => $article,
             'breadcrumb_current' => $article->title,
             'response' => $response,
-            'answers' => $this->answerLines($fields, $storedAnswers),
+            'answers' => $this->answerLines($fields, $readableAnswers[$response->id]),
             'payment' => $this->responseService->buildPaymentSummary($form, $response, $total),
             'edit_url' => ($response->userAccountId !== null && $form->isOpen())
                 ? '/news/' . $article->id . '/form/responses/' . $response->id . '/edit'
@@ -395,9 +396,11 @@ class FormController extends AbstractController
         $page = max(1, min($totalPages, (int) $request->getQuery('page', 1)));
         $rows = array_slice($filtered, ($page - 1) * self::RESPONSES_PER_PAGE, self::RESPONSES_PER_PAGE);
 
-        $answersByResponse = $this->responseService->getAnswersFor(
+        // Readable in the same batch: a « Membres » answer is Desk ids,
+        // and the page names the members (ResponseService::readableAnswers()).
+        $answersByResponse = $this->responseService->readableAnswers($fields, $this->responseService->getAnswersFor(
             array_map(static fn (array $row): int => $row['response']->id, $rows)
-        );
+        ));
         foreach ($rows as $index => $row) {
             $rows[$index]['answers'] = $this->answerLines(
                 $fields,
@@ -751,9 +754,11 @@ class FormController extends AbstractController
     {
         $columns = $this->responseColumns->forForm($fields, $form);
 
+        $answersByResponse = $this->readableAnswersFor($fields, $responses);
+
         $rows = [];
         foreach ($responses as $response) {
-            $answers = $this->responseService->getAnswers($response->id);
+            $answers = $answersByResponse[$response->id] ?? [];
             $values = [];
             foreach ($columns as $column) {
                 $values[$column->label] = $this->responseColumns->valueFor($column, $response, $answers);
@@ -846,8 +851,8 @@ class FormController extends AbstractController
             'article' => $article,
             'form' => $form,
             'response' => $response,
-            'fields' => $this->fieldsForTemplate($fields, $memberOptions, excludeResponseId: $response->id),
-            'existing_answers' => $existingAnswers,
+            'fields' => $this->fieldsForTemplate($fields, $memberOptions, $response->id, $existingAnswers),
+            'existing_answers' => $this->responseService->formValues($fields, $existingAnswers, $memberOptions),
             'member_options' => $memberOptions,
             'csrf_token' => CsrfGuard::generateToken(),
         ]);
@@ -896,12 +901,13 @@ class FormController extends AbstractController
             $memberOptions = $form->access === NewsForm::ACCESS_IDENTIFIED
                 ? $this->responseService->resolveMemberOptions(AuthSession::getEmail(), $scoutYearId)
                 : [];
+            $existingAnswers = $this->responseService->getAnswers($response->id);
             return $this->render('@news/response_edit.html.twig', [
                 'article' => $article,
                 'form' => $form,
                 'response' => $response,
-                'fields' => $this->fieldsForTemplate($fields, $memberOptions, excludeResponseId: $response->id),
-                'existing_answers' => $this->responseService->getAnswers($response->id),
+                'fields' => $this->fieldsForTemplate($fields, $memberOptions, $response->id, $existingAnswers),
+                'existing_answers' => $this->responseService->formValues($fields, $existingAnswers, $memberOptions),
                 'member_options' => $memberOptions,
                 'submit_error' => $e->getMessage(),
                 'csrf_token' => CsrfGuard::generateToken(),
@@ -1064,26 +1070,49 @@ class FormController extends AbstractController
 
     /**
      * @param FormField[] $fields
-     * @param array<int, string> $memberOptions
+     * @param array<int, \Modules\News\Service\MemberOption> $memberOptions
+     * @param array<int, string> $storedAnswers the answers being edited, whose
+     *        members stay offered even when this account can no longer name them
      * @return array<int, array<string, mixed>>
      */
-    private function fieldsForTemplate(array $fields, array $memberOptions, ?int $excludeResponseId = null): array
-    {
-        return array_map(function (FormField $field) use ($memberOptions, $excludeResponseId) {
-            $options = $field->optionsSource === FormField::OPTIONS_SOURCE_MEMBERS
-                ? array_values($memberOptions)
-                : $field->manualOptions();
+    private function fieldsForTemplate(
+        array $fields,
+        array $memberOptions,
+        ?int $excludeResponseId = null,
+        array $storedAnswers = []
+    ): array {
+        return array_map(function (FormField $field) use ($memberOptions, $excludeResponseId, $storedAnswers) {
             return [
                 'field' => $field,
-                'options' => $options,
+                'options' => $this->responseService->optionsFor(
+                    $field,
+                    $memberOptions,
+                    $storedAnswers[$field->id] ?? null
+                ),
                 'remaining_capacity' => $this->responseService->remainingCapacity($field, $excludeResponseId),
             ];
         }, $fields);
     }
 
     /**
+     * Every response's answers, readable (ResponseService::readableAnswers()),
+     * read and resolved in one batch for the export and the mail merge.
+     *
      * @param FormField[] $fields
-     * @param array<int, string> $answers
+     * @param FormResponse[] $responses
+     * @return array<int, array<int, string>> response id => field id => answer
+     */
+    private function readableAnswersFor(array $fields, array $responses): array
+    {
+        return $this->responseService->readableAnswers(
+            $fields,
+            $this->responseService->getAnswersFor(array_map(static fn(FormResponse $r): int => $r->id, $responses))
+        );
+    }
+
+    /**
+     * @param FormField[] $fields
+     * @param array<int, string> $answers readable answers (ResponseService::readableAnswers())
      * @return array<int, array{label: ?string, value: string}>
      */
     private function answerLines(array $fields, array $answers): array
@@ -1152,9 +1181,11 @@ class FormController extends AbstractController
             }
         }
 
+        $answersByResponse = $this->readableAnswersFor($fields, $responses);
+
         $rowNum = 2;
         foreach ($responses as $response) {
-            $answers = $this->responseService->getAnswers($response->id);
+            $answers = $answersByResponse[$response->id] ?? [];
             $payment = $this->responseColumns->paymentOf($response);
 
             foreach ($columns as $index => $column) {

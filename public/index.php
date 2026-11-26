@@ -9791,7 +9791,10 @@ if ($isEnabled('news')) {
         $newsTicketService,
         $newsTicketMailService,
         // The running capacity total lives on the field (#241).
-        $newsFieldRepo
+        $newsFieldRepo,
+        // Who the Desk ids of a « Membres » answer designate now, aliases
+        // of a merge included (#1381).
+        new \Modules\News\Service\MemberAnswerResolver($memberRepo, $memberYearRepo, $sectionService)
     );
 
     // One-shot reprise of `news_form_fields.capacity_used` for the
