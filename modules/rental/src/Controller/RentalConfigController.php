@@ -17,6 +17,7 @@ use Core\Http\Response;
 use Core\Member\MemberDirectoryEntry;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
+use Core\Security\Role;
 use Core\Service\IntegerInput;
 use Modules\Rental\Payment\PaymentSettings;
 use Modules\Rental\Repository\RentalAssetRepository;
@@ -220,6 +221,11 @@ class RentalConfigController extends AbstractController
             'finance_accounts' => $this->paymentService?->availableAccounts() ?? [],
             'finance_categories' => $this->paymentService?->availableCategories() ?? [],
             'payment_settings' => $this->paymentService?->settingsFor($asset->id) ?? new PaymentSettings(),
+            // The Finance screens where an account or a category is added
+            // are `superadmin` pages (issue #1355, D13): a link is offered
+            // only to whoever can open it, and the others read whom to ask
+            // rather than meet a refusal one click later.
+            'can_configure_finance' => Role::fromString(AuthSession::getRole())->hasAccess(Role::SUPERADMIN),
             'csrf_token' => CsrfGuard::generateToken(),
             'current_path' => '/admin/locations',
         ]);

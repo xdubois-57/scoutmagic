@@ -8310,6 +8310,20 @@ class RentalManagementControllerTest extends TestCase
         )->getBody();
     }
 
+    /** The fees section says what a fee is for, not how many kinds exist (issue #1355, D10). */
+    public function testTheFeesSectionInvitesToAddWhatTheRentalCosts(): void
+    {
+        $this->loginAsManager();
+
+        $html = (string) preg_replace('/\s+/', ' ', $this->settingsPage());
+
+        $this->assertStringContainsString(
+            'Ajoutez les frais complémentaires à la location, comme le nettoyage ou les consommations.',
+            $html
+        );
+        $this->assertStringNotContainsString('Trois natures seulement.', $html);
+    }
+
     public function testTheSettingsPageListsEveryReminderWithItsOwnField(): void
     {
         $this->loginAsManager();
