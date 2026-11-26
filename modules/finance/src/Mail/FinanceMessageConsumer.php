@@ -347,11 +347,35 @@ class FinanceMessageConsumer implements
                 $row['reason'] ?? null,
                 $receipt,
                 $visibility,
-                Role::fromString($role)
+                Role::fromString($role),
+                // Finance remembers where an attachment went once, not once
+                // per link. When two of the message's links cover it, the
+                // receipt on record may belong to the OTHER one, and naming
+                // its account under this link would be naming the wrong one.
+                self::linksCovering($message, $attachment) <= 1
             );
         }
 
         return $fates;
+    }
+
+    /** How many of this consumer's links on the message cover this attachment. */
+    private static function linksCovering(InboundMessage $message, InboundAttachment $attachment): int
+    {
+        $count = 0;
+        foreach ($message->links as $link) {
+            if ($link->consumerId !== self::CONSUMER_ID) {
+                continue;
+            }
+            foreach (MailReceiptFiler::receiptAttachmentsOf($message, $link) as $covered) {
+                if ($covered->id === $attachment->id) {
+                    $count++;
+                    break;
+                }
+            }
+        }
+
+        return $count;
     }
 
     private function fateOf(
@@ -359,7 +383,8 @@ class FinanceMessageConsumer implements
         ?string $reason,
         ?Attachment $receipt,
         AccountVisibility $visibility,
-        Role $role
+        Role $role,
+        bool $mayNameTheReceipt
     ): AttachmentFate {
         $state = match (true) {
             $reason === null => AttachmentFate::PENDING,
@@ -393,7 +418,7 @@ class FinanceMessageConsumer implements
         // is gone from every screen: nothing to point at.
         $url = null;
         $targetLabel = null;
-        if ($receipt !== null && $receipt->status === Attachment::STATUS_ACTIVE) {
+        if ($mayNameTheReceipt && $receipt !== null && $receipt->status === Attachment::STATUS_ACTIVE) {
             $account = $receipt->accountId === null ? null : $this->accounts->findById($receipt->accountId);
             $visible = $receipt->accountId === null
                 ? $visibility->isUnassignedReceiptVisibleTo($role)

@@ -484,6 +484,50 @@ final class ReceiptOutcomeJournalTest extends TestCase
         );
     }
 
+    /**
+     * Two message-level links to Finance cover the same attachment, and the
+     * memory of where it went is one row. The receipt on record may be the
+     * other link's: neither link names an account, rather than one naming
+     * the wrong one.
+     */
+    public function testTwoLinksCoveringOneAttachmentNameNoAccountForEither(): void
+    {
+        $accountId = $this->accounts->create('Louveteaux', Account::TYPE_BANK, null, null, null, 'intendant');
+        $this->accounts->updateStatus($accountId, Account::STATUS_ACTIVE);
+        $fileId = $this->inboundPdf('text_receipt.pdf');
+        $unknown = $this->unknownLink();
+        $onAccount = new MessageLink(
+            FinanceMessageConsumer::CONSUMER_ID,
+            FinanceMessageConsumer::referenceFor($accountId),
+            LinkOrigin::MANUAL
+        );
+        $message = $this->generalMessage($fileId, links: [$unknown, $onAccount]);
+        $consumer = $this->consumer();
+        $consumer->onLinked($message, $unknown);
+
+        foreach ([$unknown, $onAccount] as $link) {
+            $fates = $consumer->attachmentFates($message, $link, 'admin', []);
+
+            $this->assertSame(AttachmentFate::CREATED, $fates[0]->state, 'a receipt was created from it');
+            $this->assertNull($fates[0]->url, 'but which link it belongs to is not known');
+            $this->assertNull($fates[0]->targetLabel);
+        }
+    }
+
+    public function testAnAttachmentOnlyOneLinkCoversStillNamesItsAccount(): void
+    {
+        $message = $this->generalMessage(
+            $this->inboundPdf('text_receipt.pdf'),
+            links: [$this->unknownLink()]
+        );
+        $consumer = $this->consumer();
+        $consumer->onLinked($message, $this->unknownLink());
+
+        $fates = $consumer->attachmentFates($message, $this->unknownLink(), 'admin', []);
+
+        $this->assertSame('/finance/receipts?account_id=unassigned', $fates[0]->url);
+    }
+
     public function testAnAttachmentFinanceHasNotLookedAtIsPending(): void
     {
         $message = $this->generalMessage($this->inboundPdf('text_receipt.pdf'));
@@ -631,8 +675,13 @@ final class ReceiptOutcomeJournalTest extends TestCase
     }
 
     /** A general-address message nothing in its covering e-mail places. */
-    private function generalMessage(int $fileId, int $messageId = 56, int $attachmentId = 90): InboundMessage
-    {
+    /** @param MessageLink[] $links */
+    private function generalMessage(
+        int $fileId,
+        int $messageId = 56,
+        int $attachmentId = 90,
+        array $links = []
+    ): InboundMessage {
         $size = (int) ($this->files->findById($fileId)?->sizeBytes ?? 0);
 
         return new InboundMessage(
@@ -652,7 +701,8 @@ final class ReceiptOutcomeJournalTest extends TestCase
             toEmails: [],
             attachments: [
                 new InboundAttachment($attachmentId, $messageId, $fileId, 'facture.pdf', 'application/pdf', $size, 'hash-c'),
-            ]
+            ],
+            links: $links
         );
     }
 }
