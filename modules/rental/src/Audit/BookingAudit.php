@@ -98,6 +98,24 @@ final class BookingAudit
     }
 
     /**
+     * The account a person acting with no member is recorded under — a
+     * superadmin (issue #1355, D3), who acts as their account and whom no
+     * member stands for. Set by the managed space for the request in which
+     * that person acts; never set on a sweep, where a change with no member
+     * is the site's own and stays recorded as such.
+     */
+    private ?int $unnamedActorAccountId = null;
+
+    /**
+     * From now on, in this request, a change recorded with neither a member
+     * nor an account is this account's, made by a person.
+     */
+    public function attributeUnnamedChangesTo(?int $accountId): void
+    {
+        $this->unnamedActorAccountId = $accountId;
+    }
+
+    /**
      * Records one change against a booking.
      *
      * `$actorMemberId` is null for anything the application did on its own
@@ -127,6 +145,10 @@ final class BookingAudit
         ?int $actorMemberId = null,
         ?int $actorAccountId = null
     ): void {
+        if ($actorMemberId === null && $actorAccountId === null) {
+            $actorAccountId = $this->unnamedActorAccountId;
+        }
+
         $this->audit->record(
             self::ENTITY_TYPE,
             $bookingId,
