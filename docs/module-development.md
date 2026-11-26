@@ -570,7 +570,9 @@ uses the core's map rather than a copy of it (ARCHITECTURE.md §8.119):
       manual: point_is_manual,             -- PointSubmission::showsManual()
       automatic: values.point_automatic|default('0'),
       point_address: values.point_address|default(''),
-      address_field: 'place-address',      -- id of your address input
+      address_field: 'place-address',      -- id of your address input, or
+      -- address_fields: [['street'], ['postal', 'city'], ['country']]
+      -- address_needs: ['postal', 'city'] -- one of them, or no lookup
       address_status: 'place-address-status', -- id of a <p> under it
       locate_url: lookup_on ? '/my-module/adresse' : '',
       legend: 'Coordonnées', pin_label: 'Entrée du terrain',

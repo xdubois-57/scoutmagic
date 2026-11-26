@@ -30,18 +30,21 @@
                 field_id: 'place-address', field_name: 'address', label: 'Adresse',
                 value: submitted.address, maxlength: 255,
                 help: 'Facultative : beaucoup de terrains sont un pré sans adresse utilisable.',
+                describedby_extra: 'place-address-status',
             } only %}
             <div class="row">
                 <div class="col-4">
                     {% include 'partials/form_field.html.twig' with {
                         field_id: 'place-postal', field_name: 'postal_code', label: 'Code postal',
                         value: submitted.postal_code, maxlength: 20,
+                        describedby_extra: 'place-address-status',
                     } only %}
                 </div>
                 <div class="col-8">
                     {% include 'partials/form_field.html.twig' with {
                         field_id: 'place-city', field_name: 'city', label: 'Ville',
                         value: submitted.city, maxlength: 120,
+                        describedby_extra: 'place-address-status',
                     } only %}
                 </div>
             </div>
@@ -77,6 +80,7 @@
                 automatic: submitted.point_automatic|default('0'),
                 point_address: submitted.point_address|default(''),
                 address_fields: [['place-address'], ['place-postal', 'place-city'], ['place-country']],
+                address_needs: ['place-postal', 'place-city'],
                 address_status: 'place-address-status',
                 locate_url: address_lookup ? '/chefs/camps/adresse' : '',
                 legend: 'Coordonnées',

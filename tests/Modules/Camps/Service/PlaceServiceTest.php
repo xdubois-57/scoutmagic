@@ -284,6 +284,56 @@ class PlaceServiceTest extends TestCase
         $this->assertEqualsWithDelta(50.443210, (float) $updated->latitude, 0.000001);
     }
 
+    /** The task's own rule: « Belgique » alone is not an address to find, its « point » is the middle of the country. */
+    public function testAnAutomaticPointForAnAddressWithoutPostalCodeOrCityIsNotSaved(): void
+    {
+        $id = $this->service->create(['name' => 'Le pré de Jules', 'country' => 'Belgique'], 1);
+        $place = $this->places->findById($id);
+        $this->assertNotNull($place);
+
+        $this->service->update($place, $this->form($place, [
+            'latitude' => '50.640000', 'longitude' => '4.660000',
+            'point_automatic' => '1', 'point_address' => 'Belgique',
+        ]), 42);
+
+        $this->assertNull($this->places->findById($id)?->latitude);
+    }
+
+    /** Refused coordinates leave the place as it was — not half saved with its new address. */
+    public function testRefusedCoordinatesSaveNothing(): void
+    {
+        $place = $this->placeAt('Rue du Tronquoy 4', '5340', 'Mozet', 'Belgique');
+
+        try {
+            $this->service->update($place, $this->form($place, [
+                'address' => 'Chemin des Prés 2', 'latitude' => '999', 'longitude' => '4.9',
+            ]), 42);
+            $this->fail('the coordinates should have been refused');
+        } catch (GeoPointException) {
+        }
+
+        $this->assertSame('Rue du Tronquoy 4', $this->places->findById($place->id)?->address);
+    }
+
+    /** A pin placed by hand since the form was opened stays, and the history does not claim otherwise. */
+    public function testAnAutomaticPointArrivingAfterAHumansOneWritesNothing(): void
+    {
+        $place = $this->placeAt('Rue du Tronquoy 4', '5340', 'Mozet', 'Belgique');
+        $this->places->setManualCoordinates($place->id, 50.443210, 5.001234);
+        $before = $this->audit->page(PlaceService::ENTITY_TYPE, $place->id, 1, 10)->total;
+
+        // $place is the row as the form saw it: no point, not manual.
+        $this->service->update($place, $this->form($place, [
+            'latitude' => '50.442100', 'longitude' => '4.987600',
+            'point_automatic' => '1', 'point_address' => 'Rue du Tronquoy 4, 5340 Mozet, Belgique',
+        ]), 42);
+
+        $stored = $this->places->findById($place->id);
+        $this->assertTrue($stored?->coordinatesAreManual);
+        $this->assertEqualsWithDelta(50.443210, (float) $stored->latitude, 0.000001);
+        $this->assertSame($before, $this->audit->page(PlaceService::ENTITY_TYPE, $place->id, 1, 10)->total);
+    }
+
     private function placeAt(
         string $address,
         string $postalCode,

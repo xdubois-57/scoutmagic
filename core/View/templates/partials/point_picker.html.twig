@@ -27,6 +27,8 @@
                     ids: [['x-address'], ['x-postal', 'x-city'], ['x-country']]
                     joined « x-address, x-postal x-city, x-country » — the
                     line the server compares `point_address` with
+    address_needs   ids of fields at least one of which must be filled for
+                    the address to be looked up (optional)
     address_status  id of the sentence under that input (optional)
     locate_url      the page's own address lookup route; none, no lookup
     legend          the fieldset's legend
@@ -39,6 +41,7 @@
           data-pin-label="{{ pin_label|default('Point sur la carte') }}"
           data-address-label="{{ address_label|default('Adresse') }}"
           {% if address_fields|default([]) is not empty %}data-address-fields="{{ address_fields|json_encode }}"{% elseif address_field|default('') %}data-address-field="{{ address_field }}"{% endif %}
+          {% if address_needs|default([]) is not empty %}data-address-needs="{{ address_needs|join(' ') }}"{% endif %}
           {% if address_status|default('') %}data-address-status="{{ address_status }}"{% endif %}
           {% if locate_url|default('') %}data-locate-url="{{ locate_url }}"{% endif %}>
     <legend class="form-label fs-6">{{ legend|default('Point sur la carte (facultatif)') }}</legend>

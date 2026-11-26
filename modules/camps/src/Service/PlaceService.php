@@ -84,6 +84,16 @@ class PlaceService
         $city = Support::clean($fields['city'] ?? null);
         $country = Support::clean($fields['country'] ?? null);
         $websiteUrl = $this->cleanWebsiteUrl($fields['website_url'] ?? null);
+        $newLine = $this->addressLine($address, $postalCode, $city, $country);
+
+        // Coordinates are their own decision, taken only when the form
+        // actually carried them: a chief editing an address must not
+        // silently wipe a pin somebody placed by hand. Read — and refused,
+        // GeoPointException — BEFORE anything is written: a refused form
+        // must leave the place as it was, not half saved.
+        $submission = array_key_exists('latitude', $fields) || array_key_exists('longitude', $fields)
+            ? PointSubmission::fromInput($fields, (string) $newLine)
+            : null;
 
         $this->places->update($place->id, $name, $address, $postalCode, $city, $country, $websiteUrl);
 
@@ -93,18 +103,19 @@ class PlaceService
         // showing the wrong field, and nothing ever asked again. Cleared
         // only for an automatically-placed pin: the repository's own
         // `coordinates_are_manual = 0` fence keeps a hand-placed one.
-        $newLine = $this->addressLine($address, $postalCode, $city, $country);
         $addressChanged = $this->addressLine($place->address, $place->postalCode, $place->city, $place->country)
             !== $newLine;
         if ($addressChanged) {
             $this->places->clearGeocoding($place->id);
         }
 
-        // Coordinates are their own decision, taken only when the form
-        // actually carried them: a chief editing an address must not
-        // silently wipe a pin somebody placed by hand.
-        if (array_key_exists('latitude', $fields) || array_key_exists('longitude', $fields)) {
-            $this->updateCoordinates($place, $fields, (string) $newLine, $addressChanged, $source, $actorUserAccountId);
+        if ($submission !== null) {
+            // The background task's own rule (GeocodingService::buildQuery):
+            // an address with neither a postal code nor a city is not
+            // looked up, so a point « found » for « Belgique » alone is the
+            // middle of the country, never the field.
+            $locatable = $postalCode !== null || $city !== null;
+            $this->updateCoordinates($place, $submission, $locatable, $addressChanged, $source, $actorUserAccountId);
         }
 
         // Recorded field by field rather than as one "lieu modifié": a
@@ -139,20 +150,16 @@ class PlaceService
      * one posted (sent before the new lookup answered) is no point at all,
      * and the task finds the right one.
      *
-     * @param array<string, string|null> $fields
+     * @param bool $locatable the address names a postal code or a city
      */
     private function updateCoordinates(
         Place $place,
-        array $fields,
-        string $addressLine,
+        PointSubmission $submission,
+        bool $locatable,
         bool $addressChanged,
         AuditSource $source,
         ?int $actorUserAccountId
     ): void {
-        // The core parses and refuses (GeoPointException, user-facing):
-        // the same inputs are refused with the same sentences on every
-        // form that places something on the map.
-        $submission = PointSubmission::fromInput($fields, $addressLine);
         $saved = GeoPoint::fromColumns($place->latitude, $place->longitude);
         if (!$submission->changes($saved, $place->coordinatesAreManual, $addressChanged)) {
             return;
@@ -160,10 +167,21 @@ class PlaceService
 
         $point = $submission->point;
         if ($submission->automatic) {
-            if ($point === null) {
+            if ($point === null || !$locatable) {
                 return;
             }
             $this->places->recordGeocoding($place->id, $point->latitude, $point->longitude, new \DateTimeImmutable());
+            // Said only when it happened: a chief may have placed the pin
+            // by hand since this form was opened, and the store's fence
+            // then left it alone; nor is « the same point again » a change.
+            $stored = $this->places->findById($place->id);
+            if (
+                $stored === null || $stored->coordinatesAreManual
+                || GeoPoint::fromColumns($stored->latitude, $stored->longitude)?->line() !== $point->line()
+                || $saved?->line() === $point->line()
+            ) {
+                return;
+            }
             $this->audit->record(
                 self::ENTITY_TYPE,
                 $place->id,

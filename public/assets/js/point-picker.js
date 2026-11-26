@@ -174,6 +174,9 @@
         var lng = /** @type {HTMLInputElement|null} */ (box.querySelector('[data-point-picker-longitude]'));
         var addressFields = addressGroups(box);
         var hasAddress = addressFields.length > 0;
+        var needs = /** @type {HTMLInputElement[]} */ ((box.dataset.addressNeeds || '').split(/\s+/)
+            .map(function (id) { return byId(id); })
+            .filter(function (field) { return field !== null; }));
         var addressStatus = byId(box.dataset.addressStatus);
         if (!fields || !mapBox || !mapElement || !placeButton || !removeButton || !lat || !lng) {
             return null;
@@ -312,8 +315,11 @@
             }
         }
 
-        /** @param {[number, number]} position */
-        function placeAddress(position) {
+        /**
+         * @param {[number, number]} position
+         * @param {boolean} keepPin the pin already belongs to this address
+         */
+        function placeAddress(position, keepPin) {
             addressPosition = position;
             if (!marker && manual) {
                 // The point was removed on purpose: the map stays closed,
@@ -322,7 +328,7 @@
             }
             showMap(position);
             markAddress(position);
-            if (!manual) {
+            if (!manual && !keepPin) {
                 pin(position);
             }
             frame(position);
@@ -344,8 +350,25 @@
             place.classList.remove('d-none');
         }
 
+        /**
+         * Whether the address says enough to be looked up: with
+         * `data-address-needs`, at least one of those fields must be
+         * filled — a camps place gives a postal code or a city, as its
+         * background task requires, so « Belgique » alone never pins the
+         * middle of the country.
+         */
+        function addressIsEnough() {
+            if (needs.length === 0) {
+                return true;
+            }
+            return needs.some(function (field) {
+                return field.value.trim() !== '';
+            });
+        }
+
         var asked = 0;
-        async function locate() {
+        /** @param {boolean} [opening] the page just opened: a saved pin of this address stays where it is */
+        async function locate(opening) {
             if (!hasAddress) {
                 return;
             }
@@ -357,7 +380,7 @@
             }
             var mine = ++asked;
             var query = addressLine(addressFields);
-            if (query.length < 4) {
+            if (query.length < 4 || !addressIsEnough()) {
                 sayAddress('');
                 forgetAddress();
                 dropStalePin(query);
@@ -385,10 +408,14 @@
                 return;
             }
             sayAddress('');
+            // Opening on a saved point of this very address: the lookup
+            // shows the address, it does not re-place a point the form
+            // would then save over the one already stored.
+            var keepPin = opening === true && marker !== null && query === pinAddress;
             if (!manual) {
                 pinAddress = query;
             }
-            placeAddress([data.latitude, data.longitude]);
+            placeAddress([data.latitude, data.longitude], keepPin);
         }
 
         var latitude = coordinate(latField.value);
@@ -424,17 +451,32 @@
         });
 
         if (hasAddress) {
-            // `change` fires when a field is left after an edit — once,
-            // never per keystroke (Nominatim forbids autocompletion).
-            addressFields.forEach(function (group) {
-                group.forEach(function (field) {
-                    field.addEventListener('change', function () {
+            // Asked once the address is left — never per keystroke
+            // (Nominatim forbids autocompletion), and, for an address kept
+            // in several fields, once focus leaves all of them rather than
+            // on each: tabbing from the postal code to the city would
+            // otherwise ask for every half-edited combination.
+            var all = addressFields.flat();
+            var dirty = false;
+            var settle = function () {
+                setTimeout(function () {
+                    if (dirty && all.indexOf(/** @type {HTMLInputElement} */ (document.activeElement)) === -1) {
+                        dirty = false;
                         void locate();
-                    });
+                    }
+                }, 0);
+            };
+            all.forEach(function (field) {
+                field.addEventListener('change', function () {
+                    dirty = true;
+                    settle();
                 });
+                field.addEventListener('focusout', settle);
             });
-            if (addressLine(addressFields) !== '') {
-                void locate();
+            // On opening, only where a lookup can run: without one there is
+            // nothing to confirm, and nothing to drop yet.
+            if (locateUrl && addressLine(addressFields) !== '') {
+                void locate(true);
             }
         }
 

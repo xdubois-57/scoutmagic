@@ -291,6 +291,8 @@ class CampsChiefControllerTest extends TestCase
             $page
         );
         $this->assertStringContainsString('data-manual="0"', $page, 'an automatic point is not shown as a human\'s');
+        // The task's rule: a postal code or a city, or the address is not looked up.
+        $this->assertStringContainsString('data-address-needs="place-postal place-city"', $page);
         $this->assertStringContainsString('class="point-picker-map"', $page);
         $this->assertStringContainsString("/assets/js/point-picker.js", $page);
         $this->assertMatchesRegularExpression('/id="place-latitude"[^>]*value="50.4421/', $page);
