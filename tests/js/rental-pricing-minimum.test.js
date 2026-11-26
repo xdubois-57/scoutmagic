@@ -17,7 +17,7 @@ function render(selected, minimum) {
             </select>
             <input type="radio" name="minimum_mode" value="none" ${minimum === 'none' ? 'checked' : ''}>
             <input type="radio" name="minimum_mode" value="amount" ${minimum === 'amount' ? 'checked' : ''}>
-            <div id="choice"><input type="radio" name="minimum_mode" value="persons" ${minimum === 'persons' ? 'checked' : ''}></div>
+            <div id="choice"><input type="radio" name="minimum_mode" value="persons" ${minimum === 'persons' ? 'checked' : ''}><input type="number" name="minimum_persons" min="1" value="0"></div>
             <p id="note"></p>
         </form>`;
 
@@ -48,6 +48,12 @@ describe('rental pricing minimum', () => {
 
         expect(document.getElementById('choice').hidden).toBe(true);
         expect(document.getElementById('note').hidden).toBe(false);
+        // Disabled too: a hidden number below its minimum must not block the save.
+        expect(/** @type {HTMLInputElement} */ (document.querySelector('input[name="minimum_persons"]')).disabled).toBe(true);
+
+        select.value = 'per_person_night';
+        select.dispatchEvent(new Event('change'));
+        expect(/** @type {HTMLInputElement} */ (document.querySelector('input[name="minimum_persons"]')).disabled).toBe(false);
     });
 
     it('falls back to no minimum when the hidden choice was the one selected', () => {

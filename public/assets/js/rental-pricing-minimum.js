@@ -41,6 +41,12 @@ export function selectionIsPersonBased(select) {
 export function applyMinimumChoice(select, choice, note) {
     const personBased = selectionIsPersonBased(select);
     choice.hidden = !personBased;
+    // Hidden is not enough: a hidden field still takes part in the form's
+    // own validation, and a number below its minimum would block the save
+    // with no message on screen. Disabled, it is neither checked nor sent.
+    choice.querySelectorAll('input').forEach(function (input) {
+        /** @type {HTMLInputElement} */ (input).disabled = !personBased;
+    });
     if (note) {
         note.hidden = personBased;
     }
