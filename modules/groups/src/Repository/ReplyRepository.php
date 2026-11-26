@@ -424,42 +424,13 @@ class ReplyRepository
      */
     public function findLatestCreatedAtByGroups(array $groupIds, array $excludeMemberIds = []): array
     {
-        $groupIds = array_values(array_unique(array_map('intval', $groupIds)));
-        if ($groupIds === []) {
-            return [];
-        }
-
-        $groupPlaceholders = implode(',', array_fill(0, count($groupIds), '?'));
-        if ($excludeMemberIds === []) {
-            $stmt = $this->pdo->prepare(
-                "SELECT p.group_id, MAX(r.created_at) AS latest FROM discussion_group_replies r
-                 INNER JOIN discussion_group_posts p ON p.id = r.post_id
-                 WHERE p.group_id IN ({$groupPlaceholders})
-                   AND r.hidden_at IS NULL AND p.hidden_at IS NULL
-                 GROUP BY p.group_id"
-            );
-            $stmt->execute($groupIds);
-        } else {
-            $authorPlaceholders = implode(',', array_fill(0, count($excludeMemberIds), '?'));
-            $stmt = $this->pdo->prepare(
-                "SELECT p.group_id, MAX(r.created_at) AS latest FROM discussion_group_replies r
-                 INNER JOIN discussion_group_posts p ON p.id = r.post_id
-                 WHERE p.group_id IN ({$groupPlaceholders})
-                   AND r.hidden_at IS NULL AND p.hidden_at IS NULL
-                   AND r.author_member_id NOT IN ({$authorPlaceholders})
-                 GROUP BY p.group_id"
-            );
-            $stmt->execute([...$groupIds, ...array_values($excludeMemberIds)]);
-        }
-
-        $latest = [];
-        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
-            if ($row['latest'] !== null) {
-                $latest[(int) $row['group_id']] = (string) $row['latest'];
-            }
-        }
-
-        return $latest;
+        return (new LatestCreatedAtByGroupQuery(
+            'discussion_group_replies r INNER JOIN discussion_group_posts p ON p.id = r.post_id',
+            'p.group_id',
+            'r.created_at',
+            'r.hidden_at IS NULL AND p.hidden_at IS NULL',
+            'r.author_member_id'
+        ))->fetch($this->pdo, $groupIds, $excludeMemberIds);
     }
 
     /**

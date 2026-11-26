@@ -345,7 +345,8 @@ class PostRepository
      * Same two exclusions as countNewerForGroup(), for the same reasons:
      * a hidden post is not something the reader would find, and the
      * reader's own words are never news to them. Groups with no such post
-     * are simply absent from the result.
+     * are simply absent from the result. The query itself is shared with
+     * ReplyRepository through LatestCreatedAtByGroupQuery.
      *
      * @param int[] $groupIds
      * @param int[] $excludeMemberIds
@@ -353,42 +354,13 @@ class PostRepository
      */
     public function findLatestCreatedAtByGroups(array $groupIds, array $excludeMemberIds = []): array
     {
-        $groupIds = array_values(array_unique(array_map('intval', $groupIds)));
-        if ($groupIds === []) {
-            return [];
-        }
-
-        $groupPlaceholders = implode(',', array_fill(0, count($groupIds), '?'));
-        // Two whole statements rather than an optional clause stitched in,
-        // for the reason Repository\ReplyRepository::countNewerForPosts()
-        // gives: every interpolated fragment is then a placeholder run
-        // inside its own IN (…).
-        if ($excludeMemberIds === []) {
-            $stmt = $this->pdo->prepare(
-                "SELECT group_id, MAX(created_at) AS latest FROM discussion_group_posts
-                 WHERE group_id IN ({$groupPlaceholders}) AND hidden_at IS NULL
-                 GROUP BY group_id"
-            );
-            $stmt->execute($groupIds);
-        } else {
-            $authorPlaceholders = implode(',', array_fill(0, count($excludeMemberIds), '?'));
-            $stmt = $this->pdo->prepare(
-                "SELECT group_id, MAX(created_at) AS latest FROM discussion_group_posts
-                 WHERE group_id IN ({$groupPlaceholders}) AND hidden_at IS NULL
-                   AND author_member_id NOT IN ({$authorPlaceholders})
-                 GROUP BY group_id"
-            );
-            $stmt->execute([...$groupIds, ...array_values($excludeMemberIds)]);
-        }
-
-        $latest = [];
-        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
-            if ($row['latest'] !== null) {
-                $latest[(int) $row['group_id']] = (string) $row['latest'];
-            }
-        }
-
-        return $latest;
+        return (new LatestCreatedAtByGroupQuery(
+            'discussion_group_posts',
+            'group_id',
+            'created_at',
+            'hidden_at IS NULL',
+            'author_member_id'
+        ))->fetch($this->pdo, $groupIds, $excludeMemberIds);
     }
 
     /**
