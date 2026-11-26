@@ -17,6 +17,7 @@ use Modules\Rental\Repository\RentalAssetRepository;
  * The single answer to "may this person operate this asset".
  *
  * ```
+ * Superadmin    → every asset, as the Staff d'U
  * Staff d'U     → every asset
  * Manager       → their own ACTIVE assets only
  * Anyone else   → refused
@@ -37,13 +38,29 @@ use Modules\Rental\Repository\RentalAssetRepository;
  * Staff d'U is resolved through `MemberService::isUnitChief()` rather than
  * stored as a manager row, so a unit chief can never be locked out of their
  * own unit's assets by a revoked or import-deactivated grant.
+ *
+ * **A superadmin has the same capacities as the Staff d'U** (issue #1355,
+ * D1), on every asset, without being Staff d'U — no member record of
+ * theirs, no designation as manager. The two stay distinct: isUnitStaff()
+ * still answers "is this person a unit chief", which is what a sentence
+ * on a screen may claim, while hasUnitWideAuthority() answers "may this
+ * person do what a unit chief does", which is what every decision asks.
+ * The superadmin is recognised by the flag of the account behind the
+ * address (SuperAdminRecognizer), never by a session role, so the mail
+ * sorted at night and the calendar feed judge an address the same way the
+ * screens do. A plain `admin` gains nothing from this.
  */
 class RentalAuthorizationService
 {
     public function __construct(
         private MemberService $memberService,
         private RentalAssetRepository $assetRepository,
-        private RentalAssetManagerRepository $managerRepository
+        private RentalAssetManagerRepository $managerRepository,
+        /**
+         * Null where nothing wires it (a test that does not care): no
+         * address is then a superadmin's, which refuses rather than grants.
+         */
+        private ?SuperAdminRecognizer $superAdmins = null
     ) {
     }
 
@@ -67,7 +84,7 @@ class RentalAuthorizationService
             return false;
         }
 
-        if ($this->isUnitStaff($email, $scoutYearId)) {
+        if ($this->hasUnitWideAuthority($email, $scoutYearId)) {
             return true;
         }
 
@@ -91,7 +108,7 @@ class RentalAuthorizationService
             return [];
         }
 
-        if ($this->isUnitStaff($email, $scoutYearId)) {
+        if ($this->hasUnitWideAuthority($email, $scoutYearId)) {
             return $this->assetRepository->findAll();
         }
 
@@ -111,9 +128,9 @@ class RentalAuthorizationService
             return false;
         }
 
-        if ($this->isUnitStaff($email, $scoutYearId)) {
-            // Staff d'U implicitly manages every asset — but only if there
-            // is one. An empty installation must not sprout a menu entry
+        if ($this->hasUnitWideAuthority($email, $scoutYearId)) {
+            // Staff d'U (and a superadmin) implicitly manages every asset —
+            // but only if there is one. An empty installation must not sprout a menu entry
             // leading to an empty page.
             return $this->assetRepository->findAllActive() !== [];
         }
@@ -123,7 +140,8 @@ class RentalAuthorizationService
 
     /**
      * Whether $email manages every asset of the unit, archived ones
-     * included — the Staff d'U by function, or a manager named on each.
+     * included — the Staff d'U by function, a superadmin, or a manager
+     * named on each.
      *
      * The question behind mail nothing could attribute (issue #462): a
      * message that names no booking may be about any asset, so only
@@ -135,7 +153,7 @@ class RentalAuthorizationService
             return false;
         }
 
-        if ($this->isUnitStaff($email, $scoutYearId)) {
+        if ($this->hasUnitWideAuthority($email, $scoutYearId)) {
             return true;
         }
 
@@ -145,8 +163,29 @@ class RentalAuthorizationService
     }
 
     /**
-     * Whether $email is a unit chief (Staff d'U), and therefore an implicit
-     * manager of every asset.
+     * Whether $email may do, on every asset, what a unit chief does: the
+     * Staff d'U, or a superadmin (issue #1355, D1). The question every
+     * decision of this module asks — never isUnitStaff(), which is about
+     * membership.
+     */
+    public function hasUnitWideAuthority(?string $email, int $scoutYearId): bool
+    {
+        return $this->isSuperAdmin($email) || $this->isUnitStaff($email, $scoutYearId);
+    }
+
+    /**
+     * Whether $email is a superadmin's address, read from the account and
+     * never from a session (issue #1355, D2).
+     */
+    public function isSuperAdmin(?string $email): bool
+    {
+        return $this->superAdmins?->isSuperAdmin($email) ?? false;
+    }
+
+    /**
+     * Whether $email is a unit chief (Staff d'U) — a member of the unit's
+     * staff, which is what a screen may say. Decisions ask
+     * hasUnitWideAuthority(), which a superadmin also passes.
      */
     public function isUnitStaff(?string $email, int $scoutYearId): bool
     {

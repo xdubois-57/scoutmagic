@@ -65,6 +65,34 @@ class BookingAuditTest extends TestCase
     }
 
     /**
+     * A superadmin acts with no member (issue #1355, D3): told so for the
+     * request, the history names their account and reads as a person's
+     * change, not the site's.
+     */
+    public function testAnUnnamedChangeIsTheAttributedAccountsOnceTold(): void
+    {
+        $audit = new BookingAudit($this->audit);
+        $audit->attributeUnnamedChangesTo(5);
+
+        $audit->record(7, BookingAudit::STATUS_CHANGED, 'A', 'B');
+
+        $entry = $this->onlyEntry(7);
+        $this->assertSame(AuditSource::Human, $entry->source);
+        $this->assertSame(5, $entry->actorUserAccountId);
+    }
+
+    /** The attribution only fills a blank: a member or an account given wins. */
+    public function testAnAttributionNeverOverridesAnActorGiven(): void
+    {
+        $audit = new BookingAudit($this->audit);
+        $audit->attributeUnnamedChangesTo(5);
+
+        $audit->record(7, BookingAudit::STATUS_CHANGED, 'A', 'B', null, null, 9);
+
+        $this->assertSame(9, $this->onlyEntry(7)->actorUserAccountId);
+    }
+
+    /**
      * A member the site cannot map to an account still reads as a human
      * change. "A person did this and we can no longer say who" is the
      * honest reading; "the application did it on its own" would be false.

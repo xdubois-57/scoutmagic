@@ -9245,7 +9245,8 @@ if ($isEnabled('finance')) {
             new \Modules\Rental\Service\RentalAuthorizationService(
                 $memberService,
                 $financeRentalAssetRepository,
-                new \Modules\Rental\Repository\RentalAssetManagerRepository($pdo)
+                new \Modules\Rental\Repository\RentalAssetManagerRepository($pdo),
+                new \Modules\Rental\Service\SuperAdminRecognizer($userAccountRepo)
             ),
             $scoutYearResolver
         );
@@ -12667,7 +12668,10 @@ if ($isEnabled('rental')) {
     $rentalAuthorizationService = new \Modules\Rental\Service\RentalAuthorizationService(
         $memberService,
         $rentalAssetRepository,
-        $rentalManagerRepository
+        $rentalManagerRepository,
+        // A superadmin has the Staff d'U's capacities on every asset,
+        // recognised by their account's flag (issue #1355, D1-D2).
+        new \Modules\Rental\Service\SuperAdminRecognizer($userAccountRepo)
     );
     $rentalSlugGenerator = new \Modules\Rental\Service\RentalSlugGenerator($rentalAssetRepository);
     // The closed list of asset types comes from configuration, so a unit
@@ -13254,7 +13258,9 @@ if ($isEnabled('rental')) {
             // stored — no EXIF, no GPS, HEIC read only where Imagick can —
             // and gets its thumbnail (#989).
             \Core\Image\PhotoNormalizer::forThisServer(),
-            $imageVariantService
+            $imageVariantService,
+            // A superadmin's actions are named by their account (#1355, D3).
+            $rentalBookingAudit
         )
     );
     $frontController->registerController(
