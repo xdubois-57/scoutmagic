@@ -95,8 +95,9 @@
                 {% if group_activity.new_posts > 0 %}
                     {% set activity_parts = activity_parts|merge([group_activity.new_posts ~ (group_activity.new_posts > 1 ? ' nouveaux messages' : ' nouveau message')]) %}
                 {% endif %}
-                {% if group_activity.new_replies_or_reactions > 0 %}
-                    {% set activity_parts = activity_parts|merge([group_activity.new_replies_or_reactions ~ (group_activity.new_replies_or_reactions > 1 ? ' réactions ou réponses' : ' réaction ou réponse')]) %}
+                {# Replies only: a reaction is activity, not something to read (issue #1349). #}
+                {% if group_activity.new_replies > 0 %}
+                    {% set activity_parts = activity_parts|merge([group_activity.new_replies ~ (group_activity.new_replies > 1 ? ' nouvelles réponses' : ' nouvelle réponse')]) %}
                 {% endif %}
                 {% if group_activity.new_mentions > 0 %}
                     {% set activity_parts = activity_parts|merge([group_activity.new_mentions ~ (group_activity.new_mentions > 1 ? ' mentions' : ' mention')]) %}

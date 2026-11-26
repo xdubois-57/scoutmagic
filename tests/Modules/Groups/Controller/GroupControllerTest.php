@@ -142,7 +142,13 @@ class GroupControllerTest extends TestCase
         $readRepo = new \Modules\Groups\Repository\GroupReadRepository($this->pdo);
         $this->readStateService = new \Modules\Groups\Service\GroupReadStateService($readRepo, $access);
         $listService = new GroupListService(
-            $this->groupRepo, $sectionRepo, $memberRepo, new SectionMembershipRepository($this->pdo), $readRepo
+            $this->groupRepo,
+            $sectionRepo,
+            $memberRepo,
+            new SectionMembershipRepository($this->pdo),
+            new \Modules\Groups\Repository\PostRepository($this->pdo),
+            new \Modules\Groups\Repository\ReplyRepository($this->pdo),
+            $readRepo
         );
 
         $this->memberService = $this->createStub(MemberService::class);
@@ -603,6 +609,33 @@ class GroupControllerTest extends TestCase
 
         $this->assertStringContainsString('1 membre', $body);
         $this->assertStringNotContainsString('1 membres', $body);
+    }
+
+    /**
+     * Issue #1349, as the list renders it: « Nouveau » for a message
+     * somebody else wrote after the last visit, and not for a reaction
+     * that only moved the group's activity clock.
+     */
+    public function testTheListSaysNouveauForNewContentAndNotForAReaction(): void
+    {
+        $reader = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'C22', $this->sectionId, $this->currentYearId);
+        $writer = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'M22', $this->sectionId, $this->currentYearId);
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $reader, 1);
+        $postId = GroupsTestHelper::createPostAt($this->pdo, $groupId, 'Bonjour', '2030-01-01 10:00:00', 7, $writer);
+        $badge = '<span class="badge text-bg-danger">Nouveau</span>';
+
+        $body = $this->controller([$reader])->index(new Request('GET', '/groups', [], [], [], []), [])->getBody();
+        $this->assertStringContainsString($badge, $body);
+
+        (new \Modules\Groups\Repository\GroupReadRepository($this->pdo))->markRead($groupId, $reader, '2030-01-01 11:00:00');
+        $this->pdo->prepare(
+            'INSERT INTO discussion_group_post_reactions (post_id, member_id, reaction_key, created_at) VALUES (?, ?, ?, ?)'
+        )->execute([$postId, $writer, 'thumbs_up', '2030-01-01 12:00:00']);
+        $this->pdo->prepare('UPDATE discussion_groups SET last_activity_at = ? WHERE id = ?')
+            ->execute(['2030-01-01 12:00:00', $groupId]);
+
+        $body = $this->controller([$reader])->index(new Request('GET', '/groups', [], [], [], []), [])->getBody();
+        $this->assertStringNotContainsString($badge, $body);
     }
 
     public function testShowReturns404ForANonMemberRatherThan403(): void

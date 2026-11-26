@@ -12,6 +12,7 @@ use Core\Notification\NotificationService;
 use Modules\Groups\Repository\DiscussionGroup;
 use Modules\Groups\Repository\Post;
 use Modules\Groups\Repository\Reply;
+use Modules\Groups\Repository\ReplyRepository;
 use Modules\Groups\Support\ReportedAuthor;
 
 /**
@@ -61,7 +62,8 @@ class GroupNotificationService
     public function __construct(
         private GroupRecipientResolver $recipientResolver,
         private ReactionNoticeThrottle $throttle,
-        private ?NotificationService $notificationService = null
+        private ?NotificationService $notificationService = null,
+        private ?ReplyRepository $replyRepository = null
     ) {
     }
 
@@ -105,33 +107,75 @@ class GroupNotificationService
     }
 
     /**
-     * Type 2 — someone replied to my post: the post's author only, and
-     * never when they replied to themselves.
+     * Type 2 — a new reply in a conversation you are part of (issue
+     * #1349): the post's author AND everybody who has already replied
+     * under that post, minus whoever just wrote this one.
+     *
+     * A participant is somebody who WROTE in the thread. Reading it or
+     * reacting to it subscribes nobody, the rest of the group is not told
+     * about every answer (they had the post itself), and a reply under
+     * another post makes nobody a participant here.
+     *
+     * Each participant is the ACCOUNT that typed (`author_user_account_id`),
+     * not the account behind the membership it was signed with: a parent
+     * answering under their child's membership is the one to tell, not
+     * whoever else reads the child's mail. Whether that account may still
+     * open the group is asked now, per account
+     * (GroupRecipientResolver::accountsThatCanRead()) — somebody who left
+     * the section drops out, a site admin who wrote with a borrowed member
+     * stays in (issue #158).
+     *
+     * One notification per account, however many replies it wrote and
+     * whether or not it also wrote the post. The actor alone is left out:
+     * the author answering under their own post no longer silences
+     * everybody else, which the early return this replaced did.
+     *
+     * Every reply of the thread counts, not the page on screen
+     * (Repository\ReplyRepository::findAuthorAccountIdsForPost()). Without
+     * that repository — a narrow unit test, never the composition root —
+     * the post's author is the only participant known.
      */
     public function replyReceived(DiscussionGroup $group, Post $post, Reply $reply, int $effectiveScoutYearId): void
     {
-        if ($reply->authorUserAccountId === $post->authorUserAccountId) {
-            return;
-        }
-
         $this->send(
             self::TYPE_REPLY_RECEIVED,
-            fn(): array => $this->recipientsForAuthorOf(
-                $post,
+            fn(): array => $this->recipientResolver->accountsThatCanRead(
                 $group,
-                $reply->authorUserAccountId,
-                $effectiveScoutYearId
+                $effectiveScoutYearId,
+                $this->participantsOtherThan($post, $reply->authorUserAccountId)
             ),
             [
-                'title' => 'Réponse à votre message — ' . $group->name,
+                // "Réponse à votre message" was only ever true for the
+                // post's author; the other participants answered it.
+                'title' => 'Nouvelle réponse — ' . $group->name,
                 // The REPLY's text, and only if the reply itself is
-                // visible — a reply hidden by reports must not reach the
-                // author's phone with its text intact.
+                // visible — a reply hidden by reports must not reach a
+                // participant's phone with its text intact.
                 'body' => $this->excerptOf($reply->body, $reply->isHidden() || $post->isHidden()),
                 'url' => $this->urlFor($group->id, $post->id),
             ],
             $reply->authorUserAccountId
         );
+    }
+
+    /**
+     * The accounts that wrote in this thread — the post's author first,
+     * then each replier in the order they first answered — without
+     * $actorUserAccountId, and each once.
+     *
+     * @return int[]
+     */
+    private function participantsOtherThan(Post $post, int $actorUserAccountId): array
+    {
+        $participants = [$post->authorUserAccountId];
+        foreach ($this->replyRepository?->findAuthorAccountIdsForPost($post->id) ?? [] as $accountId) {
+            $participants[] = $accountId;
+        }
+
+        return array_values(array_unique(array_filter(
+            $participants,
+            static fn(int $accountId): bool => $accountId !== $actorUserAccountId
+        )));
     }
 
     /**

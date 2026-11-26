@@ -14,6 +14,8 @@ use Modules\Groups\Repository\GroupMemberRepository;
 use Modules\Groups\Repository\GroupReadRepository;
 use Modules\Groups\Repository\GroupRepository;
 use Modules\Groups\Repository\GroupSectionRepository;
+use Modules\Groups\Repository\PostRepository;
+use Modules\Groups\Repository\ReplyRepository;
 
 /**
  * The account's own groups, and its archives.
@@ -36,6 +38,8 @@ class GroupListService
         private GroupSectionRepository $sectionRepository,
         private GroupMemberRepository $memberRepository,
         private SectionMembershipRepository $membershipRepository,
+        private PostRepository $postRepository,
+        private ReplyRepository $replyRepository,
         private ?GroupReadRepository $readRepository = null
     ) {
     }
@@ -122,14 +126,24 @@ class GroupListService
 
         $headcounts = $this->headcounts($readable, $context);
 
+        // Only groups whose badge could be shown at all are asked about:
+        // one the caller belongs to and that is not a past-year archive.
+        $badgeable = [];
+        foreach ($readable as [$group]) {
+            if (($belongsTo[$group->id] ?? false) && !$this->isArchived($group, $context)) {
+                $badgeable[] = $group->id;
+            }
+        }
+        $latestContent = $this->latestContentFor($badgeable, $context);
+
         $items = [];
         foreach ($readable as [$group, $sectionIds, $isModerator]) {
             $items[] = new GroupListItem(
                 $group,
                 $isModerator,
-                $group->scoutYearId !== null && $group->scoutYearId !== $context->effectiveScoutYearId,
+                $this->isArchived($group, $context),
                 $sectionIds,
-                ($belongsTo[$group->id] ?? false) && $this->hasUnread($group, $lastRead),
+                $this->hasUnread($group, $latestContent[$group->id] ?? null, $lastRead),
                 $headcounts[$group->id] ?? 0
             );
         }
@@ -202,25 +216,63 @@ class GroupListService
     }
 
     /**
-     * Never opened counts as unread, but only once the group has actually
-     * had activity: a group created a minute ago whose last_activity_at is
-     * still its own creation timestamp has nothing to catch up on, and
-     * flagging it would make the badge mean "exists" rather than "has
-     * something new".
+     * « Nouveau » means new CONTENT: a message or a reply somebody else
+     * wrote after the reader's last visit (issue #1349). It used to be
+     * the group's last_activity_at, which a reaction — added, changed or
+     * taken back — and a reopening also move, so the badge came back with
+     * nothing new to read. That clock stays what it is for (the feed's
+     * order, the inactivity closing, the retention purge); it is simply
+     * not this question any more.
      *
-     * The caller has already been checked to belong to the group
-     * (findReadable()): a badge is only ever put on a group the caller's
-     * own visit can clear.
+     * A group never opened is measured from its creation, so an empty
+     * group is not flagged for merely existing. $latestContent is null for
+     * a group with no visible content by anybody else — and for every
+     * group the badge is never put on: one the caller does not belong to
+     * (issue #712, only a member's visit leaves a reading position to
+     * clear it) and a past-year archive (read-only, nothing to catch up
+     * on). See findReadable().
      *
      * @param array<int, string> $lastRead
      */
-    private function hasUnread(DiscussionGroup $group, array $lastRead): bool
+    private function hasUnread(DiscussionGroup $group, ?string $latestContent, array $lastRead): bool
     {
-        if (!isset($lastRead[$group->id])) {
-            return $group->lastActivityAt > $group->createdAt;
+        if ($latestContent === null) {
+            return false;
         }
 
-        return $group->lastActivityAt > $lastRead[$group->id];
+        return $latestContent > ($lastRead[$group->id] ?? $group->createdAt);
+    }
+
+    /**
+     * The newest visible post or reply by somebody else, per group — two
+     * queries for the whole list. "Somebody else" is every member linked
+     * to the caller, the same exclusion the thread badges and the home
+     * band's counters apply (Repository\ReplyRepository::
+     * countNewerForPosts()), so the badge and the numbers beside it agree
+     * about what is new.
+     *
+     * @param int[] $groupIds
+     * @return array<int, string> group id => created_at of its newest content
+     */
+    private function latestContentFor(array $groupIds, GroupSessionContext $context): array
+    {
+        if ($groupIds === []) {
+            return [];
+        }
+
+        $latest = $this->postRepository->findLatestCreatedAtByGroups($groupIds, $context->linkedMemberIds);
+        foreach ($this->replyRepository->findLatestCreatedAtByGroups($groupIds, $context->linkedMemberIds) as $groupId => $at) {
+            if (!isset($latest[$groupId]) || $at > $latest[$groupId]) {
+                $latest[$groupId] = $at;
+            }
+        }
+
+        return $latest;
+    }
+
+    private function isArchived(DiscussionGroup $group, GroupSessionContext $context): bool
+    {
+        return $group->scoutYearId !== null && $group->scoutYearId !== $context->effectiveScoutYearId;
     }
 
     /**

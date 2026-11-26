@@ -13,14 +13,18 @@ use Core\Notification\NotificationRepository;
 use Core\Security\AuthSession;
 use Modules\Groups\Repository\GroupReadRepository;
 use Modules\Groups\Repository\PostRepository;
-use Modules\Groups\Repository\ReactionRepository;
 use Modules\Groups\Repository\ReplyRepository;
 
 /**
  * This module's answer to core's Core\Module\HomeGroupActivityProvider
  * hook: one banner-shaped summary of "what happened in your groups since
- * you last looked" — a count of active groups and three counters (new
- * posts, replies-or-reactions, mentions), never a per-group list.
+ * you last looked" — a count of groups with something new and three
+ * counters (new posts, new replies, mentions), never a per-group list.
+ *
+ * New CONTENT, never activity (issue #1349): a reaction moves a group's
+ * activity clock but is nothing to read, so it neither puts a group here
+ * nor counts in it — the same rule as the list's « Nouveau » badge, whose
+ * flag this reads.
  *
  * A concrete Service, deliberately NOT under Api\ (ARCHITECTURE.md §7.5,
  * strict contract): what the rest of the codebase consumes is the core
@@ -54,7 +58,7 @@ class HomeActivityService implements HomeGroupActivityProvider
      * Counting stops after this many unread groups. The counters are a
      * "worth opening the list" signal, not bookkeeping — someone with
      * more unread groups than this has long stopped needing exact
-     * numbers, and each group costs four COUNT queries.
+     * numbers, and each group costs two COUNT queries.
      */
     private const MAX_GROUPS_COUNTED = 10;
 
@@ -64,8 +68,6 @@ class HomeActivityService implements HomeGroupActivityProvider
         private GroupReadRepository $readRepository,
         private PostRepository $postRepository,
         private ReplyRepository $replyRepository,
-        private ReactionRepository $postReactions,
-        private ReactionRepository $replyReactions,
         private ?NotificationRepository $notificationRepository = null
     ) {
     }
@@ -107,8 +109,9 @@ class HomeActivityService implements HomeGroupActivityProvider
         $lastRead = $this->readRepository->lastReadFor($groupIds, $context->linkedMemberIds);
 
         // "Since when" per group: the member's own last visit, or the
-        // group's creation for one never opened — hasUnread() upstream
-        // guarantees such a group has had activity since then.
+        // group's creation for one never opened — the same two instants
+        // GroupListService::hasUnread() compared, so every group counted
+        // here has at least one post or reply to count.
         $since = [];
         foreach ($counted as $item) {
             $since[$item->group->id] = $lastRead[$item->group->id] ?? $item->group->createdAt;
@@ -116,12 +119,10 @@ class HomeActivityService implements HomeGroupActivityProvider
 
         $own = $context->linkedMemberIds;
         $newPosts = 0;
-        $repliesOrReactions = 0;
+        $newReplies = 0;
         foreach ($since as $groupId => $sinceAt) {
             $newPosts += $this->postRepository->countNewerForGroup($groupId, $sinceAt, $own);
-            $repliesOrReactions += $this->replyRepository->countNewerForGroup($groupId, $sinceAt, $own)
-                + $this->postReactions->countNewerForGroup($groupId, $sinceAt, $own)
-                + $this->replyReactions->countNewerForGroup($groupId, $sinceAt, $own);
+            $newReplies += $this->replyRepository->countNewerForGroup($groupId, $sinceAt, $own);
         }
 
         return [
@@ -130,7 +131,7 @@ class HomeActivityService implements HomeGroupActivityProvider
                 ? ['id' => $unread[0]->group->id, 'name' => $unread[0]->group->name]
                 : null,
             'new_posts' => $newPosts,
-            'new_replies_or_reactions' => $repliesOrReactions,
+            'new_replies' => $newReplies,
             'new_mentions' => $this->countUnseenMentions($since),
         ];
     }

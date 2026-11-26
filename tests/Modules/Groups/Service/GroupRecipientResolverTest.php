@@ -195,6 +195,85 @@ class GroupRecipientResolverTest extends TestCase
         $this->assertFalse($resolver->isCurrentMember($this->group(), $outside, $this->currentYearId));
     }
 
+    // ---- accounts that can still read (issue #1349) ----
+
+    /**
+     * The account-first question a reply asks about each participant:
+     * which of these logins reaches a member who is in the group now —
+     * through a section, an invitation, or a confirmed secondary address —
+     * each once, with the member it reaches.
+     */
+    public function testAccountsThatCanReadKeepsTheLoginsThatReachAMemberOfTheGroup(): void
+    {
+        $derived = $this->memberInSection('DERIVED', 'derived@test.be');
+        $invited = $this->memberWithAccount('INVITED', 'invited@test.be');
+        $this->groupMemberRepo->add($this->groupId, $invited);
+        $this->memberWithAccount('OUTSIDE', 'outside@test.be');
+        $secondary = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'SECOND', $this->sectionId, $this->currentYearId);
+        $this->addMemberYear($secondary, 'desk@test.be');
+        $this->addSecondaryEmail($secondary, 'perso@test.be', 'valid');
+        $perso = $this->createAccount('perso@test.be');
+
+        $accounts = [
+            $this->accountIdFor('outside@test.be'),
+            $this->accountIdFor('derived@test.be'),
+            $this->accountIdFor('invited@test.be'),
+            $perso,
+            $this->accountIdFor('derived@test.be'),
+            4242,
+        ];
+
+        $this->assertSame(
+            [
+                ['userAccountId' => $this->accountIdFor('derived@test.be'), 'memberId' => $derived],
+                ['userAccountId' => $this->accountIdFor('invited@test.be'), 'memberId' => $invited],
+                ['userAccountId' => $perso, 'memberId' => $secondary],
+            ],
+            $this->resolver()->accountsThatCanRead($this->group(), $this->currentYearId, $accounts)
+        );
+    }
+
+    /**
+     * Resolved now: a period for another year, or an unconfirmed address,
+     * opens nothing — the same two refusals forGroup() makes.
+     */
+    public function testAccountsThatCanReadDropsALoginThatNoLongerReachesTheGroup(): void
+    {
+        $otherYearId = GroupsTestHelper::createScoutYear($this->pdo, '2024-2025', false);
+        $left = $this->memberWithAccount('LEFT', 'left@test.be');
+        $this->addPeriod($left, $this->sectionId, $otherYearId);
+        $pending = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'PENDING', $this->sectionId, $this->currentYearId);
+        $this->addMemberYear($pending, 'desk-only@test.be');
+        $this->addSecondaryEmail($pending, 'unconfirmed@test.be', 'pending');
+        $unconfirmed = $this->createAccount('unconfirmed@test.be');
+
+        $this->assertSame([], $this->resolver()->accountsThatCanRead(
+            $this->group(),
+            $this->currentYearId,
+            [$this->accountIdFor('left@test.be'), $unconfirmed]
+        ));
+    }
+
+    /**
+     * A site admin opens every group, members or not (issue #158), so a
+     * site admin who took part stays reachable — with no member attached.
+     */
+    public function testAccountsThatCanReadKeepsASiteAdminOutsideTheGroup(): void
+    {
+        $this->memberWithAccount('ADMIN', 'admin@test.be');
+        $admin = $this->accountIdFor('admin@test.be');
+        $roleResolver = $this->createStub(RoleResolver::class);
+        $roleResolver->method('resolve')->willReturnCallback(
+            static fn(string $email): string => $email === 'admin@test.be' ? 'admin' : 'identified'
+        );
+
+        $this->assertSame(
+            [['userAccountId' => $admin, 'memberId' => null]],
+            $this->resolver($roleResolver)->accountsThatCanRead($this->group(), $this->currentYearId, [$admin])
+        );
+        $this->assertSame([], $this->resolver()->accountsThatCanRead($this->group(), $this->currentYearId, []));
+    }
+
     // ---- moderators ----
 
     public function testModeratorsForReachesOnlyTheExplicitModerators(): void

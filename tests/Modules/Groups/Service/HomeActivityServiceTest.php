@@ -20,7 +20,6 @@ use Modules\Groups\Repository\GroupReadRepository;
 use Modules\Groups\Repository\GroupRepository;
 use Modules\Groups\Repository\GroupSectionRepository;
 use Modules\Groups\Repository\PostRepository;
-use Modules\Groups\Repository\ReactionRepository;
 use Modules\Groups\Repository\ReplyRepository;
 use Modules\Groups\Service\GroupListService;
 use Modules\Groups\Service\GroupNotificationService;
@@ -34,7 +33,8 @@ use Tests\Modules\Groups\GroupsTestHelper;
 /**
  * The homepage hook (Core\Module\HomeGroupActivityProvider): one
  * banner-shaped summary — group count plus three counters (new posts,
- * replies-or-reactions, mentions of the caller).
+ * new replies, mentions of the caller). New CONTENT only: a reaction
+ * neither puts a group in the band nor counts in it (issue #1349).
  *
  * The things worth proving here: it never leaks a group the caller
  * cannot read (the same rule every route in this module enforces), an
@@ -119,14 +119,14 @@ class HomeActivityServiceTest extends TestCase
                 new GroupSectionRepository($this->pdo),
                 new GroupMemberRepository($this->pdo),
                 new SectionMembershipRepository($this->pdo),
+                new PostRepository($this->pdo),
+                new ReplyRepository($this->pdo),
                 $this->readRepo
             ),
             new GroupSessionContextFactory($memberService, $accountRepo, $resolver),
             $this->readRepo,
             new PostRepository($this->pdo),
             new ReplyRepository($this->pdo),
-            ReactionRepository::forPosts($this->pdo),
-            ReactionRepository::forReplies($this->pdo),
             new NotificationRepository($this->pdo, $encryption)
         );
     }
@@ -165,7 +165,7 @@ class HomeActivityServiceTest extends TestCase
     {
         $creator = GroupsTestHelper::createMember($this->pdo, 'H1');
         $groupId = $this->groupService->createInvitationGroup('Groupe de travail', null, $creator);
-        $this->withActivity($groupId, '2030-01-01 12:00:00');
+        GroupsTestHelper::createPostAt($this->pdo, $groupId, 'Salut', '2030-01-01 12:00:00', 2, $creator);
 
         $this->assertNull($this->service([$creator])->getHomeActivitySummaryForCurrentUser());
     }
@@ -182,7 +182,7 @@ class HomeActivityServiceTest extends TestCase
         $creator = GroupsTestHelper::createMember($this->pdo, 'H20');
         $admin = GroupsTestHelper::createMember($this->pdo, 'H21');
         $groupId = $this->groupService->createInvitationGroup('Groupe de travail', null, $creator);
-        $this->withActivity($groupId, '2030-01-01 12:00:00');
+        GroupsTestHelper::createPostAt($this->pdo, $groupId, 'Salut', '2030-01-01 12:00:00', 2, $creator);
 
         $this->assertNull($this->service([$admin])->getHomeActivitySummaryForCurrentUser());
     }
@@ -197,6 +197,7 @@ class HomeActivityServiceTest extends TestCase
 
         $postId = GroupsTestHelper::createPostAt($this->pdo, $groupId, 'Salut', '2030-01-01 12:00:00', 2, $other);
         GroupsTestHelper::createReplyAt($this->pdo, $postId, 'Re', '2030-01-01 12:05:00', 2, $other);
+        GroupsTestHelper::createReplyAt($this->pdo, $postId, 'Re re', '2030-01-01 12:06:00', 2, $other);
         $this->reactionOnPost($postId, $other, '2030-01-01 12:10:00');
         $this->withActivity($groupId, '2030-01-01 12:10:00');
 
@@ -206,16 +207,39 @@ class HomeActivityServiceTest extends TestCase
         $this->assertSame(1, $summary['group_count']);
         $this->assertSame(['id' => $groupId, 'name' => 'Groupe de travail'], $summary['single_group']);
         $this->assertSame(1, $summary['new_posts']);
-        $this->assertSame(2, $summary['new_replies_or_reactions']);
+        // Two replies; the reaction is not counted (issue #1349).
+        $this->assertSame(2, $summary['new_replies']);
         $this->assertSame(0, $summary['new_mentions']);
+        $this->assertArrayNotHasKey('new_replies_or_reactions', $summary);
+    }
+
+    /**
+     * Issue #1349. A group already read, then reacted to — added, changed
+     * or taken back — or reopened, has its activity clock moved and
+     * nothing new to read. The band used to come back for it, counting
+     * the reaction as « réaction ou réponse »; it no longer does.
+     */
+    public function testAReactionAloneBringsNoBandBack(): void
+    {
+        AuthSession::login(1, 'parent@test.be', 'identified');
+        $creator = GroupsTestHelper::createMember($this->pdo, 'H30');
+        $other = GroupsTestHelper::createMember($this->pdo, 'H31');
+        $groupId = $this->groupService->createInvitationGroup('Groupe de travail', null, $creator);
+        $postId = GroupsTestHelper::createPostAt($this->pdo, $groupId, 'Salut', '2030-01-01 10:00:00', 2, $other);
+        $this->readRepo->markRead($groupId, $creator, '2030-01-01 11:00:00');
+
+        $this->reactionOnPost($postId, $other, '2030-01-01 12:00:00');
+        $this->withActivity($groupId, '2030-01-01 12:00:00');
+
+        $this->assertNull($this->service([$creator])->getHomeActivitySummaryForCurrentUser());
     }
 
     /**
      * "Something new in your groups" must never be the reader's own
-     * words: posts, replies and reactions by the caller's own linked
-     * members are excluded from every counter.
+     * words: posts and replies by the caller's own linked members are
+     * not new content, so they neither raise the band nor count in it.
      */
-    public function testTheCallersOwnActivityIsNeverCounted(): void
+    public function testTheCallersOwnContentIsNeverNews(): void
     {
         AuthSession::login(1, 'parent@test.be', 'identified');
         $creator = GroupsTestHelper::createMember($this->pdo, 'H3');
@@ -227,14 +251,7 @@ class HomeActivityServiceTest extends TestCase
         $this->reactionOnPost($postId, $creator, '2030-01-01 12:10:00');
         $this->withActivity($groupId, '2030-01-01 12:10:00');
 
-        $summary = $this->service([$creator])->getHomeActivitySummaryForCurrentUser();
-
-        // The group still shows as active (last_activity_at moved), but
-        // every counter is zero — the banner then renders without its
-        // counter line rather than announcing the caller's own words.
-        $this->assertNotNull($summary);
-        $this->assertSame(0, $summary['new_posts']);
-        $this->assertSame(0, $summary['new_replies_or_reactions']);
+        $this->assertNull($this->service([$creator])->getHomeActivitySummaryForCurrentUser());
     }
 
     public function testAGroupAlreadyOpenedProducesNothing(): void
@@ -242,7 +259,9 @@ class HomeActivityServiceTest extends TestCase
         AuthSession::login(1, 'parent@test.be', 'identified');
         $creator = GroupsTestHelper::createMember($this->pdo, 'H4');
         $groupId = $this->groupService->createInvitationGroup('Groupe de travail', null, $creator);
-        $this->withActivity($groupId, '2030-01-01 12:00:00');
+        GroupsTestHelper::createPostAt(
+            $this->pdo, $groupId, 'Salut', '2030-01-01 12:00:00', 2, GroupsTestHelper::createMember($this->pdo, 'OTHER')
+        );
         $this->readRepo->markRead($groupId, $creator, '2030-01-01 12:00:01');
 
         $this->assertNull($this->service([$creator])->getHomeActivitySummaryForCurrentUser());
@@ -259,7 +278,7 @@ class HomeActivityServiceTest extends TestCase
         $stranger = GroupsTestHelper::createMember($this->pdo, 'H5');
         $someoneElse = GroupsTestHelper::createMember($this->pdo, 'H6');
         $groupId = $this->groupService->createInvitationGroup('Pas le vôtre', null, $someoneElse);
-        $this->withActivity($groupId, '2030-01-01 12:00:00');
+        GroupsTestHelper::createPostAt($this->pdo, $groupId, 'Salut', '2030-01-01 12:00:00', 2, $someoneElse);
 
         $this->assertNull($this->service([$stranger])->getHomeActivitySummaryForCurrentUser());
     }
@@ -296,7 +315,9 @@ class HomeActivityServiceTest extends TestCase
         $pastYearId = GroupsTestHelper::createScoutYear($this->pdo, '2024-2025', false);
         $creator = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'H10', $this->sectionId, $pastYearId);
         $groupId = $this->groupService->createSectionGroup('Louveteaux 24-25', $this->sectionId, $pastYearId, $creator);
-        $this->withActivity($groupId, '2030-01-01 12:00:00');
+        GroupsTestHelper::createPostAt(
+            $this->pdo, $groupId, 'Salut', '2030-01-01 12:00:00', 2, GroupsTestHelper::createMember($this->pdo, 'OTHER')
+        );
 
         $this->assertNull($this->service([$creator])->getHomeActivitySummaryForCurrentUser());
     }

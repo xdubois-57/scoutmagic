@@ -211,6 +211,105 @@ class GroupRecipientResolver
     }
 
     /**
+     * Of these ACCOUNTS, the ones that can still open $group — as
+     * dispatch() wants them, once each, in the order given.
+     *
+     * The account-first twin of forGroup(), for an audience made of the
+     * people who WROTE something rather than of memberships: the
+     * participants of a thread a new reply notifies (Service\
+     * GroupNotificationService::replyReceived(), issue #1349). Each
+     * account is the login that typed, so the question is the one login
+     * asks — which members does this address reach in the effective year
+     * (its Desk address, then its confirmed secondary ones, exactly as
+     * Core\Member\MemberService::getLinkedMembers() resolves them, through
+     * the blind index and with nothing decrypted) — and whether one of
+     * them is in the group right now, the same membership forGroup()
+     * reads. That is Service\GroupAccessService::canRead() asked from the
+     * account's side, at send time: somebody who left the section since
+     * they wrote drops out on their own.
+     *
+     * An account none of whose members is in the group can still open it
+     * when it is a site admin, the one bypass canRead() knows — the author
+     * of issue #158, who posts with a borrowed member and must still hear
+     * the answers. Such a row carries `memberId: null`, as moderatorsFor()
+     * does.
+     *
+     * @param int[] $accountIds
+     * @return array<int, array{userAccountId: int, memberId: ?int}>
+     */
+    public function accountsThatCanRead(DiscussionGroup $group, int $effectiveScoutYearId, array $accountIds): array
+    {
+        $accountIds = array_values(array_unique(array_map('intval', $accountIds)));
+        if ($accountIds === []) {
+            return [];
+        }
+
+        $inGroup = array_flip($this->memberIdsFor($group, $effectiveScoutYearId));
+        $indexes = $this->userAccountRepository->findEmailBlindIndexesByIds($accountIds);
+        $deskMembers = $this->memberYearRepository->findMemberIdsByEmailBlindIndexes(
+            array_values($indexes),
+            $effectiveScoutYearId
+        );
+
+        $recipients = [];
+        foreach ($accountIds as $accountId) {
+            $index = $indexes[$accountId] ?? null;
+            if ($index === null || $index === '') {
+                // No such account any more: nobody to tell.
+                continue;
+            }
+
+            $memberId = $this->firstMemberInGroup(
+                [...($deskMembers[$index] ?? []), ...$this->secondaryMemberIds($index, $effectiveScoutYearId)],
+                $inGroup
+            );
+            if ($memberId !== null) {
+                $recipients[] = ['userAccountId' => $accountId, 'memberId' => $memberId];
+            } elseif ($this->isSiteAdminAccount($accountId)) {
+                $recipients[] = ['userAccountId' => $accountId, 'memberId' => null];
+            }
+        }
+
+        return $this->deduplicate($recipients);
+    }
+
+    /**
+     * The members a confirmed secondary address reaches in that year —
+     * login's second path (MemberService::memberYearRowsViaSecondaryEmail()):
+     * the address names members, and only those with an active record for
+     * the year count.
+     *
+     * @return int[]
+     */
+    private function secondaryMemberIds(string $blindIndex, int $scoutYearId): array
+    {
+        $memberIds = $this->memberEmailRepository->findMemberIdsByValidBlindIndex($blindIndex);
+        if ($memberIds === []) {
+            return [];
+        }
+
+        return array_map(
+            static fn(array $row): int => (int) $row['member_id'],
+            $this->memberYearRepository->findAllByMemberIds($memberIds, $scoutYearId)
+        );
+    }
+
+    /**
+     * @param int[] $memberIds
+     * @param array<int, int> $inGroup member id => anything
+     */
+    private function firstMemberInGroup(array $memberIds, array $inGroup): ?int
+    {
+        foreach ($memberIds as $memberId) {
+            if (isset($inGroup[$memberId])) {
+                return $memberId;
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * One member id to the account that reads their mail, or null when no
      * account has ever been created for them (an animé with no login of
      * their own — the common case for a young member, not an error).

@@ -8,7 +8,7 @@ question: Comment écrire un message dans un groupe ?
 question: Comment répondre à un sondage du staff ?
 question: Comment corriger un message que je viens de publier ?
 paths: /groups, /groups/*, /groups/archives, /groups/*/posts/*
-related: pages-d-un-groupe, signalements-groupe, animer-un-groupe, notifications-preferences
+related: pages-d-un-groupe, nouveau-et-reponses-groupe, signalements-groupe, animer-un-groupe, notifications-preferences
 ---
 
 Les groupes sont les espaces de discussion privés de l'unité : un
