@@ -326,6 +326,17 @@ describe('point-picker', () => {
             expect(value('place-latitude')).toBe('50.7');
         });
 
+        it('shows a refused coordinate again as typed, never rewritten into a number', async () => {
+            const leaflet = stubLeaflet();
+            buildForm({ lat: '50x', lng: '4' });
+            await load();
+
+            expect(pinOf(leaflet)).toBeUndefined();
+            expect(value('place-latitude')).toBe('50x');
+            expect(document.querySelector('[data-point-picker-fields]').classList.contains('d-none')).toBe(false);
+            expect(document.querySelector('[data-point-picker-type]').getAttribute('aria-expanded')).toBe('true');
+        });
+
         it('waits for both halves before placing a typed point', async () => {
             const leaflet = stubLeaflet();
             buildForm();

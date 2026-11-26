@@ -43,15 +43,6 @@
     var wired = new WeakMap();
 
     /**
-     * @param {string} value
-     * @returns {number|null}
-     */
-    function coordinate(value) {
-        var number = Number.parseFloat(String(value).replace(',', '.'));
-        return Number.isFinite(number) ? number : null;
-    }
-
-    /**
      * A coordinate typed by hand, only when it is a whole decimal — a
      * comma for the decimal point, as a Belgian keyboard writes it.
      *
@@ -446,9 +437,19 @@
             placeAddress([data.latitude, data.longitude], keepPin);
         }
 
-        var latitude = coordinate(latField.value);
-        var longitude = coordinate(lngField.value);
-        if (latitude !== null && longitude !== null) {
+        var latitude = typedCoordinate(latField.value);
+        var longitude = typedCoordinate(lngField.value);
+        var malformed = (latField.value.trim() !== '' || lngField.value.trim() !== '')
+            && (latitude === null || longitude === null || Math.abs(latitude) > 90 || Math.abs(longitude) > 180);
+        if (malformed) {
+            // A form shown again after the server refused what was typed —
+            // « 50x », half a point: the fields stay open and as they were,
+            // for the person to correct. Read as a number and pinned, the
+            // refused value would be rewritten into one the next save takes.
+            fields.classList.remove('d-none');
+            box.querySelector('[data-point-picker-type]')?.setAttribute('aria-expanded', 'true');
+            place.classList.remove('d-none');
+        } else if (latitude !== null && longitude !== null) {
             // A form shown again after a refusal says which address its
             // point was found for — perhaps not the one now in the field.
             // Otherwise a saved automatic point belongs to the saved address.
