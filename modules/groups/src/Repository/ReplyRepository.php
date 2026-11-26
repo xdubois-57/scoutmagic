@@ -424,13 +424,26 @@ class ReplyRepository
      */
     public function findLatestCreatedAtByGroups(array $groupIds, array $excludeMemberIds = []): array
     {
-        return (new LatestCreatedAtByGroupQuery(
-            'discussion_group_replies r INNER JOIN discussion_group_posts p ON p.id = r.post_id',
-            'p.group_id',
-            'r.created_at',
-            'r.hidden_at IS NULL AND p.hidden_at IS NULL',
-            'r.author_member_id'
-        ))->fetch($this->pdo, $groupIds, $excludeMemberIds);
+        $groupIds = LatestCreatedAtByGroup::groupIds($groupIds);
+        if ($groupIds === []) {
+            return [];
+        }
+
+        $groupPlaceholders = implode(',', array_fill(0, count($groupIds), '?'));
+        $authorPlaceholders = implode(',', array_fill(0, max(1, count($excludeMemberIds)), '?'));
+        // Same single statement as PostRepository's: with nobody to
+        // exclude, the author clause binds a 0 no member id can be.
+        $stmt = $this->pdo->prepare(
+            "SELECT p.group_id, MAX(r.created_at) AS latest FROM discussion_group_replies r
+             INNER JOIN discussion_group_posts p ON p.id = r.post_id
+             WHERE p.group_id IN ({$groupPlaceholders})
+               AND r.hidden_at IS NULL AND p.hidden_at IS NULL
+               AND r.author_member_id NOT IN ({$authorPlaceholders})
+             GROUP BY p.group_id"
+        );
+        $stmt->execute([...$groupIds, ...($excludeMemberIds === [] ? [0] : array_values($excludeMemberIds))]);
+
+        return LatestCreatedAtByGroup::fromRows($stmt);
     }
 
     /**
