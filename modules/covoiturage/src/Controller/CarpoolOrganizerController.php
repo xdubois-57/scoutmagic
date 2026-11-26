@@ -281,7 +281,11 @@ class CarpoolOrganizerController extends AbstractController
             'location_mismatch' => $error instanceof LocationMismatchException ? $error->locations : [],
             'point' => $carpool?->point,
             // Placed — or removed — by a human (Core\Geo\PointSubmission).
-            'point_is_manual' => PointSubmission::showsManual($submitted, $carpool?->point, $carpool->pointIsManual ?? false),
+            'point_is_manual' => PointSubmission::showsManual(
+                $submitted,
+                $carpool?->point,
+                $carpool->pointIsManual ?? false
+            ),
             'address_lookup' => $this->locator !== null,
             'breadcrumb_current' => $carpool !== null ? 'Modifier le covoiturage' : null,
         ]);
