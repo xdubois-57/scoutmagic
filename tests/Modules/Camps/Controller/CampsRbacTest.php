@@ -66,6 +66,7 @@ class CampsRbacTest extends TestCase
     private CampsAttachmentController $attachmentController;
     private \Modules\Camps\Controller\CampsMergeController $mergeController;
     private \Modules\Camps\Controller\CampsMailController $mailController;
+    private \Modules\Camps\Controller\CampsAddressController $addressController;
 
     protected function setUp(): void
     {
@@ -162,6 +163,7 @@ class CampsRbacTest extends TestCase
             $archiveService
         );
         $this->configController = new CampsConfigController($twig, $settings);
+        $this->addressController = new \Modules\Camps\Controller\CampsAddressController($twig, null);
         $this->mailController = new \Modules\Camps\Controller\CampsMailController(
             $twig, $camps
         );
@@ -186,6 +188,9 @@ class CampsRbacTest extends TestCase
             'new camp form' => ['/chefs/camps/nouveau', 'chief', 'create', 'chief', 'intendant'],
             'place sheet' => ['/chefs/camps/lieux/{place}', 'chief', 'showPlace', 'chief', 'intendant'],
             'place form' => ['/chefs/camps/lieux/{place}/modifier', 'chief', 'editPlace', 'chief', 'intendant'],
+            // The place forms' address lookup (#1353): asked by the form,
+            // never by anybody the form does not open for.
+            'address lookup' => ['/chefs/camps/adresse', 'address', 'locateAddress', 'chief', 'intendant'],
             'camp detail' => ['/chefs/camps/sejours/{camp}', 'chief', 'showCamp', 'chief', 'intendant'],
             'camp form' => ['/chefs/camps/sejours/{camp}/modifier', 'chief', 'editCamp', 'chief', 'intendant'],
             'documents' => ['/chefs/camps/sejours/{camp}/documents', 'attachment', 'documents', 'chief', 'intendant'],
@@ -463,6 +468,7 @@ class CampsRbacTest extends TestCase
             'attachment' => CampsAttachmentController::class,
             'merge' => \Modules\Camps\Controller\CampsMergeController::class,
             'mail' => \Modules\Camps\Controller\CampsMailController::class,
+            'address' => \Modules\Camps\Controller\CampsAddressController::class,
             default => CampsChiefController::class,
         };
         $routePath = str_replace(
@@ -483,6 +489,7 @@ class CampsRbacTest extends TestCase
             'attachment' => $this->attachmentController,
             'merge' => $this->mergeController,
             'mail' => $this->mailController,
+            'address' => $this->addressController,
             default => $this->chiefController,
         });
 

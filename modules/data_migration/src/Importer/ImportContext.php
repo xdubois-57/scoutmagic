@@ -30,8 +30,33 @@ final class ImportContext
          * and keeps the analysis fast. Last and defaulted so that adding it
          * moved no existing argument.
          */
-        public readonly bool $executing = false
+        public readonly bool $executing = false,
+        /**
+         * Where this slice's working copies go (absolute; issue #1259):
+         * under `storage/temp/data_migration/`, emptied at the start and the
+         * end of every slice and swept by the purges — never the system's
+         * temporary directory, which a request killed before its `finally`
+         * would leave them in for good. Null only where no slice runs (a
+         * test of an import's reading alone).
+         */
+        public readonly ?string $copiesDirectory = null
     ) {
+    }
+
+    /**
+     * A new empty file (0600) in {@see $copiesDirectory}, for an import that
+     * has to hand a target module a path rather than bytes. The import
+     * still deletes it once used; the slice's cleanup is for a request that
+     * died before it could.
+     *
+     * @throws \RuntimeException when the file cannot be created there
+     */
+    public function temporaryFile(string $prefix): string
+    {
+        $directory = $this->copiesDirectory
+            ?? throw new \LogicException('This import context has no working directory.');
+
+        return \Core\File\TemporaryFile::createIn($directory, $prefix);
     }
 
     /**

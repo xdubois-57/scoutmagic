@@ -317,8 +317,10 @@ class MessageConsumerRegistry
             // is what tells the deferred pass to come back, and dropping
             // it here is what made #172 permanent — a booking contract
             // read on an OCR provider's bad minute, marked « aucune
-            // période de séjour lisible » for ever.
-            if (!$result->isEmpty() || $result->readingFailed) {
+            // période de séjour lisible » for ever. So does a count of
+            // documents filed without a link: the pass's summary adds it up
+            // (#1406).
+            if (!$result->isEmpty() || $result->readingFailed || $result->filed > 0) {
                 $results[$consumer->consumerId()] = $result;
             }
         }

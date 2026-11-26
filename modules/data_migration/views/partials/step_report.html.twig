@@ -15,6 +15,11 @@
     { label: 'Erreurs techniques', value: report.errors, icon: 'bi-exclamation-octagon', tone: 'danger' },
 ] } only %}
 
+{# What the import left out of the items it wrote (#1259), in the past tense. #}
+{% for note in report.notes %}
+    <div class="alert {{ note.level == 'warning' ? 'alert-warning' : 'alert-info' }} py-2" role="note">{{ note.text }}</div>
+{% endfor %}
+
 {% if report.errors > 0 %}
     <details class="card mb-3" open>
         <summary class="card-body py-2 fw-semibold">{{ report.errors }} {{ report.errors > 1 ? 'erreurs techniques' : 'erreur technique' }}</summary>

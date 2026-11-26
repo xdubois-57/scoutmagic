@@ -396,6 +396,87 @@ class RentalConfigControllerTest extends TestCase
     }
 
     /**
+     * The blocked path of issue #1355, end to end: a superadmin with no
+     * member record and no grant sees « Tarif manquant », follows the
+     * asset's own link to its settings, saves a default rate there — and
+     * the badge is gone, because a rate is really stored.
+     */
+    public function testASuperadminSetsTheMissingTariffAndTheBadgeGoes(): void
+    {
+        AuthSession::login(5, 'super@test.be', 'superadmin');
+        $assetId = $this->createAsset('Local', 'local');
+        $config = $this->controllerWithPricing();
+        $this->assertStringContainsString('Tarif manquant', $this->listPage($config));
+        $this->assertStringContainsString('href="/mes-locations/local/reglages"', $this->assetPage($assetId, $config));
+
+        $superAdmins = new class extends \Modules\Rental\Service\SuperAdminRecognizer {
+            public function __construct()
+            {
+                // No parent: the account flag is this stub's only answer.
+            }
+
+            public function isSuperAdmin(?string $email): bool
+            {
+                return $email === 'super@test.be';
+            }
+        };
+        $memberService = new MemberService(
+            new MemberYearRepository($this->pdo),
+            new MemberProfileRepository(Connection::withPdo($this->pdo), $this->encryption)
+        );
+        $settingService = $this->settingService;
+        $pricingService = new \Modules\Rental\Service\RentalPricingService(
+            new \Modules\Rental\Repository\RentalPricingRepository($this->pdo),
+            new \Modules\Rental\Pricing\RentalPricingEngine(),
+            new JournalService(new JournalRepository($this->pdo))
+        );
+        $pricing = new \Modules\Rental\Controller\RentalPricingController(
+            $this->twig,
+            $pricingService,
+            new \Modules\Rental\Service\RentalAvailabilityService(
+                new \Modules\Rental\Availability\AvailabilityCalculator(),
+                new \Modules\Rental\Repository\RentalConstraintsRepository($this->pdo),
+                []
+            ),
+            new \Modules\Rental\Service\RentalAuthorizationService(
+                $memberService,
+                $this->assetRepository,
+                $this->managerRepository,
+                $superAdmins
+            ),
+            $this->assetRepository,
+            new \Core\ScoutYear\ScoutYearResolver(
+                new ScoutYearService($this->pdo),
+                $settingService,
+                new MemberYearRepository($this->pdo)
+            ),
+            new \Modules\Rental\Service\RentalConditionsService(
+                new \Modules\Rental\Repository\RentalConditionsVersionRepository($this->pdo),
+                new \Core\View\EditableContentService(new \Core\View\EditableContentRepository($this->pdo))
+            )
+        );
+
+        $body = [
+            '_csrf_token' => CsrfGuard::generateToken(),
+            'billing_unit' => 'per_night',
+            'default_unit_price' => '25,00',
+            'minimum_mode' => 'none',
+        ];
+        $_POST = $body;
+        $response = $pricing->savePricing(
+            new Request('POST', '/mes-locations/local/reglages/tarif', [], $body, [], []),
+            ['slug' => 'local']
+        );
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('/mes-locations/local/reglages#tarification', $response->getHeaders()['Location']);
+        $this->assertSame(2500, $pricingService->loadSettings($assetId)->defaultUnitPriceCents);
+        $this->assertStringNotContainsString('Tarif manquant', $this->listPage($config));
+        // Nothing was granted to get there.
+        $this->assertSame([], $this->managerRepository->findAllByAsset($assetId, false));
+    }
+
+    /**
      * An asset's page reads as facts, and offers to change them
      * (design.md §1.9).
      *

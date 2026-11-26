@@ -1159,6 +1159,74 @@ class RentalManagementControllerTest extends TestCase
         AuthSession::login(2, 'chef@test.be', 'identified');
     }
 
+    /**
+     * Logged in as a superadmin who is neither Staff d'U nor a manager of
+     * anything (issue #1355): their address is linked to $linkedMemberIds
+     * — two animés of theirs, say — or to nobody at all, and only the flag
+     * of their account makes them a superadmin.
+     *
+     * @param int[] $linkedMemberIds
+     */
+    private function loginAsSuperAdmin(array $linkedMemberIds = []): void
+    {
+        $memberService = new class ($linkedMemberIds) extends MemberService {
+            /** @param int[] $linkedMemberIds */
+            public function __construct(private array $linkedMemberIds)
+            {
+                // No parent: this stub answers two questions only.
+            }
+
+            public function isUnitChief(string $email, int $scoutYearId): bool
+            {
+                return false;
+            }
+
+            public function getLinkedMembers(string $email, int $scoutYearId): array
+            {
+                return array_map(
+                    static fn(int $memberId) => new \Core\Member\MemberProfile(
+                        memberYearId: $memberId * 100,
+                        memberId: $memberId,
+                        deskId: 'D' . $memberId,
+                        firstName: 'Animé',
+                        lastName: 'Fictif',
+                        totem: null,
+                        quali: null,
+                        gender: null,
+                        birthDate: null,
+                        phone: null,
+                        mobile: null,
+                        email: $email,
+                        patrol: null,
+                        formationLevel: null,
+                        federationMailConsent: false,
+                        unitMailConsent: false,
+                        addresses: [],
+                        functions: [],
+                        scoutYearLabel: '2025-2026'
+                    ),
+                    $this->linkedMemberIds
+                );
+            }
+        };
+        $superAdmins = new class extends \Modules\Rental\Service\SuperAdminRecognizer {
+            public function __construct()
+            {
+                // No parent: the flag is this stub's only answer.
+            }
+
+            public function isSuperAdmin(?string $email): bool
+            {
+                return $email === 'super@test.be';
+            }
+        };
+        (new \ReflectionProperty(RentalManagementController::class, 'authorizationService'))->setValue(
+            $this->controller,
+            new RentalAuthorizationService($memberService, $this->assetRepository, $this->managerRepository, $superAdmins)
+        );
+        AuthSession::login(5, 'super@test.be', 'superadmin');
+    }
+
     /** @param array<string, string> $fields */
     private function addressPost(string $action, RentalBooking $booking, array $fields): Response
     {
@@ -1395,6 +1463,127 @@ class RentalManagementControllerTest extends TestCase
         $this->assertStringContainsString('data-other-renter-email-none', $body);
         $this->assertStringContainsString("adressez-vous au staff d'unité", $body);
         $this->assertStringNotContainsString('action="/mes-locations/courrier/adresse-ajouter"', $body);
+    }
+
+    // ── A superadmin, as the Staff d'U (issue #1355, lot A) ─────────────
+
+    /** @return array<string, array{int[]}> */
+    public static function superAdminLinks(): array
+    {
+        return [
+            'linked to two animés of theirs' => [[41, 42]],
+            'with no member record at all' => [[]],
+        ];
+    }
+
+    /**
+     * « Gérer mes locations » lists every asset for a superadmin who is not
+     * Staff d'U and manages nothing, and says why without calling them a
+     * member of the Staff d'U.
+     *
+     * @param int[] $linkedMemberIds
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('superAdminLinks')]
+    public function testASuperadminManagesEveryAssetFromTheirOwnSpace(array $linkedMemberIds): void
+    {
+        $other = $this->assetRepository->create('Local', 'Chalet des Hêtres', 'chalet-des-hetres', null, 1, null, null, null, true);
+        $this->loginAsSuperAdmin($linkedMemberIds);
+
+        $response = $this->get('/mes-locations', '/mes-locations', 'myRentals');
+        $body = html_entity_decode((string) $response->getBody(), ENT_QUOTES);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertStringContainsString('href="/mes-locations/local-saint-georges"', $body);
+        $this->assertStringContainsString('href="/mes-locations/chalet-des-hetres"', $body);
+        $this->assertStringContainsString(
+            "En tant que superadministrateur du site, vous gérez tous les biens de l'unité.",
+            $body
+        );
+        $this->assertStringNotContainsString('membre du Staff', $body);
+        $this->assertGreaterThan(0, $other);
+        // Nothing was granted to reach that: no manager row was written.
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM rental_asset_managers')->fetchColumn());
+    }
+
+    /**
+     * The link of the asset's configuration page — kept, address and all
+     * (D6) — opens its settings for a superadmin, instead of the 404 an
+     * unrecognised manager gets.
+     *
+     * @param int[] $linkedMemberIds
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('superAdminLinks')]
+    public function testTheSettingsLinkOpensForASuperadmin(array $linkedMemberIds): void
+    {
+        $this->loginAsSuperAdmin($linkedMemberIds);
+
+        $response = $this->get('/mes-locations/{slug}/reglages', '/mes-locations/local-saint-georges/reglages', 'settings');
+        $body = (string) $response->getBody();
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertStringContainsString('id="tarification"', $body);
+        $this->assertStringContainsString('id="paiements"', $body);
+    }
+
+    /** An admin below superadmin, neither Staff d'U nor manager, gains nothing (D1). */
+    public function testAnAdminWhoIsNotSuperadminIsStillRefused(): void
+    {
+        $this->loginAsSuperAdmin([41]);
+        AuthSession::login(6, 'admin@test.be', 'admin');
+
+        $this->assertSame(403, $this->get('/mes-locations', '/mes-locations', 'myRentals')->getStatusCode());
+        $this->assertSame(
+            404,
+            $this->get('/mes-locations/{slug}/reglages', '/mes-locations/local-saint-georges/reglages', 'settings')
+                ->getStatusCode()
+        );
+    }
+
+    /** A superadmin types a renter's address freely, as the Staff d'U does (#1106, D4). */
+    public function testASuperadminGetsTheFreeField(): void
+    {
+        $this->loginAsSuperAdmin([41]);
+        $this->withAuditedBookingService($this->otherEmailRuleWithMail());
+        $booking = $this->createBooking();
+
+        $body = (string) $this->filePage(BookingPage::MAIL, 'local-saint-georges', $booking->id)->getBody();
+
+        $this->assertStringContainsString(self::OTHER_EMAIL_FREE_FIELD, $body);
+        $this->assertStringNotContainsString('data-other-renter-email-choices', $body);
+    }
+
+    /**
+     * What a superadmin does is theirs in the booking's history, under
+     * their account, and never the first animé linked to their address
+     * (D3).
+     */
+    public function testTheHistoryNamesTheSuperadminsAccountAndNoAnimé(): void
+    {
+        $this->loginAsSuperAdmin([41, 42]);
+        $audit = RentalTestHelper::bookingAudit($this->pdo, $this->encryption);
+        (new \ReflectionProperty(RentalManagementController::class, 'bookingAudit'))->setValue($this->controller, $audit);
+        (new \ReflectionProperty(RentalManagementController::class, 'bookingService'))->setValue(
+            $this->controller,
+            new RentalBookingService(
+                $this->bookingRepository,
+                new JournalService(new JournalRepository($this->pdo)),
+                null,
+                $audit,
+                null,
+                null,
+                $this->otherEmailRuleWithMail()
+            )
+        );
+        $booking = $this->createBooking();
+
+        $this->addressPost('addOtherRenterEmail', $booking, ['email' => 'tresorier@groupe.example']);
+
+        $history = RentalTestHelper::bookingHistory($this->pdo, $this->encryption, $booking->id);
+        $last = end($history);
+        $this->assertNotFalse($last);
+        $this->assertSame(\Modules\Rental\Audit\BookingAudit::OTHER_EMAIL_CHANGED, $last->fieldKey);
+        $this->assertSame(\Core\Audit\AuditSource::Human, $last->source);
+        $this->assertSame(5, $last->actorUserAccountId);
     }
 
     public function testTheUnitStaffGetsTheFreeField(): void

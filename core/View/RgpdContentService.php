@@ -708,7 +708,10 @@ n'ont aucun lien avec l'unité et aucun compte sur le site.
     mémoire d'un staff au suivant — et (c) un tiers extérieur peut demander l'effacement de ses coordonnées, qui sont
     alors remplacées partout dans le module, y compris dans l'historique des modifications, la trace du changement
     lui-même étant conservée sans les valeurs. Ne présente JAMAIS le géocodage comme un envoi de données personnelles
-    : c'est l'adresse d'un terrain qui part, jamais celle d'une personne. De même pour le résumé automatique : il ne
+    : c'est l'adresse d'un terrain qui part, jamais celle d'une personne. Dis aussi que ce géocodage a lieu en tâche
+    de fond ET pendant qu'un animateur saisit l'adresse d'un lieu (pour placer le point sur la carte du formulaire),
+    toujours depuis le serveur du site, jamais depuis le navigateur, avec un cache qui ne conserve pas l'adresse
+    elle-même, et que le réglage du module coupe l'un et l'autre. De même pour le résumé automatique : il ne
     reçoit ni contacts ni e-mails. Conserve aussi, sans l'adoucir, que la carte est **dépliée par défaut sur un grand
     écran** : les serveurs de tuiles y sont contactés dès l'affichage de la liste des lieux, sans action de
     l'animateur. Dis aussi que sur un écran étroit (un téléphone) elle est **repliée par défaut** et qu'aucune tuile
@@ -1261,7 +1264,9 @@ des modules actifs ({$modulesText}), retire entièrement la sous-section "Module
 et la ligne « Fichiers déposés pour la migration de données » de la section 3.1. S'il est actif, conserve-les. Conserve
 en particulier : (a) que le fichier déposé peut contenir des données personnelles et n'est lu que le temps de l'import ;
 (b) qu'il est **effacé automatiquement au plus tard 24 heures** après la fin de l'import, son abandon ou son dernier
-mouvement, qu'il n'est jamais extrait sur le disque ni inclus dans une sauvegarde ; (c) que les données importées
+mouvement, même si le module est désactivé entre-temps, qu'il n'est jamais extrait sur le disque ni inclus dans une
+sauvegarde, et que les seules copies faites pendant l'import (une pièce jointe ou une image, le temps de l'enregistrer)
+sont placées au même endroit et effacées selon la même règle ; (c) que les données importées
 suivent ensuite les règles du module qui les accueille ; (d) que le site garde, sans donnée personnelle, la
 correspondance entre les références de l'ancien site et les éléments importés, et que le bilan ne montre jamais le nom
 d'une personne ; (e) qu'aucun courriel ni aucune notification n'est envoyé par un import ; (f) le paragraphe « Copie
