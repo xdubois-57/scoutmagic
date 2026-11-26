@@ -143,10 +143,28 @@ class MigrateAlbumStorageHandler implements TaskHandlerInterface
                 }
 
                 if ($verifyBytes !== $sourceBytes) {
+                    // The third place a migration fails, and it named the
+                    // internal path and the media number on the badge — the
+                    // same screen text #1280 took the other two off (#1242).
+                    // A French sentence and nothing else; the file goes to
+                    // the journal beside it.
                     $albumRepository->failMigration(
                         $albumId,
-                        "Vérification échouée pour le fichier « {$path} » (média #{$media->id}) : contenu différent "
-                            . "après copie."
+                        "Un fichier de l'album est différent après copie : la migration a été interrompue, "
+                            . "l'album reste sur son emplacement d'origine."
+                    );
+                    $context->journal->log(
+                        'gallery',
+                        'album_storage_migration_failed',
+                        'warning',
+                        "Migration de l'album #{$albumId} interrompue : la copie d'un fichier ne correspond pas "
+                            . "à l'original.",
+                        [
+                            'album_id' => $albumId,
+                            'media_id' => $media->id,
+                            'path' => $path,
+                            'side' => 'verify',
+                        ]
                     );
                     return;
                 }

@@ -195,15 +195,27 @@ class GalleryConfigController extends AbstractController
         $locationChoice = null;
 
         try {
-            foreach ($numericValues as $key => $value) {
-                $this->settingService->set($key, $value, 'gallery');
-            }
-            foreach ($booleanKeys as $key) {
-                $this->settingService->set($key, $request->getBody($key) !== null ? '1' : '0', 'gallery');
-            }
+            // The location is checked FIRST and nothing is written before
+            // it has passed: a choice that names a location deleted since
+            // the page was rendered is refused with the numbers of the tab
+            // still as they were (#1242). It used to be the last thing
+            // done, behind settings already saved, so the screen said
+            // « rien n'est passé » over a configuration half written.
             if ($ownsLocation) {
-                $locationChoice = $this->galleryLocationService->chooseForNewAlbums($newAlbumLocationId);
+                $locationChoice = $this->galleryLocationService->prepareChoice($newAlbumLocationId);
             }
+
+            $values = $numericValues;
+            foreach ($booleanKeys as $key) {
+                $values[$key] = $request->getBody($key) !== null ? '1' : '0';
+            }
+            if ($locationChoice !== null) {
+                $values[GalleryLocationService::NEW_ALBUM_LOCATION_SETTING] = (string) $locationChoice->selectedId;
+            }
+
+            // One decision, all of it or none: a write that fails halfway
+            // rolls the others back (SettingService::setMany()).
+            $this->settingService->setMany($values, 'gallery');
         } catch (GalleryLocationException $e) {
             // Its own catch, ahead of the catch-all below: this message is
             // written for the administrator (the location they picked has
