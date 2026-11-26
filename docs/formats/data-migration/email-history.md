@@ -189,6 +189,12 @@ Un même `path` cité plusieurs fois par un courriel n'y est joint **qu'une
 fois**, sous le nom de sa première entrée : le fichier est nommé par son
 contenu, c'est donc la même pièce jointe.
 
+Un courriel ne lit pas plus de **20 pièces jointes** distinctes ni plus de
+**25 Mio** de pièces jointes dans l'archive, valides ou non. Au-delà, les
+pièces jointes suivantes sont **écartées** sans être lues, et le courriel est
+importé sans elles ; l'aperçu et le bilan de l'import disent combien l'ont
+été. Une pièce jointe qui ferait dépasser les 25 Mio est écartée elle aussi.
+
 ## 5. Ce que devient un courriel
 
 - **Section** : si `sender.address` est l'adresse d'une section ScoutMagic
@@ -227,6 +233,7 @@ contenu, c'est donc la même pièce jointe.
 | Un fichier de `communications/` | 4 Mio | Archive refusée |
 | Un corps (`content/`) | 2 Mio | Courriel ignoré |
 | Une pièce jointe | 10 Mo | Pièce jointe ignorée |
+| Pièces jointes lues pour un courriel | 20, et 25 Mio au total | Pièces jointes suivantes écartées, courriel importé |
 | Sujet | 255 caractères | Courriel ignoré |
 
 ## 8. Cas invalides

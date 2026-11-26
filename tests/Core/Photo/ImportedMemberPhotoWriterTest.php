@@ -193,6 +193,28 @@ final class ImportedMemberPhotoWriterTest extends TestCase
     }
 
     /**
+     * Issue #1259: the data migration names its own working directory, so a
+     * request killed before the `finally` leaves the copy where its purge
+     * finds it, never in the system's temporary directory.
+     */
+    public function testTheTemporaryCopyGoesInTheDirectoryTheCallerNames(): void
+    {
+        $directory = sys_get_temp_dir() . '/sm_photo_copies_' . bin2hex(random_bytes(6));
+        $before = glob(sys_get_temp_dir() . '/member_photo_import_*') ?: [];
+
+        try {
+            $this->assertNotNull(
+                $this->writer->write($this->memberId, $this->yearId, self::image('jpg'), 'a.jpg', null, $directory)
+            );
+            $this->assertDirectoryExists($directory, 'the copy was made there');
+            $this->assertSame([], glob($directory . '/*') ?: [], 'and removed once stored');
+            $this->assertSame($before, glob(sys_get_temp_dir() . '/member_photo_import_*') ?: []);
+        } finally {
+            @rmdir($directory);
+        }
+    }
+
+    /**
      * Issue #1158: another path gives the member that year's photo between
      * the inspection of the row and its write. The photo is stored first, and
      * only then does the insert find the slot taken — so the image and its

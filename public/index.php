@@ -4257,6 +4257,18 @@ $schedulerService->seed(
     new DateTimeImmutable()
 );
 
+// Same bootstrap for the data migration deposits (Core\File\Task\
+// PurgeDataMigrationDepositsHandler, issue #1259). Seeded here and not in
+// the module's block: the module's own purge stops with the module, and a
+// module disabled once the migration is over is exactly the one whose
+// archives of the unit's history must still go.
+$schedulerService->seed(
+    'core',
+    \Core\File\Task\PurgeDataMigrationDepositsHandler::TASK_KEY,
+    \Core\File\Task\PurgeDataMigrationDepositsHandler::REFERENCE,
+    new DateTimeImmutable()
+);
+
 // Add dynamic member entries to Espace membres — group: SORT_GROUP_DYNAMIC keeps
 // these (and the empty-state placeholder below) sorted ahead of every core
 // static page and every module page in this menu regardless of numeric

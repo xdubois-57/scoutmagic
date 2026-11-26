@@ -101,11 +101,22 @@ class ImportEngine
             // slice old.
             $run = $this->runs->find($run->id) ?? $run;
             $deadline = microtime(true) + $this->sliceSeconds;
+            if (!in_array($run->state, [Run::UPLOADED, Run::CONFIRMED, Run::RUNNING], true)) {
+                return $run;
+            }
+
+            // The run moves: its file says so to the core's sweep, which
+            // reads the disk alone (#1259). And whatever working copies an
+            // earlier slice of this run left behind — it was killed before
+            // its `finally` — go now, under the lock that makes this the
+            // only slice of the run.
+            $this->storage->markMoved($run->filePath, $this->clockNow());
+            $copies = $this->storage->freshCopiesDirectory($run->id);
 
             if ($run->state === Run::UPLOADED) {
                 return $run->phase() === self::PHASE_VERIFY
                     ? $this->verify($importer, $run, $deadline)
-                    : $this->analyse($importer, $run, $deadline);
+                    : $this->analyse($importer, $run, $deadline, $copies);
             }
 
             if (in_array($run->state, [Run::CONFIRMED, Run::RUNNING], true)) {
@@ -125,12 +136,16 @@ class ImportEngine
                     $run = $started;
                 }
 
-                return $this->execute($importer, $run, $deadline);
+                return $this->execute($importer, $run, $deadline, $copies);
             }
 
             return $run;
         } finally {
-            \Core\Database\AdvisoryLock::release($this->pdo, $lock);
+            try {
+                $this->storage->discardCopies($run->id);
+            } finally {
+                \Core\Database\AdvisoryLock::release($this->pdo, $lock);
+            }
         }
     }
 
@@ -270,7 +285,7 @@ class ImportEngine
         ]);
     }
 
-    private function analyse(Importer $importer, Run $run, float $deadline): Run
+    private function analyse(Importer $importer, Run $run, float $deadline, string $copies): Run
     {
         try {
             $source = $this->openSource($importer, $run);
@@ -280,7 +295,7 @@ class ImportEngine
 
         $analysis = $run->analysis !== [] ? $run->analysis : self::emptyAnalysis();
         $position = $run->position();
-        $context = $this->context($importer, $run, $source);
+        $context = $this->context($importer, $run, $source, $copies);
         $finished = true;
 
         try {
@@ -329,7 +344,7 @@ class ImportEngine
         ]);
     }
 
-    private function execute(Importer $importer, Run $run, float $deadline): Run
+    private function execute(Importer $importer, Run $run, float $deadline, string $copies): Run
     {
         try {
             $source = $this->openSource($importer, $run);
@@ -341,7 +356,7 @@ class ImportEngine
 
         $report = $run->report !== [] ? $run->report : self::emptyReport();
         $position = $run->phase() === self::PHASE_EXECUTE ? $run->position() : 0;
-        $context = $this->context($importer, $run, $source, true);
+        $context = $this->context($importer, $run, $source, $copies, true);
         $finished = true;
         // An import whose inspection reads the network asks for fewer items
         // per slice than the deadline alone would allow: the deadline is
@@ -379,6 +394,7 @@ class ImportEngine
                         $run = TransactionScope::run($this->pdo, function () use (
                             $importer,
                             $item,
+                            $verdict,
                             $context,
                             $run,
                             $report,
@@ -396,6 +412,11 @@ class ImportEngine
                                 $this->now()
                             );
                             $report['imported'] = (int) $report['imported'] + 1;
+                            // What the import said of the items it wrote,
+                            // for its report notes (Importer\ReportingImporter).
+                            foreach ($verdict->tags as $tag) {
+                                $report['tags'] = self::increment((array) ($report['tags'] ?? []), $tag);
+                            }
 
                             // Paused or abandoned while this slice ran: the
                             // item is rolled back with the cursor it would
@@ -497,8 +518,13 @@ class ImportEngine
         return $planning ? $verdict : ItemVerdict::ignored('Année scoute non créée');
     }
 
-    private function context(Importer $importer, Run $run, ImportSource $source, bool $executing = false): ImportContext
-    {
+    private function context(
+        Importer $importer,
+        Run $run,
+        ImportSource $source,
+        string $copies,
+        bool $executing = false
+    ): ImportContext {
         return new ImportContext(
             $run->id,
             (string) $run->installationId,
@@ -507,7 +533,8 @@ class ImportEngine
             $run->createdBy,
             $source,
             fn (string $label): ?int => $this->years->resolve($label),
-            $executing
+            $executing,
+            $copies
         );
     }
 
@@ -548,6 +575,7 @@ class ImportEngine
             'ignored' => [],
             'samples' => [],
             'error_samples' => [],
+            'tags' => [],
         ];
     }
 
@@ -702,6 +730,11 @@ class ImportEngine
 
     private function now(): string
     {
-        return ($this->clock !== null ? ($this->clock)() : new \DateTimeImmutable())->format('Y-m-d H:i:s');
+        return $this->clockNow()->format('Y-m-d H:i:s');
+    }
+
+    private function clockNow(): \DateTimeImmutable
+    {
+        return $this->clock !== null ? ($this->clock)() : new \DateTimeImmutable();
     }
 }

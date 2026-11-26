@@ -220,7 +220,10 @@ final class GalleryLinksImporter implements ThrottledImporter
             $createdBy,
             $preview?->title,
             $preview?->description,
-            $preview?->imageBytes
+            $preview?->imageBytes,
+            // The gallery's copy of the image, in the slice's working
+            // directory rather than the system's (#1259).
+            $context->copiesDirectory
         ));
 
         return new WrittenTarget('gallery_album', (string) $id);
