@@ -10006,7 +10006,10 @@ if ($isEnabled('news')) {
         // Api contract: it writes the transfer payload for the e-mail and
         // reads one back for the door (§8.90). One file decides which
         // remittance field a Belgian structured communication travels in.
-        $financeSepaQrCodeForOthers
+        $financeSepaQrCodeForOthers,
+        // The door's search finds a member chosen in a « Membres » field by
+        // name, not by the Desk id stored (#1381).
+        $newsResponseService
     );
     $frontController->registerController(
         \Modules\News\Controller\ScanController::class,
