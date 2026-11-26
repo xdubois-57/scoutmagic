@@ -28,12 +28,17 @@ final class OperationalAlert
     public const STATE_ARMED = 'armed';
     public const STATE_TRIGGERED = 'triggered';
 
+    /**
+     * @param list<string> $notifiedSubjects the subjects already announced while this alert has been
+     *                                       triggered — {@see AlertReading::$subjects}
+     */
     public function __construct(
         public readonly string $alertKey,
         public readonly string $state,
         public readonly ?string $triggeredAt,
         public readonly ?string $lastNotifiedAt,
-        public readonly ?string $lastValue
+        public readonly ?string $lastValue,
+        public readonly array $notifiedSubjects = []
     ) {
     }
 

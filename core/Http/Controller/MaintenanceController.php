@@ -23,6 +23,7 @@ use Core\Maintenance\BackupService;
 use Core\Maintenance\GitHubReleaseClient;
 use Core\Maintenance\GitHubReleaseClientInterface;
 use Core\Maintenance\Health\HostHealth;
+use Core\Maintenance\Health\Security\HostSecurityStore;
 use Core\Maintenance\GitHubWebhookService;
 use Core\Maintenance\ReleaseInfo;
 use Core\Maintenance\Remote\RemoteBackupDestination;
@@ -166,7 +167,13 @@ class MaintenanceController extends AbstractController
          * with the one line that needs nothing but the storage path — the
          * cron — rather than a list claiming everything else is fine.
          */
-        private ?HostHealth $hostHealth = null
+        private ?HostHealth $hostHealth = null,
+        /**
+         * Where the weekly host security check left its snapshot (#1358).
+         * Last and optional like the others; null reads the same settings
+         * through a store built here, since reading needs nothing else.
+         */
+        private ?HostSecurityStore $hostSecurity = null
     ) {
     }
 
@@ -218,9 +225,21 @@ class MaintenanceController extends AbstractController
             ? HostHealth::checks($this->hostHealth->detect())
             : [HostHealth::cronCheck((new CronHealth($this->storagePath, $this->settingService))->status())];
 
+        // The host security box (#1358) reads the snapshot the weekly task
+        // wrote, and nothing else: no source is consulted and no chain is
+        // armed by a page view. The same snapshot feeds the counter above
+        // the boxes and the notifications, so the three cannot disagree.
+        $security = ($this->hostSecurity ?? new HostSecurityStore($this->settingService))->latest();
+
         return $this->render(
             'config/maintenance/sante.html.twig',
-            ['host_checks' => $checks] + $this->pageContext()
+            [
+                'host_checks' => $checks,
+                'host_security' => $security,
+                'host_security_points' => $security?->pointsToFix() ?? 0,
+                'host_security_overall' => $security?->overallState(time()),
+                'host_security_stale' => $security?->isStale(time()) ?? false,
+            ] + $this->pageContext()
         );
     }
 

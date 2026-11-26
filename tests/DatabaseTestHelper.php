@@ -758,7 +758,8 @@ class DatabaseTestHelper
             state TEXT NOT NULL DEFAULT \'armed\',
             triggered_at TEXT,
             last_notified_at TEXT,
-            last_reading TEXT
+            last_reading TEXT,
+            notified_subjects TEXT
         )');
 
         $pdo->exec('CREATE TABLE update_history (

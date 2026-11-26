@@ -55,7 +55,10 @@ class OperationalAlertRepository
      * by the delete: this method rewrites every column of the row anyway.
      * Two round trips, on a path that runs once when something breaks.
      */
-    public function markTriggered(string $alertKey, string $value): void
+    /**
+     * @param list<string> $subjects what was announced ({@see AlertReading::$subjects})
+     */
+    public function markTriggered(string $alertKey, string $value, array $subjects = []): void
     {
         $now = (new \DateTimeImmutable())->format('Y-m-d H:i:s');
 
@@ -63,10 +66,31 @@ class OperationalAlertRepository
         $delete->execute([$alertKey]);
 
         $insert = $this->pdo->prepare(
-            'INSERT INTO operational_alerts (alert_key, state, triggered_at, last_notified_at, last_reading) '
-            . "VALUES (?, 'triggered', ?, ?, ?)"
+            'INSERT INTO operational_alerts (alert_key, state, triggered_at, last_notified_at, last_reading, '
+            . "notified_subjects) VALUES (?, 'triggered', ?, ?, ?, ?)"
         );
-        $insert->execute([$alertKey, $now, $now, self::truncate($value)]);
+        $insert->execute([$alertKey, $now, $now, self::truncate($value), self::encodeSubjects($subjects)]);
+    }
+
+    /**
+     * A triggered alert announced again because what it is about grew
+     * (issue #1358): the trigger date stays — the problem did not start
+     * now —, the notification date and the announced set move.
+     *
+     * @param list<string> $subjects every subject announced so far, the new ones included
+     */
+    public function markRenotified(string $alertKey, string $value, array $subjects): void
+    {
+        $stmt = $this->pdo->prepare(
+            'UPDATE operational_alerts SET last_notified_at = ?, last_reading = ?, notified_subjects = ? '
+            . "WHERE alert_key = ? AND state = 'triggered'"
+        );
+        $stmt->execute([
+            (new \DateTimeImmutable())->format('Y-m-d H:i:s'),
+            self::truncate($value),
+            self::encodeSubjects($subjects),
+            $alertKey,
+        ]);
     }
 
     /**
@@ -78,7 +102,8 @@ class OperationalAlertRepository
     public function markArmed(string $alertKey, string $value): void
     {
         $stmt = $this->pdo->prepare(
-            "UPDATE operational_alerts SET state = 'armed', triggered_at = NULL, last_reading = ? WHERE alert_key = ?"
+            "UPDATE operational_alerts SET state = 'armed', triggered_at = NULL, last_reading = ?, "
+            . 'notified_subjects = NULL WHERE alert_key = ?'
         );
         $stmt->execute([self::truncate($value), $alertKey]);
     }
@@ -109,6 +134,32 @@ class OperationalAlertRepository
     }
 
     /**
+     * JSON in a TEXT column: a set of identifiers read and written whole,
+     * only by this class. Null for the empty set, which is every check
+     * but the host security ones.
+     *
+     * @param list<string> $subjects
+     */
+    private static function encodeSubjects(array $subjects): ?string
+    {
+        $subjects = array_values(array_unique(array_filter($subjects, 'is_string')));
+        if ($subjects === []) {
+            return null;
+        }
+        $encoded = json_encode($subjects);
+
+        return $encoded === false ? null : $encoded;
+    }
+
+    /** @return list<string> */
+    private static function decodeSubjects(mixed $value): array
+    {
+        $decoded = is_string($value) ? json_decode($value, true) : null;
+
+        return is_array($decoded) ? array_values(array_filter($decoded, 'is_string')) : [];
+    }
+
+    /**
      * @param array<string, mixed> $row
      */
     private function hydrate(array $row): OperationalAlert
@@ -118,7 +169,8 @@ class OperationalAlertRepository
             state: (string) $row['state'],
             triggeredAt: $row['triggered_at'] !== null ? (string) $row['triggered_at'] : null,
             lastNotifiedAt: $row['last_notified_at'] !== null ? (string) $row['last_notified_at'] : null,
-            lastValue: $row['last_reading'] !== null ? (string) $row['last_reading'] : null
+            lastValue: $row['last_reading'] !== null ? (string) $row['last_reading'] : null,
+            notifiedSubjects: self::decodeSubjects($row['notified_subjects'] ?? null)
         );
     }
 }

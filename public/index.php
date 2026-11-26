@@ -4046,6 +4046,17 @@ $schedulerService->seed(
     new DateTimeImmutable()
 );
 
+// Same bootstrap for the weekly host security check (Core\Maintenance\Task\
+// CheckHostSecurityHandler, issue #1358): its first occurrence runs at the
+// next scheduler pass after deployment, and until it has the box on Santé de
+// l'hébergement says « pas encore vérifié ». seed(), for the reason above.
+$schedulerService->seed(
+    'core',
+    \Core\Maintenance\Task\CheckHostSecurityHandler::TASK_KEY,
+    \Core\Maintenance\Task\CheckHostSecurityHandler::REFERENCE,
+    new DateTimeImmutable()
+);
+
 // Same bootstrap for the backup integrity pass (Core\Maintenance\Task\
 // VerifyBackupIntegrityHandler, §8.101). seed() for the same reason as the
 // line above: this runs on every request, and rearm()'s guard cannot see
@@ -14165,6 +14176,13 @@ if ($operationalRequestChecks->due()) {
         new \Core\Alert\Check\CronSilenceCheck(new \Core\Scheduler\CronHealth($storagePath, $settingService)),
         new \Core\Alert\Check\HttpsCheck(new \Core\Http\InsecureBrowserAccess($settingService)),
     ]);
+
+    // The web PHP's exact versions (issue #1358), for the weekly host
+    // security check, which runs in the cron and must never take the
+    // cron's PHP_VERSION for the site's. Constants and one in-memory call;
+    // the cost is this quarter-hourly settings write. Best effort.
+    \Core\Maintenance\Health\Security\WebRuntimeFacts::register($settingService);
+    \Core\Maintenance\Health\Security\WebRuntimeFacts::record($settingService, time());
 }
 
 // Fréquentation (§8.93): one counter incremented for one page view, and

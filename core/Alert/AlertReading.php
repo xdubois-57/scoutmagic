@@ -41,6 +41,11 @@ final class AlertReading
      * @param string $why       the consequence, not a restatement of the title
      * @param string|null $actionUrl where to go and fix it
      * @param string|null $actionLabel named as an action (« Voir les sauvegardes »)
+     * @param list<string> $subjects  what a triggered reading is ABOUT, when that can grow while the
+     *                                alert stands — the advisory identifiers of a host security
+     *                                check (issue #1358). Empty for every check whose reading is one
+     *                                fact; see OperationalAlertService::evaluate() for what a
+     *                                growing set does.
      */
     public function __construct(
         public readonly bool $overTrigger,
@@ -49,7 +54,8 @@ final class AlertReading
         public readonly string $title,
         public readonly string $why,
         public readonly ?string $actionUrl = null,
-        public readonly ?string $actionLabel = null
+        public readonly ?string $actionLabel = null,
+        public readonly array $subjects = []
     ) {
     }
 

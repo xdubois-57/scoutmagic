@@ -7,7 +7,7 @@ role_min: superadmin
 question: Comment savoir si la tâche cron du site tourne ?
 question: Que demander à mon hébergeur quand une fonction ne marche pas ?
 paths: /config/maintenance
-related: mises-a-jour, actions-planifiees, installation-serveur
+related: securite-hebergement, mises-a-jour, actions-planifiees, installation-serveur
 ---
 
 La maintenance du site est rangée en six pages, reliées par la rangée
@@ -15,6 +15,10 @@ d'onglets en haut de l'écran : Santé de l'hébergement, Mise à jour,
 Sauvegarde manuelle, Sauvegarde automatique, Sauvegardes récentes et
 Réinitialisation. Cette page-ci est la première, celle qui s'ouvre
 depuis le menu Configuration.
+
+Au-dessus, une boîte contrôle chaque semaine les versions et les failles
+de sécurité connues : voir l'aide « Mises à jour et sécurité de
+l'hébergement ».
 
 ## Une ligne par dépendance
 

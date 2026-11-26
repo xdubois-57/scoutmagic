@@ -243,6 +243,31 @@ class RoleScopedNotificationDefaultsTest extends TestCase
         $this->assertSame([], $this->service->recipientsForType('core.update_installed'));
     }
 
+    /**
+     * The host security notification (issue #1358) travels as an
+     * operational alert: the real role resolver keeps it to superadmins —
+     * an admin who switched it on and a parent's account are not among the
+     * recipients, which is the audience the weekly task reaches from the cron.
+     */
+    public function testTheHostSecurityAlertReachesSuperadminsAloneEvenAnAdminWhoOptedIn(): void
+    {
+        $superadminId = $this->createAccount('super@test.example', true);
+        $adminEmail = 'admin@test.example';
+        $adminId = $this->createAccount($adminEmail);
+        $this->giveRole($adminEmail, 'admin');
+        $this->preferenceRepository->setChannel($adminId, \Core\Alert\OperationalAlertService::TYPE_DEFAULT, 'in_app', true);
+        $parentId = $this->createAccount('parent@test.example');
+
+        $recipients = array_column(
+            $this->service->recipientsForType(\Core\Alert\OperationalAlertService::TYPE_DEFAULT),
+            'userAccountId'
+        );
+
+        $this->assertSame([$superadminId], $recipients);
+        $this->assertNotContains($adminId, $recipients);
+        $this->assertNotContains($parentId, $recipients);
+    }
+
     public function testRecipientsForTypeHoldsSuperadminsAndLeavesOutEverybodyBelowRoleMin(): void
     {
         $superadminId = $this->createAccount('super@test.example', true);

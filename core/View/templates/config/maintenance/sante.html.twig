@@ -17,18 +17,137 @@
         'missing': 'bi-x-circle-fill text-danger'
     } %}
     {% set _labels = {'ok': 'En ordre', 'degraded': 'Dégradé', 'missing': 'Absent'} %}
-    {% set _problems = host_checks|filter(c => not c.isOk())|length %}
+    {# The summary counts the dependency lines that are not ok PLUS one
+       point per component and context the security box finds out of date
+       or potentially vulnerable (#1358): host_security_points comes from
+       the same snapshot the box and the notifications read. It turns red
+       for a missing dependency and for a potentially vulnerable component. #}
+    {% set _problems = host_checks|filter(c => not c.isOk())|length + host_security_points %}
+    {% set _red = host_checks|filter(c => c.state == 'missing')|length > 0
+        or (host_security is not null and host_security.hasVulnerable()) %}
 
     {% if _problems == 0 %}
         <div class="alert alert-success" id="host-health-summary">
             Tout ce dont le site dépend chez l'hébergeur répond.
         </div>
     {% else %}
-        <div class="alert {{ host_checks|filter(c => c.state == 'missing')|length > 0 ? 'alert-danger' : 'alert-warning' }}" id="host-health-summary" role="alert">
+        <div class="alert {{ _red ? 'alert-danger' : 'alert-warning' }}" id="host-health-summary" role="alert">
             <strong>{{ _problems }} point{{ _problems > 1 ? 's' : '' }} à régler chez l'hébergeur.</strong>
             Chaque ligne concernée dit ce qui ne marche plus et quoi lui demander.
         </div>
     {% endif %}
+
+    {# ————— Updates and security of the host (#1358) —————
+       Read from the snapshot the weekly task wrote
+       (Core\Maintenance\Health\Security\HostSecuritySnapshot): no source
+       is consulted while this page renders. Every string but the state
+       names arrives worded by HostSecurityEvaluator. #}
+    {% set _security_icons = {
+        'up_to_date': 'bi-check-circle-fill text-success',
+        'outdated': 'bi-arrow-up-circle-fill text-warning',
+        'vulnerable': 'bi-shield-exclamation text-danger',
+        'unverifiable': 'bi-question-circle-fill text-body-secondary'
+    } %}
+    {% set _security_labels = {
+        'up_to_date': 'À jour',
+        'outdated': 'Pas à jour',
+        'vulnerable': 'Potentiellement vulnérable',
+        'unverifiable': 'Non vérifiable'
+    } %}
+    {% set _update_labels = {
+        'current': 'dernière version de sa branche',
+        'behind': 'correctif disponible',
+        'unsupported': 'branche hors support',
+        'unknown': 'état des mises à jour inconnu'
+    } %}
+
+    <div class="card mb-4" id="maintenance-host-security">
+        <div class="card-body">
+            {{ m.section_header('Mises à jour et sécurité de l\'hébergement') }}
+            <div class="mt-3" id="maintenance-host-security-body">
+                {% if host_security is null %}
+                    <p class="mb-0" id="host-security-pending" data-state="unverifiable">
+                        <span class="fw-semibold">Pas encore vérifié.</span>
+                        Le premier contrôle des versions et des avis de sécurité s'exécute au prochain passage de la
+                        tâche planifiée, puis chaque semaine.
+                    </p>
+                {% else %}
+                    <p id="host-security-summary" data-state="{{ host_security_overall }}">
+                        <i class="bi {{ _security_icons[host_security_overall] }}" aria-hidden="true"></i>
+                        <span class="fw-semibold">{{ _security_labels[host_security_overall] }}</span>
+                        — contrôle du {{ host_security.moment(host_security.checkedAt)|datetime_fr }} :
+                        {{ host_security.countIn('vulnerable') }} potentiellement vulnérable{{ host_security.countIn('vulnerable') > 1 ? 's' : '' }},
+                        {{ host_security.countIn('outdated') }} pas à jour,
+                        {{ host_security.countIn('unverifiable') }} non vérifiable{{ host_security.countIn('unverifiable') > 1 ? 's' : '' }},
+                        {{ host_security.countIn('up_to_date') }} à jour.
+                    </p>
+                    {% if host_security_stale %}
+                        <p class="small text-warning-emphasis" id="host-security-stale">
+                            Ce contrôle date de plus de deux semaines : la tâche planifiée ne l'a pas refait depuis.
+                        </p>
+                    {% elseif not host_security.complete %}
+                        <p class="small text-body-secondary" id="host-security-incomplete">
+                            Une partie des avis de sécurité est encore en cours de consultation.
+                        </p>
+                    {% endif %}
+
+                    <ul class="list-unstyled mb-0" id="host-security-components">
+                        {% for item in host_security.assessments %}
+                            <li class="d-flex gap-3 align-items-start {{ loop.last ? '' : 'mb-3' }}" id="host-security-{{ item.subject }}" data-state="{{ item.state }}">
+                                <i class="bi {{ _security_icons[item.state] }} fs-5" aria-hidden="true"></i>
+                                <div class="flex-grow-1">
+                                    <div class="fw-semibold">
+                                        {{ item.label }}
+                                        <span class="fw-normal text-body-secondary">— {{ _security_labels[item.state] }}</span>
+                                    </div>
+                                    <div class="small text-break">
+                                        {{ item.familyLabel }} <span class="font-monospace">{{ item.version ?: 'version inconnue' }}</span>
+                                        {% if item.measuredAt %}· mesurée le {{ host_security.moment(item.measuredAt)|datetime_fr }}{% endif %}
+                                    </div>
+                                    {% if item.updateStatus != 'unknown' %}
+                                        <div class="small mt-1" data-update="{{ item.updateStatus }}">
+                                            <span class="fw-semibold">Mise à jour :</span>
+                                            {{ _update_labels[item.updateStatus] }}
+                                            {%- if item.branch %} (branche {{ item.branch }}{% if item.latest %}, dernière version {{ item.latest }}{% endif %}{% if item.supportEnds %}, support de sécurité jusqu'au {{ item.supportEnds|date_fr }}{% endif %}){% endif %}
+                                            {%- if item.updateStatus in ['behind', 'unsupported'] and not item.certain %}, à confirmer{% endif %}.
+                                        </div>
+                                    {% endif %}
+                                    {% if item.advisoryCount > 0 %}
+                                        <div class="small mt-1" data-advisories="{{ item.advisoryCount }}">
+                                            <span class="fw-semibold">Avis de sécurité{{ item.certain ? '' : ' (potentiellement applicables)' }} :</span>
+                                            {% for advisory in item.advisories %}
+                                                <a href="{{ advisory.url }}" target="_blank" rel="noopener noreferrer">{{ advisory.id }}</a>
+                                                ({{ advisory.severityLabel() }}){{ loop.last ? '' : ',' }}
+                                            {% endfor %}
+                                            {% if item.advisoryCount > item.advisories|length %}
+                                                et {{ item.advisoryCount - item.advisories|length }} autre{{ item.advisoryCount - item.advisories|length > 1 ? 's' : '' }}, de gravité égale ou inférieure.
+                                            {% endif %}
+                                        </div>
+                                    {% endif %}
+                                    {% for note in item.notes %}
+                                        <div class="small text-body-secondary mt-1">{{ note }}</div>
+                                    {% endfor %}
+                                    {% if item.action and item.state != 'up_to_date' %}
+                                        <div class="small mt-1"><span class="fw-semibold">À faire :</span> {{ item.action }}</div>
+                                    {% endif %}
+                                    {% if item.references is not empty %}
+                                        <div class="small mt-1">
+                                            {% for reference in item.references %}
+                                                <a href="{{ reference.url }}" target="_blank" rel="noopener noreferrer">{{ reference.label }}</a>{{ loop.last ? '' : ' · ' }}
+                                            {% endfor %}
+                                            {% if item.versionsCheckedAt or item.advisoriesCheckedAt %}
+                                                — consulté le {{ host_security.moment(item.advisoriesCheckedAt ?: item.versionsCheckedAt)|date_fr }}
+                                            {% endif %}
+                                        </div>
+                                    {% endif %}
+                                </div>
+                            </li>
+                        {% endfor %}
+                    </ul>
+                {% endif %}
+            </div>
+        </div>
+    </div>
 
     <div class="card mb-4" id="maintenance-health">
         <div class="card-body">

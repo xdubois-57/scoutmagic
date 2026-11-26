@@ -99,7 +99,9 @@ final class OperationalAlertService
 
     /**
      * One check, one decision. Returns true only when this call is the one
-     * that moved the alert from armed to triggered.
+     * that moved the alert from armed to triggered — or, for a reading that
+     * names its subjects, the one that announced a subject not announced
+     * before.
      */
     public function evaluate(OperationalCheck $check): bool
     {
@@ -107,7 +109,7 @@ final class OperationalAlertService
         $stored = $this->repository->findOrArmed($check->key());
 
         if (!$stored->isTriggered() && $reading->overTrigger) {
-            $this->repository->markTriggered($check->key(), $reading->value);
+            $this->repository->markTriggered($check->key(), $reading->value, $reading->subjects);
             $this->journal?->log(
                 'core',
                 'operational_alert_triggered',
@@ -118,6 +120,35 @@ final class OperationalAlertService
             $this->notify($check, $reading);
 
             return true;
+        }
+
+        // The one exception to « once, on the transition » (issue #1358,
+        // the maintainer's decision 3): a reading that names what it is
+        // about — the advisories of a host security check — speaks again
+        // when that set has GROWN since it last spoke. Once per growth: the
+        // announced set is stored, so a pass that sees the same advisories
+        // says nothing, and a new advisory on a component already in alert
+        // is still announced. Checks whose readings name nothing never get
+        // here, and keep the rule above untouched.
+        if ($stored->isTriggered() && $reading->overTrigger && $reading->subjects !== []) {
+            $new = array_diff($reading->subjects, $stored->notifiedSubjects);
+            if ($new !== []) {
+                $this->repository->markRenotified(
+                    $check->key(),
+                    $reading->value,
+                    array_values(array_unique(array_merge($stored->notifiedSubjects, $reading->subjects)))
+                );
+                $this->journal?->log(
+                    'core',
+                    'operational_alert_grew',
+                    'warning',
+                    $reading->title,
+                    ['check' => $check->key(), 'value' => $reading->value, 'new' => array_values($new)]
+                );
+                $this->notify($check, $reading);
+
+                return true;
+            }
         }
 
         if ($stored->isTriggered() && $reading->underRearm) {
