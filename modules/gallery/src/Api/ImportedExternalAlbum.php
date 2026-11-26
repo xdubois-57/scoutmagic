@@ -34,6 +34,11 @@ final class ImportedExternalAlbum
      * @param ?int $sectionId null for an album the whole unit sees
      * @param int $createdBy the user account of the administrator who imports
      * @param ?string $ogImageBytes the page's image, already downloaded by the SSRF-checked fetcher
+     * @param ?string $workDirectory where the gallery may write the temporary
+     *        copy of that image its upload pipeline needs — the caller's own
+     *        working directory, which its purge sweeps if the request dies
+     *        before the copy is deleted (issue #1259); null for the system's
+     *        temporary directory
      */
     public function __construct(
         public readonly string $url,
@@ -45,7 +50,8 @@ final class ImportedExternalAlbum
         public readonly int $createdBy,
         public readonly ?string $ogTitle = null,
         public readonly ?string $ogDescription = null,
-        public readonly ?string $ogImageBytes = null
+        public readonly ?string $ogImageBytes = null,
+        public readonly ?string $workDirectory = null
     ) {
     }
 }

@@ -215,7 +215,10 @@ final class MemberPhotosImporter implements Importer
             $yearId,
             $context->source->archive()->read($data['path']),
             $data['original_name'],
-            $context->userAccountId
+            $context->userAccountId,
+            // The copy the pipeline needs goes in the slice's working
+            // directory, never in the system's (#1259).
+            $context->copiesDirectory
         );
         if ($fileId === null) {
             // Taken between the inspection and this write: never replaced.

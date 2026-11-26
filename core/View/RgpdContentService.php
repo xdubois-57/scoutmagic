@@ -1264,7 +1264,9 @@ des modules actifs ({$modulesText}), retire entièrement la sous-section "Module
 et la ligne « Fichiers déposés pour la migration de données » de la section 3.1. S'il est actif, conserve-les. Conserve
 en particulier : (a) que le fichier déposé peut contenir des données personnelles et n'est lu que le temps de l'import ;
 (b) qu'il est **effacé automatiquement au plus tard 24 heures** après la fin de l'import, son abandon ou son dernier
-mouvement, qu'il n'est jamais extrait sur le disque ni inclus dans une sauvegarde ; (c) que les données importées
+mouvement, même si le module est désactivé entre-temps, qu'il n'est jamais extrait sur le disque ni inclus dans une
+sauvegarde, et que les seules copies faites pendant l'import (une pièce jointe ou une image, le temps de l'enregistrer)
+sont placées au même endroit et effacées selon la même règle ; (c) que les données importées
 suivent ensuite les règles du module qui les accueille ; (d) que le site garde, sans donnée personnelle, la
 correspondance entre les références de l'ancien site et les éléments importés, et que le bilan ne montre jamais le nom
 d'une personne ; (e) qu'aucun courriel ni aucune notification n'est envoyé par un import ; (f) le paragraphe « Copie

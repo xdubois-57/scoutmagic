@@ -11,6 +11,7 @@ namespace Tests\Modules\DataMigration\Service;
 use Core\Archive\ArchiveLimits;
 use Core\Config\ScoutYearService;
 use Core\File\ChunkedUploadStore;
+use Core\File\DataMigrationDeposits;
 use Core\File\UploadException;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
@@ -375,6 +376,44 @@ final class RunServiceOnMysqlTest extends TestCase
         $purged = $this->runs->find($idle->id) ?? $this->fail('Run vanished.');
         $this->assertSame(Run::ABANDONED, $purged->state);
         $this->assertNull($purged->filePath);
+    }
+
+    /**
+     * Issue #1259: the core sweeps the same directory from the disk alone,
+     * on each entry's modification time. Every movement of the run stamps
+     * its file, so a run that keeps moving — for days, through a
+     * confirmation, a pause, a resumption and « Relancer » — never loses it
+     * to that sweep, and a run that stops loses it a day later, as with the
+     * module's own purge.
+     */
+    public function testTheCoreSweepNeverTakesTheFileOfARunThatMoves(): void
+    {
+        $deposits = new DataMigrationDeposits($this->storage);
+        $later = function (): void {
+            $this->now = $this->now->add(new \DateInterval('PT23H'));
+        };
+        $run = $this->analysed(TestArchive::items([['id' => '1', 'name' => 'Un'], ['id' => '2', 'name' => 'Deux']]));
+        $file = $this->uploads->absolute((string) $run->filePath);
+
+        $later();
+        $run = $this->service->confirm($run, []) ?? $this->fail('Not confirmed.');
+        $this->assertSame(0, $deposits->sweep($this->now->getTimestamp()));
+        $later();
+        $run = $this->service->pause($run);
+        $this->assertSame(0, $deposits->sweep($this->now->getTimestamp()));
+        $later();
+        $run = $this->drive($this->service->resume($run));
+        $this->assertSame(Run::DONE, $run->state);
+        $this->assertSame(0, $deposits->sweep($this->now->getTimestamp()));
+        $later();
+        $again = $this->service->restart($this->importer, $run, null) ?? $this->fail('No restart.');
+        $this->assertSame(0, $deposits->sweep($this->now->getTimestamp()));
+        $this->assertSame(Run::ANALYSED, $this->drive($again)->state, 'four days on, the file still reads');
+        $this->assertFileExists($file);
+
+        $this->now = $this->now->add(new \DateInterval('PT25H'));
+        $this->assertSame(1, $deposits->sweep($this->now->getTimestamp()));
+        $this->assertFileDoesNotExist($file);
     }
 
     public function testANewDepositIsRefusedWhileAnImportOfTheSameKindIsMoving(): void

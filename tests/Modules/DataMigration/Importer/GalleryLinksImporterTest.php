@@ -92,6 +92,11 @@ final class GalleryLinksImporterTest extends TestCase
         $this->assertSame('Camp 2019 (page)', $created->ogTitle);
         $this->assertSame('Description de la page', $created->ogDescription);
         $this->assertSame('image-bytes', $created->ogImageBytes);
+        $this->assertSame(
+            '/srv/storage/temp/data_migration/copies-1',
+            $created->workDirectory,
+            'The gallery copies the image into the slice\'s working directory, never the system\'s (#1259).'
+        );
     }
 
     public function testAnAlbumWithoutTitleTakesThePagesOne(): void
@@ -311,7 +316,8 @@ final class GalleryLinksImporterTest extends TestCase
             42,
             new ImportSource(null, null),
             fn (string $label): ?int => $this->years[$label] ?? null,
-            $executing
+            $executing,
+            '/srv/storage/temp/data_migration/copies-1'
         );
     }
 }

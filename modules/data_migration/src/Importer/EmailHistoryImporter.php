@@ -37,7 +37,7 @@ use Modules\MassMail\Api\ImportedRecipient;
  * the attachments' accepted types are mass_mail's answers, asked through
  * that interface, so the two modules cannot disagree.
  */
-final class EmailHistoryImporter implements Importer
+final class EmailHistoryImporter implements ReportingImporter
 {
     public const FORMAT = 'scoutmagic.email-history';
     public const KIND = 'email';
@@ -56,6 +56,20 @@ final class EmailHistoryImporter implements Importer
     /** Measured decompressed bytes in one slice — an attachment is read more than once per item. */
     private const MAX_TOTAL_BYTES = 8 * 1024 * 1024 * 1024;
 
+    /**
+     * At most this many attachments are read out of the archive for one
+     * e-mail, and at most {@see MAX_ATTACHMENT_BYTES_PER_EMAIL} of their
+     * bytes (issue #1259). The slice's deadline is checked between two
+     * e-mails only, so one e-mail citing thousands of distinct attachments
+     * would overrun every slice and the run would never get past it. The
+     * attachments beyond either ceiling are set aside — the e-mail is
+     * imported without them — and the preview and the report count them.
+     * Every attachment read counts, kept or refused: what is bounded is the
+     * work, and a refused one cost as much to read as a kept one.
+     */
+    public const MAX_ATTACHMENTS_PER_EMAIL = 20;
+    public const MAX_ATTACHMENT_BYTES_PER_EMAIL = 25 * 1024 * 1024;
+
     public const TAG_SECTION_FROM_SENDER = 'section_from_sender';
     public const TAG_SECTION_STAFF = 'section_staff';
     public const TAG_MAIL_MERGE = 'mail_merge';
@@ -63,6 +77,7 @@ final class EmailHistoryImporter implements Importer
     public const TAG_RECIPIENT_INVALID = 'recipient_invalid';
     public const TAG_MEMBER_UNKNOWN = 'member_unknown';
     public const TAG_ATTACHMENT_INVALID = 'attachment_invalid';
+    public const TAG_ATTACHMENT_SET_ASIDE = 'attachment_set_aside';
 
     public function __construct(
         private ?EmailHistoryImportInterface $emails,
@@ -217,6 +232,37 @@ final class EmailHistoryImporter implements Importer
                 self::count($attachments, 'pièce jointe est invalide', 'pièces jointes sont invalides')
             ));
         }
+        if (($setAside = $summary->tag(self::TAG_ATTACHMENT_SET_ASIDE)) > 0) {
+            $notes[] = PreviewNote::warning(sprintf(
+                '%s %s. Leur courriel est importé sans elles.',
+                self::count($setAside, 'pièce jointe sera écartée', 'pièces jointes seront écartées'),
+                self::ceilingText()
+            ));
+        }
+
+        return $notes;
+    }
+
+    public function reportNotes(array $tags): array
+    {
+        $notes = [];
+        if (($invalid = (int) ($tags[self::TAG_ATTACHMENT_INVALID] ?? 0)) > 0) {
+            $notes[] = PreviewNote::warning(sprintf(
+                '%s (empreinte, type ou taille) : %s importé%s sans elles.',
+                self::count($invalid, 'pièce jointe était invalide', 'pièces jointes étaient invalides'),
+                $invalid > 1 ? 'leurs courriels ont été' : 'son courriel a été',
+                $invalid > 1 ? 's' : ''
+            ));
+        }
+        if (($setAside = (int) ($tags[self::TAG_ATTACHMENT_SET_ASIDE] ?? 0)) > 0) {
+            $notes[] = PreviewNote::warning(sprintf(
+                '%s %s. %s importé%s sans elles.',
+                self::count($setAside, 'pièce jointe a été écartée', 'pièces jointes ont été écartées'),
+                self::ceilingText(),
+                $setAside > 1 ? 'Leurs courriels ont été' : 'Son courriel a été',
+                $setAside > 1 ? 's' : ''
+            ));
+        }
 
         return $notes;
     }
@@ -308,7 +354,7 @@ final class EmailHistoryImporter implements Importer
         }
 
         [$attachments, $files, $attachmentTags] = $this->attachments(
-            $context->source,
+            $context,
             $data['attachments'] ?? null,
             $withFiles
         );
@@ -449,21 +495,27 @@ final class EmailHistoryImporter implements Importer
      * The attachments that are what they claim: present, of the declared
      * fingerprint, not larger than mass_mail accepts and of a type it
      * accepts by their real content. Each one is streamed out of the
-     * archive into a temporary file and hashed on the way, never held whole
-     * in memory; at the inspection the file is removed at once.
+     * archive into a temporary file of the slice's working directory and
+     * hashed on the way, never held whole in memory; at the inspection the
+     * file is removed at once. Past {@see MAX_ATTACHMENTS_PER_EMAIL} read,
+     * or {@see MAX_ATTACHMENT_BYTES_PER_EMAIL}, the others are set aside
+     * unread.
      *
      * @return array{0: list<ImportedAttachment>, 1: list<string>, 2: list<string>}
      */
-    private function attachments(ImportSource $source, mixed $list, bool $keep): array
+    private function attachments(ImportContext $context, mixed $list, bool $keep): array
     {
         if (!is_array($list) || !array_is_list($list) || $this->emails === null) {
             return [[], [], []];
         }
 
+        $source = $context->source;
         $attachments = [];
         $files = [];
         $tags = [];
         $seen = [];
+        $read = 0;
+        $readBytes = 0;
         foreach ($list as $entry) {
             $path = is_array($entry) && is_string($entry['path'] ?? null) ? $entry['path'] : '';
             $declared = is_array($entry) && is_string($entry['sha256'] ?? null) ? $entry['sha256'] : '';
@@ -482,8 +534,23 @@ final class EmailHistoryImporter implements Importer
             if (isset($seen[$path])) {
                 continue;
             }
+            if ($read >= self::MAX_ATTACHMENTS_PER_EMAIL || $readBytes >= self::MAX_ATTACHMENT_BYTES_PER_EMAIL) {
+                $tags[] = self::TAG_ATTACHMENT_SET_ASIDE;
+                continue;
+            }
 
-            $temporary = $this->extract($source, $path, $declared);
+            $read++;
+            [$temporary, $bytes, $overBudget] = $this->extract(
+                $context,
+                $path,
+                $declared,
+                self::MAX_ATTACHMENT_BYTES_PER_EMAIL - $readBytes
+            );
+            $readBytes += $bytes;
+            if ($overBudget) {
+                $tags[] = self::TAG_ATTACHMENT_SET_ASIDE;
+                continue;
+            }
             if ($temporary === null) {
                 $tags[] = self::TAG_ATTACHMENT_INVALID;
                 continue;
@@ -505,39 +572,47 @@ final class EmailHistoryImporter implements Importer
     }
 
     /**
-     * The member in a temporary file, or null — and nothing left behind —
+     * The member in a temporary file — or no file, and nothing left behind,
      * when its bytes are not the declared ones, are too large, or are of a
-     * type mass_mail refuses.
+     * type mass_mail refuses — with the bytes read out of the archive for
+     * it, and whether it was set aside for taking the e-mail past what is
+     * left of its budget (`$budget`).
+     *
+     * @return array{0: ?string, 1: int, 2: bool} the file, the bytes read, set aside
      */
-    private function extract(ImportSource $source, string $path, string $declared): ?string
+    private function extract(ImportContext $context, string $path, string $declared, int $budget): array
     {
         \assert($this->emails !== null);
-        $temporary = tempnam(sys_get_temp_dir(), 'sm_mail_');
-        if ($temporary === false) {
-            return null;
+        try {
+            $temporary = $context->temporaryFile('sm_mail_');
+        } catch (\RuntimeException) {
+            return [null, 0, false];
         }
         $handle = fopen($temporary, 'wb');
         if ($handle === false) {
             @unlink($temporary);
 
-            return null;
+            return [null, 0, false];
         }
 
         $hash = hash_init('sha256');
         $size = 0;
         $complete = true;
         $limit = $this->emails->maxAttachmentBytes();
+        // Nothing is written past what could be kept; the rest is only
+        // hashed, so that the member is measured whole.
+        $keepable = min($limit, $budget);
         try {
-            $source->archive()->stream($path, static function (string $chunk) use (
+            $context->source->archive()->stream($path, static function (string $chunk) use (
                 $handle,
                 $hash,
                 &$size,
                 &$complete,
-                $limit,
+                $keepable,
             ): void {
                 $size += strlen($chunk);
                 hash_update($hash, $chunk);
-                if ($size <= $limit && $complete) {
+                if ($size <= $keepable && $complete) {
                     $complete = self::writeAll($handle, $chunk);
                 }
             });
@@ -545,18 +620,31 @@ final class EmailHistoryImporter implements Importer
             fclose($handle);
         }
 
+        if ($size > $limit) {
+            @unlink($temporary);
+
+            return [null, $size, false];
+        }
+        if ($size > $budget) {
+            // Within what mass_mail accepts, past what is left of the
+            // e-mail's budget: set aside, not invalid.
+            @unlink($temporary);
+
+            return [null, $size, true];
+        }
+
         // The hash is of the archive's bytes, not of the file's: a short
         // write (a full disk) leaves a file the fingerprint never saw.
         $mime = (new \finfo(FILEINFO_MIME_TYPE))->file($temporary);
-        if (!$complete || $size > $limit || !hash_equals($declared, hash_final($hash))
+        if (!$complete || !hash_equals($declared, hash_final($hash))
             || !in_array($mime, $this->emails->acceptedAttachmentTypes(), true)
         ) {
             @unlink($temporary);
 
-            return null;
+            return [null, $size, false];
         }
 
-        return $temporary;
+        return [$temporary, $size, false];
     }
 
     /**
@@ -634,6 +722,16 @@ final class EmailHistoryImporter implements Importer
         $text = html_entity_decode(strip_tags($sanitizedHtml), ENT_QUOTES | ENT_HTML5, 'UTF-8');
 
         return trim($text, " \t\n\r\0\x0B\u{00A0}") !== '' || stripos($sanitizedHtml, '<img') !== false;
+    }
+
+    /** The two ceilings, as the preview and the report write them. */
+    private static function ceilingText(): string
+    {
+        return sprintf(
+            '(au-delà de %d pièces jointes ou de %d Mio par courriel)',
+            self::MAX_ATTACHMENTS_PER_EMAIL,
+            intdiv(self::MAX_ATTACHMENT_BYTES_PER_EMAIL, 1024 * 1024)
+        );
     }
 
     private static function count(int $count, string $singular, string $plural): string
