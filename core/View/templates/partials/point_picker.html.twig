@@ -85,7 +85,13 @@
             <button type="button" class="btn btn-sm btn-outline-secondary" data-point-picker-remove>Retirer</button>
         </div>
     </div>
-    <button type="button" class="btn btn-sm btn-outline-primary d-none" data-point-picker-place>Placer le point sur la carte</button>
+    <div class="d-flex flex-wrap gap-2 mt-2">
+        <button type="button" class="btn btn-sm btn-outline-primary d-none" data-point-picker-place>Placer le point sur la carte</button>
+        {# The keyboard's way to a point (#1353): the map wants a pointer,
+           so the two fields come back on demand, and what is typed there
+           places the pin. #}
+        <button type="button" class="btn btn-sm btn-link d-none" data-point-picker-type aria-expanded="false">Saisir les coordonnées</button>
+    </div>
     {% if help|default('') %}
         <p class="form-text mb-0" data-point-picker-help>{{ help }}</p>
     {% endif %}

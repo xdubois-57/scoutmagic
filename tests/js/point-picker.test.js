@@ -25,6 +25,7 @@ function buildForm({ lat = '', lng = '', manual = '0', address = '', locate = fa
                 <button type="button" data-point-picker-remove>Retirer</button>
             </div>
             <button type="button" class="d-none" data-point-picker-place>Placer le point sur la carte</button>
+            <button type="button" class="d-none" data-point-picker-type aria-expanded="false">Saisir les coordonnées</button>
         </fieldset>
     `;
 }
@@ -261,6 +262,48 @@ describe('point-picker', () => {
             } finally {
                 vi.unstubAllGlobals();
             }
+        });
+
+        it('gives the keyboard the coordinates back, and places a human\'s pin from what is typed', async () => {
+            const leaflet = stubLeaflet();
+            buildForm({ lat: '50.718400', lng: '4.635900' });
+            await load();
+            const toggle = /** @type {HTMLButtonElement} */ (document.querySelector('[data-point-picker-type]'));
+            const fields = document.querySelector('[data-point-picker-fields]');
+
+            expect(toggle.classList.contains('d-none')).toBe(false);
+            expect(fields.classList.contains('d-none')).toBe(true);
+            toggle.click();
+            expect(fields.classList.contains('d-none')).toBe(false);
+            expect(toggle.getAttribute('aria-expanded')).toBe('true');
+
+            const lat = /** @type {HTMLInputElement} */ (document.getElementById('place-latitude'));
+            const lng = /** @type {HTMLInputElement} */ (document.getElementById('place-longitude'));
+            lat.value = '50,7201';
+            lng.value = '4.6412';
+            lng.dispatchEvent(new Event('change'));
+
+            expect(pinOf(leaflet).getLatLng()).toEqual({ lat: 50.7201, lng: 4.6412 });
+            expect(value('place-latitude')).toBe('50.720100');
+            expect(document.querySelector('[data-point-picker-manual]').value).toBe('1');
+            expect(document.querySelector('[data-point-picker-origin]').textContent).toBe('point placé à la main');
+
+            lat.value = '';
+            lng.value = '';
+            lng.dispatchEvent(new Event('change'));
+            expect(pinOf(leaflet)).toBeUndefined();
+            expect(document.querySelector('[data-point-picker-manual]').value).toBe('1');
+        });
+
+        it('waits for both halves before placing a typed point', async () => {
+            const leaflet = stubLeaflet();
+            buildForm();
+            await load();
+            const lat = /** @type {HTMLInputElement} */ (document.getElementById('place-latitude'));
+            lat.value = '50.1';
+            lat.dispatchEvent(new Event('change'));
+
+            expect(pinOf(leaflet)).toBeUndefined();
         });
 
         it('redraws the map when the page says its box changed size', async () => {

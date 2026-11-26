@@ -219,6 +219,22 @@
         var pinAddress = '';
 
         fields.classList.add('d-none');
+        var typeButton = /** @type {HTMLButtonElement|null} */ (box.querySelector('[data-point-picker-type]'));
+        if (typeButton) {
+            // The map wants a pointer: the fields stay one keypress away,
+            // for a keyboard, a screen reader, or coordinates copied from
+            // another map.
+            typeButton.classList.remove('d-none');
+            var toggle = typeButton;
+            toggle.addEventListener('click', function () {
+                var open = fields.classList.toggle('d-none') === false;
+                toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+                if (open) {
+                    latField.focus();
+                    latField.select();
+                }
+            });
+        }
 
         /**
          * @param {number|null} latitude
@@ -430,6 +446,30 @@
         } else {
             place.classList.remove('d-none');
         }
+
+        /**
+         * Coordinates typed in the reopened fields: a human's point, placed
+         * on the map as a click would. Half a point waits for the other
+         * half; both emptied is « Retirer ».
+         */
+        function typed() {
+            var typedLat = coordinate(latField.value);
+            var typedLng = coordinate(lngField.value);
+            if (latField.value.trim() === '' && lngField.value.trim() === '') {
+                removeButton.click();
+                return;
+            }
+            if (typedLat === null || typedLng === null
+                || Math.abs(typedLat) > 90 || Math.abs(typedLng) > 180) {
+                return;
+            }
+            manual = true;
+            showMap([typedLat, typedLng]);
+            pin([typedLat, typedLng]);
+            map.setView([typedLat, typedLng], 15);
+        }
+        latField.addEventListener('change', typed);
+        lngField.addEventListener('change', typed);
 
         place.addEventListener('click', function () {
             showMap(addressPosition);

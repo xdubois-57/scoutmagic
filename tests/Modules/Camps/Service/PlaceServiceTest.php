@@ -334,6 +334,21 @@ class PlaceServiceTest extends TestCase
         $this->assertSame($before, $this->audit->page(PlaceService::ENTITY_TYPE, $place->id, 1, 10)->total);
     }
 
+    /** The pin dragged away and back onto the task's point: the chief's now, locked. */
+    public function testAPinMovedAndPutBackIsStillAHumansPoint(): void
+    {
+        $place = $this->placeAt('Rue du Tronquoy 4', '5340', 'Mozet', 'Belgique');
+        $this->places->recordGeocoding($place->id, 50.4421, 4.9876, new \DateTimeImmutable());
+        $place = $this->places->findById($place->id);
+        $this->assertNotNull($place);
+
+        $this->service->update($place, $this->form($place, [
+            'latitude' => '50.442100', 'longitude' => '4.987600', 'point_automatic' => '0', 'point_manual' => '1',
+        ]), 42);
+
+        $this->assertTrue($this->places->findById($place->id)?->coordinatesAreManual);
+    }
+
     private function placeAt(
         string $address,
         string $postalCode,
