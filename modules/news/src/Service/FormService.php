@@ -188,6 +188,8 @@ class FormService
             );
         } else {
             $formId = $existing->id;
+            // Checked before anything of the form is written.
+            $this->assertMemberSourceUnchangedOnceAnswered($formId, $fields);
             $this->formRepository->update(
                 $formId,
                 $access,
@@ -453,6 +455,44 @@ class FormService
 
         foreach (array_diff($existingIds, $incomingIds) as $removedId) {
             $this->fieldRepository->delete($removedId);
+        }
+    }
+
+    /**
+     * A « Membres » answer stores Desk ids, any other a text
+     * (Service\MemberAnswer, issue #1381). Switching a field from one to
+     * the other once the form has answers would make them unreadable —
+     * codes shown as text, or texts read as members nobody can find — so
+     * it is refused before anything is written, and a new field is the
+     * way to ask something else.
+     *
+     * @param array<int, array{id: ?int, field_type: string, options_source: ?string}> $fields
+     */
+    private function assertMemberSourceUnchangedOnceAnswered(int $formId, array $fields): void
+    {
+        $existingById = [];
+        foreach ($this->fieldRepository->findByFormId($formId) as $existingField) {
+            $existingById[$existingField->id] = $existingField;
+        }
+        $hasResponses = null;
+        foreach ($fields as $field) {
+            $before = $field['id'] !== null ? ($existingById[$field['id']] ?? null) : null;
+            if ($before === null) {
+                continue;
+            }
+            $after = $field['options_source'] === FormField::OPTIONS_SOURCE_MEMBERS
+                && in_array($field['field_type'], FormField::OPTION_BASED_TYPES, true);
+            if ($before->isMemberSourced() === $after) {
+                continue;
+            }
+            $hasResponses ??= $this->hasResponses($formId);
+            if ($hasResponses) {
+                throw new NewsException(
+                    'Le champ « ' . ($before->label ?? '') . ' » a déjà des réponses : il ne peut plus passer '
+                    . 'aux options « Membres » ni les quitter, sans quoi ces réponses deviendraient illisibles. '
+                    . 'Ajoutez plutôt un nouveau champ.'
+                );
+            }
         }
     }
 
