@@ -337,6 +337,9 @@ class RentalManagementController extends AbstractController
             'nav_page' => 'settings',
             'constraints' => $this->availabilityService->constraintsFor($asset->id),
             'pricing' => $pricingSettings,
+            // Two periods already sharing a day (issue #1355, D9): said, and
+            // never corrected for the manager.
+            'period_conflicts' => $this->pricingService->periodConflicts($asset->id),
             'billing_units' => \Modules\Rental\Pricing\BillingUnit::all(),
             'fee_natures' => \Modules\Rental\Pricing\RentalFee::natures(),
             'simulation' => RentalPricingController::simulate($this->pricingService, $pricingSettings, [

@@ -8513,6 +8513,95 @@ class RentalManagementControllerTest extends TestCase
         $this->assertStringNotContainsString('Trois natures seulement.', $html);
     }
 
+    // ── Pricing on the settings page (issue #1355, lot C) ───────────────
+
+    /**
+     * The minimum in people is offered with a per-person unit only (D7);
+     * otherwise the page says why it is not, and the option is hidden.
+     */
+    public function testTheMinimumInPeopleIsOfferedForAPerPersonUnitOnly(): void
+    {
+        $this->loginAsManager();
+        $this->pricingService->saveAssetPricing($this->assetId, 'per_night', 9500, null, null);
+
+        $html = $this->settingsPage();
+
+        $this->assertMatchesRegularExpression('#<div class="form-check" id="minimum-persons-choice"\s+hidden>#', $html);
+        $this->assertMatchesRegularExpression('#<p class="form-text mb-0" id="minimum-persons-absent"\s+>#', $html);
+        $this->assertStringContainsString('value="per_person_night"', $html);
+        $this->assertMatchesRegularExpression('#value="per_person_night"\s+data-explanation="[^"]*"\s+data-person-based="1"#', $html);
+        $this->assertMatchesRegularExpression('#value="per_night"\s+data-explanation="[^"]*"\s+data-person-based="0"#', $html);
+
+        $this->pricingService->saveAssetPricing($this->assetId, 'per_person_night', 650, null, 15);
+        $html = $this->settingsPage();
+
+        $this->assertMatchesRegularExpression('#<div class="form-check" id="minimum-persons-choice"\s+>#', $html);
+        $this->assertMatchesRegularExpression('#id="minimum-persons-absent"\s+hidden>#', $html);
+        $this->assertStringContainsString('<script type="module" src="/assets/js/rental-pricing-minimum.js', $html);
+    }
+
+    /**
+     * The default rate shows, greyed, in every cell nobody customised, and
+     * is only a hint in the dialog — never a value it would post back (D8).
+     * A customised cell, zero included, shows as a price of its own.
+     */
+    public function testTheGridShowsTheDefaultRateWithoutEverWritingItIn(): void
+    {
+        $this->loginAsManager();
+        $this->pricingService->saveAssetPricing($this->assetId, 'per_person_night', 650, null, null);
+        $summer = $this->pricingService->addPeriod($this->assetId, 'Été', '2026-07-01', '2026-08-31', true);
+        $feasts = $this->pricingService->addPeriod($this->assetId, 'Fêtes', '2026-12-20', '2027-01-05', true);
+        $spring = $this->pricingService->addPeriod($this->assetId, 'Printemps', '2026-03-01', '2026-05-31', true);
+        $this->pricingService->saveGrid($this->assetId, [$summer . ':0' => 700, $feasts . ':0' => 0]);
+
+        $html = $this->settingsPage();
+        $flat = (string) preg_replace('/\s+/', ' ', html_entity_decode($html, ENT_QUOTES));
+
+        $this->assertSame(1, substr_count($html, 'data-grid-default'), 'Only the spring cell follows the default.');
+        $this->assertStringContainsString('6,50 € par défaut', (string) preg_replace('/\s+/', ' ', strip_tags($flat)));
+        $this->assertStringContainsString('<strong>7,00 €</strong>', $flat);
+        $this->assertStringContainsString('<strong>0,00 €</strong>', $flat);
+        // In the dialog: an empty value with the default as its hint.
+        $this->assertMatchesRegularExpression(
+            '#name="grid\[' . $spring . ':0\]"\s+placeholder="6,50 par défaut"\s+value=""#u',
+            $html
+        );
+        $this->assertMatchesRegularExpression('#name="grid\[' . $feasts . ':0\]"\s+value="0,00"#', $html);
+    }
+
+    /** Without a default rate, an empty cell has no price and says nothing in its place. */
+    public function testWithoutADefaultRateAnEmptyCellShowsNoPrice(): void
+    {
+        $this->loginAsManager();
+        $this->pricingService->saveAssetPricing($this->assetId, 'per_night', null, null, null);
+
+        $html = $this->settingsPage();
+
+        $this->assertStringNotContainsString('data-grid-default', $html);
+        $this->assertStringNotContainsString('par défaut"', $html);
+        $this->assertStringContainsString("Sans tarif par défaut, une case vide n'a pas de prix", html_entity_decode($html, ENT_QUOTES));
+    }
+
+    /** Two periods stored before the check are pointed out, and nothing is changed (D9). */
+    public function testPeriodsAlreadyOverlappingAreSaidOnTheSettingsPage(): void
+    {
+        $this->loginAsManager();
+        $repository = new \Modules\Rental\Repository\RentalPricingRepository($this->pdo);
+        $repository->createPeriod($this->assetId, 'Été', '2026-07-01', '2026-08-31', true, 0);
+        $repository->createPeriod($this->assetId, 'Camps 2027', '2027-08-15', '2027-08-25', false, 1);
+
+        $flat = (string) preg_replace('/\s+/', ' ', html_entity_decode($this->settingsPage(), ENT_QUOTES));
+
+        $this->assertStringContainsString('Deux périodes se chevauchent.', $flat);
+        $this->assertStringContainsString(
+            '« Camps 2027 » et « Été » couvrent toutes deux les jours du 15/8/2027 au 25/8/2027.',
+            $flat
+        );
+        $this->assertStringContainsString('le devis applique « Été », la première configurée', $flat);
+        $this->assertStringContainsString('Chevauche « Été »', $flat);
+        $this->assertStringContainsString('Chevauche « Camps 2027 »', $flat);
+    }
+
     public function testTheSettingsPageListsEveryReminderWithItsOwnField(): void
     {
         $this->loginAsManager();

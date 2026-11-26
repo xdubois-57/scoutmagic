@@ -129,6 +129,70 @@ class RentalPricingServiceTest extends TestCase
         $this->assertSame('kWh', $settings->fees[1]->meterUnit);
     }
 
+    // ── Overlapping periods (issue #1355, D9) ───────────────────────────
+
+    /**
+     * A period sharing a day with another is refused when it is added: the
+     * message names the period in the way and the days in common, and
+     * nothing is written.
+     */
+    public function testAnOverlappingPeriodIsRefusedAndNothingIsStored(): void
+    {
+        $this->service->addPeriod($this->assetId, 'Été', '2026-07-01', '2026-08-31', true);
+
+        try {
+            $this->service->addPeriod($this->assetId, 'Rentrée', '2027-08-25', '2027-09-15', true);
+            $this->fail('An overlapping period must be refused.');
+        } catch (RentalException $e) {
+            $this->assertSame(
+                'Cette période chevauche « Été » (1/7 → 31/8, chaque année) : elles ont en commun les jours'
+                . " du 25/8 au 31/8. Choisissez des dates sans jour commun ; rien n'a été enregistré.",
+                $e->getMessage()
+            );
+        }
+
+        $this->assertSame(['Été'], array_map(static fn($p) => $p->label, $this->repository->findPeriods($this->assetId)));
+    }
+
+    /** Sharing only the last and first day is still sharing a day. */
+    public function testPeriodsSharingOnlyTheirBoundaryDayOverlap(): void
+    {
+        $this->service->addPeriod($this->assetId, 'Camp', '2027-07-01', '2027-07-15', false);
+
+        $this->expectException(RentalException::class);
+        $this->expectExceptionMessage('le 15/7/2027');
+        $this->service->addPeriod($this->assetId, 'Après camp', '2027-07-15', '2027-07-31', false);
+    }
+
+    /** Periods with no day in common are added, across the new year included. */
+    public function testPeriodsWithNoDayInCommonAreAccepted(): void
+    {
+        $this->service->addPeriod($this->assetId, 'Fêtes', '2026-12-20', '2027-01-05', true);
+        $this->service->addPeriod($this->assetId, 'Janvier', '2027-01-06', '2027-01-31', true);
+        $this->service->addPeriod($this->assetId, 'Été 2027', '2027-07-01', '2027-08-31', false);
+
+        $this->assertCount(3, $this->repository->findPeriods($this->assetId));
+        $this->assertSame([], $this->service->periodConflicts($this->assetId));
+    }
+
+    /**
+     * Periods stored before the check are pointed out, the one the quote
+     * applies first, and left exactly as they are.
+     */
+    public function testConflictsAlreadyStoredAreReportedAndLeftAlone(): void
+    {
+        $this->repository->createPeriod($this->assetId, 'Été', '2026-07-01', '2026-08-31', true, 0);
+        $this->repository->createPeriod($this->assetId, 'Camps 2027', '2027-08-15', '2027-08-25', false, 1);
+
+        $conflicts = $this->service->periodConflicts($this->assetId);
+
+        $this->assertCount(1, $conflicts);
+        $this->assertSame('Été', $conflicts[0]['first']->label);
+        $this->assertSame('Camps 2027', $conflicts[0]['second']->label);
+        $this->assertSame('du 15/8/2027 au 25/8/2027', $conflicts[0]['days']);
+        $this->assertCount(2, $this->repository->findPeriods($this->assetId));
+    }
+
     public function testSavingTheGridReplacesItRatherThanMergingIntoIt(): void
     {
         // A cell the operator cleared has to disappear, not keep its old
