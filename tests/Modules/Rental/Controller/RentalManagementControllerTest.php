@@ -1559,7 +1559,22 @@ class RentalManagementControllerTest extends TestCase
      */
     public function testTheHistoryNamesTheSuperadminsAccountAndNoAnimé(): void
     {
-        $this->loginAsSuperAdmin([41, 42]);
+        // Two real animés linked to the superadmin's address, so the
+        // controller's own member lookup finds them: were actorMemberId()
+        // to fall back on the first of them, the change would be recorded
+        // under that member — with no account, since this audit maps no
+        // member to one — and the assertion on the account below would fail.
+        $linked = [];
+        foreach (['D-SUPER-1', 'D-SUPER-2'] as $deskId) {
+            $memberId = RentalTestHelper::insertMember($this->pdo, $deskId);
+            RentalTestHelper::insertMemberYear($this->pdo, $this->encryption, $memberId, $this->scoutYearId, 'super@test.be');
+            $linked[] = $memberId;
+        }
+        $this->assertCount(2, (new MemberService(
+            new MemberYearRepository($this->pdo),
+            new MemberProfileRepository(Connection::withPdo($this->pdo), $this->encryption)
+        ))->getLinkedMembers('super@test.be', $this->scoutYearId), 'The fixture must link two members.');
+        $this->loginAsSuperAdmin($linked);
         $audit = RentalTestHelper::bookingAudit($this->pdo, $this->encryption);
         (new \ReflectionProperty(RentalManagementController::class, 'bookingAudit'))->setValue($this->controller, $audit);
         (new \ReflectionProperty(RentalManagementController::class, 'bookingService'))->setValue(
