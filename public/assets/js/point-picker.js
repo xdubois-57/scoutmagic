@@ -17,9 +17,10 @@
 //    is dragged, placed with a click or a touch, or removed, and the fields
 //    follow. Touching the pin makes it a human's point, which the module
 //    locks for ever (Core\Geo\GeoPointStore).
-// 2. **The address on the map.** When the page names an address field
-//    (`data-address-field`) and a lookup route (`data-locate-url`), leaving
-//    the field looks the address up through the page's own route (never
+// 2. **The address on the map.** When the page names its address field
+//    (`data-address-field`) — or several, composed into one line
+//    (`data-address-fields`, below) — and a lookup route (`data-locate-url`),
+//    leaving a field looks the address up through the page's own route (never
 //    Nominatim from here: the CSP says `connect-src 'self'`). The map
 //    centres on it and a fixed ring shows it; a pin nobody touched moves
 //    there too, a hand-placed one stays where it is. A lookup that finds
@@ -79,16 +80,72 @@
     }
 
     /**
+     * The fields the address is read from, as groups: the values of one
+     * group are joined by a space, the groups by « , » — a camps place's
+     * « Rue du Tronquoy 4, 5340 Mozet, Belgique » from four fields, the
+     * line Modules\Camps\Service\PlaceService::addressLine() writes, so
+     * the server can tell which address an automatic pin was found for.
+     * `data-address-fields` holds them as JSON (`[["a"], ["b", "c"]]`);
+     * a single `data-address-field` is one group of one.
+     *
+     * @param {HTMLElement} box
+     * @returns {HTMLInputElement[][]}
+     */
+    function addressGroups(box) {
+        /** @type {unknown} */
+        var ids = [];
+        if (box.dataset.addressFields) {
+            try {
+                ids = JSON.parse(box.dataset.addressFields);
+            } catch {
+                ids = [];
+            }
+        } else if (box.dataset.addressField) {
+            ids = [[box.dataset.addressField]];
+        }
+        if (!Array.isArray(ids)) {
+            return [];
+        }
+        return ids.map(function (/** @type {unknown} */ group) {
+            return (Array.isArray(group) ? group : [group])
+                .map(function (/** @type {unknown} */ id) {
+                    return /** @type {HTMLInputElement|null} */ (byId(typeof id === 'string' ? id : undefined));
+                })
+                .filter(function (/** @type {HTMLInputElement|null} */ field) {
+                    return field !== null;
+                });
+        }).filter(function (/** @type {HTMLInputElement[]} */ group) {
+            return group.length > 0;
+        });
+    }
+
+    /**
+     * @param {HTMLInputElement[][]} groups
+     * @returns {string}
+     */
+    function addressLine(groups) {
+        return groups.map(function (group) {
+            return group.map(function (field) {
+                return field.value.trim();
+            }).filter(function (text) {
+                return text !== '';
+            }).join(' ');
+        }).filter(function (text) {
+            return text !== '';
+        }).join(', ');
+    }
+
+    /**
      * The address a point the page opens with was found for.
      *
      * @param {HTMLInputElement|null} pointAddress
-     * @param {HTMLInputElement|null} address
+     * @param {HTMLInputElement[][]} groups
      */
-    function savedPinAddress(pointAddress, address) {
+    function savedPinAddress(pointAddress, groups) {
         if (pointAddress?.value) {
             return pointAddress.value;
         }
-        return address ? address.value.trim() : '';
+        return addressLine(groups);
     }
 
     /**
@@ -115,7 +172,8 @@
         var origin = box.querySelector('[data-point-picker-origin]');
         var lat = /** @type {HTMLInputElement|null} */ (box.querySelector('[data-point-picker-latitude]'));
         var lng = /** @type {HTMLInputElement|null} */ (box.querySelector('[data-point-picker-longitude]'));
-        var address = /** @type {HTMLInputElement|null} */ (byId(box.dataset.addressField));
+        var addressFields = addressGroups(box);
+        var hasAddress = addressFields.length > 0;
         var addressStatus = byId(box.dataset.addressStatus);
         if (!fields || !mapBox || !mapElement || !placeButton || !removeButton || !lat || !lng) {
             return null;
@@ -288,17 +346,17 @@
 
         var asked = 0;
         async function locate() {
-            if (!address) {
+            if (!hasAddress) {
                 return;
             }
             if (!locateUrl) {
                 // Nothing can confirm the new address: an untouched pin
                 // from the old one must not be saved as its point.
-                dropStalePin(address.value.trim());
+                dropStalePin(addressLine(addressFields));
                 return;
             }
             var mine = ++asked;
-            var query = address.value.trim();
+            var query = addressLine(addressFields);
             if (query.length < 4) {
                 sayAddress('');
                 forgetAddress();
@@ -339,7 +397,7 @@
             // A form shown again after a refusal says which address its
             // point was found for — perhaps not the one now in the field.
             // Otherwise a saved automatic point belongs to the saved address.
-            pinAddress = savedPinAddress(pointAddress, address);
+            pinAddress = savedPinAddress(pointAddress, addressFields);
             showMap([latitude, longitude]);
             pin([latitude, longitude]);
         } else {
@@ -365,13 +423,17 @@
             place.classList.remove('d-none');
         });
 
-        if (address) {
-            // `change` fires when the field is left after an edit — once,
+        if (hasAddress) {
+            // `change` fires when a field is left after an edit — once,
             // never per keystroke (Nominatim forbids autocompletion).
-            address.addEventListener('change', function () {
-                void locate();
+            addressFields.forEach(function (group) {
+                group.forEach(function (field) {
+                    field.addEventListener('change', function () {
+                        void locate();
+                    });
+                });
             });
-            if (address.value.trim() !== '') {
+            if (addressLine(addressFields) !== '') {
                 void locate();
             }
         }
