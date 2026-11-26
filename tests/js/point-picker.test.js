@@ -145,7 +145,34 @@ describe('point-picker', () => {
 
             expect(leaflet.invalidated).toBeGreaterThan(1);
             expect(leaflet.views.length).toBe(views + 1);
-            expect(leaflet.views.at(-1).center).toEqual({ lat: 50.72, lng: 4.64 });
+            expect(leaflet.views.at(-1)).toEqual({ center: [50.72, 4.64], zoom: 15 });
+        });
+
+        it('redraws the address with a hand-placed pin, as the lookup framed them', async () => {
+            const leaflet = stubLeaflet();
+            buildForm({ lat: '50.2', lng: '5.2', manual: '1', locate: true });
+            await load();
+            answer({ success: true, found: true, latitude: 50.4, longitude: 4.9 });
+            leave('Place du Marché 1, Namur');
+            await settle();
+            const bounds = leaflet.bounds.length;
+
+            handle().refresh();
+
+            expect(leaflet.bounds.length).toBe(bounds + 1);
+            expect(leaflet.bounds.at(-1)).toEqual([[50.2, 5.2], [50.4, 4.9]]);
+        });
+
+        it('wires a picker the page asks for once Leaflet has arrived', async () => {
+            buildForm({ lat: '50.72', lng: '4.64' });
+            await load();
+            expect(handle()).toBeNull();
+
+            const leaflet = stubLeaflet();
+
+            expect(handle()).not.toBeNull();
+            expect(leaflet.maps).toBe(1);
+            expect(document.querySelector('[data-point-picker-fields]').classList.contains('d-none')).toBe(true);
         });
     });
 

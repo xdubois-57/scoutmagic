@@ -63,4 +63,23 @@ final class OrganizerMapStylesheetTest extends TestCase
             . 'so the map box has no height and shows nothing (issue #570)'
         );
     }
+
+    /**
+     * The carpool script asks the core's point picker for its handle when it
+     * loads: loaded first, it finds none, and the address the events fill is
+     * never looked up — in silence (#1353).
+     */
+    public function testThePointPickerLoadsBeforeTheCarpoolScript(): void
+    {
+        $template = (string) file_get_contents($this->root() . self::TEMPLATE);
+
+        $picker = strpos($template, "asset('/assets/js/point-picker.js')");
+        $carpool = strpos($template, "asset('/assets/js/covoiturage-organize.js')");
+        $map = strpos($template, "asset('/assets/js/map.js')");
+        $this->assertNotFalse($picker);
+        $this->assertNotFalse($carpool);
+        $this->assertNotFalse($map);
+        $this->assertLessThan($picker, $map, 'map.js must load before point-picker.js');
+        $this->assertLessThan($carpool, $picker, 'point-picker.js must load before covoiturage-organize.js');
+    }
 }

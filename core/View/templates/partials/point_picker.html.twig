@@ -15,7 +15,8 @@
     - /assets/js/map.js, then /assets/js/point-picker.js.
 
   Parameters:
-    id_prefix       prefix of the two coordinate fields' ids (required)
+    id_prefix       prefix of the two coordinate fields' ids — unique on the
+                    page (default « point-picker »)
     latitude        the coordinates the form shows, as text ('' for none)
     longitude
     manual          the pin is a human's (Core\Geo\PointSubmission::showsManual())
@@ -45,7 +46,7 @@
     <div class="row g-2" data-point-picker-fields>
         <div class="col-6">
             {% include 'partials/form_field.html.twig' with {
-                field_id: id_prefix ~ '-latitude',
+                field_id: id_prefix|default('point-picker') ~ '-latitude',
                 field_name: 'latitude',
                 label: 'Latitude',
                 value: latitude|default(''),
@@ -57,7 +58,7 @@
         </div>
         <div class="col-6">
             {% include 'partials/form_field.html.twig' with {
-                field_id: id_prefix ~ '-longitude',
+                field_id: id_prefix|default('point-picker') ~ '-longitude',
                 field_name: 'longitude',
                 label: 'Longitude',
                 value: longitude|default(''),

@@ -38,7 +38,7 @@
      * @typedef {{locate: () => void, refresh: () => void}} PointPickerHandle
      */
 
-    /** @type {WeakMap<HTMLElement, PointPickerHandle|null>} */
+    /** @type {WeakMap<HTMLElement, PointPickerHandle>} */
     var wired = new WeakMap();
 
     /**
@@ -391,10 +391,13 @@
                     return;
                 }
                 map.invalidateSize();
-                if (marker) {
-                    map.setView(marker.getLatLng(), map.getZoom ? map.getZoom() : 15);
-                } else if (addressPosition) {
-                    map.setView(addressPosition, 15);
+                // The view the last lookup would have given, had the box
+                // been visible: the address with the pin, or the pin alone.
+                if (addressPosition) {
+                    frame(addressPosition);
+                } else if (marker) {
+                    var here = marker.getLatLng();
+                    map.setView([here.lat, here.lng], 15);
                 }
             },
         };
@@ -411,10 +414,16 @@
         if (!box) {
             return null;
         }
-        if (!wired.has(box)) {
-            wired.set(box, build(box));
+        var handle = wired.get(box);
+        if (!handle) {
+            // Not cached when the map could not be offered: a page whose
+            // Leaflet or map.js came later asks again and gets one then.
+            handle = build(box);
+            if (handle) {
+                wired.set(box, handle);
+            }
         }
-        return wired.get(box) || null;
+        return handle || null;
     }
 
     window.ScoutMagicPointPicker = { wire: wire };

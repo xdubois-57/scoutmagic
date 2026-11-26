@@ -1356,7 +1356,8 @@
 }
 
 /* The address's fixed marker on that map (issue #642): a ring, so it can
-   never be taken for the draggable pin Leaflet draws for the point. Built by L.divIcon, whose own white square is cleared here. */
+   never be taken for the draggable pin Leaflet draws for the point.
+   Built by L.divIcon, whose own white square is cleared here. */
 .leaflet-marker-icon.point-picker-address-marker {
     background: transparent;
     border: 0;

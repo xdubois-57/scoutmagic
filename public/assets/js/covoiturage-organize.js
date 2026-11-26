@@ -17,7 +17,9 @@
 // 2. **The point** is the core's point picker (partials/point_picker.html.twig,
 //    public/assets/js/point-picker.js, #1353): the pin, the address on the
 //    map and the sentence under the address field all live there. This
-//    script only tells it when the address was filled from the events.
+//    script only tells it when the address was filled from the events, so
+//    point-picker.js must load BEFORE it (form.html.twig, held by
+//    Tests\Modules\Covoiturage\OrganizerMapStylesheetTest).
 (function () {
     'use strict';
 
