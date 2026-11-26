@@ -110,13 +110,11 @@ final class OperationalAlertService
 
         if (!$stored->isTriggered() && $reading->overTrigger) {
             $this->repository->markTriggered($check->key(), $reading->value, $reading->subjects);
-            $this->journal?->log(
-                'core',
-                'operational_alert_triggered',
-                'warning',
-                $reading->title,
-                ['check' => $check->key(), 'value' => $reading->value]
-            );
+            [$title, $context] = $this->journalEntry($check->key(), $reading, [
+                'check' => $check->key(),
+                'value' => $reading->value,
+            ]);
+            $this->journal?->log('core', 'operational_alert_triggered', 'warning', $title, $context);
             $this->notify($check, $reading);
 
             return true;
@@ -138,13 +136,12 @@ final class OperationalAlertService
                     $reading->value,
                     array_values(array_unique(array_merge($stored->notifiedSubjects, $reading->subjects)))
                 );
-                $this->journal?->log(
-                    'core',
-                    'operational_alert_grew',
-                    'warning',
-                    $reading->title,
-                    ['check' => $check->key(), 'value' => $reading->value, 'new' => array_values($new)]
-                );
+                [$title, $context] = $this->journalEntry($check->key(), $reading, [
+                    'check' => $check->key(),
+                    'value' => $reading->value,
+                    'new' => array_values($new),
+                ]);
+                $this->journal?->log('core', 'operational_alert_grew', 'warning', $title, $context);
                 $this->notify($check, $reading);
 
                 return true;
@@ -202,5 +199,28 @@ final class OperationalAlertService
             'body' => $reading->why,
             'url' => $reading->actionUrl ?? '/config/maintenance',
         ]);
+    }
+
+    /**
+     * What the journal keeps of a reading. The journal page is
+     * `role_min: admin`, and a superadmin-only alert (the host security
+     * family, {@see AlertSurfaces::superadminOnlyKeys()}, issue #1358) reads
+     * the host's exact versions and its advisories: for those the entry says
+     * that the alert moved and which one, never the reading itself. The
+     * Santé page and the notification, both superadmin only, carry the rest.
+     *
+     * @param array<string, mixed> $context
+     * @return array{0: string, 1: array<string, mixed>}
+     */
+    private function journalEntry(string $key, AlertReading $reading, array $context): array
+    {
+        if (in_array($key, AlertSurfaces::superadminOnlyKeys(), true)) {
+            return [
+                'Alerte de sécurité de l\'hébergement (détail sur la page Santé)',
+                ['check' => $key],
+            ];
+        }
+
+        return [$reading->title, $context];
     }
 }

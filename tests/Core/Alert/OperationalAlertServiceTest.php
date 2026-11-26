@@ -9,6 +9,9 @@ use Core\Alert\OperationalAlert;
 use Core\Alert\OperationalAlertRepository;
 use Core\Alert\OperationalAlertService;
 use Core\Alert\OperationalCheck;
+use Core\Journal\JournalRepository;
+use Core\Journal\JournalService;
+use Core\Maintenance\Health\Security\HostSecurityAlertCheck;
 use Core\Notification\NotificationService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
@@ -259,6 +262,56 @@ class OperationalAlertServiceTest extends TestCase
 
         $this->assertSame(1, $triggered);
         $this->assertSame(1, count($types));
+    }
+
+    /**
+     * Issue #1358 — the journal page is `role_min: admin`, and a host
+     * security reading (exact version, advisory count and identifiers) is
+     * for superadmins alone. Its trigger and its growth are journaled by
+     * key only; an ordinary alert keeps its title and value.
+     */
+    public function testAHostSecurityAlertIsJournaledWithoutItsReading(): void
+    {
+        $journalRepository = new JournalRepository($this->pdo);
+        $types = [];
+        $service = new OperationalAlertService(
+            $this->repository,
+            $this->notificationsRecording($types),
+            new JournalService($journalRepository)
+        );
+        $hostKey = (string) array_key_first(HostSecurityAlertCheck::labels());
+        $reading = static fn(array $subjects): AlertReading => new AlertReading(
+            true,
+            false,
+            '8.4.1 — 1 avis',
+            'PHP du site 8.4.1 : mise à jour de sécurité nécessaire',
+            'Pourquoi',
+            null,
+            null,
+            $subjects
+        );
+
+        $this->assertTrue($service->evaluate(new StubCheck($reading(['CVE-2026-0001']), $hostKey)));
+        $this->assertTrue($service->evaluate(new StubCheck($reading(['CVE-2026-0001', 'CVE-2026-0002']), $hostKey)));
+        $this->assertTrue($service->evaluate(self::check(over: true, under: false, value: '92 %')));
+
+        foreach (['operational_alert_triggered', 'operational_alert_grew'] as $event) {
+            $entry = $journalRepository->findLatestEvent('core', $event);
+            $this->assertNotNull($entry, $event);
+            $logged = json_encode($entry, JSON_UNESCAPED_UNICODE);
+            if ($event === 'operational_alert_triggered') {
+                // The latest trigger is the ordinary probe: untouched.
+                $this->assertStringContainsString('92 %', (string) $logged);
+                continue;
+            }
+            $this->assertStringContainsString($hostKey, (string) $logged);
+            $this->assertStringNotContainsString('8.4.1', (string) $logged);
+            $this->assertStringNotContainsString('CVE-2026', (string) $logged);
+        }
+
+        $all = json_encode($this->pdo->query("SELECT * FROM event_log")->fetchAll(\PDO::FETCH_ASSOC), JSON_UNESCAPED_UNICODE);
+        $this->assertStringNotContainsString('8.4.1', (string) $all);
+        $this->assertStringNotContainsString('CVE-2026', (string) $all);
     }
 
     private static function check(bool $over, bool $under, string $value): OperationalCheck
