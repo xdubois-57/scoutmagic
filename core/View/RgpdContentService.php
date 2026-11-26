@@ -708,7 +708,10 @@ n'ont aucun lien avec l'unité et aucun compte sur le site.
     mémoire d'un staff au suivant — et (c) un tiers extérieur peut demander l'effacement de ses coordonnées, qui sont
     alors remplacées partout dans le module, y compris dans l'historique des modifications, la trace du changement
     lui-même étant conservée sans les valeurs. Ne présente JAMAIS le géocodage comme un envoi de données personnelles
-    : c'est l'adresse d'un terrain qui part, jamais celle d'une personne. De même pour le résumé automatique : il ne
+    : c'est l'adresse d'un terrain qui part, jamais celle d'une personne. Dis aussi que ce géocodage a lieu en tâche
+    de fond ET pendant qu'un animateur saisit l'adresse d'un lieu (pour placer le point sur la carte du formulaire),
+    toujours depuis le serveur du site, jamais depuis le navigateur, avec un cache qui ne conserve pas l'adresse
+    elle-même, et que le réglage du module coupe l'un et l'autre. De même pour le résumé automatique : il ne
     reçoit ni contacts ni e-mails. Conserve aussi, sans l'adoucir, que la carte est **dépliée par défaut sur un grand
     écran** : les serveurs de tuiles y sont contactés dès l'affichage de la liste des lieux, sans action de
     l'animateur. Dis aussi que sur un écran étroit (un téléphone) elle est **repliée par défaut** et qu'aucune tuile

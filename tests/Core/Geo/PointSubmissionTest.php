@@ -125,7 +125,11 @@ final class PointSubmissionTest extends TestCase
         $this->assertFalse(PointSubmission::showsManual([], $saved, false), 'a first display of an automatic point');
         $this->assertTrue(PointSubmission::showsManual(['point_manual' => '1'], null, false), 'the script said so');
         $this->assertFalse(
-            PointSubmission::showsManual(['latitude' => '50.2', 'longitude' => '5.1', 'point_automatic' => '1'], $saved, false),
+            PointSubmission::showsManual(
+                ['latitude' => '50.2', 'longitude' => '5.1', 'point_automatic' => '1'],
+                $saved,
+                false
+            ),
             'an automatic pin'
         );
         $this->assertFalse(PointSubmission::showsManual(['latitude' => ''], $saved, false), 'no point posted');

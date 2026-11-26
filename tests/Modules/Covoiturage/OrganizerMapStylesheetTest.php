@@ -44,7 +44,11 @@ final class OrganizerMapStylesheetTest extends TestCase
         $template = (string) file_get_contents($this->root() . self::TEMPLATE);
 
         // The map container is the core's point picker since #1353.
-        $this->assertStringContainsString("'partials/point_picker.html.twig'", $template, 'the map moved: update this test');
+        $this->assertStringContainsString(
+            "'partials/point_picker.html.twig'",
+            $template,
+            'the map moved: update this test'
+        );
         $this->assertStringContainsString(
             'class="point-picker-map"',
             (string) file_get_contents($this->root() . '/core/View/templates/partials/point_picker.html.twig'),
