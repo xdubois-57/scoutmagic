@@ -8,6 +8,8 @@ declare(strict_types=1);
 
 namespace Modules\Rental\Pricing;
 
+use Core\Service\DateInput;
+
 /**
  * The days two price periods have in common (issue #1355, D9).
  *
@@ -106,8 +108,13 @@ final class PeriodOverlap
      */
     private static function runsOver(string $from, string $to, PricePeriod $period, string $format): array
     {
-        $day = new \DateTimeImmutable($from);
-        $end = new \DateTimeImmutable($to);
+        // Stored `Y-m-d` values, read like every other stored date: a
+        // malformed one compares as nothing rather than as today.
+        $day = DateInput::iso($from);
+        $end = DateInput::iso($to);
+        if ($day === null || $end === null) {
+            return [];
+        }
         $runs = [];
         $open = null;
         $previous = $day;
