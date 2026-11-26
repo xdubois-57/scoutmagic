@@ -230,7 +230,7 @@ class RunService
         if ($confirmed === null) {
             return null;
         }
-        $run = $confirmed;
+        $run = $this->moved($confirmed);
         $created = $this->years->create($chosen);
 
         $this->journal->log('data_migration', 'import_confirmed', 'info', 'Import de migration de données confirmé', [
@@ -250,8 +250,9 @@ class RunService
             return $run;
         }
 
-        return $this->runs->updateIfState($run, $run->state, ['state' => Run::INTERRUPTED], $this->now())
-            ?? $this->runs->find($run->id) ?? $run;
+        $paused = $this->runs->updateIfState($run, $run->state, ['state' => Run::INTERRUPTED], $this->now());
+
+        return $paused !== null ? $this->moved($paused) : ($this->runs->find($run->id) ?? $run);
     }
 
     /** « Reprendre l'import »: back to `running`, from the cursor. */
@@ -261,8 +262,9 @@ class RunService
             return $run;
         }
 
-        return $this->runs->updateIfState($run, Run::INTERRUPTED, ['state' => Run::RUNNING], $this->now())
-            ?? $this->runs->find($run->id) ?? $run;
+        $resumed = $this->runs->updateIfState($run, Run::INTERRUPTED, ['state' => Run::RUNNING], $this->now());
+
+        return $resumed !== null ? $this->moved($resumed) : ($this->runs->find($run->id) ?? $run);
     }
 
     /**
@@ -329,6 +331,9 @@ class RunService
                 : ['phase' => ImportEngine::PHASE_VERIFY, 'position' => 0, 'measured' => 0],
             'analysis' => $importer->archiveFormat() === null ? ImportEngine::emptyAnalysis() : [],
         ], $userAccountId);
+        // The file is the finished run's, as old as its last slice: the new
+        // run moved it just now.
+        $this->moved($new);
 
         return $importer->archiveFormat() === null ? $new : $this->readManifest($importer, $new);
     }
@@ -364,6 +369,18 @@ class RunService
             'export_id' => $manifest->exportId,
             'exported_at' => $manifest->exportedAt,
         ]);
+    }
+
+    /**
+     * A state change is a movement: the run's file is stamped with it, for
+     * the core's sweep of the directory, which reads only the disk
+     * ({@see UploadStorage::markMoved()}). Slices stamp their own.
+     */
+    private function moved(Run $run): Run
+    {
+        $this->storage->markMoved($run->filePath, $this->clockNow());
+
+        return $run;
     }
 
     /**

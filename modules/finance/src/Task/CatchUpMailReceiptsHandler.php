@@ -20,6 +20,7 @@ use Core\Scheduler\TaskContext;
 use Core\Scheduler\TaskHandlerInterface;
 use Modules\Finance\Mail\FinanceMessageConsumer;
 use Modules\Finance\Mail\MailReceiptFiler;
+use Modules\Finance\Mail\MailReceiptTrace;
 use Modules\Finance\Repository\AccountRepository;
 use Modules\Finance\Repository\AttachmentRepository;
 use Modules\Finance\Repository\TransactionAttachmentRepository;
@@ -160,7 +161,14 @@ class CatchUpMailReceiptsHandler implements TaskHandlerInterface
                     ],
                     null
                 );
-            }
+            },
+            // What became of each attachment the walk files or finds already
+            // held, one journal line each. A third place the filer is built:
+            // without it, the attachments THIS walk handles were the only
+            // ones that never said anything, and the row it records makes
+            // every later pass skip them, so the line was never written at
+            // all (#1406).
+            new MailReceiptTrace($context->journal)
         );
         // And says so when it cannot read, as both composition roots' readers
         // do: an attachment whose file is gone keeps this walk going, and a

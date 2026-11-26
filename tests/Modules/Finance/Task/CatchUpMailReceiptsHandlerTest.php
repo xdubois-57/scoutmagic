@@ -94,6 +94,46 @@ final class CatchUpMailReceiptsHandlerTest extends TestCase
         $this->assertSame(1, $this->pendingChains(), 'work was found: the chain goes on');
     }
 
+    /**
+     * The walk builds its own filer, a third place beside the two composition
+     * roots: what it files is said in the journal like everything else, and
+     * the row it records makes every later pass skip the attachment, so a
+     * line not written here is never written (#1406).
+     */
+    public function testWhatTheWalkFilesIsSaidInTheJournal(): void
+    {
+        $this->linked(LinkOrigin::IBAN);
+
+        $this->runTask();
+
+        $this->assertSame(['filed'], $this->outcomeReasons());
+    }
+
+    public function testBytesFinanceAlreadyHeldAreSaidByTheWalkToo(): void
+    {
+        $fileId = $this->linked(LinkOrigin::IBAN);
+        $this->runTask();
+        $this->pdo->exec('DELETE FROM scheduled_actions');
+
+        // Another message with the very same document: its attachment was
+        // never through finance, its bytes are.
+        $this->linked(LinkOrigin::IBAN, fileId: $fileId, messageId: 61, attachmentId: 96);
+        $this->runTask();
+
+        $this->assertSame(['filed', 'already_held'], $this->outcomeReasons());
+        $this->assertCount(1, $this->attachments->findActiveOrdered(), 'nothing filed twice');
+    }
+
+    /** @return list<string> */
+    private function outcomeReasons(): array
+    {
+        $rows = $this->pdo
+            ->query("SELECT context FROM event_log WHERE event_type = 'inbound_receipt_outcome' ORDER BY id")
+            ->fetchAll(\PDO::FETCH_COLUMN);
+
+        return array_map(static fn(string $context): string => json_decode($context, true)['reason'], $rows);
+    }
+
     /** The run after the last one finds nothing: the history is caught up, and the chain ends. */
     public function testTheChainEndsOnceNothingIsLeft(): void
     {

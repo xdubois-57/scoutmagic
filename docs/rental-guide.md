@@ -24,7 +24,11 @@ attend. Il répond aux questions qu'on se pose avant de commencer.
 Il n'y a **qu'une seule autorité** dans ce module : « gestionnaire de ce
 bien ». Le Staff d'U l'est de tous les biens, par sa fonction, sans avoir à
 se désigner nulle part — il règle donc le tarif d'un bien au même endroit
-que n'importe quel gestionnaire, pas sur un écran réservé aux chefs.
+que n'importe quel gestionnaire, pas sur un écran réservé aux chefs. Le
+superadministrateur du site a exactement les mêmes droits, sur tous les
+biens, sans être rattaché au Staff d'U ni désigné gestionnaire ; ce qu'il
+fait est inscrit dans l'historique sous son compte. Le rôle `admin` seul
+n'ouvre rien de plus.
 
 Un visiteur n'atteint jamais le second, et le premier n'affiche jamais rien
 qui concerne une personne : le calendrier public dit *loué* ou
@@ -70,7 +74,8 @@ d'au moins **16 ans** sont proposés — un gestionnaire accède aux coordonnée
 des locataires, à l'argent et aux contrats. Cet âge est réglable
 (`Paramètres > Âge minimum d'un gestionnaire de bien`).
 
-Le Staff d'U voit tous les biens, sans avoir à se désigner nulle part.
+Le Staff d'U voit tous les biens, sans avoir à se désigner nulle part ; le
+superadministrateur du site aussi.
 
 Un gestionnaire qui disparaît d'un import Desk est **suspendu, pas
 supprimé** : son accès s'arrête, son attribution reste, et elle se réactive

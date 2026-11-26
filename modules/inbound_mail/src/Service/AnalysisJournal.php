@@ -141,7 +141,13 @@ class AnalysisJournal
      * reconnu », not « la tâche a tourné », which `scheduler_task_done`
      * already records.
      */
-    public function storedPassDone(int $examined, int $linked, int $proposed, int $requeued = 0): void
+    public function storedPassDone(
+        int $examined,
+        int $linked,
+        int $proposed,
+        int $requeued = 0,
+        int $filed = 0
+    ): void
     {
         if ($examined === 0) {
             return;
@@ -152,17 +158,28 @@ class AnalysisJournal
             'inbound_stored_analysis_done',
             'info',
             sprintf(
-                'Analyse différée : %d message(s) examiné(s), %d rattachement(s), %d proposition(s)%s.',
+                'Analyse différée : %d message(s) examiné(s), %d rattachement(s), %d proposition(s)%s%s.',
                 $examined,
                 $linked,
                 $proposed,
+                // Same rule as the counter below: only when there were any.
+                // A receipt filed in « Compte inconnu » is neither a link
+                // nor a proposition, and the line used to say « 0, 0 » over
+                // a run that had filed one (#1406).
+                $filed === 0 ? '' : sprintf(', %d reçu(s) à trier', $filed),
                 // Only when there were any: an extra « 0 à relire » on
                 // every hourly line would be noise on the ordinary run,
                 // and the whole point of this counter is that it is
                 // normally zero.
                 $requeued === 0 ? '' : sprintf(', %d à relire (lecture indisponible)', $requeued)
             ),
-            ['examined' => $examined, 'linked' => $linked, 'proposed' => $proposed, 'requeued' => $requeued]
+            [
+                'examined' => $examined,
+                'linked' => $linked,
+                'proposed' => $proposed,
+                'requeued' => $requeued,
+                'filed' => $filed,
+            ]
         );
     }
 

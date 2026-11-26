@@ -12,7 +12,8 @@ related: locations, locations-calendrier, locations-reservation, locations-modif
 ---
 
 « Gérer mes locations » est l'espace des gestionnaires : les personnes
-désignées sur chaque bien, plus le Staff d'Unité qui voit tout. La
+désignées sur chaque bien, plus le Staff d'Unité et le
+superadministrateur du site, qui voient tout. La
 page d'accueil rassemble ce qui attend une action, tous biens
 confondus.
 

@@ -43,4 +43,4 @@ Les coordonnées venues de l'ancien site sont gardées telles quelles : la reche
 
 « Abandonner et effacer le fichier » garde ce qui est déjà importé et efface le fichier déposé.
 
-> Le fichier déposé contient les données de vos membres. Il est effacé du serveur au plus tard 24 heures après la fin de l'import, son abandon ou son dernier mouvement.
+> Le fichier déposé contient les données de vos membres. Il est effacé du serveur au plus tard 24 heures après la fin de l'import, son abandon ou son dernier mouvement, même si vous désactivez le module une fois la migration terminée.

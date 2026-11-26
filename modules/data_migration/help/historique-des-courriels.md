@@ -21,6 +21,7 @@ L'import « Historique des courriels » reprend les courriels que l'ancien site 
 - Les destinataires sont facultatifs. Chacun garde son statut d'origine : « Accepté par le serveur d'envoi » ne devient jamais « Remis ». Un courriel lié à un animé apparaît sur sa fiche.
 - Un publipostage est repris une seule fois, avec son texte modèle.
 - Une pièce jointe invalide est laissée de côté, et le courriel est importé sans elle.
+- Au-delà de 20 pièces jointes ou de 25 Mio pour un même courriel, les suivantes sont écartées : le courriel est importé sans elles, et l'aperçu puis le bilan disent combien.
 
 ## Ce que l'import ne fait pas
 

@@ -100,7 +100,7 @@ class ExternalAlbumImportService implements ExternalAlbumWriter
             ? trim($album->ogDescription)
             : null;
         $imageId = $album->ogImageBytes !== null
-            ? $this->ogImages->store($id, $album->ogImageBytes, $album->createdBy)
+            ? $this->ogImages->store($id, $album->ogImageBytes, $album->createdBy, $album->workDirectory)
             : null;
         if ($ogTitle !== null || $ogDescription !== null || $imageId !== null) {
             // The image's own address is not known here — the fetcher hands

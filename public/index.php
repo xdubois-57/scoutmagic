@@ -4257,6 +4257,18 @@ $schedulerService->seed(
     new DateTimeImmutable()
 );
 
+// Same bootstrap for the data migration deposits (Core\File\Task\
+// PurgeDataMigrationDepositsHandler, issue #1259). Seeded here and not in
+// the module's block: the module's own purge stops with the module, and a
+// module disabled once the migration is over is exactly the one whose
+// archives of the unit's history must still go.
+$schedulerService->seed(
+    'core',
+    \Core\File\Task\PurgeDataMigrationDepositsHandler::TASK_KEY,
+    \Core\File\Task\PurgeDataMigrationDepositsHandler::REFERENCE,
+    new DateTimeImmutable()
+);
+
 // Add dynamic member entries to Espace membres — group: SORT_GROUP_DYNAMIC keeps
 // these (and the empty-state placeholder below) sorted ahead of every core
 // static page and every module page in this menu regardless of numeric
@@ -8523,7 +8535,16 @@ if ($isEnabled('inbound_mail')) {
                 new \Core\File\UploadHandler(new \Core\File\FileRepository($pdo), $storagePath, $diskBudget),
                 null,
                 $encryptedFileStorageService,
-                null,
+                // The same journal the scheduled relève writes
+                // (public/scheduler-bootstrap.php), and for the same reason:
+                // « Relever le courrier maintenant » is the button a
+                // superadmin presses to find out why a message did not
+                // produce what they expected, and a relève that left no line
+                // for the messages it stored was the one that answered
+                // nothing (#1406). A null here also CLEARS the consumers'
+                // journal, since the sync service hands its own to the
+                // registry.
+                new \Modules\InboundMail\Service\AnalysisJournal($journalService),
                 $inboundReplyAddresses,
                 journal: $journalService
             ),
@@ -9037,7 +9058,13 @@ if ($isEnabled('finance')) {
                             ],
                             null
                         );
-                    }
+                    },
+                    // The web path never reads a document's text nor asks
+                    // whether a box is the treasury's own: those belong to
+                    // the deferred pass. It does file receipts, though — when
+                    // a treasurer confirms a proposition — and says what
+                    // became of each one, as the relève does (#1406).
+                    trace: new \Modules\Finance\Mail\MailReceiptTrace($journalService)
                 )
         );
 
@@ -9218,7 +9245,8 @@ if ($isEnabled('finance')) {
             new \Modules\Rental\Service\RentalAuthorizationService(
                 $memberService,
                 $financeRentalAssetRepository,
-                new \Modules\Rental\Repository\RentalAssetManagerRepository($pdo)
+                new \Modules\Rental\Repository\RentalAssetManagerRepository($pdo),
+                new \Modules\Rental\Service\SuperAdminRecognizer($userAccountRepo)
             ),
             $scoutYearResolver
         );
@@ -11334,6 +11362,21 @@ if ($isEnabled('camps')) {
         \Modules\Camps\Controller\CampsConfigController::class,
         new \Modules\Camps\Controller\CampsConfigController($twig, $settingService)
     );
+    // The place forms' address lookup for the core's point picker (#1353),
+    // under the module's own geocoding switch: off means the form never
+    // asks, exactly as the background task never does.
+    $frontController->registerController(
+        \Modules\Camps\Controller\CampsAddressController::class,
+        new \Modules\Camps\Controller\CampsAddressController(
+            $twig,
+            (string) $settingService->get('camps_geocoding_enabled', 'camps', '1') === '1'
+                ? new \Core\Geo\AddressLocator(
+                    $pdo,
+                    new \Core\Geo\GeocodingService((string) ($settingService->get('base_url') ?? ''))
+                )
+                : null
+        )
+    );
 }
 
 // Covoiturage (docs/chantiers/covoiturage.md, ARCHITECTURE.md §8.120): the
@@ -12634,7 +12677,10 @@ if ($isEnabled('rental')) {
     $rentalAuthorizationService = new \Modules\Rental\Service\RentalAuthorizationService(
         $memberService,
         $rentalAssetRepository,
-        $rentalManagerRepository
+        $rentalManagerRepository,
+        // A superadmin has the Staff d'U's capacities on every asset,
+        // recognised by their account's flag (issue #1355, D1-D2).
+        new \Modules\Rental\Service\SuperAdminRecognizer($userAccountRepo)
     );
     $rentalSlugGenerator = new \Modules\Rental\Service\RentalSlugGenerator($rentalAssetRepository);
     // The closed list of asset types comes from configuration, so a unit
@@ -13221,7 +13267,9 @@ if ($isEnabled('rental')) {
             // stored — no EXIF, no GPS, HEIC read only where Imagick can —
             // and gets its thumbnail (#989).
             \Core\Image\PhotoNormalizer::forThisServer(),
-            $imageVariantService
+            $imageVariantService,
+            // A superadmin's actions are named by their account (#1355, D3).
+            $rentalBookingAudit
         )
     );
     $frontController->registerController(

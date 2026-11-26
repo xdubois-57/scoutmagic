@@ -28,7 +28,13 @@ use Modules\DataMigration\Repository\RunRepository;
  * extracted next to the archive (members are read from the ZIP), so the
  * archive — or a form source's workspace — is the whole of what there is
  * to delete; a file no run references any more (a crash between the move
- * and the insert) goes too, on the same 24-hour rule.
+ * and the insert, a slice's `copies-<id>/` left by a killed request) goes
+ * too, on the same 24-hour rule.
+ *
+ * This purge stops with the module: a disabled module's task has no
+ * handler. The core sweeps the same directory on its own clock for that
+ * reason (`Core\File\DataMigrationDeposits`, issue #1259); this one stays
+ * because it also closes the runs it leaves without a file.
  */
 class UploadPurger
 {

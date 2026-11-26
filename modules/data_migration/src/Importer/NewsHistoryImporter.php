@@ -224,12 +224,12 @@ final class NewsHistoryImporter implements Importer
         try {
             $data = $item->data;
             $cover = $this->usableImage($context->source, $data['image'] ?? null)
-                ? $this->extract($context->source, (string) $data['image'], $temporary)
+                ? $this->extract($context, (string) $data['image'], $temporary)
                 : null;
             $bodyImages = [];
             foreach ($this->bodyImagePaths(self::bodyHtml($data)) as $src) {
                 if ($this->usableImage($context->source, $src)) {
-                    $bodyImages[$src] = $this->extract($context->source, $src, $temporary);
+                    $bodyImages[$src] = $this->extract($context, $src, $temporary);
                 }
             }
 
@@ -673,24 +673,21 @@ final class NewsHistoryImporter implements Importer
     }
 
     /**
-     * Copies an archive member to a temporary file for the writer, which
-     * takes a path as an upload does.
+     * Copies an archive member to a temporary file of the slice's working
+     * directory for the writer, which takes a path as an upload does.
      *
      * @param list<string> $temporary the files to delete afterwards, this one appended
      */
-    private function extract(ImportSource $source, string $path, array &$temporary): ImportedImage
+    private function extract(ImportContext $context, string $path, array &$temporary): ImportedImage
     {
-        $file = tempnam(sys_get_temp_dir(), 'dm_news_');
-        if ($file === false) {
-            throw new \RuntimeException('No temporary file for an imported image.');
-        }
+        $file = $context->temporaryFile('dm_news_');
         $temporary[] = $file;
         $handle = fopen($file, 'wb');
         if ($handle === false) {
             throw new \RuntimeException('No temporary file for an imported image.');
         }
         try {
-            $source->archive()->stream($path, static function (string $chunk) use ($handle): void {
+            $context->source->archive()->stream($path, static function (string $chunk) use ($handle): void {
                 fwrite($handle, $chunk);
             }, NewsImportWriterInterface::MAX_IMAGE_BYTES);
         } finally {

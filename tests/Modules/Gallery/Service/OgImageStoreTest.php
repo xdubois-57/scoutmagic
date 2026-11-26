@@ -48,6 +48,31 @@ final class OgImageStoreTest extends TestCase
         $this->assertSame(99, (new OgImageStore($uploads))->store(12, 'image-bytes', 3));
     }
 
+    /**
+     * Issue #1259: an importer names its own working directory, which its
+     * purge sweeps, so that a request killed before the `finally` does not
+     * leave the copy in the system's temporary directory.
+     */
+    public function testTheCopyGoesInTheDirectoryTheCallerNames(): void
+    {
+        $directory = sys_get_temp_dir() . '/sm_og_' . bin2hex(random_bytes(6));
+        $seen = null;
+        $uploads = $this->createStub(UploadHandler::class);
+        $uploads->method('handle')->willReturnCallback(static function (array $file) use (&$seen): int {
+            $seen = (string) $file['tmp_name'];
+
+            return 5;
+        });
+
+        try {
+            $this->assertSame(5, (new OgImageStore($uploads))->store(12, 'image-bytes', 3, $directory));
+            $this->assertSame(realpath($directory), dirname((string) $seen));
+            $this->assertFileDoesNotExist((string) $seen, 'the copy is removed once stored');
+        } finally {
+            @rmdir($directory);
+        }
+    }
+
     public function testARefusedImageIsNoImage(): void
     {
         $uploads = $this->createStub(UploadHandler::class);

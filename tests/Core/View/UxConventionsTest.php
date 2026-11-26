@@ -610,8 +610,10 @@ final class UxConventionsTest extends TestCase
         // picker's endpoint) and the places of the events it retained.
         '/covoiturage/organiser/evenements',
         '/covoiturage/organiser/lieux',
-        // JSON: the point of the address being typed (#642).
+        // JSON: the point of the address being typed (#642), and its camps
+        // counterpart for the place forms (#1353).
         '/covoiturage/organiser/adresse',
+        '/chefs/camps/adresse',
         // JSON: the suggested departure times from the meeting point typed (#703).
         '/covoiturage/{id}/trajet',
         // Redirects: leaving for Meta's consent screen, and Meta's return,

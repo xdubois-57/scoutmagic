@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Core\Photo;
 
 use Core\File\AttachedFileRemover;
+use Core\File\TemporaryFile;
 use Core\Image\ImageDimensionGuard;
 
 /**
@@ -147,18 +148,32 @@ class ImportedMemberPhotoWriter
      * `files` row, rather than left for a rollback that cannot reach them. Any
      * other exception raised after this method returns is the caller's.
      *
+     * The pipeline takes a path, as an upload does, so the bytes are copied
+     * to a temporary file first, deleted in a `finally` — which a request
+     * killed by a timeout or its memory limit never reaches. `$temporaryDirectory`
+     * is where that copy goes: the caller's own working directory, which its
+     * purge sweeps (the data migration's, issue #1259); the system's
+     * temporary directory only when none is given.
+     *
      * @throws \Core\File\UploadException when the pipeline refuses the file
      *         (disk budget exhausted, among others)
      */
-    public function write(int $memberId, int $scoutYearId, string $bytes, string $originalName, ?int $actorId): ?int
-    {
+    public function write(
+        int $memberId,
+        int $scoutYearId,
+        string $bytes,
+        string $originalName,
+        ?int $actorId,
+        ?string $temporaryDirectory = null
+    ): ?int {
         if ($this->photos->hasPhotoForYear($memberId, $scoutYearId)) {
             return null;
         }
 
-        $temporary = tempnam(sys_get_temp_dir(), 'member_photo_import_');
-        if ($temporary === false) {
-            throw new \RuntimeException('Could not create a temporary file for an imported member photo.');
+        try {
+            $temporary = TemporaryFile::createIn($temporaryDirectory ?? sys_get_temp_dir(), 'member_photo_import_');
+        } catch (\RuntimeException $e) {
+            throw new \RuntimeException('Could not create a temporary file for an imported member photo.', 0, $e);
         }
 
         try {

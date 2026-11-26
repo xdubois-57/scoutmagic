@@ -296,6 +296,44 @@ class InboundMailboxController extends AbstractController
     }
 
     /**
+     * What each linked consumer made of the attachments its link covers
+     * (`Api\ReportsAttachmentFates`, #1406), keyed by the link's position in
+     * `message.links` — a link has no id of its own, and the template walks
+     * the same list.
+     *
+     * A consumer that does not report, or that throws while doing so, simply
+     * has no line: the same posture as `referenceUrls()`, and for the same
+     * reason — the courrier page must not go down with one module's answer.
+     *
+     * @return array<int, list<\Modules\InboundMail\Api\AttachmentFate>>
+     */
+    private function attachmentFates(\Modules\InboundMail\Api\InboundMessage $message): array
+    {
+        $fates = [];
+        foreach ($message->links as $position => $link) {
+            $consumer = $this->consumers->find($link->consumerId);
+            if (!$consumer instanceof \Modules\InboundMail\Api\ReportsAttachmentFates) {
+                continue;
+            }
+
+            try {
+                // The page is administrators' only (`role_min: admin`), whose
+                // visibility of an object never depends on the members they
+                // are linked to: the empty list is the honest answer here.
+                $answer = $consumer->attachmentFates($message, $link, AuthSession::getRole(), []);
+            } catch (\Throwable) {
+                continue;
+            }
+
+            if ($answer !== []) {
+                $fates[$position] = $answer;
+            }
+        }
+
+        return $fates;
+    }
+
+    /**
      * @param array<string, string> $params
      */
     public function show(Request $request, array $params): Response
@@ -312,6 +350,7 @@ class InboundMailboxController extends AbstractController
             'candidates' => $candidates,
             'reference_labels' => $this->referenceLabels([$message], [$message->id => $candidates]),
             'reference_urls' => $this->referenceUrls([$message]),
+            'link_fates' => $this->attachmentFates($message),
             'consumer_names' => $this->consumerNames(),
             'directories' => $this->directories(),
             'mailboxes' => $this->mailbox->mailboxNames(),

@@ -10,6 +10,7 @@ use Core\Security\EncryptionService;
 use Modules\Rental\Repository\RentalAssetManagerRepository;
 use Modules\Rental\Repository\RentalAssetRepository;
 use Modules\Rental\Service\RentalAuthorizationService;
+use Modules\Rental\Service\SuperAdminRecognizer;
 use PHPUnit\Framework\TestCase;
 use Tests\Modules\Rental\RentalTestHelper;
 
@@ -61,9 +62,13 @@ class RentalAuthorizationServiceTest extends TestCase
      *
      * @param array<string, int[]> $membersByEmail
      * @param string[] $unitStaffEmails
+     * @param string[] $superAdminEmails whose account carries the superadmin flag
      */
-    private function service(array $membersByEmail, array $unitStaffEmails = []): RentalAuthorizationService
-    {
+    private function service(
+        array $membersByEmail,
+        array $unitStaffEmails = [],
+        array $superAdminEmails = []
+    ): RentalAuthorizationService {
         $memberService = new class ($membersByEmail, $unitStaffEmails) extends MemberService {
             /**
              * @param array<string, int[]> $membersByEmail
@@ -112,7 +117,112 @@ class RentalAuthorizationServiceTest extends TestCase
             }
         };
 
-        return new RentalAuthorizationService($memberService, $this->assetRepository, $this->managerRepository);
+        $superAdmins = new class ($superAdminEmails) extends SuperAdminRecognizer {
+            /** @param string[] $emails */
+            public function __construct(private array $emails)
+            {
+                // No parent: answers from its list, never from a database.
+            }
+
+            public function isSuperAdmin(?string $email): bool
+            {
+                return in_array($email, $this->emails, true);
+            }
+        };
+
+        return new RentalAuthorizationService(
+            $memberService,
+            $this->assetRepository,
+            $this->managerRepository,
+            $superAdmins
+        );
+    }
+
+    // ── A superadmin, as the Staff d'U (issue #1355, D1-D2) ────────────
+
+    /** @return array<string, array{array<string, int[]>}> */
+    public static function superAdminLinks(): array
+    {
+        return [
+            'linked to two animés of theirs' => [['super@test.be' => [41, 42]]],
+            'with no member record at all' => [[]],
+        ];
+    }
+
+    /**
+     * Neither Staff d'U nor a manager of anything, a superadmin manages
+     * every asset — archived ones included, as the Staff d'U does.
+     *
+     * @param array<string, int[]> $members
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('superAdminLinks')]
+    public function testASuperadminManagesEveryAssetAsTheStaffDoes(array $members): void
+    {
+        $hall = $this->createAsset('Local', 'local');
+        $archived = $this->createAsset('Ancien chalet', 'ancien-chalet', true);
+        $service = $this->service($members, [], ['super@test.be']);
+
+        $this->assertTrue($service->canManageAssetId('super@test.be', self::YEAR, $hall));
+        $this->assertTrue($service->canManageAssetId('super@test.be', self::YEAR, $archived));
+        $this->assertEqualsCanonicalizing(
+            [$hall, $archived],
+            array_map(static fn($asset) => $asset->id, $service->listManageableAssets('super@test.be', self::YEAR))
+        );
+        $this->assertTrue($service->managesAnyAsset('super@test.be', self::YEAR));
+        $this->assertTrue($service->managesEveryAsset('super@test.be', self::YEAR));
+        $this->assertTrue($service->hasUnitWideAuthority('super@test.be', self::YEAR));
+        $this->assertTrue($service->canManageAssetIdInAnyYear('super@test.be', [self::YEAR, self::YEAR + 1], $hall));
+    }
+
+    /** The authority is the Staff d'U's; the membership is not claimed. */
+    public function testASuperadminIsNotCalledStaffDU(): void
+    {
+        $service = $this->service(['super@test.be' => [41]], [], ['super@test.be']);
+
+        $this->assertTrue($service->isSuperAdmin('super@test.be'));
+        $this->assertFalse($service->isUnitStaff('super@test.be', self::YEAR));
+    }
+
+    /** As for the Staff d'U, an installation with no asset sprouts no menu entry. */
+    public function testASuperadminOnAnEmptyInstallationManagesNothing(): void
+    {
+        $service = $this->service([], [], ['super@test.be']);
+
+        $this->assertFalse($service->managesAnyAsset('super@test.be', self::YEAR));
+        $this->assertSame([], $service->listManageableAssets('super@test.be', self::YEAR));
+    }
+
+    /**
+     * The superadmin's capacities change nobody else's: a manager keeps to
+     * their own asset, and somebody who is neither — an `admin`, say —
+     * stays refused.
+     */
+    public function testOthersKeepTheirOwnRulesBesideASuperadmin(): void
+    {
+        $hall = $this->createAsset('Local', 'local');
+        $chalet = $this->createAsset('Chalet', 'chalet');
+        $this->managerRepository->grant($hall, 3, false);
+        $service = $this->service(['manager@test.be' => [3], 'admin@test.be' => [4]], [], ['super@test.be']);
+
+        $this->assertTrue($service->canManageAssetId('manager@test.be', self::YEAR, $hall));
+        $this->assertFalse($service->canManageAssetId('manager@test.be', self::YEAR, $chalet));
+        $this->assertFalse($service->hasUnitWideAuthority('manager@test.be', self::YEAR));
+        $this->assertFalse($service->canManageAssetId('admin@test.be', self::YEAR, $hall));
+        $this->assertFalse($service->managesAnyAsset('admin@test.be', self::YEAR));
+    }
+
+    /** Unwired, the recognizer grants nothing: refusal is the default. */
+    public function testWithoutARecognizerNobodyIsASuperadmin(): void
+    {
+        $hall = $this->createAsset('Local', 'local');
+        $service = new RentalAuthorizationService(
+            $this->createStub(MemberService::class),
+            $this->assetRepository,
+            $this->managerRepository
+        );
+
+        $this->assertFalse($service->isSuperAdmin('super@test.be'));
+        $this->assertFalse($service->canManageAssetId('super@test.be', self::YEAR, $hall));
     }
 
     public function testAManagerMayManageTheirOwnAsset(): void

@@ -49,6 +49,20 @@ class ReceiptMailSourceRepository
      */
     public const REASON_UNREADABLE = 'unreadable';
 
+    /**
+     * Finance tried to file this attachment for a PERSON who confirmed it
+     * and did not (the store refused, or the person has no known role): said
+     * in the journal, and shown on the message page (#1406).
+     *
+     * **Retryable, like `unreadable`, and unlike `not_filed`.** The refusal
+     * is a statement about that person's attempt, not about the document:
+     * it must not count as « through finance » (`has()`), nor settle the
+     * catch-up (`settled()`), or a later machine-made link on the same
+     * attachment would lose its chance to file for good. A filing replaces
+     * it; a later refusal never replaces another row.
+     */
+    public const REASON_PERSON_REFUSED = 'person_refused';
+
     /** How many runs of the catch-up try an unreadable file before leaving it. */
     public const MAX_UNREADABLE_TRIES = 3;
 
@@ -71,12 +85,27 @@ class ReceiptMailSourceRepository
     {
         $reason = mb_substr($reason, 0, 20);
         if ($this->exists($inboundAttachmentId)) {
+            // A person's refusal is the weakest thing a row can say: it
+            // never replaces what is already known about the attachment.
+            if ($reason === self::REASON_PERSON_REFUSED) {
+                return;
+            }
+
             // An unreadable file that has since been read is whatever came
             // of it now; a row where nothing was filed gives way to a
             // filing; any other row is completed only by a receipt.
             $isFiling = $attachmentId !== null
-                && !in_array($reason, [self::REASON_ALREADY_HELD, self::REASON_NOT_FILED, self::REASON_UNREADABLE], true);
-            $replaceable = [self::REASON_UNREADABLE];
+                && !in_array(
+                    $reason,
+                    [
+                        self::REASON_ALREADY_HELD,
+                        self::REASON_NOT_FILED,
+                        self::REASON_UNREADABLE,
+                        self::REASON_PERSON_REFUSED,
+                    ],
+                    true
+                );
+            $replaceable = [self::REASON_UNREADABLE, self::REASON_PERSON_REFUSED];
             if ($isFiling) {
                 $replaceable[] = self::REASON_ALREADY_HELD;
                 $replaceable[] = self::REASON_NOT_FILED;
@@ -119,6 +148,19 @@ class ReceiptMailSourceRepository
             return;
         }
 
+        // A person's refusal gives way to what is now known about the file:
+        // it is unreadable, and this is the first try that says so. Left as
+        // it was, nothing would ever advance the row's attempts and the
+        // catch-up would walk this attachment on every run, for ever.
+        $converted = $this->pdo->prepare(
+            'UPDATE finance_receipt_mail_sources SET reason = ?, attempts = 1
+              WHERE inbound_attachment_id = ? AND reason = ?'
+        );
+        $converted->execute([self::REASON_UNREADABLE, $inboundAttachmentId, self::REASON_PERSON_REFUSED]);
+        if ($converted->rowCount() > 0) {
+            return;
+        }
+
         $this->pdo->prepare(
             'UPDATE finance_receipt_mail_sources SET attempts = attempts + 1
               WHERE inbound_attachment_id = ? AND reason = ?'
@@ -133,9 +175,14 @@ class ReceiptMailSourceRepository
     {
         $stmt = $this->pdo->prepare(
             'SELECT 1 FROM finance_receipt_mail_sources
-              WHERE inbound_attachment_id = ? AND (reason <> ? OR attempts >= ?) LIMIT 1'
+              WHERE inbound_attachment_id = ? AND (reason NOT IN (?, ?) OR attempts >= ?) LIMIT 1'
         );
-        $stmt->execute([$inboundAttachmentId, self::REASON_UNREADABLE, self::MAX_UNREADABLE_TRIES]);
+        $stmt->execute([
+            $inboundAttachmentId,
+            self::REASON_UNREADABLE,
+            self::REASON_PERSON_REFUSED,
+            self::MAX_UNREADABLE_TRIES,
+        ]);
 
         return $stmt->fetchColumn() !== false;
     }
@@ -157,7 +204,8 @@ class ReceiptMailSourceRepository
 
     /**
      * Whether this inbound attachment has already been through finance — a
-     * file that could not be read has not.
+     * file that could not be read has not, and neither has one finance
+     * refused to file for a person.
      *
      * Impure: another pass can write the row between two calls.
      *
@@ -166,11 +214,47 @@ class ReceiptMailSourceRepository
     public function has(int $inboundAttachmentId): bool
     {
         $stmt = $this->pdo->prepare(
-            'SELECT 1 FROM finance_receipt_mail_sources WHERE inbound_attachment_id = ? AND reason <> ? LIMIT 1'
+            'SELECT 1 FROM finance_receipt_mail_sources
+              WHERE inbound_attachment_id = ? AND reason NOT IN (?, ?) LIMIT 1'
         );
-        $stmt->execute([$inboundAttachmentId, self::REASON_UNREADABLE]);
+        $stmt->execute([$inboundAttachmentId, self::REASON_UNREADABLE, self::REASON_PERSON_REFUSED]);
 
         return $stmt->fetchColumn() !== false;
+    }
+
+    /**
+     * What finance recorded for each of these inbound attachments, keyed by
+     * inbound attachment id — absent for one finance has not looked at.
+     *
+     * For the message page, which tells a person what became of each
+     * attachment (#1406).
+     *
+     * @param int[] $inboundAttachmentIds
+     * @return array<int, array{reason: string, attachment_id: int|null}>
+     */
+    public function forInboundAttachments(array $inboundAttachmentIds): array
+    {
+        $ids = array_values(array_unique(array_map('intval', $inboundAttachmentIds)));
+        if ($ids === []) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($ids), '?'));
+        $stmt = $this->pdo->prepare(
+            'SELECT inbound_attachment_id, attachment_id, reason FROM finance_receipt_mail_sources
+              WHERE inbound_attachment_id IN (' . $placeholders . ')'
+        );
+        $stmt->execute($ids);
+
+        $rows = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $rows[(int) $row['inbound_attachment_id']] = [
+                'reason' => (string) $row['reason'],
+                'attachment_id' => $row['attachment_id'] === null ? null : (int) $row['attachment_id'],
+            ];
+        }
+
+        return $rows;
     }
 
     /**

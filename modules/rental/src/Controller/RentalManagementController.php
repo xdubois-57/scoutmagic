@@ -288,7 +288,13 @@ class RentalManagementController extends AbstractController
          */
         private ?\Core\Image\PhotoNormalizer $photoNormalizer = null,
         /** Writes each photo's `thumb` derivative (#989, decision Q8). */
-        private ?\Core\Photo\ImageVariantService $imageVariants = null
+        private ?\Core\Photo\ImageVariantService $imageVariants = null,
+        /**
+         * Told, when a superadmin acts, which account to name in the
+         * booking's history (issue #1355, D3) — a superadmin has no member
+         * to name. Null records such a change with no author.
+         */
+        private ?BookingAudit $bookingAudit = null
     ) {
         parent::__construct($twig);
     }
@@ -350,7 +356,7 @@ class RentalManagementController extends AbstractController
             'payment_account_name' => $this->financeAccountName($paymentSettings->financeAccountId),
             // Whether to offer the link to the page that pins it, rather
             // than a dead end for somebody who cannot reach it.
-            'can_pin_account' => $this->authorizationService->isUnitStaff(
+            'can_pin_account' => $this->authorizationService->hasUnitWideAuthority(
                 AuthSession::getEmail(),
                 $this->scoutYearId()
             ),
@@ -787,6 +793,9 @@ class RentalManagementController extends AbstractController
 
         return $this->render('@rental/management/my_rentals.html.twig', [
             'assets' => $assets,
+            // The subtitle says why every asset is listed, and never calls a
+            // superadmin a member of the Staff d'U (issue #1355, D4).
+            'is_superadmin' => $this->authorizationService->isSuperAdmin($email),
             'is_unit_staff' => $this->authorizationService->isUnitStaff($email, $scoutYearId),
             'pending_bookings' => $attention,
             'pending_counts' => $countsByAsset,
@@ -1478,9 +1487,10 @@ class RentalManagementController extends AbstractController
                 $booking,
                 (string) $request->getBody('email', ''),
                 $this->actorMemberId(),
-                // Issue #1106: only Staff d'U types an address; any other
-                // manager picks one from the booking's own mail.
-                $this->authorizationService->isUnitStaff(AuthSession::getEmail(), $this->scoutYearId())
+                // Issue #1106: only Staff d'U — or a superadmin (#1355, D4) —
+                // types an address; any other manager picks one from the
+                // booking's own mail.
+                $this->authorizationService->hasUnitWideAuthority(AuthSession::getEmail(), $this->scoutYearId())
             );
 
             FlashMessage::set('success', 'Adresse ajoutée.');
@@ -1643,9 +1653,10 @@ class RentalManagementController extends AbstractController
             // addresses either way, and adding one before the box is
             // opened is how its first message is filed straight away.
             'other_renter_emails' => $this->bookingRepository->otherRenterEmails($booking->id),
-            // Issue #1106: Staff d'U types an address; any other manager
-            // chooses among the ones on this booking's mail.
-            'other_email_free_entry' => $this->authorizationService->isUnitStaff(
+            // Issue #1106: Staff d'U — or a superadmin (#1355, D4) — types
+            // an address; any other manager chooses among the ones on this
+            // booking's mail.
+            'other_email_free_entry' => $this->authorizationService->hasUnitWideAuthority(
                 AuthSession::getEmail(),
                 $this->scoutYearId()
             ),
@@ -5163,6 +5174,17 @@ class RentalManagementController extends AbstractController
     {
         $email = AuthSession::getEmail();
         if ($email === null || $email === '') {
+            return null;
+        }
+
+        // A superadmin acts as their account, with no member (issue #1355,
+        // D3): the first member linked to their address may be a child they
+        // are the parent of, and the history would then name that child.
+        // Every `*_by_member_id` column stays empty, and the booking's
+        // history names the account instead.
+        if ($this->authorizationService->isSuperAdmin($email)) {
+            $this->bookingAudit?->attributeUnnamedChangesTo(AuthSession::getUserAccountId());
+
             return null;
         }
 
