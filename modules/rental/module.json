@@ -1005,10 +1005,28 @@
       "label": ""
     },
     {
-      "path": "/mes-locations/{slug}/reglages/paiements",
+      "path": "/mes-locations/{slug}/reglages/suivi-paiements",
       "method": "POST",
       "controller": "Modules\\Rental\\Controller\\RentalPricingController",
-      "action": "savePayments",
+      "action": "saveTracking",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/mes-locations/{slug}/reglages/acompte",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalPricingController",
+      "action": "saveDeposit",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/mes-locations/{slug}/reglages/caution",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalPricingController",
+      "action": "saveSecurityDeposit",
       "menu": "espace_animes",
       "role_min": "identified",
       "label": ""

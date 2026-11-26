@@ -1,211 +1,241 @@
 {#
   "Paiements" — the asset's money configuration (§6.19, §6.20).
 
-  Entirely optional and off by default. Without the Finance module this
-  section explains that rather than offering a picker with nothing in it: a
-  unit that settles its rentals by hand is a perfectly normal unit, and it
-  must not meet a half-working screen.
-
   ONE receivable per booking — the rental price plus the security deposit —
   with one structured communication (issue #927). The DEPOSIT is a
   threshold on it, due some days after the first contract is sent; the
   balance and the security deposit fall due together, some days before
   arrival.
 
-  The Finance ACCOUNT is deliberately not a field here: it is pinned by the
-  unit staff on « Espace chefs d'U > Locations », because the account list
-  carries every account's IBAN and a manager may be a parent or a former
-  leader. This block therefore reports which account is in force and links to
-  the person who can change it, rather than offering a picker.
+  Three things saved independently (issue #1355, D11), never one global
+  form: the « Suivre les paiements via le site » switch, saved the moment
+  it changes with the usual toast (rental-payments-tracking.js), and the
+  « Acompte » and « Caution » dialogs, each saving only its own fields.
+  Switching tracking on is refused while no Finance account or category is
+  pinned, and the switch goes back to the state actually stored.
 
-  A READ card and a dialog rather than a form standing open (design.md
-  §1.9) — see _constraints.html.twig for the reasoning.
+  **The deposit and the security deposit stay settable without Finance**
+  (D12): the contract states them whatever tracks the money. Without
+  Finance the switch is replaced by an explanation.
+
+  The Finance ACCOUNT is deliberately not a field here: it is pinned by the
+  unit staff on « Biens à louer », because the account list carries every
+  account's IBAN and a manager may be a parent or a former leader. This
+  block reports which account is in force and links to whoever can change
+  it.
 
   Requires `asset`, `payment_settings`, `finance_available`,
   `payment_account_name`, `can_pin_account` and `deposit_modes`.
 #}
+{% set account_pinned = payment_settings.financeAccountId is not null and payment_settings.financeCategoryId is not null %}
 <div class="card mb-4" id="paiements">
     <div class="card-body">
-        <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-1">
-            <h2 class="h5 mb-0">Paiements</h2>
-            {% if finance_available %}
-                <button type="button" class="btn btn-sm btn-outline-secondary"
-                        data-bs-toggle="modal" data-bs-target="#paiements-edit">
-                    <i class="bi bi-pencil" aria-hidden="true"></i>
-                    Modifier
-                </button>
+        <h2 class="h5 mb-2">Paiements</h2>
+
+        {% if finance_available %}
+            <div class="form-check form-switch mb-1">
+                <input class="form-check-input" type="checkbox" role="switch" id="payments-tracking"
+                       data-payments-tracking="/mes-locations/{{ asset.slug }}/reglages/suivi-paiements"
+                       aria-describedby="payments-tracking-help"
+                       {{ payment_settings.enabled ? 'checked' : '' }}>
+                <label class="form-check-label" for="payments-tracking">Suivre les paiements via le site</label>
+            </div>
+            <p class="form-text mt-0" id="payments-tracking-help">
+                {% if payment_settings.enabled %}
+                    Une créance est créée pour chaque réservation, avec une communication structurée et un
+                    QR code. Le site rapproche les virements reçus.
+                {% else %}
+                    Sans ce suivi, les conditions restent indiquées dans le contrat et vous vérifiez les
+                    paiements vous-même.
+                {% endif %}
+            </p>
+            {% if not account_pinned %}
+                <p class="form-text text-danger" data-payments-account-missing>
+                    Pour activer le suivi, le site doit savoir sur quel compte les virements arrivent :
+                    {% if can_pin_account %}
+                        associez d'abord un compte et une catégorie dans
+                        <a href="/admin/locations/{{ asset.id }}#compte">Biens à louer › {{ asset.name }} › Compte des paiements</a>.
+                    {% else %}
+                        un chef d'unité doit d'abord associer un compte et une catégorie dans
+                        « Biens à louer › Compte des paiements ».
+                    {% endif %}
+                </p>
             {% endif %}
+
+            {% if payment_settings.enabled %}
+                <dl class="row mb-2">
+                    <dt class="col-sm-5 col-lg-4">Compte</dt>
+                    <dd class="col-sm-7 col-lg-8">
+                        {% if payment_account_name %}
+                            {{ payment_account_name }}
+                        {% else %}
+                            <span class="fst-italic text-body-secondary">Aucun compte associé.</span>
+                        {% endif %}
+                        <span class="form-text d-block">
+                            Il s'associe depuis
+                            {% if can_pin_account %}
+                                <a href="/admin/locations/{{ asset.id }}#compte">« Biens à louer »</a>.
+                            {% else %}
+                                « Biens à louer » — demandez à un chef d'unité de l'associer.
+                            {% endif %}
+                        </span>
+                    </dd>
+                </dl>
+            {% endif %}
+        {% else %}
+            <p class="form-text mt-0" data-payments-no-finance>
+                Le suivi des paiements par le site n'est pas disponible sur cette installation. Vous
+                vérifiez les paiements vous-même ; l'acompte et la caution restent indiqués dans le contrat.
+            </p>
+        {% endif %}
+
+        <hr>
+
+        <dl class="row mb-2">
+            <dt class="col-sm-5 col-lg-4">Acompte</dt>
+            <dd class="col-sm-7 col-lg-8">
+                {{ payment_settings.depositMode.label }}
+                {%- if payment_settings.depositAmountCents is not null %} · {{ payment_settings.depositAmountCents|money_cents }}{% endif %}
+                {%- if payment_settings.depositPercentage is not null %} · {{ payment_settings.depositPercentage }} %{% endif %}
+                {%- if payment_settings.depositDueDays %} · attendu {{ payment_settings.depositDueDays }}
+                    jour{{ payment_settings.depositDueDays > 1 ? 's' : '' }} après le premier envoi du contrat
+                {%- endif %}
+            </dd>
+
+            <dt class="col-sm-5 col-lg-4">Solde</dt>
+            <dd class="col-sm-7 col-lg-8">
+                {% if payment_settings.balanceDueDays %}
+                    Attendu {{ payment_settings.balanceDueDays }}
+                    jour{{ payment_settings.balanceDueDays > 1 ? 's' : '' }} avant l'arrivée
+                {% else %}
+                    Aucune échéance annoncée
+                {% endif %}
+            </dd>
+
+            <dt class="col-sm-5 col-lg-4">Caution</dt>
+            <dd class="col-sm-7 col-lg-8 mb-0">
+                {% if payment_settings.securityDepositEnabled %}
+                    {{ payment_settings.securityDepositAmountCents|money_cents }} · attendue avec le solde
+                {% else %}
+                    Aucune caution demandée
+                {% endif %}
+            </dd>
+        </dl>
+
+        <div class="d-flex flex-wrap gap-2">
+            <button type="button" class="btn btn-sm btn-outline-secondary"
+                    data-bs-toggle="modal" data-bs-target="#acompte-edit">
+                <i class="bi bi-pencil" aria-hidden="true"></i>
+                Acompte
+            </button>
+            <button type="button" class="btn btn-sm btn-outline-secondary"
+                    data-bs-toggle="modal" data-bs-target="#caution-edit">
+                <i class="bi bi-pencil" aria-hidden="true"></i>
+                Caution
+            </button>
         </div>
 
-        {% if not finance_available %}
-            <p class="text-body-secondary small mb-0">
-                Le module « Finances » n'est pas actif sur ce site. Les locations fonctionnent
-                normalement sans lui : aucune créance n'est créée et le suivi des paiements se fait
-                hors ScoutMagic. Activez « Finances » pour demander un acompte, un solde et une
-                caution depuis ici.
-            </p>
-        {% elseif not payment_settings.enabled %}
-            <p class="text-body-secondary small mb-0">
-                Les paiements de ce bien ne passent pas par Finances. Aucune créance n'est créée
-                pour ses locations.
-            </p>
-        {% else %}
-            <p class="text-body-secondary small mb-3">
-                Une seule créance est créée par réservation : le prix de la location et la caution,
-                avec une seule communication structurée pour l'acompte, le solde et la caution.
-                L'acompte est un <strong>seuil</strong> sur cette créance, pas un paiement à part.
-            </p>
-
-            <dl class="row mb-3">
-                <dt class="col-sm-5 col-lg-4">Compte</dt>
-                <dd class="col-sm-7 col-lg-8">
-                    {% if payment_account_name %}
-                        {{ payment_account_name }}
-                    {% else %}
-                        <span class="fst-italic text-body-secondary">Aucun compte associé.</span>
-                    {% endif %}
-                    <span class="form-text d-block">
-                        Le compte sur lequel les virements sont attendus s'associe depuis
-                        {% if can_pin_account %}
-                            <a href="/admin/locations/{{ asset.id }}#compte">« Espace chefs d'U &gt; Locations »</a>.
-                        {% else %}
-                            « Espace chefs d'U &gt; Locations » — demandez à un chef d'unité de l'associer.
-                        {% endif %}
-                    </span>
-                </dd>
-
-                <dt class="col-sm-5 col-lg-4">Acompte</dt>
-                <dd class="col-sm-7 col-lg-8">
-                    {{ payment_settings.depositMode.label }}
-                    {%- if payment_settings.depositAmountCents is not null %} · {{ payment_settings.depositAmountCents|money_cents }}{% endif %}
-                    {%- if payment_settings.depositPercentage is not null %} · {{ payment_settings.depositPercentage }} %{% endif %}
-                    {%- if payment_settings.depositDueDays %} · attendu {{ payment_settings.depositDueDays }}
-                        jour{{ payment_settings.depositDueDays > 1 ? 's' : '' }} après le premier envoi du contrat
-                    {%- endif %}
-                </dd>
-
-                <dt class="col-sm-5 col-lg-4">Solde</dt>
-                <dd class="col-sm-7 col-lg-8">
-                    {% if payment_settings.balanceDueDays %}
-                        Attendu {{ payment_settings.balanceDueDays }}
-                        jour{{ payment_settings.balanceDueDays > 1 ? 's' : '' }} avant l'arrivée
-                    {% else %}
-                        Aucune échéance annoncée
-                    {% endif %}
-                </dd>
-
-                <dt class="col-sm-5 col-lg-4">Caution</dt>
-                <dd class="col-sm-7 col-lg-8 mb-0">
-                    {% if payment_settings.securityDepositEnabled %}
-                        {{ payment_settings.securityDepositAmountCents|money_cents }} · attendue avec le solde
-                    {% else %}
-                        Aucune caution demandée
-                    {% endif %}
-                </dd>
-            </dl>
-
-            <p class="text-body-secondary small mb-0">
-                La <strong>caution se rend par virement</strong>, depuis la banque, avec la communication
-                de la réservation : Finances le rapproche à l'import de l'extrait, et la page Finances de la
-                réservation propose de rapprocher un virement parti sans elle.
+        {% if finance_available and payment_settings.enabled %}
+            <p class="text-body-secondary small mb-0 mt-3">
+                Une seule créance par réservation, avec une seule communication structurée : l'acompte est un
+                <strong>seuil</strong> sur cette créance. La <strong>caution se rend par virement</strong>,
+                avec la communication de la réservation, et Finances le rapproche à l'import de l'extrait.
             </p>
         {% endif %}
     </div>
 </div>
 
-{% if finance_available %}
-    {% embed 'partials/modal.html.twig' with {
-        id: 'paiements-edit',
-        title: 'Paiements',
-        section_editor: true,
-        size: 'lg',
-        asset: asset,
-        payment_settings: payment_settings,
-        deposit_modes: deposit_modes,
-    } only %}
-        {% block body %}
-            <form method="post" action="/mes-locations/{{ asset.slug }}/reglages/paiements" id="payments-form">
-                {{ csrf_field()|raw }}
-
-                <div class="form-check mb-3">
-                    <input class="form-check-input" type="checkbox" id="payments-enabled" name="payments_enabled"
-                           {{ payment_settings.enabled ? 'checked' : '' }}>
-                    <label class="form-check-label" for="payments-enabled">
-                        Demander les paiements de ce bien via Finances
-                    </label>
+{# Outside the card: a modal nested in one inherits its stacking context. #}
+{% embed 'partials/modal.html.twig' with {
+    id: 'acompte-edit',
+    title: 'Acompte et échéances',
+    section_editor: true,
+    asset: asset,
+    payment_settings: payment_settings,
+    deposit_modes: deposit_modes,
+} only %}
+    {% block body %}
+        <form method="post" action="/mes-locations/{{ asset.slug }}/reglages/acompte" id="deposit-form">
+            {{ csrf_field()|raw }}
+            {% include 'partials/form_field.html.twig' with {
+                field_id: 'deposit-mode', field_name: 'deposit_mode', type: 'select',
+                label: 'Acompte',
+                options: deposit_modes|default([])|map(mode => {
+                    value: mode.value,
+                    label: mode.label,
+                    selected: payment_settings.depositMode.value == mode.value,
+                }),
+            } only %}
+            <div class="row g-3 mb-3">
+                <div class="col-6">
+                    {% include 'partials/form_field.html.twig' with {
+                        field_id: 'deposit-amount', field_name: 'deposit_amount',
+                        label: 'Montant fixe (€)', inputmode: 'decimal',
+                        value: payment_settings.depositAmountCents is not null
+                            ? (payment_settings.depositAmountCents / 100)|number_format(2, ',', '') : '',
+                    } only %}
                 </div>
-
-                <h3 class="h6">Acompte</h3>
-                <div class="row g-3 mb-3">
-                    <div class="col-12 col-md-6">
-                        {% include 'partials/form_field.html.twig' with {
-                            field_id: 'deposit-mode', field_name: 'deposit_mode', type: 'select',
-                            label: 'Type',
-                            options: deposit_modes|default([])|map(mode => {
-                                value: mode.value,
-                                label: mode.label,
-                                selected: payment_settings.depositMode.value == mode.value,
-                            }),
-                        } only %}
-                    </div>
-                    <div class="col-6 col-md-6">
-                        {% include 'partials/form_field.html.twig' with {
-                            field_id: 'deposit-amount', field_name: 'deposit_amount',
-                            label: 'Montant fixe (€)', inputmode: 'decimal',
-                            value: payment_settings.depositAmountCents is not null
-                                ? (payment_settings.depositAmountCents / 100)|number_format(2, ',', '') : '',
-                        } only %}
-                    </div>
-                    <div class="col-6 col-md-6">
-                        {% include 'partials/form_field.html.twig' with {
-                            field_id: 'deposit-percentage', field_name: 'deposit_percentage', type: 'number',
-                            label: 'Pourcentage', min: 0, max: 100,
-                            value: payment_settings.depositPercentage,
-                        } only %}
-                    </div>
-                    <div class="col-6 col-md-6">
-                        {% include 'partials/form_field.html.twig' with {
-                            field_id: 'deposit-due-days', field_name: 'deposit_due_days', type: 'number',
-                            label: 'Échéance (jours)', min: 0,
-                            help: 'Après le premier envoi du contrat.',
-                            value: payment_settings.depositDueDays,
-                        } only %}
-                    </div>
+                <div class="col-6">
+                    {% include 'partials/form_field.html.twig' with {
+                        field_id: 'deposit-percentage', field_name: 'deposit_percentage', type: 'number',
+                        label: 'Pourcentage du total', min: 0, max: 100,
+                        value: payment_settings.depositPercentage,
+                    } only %}
                 </div>
-
-                {% include 'partials/form_field.html.twig' with {
-                    field_id: 'balance-due-days', field_name: 'balance_due_days', type: 'number',
-                    label: 'Échéance du solde (jours)', min: 0,
-                    help: "Avant l'arrivée. La caution est attendue à la même date. "
-                        ~ 'Laissez vide pour ne rien annoncer.',
-                    value: payment_settings.balanceDueDays,
-                } only %}
-
-                <h3 class="h6 mt-4">Caution</h3>
-                <p class="text-body-secondary small">
-                    La caution s'ajoute au prix dans la même créance, avec la même communication,
-                    et elle est attendue avec le solde.
-                </p>
-                <div class="form-check mb-3">
-                    <input class="form-check-input" type="checkbox" id="security-deposit-enabled"
-                           name="security_deposit_enabled"
-                           {{ payment_settings.securityDepositEnabled ? 'checked' : '' }}>
-                    <label class="form-check-label" for="security-deposit-enabled">
-                        Demander une caution
-                    </label>
+                <div class="col-12">
+                    {% include 'partials/form_field.html.twig' with {
+                        field_id: 'deposit-due-days', field_name: 'deposit_due_days', type: 'number',
+                        label: 'Attendu (jours après le premier envoi du contrat)', min: 0,
+                        value: payment_settings.depositDueDays,
+                    } only %}
                 </div>
-                {% include 'partials/form_field.html.twig' with {
-                    field_id: 'security-deposit-amount', field_name: 'security_deposit_amount',
-                    label: 'Montant (€)', inputmode: 'decimal',
-                    wrapper_class: 'mb-0',
-                    value: payment_settings.securityDepositAmountCents is not null
-                        ? (payment_settings.securityDepositAmountCents / 100)|number_format(2, ',', '') : '',
-                } only %}
-            </form>
-        {% endblock %}
-        {% block footer %}
-            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Annuler</button>
-            <button type="submit" form="payments-form" class="btn btn-primary">Enregistrer les paiements</button>
-        {% endblock %}
-    {% endembed %}
-{% endif %}
+            </div>
+            {% include 'partials/form_field.html.twig' with {
+                field_id: 'balance-due-days', field_name: 'balance_due_days', type: 'number',
+                label: "Solde attendu (jours avant l'arrivée)", min: 0,
+                wrapper_class: 'mb-0',
+                help: 'La caution, quand elle est demandée, est attendue à la même date que le solde. '
+                    ~ 'Laissez vide pour ne rien annoncer.',
+                value: payment_settings.balanceDueDays,
+            } only %}
+        </form>
+    {% endblock %}
+    {% block footer %}
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Annuler</button>
+        <button type="submit" form="deposit-form" class="btn btn-primary">Enregistrer l'acompte</button>
+    {% endblock %}
+{% endembed %}
+
+{% embed 'partials/modal.html.twig' with {
+    id: 'caution-edit',
+    title: 'Caution',
+    section_editor: true,
+    asset: asset,
+    payment_settings: payment_settings,
+} only %}
+    {% block body %}
+        <form method="post" action="/mes-locations/{{ asset.slug }}/reglages/caution" id="security-deposit-form">
+            {{ csrf_field()|raw }}
+            <div class="form-check mb-3">
+                <input class="form-check-input" type="checkbox" id="security-deposit-enabled"
+                       name="security_deposit_enabled"
+                       {{ payment_settings.securityDepositEnabled ? 'checked' : '' }}>
+                <label class="form-check-label" for="security-deposit-enabled">Demander une caution</label>
+            </div>
+            {% include 'partials/form_field.html.twig' with {
+                field_id: 'security-deposit-amount', field_name: 'security_deposit_amount',
+                label: 'Montant (€)', inputmode: 'decimal',
+                value: payment_settings.securityDepositAmountCents is not null
+                    ? (payment_settings.securityDepositAmountCents / 100)|number_format(2, ',', '') : '',
+            } only %}
+            <p class="form-text mb-0">
+                Elle est attendue à la même date que le solde, réglée dans « Acompte et échéances ». Elle se
+                rend par virement après le séjour.
+            </p>
+        </form>
+    {% endblock %}
+    {% block footer %}
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Annuler</button>
+        <button type="submit" form="security-deposit-form" class="btn btn-primary">Enregistrer la caution</button>
+    {% endblock %}
+{% endembed %}

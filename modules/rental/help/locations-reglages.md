@@ -43,15 +43,13 @@ contrat.
 
 ## Acompte, solde et caution
 
-Cette section n'existe que si le module Finances est actif. Chaque
-réservation a une seule créance — le prix de la location plus la caution —
-avec une seule communication structurée. L'acompte est un seuil sur cette
-créance, attendu le nombre de jours choisi après le premier envoi du
-contrat. Le solde et la caution sont attendus ensemble, le nombre de jours
-choisi avant l'arrivée : la caution n'a pas d'échéance à elle.
+« Suivre les paiements via le site » s'enregistre dès qu'on coche : une
+créance par réservation, avec une communication structurée. Il faut
+d'abord un compte et une catégorie, fixés dans « Biens à louer ».
 
-Le compte bancaire attendu ne se choisit pas ici : il est fixé par le Staff
-d'Unité, la liste des comptes portant les IBAN de l'unité.
+« Acompte » et « Caution » s'enregistrent chacun à part, même sans
+Finances : le contrat les indique. L'acompte est attendu après le premier
+envoi du contrat ; le solde et la caution, ensemble, avant l'arrivée.
 
 Les conditions de location se trouvent désormais sur la page « Gabarits »,
 avec le contrat et la facture.

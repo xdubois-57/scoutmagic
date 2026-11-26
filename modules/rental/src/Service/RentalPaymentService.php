@@ -22,6 +22,7 @@ use Modules\Finance\Api\SepaQrCodeInterface;
 use Modules\Finance\Api\StatementImportStatusInterface;
 use Modules\Finance\Api\StructuredCommunicationInterface;
 use Modules\Rental\Booking\RentalBooking;
+use Modules\Rental\Payment\DepositMode;
 use Modules\Rental\Payment\PaymentSettings;
 use Modules\Rental\Payment\SecurityDepositStatus;
 use Modules\Rental\Audit\BookingAudit;
@@ -207,6 +208,84 @@ class RentalPaymentService
         $this->saveSettings(
             $assetId,
             $settings->withFinanceAccount($current->financeAccountId, $current->financeCategoryId)
+        );
+    }
+
+    /**
+     * Switches payment tracking on or off for this asset, and nothing else
+     * (issue #1355, D11) — the deposit, the deadlines, the security
+     * deposit, the account and the category stay as stored. Switching it on
+     * is refused while no account or category is pinned; the refusal says
+     * where they are pinned.
+     *
+     * Returns the configuration now stored, so the screen can show the
+     * state actually saved.
+     *
+     * @throws RentalException
+     */
+    public function saveTracking(int $assetId, bool $enabled): PaymentSettings
+    {
+        $current = $this->paymentRepository->loadSettings($assetId);
+        if ($enabled && !$this->isAvailable()) {
+            throw new RentalException(
+                'Le suivi des paiements par le site n\'est pas disponible sur cette installation.'
+            );
+        }
+        if ($enabled && ($current->financeAccountId === null || $current->financeCategoryId === null)) {
+            throw new RentalException(
+                'Le site doit savoir sur quel compte les virements arrivent : associez d\'abord un compte et '
+                . 'une catégorie dans « Biens à louer › Compte des paiements ».'
+            );
+        }
+
+        $updated = $current->withTracking($enabled);
+        $this->saveSettings($assetId, $updated);
+
+        return $updated;
+    }
+
+    /**
+     * Saves the deposit and the two deadlines, and nothing else (issue
+     * #1355, D11). Works with Finance off too (D12): the contract states
+     * them whatever tracks the money.
+     *
+     * @throws RentalException
+     */
+    public function saveDepositTerms(
+        int $assetId,
+        DepositMode $depositMode,
+        ?int $depositAmountCents,
+        ?int $depositPercentage,
+        ?int $depositDueDays,
+        ?int $balanceDueDays
+    ): void {
+        $this->saveSettings(
+            $assetId,
+            $this->paymentRepository->loadSettings($assetId)->withDepositTerms(
+                $depositMode,
+                $depositAmountCents,
+                $depositPercentage,
+                $depositDueDays,
+                $balanceDueDays
+            )
+        );
+    }
+
+    /**
+     * Saves the security deposit, and nothing else (issue #1355, D11).
+     * Works with Finance off too (D12).
+     *
+     * @throws RentalException
+     */
+    public function saveSecurityDeposit(int $assetId, bool $enabled, ?int $amountCents): void
+    {
+        if ($enabled && ($amountCents === null || $amountCents <= 0)) {
+            throw new RentalException('Indiquez le montant de la caution demandée.');
+        }
+
+        $this->saveSettings(
+            $assetId,
+            $this->paymentRepository->loadSettings($assetId)->withSecurityDeposit($enabled, $amountCents)
         );
     }
 
