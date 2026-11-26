@@ -337,6 +337,30 @@ describe('point-picker', () => {
             expect(document.querySelector('[data-point-picker-type]').getAttribute('aria-expanded')).toBe('true');
         });
 
+        it('an opening lookup leaves a refused half point for the person to correct', async () => {
+            const fetch = vi.fn().mockResolvedValue({
+                ok: true, status: 200,
+                json: () => Promise.resolve({ success: true, found: true, latitude: 50.125, longitude: 5.187 }),
+            });
+            vi.stubGlobal('fetch', fetch);
+            try {
+                const leaflet = stubLeaflet();
+                buildForm({ lat: '', lng: '4', address: 'Gîte de Han, rue des Grottes 12', locate: true });
+                await load();
+                await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
+                await tick();
+                await tick();
+
+                // The map stays closed: « Placer le point » will open on the address.
+                expect(pinOf(leaflet)).toBeUndefined();
+                expect(value('place-latitude')).toBe('');
+                expect(value('place-longitude')).toBe('4');
+                expect(document.querySelector('[data-point-picker-manual]').value).toBe('1');
+            } finally {
+                vi.unstubAllGlobals();
+            }
+        });
+
         it('waits for both halves before placing a typed point', async () => {
             const leaflet = stubLeaflet();
             buildForm();

@@ -446,6 +446,12 @@
             // « 50x », half a point: the fields stay open and as they were,
             // for the person to correct. Read as a number and pinned, the
             // refused value would be rewritten into one the next save takes.
+            // And it is a person's: no lookup, on opening or later, puts an
+            // automatic pin over what they have to correct.
+            manual = true;
+            fill(automatic, '0');
+            fill(manualField, '1');
+            fill(pointAddress, '');
             fields.classList.remove('d-none');
             box.querySelector('[data-point-picker-type]')?.setAttribute('aria-expanded', 'true');
             place.classList.remove('d-none');
