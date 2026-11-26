@@ -44,7 +44,13 @@ class MailReceiptFiler
          *
          * @var (\Closure(\Throwable, string, int): void)|null
          */
-        private ?\Closure $onFilingFailed = null
+        private ?\Closure $onFilingFailed = null,
+        /**
+         * Says what became of each attachment, in the journal (#1406). Null
+         * says nothing, which is what a test that does not read the journal
+         * wants.
+         */
+        private ?MailReceiptTrace $trace = null
     ) {
         $this->sources = new ReceiptMailSourceRepository($pdo);
         $this->known = new AttachmentRepository($pdo, $encryption);
@@ -127,6 +133,7 @@ class MailReceiptFiler
                         $held,
                         ReceiptMailSourceRepository::REASON_ALREADY_HELD
                     );
+                    $this->said(MailReceiptTrace::ALREADY_HELD, $message, $attachment, $held);
                     continue;
                 }
 
@@ -203,7 +210,19 @@ class MailReceiptFiler
     public function remember(InboundMessage $message, InboundAttachment $attachment, int $fileId, string $reason): void
     {
         try {
-            $this->sources->record($attachment->id, $message->id, $this->known->findByFileId($fileId)?->id, $reason);
+            $receipt = $this->known->findByFileId($fileId);
+            $this->sources->record($attachment->id, $message->id, $receipt?->id, $reason);
+            // What the store handed back may be a receipt it already held
+            // (it recognises its bytes): the line says a receipt exists for
+            // this attachment, which is true either way.
+            $this->said(
+                $receipt !== null && $receipt->accountId === null
+                    ? MailReceiptTrace::FILED_UNKNOWN_ACCOUNT
+                    : MailReceiptTrace::FILED,
+                $message,
+                $attachment,
+                $receipt?->id
+            );
         } catch (\Throwable $e) {
             // The receipt exists; only its provenance could not be written.
             // Worth saying, never worth failing a filing over.
@@ -218,12 +237,14 @@ class MailReceiptFiler
     public function rememberHeld(InboundMessage $message, InboundAttachment $attachment, string $content): void
     {
         try {
+            $held = array_key_first($this->known->statusesByContentHash(hash('sha256', $content)));
             $this->sources->record(
                 $attachment->id,
                 $message->id,
-                array_key_first($this->known->statusesByContentHash(hash('sha256', $content))),
+                $held,
                 ReceiptMailSourceRepository::REASON_ALREADY_HELD
             );
+            $this->said(MailReceiptTrace::ALREADY_HELD, $message, $attachment, $held);
         } catch (\Throwable $e) {
             // As remember(): a provenance that cannot be written is said,
             // and costs the message's other attachments nothing.
@@ -277,6 +298,19 @@ class MailReceiptFiler
         }
 
         return $this->known->findUnhashedByName($attachment->filename, $attachment->mimeType, $accountId) ?? false;
+    }
+
+    /**
+     * One journal line saying what became of this attachment — see
+     * {@see MailReceiptTrace}. Never fails the caller.
+     */
+    public function said(
+        string $reason,
+        InboundMessage $message,
+        InboundAttachment $attachment,
+        ?int $receiptId = null
+    ): void {
+        $this->trace?->said($reason, $message->id, $attachment->id, $receiptId);
     }
 
     public function sayNotFiled(\Throwable $e, InboundAttachment $attachment): void

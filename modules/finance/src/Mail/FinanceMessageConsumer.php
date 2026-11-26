@@ -14,6 +14,8 @@ use Core\Security\Role;
 use Modules\Finance\Api\ExpenseReceiptInterface;
 use Modules\Finance\Repository\Account;
 use Modules\Finance\Repository\AccountRepository;
+use Modules\Finance\Repository\Attachment;
+use Modules\Finance\Repository\AttachmentRepository;
 use Modules\Finance\Repository\ReceiptMailSourceRepository;
 use Modules\Finance\Service\AccountVisibility;
 use Modules\Finance\Service\IbanNormalizer;
@@ -21,6 +23,7 @@ use Modules\Finance\Service\ReceiptService;
 use Modules\Finance\Service\TreasurerScope;
 use Modules\Finance\Service\TreasurerScopeService;
 use Modules\InboundMail\Api\AnalysisResult;
+use Modules\InboundMail\Api\AttachmentFate;
 use Modules\InboundMail\Api\CandidateAttachment;
 use Modules\InboundMail\Api\CandidateMessage;
 use Modules\InboundMail\Api\InboundAttachment;
@@ -32,6 +35,7 @@ use Modules\InboundMail\Api\MessageConsumerInterface;
 use Modules\InboundMail\Api\MessageLink;
 use Modules\InboundMail\Api\ReferenceDirectory;
 use Modules\InboundMail\Api\ReferenceSuggestion;
+use Modules\InboundMail\Api\ReportsAttachmentFates;
 
 /**
  * An invoice arriving by email, offered as a receipt on the account it
@@ -88,6 +92,7 @@ use Modules\InboundMail\Api\ReferenceSuggestion;
 class FinanceMessageConsumer implements
     MessageConsumerInterface,
     ReferenceDirectory,
+    ReportsAttachmentFates,
     \Modules\InboundMail\Api\PropositionListener
 {
     public const CONSUMER_ID = 'finance';
@@ -215,7 +220,14 @@ class FinanceMessageConsumer implements
          * asks, as camps does. Null reads as « shared », which grants
          * nothing extra.
          */
-        private ?InboundMailInterface $inboundMail = null
+        private ?InboundMailInterface $inboundMail = null,
+        /**
+         * Says what became of each attachment, in the journal (#1406): a
+         * receipt filed, one already in Finance, a document that does not
+         * read like a receipt. Null keeps the old silence, which is what a
+         * test that does not read the journal wants.
+         */
+        private ?MailReceiptTrace $trace = null
     ) {
     }
 
@@ -289,6 +301,100 @@ class FinanceMessageConsumer implements
         }
 
         return array_slice($suggestions, 0, max(1, $limit));
+    }
+
+    /**
+     * What became of each receipt-shaped attachment of a message linked to
+     * an account (#1406) — the line the message page shows under the link.
+     *
+     * Read from finance's own memory of where each attachment went
+     * (`finance_receipt_mail_sources`), which `inbound_mail` could not read
+     * itself. The receipt's account is named, and linked, only to a viewer
+     * who may see it (`AccountVisibility`, the rule `canRead()` applies);
+     * anyone else is told the state and nothing more.
+     *
+     * @param array<int, int> $linkedMemberIds
+     * @return list<AttachmentFate>
+     */
+    public function attachmentFates(
+        InboundMessage $message,
+        MessageLink $link,
+        string $role,
+        array $linkedMemberIds
+    ): array {
+        $attachments = MailReceiptFiler::receiptAttachmentsOf($message, $link);
+        if ($attachments === []) {
+            return [];
+        }
+
+        $rows = (new ReceiptMailSourceRepository($this->pdo))->forInboundAttachments(
+            array_map(static fn(InboundAttachment $attachment): int => $attachment->id, $attachments)
+        );
+        $known = new AttachmentRepository($this->pdo, $this->encryption);
+        $visibility = new AccountVisibility(
+            TreasurerScope::forSession($this->treasurerScopeService, $linkedMemberIds, $this->scoutYearId)
+        );
+
+        $fates = [];
+        foreach ($attachments as $attachment) {
+            $row = $rows[$attachment->id] ?? null;
+            $receipt = $row !== null && $row['attachment_id'] !== null
+                ? $known->findById($row['attachment_id'])
+                : null;
+
+            $fates[] = $this->fateOf(
+                $attachment->id,
+                $row['reason'] ?? null,
+                $receipt,
+                $visibility,
+                Role::fromString($role)
+            );
+        }
+
+        return $fates;
+    }
+
+    private function fateOf(
+        int $inboundAttachmentId,
+        ?string $reason,
+        ?Attachment $receipt,
+        AccountVisibility $visibility,
+        Role $role
+    ): AttachmentFate {
+        $state = match (true) {
+            $reason === null => AttachmentFate::PENDING,
+            $reason === ReceiptMailSourceRepository::REASON_NOT_FILED => AttachmentFate::REFUSED,
+            $reason === ReceiptMailSourceRepository::REASON_UNREADABLE => AttachmentFate::UNREADABLE,
+            $receipt !== null && $receipt->status === Attachment::STATUS_ARCHIVED => AttachmentFate::DELETED,
+            $reason === ReceiptMailSourceRepository::REASON_ALREADY_HELD => AttachmentFate::ALREADY_PRESENT,
+            default => AttachmentFate::CREATED,
+        };
+
+        $label = match ($state) {
+            AttachmentFate::CREATED => 'Reçu créé',
+            AttachmentFate::ALREADY_PRESENT => 'Reçu déjà présent dans Finance',
+            AttachmentFate::DELETED => 'Reçu identique supprimé dans Finance — non recréé',
+            AttachmentFate::REFUSED => 'Reçu refusé par Finance — voir le journal',
+            AttachmentFate::UNREADABLE => 'Pièce jointe illisible — aucun reçu créé',
+            default => 'Pas encore traité par Finance',
+        };
+
+        // Where the receipt is, for whoever may see it. An archived receipt
+        // is gone from every screen: nothing to point at.
+        $url = null;
+        $targetLabel = null;
+        if ($receipt !== null && $receipt->status === Attachment::STATUS_ACTIVE) {
+            $account = $receipt->accountId === null ? null : $this->accounts->findById($receipt->accountId);
+            $visible = $receipt->accountId === null
+                ? $visibility->isUnassignedReceiptVisibleTo($role)
+                : $visibility->isVisibleTo($account, $role);
+            if ($visible) {
+                $url = '/finance/receipts?account_id=' . ($receipt->accountId ?? 'unassigned');
+                $targetLabel = $account->name ?? 'Compte inconnu';
+            }
+        }
+
+        return new AttachmentFate($inboundAttachmentId, $state, $label, $url, $targetLabel);
     }
 
     public function referenceUrl(string $businessReference): ?string
@@ -515,7 +621,8 @@ class FinanceMessageConsumer implements
             $this->pdo,
             $this->encryption,
             $this->receipts,
-            $this->onFilingFailed
+            $this->onFilingFailed,
+            $this->trace
         );
     }
 
@@ -555,11 +662,21 @@ class FinanceMessageConsumer implements
             if (count($fresh) >= AttachmentTextReader::MAX_ATTACHMENTS) {
                 break;
             }
-            if (!AttachmentTextReader::willRead($attachment) || $filer->alreadyThrough($attachment)) {
+            if (!AttachmentTextReader::willRead($attachment)) {
                 continue;
             }
+            if ($filer->alreadyThrough($attachment)) {
+                $filer->said(MailReceiptTrace::ALREADY_THROUGH, $message, $attachment);
+                continue;
+            }
+            // An unreadable file is said by the reader closure both
+            // composition roots install (`inbound_receipt_unreadable`).
             $content = ($this->readFile)($attachment->fileId);
-            if ($content === null || $content === '' || !$filer->mayFileFrom($message, $content)) {
+            if ($content === null || $content === '') {
+                continue;
+            }
+            if (!$filer->mayFileFrom($message, $content)) {
+                $filer->said(MailReceiptTrace::ALREADY_HELD, $message, $attachment);
                 continue;
             }
             $fresh[] = $attachment;
@@ -575,6 +692,16 @@ class FinanceMessageConsumer implements
 
         foreach ($fresh as $attachment) {
             if (!$recognizer->looksLikeAReceipt($texts[$attachment->id] ?? '')) {
+                // A document that could not be read is not a document that
+                // does not look like a receipt: the first is retried, the
+                // second is final. Said apart.
+                $filer->said(
+                    ($texts[$attachment->id] ?? '') === '' && $this->attachmentText->readingFailed()
+                        ? MailReceiptTrace::READING_FAILED
+                        : MailReceiptTrace::NOT_A_RECEIPT,
+                    $message,
+                    $attachment
+                );
                 continue;
             }
 
@@ -591,9 +718,13 @@ class FinanceMessageConsumer implements
             }
         }
 
-        return $filed === 0 && $this->attachmentText->readingFailed()
-            ? AnalysisResult::readingFailed()
-            : AnalysisResult::nothing();
+        if ($filed === 0 && $this->attachmentText->readingFailed()) {
+            return AnalysisResult::readingFailed();
+        }
+
+        // Filed in the sorting pile and linked to nothing: the pass's
+        // summary still has to count it (#1406).
+        return $filed === 0 ? AnalysisResult::nothing() : AnalysisResult::filedElsewhere($filed);
     }
 
     /**
@@ -661,11 +792,17 @@ class FinanceMessageConsumer implements
         // this module granting itself an account it may not touch — and
         // falling through to the unattended route would be worse still,
         // since that one exists for associations NOBODY made.
+        $filer = $this->filer();
         if ($link->createdByUserAccountId !== null && $actor === null) {
+            if ($filer !== null) {
+                foreach (MailReceiptFiler::receiptAttachmentsOf($message, $link) as $attachment) {
+                    $filer->said(MailReceiptTrace::PERSON_UNRESOLVED, $message, $attachment);
+                }
+            }
+
             return;
         }
 
-        $filer = $this->filer();
         if ($filer === null) {
             return;
         }
@@ -679,6 +816,7 @@ class FinanceMessageConsumer implements
             // (decision 3). A PERSON associating it is a decision of their
             // own, and files.
             if ($actor === null && $filer->alreadyThrough($attachment)) {
+                $filer->said(MailReceiptTrace::ALREADY_THROUGH, $message, $attachment);
                 continue;
             }
 

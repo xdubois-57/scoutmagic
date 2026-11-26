@@ -10,6 +10,7 @@ use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Security\AuthSession;
 use Core\Security\EncryptionService;
+use Modules\InboundMail\Api\AttachmentFate;
 use Modules\InboundMail\Api\LinkOrigin;
 use Modules\InboundMail\Api\MessageCandidate;
 use Modules\InboundMail\Controller\InboundMailboxController;
@@ -22,6 +23,7 @@ use Modules\InboundMail\Service\MessageConsumerRegistry;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\InboundMail\FakeDirectoryConsumer;
+use Tests\Modules\InboundMail\FakeFateConsumer;
 use Tests\Modules\InboundMail\FakeMessageConsumer;
 use Tests\Modules\InboundMail\InboundMailTestHelper;
 use Tests\TestTwig;
@@ -565,6 +567,66 @@ class InboundMailboxControllerTest extends TestCase
         $this->assertSame(200, $response->getStatusCode());
         $this->assertStringContainsString('camp-1', $response->getBody());
         $this->assertStringNotContainsString('/objets/camp-1', $response->getBody());
+    }
+
+    // ── Ce que chaque pièce jointe est devenue (#1406) ──────────────────
+
+    public function testALinkShowsWhatBecameOfEachAttachmentItCovers(): void
+    {
+        $consumer = new FakeFateConsumer('finance', [
+            new AttachmentFate(1, AttachmentFate::CREATED, 'Reçu créé', '/finance/receipts?account_id=3', 'Louveteaux'),
+            new AttachmentFate(2, AttachmentFate::DELETED, 'Reçu identique supprimé dans Finance — non recréé'),
+        ]);
+        $controller = $this->controllerWith($consumer);
+        $id = $this->store('fates@x');
+        $this->messages->addLink($id, 'finance', 'account-unknown', LinkOrigin::ATTACHMENT);
+
+        $html = $controller->show(new Request('GET', '/courrier/' . $id, [], [], [], []), ['id' => (string) $id])->getBody();
+
+        $this->assertStringContainsString('data-attachment-fate="created"', $html);
+        $this->assertStringContainsString('Reçu créé', $html);
+        $this->assertStringContainsString('href="/finance/receipts?account_id=3"', $html, 'the receipt is one click away');
+        $this->assertStringContainsString('Louveteaux', $html);
+        $this->assertStringContainsString('data-attachment-fate="deleted"', $html);
+        $this->assertStringContainsString('Reçu identique supprimé dans Finance — non recréé', $html);
+        $this->assertCount(1, $consumer->asked, 'asked once for the one link');
+    }
+
+    public function testAFateWithoutAUrlIsTheStateAlone(): void
+    {
+        $controller = $this->controllerWith(new FakeFateConsumer('finance', [
+            new AttachmentFate(1, AttachmentFate::ALREADY_PRESENT, 'Reçu déjà présent dans Finance'),
+        ]));
+        $id = $this->store('nolink@x');
+        $this->messages->addLink($id, 'finance', 'account-unknown', LinkOrigin::ATTACHMENT);
+
+        $html = $controller->show(new Request('GET', '/courrier/' . $id, [], [], [], []), ['id' => (string) $id])->getBody();
+
+        $this->assertStringContainsString('Reçu déjà présent dans Finance', $html);
+        $this->assertStringNotContainsString('/finance/receipts', $html, 'no link where the viewer may not look');
+    }
+
+    public function testAConsumerThatCannotSayWhatBecameOfItsAttachmentsDoesNotTakeThePageDown(): void
+    {
+        $controller = $this->controllerWith(new FakeFateConsumer('finance', [], broken: true));
+        $id = $this->store('broken@x');
+        $this->messages->addLink($id, 'finance', 'account-unknown', LinkOrigin::ATTACHMENT);
+
+        $response = $controller->show(new Request('GET', '/courrier/' . $id, [], [], [], []), ['id' => (string) $id]);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertStringNotContainsString('data-attachment-fate', $response->getBody());
+    }
+
+    public function testAConsumerThatDoesNotReportAddsNoLineUnderItsLink(): void
+    {
+        $controller = $this->controllerWith(new FakeMessageConsumer('camps'));
+        $id = $this->store('silent@x');
+        $this->messages->addLink($id, 'camps', 'camp-1', LinkOrigin::REFERENCE);
+
+        $html = $controller->show(new Request('GET', '/courrier/' . $id, [], [], [], []), ['id' => (string) $id])->getBody();
+
+        $this->assertStringNotContainsString('data-attachment-fate', $html);
     }
 
     // ── « Avec proposition à confirmer » ────────────────────────────────

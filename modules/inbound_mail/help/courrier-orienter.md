@@ -21,7 +21,9 @@ et trois blocs.
 mène à l'élément concerné : séjour, réservation ou compte. « Détacher »
 enlève **un** rattachement ; ni le message ni les autres rattachements
 ne disparaissent, pour qu'une correction puisse le placer au bon
-endroit.
+endroit. Sous un rattachement à Finances, une ligne dit ce qu'est devenue
+chaque pièce jointe : « Reçu créé », « Reçu déjà présent dans Finance »
+ou « Reçu identique supprimé dans Finance — non recréé ».
 
 **Les propositions** — ce qu'un module pense pouvoir rattacher, sans en
 être sûr, avec ce sur quoi il s'appuie. « Rattacher » la confirme ;

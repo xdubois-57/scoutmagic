@@ -174,6 +174,41 @@ class ReceiptMailSourceRepository
     }
 
     /**
+     * What finance recorded for each of these inbound attachments, keyed by
+     * inbound attachment id — absent for one finance has not looked at.
+     *
+     * For the message page, which tells a person what became of each
+     * attachment (#1406).
+     *
+     * @param int[] $inboundAttachmentIds
+     * @return array<int, array{reason: string, attachment_id: int|null}>
+     */
+    public function forInboundAttachments(array $inboundAttachmentIds): array
+    {
+        $ids = array_values(array_unique(array_map('intval', $inboundAttachmentIds)));
+        if ($ids === []) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($ids), '?'));
+        $stmt = $this->pdo->prepare(
+            'SELECT inbound_attachment_id, attachment_id, reason FROM finance_receipt_mail_sources
+              WHERE inbound_attachment_id IN (' . $placeholders . ')'
+        );
+        $stmt->execute($ids);
+
+        $rows = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $rows[(int) $row['inbound_attachment_id']] = [
+                'reason' => (string) $row['reason'],
+                'attachment_id' => $row['attachment_id'] === null ? null : (int) $row['attachment_id'],
+            ];
+        }
+
+        return $rows;
+    }
+
+    /**
      * The inbound messages a receipt is known to have come from.
      *
      * @return list<int>
