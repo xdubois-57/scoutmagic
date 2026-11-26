@@ -455,6 +455,35 @@ final class ReceiptOutcomeJournalTest extends TestCase
         $this->assertCount(1, $this->attachments->findActiveOrdered());
     }
 
+    /**
+     * Message A's receipt is deleted, message B brings the same document
+     * back as a new receipt, then message C carries it again. C's held
+     * receipt is the live one, not the oldest: the page must not say
+     * « supprimé » next to a receipt that exists.
+     */
+    public function testAHeldDocumentPointsAtTheLiveReceiptNotTheOldestDeletedOne(): void
+    {
+        $fileId = $this->inboundPdf('text_receipt.pdf');
+        $consumer = $this->consumer();
+        $consumer->onLinked($this->generalMessage($fileId), $this->unknownLink());
+        $this->receiptService()->delete($this->attachments->findActiveOrdered()[0]->id);
+        $consumer->onLinked($this->generalMessage($fileId, messageId: 57, attachmentId: 91), $this->unknownLink());
+        $third = $this->generalMessage($fileId, messageId: 58, attachmentId: 92);
+
+        $consumer->onLinked($third, $this->unknownLink());
+
+        $live = $this->attachments->findActiveOrdered();
+        $this->assertCount(1, $live, 'one live receipt, and nothing was filed a third time');
+        $fates = $consumer->attachmentFates($third, $this->unknownLink(), 'admin', []);
+        $this->assertSame(AttachmentFate::ALREADY_PRESENT, $fates[0]->state);
+        $this->assertSame('/finance/receipts?account_id=unassigned', $fates[0]->url);
+        $this->assertSame(
+            $live[0]->id,
+            $this->contexts()[2]['receipt_id'],
+            'and the journal names the live receipt'
+        );
+    }
+
     public function testAnAttachmentFinanceHasNotLookedAtIsPending(): void
     {
         $message = $this->generalMessage($this->inboundPdf('text_receipt.pdf'));

@@ -237,7 +237,7 @@ class MailReceiptFiler
     public function rememberHeld(InboundMessage $message, InboundAttachment $attachment, string $content): void
     {
         try {
-            $held = array_key_first($this->known->statusesByContentHash(hash('sha256', $content)));
+            $held = $this->holderOfBytes($content);
             $this->sources->record(
                 $attachment->id,
                 $message->id,
@@ -319,6 +319,27 @@ class MailReceiptFiler
     }
 
     /**
+     * The receipt that holds these bytes — a live one before an archived one.
+     *
+     * The statuses come back oldest first, whatever they are, and the first
+     * is not the answer: a receipt deleted long ago and brought back by a
+     * newer message leaves an archived receipt ahead of the live one, and
+     * pointing there would tell the message page « supprimé » next to a
+     * receipt that exists (#1406).
+     */
+    private function holderOfBytes(string $content): ?int
+    {
+        $statuses = $this->known->statusesByContentHash(hash('sha256', $content));
+        foreach ($statuses as $id => $status) {
+            if ($status === Attachment::STATUS_ACTIVE) {
+                return $id;
+            }
+        }
+
+        return array_key_first($statuses);
+    }
+
+    /**
      * The receipt finance already holds for this attachment, in any state,
      * as its id — or false when it holds none.
      *
@@ -332,7 +353,7 @@ class MailReceiptFiler
      */
     private function heldAnywhere(InboundAttachment $attachment, string $content, ?int $accountId): int|false
     {
-        $byBytes = array_key_first($this->known->statusesByContentHash(hash('sha256', $content)));
+        $byBytes = $this->holderOfBytes($content);
         if ($byBytes !== null) {
             return $byBytes;
         }
