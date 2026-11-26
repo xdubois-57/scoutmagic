@@ -11325,6 +11325,21 @@ if ($isEnabled('camps')) {
         \Modules\Camps\Controller\CampsConfigController::class,
         new \Modules\Camps\Controller\CampsConfigController($twig, $settingService)
     );
+    // The place forms' address lookup for the core's point picker (#1353),
+    // under the module's own geocoding switch: off means the form never
+    // asks, exactly as the background task never does.
+    $frontController->registerController(
+        \Modules\Camps\Controller\CampsAddressController::class,
+        new \Modules\Camps\Controller\CampsAddressController(
+            $twig,
+            (string) $settingService->get('camps_geocoding_enabled', 'camps', '1') === '1'
+                ? new \Core\Geo\AddressLocator(
+                    $pdo,
+                    new \Core\Geo\GeocodingService((string) ($settingService->get('base_url') ?? ''))
+                )
+                : null
+        )
+    );
 }
 
 // Covoiturage (docs/chantiers/covoiturage.md, ARCHITECTURE.md §8.120): the
