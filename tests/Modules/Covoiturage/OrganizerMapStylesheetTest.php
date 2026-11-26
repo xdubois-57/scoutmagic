@@ -11,7 +11,7 @@ use PHPUnit\Framework\TestCase;
  * that gives it one.
  *
  * Issue #570: « Placer le point sur la carte » showed nothing. The rule
- * was there — `.carpool-point-map { height: … }` in components.css — but
+ * was there — `.point-picker-map { height: … }` in components.css — but
  * base.html.twig deliberately does not load components.css, every page
  * opts in through its own `{% block stylesheets %}`, and this one never
  * did. Leaflet drawn into a zero-height box renders nothing, in every
@@ -33,9 +33,9 @@ final class OrganizerMapStylesheetTest extends TestCase
         $css = (string) file_get_contents($this->root() . self::STYLESHEET);
 
         $this->assertMatchesRegularExpression(
-            '/\.carpool-point-map\s*\{[^}]*\bheight\s*:\s*[1-9][^;]*;/',
+            '/\.point-picker-map\s*\{[^}]*\bheight\s*:\s*[1-9][^;]*;/',
             $css,
-            'components.css no longer gives .carpool-point-map a height: Leaflet renders nothing in a zero-height box'
+            'components.css no longer gives .point-picker-map a height: Leaflet renders nothing in a zero-height box'
         );
     }
 
@@ -43,7 +43,13 @@ final class OrganizerMapStylesheetTest extends TestCase
     {
         $template = (string) file_get_contents($this->root() . self::TEMPLATE);
 
-        $this->assertStringContainsString('class="carpool-point-map"', $template, 'the map container moved: update this test');
+        // The map container is the core's point picker since #1353.
+        $this->assertStringContainsString("'partials/point_picker.html.twig'", $template, 'the map moved: update this test');
+        $this->assertStringContainsString(
+            'class="point-picker-map"',
+            (string) file_get_contents($this->root() . '/core/View/templates/partials/point_picker.html.twig'),
+            'the map container moved: update this test'
+        );
 
         $matched = preg_match('/\{%\s*block stylesheets\s*%\}(?P<body>.*?)\{%\s*endblock\s*%\}/s', $template, $block);
         $this->assertSame(1, $matched, 'the organiser form has no stylesheets block any more');
@@ -56,5 +62,24 @@ final class OrganizerMapStylesheetTest extends TestCase
             'the organiser form does not link components.css: base.html.twig does not load it, '
             . 'so the map box has no height and shows nothing (issue #570)'
         );
+    }
+
+    /**
+     * The carpool script asks the core's point picker for its handle when it
+     * loads: loaded first, it finds none, and the address the events fill is
+     * never looked up — in silence (#1353).
+     */
+    public function testThePointPickerLoadsBeforeTheCarpoolScript(): void
+    {
+        $template = (string) file_get_contents($this->root() . self::TEMPLATE);
+
+        $picker = strpos($template, "asset('/assets/js/point-picker.js')");
+        $carpool = strpos($template, "asset('/assets/js/covoiturage-organize.js')");
+        $map = strpos($template, "asset('/assets/js/map.js')");
+        $this->assertNotFalse($picker);
+        $this->assertNotFalse($carpool);
+        $this->assertNotFalse($map);
+        $this->assertLessThan($picker, $map, 'map.js must load before point-picker.js');
+        $this->assertLessThan($carpool, $picker, 'point-picker.js must load before covoiturage-organize.js');
     }
 }

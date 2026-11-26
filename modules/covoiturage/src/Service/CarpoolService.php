@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\Covoiturage\Service;
 
 use Core\Geo\GeoPoint;
+use Core\Geo\PointSubmission;
 use Core\Member\MemberService;
 use Core\Member\SectionService;
 use Core\Service\DateInput;
@@ -255,8 +256,9 @@ class CarpoolService
         // says it came from the address and nobody touched it (#642). A pin
         // removed with « Retirer » is locked as « no point »; none at all
         // leaves the address to the geocoding task.
-        if ($data['point'] !== null || $data['point_removed']) {
-            $this->savePoint($id, $data['point'], $data['point_automatic']);
+        $point = $data['point'];
+        if ($point->point !== null || $point->removed) {
+            $this->savePoint($id, $point->point, $point->automatic);
         }
 
         return $id;
@@ -295,28 +297,17 @@ class CarpoolService
             $points->forgetGeocoding($carpool->id);
         }
         // Moved, typed or removed by hand: locked for ever. Found from the
-        // address and left alone: automatic, like the task's. A form that
-        // did not carry the point at all changes nothing. After a change of
-        // address, an automatic point the form still posts was found for the
-        // NEW address — validate() drops one whose `point_address` is not
-        // it — and is written back even when it lands on the same
-        // coordinates, or forgetGeocoding() above would leave the row
-        // without it.
-        $foundForNewAddress = $addressChanged && $data['point_automatic'] && $data['point'] !== null;
-        // « Retirer » on a carpool the task has not placed yet: nothing to
-        // compare, but a human's « no point » all the same.
-        $removedByHand = $data['point_removed'] && !$carpool->pointIsManual;
-        if (
-            $data['point_given']
-            && ($data['point']?->line() !== $carpool->point?->line() || $foundForNewAddress || $removedByHand)
-        ) {
-            $this->savePoint($carpool->id, $data['point'], $data['point_automatic']);
+        // address and left alone: automatic, like the task's. The rules of
+        // what the form meant are the core's (Core\Geo\PointSubmission).
+        $point = $data['point'];
+        if ($point->changes($carpool->point, $carpool->pointIsManual, $addressChanged)) {
+            $this->savePoint($carpool->id, $point->point, $point->automatic);
         }
     }
 
     /**
      * `point_automatic` is the form's word that the pin sits where the
-     * address lookup put it (public/assets/js/covoiturage-organize.js).
+     * address lookup put it (the core's public/assets/js/point-picker.js).
      * Trusting it costs nothing: at worst a chief's point is stored as
      * automatic, which the next change of address may replace — and
      * GeoPointStore never lets it overwrite a row a human already locked.
@@ -378,8 +369,7 @@ class CarpoolService
      * creator instead.
      *
      * @return array{address: string, outbound: string, return: ?string,
-     *               events: list<CarpoolEvent>, point: ?GeoPoint, point_given: bool, point_automatic: bool,
-     *               point_removed: bool}
+     *               events: list<CarpoolEvent>, point: PointSubmission}
      * @throws CarpoolException
      */
     private function validate(array $input, CarpoolViewer $viewer, ?Carpool $existing): array
@@ -442,26 +432,6 @@ class CarpoolService
             throw new CarpoolException('Le retour ne peut pas précéder l\'aller.');
         }
 
-
-        $pointGiven = array_key_exists('latitude', $input) || array_key_exists('longitude', $input);
-        $point = GeoPoint::fromInput(
-            isset($input['latitude']) ? (string) $input['latitude'] : null,
-            isset($input['longitude']) ? (string) $input['longitude'] : null
-        );
-        $automatic = (string) ($input['point_automatic'] ?? '') === '1';
-        if (
-            $automatic && $point !== null
-            && TextNormalizerService::fold((string) ($input['point_address'] ?? ''))
-                !== TextNormalizerService::fold($address)
-        ) {
-            // An untouched pin found for another address — the form was sent
-            // before the lookup of the new one answered. It is not this
-            // address's point: the form is taken as not carrying one, and
-            // the geocoding task finds it.
-            $pointGiven = false;
-            $point = null;
-        }
-
         return [
             'address' => $address,
             'outbound' => $outbound,
@@ -471,14 +441,9 @@ class CarpoolService
                     => new CarpoolEvent($e->id, $e->title, $e->sectionId, $e->sectionName),
                 $events
             ),
-            'point' => $point,
-            'point_given' => $pointGiven,
-            'point_automatic' => $automatic,
-            // « Retirer » posts empty coordinates and `point_manual`: a
-            // human's decision, locked like a placed point — or the task
-            // would put back the pin the chief just took away.
-            'point_removed' => $pointGiven && $point === null && !$automatic
-                && (string) ($input['point_manual'] ?? '') === '1',
+            // An untouched pin found for another address is dropped there,
+            // and the geocoding task finds this address's point.
+            'point' => PointSubmission::fromInput($input, $address),
         ];
     }
 

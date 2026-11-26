@@ -169,6 +169,11 @@ interface Window {
         FALLBACK_ZOOM: number;
         create: (container: HTMLElement, options?: { center?: LeafletLatLng; zoom?: number }) => LeafletMap | null;
     };
+    // public/assets/js/point-picker.js — the core's point picker (#1353),
+    // loaded after map.js by the pages whose form carries a point.
+    ScoutMagicPointPicker?: {
+        wire: (box: HTMLElement | null) => { locate: () => void; refresh: () => void } | null;
+    };
     // public/assets/js/theme.js — the light/dark/auto color-scheme
     // toolbox, loaded by base.html.twig on every page (design.md §7.8).
     ScoutMagicTheme?: {

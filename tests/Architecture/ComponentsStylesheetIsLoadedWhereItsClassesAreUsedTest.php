@@ -100,7 +100,7 @@ final class ComponentsStylesheetIsLoadedWhereItsClassesAreUsedTest extends TestC
     {
         $classes = self::componentsOnlyClasses();
 
-        $this->assertArrayHasKey('carpool-point-map', $classes, 'issue #570\'s class');
+        $this->assertArrayHasKey('point-picker-map', $classes, 'issue #570\'s class');
         $this->assertArrayHasKey('support-payload-preview', $classes, 'issue #602\'s class');
         $this->assertArrayNotHasKey('min-w-0', $classes, '.min-w-0 lives in app.css since #602');
 
