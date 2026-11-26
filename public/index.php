@@ -8523,7 +8523,16 @@ if ($isEnabled('inbound_mail')) {
                 new \Core\File\UploadHandler(new \Core\File\FileRepository($pdo), $storagePath, $diskBudget),
                 null,
                 $encryptedFileStorageService,
-                null,
+                // The same journal the scheduled relève writes
+                // (public/scheduler-bootstrap.php), and for the same reason:
+                // « Relever le courrier maintenant » is the button a
+                // superadmin presses to find out why a message did not
+                // produce what they expected, and a relève that left no line
+                // for the messages it stored was the one that answered
+                // nothing (#1406). A null here also CLEARS the consumers'
+                // journal, since the sync service hands its own to the
+                // registry.
+                new \Modules\InboundMail\Service\AnalysisJournal($journalService),
                 $inboundReplyAddresses,
                 journal: $journalService
             ),
@@ -9037,7 +9046,13 @@ if ($isEnabled('finance')) {
                             ],
                             null
                         );
-                    }
+                    },
+                    // The web path never reads a document's text nor asks
+                    // whether a box is the treasury's own: those belong to
+                    // the deferred pass. It does file receipts, though — when
+                    // a treasurer confirms a proposition — and says what
+                    // became of each one, as the relève does (#1406).
+                    trace: new \Modules\Finance\Mail\MailReceiptTrace($journalService)
                 )
         );
 

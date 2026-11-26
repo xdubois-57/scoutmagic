@@ -283,6 +283,28 @@ class AnalyzeStoredMessagesHandlerTest extends TestCase
     /**
      * @return array<string, mixed>
      */
+    /**
+     * Finance files a receipt on the general address in « Compte inconnu »
+     * and links nothing. The run's summary has to say it filed one — it
+     * read « 0 rattachement, 0 proposition » over it (#1406) — and the
+     * answer has to survive the registry, which keeps only non-empty ones.
+     */
+    public function testTheSummaryCountsWhatAConsumerFiledWithoutLinkingTheMessage(): void
+    {
+        $messageId = $this->storeMessage('filed-elsewhere@mail');
+        $consumer = new FakeMessageConsumer(
+            'finance',
+            null,
+            fn(): AnalysisResult => AnalysisResult::filedElsewhere(2)
+        );
+
+        $this->runPass($consumer);
+
+        $entry = $this->journalEntry('inbound_stored_analysis_done');
+        $this->assertStringContainsString('2 reçu(s) à trier', $entry['description']);
+        $this->assertSame([], $this->messages->findLinksForMessage($messageId), 'and nothing was linked');
+    }
+
     private function journalEntry(string $type): array
     {
         foreach ((new JournalRepository($this->pdo))->search() as $entry) {

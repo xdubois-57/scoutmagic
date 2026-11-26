@@ -173,6 +173,27 @@ class AnalysisJournalTest extends TestCase
         $this->assertStringContainsString('2 proposition(s)', $entry['description']);
     }
 
+    public function testTheDeferredPassCountsTheReceiptsItFiledWithoutLinkingAnything(): void
+    {
+        // A receipt on the general address goes to « Compte inconnu » and
+        // the message is not linked: neither a link nor a proposition, so
+        // the line said « 0, 0 » over a run that had filed one (#1406).
+        $this->journal->storedPassDone(3, 0, 0, 0, 1);
+
+        $entry = $this->entries()[0];
+        $this->assertStringContainsString('0 rattachement(s), 0 proposition(s), 1 reçu(s) à trier', $entry['description']);
+        $this->assertSame(1, json_decode((string) $entry['context'], true)['filed']);
+    }
+
+    public function testTheFiledCountIsLeftOutWhenNothingWasFiled(): void
+    {
+        $this->journal->storedPassDone(4, 1, 2);
+
+        $entry = $this->entries()[0];
+        $this->assertStringNotContainsString('à trier', $entry['description']);
+        $this->assertSame(0, json_decode((string) $entry['context'], true)['filed']);
+    }
+
     // ── Through the registry, which is where the swallowing happened ────
 
     public function testTheRegistryJournalsTheConsumerItSkips(): void

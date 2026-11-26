@@ -785,7 +785,12 @@ function scoutmagicBootstrapScheduler(
                         ),
                         // Whether the stored message's box is the treasury's
                         // own — the question the arrival pass is told.
-                        $inboundMail
+                        $inboundMail,
+                        // What became of each attachment, one journal line
+                        // each: filed, already in finance, not a receipt
+                        // (#1406). Before it, all of those left the same
+                        // journal — nothing.
+                        new \Modules\Finance\Mail\MailReceiptTrace($journalService)
                     ));
                 }
 
