@@ -421,6 +421,7 @@
                 finance_accounts: finance_accounts,
                 finance_categories: finance_categories|default([]),
                 payment_settings: payment_settings,
+                can_configure_finance: can_configure_finance|default(false),
             } only %}
                 {% block body %}
                     <form method="post" action="/admin/locations/compte" id="finance-account-form">
@@ -439,6 +440,16 @@
                         <div class="form-text">
                             Sans IBAN sur ce compte, aucun QR code SEPA ne peut être proposé au locataire.
                         </div>
+                        <div class="form-text" id="finance-account-where">
+                            {% if can_configure_finance %}
+                                Vous pouvez
+                                <a href="/config/finance/accounts" target="_blank" rel="noopener">déclarer un compte de l'unité<span class="visually-hidden"> (nouvel onglet)</span>
+                                    <i class="bi bi-box-arrow-up-right small" aria-hidden="true"></i></a>
+                                dans la configuration des Finances.
+                            {% else %}
+                                Pour déclarer un autre compte de l'unité, demandez-le au superadministrateur du site.
+                            {% endif %}
+                        </div>
                         <label class="form-label mt-3" for="finance-category">Catégorie</label>
                         <select class="form-select" id="finance-category" name="finance_category_id"
                                 aria-describedby="finance-category-help">
@@ -453,6 +464,16 @@
                         <div class="form-text" id="finance-category-help">
                             Les paiements des locations de ce bien, caution comprise, seront classés dans cette
                             catégorie des Finances. Obligatoire dès qu'un compte est choisi.
+                        </div>
+                        <div class="form-text" id="finance-category-where">
+                            {% if can_configure_finance %}
+                                Vous pouvez
+                                <a href="/config/finance/categories" target="_blank" rel="noopener">créer une nouvelle catégorie de paiement<span class="visually-hidden"> (nouvel onglet)</span>
+                                    <i class="bi bi-box-arrow-up-right small" aria-hidden="true"></i></a>
+                                dans la configuration des Finances.
+                            {% else %}
+                                Pour créer une nouvelle catégorie, demandez-le au superadministrateur du site.
+                            {% endif %}
                         </div>
                     </form>
                 {% endblock %}

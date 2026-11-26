@@ -788,16 +788,16 @@ class RentalConfigControllerTest extends TestCase
         $this->assertStringContainsString('Page non trouvée', $response->getBody());
     }
 
-    /** With Finance, the account is named on the page and picked in its dialog. */
-    public function testWithFinanceTheAssetPageOffersItsAccount(): void
+    /** A controller wired with Finance, offering one account. */
+    private function financeController(): RentalConfigController
     {
-        $assetId = $this->createAsset();
         $accounts = $this->createStub(\Modules\Finance\Api\FinanceAccountInterface::class);
         $accounts->method('getConfiguredAccounts')->willReturn([
             ['id' => 3, 'name' => 'Compte locations', 'iban' => 'BE68539007547034', 'holder_name' => null, 'section_id' => null],
         ]);
         $journal = new JournalService(new JournalRepository($this->pdo));
-        $controller = new RentalConfigController(
+
+        return new RentalConfigController(
             $this->twig,
             $this->assetRepository,
             new RentalAssetService($this->assetRepository, new RentalSlugGenerator($this->assetRepository), $journal),
@@ -814,11 +814,75 @@ class RentalConfigControllerTest extends TestCase
                 $accounts
             )
         );
+    }
+
+    /** With Finance, the account is named on the page and picked in its dialog. */
+    public function testWithFinanceTheAssetPageOffersItsAccount(): void
+    {
+        $assetId = $this->createAsset();
+        $controller = $this->financeController();
 
         $body = $this->assetPage($assetId, $controller);
 
         $this->assertStringContainsString('action="/admin/locations/compte"', $body);
         $this->assertStringContainsString('Compte locations', $body);
+    }
+
+    /**
+     * Where a missing account or category is created is a `superadmin`
+     * Finance page (issue #1355, D13): a superadmin gets both links, in a
+     * new tab and said so, outside the form so a click submits nothing.
+     */
+    public function testASuperadminIsLinkedToTheFinanceScreensFromTheAccountDialog(): void
+    {
+        AuthSession::login(1, 'admin@test.be', 'superadmin');
+        $body = $this->assetPage($this->createAsset(), $this->financeController());
+
+        $this->assertMatchesRegularExpression(
+            '#<a href="/config/finance/accounts" target="_blank" rel="noopener">déclarer un compte de l\'unité'
+            . '<span class="visually-hidden"> \(nouvel onglet\)</span>#u',
+            $body
+        );
+        $this->assertMatchesRegularExpression(
+            '#<a href="/config/finance/categories" target="_blank" rel="noopener">créer une nouvelle catégorie'
+            . ' de paiement<span class="visually-hidden"> \(nouvel onglet\)</span>#u',
+            $body
+        );
+        $this->assertStringNotContainsString('demandez-le au superadministrateur', $body);
+        // The two existing explanations stay.
+        $flat = self::flat($body);
+        $this->assertStringContainsString('aucun QR code SEPA ne peut être proposé', $flat);
+        $this->assertStringContainsString("Obligatoire dès qu'un compte est choisi.", $flat);
+        // Links are not buttons: nothing in them can submit the form.
+        $this->assertDoesNotMatchRegularExpression('#<button[^>]*>[^<]*déclarer un compte#u', $body);
+    }
+
+    /** An admin below superadmin cannot open those pages: no link, only whom to ask. */
+    public function testAnAdminReadsWhomToAskRatherThanALinkHeCannotFollow(): void
+    {
+        $body = $this->assetPage($this->createAsset(), $this->financeController());
+        $flat = self::flat($body);
+
+        $this->assertStringNotContainsString('/config/finance/accounts', $body);
+        $this->assertStringNotContainsString('/config/finance/categories', $body);
+        $this->assertStringContainsString(
+            "Pour déclarer un autre compte de l'unité, demandez-le au superadministrateur du site.",
+            $flat
+        );
+        $this->assertStringContainsString(
+            'Pour créer une nouvelle catégorie, demandez-le au superadministrateur du site.',
+            $flat
+        );
+    }
+
+    /** Without Finance the section is unchanged for everyone, superadmin included. */
+    public function testWithoutFinanceNoFinanceLinkIsOffered(): void
+    {
+        AuthSession::login(1, 'admin@test.be', 'superadmin');
+        $body = $this->assetPage($this->createAsset());
+
+        $this->assertStringNotContainsString('/config/finance/', $body);
+        $this->assertStringNotContainsString('demandez-le au superadministrateur', $body);
     }
 
     /**
