@@ -26,7 +26,8 @@ use Twig\Environment;
  * the same person superseding an older one — ARCHITECTURE.md §8.119), the
  * right to ask is the camps place form's (`chief`, in module.json), and the
  * switch is the module's own `camps_geocoding_enabled`: off, the composition
- * root passes no locator and the form is never told the route exists.
+ * root passes no locator and the route answers « unavailable » without
+ * asking anybody.
  */
 class CampsAddressController extends AbstractController
 {

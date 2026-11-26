@@ -27,7 +27,10 @@ final class RgpdAddressLookupTest extends TestCase
             'aussi pendant qu\'un animateur saisit l\'adresse d\'un lieu de camp',
             $page
         );
-        $this->assertStringContainsString('ce géocodage — en tâche de fond comme pendant la saisie — peut être désactivé', $page);
+        $this->assertStringContainsString(
+            'ce géocodage — en tâche de fond comme pendant la saisie — peut être désactivé',
+            $page
+        );
     }
 
     public function testThePromptKeepsIt(): void
