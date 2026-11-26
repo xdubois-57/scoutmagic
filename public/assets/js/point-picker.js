@@ -535,7 +535,7 @@
             var dirty = false;
             var settle = function () {
                 setTimeout(function () {
-                    if (dirty && all.indexOf(/** @type {HTMLInputElement} */ (document.activeElement)) === -1) {
+                    if (dirty && !all.includes(/** @type {HTMLInputElement} */ (document.activeElement))) {
                         dirty = false;
                         void locate();
                     }
