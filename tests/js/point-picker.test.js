@@ -135,6 +135,40 @@ describe('point-picker', () => {
             expect(addressMarkerOf(leaflet).options.icon.divIcon.html).toContain('Adresse &lt;du&gt; lieu');
         });
 
+        it('composes an address kept in several fields, the way the server writes it', async () => {
+            stubLeaflet();
+            document.body.innerHTML = `
+                <input id="a-street" value=""><input id="a-postal" value=""><input id="a-city" value="">
+                <input id="a-country" value="Belgique">
+                <fieldset data-point-picker data-locate-url="/lookup/address"
+                          data-address-fields='[["a-street"],["a-postal","a-city"],["a-country"]]'>
+                    <input type="hidden" data-point-picker-automatic>
+                    <input type="hidden" data-point-picker-manual value="0">
+                    <input type="hidden" data-point-picker-address>
+                    <div data-point-picker-fields>
+                        <input id="a-lat" data-point-picker-latitude><input id="a-lng" data-point-picker-longitude>
+                    </div>
+                    <div class="d-none" data-point-picker-map-box><div data-point-picker-map></div>
+                        <button type="button" data-point-picker-remove>Retirer</button></div>
+                    <button type="button" class="d-none" data-point-picker-place>Placer</button>
+                </fieldset>`;
+            await load();
+            answer({ success: true, found: true, latitude: 50.4421, longitude: 4.9876 });
+
+            /** @type {HTMLInputElement} */ (document.getElementById('a-street')).value = 'Rue du Tronquoy 4';
+            /** @type {HTMLInputElement} */ (document.getElementById('a-postal')).value = '5340';
+            const city = /** @type {HTMLInputElement} */ (document.getElementById('a-city'));
+            city.value = 'Mozet';
+            city.dispatchEvent(new Event('change'));
+            await settle();
+
+            expect(window.ScoutMagicApi.getJson).toHaveBeenLastCalledWith(
+                '/lookup/address?q=' + encodeURIComponent('Rue du Tronquoy 4, 5340 Mozet, Belgique')
+            );
+            expect(document.querySelector('[data-point-picker-address]').value).toBe('Rue du Tronquoy 4, 5340 Mozet, Belgique');
+            expect(value('a-lat')).toBe('50.442100');
+        });
+
         it('redraws the map when the page says its box changed size', async () => {
             const leaflet = stubLeaflet();
             buildForm({ lat: '50.72', lng: '4.64' });

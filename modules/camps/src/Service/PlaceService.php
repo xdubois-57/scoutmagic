@@ -11,6 +11,7 @@ namespace Modules\Camps\Service;
 use Core\Audit\AuditService;
 use Core\Audit\AuditSource;
 use Core\Geo\GeoPoint;
+use Core\Geo\PointSubmission;
 use Modules\Camps\Repository\Place;
 use Modules\Camps\Repository\PlaceRepository;
 use Modules\Camps\Support;
@@ -92,9 +93,10 @@ class PlaceService
         // showing the wrong field, and nothing ever asked again. Cleared
         // only for an automatically-placed pin: the repository's own
         // `coordinates_are_manual = 0` fence keeps a hand-placed one.
-        if ($this->addressLine($place->address, $place->postalCode, $place->city, $place->country)
-            !== $this->addressLine($address, $postalCode, $city, $country)
-        ) {
+        $newLine = $this->addressLine($address, $postalCode, $city, $country);
+        $addressChanged = $this->addressLine($place->address, $place->postalCode, $place->city, $place->country)
+            !== $newLine;
+        if ($addressChanged) {
             $this->places->clearGeocoding($place->id);
         }
 
@@ -102,7 +104,7 @@ class PlaceService
         // actually carried them: a chief editing an address must not
         // silently wipe a pin somebody placed by hand.
         if (array_key_exists('latitude', $fields) || array_key_exists('longitude', $fields)) {
-            $this->updateCoordinates($place, $fields, $source, $actorUserAccountId);
+            $this->updateCoordinates($place, $fields, (string) $newLine, $addressChanged, $source, $actorUserAccountId);
         }
 
         // Recorded field by field rather than as one "lieu modifié": a
@@ -121,25 +123,59 @@ class PlaceService
     }
 
     /**
-     * Coordinates typed by a human.
+     * The point the form carried — read by the core's rules
+     * (`Core\Geo\PointSubmission`, #1353), which the place form's point
+     * picker shares with every other form that places something on a map.
      *
-     * Setting them marks the place manual FOR EVER: automatic geocoding
-     * never touches it again. Somebody who moved the pin onto the actual
-     * field knows something Nominatim does not, and the whole feature is
-     * worthless if the next task run puts it back on the village square.
+     * Placed, moved, typed or removed by a human: marked manual FOR EVER,
+     * and automatic geocoding never touches the place again. Somebody who
+     * moved the pin onto the actual field knows something Nominatim does
+     * not, and the whole feature is worthless if the next task run puts it
+     * back on the village square.
+     *
+     * Found from the address and left alone: automatic, exactly as the
+     * background task would have stored it — a point the chief only looked
+     * at must not freeze the place. One found for another address than the
+     * one posted (sent before the new lookup answered) is no point at all,
+     * and the task finds the right one.
      *
      * @param array<string, string|null> $fields
      */
-    private function updateCoordinates(Place $place, array $fields, AuditSource $source, ?int $actorUserAccountId): void
-    {
+    private function updateCoordinates(
+        Place $place,
+        array $fields,
+        string $addressLine,
+        bool $addressChanged,
+        AuditSource $source,
+        ?int $actorUserAccountId
+    ): void {
         // The core parses and refuses (GeoPointException, user-facing):
         // the same inputs are refused with the same sentences on every
         // form that places something on the map.
-        $point = GeoPoint::fromInput($fields['latitude'] ?? null, $fields['longitude'] ?? null);
+        $submission = PointSubmission::fromInput($fields, $addressLine);
+        $saved = GeoPoint::fromColumns($place->latitude, $place->longitude);
+        if (!$submission->changes($saved, $place->coordinatesAreManual, $addressChanged)) {
+            return;
+        }
 
-        $before = GeoPoint::fromColumns($place->latitude, $place->longitude)?->line();
-        $after = $point?->line();
-        if ($before === $after) {
+        $point = $submission->point;
+        if ($submission->automatic) {
+            if ($point === null) {
+                return;
+            }
+            $this->places->recordGeocoding($place->id, $point->latitude, $point->longitude, new \DateTimeImmutable());
+            $this->audit->record(
+                self::ENTITY_TYPE,
+                $place->id,
+                'coordinates',
+                $saved?->line(),
+                $point->line(),
+                $source,
+                'Coordonnées trouvées à partir de l\'adresse',
+                null,
+                $actorUserAccountId
+            );
+
             return;
         }
 
@@ -148,8 +184,8 @@ class PlaceService
             self::ENTITY_TYPE,
             $place->id,
             'coordinates',
-            $before,
-            $after,
+            $saved?->line(),
+            $point?->line(),
             $source,
             'Coordonnées saisies à la main — le géocodage automatique ne touchera plus ce lieu',
             null,

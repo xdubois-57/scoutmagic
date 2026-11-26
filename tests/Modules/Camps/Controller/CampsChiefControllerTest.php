@@ -273,6 +273,94 @@ class CampsChiefControllerTest extends TestCase
         $this->assertStringContainsString('alert-danger', $response->getBody());
     }
 
+    // ── The point on the map (the core's point picker, #1353) ───────
+
+    public function testThePlaceFormUsesTheCorePointPickerAndTheModulesLookup(): void
+    {
+        $placeId = $this->places->create('Domaine de Mozet', 'Rue du Tronquoy 4', '5340', 'Mozet', 'Belgique', null);
+        $this->places->recordGeocoding($placeId, 50.4421, 4.9876, new \DateTimeImmutable());
+
+        $page = $this->editPlacePage($placeId);
+
+        $this->assertStringContainsString('data-point-picker', $page);
+        $this->assertStringContainsString('data-locate-url="/chefs/camps/adresse"', $page);
+        // The four fields composed into the line PlaceService writes.
+        $this->assertStringContainsString(
+            'data-address-fields="[[&quot;place-address&quot;],'
+                . '[&quot;place-postal&quot;,&quot;place-city&quot;],[&quot;place-country&quot;]]"',
+            $page
+        );
+        $this->assertStringContainsString('data-manual="0"', $page, 'an automatic point is not shown as a human\'s');
+        $this->assertStringContainsString('class="point-picker-map"', $page);
+        $this->assertStringContainsString("/assets/js/point-picker.js", $page);
+        $this->assertMatchesRegularExpression('/id="place-latitude"[^>]*value="50.4421/', $page);
+    }
+
+    public function testWithGeocodingOffTheFormNeverAsks(): void
+    {
+        $this->pdo->exec(
+            "INSERT INTO settings (module_id, setting_key, setting_value, default_value, setting_type, label, "
+            . "description, editable) VALUES ('camps', 'camps_geocoding_enabled', '0', '1', 'boolean', 'x', 'x', 1)"
+        );
+        $placeId = $this->places->create('Le pré de Jules', null, null, 'Mozet', null, null);
+
+        $page = $this->editPlacePage($placeId);
+
+        $this->assertStringContainsString('data-point-picker', $page);
+        $this->assertStringNotContainsString('data-locate-url', $page);
+    }
+
+    /** A refused form keeps the point, and whether it is a human's. */
+    public function testARefusedPlaceEditKeepsThePointAndItsOrigin(): void
+    {
+        $placeId = $this->places->create('Ferme du Bois', null, null, 'Mozet', null, null);
+
+        $page = $this->controller->updatePlace(
+            new Request('POST', '/chefs/camps/lieux/' . $placeId, [], [
+                '_csrf_token' => CsrfGuard::generateToken(),
+                'place_name' => '',
+                'city' => 'Mozet',
+                'latitude' => '50.443000', 'longitude' => '4.990000',
+                'point_automatic' => '0', 'point_manual' => '1',
+            ], [], []),
+            ['id' => (string) $placeId]
+        )->getBody();
+
+        $this->assertStringContainsString('alert-danger', $page);
+        $this->assertMatchesRegularExpression('/id="place-latitude"[^>]*value="50.443000"/', $page);
+        $this->assertStringContainsString('data-manual="1"', $page);
+    }
+
+    private function editPlacePage(int $placeId): string
+    {
+        return $this->controller->editPlace(
+            new Request('GET', '/chefs/camps/lieux/' . $placeId . '/modifier', [], [], [], []),
+            ['id' => (string) $placeId]
+        )->getBody();
+    }
+
+    /** Saved from the map without touching the pin: automatic, never frozen. */
+    public function testSavingAnUntouchedAutomaticPointDoesNotFreezeIt(): void
+    {
+        $placeId = $this->places->create('Domaine de Mozet', 'Rue du Tronquoy 4', '5340', 'Mozet', 'Belgique', null);
+
+        $this->controller->updatePlace(
+            new Request('POST', '/chefs/camps/lieux/' . $placeId, [], [
+                '_csrf_token' => CsrfGuard::generateToken(),
+                'place_name' => 'Domaine de Mozet',
+                'address' => 'Rue du Tronquoy 4', 'postal_code' => '5340', 'city' => 'Mozet', 'country' => 'Belgique',
+                'latitude' => '50.442100', 'longitude' => '4.987600',
+                'point_automatic' => '1', 'point_address' => 'Rue du Tronquoy 4, 5340 Mozet, Belgique',
+                'point_manual' => '0',
+            ], [], []),
+            ['id' => (string) $placeId]
+        );
+
+        $place = $this->places->findById($placeId);
+        $this->assertNotNull($place?->latitude);
+        $this->assertFalse($place->coordinatesAreManual);
+    }
+
     // ── Past stays are paginated ────────────────────────────────────
 
     public function testThePastStaysSettingIsActuallyRead(): void
