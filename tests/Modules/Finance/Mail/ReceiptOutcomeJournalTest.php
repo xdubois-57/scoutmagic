@@ -305,6 +305,81 @@ final class ReceiptOutcomeJournalTest extends TestCase
         $this->assertNull($fates[0]->url, 'an archived receipt is on no screen');
     }
 
+    /**
+     * A receipt a treasurer confirmed that the store refused. The catch-up
+     * skips every association a person made, so nothing else would ever
+     * write the row: it read « pas encore traité » for ever.
+     */
+    public function testAReceiptFinanceRefusedForAPersonIsReportedAsRefusedNotAsPending(): void
+    {
+        $message = $this->generalMessage($this->inboundPdf('text_receipt.pdf'));
+        $consumer = $this->consumer(
+            new \Tests\Modules\Finance\Mail\RefusingExpenseReceipts(),
+            static fn(int $userAccountId): array => ['role' => 'admin', 'member_ids' => []]
+        );
+        $link = new MessageLink(
+            FinanceMessageConsumer::CONSUMER_ID,
+            FinanceMessageConsumer::REFERENCE_UNKNOWN,
+            LinkOrigin::MANUAL,
+            0,
+            77
+        );
+
+        $consumer->onLinked($message, $link);
+        $fates = $consumer->attachmentFates($message, $link, 'admin', []);
+
+        $this->assertSame([], $this->attachments->findActiveOrdered(), 'nothing was filed');
+        $this->assertSame(AttachmentFate::REFUSED, $fates[0]->state);
+        $this->assertSame('Reçu refusé par Finance — voir le journal', $fates[0]->label);
+    }
+
+    public function testAPersonWhoCannotBeResolvedIsReportedAsRefusedNotAsPending(): void
+    {
+        $message = $this->generalMessage($this->inboundPdf('text_receipt.pdf'));
+        $link = new MessageLink(
+            FinanceMessageConsumer::CONSUMER_ID,
+            FinanceMessageConsumer::REFERENCE_UNKNOWN,
+            LinkOrigin::MANUAL,
+            0,
+            77
+        );
+        $consumer = $this->consumer();
+
+        $consumer->onLinked($message, $link);
+
+        $this->assertSame(
+            AttachmentFate::REFUSED,
+            $consumer->attachmentFates($message, $link, 'admin', [])[0]->state
+        );
+    }
+
+    public function testAnAttachmentWhoseFileCannotBeReadIsReportedAsUnreadableNotAsPending(): void
+    {
+        $message = $this->generalMessage($this->inboundPdf('text_receipt.pdf'));
+        $consumer = $this->consumer(readFile: static fn(int $fileId): ?string => null);
+
+        $consumer->onLinked($message, $this->unknownLink());
+
+        $this->assertSame(
+            AttachmentFate::UNREADABLE,
+            $consumer->attachmentFates($message, $this->unknownLink(), 'admin', [])[0]->state
+        );
+        $this->assertSame([], $this->attachments->findActiveOrdered());
+    }
+
+    public function testAnUnreadableFileDoesNotCountAsThroughFinanceSoALaterPassReadsItAgain(): void
+    {
+        $message = $this->generalMessage($this->inboundPdf('text_receipt.pdf'));
+        $this->consumer(readFile: static fn(int $fileId): ?string => null)
+            ->onLinked($message, $this->unknownLink());
+
+        // The file is readable now: the same association files it, which is
+        // what keeps « illisible » from becoming a verdict.
+        $this->consumer()->onLinked($message, $this->unknownLink());
+
+        $this->assertCount(1, $this->attachments->findActiveOrdered());
+    }
+
     public function testAnAttachmentFinanceHasNotLookedAtIsPending(): void
     {
         $message = $this->generalMessage($this->inboundPdf('text_receipt.pdf'));
@@ -399,8 +474,15 @@ final class ReceiptOutcomeJournalTest extends TestCase
         );
     }
 
-    private function consumer(): FinanceMessageConsumer
-    {
+    /**
+     * @param (\Closure(int): ?array{role: string, member_ids: int[]})|null $resolveActor
+     * @param (\Closure(int): ?string)|null $readFile
+     */
+    private function consumer(
+        ?\Modules\Finance\Api\ExpenseReceiptInterface $receipts = null,
+        ?\Closure $resolveActor = null,
+        ?\Closure $readFile = null
+    ): FinanceMessageConsumer {
         $scope = new TreasurerScopeService(Connection::withPdo($this->pdo), new BadgeRepository($this->pdo));
 
         return new FinanceMessageConsumer(
@@ -409,9 +491,9 @@ final class ReceiptOutcomeJournalTest extends TestCase
             $this->pdo,
             $this->encryption,
             1,
-            new ExpenseReceiptService($this->accounts, $scope, $this->receiptService(), 1),
-            null,
-            fn(int $fileId): ?string => $this->reader->read($fileId),
+            $receipts ?? new ExpenseReceiptService($this->accounts, $scope, $this->receiptService(), 1),
+            $resolveActor,
+            $readFile ?? fn(int $fileId): ?string => $this->reader->read($fileId),
             null,
             null,
             null,

@@ -797,6 +797,7 @@ class FinanceMessageConsumer implements
             if ($filer !== null) {
                 foreach (MailReceiptFiler::receiptAttachmentsOf($message, $link) as $attachment) {
                     $filer->said(MailReceiptTrace::PERSON_UNRESOLVED, $message, $attachment);
+                    $filer->rememberNotFiled($message, $attachment);
                 }
             }
 
@@ -822,6 +823,7 @@ class FinanceMessageConsumer implements
 
             $content = ($this->readFile)($attachment->fileId);
             if ($content === null || $content === '') {
+                $filer->rememberUnreadable($message, $attachment);
                 continue;
             }
 
@@ -868,6 +870,7 @@ class FinanceMessageConsumer implements
                 // message shows as filed, the receipts screen is empty,
                 // and there is nothing anywhere to read (#175).
                 $filer->sayNotFiled($e, $attachment);
+                $filer->rememberNotFiled($message, $attachment);
 
                 continue;
             }

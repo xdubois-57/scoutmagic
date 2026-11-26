@@ -253,6 +253,44 @@ class MailReceiptFiler
     }
 
     /**
+     * Remembers that finance tried to file this attachment for a person and
+     * did not, so the message page can say so (#1406).
+     *
+     * Without a row, « finance tried and was refused » and « finance has not
+     * looked yet » are the same thing to a reader of the table: a receipt
+     * a treasurer confirmed that the store refused read « pas encore
+     * traité » for ever, since the catch-up skips every association a
+     * person made. Written where the refusal is said in the journal.
+     */
+    public function rememberNotFiled(InboundMessage $message, InboundAttachment $attachment): void
+    {
+        try {
+            $this->sources->record(
+                $attachment->id,
+                $message->id,
+                null,
+                ReceiptMailSourceRepository::REASON_NOT_FILED
+            );
+        } catch (\Throwable $e) {
+            $this->sayNotFiled($e, $attachment);
+        }
+    }
+
+    /**
+     * Remembers that this attachment's file could not be read. Not « through
+     * finance »: a later pass reads it again, and a filing that then succeeds
+     * replaces the row (the reader says it in the journal).
+     */
+    public function rememberUnreadable(InboundMessage $message, InboundAttachment $attachment): void
+    {
+        try {
+            $this->sources->markUnreadable($attachment->id, $message->id);
+        } catch (\Throwable $e) {
+            $this->sayNotFiled($e, $attachment);
+        }
+    }
+
+    /**
      * Whether these bytes may be filed from THIS message.
      *
      * Not when finance holds them as a live receipt anywhere — the same
