@@ -61,14 +61,16 @@ retirez-la explicitement si le départ est définitif.
 ## Le compte des paiements
 
 Le compte bancaire sur lequel un bien attend ses paiements se choisit
-ici — c'est le seul réglage d'argent réservé au Staff d'Unité, la
-liste des comptes portant les IBAN de l'unité. Sans IBAN, aucun code
-QR de virement ne peut être proposé aux locataires.
+ici — seul réglage d'argent réservé au Staff d'Unité, la liste portant
+les IBAN de l'unité. Sans IBAN, aucun code QR de virement n'est proposé.
 
-Avec le compte se choisit la **catégorie** des Finances dans laquelle
-les paiements des locations de ce bien seront classés, caution
-comprise. Elle est obligatoire dès qu'un compte est choisi : sans elle,
-le bien ne peut pas réclamer de paiement.
+Avec le compte se choisit la **catégorie** des Finances où ses
+paiements, caution comprise, seront classés. Elle est obligatoire dès
+qu'un compte est choisi.
+
+Un compte ou une catégorie manquant se crée dans la configuration des
+Finances : le superadministrateur y a un lien, les autres le lui
+demandent.
 
 ## Archiver
 
