@@ -295,6 +295,37 @@ describe('point-picker', () => {
             expect(document.querySelector('[data-point-picker-manual]').value).toBe('1');
         });
 
+        it('leaves a malformed coordinate as typed, for the server to refuse', async () => {
+            const leaflet = stubLeaflet();
+            buildForm();
+            await load();
+            const lat = /** @type {HTMLInputElement} */ (document.getElementById('place-latitude'));
+            const lng = /** @type {HTMLInputElement} */ (document.getElementById('place-longitude'));
+            lat.value = '50x';
+            lng.value = '4';
+            lng.dispatchEvent(new Event('change'));
+
+            expect(pinOf(leaflet)).toBeUndefined();
+            expect(value('place-latitude')).toBe('50x');
+        });
+
+        it('a lookup answering while a coordinate is being typed does not replace it', async () => {
+            const leaflet = stubLeaflet();
+            buildForm({ locate: true });
+            await load();
+            const lat = /** @type {HTMLInputElement} */ (document.getElementById('place-latitude'));
+            lat.value = '50.7';
+            lat.dispatchEvent(new Event('input'));
+            expect(document.querySelector('[data-point-picker-manual]').value).toBe('1');
+
+            answer({ success: true, found: true, latitude: 50.125, longitude: 5.187 });
+            leave('Gîte de Han, rue des Grottes 12');
+            await settle();
+
+            expect(pinOf(leaflet)).toBeUndefined();
+            expect(value('place-latitude')).toBe('50.7');
+        });
+
         it('waits for both halves before placing a typed point', async () => {
             const leaflet = stubLeaflet();
             buildForm();

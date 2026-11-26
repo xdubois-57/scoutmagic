@@ -52,6 +52,18 @@
     }
 
     /**
+     * A coordinate typed by hand, only when it is a whole decimal — a
+     * comma for the decimal point, as a Belgian keyboard writes it.
+     *
+     * @param {string} value
+     * @returns {number|null}
+     */
+    function typedCoordinate(value) {
+        var text = String(value).trim();
+        return /^-?\d+(?:[.,]\d+)?$/.test(text) ? Number.parseFloat(text.replace(',', '.')) : null;
+    }
+
+    /**
      * @param {any} a Leaflet LatLng
      * @param {[number, number]} b
      */
@@ -453,12 +465,15 @@
          * half; both emptied is « Retirer ».
          */
         function typed() {
-            var typedLat = coordinate(latField.value);
-            var typedLng = coordinate(lngField.value);
             if (latField.value.trim() === '' && lngField.value.trim() === '') {
                 removeButton.click();
                 return;
             }
+            // A whole decimal or nothing: « 50x » is not 50. Left as typed,
+            // it reaches Core\Geo\GeoPoint::fromInput(), which refuses it
+            // with its own sentence.
+            var typedLat = typedCoordinate(latField.value);
+            var typedLng = typedCoordinate(lngField.value);
             if (typedLat === null || typedLng === null
                 || Math.abs(typedLat) > 90 || Math.abs(typedLng) > 180) {
                 return;
@@ -468,6 +483,19 @@
             pin([typedLat, typedLng]);
             map.setView([typedLat, typedLng], 15);
         }
+        /**
+         * The first keystroke in either field is a human's edit: a lookup
+         * answering meanwhile moves the address ring, never the half the
+         * person is typing.
+         */
+        function editing() {
+            manual = true;
+            fill(automatic, '0');
+            fill(manualField, '1');
+            fill(pointAddress, '');
+        }
+        latField.addEventListener('input', editing);
+        lngField.addEventListener('input', editing);
         latField.addEventListener('change', typed);
         lngField.addEventListener('change', typed);
 
