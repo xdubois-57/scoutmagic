@@ -9864,6 +9864,28 @@ if ($isEnabled('news')) {
         $settingRepo->updateValue('news', 'news_field_capacity_backfilled', '1');
         $settingService->clearCache();
     }
+    // A second one-shot pass (issue #1465): until the editor recomputed a
+    // field's total each time its cap changed, a cap added after the first
+    // answers counted from zero, and one removed then restored missed the
+    // answers given in between. Recomputed once on every installation —
+    // the editor keeps it right from now on.
+    if ($settingService->get('news_field_capacity_recomputed_1465', 'news') !== '1') {
+        $settingService->register(
+            'news_field_capacity_recomputed_1465',
+            '0',
+            'boolean',
+            'Capacités des champs recalculées (plafond ajouté après coup)',
+            'Indique si le total consommé de chaque champ à capacité a été recalculé depuis les réponses après la correction des plafonds ajoutés ou remis après les premières réponses.',
+            'news',
+            null,
+            null,
+            false,
+            999
+        );
+        $newsFieldRepo->recomputeUsedCapacities($newsResponseRepo);
+        $settingRepo->updateValue('news', 'news_field_capacity_recomputed_1465', '1');
+        $settingService->clearCache();
+    }
     // Optional dependency on the llm_connector module (ARCHITECTURE.md
     // §7.5), same reused instance as RGPD content generation above — the
     // "Générer avec l'IA" button is simply hidden when it's unavailable.

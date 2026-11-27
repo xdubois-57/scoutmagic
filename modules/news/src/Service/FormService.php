@@ -34,6 +34,14 @@ class FormService
 
     private HtmlSanitizer $htmlSanitizer;
 
+    /**
+     * The fields whose cap the last save() set or changed, with the total
+     * their existing answers already take (issue #1465).
+     *
+     * @var list<array{form_id: int, field_id: int, label: ?string, capacity_max: int, capacity_used: float}>
+     */
+    private array $recomputedCapacities = [];
+
     public function __construct(
         private FormRepository $formRepository,
         private FormFieldRepository $fieldRepository,
@@ -208,13 +216,26 @@ class FormService
             );
         }
 
-        $this->reconcileFields($formId, $fields);
+        $this->recomputedCapacities = $this->reconcileFields($formId, $fields);
         $this->articleService->markHasForm($articleId, true);
         // Saved after ArticleService::create()/update() in every route,
         // so the visibility read here is the one just written.
         $this->bodyImages?->syncArticle($articleId);
 
         return $this->formRepository->findById($formId);
+    }
+
+    /**
+     * The fields whose cap the last save() set or changed, each with the
+     * total its existing answers already take — recomputed from those
+     * answers at that save (issue #1465). The caller journals them and
+     * warns about a cap the answers already exceed.
+     *
+     * @return list<array{form_id: int, field_id: int, label: ?string, capacity_max: int, capacity_used: float}>
+     */
+    public function recomputedCapacities(): array
+    {
+        return $this->recomputedCapacities;
     }
 
     /**
@@ -394,12 +415,19 @@ class FormService
      *         confirmation_text: ?string
      *     }
      * > $fields
+     * @return list<array{form_id: int, field_id: int, label: ?string, capacity_max: int, capacity_used: float}>
+     *         the existing fields whose cap this save set or changed
      */
-    private function reconcileFields(int $formId, array $fields): void
+    private function reconcileFields(int $formId, array $fields): array
     {
         $existingFields = $this->fieldRepository->findByFormId($formId);
         $existingIds = array_map(fn(FormField $f) => $f->id, $existingFields);
+        $previousCaps = [];
+        foreach ($existingFields as $existingField) {
+            $previousCaps[$existingField->id] = $existingField->capacityMax;
+        }
         $incomingIds = [];
+        $recomputed = [];
 
         foreach ($fields as $index => $field) {
             if (!in_array($field['field_type'], FormField::TYPES, true)) {
@@ -438,6 +466,24 @@ class FormService
                     $confirmationText
                 );
                 $incomingIds[] = $field['id'];
+
+                // The running total is kept only while a cap exists. A cap
+                // set on a field that already has answers — or changed, or
+                // restored after answers came in without one — would count
+                // from a stale figure and let the form overbook: it is
+                // recomputed from the answers themselves (issue #1465).
+                if ($capacityMax !== null && $capacityMax !== $previousCaps[$field['id']]) {
+                    $recomputed[] = [
+                        'form_id' => $formId,
+                        'field_id' => $field['id'],
+                        'label' => $label,
+                        'capacity_max' => $capacityMax,
+                        'capacity_used' => $this->fieldRepository->recomputeUsedCapacity(
+                            $field['id'],
+                            $this->responseRepository
+                        ),
+                    ];
+                }
             } else {
                 $incomingIds[] = $this->fieldRepository->create(
                     $formId,
@@ -457,6 +503,8 @@ class FormService
         foreach (array_diff($existingIds, $incomingIds) as $removedId) {
             $this->fieldRepository->delete($removedId);
         }
+
+        return $recomputed;
     }
 
     /**

@@ -174,6 +174,23 @@ class FormFieldRepository
     }
 
     /**
+     * Recomputes the running total of ONE field from its answers, and
+     * returns it — what the editor does each time a field's cap is set or
+     * changed (issue #1465): the counter is only kept while a cap exists,
+     * so a cap added after the first answers would otherwise start from
+     * zero, and a cap removed then restored would miss every answer given
+     * in between.
+     */
+    public function recomputeUsedCapacity(int $fieldId, FormResponseRepository $responses): float
+    {
+        $used = $responses->sumFieldValues($fieldId);
+        $stmt = $this->pdo->prepare('UPDATE news_form_fields SET capacity_used = ? WHERE id = ?');
+        $stmt->execute([$used, $fieldId]);
+
+        return $used;
+    }
+
+    /**
      * Recomputes the running total of every capped field from the
      * answers themselves — the one-off reprise for installations whose
      * responses were written before the column existed, and the repair

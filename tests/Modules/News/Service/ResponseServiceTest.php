@@ -707,4 +707,101 @@ class ResponseServiceTest extends TestCase
         $this->assertSame('new@test.com', $updated->contactEmail);
         $this->assertSame('New', $this->service()->getAnswers($updated->id)[$fieldId]);
     }
+
+    // --------------------------------------------- a cap set afterwards (#1465)
+
+    /**
+     * Thirty places taken on a field with no cap, then a cap of 50: twenty
+     * remain, not fifty — the counter used to be kept only while a cap
+     * existed, and started from zero when one was added.
+     */
+    public function testACapAddedAfterThirtyAnswersLeavesTwentyPlaces(): void
+    {
+        $fieldId = $this->fieldRepository->create($this->formId, 0, FormField::TYPE_NUMBER, 'Places', false, null, null, null, null, null);
+        foreach (['a', 'b', 'c'] as $who) {
+            $this->submitPlaces($fieldId, '10', $who);
+        }
+
+        $formService = $this->formService();
+        $this->saveCap($formService, $fieldId, 50);
+
+        $this->assertSame(20, $this->service()->remainingCapacity($this->fieldRepository->findById($fieldId)));
+        $this->assertSame(
+            [['form_id' => $this->formId, 'field_id' => $fieldId, 'label' => 'Places', 'capacity_max' => 50, 'capacity_used' => 30.0]],
+            $formService->recomputedCapacities()
+        );
+    }
+
+    /** Cap removed, answers given meanwhile, cap restored: the total counts them all. */
+    public function testACapRemovedThenRestoredCountsTheAnswersGivenInBetween(): void
+    {
+        $fieldId = $this->fieldRepository->create($this->formId, 0, FormField::TYPE_NUMBER, 'Places', false, null, null, 50, null, null);
+        $this->submitPlaces($fieldId, '10', 'a');
+        $formService = $this->formService();
+
+        $this->saveCap($formService, $fieldId, null);
+        $this->submitPlaces($fieldId, '15', 'b');
+        $this->saveCap($formService, $fieldId, 50);
+
+        $this->assertSame(25.0, $this->fieldRepository->usedCapacity($fieldId));
+        $this->assertSame(25, $this->service()->remainingCapacity($this->fieldRepository->findById($fieldId)));
+    }
+
+    /**
+     * A cap already exceeded by the answers is stored as asked — the
+     * answers stay — and the save says by how much, for the editor to warn
+     * about; an unchanged cap recomputes nothing.
+     */
+    public function testACapBelowTheAnswersIsReportedAndAnUnchangedCapIsLeftAlone(): void
+    {
+        $fieldId = $this->fieldRepository->create($this->formId, 0, FormField::TYPE_NUMBER, 'Places', false, null, null, null, null, null);
+        $this->submitPlaces($fieldId, '30', 'a');
+        $formService = $this->formService();
+
+        $this->saveCap($formService, $fieldId, 20);
+        $this->assertSame(30.0, $formService->recomputedCapacities()[0]['capacity_used']);
+        $this->assertSame(0, $this->service()->remainingCapacity($this->fieldRepository->findById($fieldId)));
+
+        $this->saveCap($formService, $fieldId, 20);
+        $this->assertSame([], $formService->recomputedCapacities());
+    }
+
+    private function submitPlaces(int $fieldId, string $places, string $who): void
+    {
+        $this->service()->submit($this->article, $this->form(), [$this->fieldRepository->findById($fieldId)],
+            null, null, 1, $who . '@test.com', [$fieldId => $places], null);
+    }
+
+    private function formService(): \Modules\News\Service\FormService
+    {
+        $formRepository = $this->formRepository;
+        $articleService = new \Modules\News\Service\ArticleService(
+            new ArticleRepository($this->pdo),
+            $formRepository,
+            new \Core\View\EditableContentService(new \Core\View\EditableContentRepository($this->pdo)),
+            new ShortUrlService(new ShortUrlRepository($this->pdo, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)))),
+            new \Core\File\FileRepository($this->pdo)
+        );
+
+        return new \Modules\News\Service\FormService($formRepository, $this->fieldRepository, $articleService, $this->responseRepository);
+    }
+
+    /** What the editor posts for this one field, with $cap as its capacity. */
+    private function saveCap(\Modules\News\Service\FormService $formService, int $fieldId, ?int $cap): void
+    {
+        $formService->save($this->article->id, [
+            'access' => NewsForm::ACCESS_PUBLIC,
+            'response_limit' => NewsForm::RESPONSE_LIMIT_UNLIMITED,
+            'opens_at' => null,
+            'closes_at' => null,
+            'is_force_closed' => false,
+            'response_role_min' => 'chief',
+            'digest_email' => null,
+            'finance_account_id' => null,
+        ], [[
+            'id' => $fieldId, 'field_type' => FormField::TYPE_NUMBER, 'label' => 'Places', 'is_required' => false,
+            'options_source' => null, 'options_manual' => null, 'capacity_max' => $cap, 'price_per_unit' => null,
+            'confirmation_text' => null,
+        ]]);
+    }
 }
