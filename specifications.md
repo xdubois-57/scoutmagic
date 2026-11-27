@@ -484,7 +484,7 @@ Section identity always comes from the "Section" column. The Desk export also ha
 ### 7.3 Section configuration
 Sections identified by Desk code. Name and email configurable from the Staffs page (chief). Name and site-wide visibility also configurable from Configuration > Correspondances Desk (admin) — a hidden section disappears from every section picker (Staffs, Trombinoscope, public Sections page) until made visible again.
 
-A section with no member in a given import becomes inactive automatically (kept, never deleted) and is likewise excluded from every section picker until a later import gives it members again — see §7.1 pipeline and ARCHITECTURE.md §8.1/§8.8.
+A section with no member in the public scout year nor in any later one becomes inactive automatically (kept, never deleted) and is likewise excluded from every section picker until a later import gives it members again. Importing another year — next year's file in July, a past year replayed in configuration mode — therefore never hides a section of the year everybody is served, nor a section that only exists next year (issue #1460) — see §7.1 pipeline and ARCHITECTURE.md §8.1/§8.8.
 
 ## 8. Email system
 

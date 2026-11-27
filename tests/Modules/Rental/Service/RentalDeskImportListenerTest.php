@@ -15,7 +15,7 @@ use Tests\Modules\Rental\RentalTestHelper;
  * Roadmap §6.3: at every Desk import, a manager grant whose member no
  * longer appears is **marked inactive, never deleted**, and journaled; the
  * member's return reactivates it. Same shape as
- * Core\Import\MappingResolver::deactivateAllSections().
+ * Core\Import\MemberYearRepository::deactivateAllForYear().
  */
 #[\PHPUnit\Framework\Attributes\Group('database')]
 class RentalDeskImportListenerTest extends TestCase

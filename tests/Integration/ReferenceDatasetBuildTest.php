@@ -36,7 +36,7 @@ use Tests\UsesProductionEngine;
  *
  *   - `CampsSeeder` handed `CampService::create()` the id of the section
  *     this dataset deliberately empties in 2026-2027, which
- *     `MappingResolver::deactivateAllSections()` correctly leaves inactive.
+ *     `ImportSectionRepository::recomputeActive()` correctly leaves inactive.
  *     The service validates section ids against the sections that are
  *     ACTIVE, whatever the stay's dates, and refused — « Une des sections
  *     choisies n'existe pas ». See CampsBlueprint's own comment.

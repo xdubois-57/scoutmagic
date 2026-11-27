@@ -149,8 +149,8 @@ class ImportDiffCalculator
      *
      * The first of those is the spectacular and, until now, unexplained
      * consequence of an import: an emptied section drops out of every
-     * picker on the site at once (`ImportSectionRepository::
-     * deactivateAll()` plus the reactivation pass). Saying so is most of
+     * picker on the site at once when no later year holds it either
+     * (`ImportSectionRepository::recomputeActive()`). Saying so is most of
      * what the report is for.
      *
      * @param array<int, RosterSnapshotMember> $before
