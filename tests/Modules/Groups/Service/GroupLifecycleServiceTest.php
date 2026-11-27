@@ -84,22 +84,22 @@ class GroupLifecycleServiceTest extends TestCase
         @rmdir($this->storagePath);
     }
 
-    // ---- closure ----
+    // ---- archiving on inactivity ----
 
-    public function testAGroupIdleLongerThanTheWindowIsClosed(): void
+    public function testAGroupIdleLongerThanTheWindowIsArchived(): void
     {
         $groupId = $this->group('Louveteaux', lastActivity: '-18 months');
 
-        $this->assertSame(1, $this->service()->closeInactive());
-        $this->assertTrue($this->groupRepo->findById($groupId)->isClosed());
+        $this->assertSame(1, $this->service()->archiveInactive());
+        $this->assertNotNull($this->groupRepo->findById($groupId)->archivedAt);
     }
 
-    public function testAGroupStillInsideTheWindowIsLeftOpen(): void
+    public function testAGroupStillInsideTheWindowIsLeftActive(): void
     {
         $groupId = $this->group('Louveteaux', lastActivity: '-3 months');
 
-        $this->assertSame(0, $this->service()->closeInactive());
-        $this->assertFalse($this->groupRepo->findById($groupId)->isClosed());
+        $this->assertSame(0, $this->service()->archiveInactive());
+        $this->assertNull($this->groupRepo->findById($groupId)->archivedAt);
     }
 
     /**
@@ -108,53 +108,147 @@ class GroupLifecycleServiceTest extends TestCase
      * from when it was created — not from epoch, which would close every
      * freshly created section group on the very next nightly run.
      */
-    public function testAFreshlyCreatedEmptyGroupIsNotClosedOnTheNextRun(): void
+    public function testAFreshlyCreatedEmptyGroupIsNotArchivedOnTheNextRun(): void
     {
         $groupId = $this->groupRepo->create('Louveteaux', $this->currentYearId, null, null);
 
-        $this->assertSame(0, $this->service()->closeInactive());
-        $this->assertFalse($this->groupRepo->findById($groupId)->isClosed());
+        $this->assertSame(0, $this->service()->archiveInactive());
+        $this->assertNull($this->groupRepo->findById($groupId)->archivedAt);
     }
 
-    public function testClosingIsIdempotent(): void
+    public function testArchivingOnInactivityIsIdempotent(): void
     {
         $groupId = $this->group('Louveteaux', lastActivity: '-18 months');
         $service = $this->service();
 
-        $this->assertSame(1, $service->closeInactive());
-        $closedAt = $this->groupRepo->findById($groupId)->closedAt;
+        $this->assertSame(1, $service->archiveInactive());
+        $closedAt = $this->groupRepo->findById($groupId)->archivedAt;
 
         // The second run finds nothing left to close, and in particular
         // does not re-stamp the closure date — which the purge counts from.
-        $this->assertSame(0, $service->closeInactive());
-        $this->assertSame($closedAt, $this->groupRepo->findById($groupId)->closedAt);
+        $this->assertSame(0, $service->archiveInactive());
+        $this->assertSame($closedAt, $this->groupRepo->findById($groupId)->archivedAt);
     }
 
-    public function testAnAlreadyClosedGroupIsNeverTouchedAgain(): void
+    public function testAnAlreadyArchivedGroupIsNeverTouchedAgain(): void
     {
         $groupId = $this->group('Louveteaux', lastActivity: '-18 months');
-        $this->groupRepo->setClosed($groupId, '2020-01-01 00:00:00');
+        $this->groupRepo->setArchived($groupId, '2020-01-01 00:00:00');
 
-        $this->assertSame(0, $this->service()->closeInactive());
-        $this->assertSame('2020-01-01 00:00:00', $this->groupRepo->findById($groupId)->closedAt);
+        $this->assertSame(0, $this->service()->archiveInactive());
+        $this->assertSame('2020-01-01 00:00:00', $this->groupRepo->findById($groupId)->archivedAt);
     }
 
-    public function testTheClosureWindowIsReadFromTheSetting(): void
+    public function testTheInactivityWindowIsReadFromTheSetting(): void
     {
         $groupId = $this->group('Louveteaux', lastActivity: '-4 months');
         $this->setSetting(GroupLifecycleService::SETTING_INACTIVITY_MONTHS, '3');
 
-        $this->assertSame(1, $this->service()->closeInactive());
-        $this->assertTrue($this->groupRepo->findById($groupId)->isClosed());
+        $this->assertSame(1, $this->service()->archiveInactive());
+        $this->assertNotNull($this->groupRepo->findById($groupId)->archivedAt);
     }
 
-    public function testAZeroWindowIsFlooredAtOneMonthRatherThanClosingEverything(): void
+    public function testAZeroWindowIsFlooredAtOneMonthRatherThanArchivingEverything(): void
     {
         $groupId = $this->group('Louveteaux', lastActivity: '-2 days');
         $this->setSetting(GroupLifecycleService::SETTING_INACTIVITY_MONTHS, '0');
 
-        $this->assertSame(0, $this->service()->closeInactive());
-        $this->assertFalse($this->groupRepo->findById($groupId)->isClosed());
+        $this->assertSame(0, $this->service()->archiveInactive());
+        $this->assertNull($this->groupRepo->findById($groupId)->archivedAt);
+    }
+
+    // ---- archiving at the end of the scout year (issue #1350) ----
+
+    public function testAnActiveGroupOfAPastYearIsArchivedByTheYearEndPass(): void
+    {
+        $pastYearId = GroupsTestHelper::createScoutYear($this->pdo, '2020-2021', false);
+        $groupId = $this->group('Ancien', scoutYearId: $pastYearId);
+        $now = new \DateTimeImmutable('2026-10-01 03:00:00', new \DateTimeZone('UTC'));
+
+        $this->assertSame(1, $this->service()->archiveEndedYears($now));
+        $this->assertSame('2026-10-01 03:00:00', $this->groupRepo->findById($groupId)->archivedAt);
+
+        $events = $this->pdo->query("SELECT event_type, context FROM event_log WHERE category = 'groups'")
+            ->fetchAll(\PDO::FETCH_ASSOC);
+        $this->assertSame(['group_auto_archived_year_end'], array_column($events, 'event_type'));
+        $this->assertStringNotContainsString('Ancien', (string) $events[0]['context']);
+    }
+
+    /** The current year's, a future year's and a year-less group are not over. */
+    public function testTheYearEndPassLeavesGroupsOfNoPastYearAlone(): void
+    {
+        $nextYearId = GroupsTestHelper::createScoutYear($this->pdo, \Tests\DatabaseTestHelper::scoutYear(1)[0], false);
+        $ids = [
+            $this->group('Cette année', scoutYearId: $this->currentYearId),
+            $this->group('L\'an prochain', scoutYearId: $nextYearId),
+            $this->group('Sans année', scoutYearId: null),
+        ];
+
+        $this->assertSame(0, $this->service()->archiveEndedYears());
+        foreach ($ids as $groupId) {
+            $this->assertNull($this->groupRepo->findById($groupId)->archivedAt);
+        }
+    }
+
+    /**
+     * Replayable without moving anything: a date already stamped — by an
+     * earlier run, by hand, or for inactivity — is the one the purge
+     * counts from, and a daily task re-stamping it would put the purge
+     * off forever.
+     */
+    public function testTheYearEndPassNeverRewritesAnArchiveDate(): void
+    {
+        $pastYearId = GroupsTestHelper::createScoutYear($this->pdo, '2020-2021', false);
+        $byHand = $this->group('Archivé à la main', scoutYearId: $pastYearId);
+        $this->groupRepo->setArchived($byHand, '2021-03-01 10:00:00');
+        $active = $this->group('Resté actif', scoutYearId: $pastYearId);
+        $service = $this->service();
+
+        $this->assertSame(1, $service->archiveEndedYears(new \DateTimeImmutable('2026-10-01 03:00:00')));
+        $this->assertSame(0, $service->archiveEndedYears(new \DateTimeImmutable('2026-10-02 03:00:00')));
+
+        $this->assertSame('2021-03-01 10:00:00', $this->groupRepo->findById($byHand)->archivedAt);
+        $this->assertSame('2026-10-01 03:00:00', $this->groupRepo->findById($active)->archivedAt);
+    }
+
+    public function testTheYearEndPassIsBounded(): void
+    {
+        $pastYearId = GroupsTestHelper::createScoutYear($this->pdo, '2020-2021', false);
+        for ($i = 0; $i < 60; $i++) {
+            $this->group("Ancien {$i}", scoutYearId: $pastYearId);
+        }
+        $service = $this->service();
+
+        $this->assertSame(50, $service->archiveEndedYears());
+        $this->assertSame(10, $service->archiveEndedYears());
+        $this->assertSame(0, $service->archiveEndedYears());
+    }
+
+    /**
+     * The public year changing is what makes a year past — and only the
+     * public year: the current year's group is archived by the first run
+     * after the switch, not before.
+     */
+    public function testTheCurrentYearsGroupsAreArchivedOnceThePublicYearMovesOn(): void
+    {
+        $groupId = $this->group('Cette année', scoutYearId: $this->currentYearId);
+        $this->assertSame(0, $this->service()->archiveEndedYears());
+
+        GroupsTestHelper::createScoutYear($this->pdo, \Tests\DatabaseTestHelper::scoutYear(1)[0], true);
+
+        $this->assertSame(1, $this->service()->archiveEndedYears());
+        $this->assertNotNull($this->groupRepo->findById($groupId)->archivedAt);
+    }
+
+    /** « Past » is decided by dates: a year imported late, with a higher id, is still over. */
+    public function testAYearImportedLateIsOverByItsDates(): void
+    {
+        $lateYearId = GroupsTestHelper::createScoutYear($this->pdo, '2015-2016', false);
+        $this->assertGreaterThan($this->currentYearId, $lateYearId);
+        $groupId = $this->group('Très ancien', scoutYearId: $lateYearId);
+
+        $this->assertSame(1, $this->service()->archiveEndedYears());
+        $this->assertNotNull($this->groupRepo->findById($groupId)->archivedAt);
     }
 
     // ---- post purge ----
@@ -304,15 +398,15 @@ class GroupLifecycleServiceTest extends TestCase
         $this->assertSame(0, $service->purgePosts());
     }
 
-    // ---- closed-group purge ----
+    // ---- archived-group purge ----
 
     public function testAGroupClosedLongerAgoThanTheWindowIsPurged(): void
     {
         $pastYearId = GroupsTestHelper::createScoutYear($this->pdo, '2020-2021', false);
         $groupId = $this->group('Ancien', scoutYearId: $pastYearId);
-        $this->groupRepo->setClosed($groupId, $this->at('-18 months'));
+        $this->groupRepo->setArchived($groupId, $this->at('-18 months'));
 
-        $this->assertSame(1, $this->service()->purgeClosedGroups());
+        $this->assertSame(1, $this->service()->purgeArchivedGroups());
         $this->assertNull($this->groupRepo->findById($groupId));
     }
 
@@ -320,9 +414,9 @@ class GroupLifecycleServiceTest extends TestCase
     {
         $pastYearId = GroupsTestHelper::createScoutYear($this->pdo, '2020-2021', false);
         $groupId = $this->group('Ancien', scoutYearId: $pastYearId);
-        $this->groupRepo->setClosed($groupId, $this->at('-2 months'));
+        $this->groupRepo->setArchived($groupId, $this->at('-2 months'));
 
-        $this->assertSame(0, $this->service()->purgeClosedGroups());
+        $this->assertSame(0, $this->service()->purgeArchivedGroups());
         $this->assertNotNull($this->groupRepo->findById($groupId));
     }
 
@@ -331,7 +425,7 @@ class GroupLifecycleServiceTest extends TestCase
         $pastYearId = GroupsTestHelper::createScoutYear($this->pdo, '2020-2021', false);
         $groupId = $this->group('Ancien', scoutYearId: $pastYearId, lastActivity: '-120 months');
 
-        $this->assertSame(0, $this->service()->purgeClosedGroups());
+        $this->assertSame(0, $this->service()->purgeArchivedGroups());
         $this->assertNotNull($this->groupRepo->findById($groupId));
     }
 
@@ -343,9 +437,9 @@ class GroupLifecycleServiceTest extends TestCase
     public function testAGroupOfTheCurrentYearIsNeverPurged(): void
     {
         $groupId = $this->group('Louveteaux', scoutYearId: $this->currentYearId);
-        $this->groupRepo->setClosed($groupId, $this->at('-36 months'));
+        $this->groupRepo->setArchived($groupId, $this->at('-36 months'));
 
-        $this->assertSame(0, $this->service()->purgeClosedGroups());
+        $this->assertSame(0, $this->service()->purgeArchivedGroups());
         $this->assertNotNull($this->groupRepo->findById($groupId));
     }
 
@@ -353,9 +447,9 @@ class GroupLifecycleServiceTest extends TestCase
     {
         $nextYearId = GroupsTestHelper::createScoutYear($this->pdo, \Tests\DatabaseTestHelper::scoutYear(1)[0], false);
         $groupId = $this->group('L\'an prochain', scoutYearId: $nextYearId);
-        $this->groupRepo->setClosed($groupId, $this->at('-36 months'));
+        $this->groupRepo->setArchived($groupId, $this->at('-36 months'));
 
-        $this->assertSame(0, $this->service()->purgeClosedGroups());
+        $this->assertSame(0, $this->service()->purgeArchivedGroups());
         $this->assertNotNull($this->groupRepo->findById($groupId));
     }
 
@@ -368,9 +462,9 @@ class GroupLifecycleServiceTest extends TestCase
     public function testAYearLessGroupIsStillPurgeable(): void
     {
         $groupId = $this->group('Groupe de travail', scoutYearId: null);
-        $this->groupRepo->setClosed($groupId, $this->at('-18 months'));
+        $this->groupRepo->setArchived($groupId, $this->at('-18 months'));
 
-        $this->assertSame(1, $this->service()->purgeClosedGroups());
+        $this->assertSame(1, $this->service()->purgeArchivedGroups());
         $this->assertNull($this->groupRepo->findById($groupId));
     }
 
@@ -378,9 +472,9 @@ class GroupLifecycleServiceTest extends TestCase
     {
         $pastYearId = GroupsTestHelper::createScoutYear($this->pdo, '2020-2021', false);
         $groupId = $this->group('Ancien', scoutYearId: $pastYearId, albumId: 55);
-        $this->groupRepo->setClosed($groupId, $this->at('-18 months'));
+        $this->groupRepo->setArchived($groupId, $this->at('-18 months'));
 
-        $this->service()->purgeClosedGroups();
+        $this->service()->purgeArchivedGroups();
 
         $this->assertSame([55], $this->deletedAlbums);
     }
@@ -389,11 +483,11 @@ class GroupLifecycleServiceTest extends TestCase
     {
         $pastYearId = GroupsTestHelper::createScoutYear($this->pdo, '2020-2021', false);
         $groupId = $this->group('Ancien', scoutYearId: $pastYearId);
-        $this->groupRepo->setClosed($groupId, $this->at('-18 months'));
+        $this->groupRepo->setArchived($groupId, $this->at('-18 months'));
         $service = $this->service();
 
-        $this->assertSame(1, $service->purgeClosedGroups());
-        $this->assertSame(0, $service->purgeClosedGroups());
+        $this->assertSame(1, $service->purgeArchivedGroups());
+        $this->assertSame(0, $service->purgeArchivedGroups());
     }
 
     /**
@@ -404,12 +498,59 @@ class GroupLifecycleServiceTest extends TestCase
     {
         $pastYearId = GroupsTestHelper::createScoutYear($this->pdo, '2020-2021', false);
         $groupId = $this->group('Ancien', scoutYearId: $pastYearId, albumId: 55);
-        $this->groupRepo->setClosed($groupId, $this->at('-18 months'));
+        $this->groupRepo->setArchived($groupId, $this->at('-18 months'));
         // The album is already gone — deleteAlbum() will throw.
         $this->albumMedia = [];
 
-        $this->assertSame(1, $this->service(albumMissing: true)->purgeClosedGroups());
+        $this->assertSame(1, $this->service(albumMissing: true)->purgeArchivedGroups());
         $this->assertNull($this->groupRepo->findById($groupId));
+    }
+
+    /**
+     * Whatever archived it, the delay counts from the archive date: a
+     * past-year group dated by the year-end pass eighteen months ago goes.
+     */
+    public function testAGroupArchivedByTheYearEndPassIsPurgedFromThatDate(): void
+    {
+        $pastYearId = GroupsTestHelper::createScoutYear($this->pdo, '2020-2021', false);
+        $groupId = $this->group('Ancien', scoutYearId: $pastYearId);
+        $this->service()->archiveEndedYears(new \DateTimeImmutable($this->at('-18 months')));
+
+        $this->assertSame(1, $this->service()->purgeArchivedGroups());
+        $this->assertNull($this->groupRepo->findById($groupId));
+    }
+
+    /** A past-year group with no date yet is not purged: it waits for its date. */
+    public function testAnUndatedPastYearGroupIsNotPurged(): void
+    {
+        $pastYearId = GroupsTestHelper::createScoutYear($this->pdo, '2020-2021', false);
+        $groupId = $this->group('Ancien', scoutYearId: $pastYearId, lastActivity: '-120 months');
+
+        $this->assertSame(0, $this->service()->purgeArchivedGroups());
+        $this->assertNotNull($this->groupRepo->findById($groupId));
+    }
+
+    /**
+     * The protection is unchanged: a current-year group archived by hand
+     * long ago stays while its year is the public one. Once the public
+     * year moves on, its delay counts from its archive date — so an old
+     * date goes at once, and a recent one waits.
+     */
+    public function testAProtectedGroupIsPurgedFromItsArchiveDateOnceThePublicYearMovesOn(): void
+    {
+        $longAgo = $this->group('Archivé il y a longtemps', scoutYearId: $this->currentYearId);
+        $this->groupRepo->setArchived($longAgo, $this->at('-36 months'));
+        $recent = $this->group('Archivé récemment', scoutYearId: $this->currentYearId);
+        $this->groupRepo->setArchived($recent, $this->at('-2 months'));
+        $this->assertSame(0, $this->service()->purgeArchivedGroups());
+
+        GroupsTestHelper::createScoutYear($this->pdo, \Tests\DatabaseTestHelper::scoutYear(1)[0], true);
+        // The year-end pass must not have re-stamped either date first.
+        $this->service()->archiveEndedYears();
+
+        $this->assertSame(1, $this->service()->purgeArchivedGroups());
+        $this->assertNull($this->groupRepo->findById($longAgo));
+        $this->assertNotNull($this->groupRepo->findById($recent));
     }
 
     // ---- full lifecycle ----
@@ -436,8 +577,8 @@ class GroupLifecycleServiceTest extends TestCase
             ->execute([$replyId, 4]);
 
         // Closure, then the purge months later.
-        $this->groupRepo->setClosed($groupId, $this->at('-18 months'));
-        $this->assertSame(1, $this->service()->purgeClosedGroups());
+        $this->groupRepo->setArchived($groupId, $this->at('-18 months'));
+        $this->assertSame(1, $this->service()->purgeArchivedGroups());
 
         $this->assertNull($this->groupRepo->findById($groupId));
         foreach ([
@@ -519,7 +660,8 @@ class GroupLifecycleServiceTest extends TestCase
                 new \Core\Import\MemberYearRepository($this->pdo)
             ),
             new SettingService(new SettingRepository($this->pdo)),
-            new JournalService(new JournalRepository($this->pdo))
+            new JournalService(new JournalRepository($this->pdo)),
+            \Tests\Modules\Groups\GroupsTestHelper::archiveRule($this->pdo)
         );
     }
 

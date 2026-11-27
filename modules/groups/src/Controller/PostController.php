@@ -206,8 +206,8 @@ class PostController extends AbstractController
             return new Response('Not Found', 404);
         }
 
-        // The closed group, the past year and the incomplete profile are
-        // all refused here, not merely hidden in the UI.
+        // The archived group (by date or by its year) and the incomplete
+        // profile are all refused here, not merely hidden in the UI.
         $permission = $this->accessService->canPost($group, $context);
         if (!$permission->allowed) {
             return $this->forbidden($permission->message, $request);
@@ -386,8 +386,8 @@ class PostController extends AbstractController
         // JSON, not forbidden(): this endpoint answers nothing but JSON,
         // which guardCsrfJson() a few lines above already establishes by
         // refusing a stale token that way with no header check at all.
-        // Every state canPost() denies here is an ordinary one — a closed
-        // group, a past year, an incomplete profile — so a refusal shaped
+        // Every state canPost() denies here is an ordinary one — an
+        // archived group, an incomplete profile — so a refusal shaped
         // by whether the caller happened to send X-Requested-With would
         // hand an HTML page to something calling response.json().
         $permission = $this->accessService->canPost($group, $context);
@@ -426,8 +426,8 @@ class PostController extends AbstractController
                 return $this->forbidden('Ce message ne peut plus être modifié.', $request);
             }
 
-            // A closed group (or a past-year one) accepts no write at all,
-            // edits included. canParticipate(), not canPost(): correcting
+            // An archived group (by date or by its year) accepts no write at
+            // all, edits included. canParticipate(), not canPost(): correcting
             // a message you already published is not starting a
             // conversation, so a group that later moved to
             // moderators-only must not strand its author's own typo.
@@ -486,9 +486,9 @@ class PostController extends AbstractController
      * poll on that post.
      *
      * Gated on canParticipate(), not merely on canRead(): voting is
-     * writing, and a closed group or a past scout year refuses it for
+     * writing, and an archived group — by date or by its year — refuses it for
      * exactly the same reasons it refuses a reply. That is also why a
-     * poll carries no "closed" flag of its own — schema.sql says so.
+     * poll carries no "closed" or "archived" flag of its own — schema.sql says so.
      *
      * Answering is deliberately NOT canPost(): a group where only
      * moderators publish still asks its members questions, and a poll

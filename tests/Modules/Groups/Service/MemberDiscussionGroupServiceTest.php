@@ -38,7 +38,11 @@ class MemberDiscussionGroupServiceTest extends TestCase
 
         $this->groups = new GroupRepository($this->pdo);
         $this->members = new GroupMemberRepository($this->pdo);
-        $this->service = new MemberDiscussionGroupService($this->members, $this->groups);
+        $this->service = new MemberDiscussionGroupService(
+            $this->members,
+            $this->groups,
+            GroupsTestHelper::archiveRule($this->pdo)
+        );
 
         $this->scoutYearId = GroupsTestHelper::createScoutYear($this->pdo, '2025-2026', true);
         $this->memberId = GroupsTestHelper::createMember($this->pdo, 'D1');
@@ -78,11 +82,11 @@ class MemberDiscussionGroupServiceTest extends TestCase
      * A closed group is still part of the journey. Saying so is what
      * stops it reading as somewhere the person is reachable today.
      */
-    public function testAClosedGroupIsListedAndSaysSo(): void
+    public function testAnArchivedGroupIsListedAndSaysSo(): void
     {
         $groupId = $this->group('Camp 2024');
         $this->members->add($groupId, $this->memberId, false, null);
-        $this->groups->setClosed($groupId, '2024-09-01 10:00:00');
+        $this->groups->setArchived($groupId, '2024-09-01 10:00:00');
 
         $groups = $this->service->getDiscussionGroups($this->memberId);
 
@@ -90,17 +94,41 @@ class MemberDiscussionGroupServiceTest extends TestCase
         $this->assertTrue($groups[0]->isClosed);
     }
 
-    public function testOpenGroupsComeBeforeClosedOnes(): void
+    public function testActiveGroupsComeBeforeArchivedOnes(): void
     {
         $closed = $this->group('Camp 2024');
         $open = $this->group('Staff d\'unité');
         $this->members->add($closed, $this->memberId, false, null);
         $this->members->add($open, $this->memberId, false, null);
-        $this->groups->setClosed($closed, '2024-09-01 10:00:00');
+        $this->groups->setArchived($closed, '2024-09-01 10:00:00');
 
         $groups = $this->service->getDiscussionGroups($this->memberId);
 
         $this->assertSame(['Staff d\'unité', 'Camp 2024'], array_map(fn($g) => $g->name, $groups));
+    }
+
+    /**
+     * One archived state (issue #1350): a group of a year that is over is
+     * archived before any date reaches it, and the admin page says so —
+     * it used to read as current. A future year's group does not.
+     */
+    public function testAGroupOfAPastYearReadsAsArchivedAndAFutureOneDoesNot(): void
+    {
+        $pastYearId = GroupsTestHelper::createScoutYear($this->pdo, '2024-2025', false);
+        $nextYearId = GroupsTestHelper::createScoutYear($this->pdo, '2026-2027', false);
+        $past = $this->groups->create('Camp 2025', $pastYearId, null, null);
+        $next = $this->groups->create('Camp 2027', $nextYearId, null, null);
+        $this->members->add($past, $this->memberId, false, null);
+        $this->members->add($next, $this->memberId, false, null);
+        // The past one more recently active, so only the archived flag
+        // can be what puts it last.
+        $this->groups->touchActivity($past, '2030-01-01 00:00:00');
+
+        $groups = $this->service->getDiscussionGroups($this->memberId);
+
+        $this->assertSame(['Camp 2027', 'Camp 2025'], array_map(fn($g) => $g->name, $groups));
+        $this->assertFalse($groups[0]->isClosed);
+        $this->assertTrue($groups[1]->isClosed);
     }
 
     public function testOneMembersGroupsNeverLeakIntoAnothers(): void

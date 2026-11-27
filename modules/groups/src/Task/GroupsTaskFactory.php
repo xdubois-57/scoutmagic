@@ -27,6 +27,7 @@ use Modules\Groups\Repository\PostMediaRepository;
 use Modules\Groups\Repository\PostRepository;
 use Modules\Groups\Repository\ReplyRepository;
 use Modules\Groups\Service\GroupActivityService;
+use Modules\Groups\Service\GroupArchiveRule;
 use Modules\Groups\Service\GroupLifecycleService;
 use Modules\Groups\Service\PostLinkService;
 use Modules\Groups\Service\PostMediaService;
@@ -111,7 +112,8 @@ final class GroupsTaskFactory
             new ScoutYearService($pdo),
             self::scoutYearResolver($context),
             $context->settings,
-            $context->journal
+            $context->journal,
+            self::archiveRule($context)
         );
     }
 
@@ -128,6 +130,18 @@ final class GroupsTaskFactory
             new ScoutYearService($pdo),
             $context->settings,
             new MemberYearRepository($pdo)
+        );
+    }
+
+    /**
+     * Service\GroupArchiveRule over the same configured public year the
+     * resolver above serves — what decides which years are over.
+     */
+    public static function archiveRule(TaskContext $context): GroupArchiveRule
+    {
+        return new GroupArchiveRule(
+            self::scoutYearResolver($context),
+            new ScoutYearService($context->connection->getPdo())
         );
     }
 

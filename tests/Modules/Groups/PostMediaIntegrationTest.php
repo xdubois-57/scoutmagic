@@ -158,7 +158,7 @@ class PostMediaIntegrationTest extends TestCase
     {
         $sectionRepo = new \Modules\Groups\Repository\GroupSectionRepository($this->pdo);
         $memberRepo = new \Modules\Groups\Repository\GroupMemberRepository($this->pdo);
-        $access = new GroupAccessService($memberRepo, $sectionRepo, new SectionMembershipRepository($this->pdo));
+        $access = new GroupAccessService($memberRepo, $sectionRepo, new SectionMembershipRepository($this->pdo), \Tests\Modules\Groups\GroupsTestHelper::archiveRule($this->pdo));
         $resolver = $this->createStub(ScoutYearResolver::class);
         $resolver->method('getEffectiveYear')->willReturn(new EffectiveScoutYear($effectiveYearId, '2025-2026', null));
         $resolver->method('getAuthorizationYear')->willReturn(new EffectiveScoutYear($effectiveYearId, '2025-2026', null));

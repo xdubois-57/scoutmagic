@@ -314,7 +314,19 @@ class ReplyControllerTest extends GroupsControllerTestCase
 
     public function testCreateIsRefusedOnAClosedGroupServerSide(): void
     {
-        $this->groupRepo->setClosed($this->groupId, '2026-02-01 00:00:00');
+        $this->groupRepo->setArchived($this->groupId, '2026-02-01 00:00:00');
+        $this->withCsrf(['body' => 'Coucou']);
+
+        $response = $this->controller([$this->memberId])->create($this->request(), $this->params($this->postId));
+
+        $this->assertSame(403, $response->getStatusCode());
+        $this->assertSame(0, $this->replyRepo->countForPost($this->postId));
+    }
+
+    /** Archived by its year, no date yet: refused all the same (issue #1350). */
+    public function testCreateIsRefusedOnceTheGroupsYearIsOver(): void
+    {
+        $this->endTheFixtureYear();
         $this->withCsrf(['body' => 'Coucou']);
 
         $response = $this->controller([$this->memberId])->create($this->request(), $this->params($this->postId));

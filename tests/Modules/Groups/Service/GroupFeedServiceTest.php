@@ -115,7 +115,8 @@ class GroupFeedServiceTest extends TestCase
         $access = new \Modules\Groups\Service\GroupAccessService(
             $memberRepo,
             new \Modules\Groups\Repository\GroupSectionRepository($this->pdo),
-            new \Core\Member\SectionMembershipRepository($this->pdo)
+            new \Core\Member\SectionMembershipRepository($this->pdo),
+            \Tests\Modules\Groups\GroupsTestHelper::archiveRule($this->pdo)
         );
 
         $memberService = $this->createStub(MemberService::class);

@@ -480,7 +480,19 @@ class ReactionControllerTest extends GroupsControllerTestCase
 
     public function testReactIsRefusedOnAClosedGroup(): void
     {
-        $this->groupRepo->setClosed($this->groupId, '2026-02-01 00:00:00');
+        $this->groupRepo->setArchived($this->groupId, '2026-02-01 00:00:00');
+        $this->withCsrf(['reaction' => 'heart']);
+
+        $response = $this->controller([$this->memberId])->react($this->request(), $this->params($this->postId));
+
+        $this->assertSame(403, $response->getStatusCode());
+        $this->assertNull($this->postReactionKey($this->memberId));
+    }
+
+    /** Archived by its year, no date yet: refused all the same (issue #1350). */
+    public function testReactIsRefusedOnceTheGroupsYearIsOver(): void
+    {
+        $this->endTheFixtureYear();
         $this->withCsrf(['reaction' => 'heart']);
 
         $response = $this->controller([$this->memberId])->react($this->request(), $this->params($this->postId));

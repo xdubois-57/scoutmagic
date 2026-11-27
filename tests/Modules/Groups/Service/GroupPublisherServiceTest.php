@@ -49,7 +49,7 @@ final class GroupPublisherServiceTest extends TestCase
         $this->access->method('canPost')->willReturnCallback(
             fn (DiscussionGroup $group): PostPermission => $group->id === 3
                 ? PostPermission::allow()
-                : PostPermission::deny(PostPermission::REASON_CLOSED, 'Ce groupe est fermé.')
+                : PostPermission::deny(PostPermission::REASON_ARCHIVED, 'Ce groupe est fermé.')
         );
         $this->access->method('authorMemberIdFor')->willReturn(42);
         $this->posts = $this->createStub(PostService::class);

@@ -58,7 +58,8 @@ class GroupDelegatedAlbumDescriberTest extends TestCase
                 new GroupAccessService(
                     new GroupMemberRepository($this->pdo),
                     new GroupSectionRepository($this->pdo),
-                    new SectionMembershipRepository($this->pdo)
+                    new SectionMembershipRepository($this->pdo),
+                    \Tests\Modules\Groups\GroupsTestHelper::archiveRule($this->pdo)
                 ),
                 $resolver,
                 GroupsTestHelper::hiddenGroupFiles(

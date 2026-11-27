@@ -83,6 +83,26 @@ class SectionGroupSyncServiceTest extends TestCase
     }
 
     /**
+     * A section group archived during its own year — by a moderator or
+     * for inactivity — is still THE group of that section and year: the
+     * sync, which runs on every list page load, neither creates a second
+     * one beside it nor touches its archive date (issue #1350).
+     */
+    public function testAnArchivedSectionGroupIsNeitherRecreatedNorReopened(): void
+    {
+        $lou = GroupsTestHelper::createSection($this->pdo, 'LOU', 'Louveteaux');
+        $sync = $this->sync();
+        $sync->sync($this->currentYearId);
+        $groupId = $this->groupRepo->findSectionGroup($lou, $this->currentYearId)->id;
+        $this->groupRepo->setArchived($groupId, '2026-02-01 10:00:00');
+
+        $this->assertSame(0, $sync->sync($this->currentYearId));
+
+        $this->assertSame(1, $this->countGroups());
+        $this->assertSame('2026-02-01 10:00:00', $this->groupRepo->findById($groupId)->archivedAt);
+    }
+
+    /**
      * A run that died partway (say, after creating the first of three
      * sections' groups) must be safe to re-run: the next pass finds what
      * exists and finishes the rest.

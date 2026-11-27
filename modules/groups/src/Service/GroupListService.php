@@ -40,13 +40,15 @@ class GroupListService
         private SectionMembershipRepository $membershipRepository,
         private PostRepository $postRepository,
         private ReplyRepository $replyRepository,
+        private GroupArchiveRule $archiveRule,
         private ?GroupReadRepository $readRepository = null
     ) {
     }
 
     /**
-     * Groups of the effective year (and year-less ones) the caller belongs
-     * to, most recently active first.
+     * The caller's ACTIVE groups — not archived by any cause
+     * (Service\GroupArchiveRule) — most recently active first: the current
+     * year's, a future year's and year-less ones alike.
      *
      * @return GroupListItem[]
      */
@@ -56,8 +58,12 @@ class GroupListService
     }
 
     /**
-     * Past-year groups the caller was a member of — the "Archives" tab.
-     * Readable, never postable (GroupAccessService::canPost()).
+     * The caller's archived groups — the "Archives" tab: archived by hand,
+     * for inactivity, or because their scout year is over. Readable, never
+     * postable (GroupAccessService::canParticipate()).
+     *
+     * Which year the session previews has no say in it: the rule is
+     * measured against the public year.
      *
      * @return GroupListItem[]
      */
@@ -127,10 +133,12 @@ class GroupListService
         $headcounts = $this->headcounts($readable, $context);
 
         // Only groups whose badge could be shown at all are asked about:
-        // one the caller belongs to and that is not a past-year archive.
+        // one the caller belongs to and that is not archived. Archiving
+        // and reopening write no content, so neither can raise the badge
+        // by itself either (issue #1349's definition of « Nouveau »).
         $badgeable = [];
         foreach ($readable as [$group]) {
-            if (($belongsTo[$group->id] ?? false) && !$this->isArchived($group, $context)) {
+            if (($belongsTo[$group->id] ?? false) && !$this->archiveRule->isArchived($group)) {
                 $badgeable[] = $group->id;
             }
         }
@@ -141,7 +149,7 @@ class GroupListService
             $items[] = new GroupListItem(
                 $group,
                 $isModerator,
-                $this->isArchived($group, $context),
+                $this->archiveRule->isArchived($group),
                 $sectionIds,
                 $this->hasUnread($group, $latestContent[$group->id] ?? null, $lastRead),
                 $headcounts[$group->id] ?? 0
@@ -229,7 +237,7 @@ class GroupListService
      * a group with no visible content by anybody else — and for every
      * group the badge is never put on: one the caller does not belong to
      * (issue #712, only a member's visit leaves a reading position to
-     * clear it) and a past-year archive (read-only, nothing to catch up
+     * clear it) and an archived group (read-only, nothing to catch up
      * on). See findReadable().
      *
      * @param array<int, string> $lastRead
@@ -268,11 +276,6 @@ class GroupListService
         }
 
         return $latest;
-    }
-
-    private function isArchived(DiscussionGroup $group, GroupSessionContext $context): bool
-    {
-        return $group->scoutYearId !== null && $group->scoutYearId !== $context->effectiveScoutYearId;
     }
 
     /**

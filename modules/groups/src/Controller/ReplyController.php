@@ -148,8 +148,8 @@ class ReplyController extends AbstractController
             return new Response('Not Found', 404);
         }
 
-        // A closed group, a past-year one and an incomplete profile refuse
-        // a reply exactly as they refuse a post — re-checked here, never
+        // An archived group (whatever archived it) and an incomplete
+        // profile refuse a reply exactly as they refuse a post — re-checked here, never
         // merely hidden in the UI. The group's posting policy is the one
         // thing that does NOT refuse it: commenting stays open to every
         // member of a moderators-only group (canParticipate() versus

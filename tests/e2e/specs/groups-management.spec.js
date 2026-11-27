@@ -305,21 +305,23 @@ test('a moderator opens a group, invites somebody, promotes, closes, reopens and
         ).toBeVisible();
 
         // ---------------------------------------------------------------
-        // Closing: still readable, no longer writable — and the site says
-        // exactly that rather than silently removing the composer.
+        // Archiving: still readable, no longer writable — and the site says
+        // exactly that rather than silently removing the composer. (The
+        // button keeps its historical label until the interface's own
+        // wording change, issue #1350 lot B.)
         // ---------------------------------------------------------------
         await page.goto(groupUrl, { waitUntil: 'domcontentloaded' });
         await submitAndReload(page, page.getByRole('button', { name: 'Clôturer' }), '/close');
         // exact: the flash message and the "you can still read it" notice
         // both contain the word too.
-        await expect(page.getByText('Clôturé', { exact: true })).toBeVisible();
+        await expect(page.getByText('Archivé', { exact: true })).toBeVisible();
 
         await memberPage.goto(groupUrl, { waitUntil: 'domcontentloaded' });
         await expect(memberPage.locator('#groups-post-form')).toHaveCount(0);
         await expect(
-            memberPage.getByText('Ce groupe est clôturé : vous pouvez encore le consulter, mais plus y publier.'),
+            memberPage.getByText('Ce groupe est archivé : vous pouvez encore le consulter, mais plus y participer.'),
         ).toBeVisible();
-        // Still readable — closing is not hiding.
+        // Still readable — archiving is not hiding.
         await expect(memberPage.locator(POST_BODY, { hasText: MEMBER_MESSAGE })).toBeVisible();
 
         // ---------------------------------------------------------------

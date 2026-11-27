@@ -23,11 +23,10 @@
             {% for name in badges.section_names %}
                 <span class="badge text-bg-info">{{ name }}</span>
             {% endfor %}
-            {% if badges.is_archived %}
-                {% include 'partials/status_badge.html.twig' with { status: 'archived', label: 'Année passée' } only %}
-            {% endif %}
-            {% if group.isClosed %}
-                {% include 'partials/status_badge.html.twig' with { status: 'closed', label: 'Clôturé' } only %}
+            {# One state since issue #1350, whatever archived the group:
+               `badges.is_archived` is Service\GroupArchiveRule's answer. #}
+            {% if badges.is_archived|default(false) %}
+                {% include 'partials/status_badge.html.twig' with { status: 'archived', label: 'Archivé' } only %}
             {% endif %}
             {% if badges.is_moderator %}
                 <span class="badge text-bg-primary">Modérateur</span>
@@ -54,7 +53,7 @@
           from their controllers at all.
         #}
         {% if can_moderate|default(false) %}
-            {% if group.isClosed %}
+            {% if badges.is_archived|default(false) %}
                 {% if can_reopen|default(false) %}
                     <form method="post" action="/groups/{{ group.id }}/reopen">
                         {{ csrf_field()|raw }}
@@ -100,7 +99,7 @@
   rather than a second grey box stacked on the closed-group notice below,
   which is about publishing and not about reopening.
 #}
-{% if group.isClosed and can_moderate|default(false) and not can_reopen|default(false) %}
+{% if badges.is_archived|default(false) and can_moderate|default(false) and not can_reopen|default(false) %}
     <p class="small text-body-secondary mb-2">
         <i class="bi bi-info-circle me-1" aria-hidden="true"></i>
         Ce groupe appartient à une année scoute passée : il ne peut plus être rouvert.

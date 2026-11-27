@@ -147,27 +147,27 @@ class GroupMembershipServiceTest extends TestCase
 
     // ---- reopening ----
 
-    public function testAModeratorReopensAClosedGroup(): void
+    public function testAModeratorReopensAnArchivedGroup(): void
     {
-        $this->groupRepo->setClosed($this->groupId, '2025-01-01 00:00:00');
+        $this->groupRepo->setArchived($this->groupId, '2025-01-01 00:00:00');
 
-        $outcome = $this->service()->reopen($this->group(), $this->currentYearId, 70);
+        $outcome = $this->service()->reopen($this->group(), 70);
 
         $this->assertSame(ReopenOutcome::REOPENED, $outcome);
-        $this->assertFalse($this->group()->isClosed());
+        $this->assertNull($this->group()->archivedAt);
     }
 
     /**
-     * The point of the reset: the group was almost certainly closed BY
+     * The point of the reset: the group was quite possibly archived BY
      * the inactivity task, so reopening without moving last_activity_at
-     * would have that same task close it again on its next run.
+     * would have that same task archive it again on its next run.
      */
-    public function testReopeningResetsLastActivitySoTheInactivityTaskDoesNotReclose(): void
+    public function testReopeningResetsLastActivitySoTheInactivityTaskDoesNotReArchive(): void
     {
         $this->groupRepo->touchActivity($this->groupId, '2020-01-01 00:00:00');
-        $this->groupRepo->setClosed($this->groupId, '2025-01-01 00:00:00');
+        $this->groupRepo->setArchived($this->groupId, '2025-01-01 00:00:00');
 
-        $this->service()->reopen($this->group(), $this->currentYearId, 70);
+        $this->service()->reopen($this->group(), 70);
 
         $lastActivity = $this->group()->lastActivityAt;
         $this->assertGreaterThan(
@@ -180,14 +180,14 @@ class GroupMembershipServiceTest extends TestCase
     {
         $pastYearId = GroupsTestHelper::createScoutYear($this->pdo, '2020-2021', false);
         $groupId = $this->groupRepo->create('Ancien', $pastYearId, null, 1);
-        $this->groupRepo->setClosed($groupId, '2025-01-01 00:00:00');
+        $this->groupRepo->setArchived($groupId, '2025-01-01 00:00:00');
         $group = $this->groupRepo->findById($groupId);
         \assert($group !== null);
 
-        $outcome = $this->service()->reopen($group, $this->currentYearId, 70);
+        $outcome = $this->service()->reopen($group, 70);
 
         $this->assertSame(ReopenOutcome::PAST_YEAR, $outcome);
-        $this->assertTrue($this->groupRepo->findById($groupId)->isClosed());
+        $this->assertNotNull($this->groupRepo->findById($groupId)->archivedAt);
     }
 
     /**
@@ -197,40 +197,107 @@ class GroupMembershipServiceTest extends TestCase
     public function testAYearLessGroupIsAlwaysReopenable(): void
     {
         $groupId = $this->groupRepo->create('Groupe de travail', null, null, 1);
-        $this->groupRepo->setClosed($groupId, '2025-01-01 00:00:00');
+        $this->groupRepo->setArchived($groupId, '2025-01-01 00:00:00');
         $group = $this->groupRepo->findById($groupId);
         \assert($group !== null);
 
-        $this->assertSame(ReopenOutcome::REOPENED, $this->service()->reopen($group, $this->currentYearId, 70));
+        $this->assertSame(ReopenOutcome::REOPENED, $this->service()->reopen($group, 70));
     }
 
-    public function testReopeningAnOpenGroupSaysSoRatherThanPretending(): void
+    public function testReopeningAnActiveGroupSaysSoRatherThanPretending(): void
     {
-        $this->assertSame(ReopenOutcome::NOT_CLOSED, $this->service()->reopen($this->group(), $this->currentYearId, 70));
+        $this->assertSame(ReopenOutcome::NOT_ARCHIVED, $this->service()->reopen($this->group(), 70));
     }
 
     public function testReopeningIsJournalled(): void
     {
-        $this->groupRepo->setClosed($this->groupId, '2025-01-01 00:00:00');
+        $this->groupRepo->setArchived($this->groupId, '2025-01-01 00:00:00');
 
-        $this->service()->reopen($this->group(), $this->currentYearId, 70);
+        $this->service()->reopen($this->group(), 70);
 
         $rows = $this->journalRows();
         $this->assertSame(['group_reopened'], array_column($rows, 'event_type'));
         $this->assertSame('info', $rows[0]['level']);
     }
 
-    public function testClosingByHandIsJournalledAndIdempotent(): void
+    public function testArchivingByHandIsJournalledAndIdempotent(): void
     {
         $service = $this->service();
-        $service->close($this->group(), 70);
-        $closedAt = $this->group()->closedAt;
-        $this->assertNotNull($closedAt);
+        $service->archive($this->group(), 70);
+        $archivedAt = $this->group()->archivedAt;
+        $this->assertNotNull($archivedAt);
 
-        // A second close must not re-stamp the date the purge counts from.
-        $service->close($this->group(), 70);
-        $this->assertSame($closedAt, $this->group()->closedAt);
-        $this->assertCount(1, $this->journalRows());
+        // A second archive must not re-stamp the date the purge counts from.
+        $service->archive($this->group(), 70);
+        $this->assertSame($archivedAt, $this->group()->archivedAt);
+        $this->assertSame(['group_archived'], array_column($this->journalRows(), 'event_type'));
+    }
+
+    /**
+     * The end-of-year cause before the daily task has dated it: the group
+     * is archived already (Service\GroupArchiveRule), so reopening says it
+     * belongs to a past year — not « it is not archived », which it used
+     * to, offering a reopen that could never succeed.
+     */
+    public function testAnUndatedPastYearGroupIsArchivedAndCannotBeReopened(): void
+    {
+        $pastYearId = GroupsTestHelper::createScoutYear($this->pdo, '2024-2025', false);
+        $groupId = $this->groupRepo->create('Camp 2025', $pastYearId, null, 1);
+
+        $this->assertSame(ReopenOutcome::PAST_YEAR, $this->service()->reopen($this->groupRepo->findById($groupId), 70));
+        $this->assertNull($this->groupRepo->findById($groupId)->archivedAt);
+    }
+
+    /** A future year's group is no archive for good: reopenable like the current year's. */
+    public function testAFutureYearGroupIsReopenable(): void
+    {
+        $nextYearId = GroupsTestHelper::createScoutYear($this->pdo, '2026-2027', false);
+        $groupId = $this->groupRepo->create('Camp 2027', $nextYearId, null, 1);
+        $this->groupRepo->setArchived($groupId, '2026-02-01 00:00:00');
+
+        $this->assertSame(ReopenOutcome::REOPENED, $this->service()->reopen($this->groupRepo->findById($groupId), 70));
+        $this->assertNull($this->groupRepo->findById($groupId)->archivedAt);
+    }
+
+    /**
+     * Once the public year has moved on, a group archived by hand during
+     * its own year joins the past for good — whatever it was before.
+     */
+    public function testACurrentYearGroupArchivedByHandCannotBeReopenedOnceItsYearIsOver(): void
+    {
+        $this->service()->archive($this->group(), 70);
+        $nextYearId = GroupsTestHelper::createScoutYear($this->pdo, '2026-2027', true);
+        $this->assertGreaterThan(0, $nextYearId);
+
+        $this->assertSame(ReopenOutcome::PAST_YEAR, $this->service()->reopen($this->group(), 70));
+    }
+
+    /**
+     * Reopening ends the archive period: the date goes. Archiving again
+     * later starts a new period, with a new date.
+     */
+    public function testArchivingAgainAfterAReopeningStartsANewPeriod(): void
+    {
+        $this->groupRepo->setArchived($this->groupId, '2025-01-01 00:00:00');
+        $this->service()->reopen($this->group(), 70);
+        $this->assertNull($this->group()->archivedAt);
+
+        $this->service()->archive($this->group(), 70);
+
+        $this->assertNotNull($this->group()->archivedAt);
+        $this->assertGreaterThan('2025-01-01 00:00:00', (string) $this->group()->archivedAt);
+    }
+
+    /** Nothing to stamp on a group its year has already archived: the end-of-year task dates it. */
+    public function testArchivingAnUndatedPastYearGroupByHandChangesNothing(): void
+    {
+        $pastYearId = GroupsTestHelper::createScoutYear($this->pdo, '2024-2025', false);
+        $groupId = $this->groupRepo->create('Camp 2025', $pastYearId, null, 1);
+
+        $this->service()->archive($this->groupRepo->findById($groupId), 70);
+
+        $this->assertNull($this->groupRepo->findById($groupId)->archivedAt);
+        $this->assertSame([], $this->journalRows());
     }
 
     // ---- creation quota ----
@@ -271,16 +338,41 @@ class GroupMembershipServiceTest extends TestCase
 
     /**
      * The quota is about live clutter, not about how much somebody ever
-     * created — a closed group is read-only and on its way to the purge.
+     * created — an archived group is read-only and on its way to the purge.
      */
-    public function testClosedGroupsDoNotCountTowardsTheQuota(): void
+    public function testArchivedGroupsDoNotCountTowardsTheQuota(): void
     {
         $ids = $this->createInvitationGroups(5, creator: 3);
         $this->assertFalse($this->service()->canCreateAnotherGroup(3));
 
-        $this->groupRepo->setClosed($ids[0], Timestamps::now());
+        $this->groupRepo->setArchived($ids[0], Timestamps::now());
 
         $this->assertTrue($this->service()->canCreateAnotherGroup(3));
+    }
+
+    /**
+     * Archived by its year, with no date yet: it no longer holds a slot.
+     * Counted in SQL against the year's PERIOD, the same rule as
+     * Service\GroupArchiveRule.
+     */
+    public function testAGroupOfAPastYearDoesNotCountTowardsTheQuotaEvenUndated(): void
+    {
+        $pastYearId = GroupsTestHelper::createScoutYear($this->pdo, '2024-2025', false);
+        $this->createInvitationGroups(4, creator: 3);
+        $this->groupRepo->create('Camp 2025', $pastYearId, null, 3);
+
+        $this->assertTrue($this->service()->canCreateAnotherGroup(3));
+    }
+
+    /** A current-year, a future-year and a year-less group are all live, and all count. */
+    public function testActiveGroupsOfEveryKindOfYearCount(): void
+    {
+        $nextYearId = GroupsTestHelper::createScoutYear($this->pdo, '2026-2027', false);
+        $this->createInvitationGroups(3, creator: 3);
+        $this->groupRepo->create('Cette année', $this->currentYearId, null, 3);
+        $this->groupRepo->create('L\'an prochain', $nextYearId, null, 3);
+
+        $this->assertFalse($this->service()->canCreateAnotherGroup(3));
     }
 
     public function testTheQuotaIsPerMember(): void
@@ -328,7 +420,8 @@ class GroupMembershipServiceTest extends TestCase
             $this->groupRepo,
             $this->memberRepo,
             new SettingService(new SettingRepository($this->pdo)),
-            new JournalService(new JournalRepository($this->pdo))
+            new JournalService(new JournalRepository($this->pdo)),
+            \Tests\Modules\Groups\GroupsTestHelper::archiveRule($this->pdo)
         );
     }
 

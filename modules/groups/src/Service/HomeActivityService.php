@@ -85,9 +85,10 @@ class HomeActivityService implements HomeGroupActivityProvider
             AuthSession::getUserAccountId()
         );
 
-        // findCurrent() already excludes archived (past-year) groups: a
-        // read-only archive has nothing to catch up on, so counting it on
-        // the homepage would be a call to action with nowhere to go.
+        // findCurrent() already excludes archived groups, whatever the
+        // cause (Service\GroupArchiveRule): a read-only archive has nothing
+        // to catch up on, so counting it on the homepage would be a call
+        // to action with nowhere to go.
         $unread = array_values(array_filter(
             $this->listService->findCurrent($context),
             fn(GroupListItem $item) => $item->hasUnread

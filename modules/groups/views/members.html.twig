@@ -15,7 +15,7 @@
     {% include '@groups/partials/group_header.html.twig' with {
         group: group,
         group_label: group_label,
-        badges: { is_invitation: group.sectionId is null, section_names: derived_sections, is_archived: false, is_moderator: can_moderate }
+        badges: { is_invitation: group.sectionId is null, section_names: derived_sections, is_archived: is_archived|default(false), is_moderator: can_moderate }
     } only %}
 
     <div class="card mb-3">

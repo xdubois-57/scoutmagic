@@ -128,6 +128,15 @@ class PostControllerTest extends TestCase
     /**
      * @param int[] $linkedMemberIds
      */
+    /** See GroupsControllerTestCase::endTheFixtureYear(). */
+    private function endTheFixtureYear(): void
+    {
+        GroupsTestHelper::setPublicYear(
+            $this->pdo,
+            GroupsTestHelper::createScoutYear($this->pdo, '2026-2027', false)
+        );
+    }
+
     private function controller(
         array $linkedMemberIds,
         int $accountId = self::AUTHOR_ACCOUNT,
@@ -141,7 +150,7 @@ class PostControllerTest extends TestCase
 
         $sectionRepo = new GroupSectionRepository($this->pdo);
         $memberRepo = new GroupMemberRepository($this->pdo);
-        $access = new GroupAccessService($memberRepo, $sectionRepo, new SectionMembershipRepository($this->pdo));
+        $access = new GroupAccessService($memberRepo, $sectionRepo, new SectionMembershipRepository($this->pdo), \Tests\Modules\Groups\GroupsTestHelper::archiveRule($this->pdo));
 
         $memberService = $this->createStub(MemberService::class);
         $memberService->method('getLinkedMembers')->willReturn(array_map(fn(int $id) => $this->profile($id), $linkedMemberIds));
@@ -545,7 +554,19 @@ class PostControllerTest extends TestCase
 
     public function testCreateIsRefusedOnAClosedGroupServerSide(): void
     {
-        $this->groupRepo->setClosed($this->groupId, '2026-02-01 00:00:00');
+        $this->groupRepo->setArchived($this->groupId, '2026-02-01 00:00:00');
+        $this->withCsrf(['body' => 'Bonjour']);
+
+        $response = $this->controller([$this->memberId])->create($this->request(), $this->params());
+
+        $this->assertSame(403, $response->getStatusCode());
+        $this->assertSame([], $this->postRepo->findPage($this->groupId, 10));
+    }
+
+    /** Archived by its year, no date yet: refused all the same (issue #1350). */
+    public function testCreateIsRefusedOnceTheGroupsYearIsOver(): void
+    {
+        $this->endTheFixtureYear();
         $this->withCsrf(['body' => 'Bonjour']);
 
         $response = $this->controller([$this->memberId])->create($this->request(), $this->params());
@@ -611,7 +632,7 @@ class PostControllerTest extends TestCase
 
     public function testLinkPreviewIsRefusedOnAClosedGroup(): void
     {
-        $this->groupRepo->setClosed($this->groupId, '2026-02-01 00:00:00');
+        $this->groupRepo->setArchived($this->groupId, '2026-02-01 00:00:00');
         $this->withCsrf(['body' => 'https://example.com']);
 
         $response = $this->controller([$this->memberId])->linkPreview($this->linkPreviewRequest(), $this->params());
@@ -1263,7 +1284,21 @@ class PostControllerTest extends TestCase
     {
         $postId = $this->seedPostWithPoll();
         $options = $this->pollOptionsOf($postId);
-        $this->groupRepo->setClosed($this->groupId, '2026-02-01 00:00:00');
+        $this->groupRepo->setArchived($this->groupId, '2026-02-01 00:00:00');
+        $this->withCsrf(['option_id' => (string) $options[0]['id']]);
+
+        $response = $this->controller([$this->otherMemberId], self::OTHER_ACCOUNT)
+            ->vote($this->request(), $this->params($postId));
+
+        $this->assertSame(403, $response->getStatusCode());
+    }
+
+    /** The year-end cause refuses a vote too, before any date is written. */
+    public function testAVoteIsRefusedOnceTheGroupsYearIsOver(): void
+    {
+        $postId = $this->seedPostWithPoll();
+        $options = $this->pollOptionsOf($postId);
+        $this->endTheFixtureYear();
         $this->withCsrf(['option_id' => (string) $options[0]['id']]);
 
         $response = $this->controller([$this->otherMemberId], self::OTHER_ACCOUNT)

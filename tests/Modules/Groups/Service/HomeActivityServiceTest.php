@@ -121,6 +121,7 @@ class HomeActivityServiceTest extends TestCase
                 new SectionMembershipRepository($this->pdo),
                 new PostRepository($this->pdo),
                 new ReplyRepository($this->pdo),
+                \Tests\Modules\Groups\GroupsTestHelper::archiveRule($this->pdo),
                 $this->readRepo
             ),
             new GroupSessionContextFactory($memberService, $accountRepo, $resolver),

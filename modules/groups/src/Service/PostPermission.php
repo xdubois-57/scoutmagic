@@ -18,8 +18,12 @@ namespace Modules\Groups\Service;
 final class PostPermission
 {
     public const REASON_NOT_MEMBER = 'not_member';
-    public const REASON_CLOSED = 'closed';
-    public const REASON_PAST_YEAR = 'past_year';
+    /**
+     * The group is archived — by hand, for inactivity, or because its
+     * scout year is over (Service\GroupArchiveRule). One reason for the
+     * three causes: they mean the same thing to the member.
+     */
+    public const REASON_ARCHIVED = 'archived';
     public const REASON_INCOMPLETE_PROFILE = 'incomplete_profile';
 
     /**

@@ -12,12 +12,14 @@ use Core\Scheduler\TaskContext;
 use Core\Scheduler\TaskHandlerInterface;
 
 /**
- * Retention purge for whole groups, daily: a group closed longer ago than
- * groups_closed_purge_months is deleted with everything in it, its
- * delegated gallery album included.
+ * Retention purge for whole groups, daily: a group archived longer ago
+ * than groups_closed_purge_months — counted from its archive date,
+ * whatever archived it — is deleted with everything in it, its delegated
+ * gallery album included. The class and task key keep their historical
+ * names, like Task\CloseInactiveGroupsHandler's and for the same reason.
  *
- * A group of the effective scout year or of a future one is never purged,
- * however long it has been closed — otherwise Task\
+ * A group of the public scout year or of a future one is never purged,
+ * however long it has been archived — otherwise Task\
  * EnsureSectionGroupsHandler would recreate a section group the night
  * after this one deleted it, forever. That rule is also why this module
  * needs no tombstone table: the years that could loop are simply out of
@@ -32,7 +34,7 @@ class PurgeClosedGroupsHandler implements TaskHandlerInterface
      */
     public function handle(array $payload, TaskContext $context): void
     {
-        GroupsTaskFactory::lifecycle($context)->purgeClosedGroups();
+        GroupsTaskFactory::lifecycle($context)->purgeArchivedGroups();
 
         GroupsTaskFactory::rescheduleDaily($context, self::TASK_KEY);
     }
