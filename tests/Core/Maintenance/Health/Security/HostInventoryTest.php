@@ -119,6 +119,71 @@ final class HostInventoryTest extends TestCase
         $this->assertSame('LibreSSL 3.8.2', $components['openssl_web']->version);
     }
 
+    /**
+     * The loaded library is what is compared, never the header PHP was
+     * built with: after an in-place libssl update the two differ (review of
+     * #1415). Loaded with an unreadable library version is unknown, not
+     * absent, and not the header's number.
+     */
+    public function testTheLoadedOpensslLibraryIsComparedNotTheHeader(): void
+    {
+        $components = $this->byPresence(HostInventory::collect(
+            $this->web(new RuntimeVersions('8.4.1', 'OpenSSL 3.0.18 30 Sep 2025', null, null, true, 'OpenSSL 3.0.13 30 Jan 2024')),
+            $this->cron(new RuntimeVersions('8.4.1', null, null, null, true, 'OpenSSL 3.0.13 30 Jan 2024')),
+            'mysql',
+            '8.0.36',
+            self::NOW
+        ));
+
+        $this->assertSame('3.0.18', $components['openssl_web']->version);
+        $this->assertSame(ObservedComponent::UNKNOWN, $components['openssl_cron']->presence);
+        $this->assertNull($components['openssl_cron']->version);
+    }
+
+    /** What the extension prints, in the CLI and in a web SAPI's table. */
+    public function testTheLibraryLineIsReadFromBothRenderingsOfTheModuleInformation(): void
+    {
+        $cli = "openssl\n\nOpenSSL support => enabled\nOpenSSL Library Version => OpenSSL 3.0.18 30 Sep 2025\n"
+            . "OpenSSL Header Version => OpenSSL 3.0.13 30 Jan 2024\n";
+        $html = '<table><tr><td class="e">OpenSSL support </td><td class="v">enabled </td></tr>' . "\n"
+            . '<tr><td class="e">OpenSSL Library Version </td><td class="v">OpenSSL 3.0.18 30 Sep 2025 </td></tr>' . "\n"
+            . '<tr><td class="e">OpenSSL Header Version </td><td class="v">OpenSSL 3.0.13 30 Jan 2024 </td></tr></table>';
+
+        $this->assertSame('OpenSSL 3.0.18 30 Sep 2025', RuntimeVersions::opensslLibraryFrom($cli));
+        $this->assertSame('OpenSSL 3.0.18 30 Sep 2025', RuntimeVersions::opensslLibraryFrom($html));
+        $this->assertNull(RuntimeVersions::opensslLibraryFrom('OpenSSL support => enabled'));
+    }
+
+    /** This process: the library the extension reports, with the header kept beside it. */
+    public function testTheMeasurementReadsThisProcesssLoadedLibrary(): void
+    {
+        if (!extension_loaded('openssl')) {
+            $this->markTestSkipped('needs ext-openssl');
+        }
+        $extension = new \ReflectionExtension('openssl');
+        ob_start();
+        $extension->info();
+        $info = (string) ob_get_clean();
+
+        $measured = RuntimeVersions::measure();
+
+        $this->assertTrue($measured->opensslLoaded);
+        $this->assertSame(RuntimeVersions::opensslLibraryFrom($info), $measured->openssl);
+        $this->assertSame(OPENSSL_VERSION_TEXT, $measured->opensslHeader);
+    }
+
+    /** Stored before the library was read apart: its value was the header, so the library is unknown. */
+    public function testAMeasurementStoredBeforeTheLibraryWasReadIsUnknown(): void
+    {
+        $legacy = RuntimeVersions::fromArray(['php' => '8.4.1', 'openssl' => 'OpenSSL 3.0.13 30 Jan 2024', 'curl' => null, 'curl_ssl' => null]);
+
+        $this->assertNotNull($legacy);
+        $this->assertTrue($legacy->opensslLoaded);
+        $this->assertNull($legacy->openssl);
+        $this->assertSame('OpenSSL 3.0.13 30 Jan 2024', $legacy->opensslHeader);
+        $this->assertEquals($legacy, RuntimeVersions::fromArray($legacy->toArray()));
+    }
+
     public function testComponentsComeInTheDeclaredSubjectOrder(): void
     {
         $components = HostInventory::collect(

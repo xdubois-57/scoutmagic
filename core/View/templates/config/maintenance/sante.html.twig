@@ -135,8 +135,10 @@
                                             {% for reference in item.references %}
                                                 <a href="{{ reference.url }}" target="_blank" rel="noopener noreferrer">{{ reference.label }}</a>{{ loop.last ? '' : ' · ' }}
                                             {% endfor %}
-                                            {% if item.versionsCheckedAt or item.advisoriesCheckedAt %}
-                                                — consulté le {{ host_security.moment(item.advisoriesCheckedAt ?: item.versionsCheckedAt)|date_fr }}
+                                            {# Dated by the version data these links describe — never by
+                                               the NVD lookup, which may be newer than a stale release list. #}
+                                            {% if item.versionsCheckedAt %}
+                                                — consulté le {{ host_security.moment(item.versionsCheckedAt)|date_fr }}
                                             {% endif %}
                                         </div>
                                     {% endif %}

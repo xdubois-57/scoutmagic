@@ -1020,6 +1020,28 @@ class MaintenanceControllerTest extends TestCase
         $this->assertStringContainsString('<strong>' . ($existing + 2) . " points à régler chez l'hébergeur.</strong>", $body);
     }
 
+    /**
+     * The links under a line describe the version data, so they carry ITS
+     * date — and none when the version source never answered, even though
+     * the NVD did (review of #1415).
+     */
+    public function testTheReferenceLinksAreDatedByTheVersionDataOnly(): void
+    {
+        $store = new \Core\Maintenance\Health\Security\HostSecurityStore($this->settingService);
+        $store->register();
+        $source = new \Tests\Core\Maintenance\Health\Security\FakeReferenceSource();
+        $source->failing = ['php.net' => true];
+        $now = time();
+        (new \Core\Maintenance\Health\Security\HostSecurityService($store, $source))->refresh([
+            new \Core\Maintenance\Health\Security\ObservedComponent('php_web', 'php', 'present', '8.4.1', $now),
+        ], $now);
+
+        $body = $this->page('index');
+
+        $this->assertStringContainsString('Versions maintenues (php.net)', $body);
+        $this->assertStringNotContainsString('— consulté le', $body);
+    }
+
     /** Rendering the page consults no source and arms no chain: it only reads. */
     public function testTheHealthPageArmsNoSecurityCheck(): void
     {

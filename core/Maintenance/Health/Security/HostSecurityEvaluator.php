@@ -33,9 +33,10 @@ namespace Core\Maintenance\Health\Security;
  *    qualified « à confirmer auprès de l'hébergeur » rather than stated.
  *
  * « Une mise à jour est nécessaire » — half of the notification condition —
- * is the update half when a source answered with this family's branches.
- * For a family no source covers (cURL), or whose source could not be read
- * at all, it is the advisory half itself: the NVD matched this version
+ * is the update half when it concluded (current, behind, unsupported).
+ * When it did not — a family no source covers (cURL), a source that could
+ * not be read, a branch absent from the data or naming no latest release —
+ * it is the advisory half itself: the NVD matched this version
  * inside a CVE's affected range, and leaving that range is what an update
  * does. A source that failed is never, on its own, a reason to say an
  * update is needed.
@@ -46,16 +47,18 @@ final class HostSecurityEvaluator
      * @param list<ObservedComponent> $components
      * @param array<string, BranchLookup> $branches by {@see ComponentFamily::branchSourceKey()}
      * @param array<string, AdvisoryLookup> $advisories by CPE name
+     * @param int|null $now the moment a branch's end of support is compared with — a cached
+     *                      « supported » may have expired since it was fetched
      * @return list<ComponentAssessment> absent components excluded
      */
-    public function evaluate(array $components, array $branches, array $advisories): array
+    public function evaluate(array $components, array $branches, array $advisories, ?int $now = null): array
     {
         $assessments = [];
         foreach ($components as $component) {
             if ($component->presence === ObservedComponent::ABSENT) {
                 continue;
             }
-            $assessments[] = $this->assess($component, $branches, $advisories);
+            $assessments[] = $this->assess($component, $branches, $advisories, $now);
         }
 
         return $assessments;
@@ -65,7 +68,7 @@ final class HostSecurityEvaluator
      * @param array<string, BranchLookup> $branches
      * @param array<string, AdvisoryLookup> $advisories
      */
-    private function assess(ObservedComponent $component, array $branches, array $advisories): ComponentAssessment
+    private function assess(ObservedComponent $component, array $branches, array $advisories, ?int $now): ComponentAssessment
     {
         $family = ComponentFamily::get($component->family);
         $familyLabel = $family !== null ? $family->label : $component->family;
@@ -107,7 +110,7 @@ final class HostSecurityEvaluator
             if ($branch === null) {
                 $notes[] = 'La branche ' . implode('.', array_slice($version->segments, 0, 2))
                     . ' est absente des données de référence.';
-            } elseif ($branch->supported === false) {
+            } elseif ($branch->supported === false || self::supportEnded($branch, $now)) {
                 $updateStatus = ComponentAssessment::UPDATE_UNSUPPORTED;
             } elseif ($latest !== null && $latest->compare($version) > 0) {
                 $updateStatus = ComponentAssessment::UPDATE_BEHIND;
@@ -127,10 +130,16 @@ final class HostSecurityEvaluator
         $cpe = $family->cpeName($version);
         $found = $advisories[$cpe] ?? new AdvisoryLookup(AdvisoryLookup::UNAVAILABLE);
         $applicable = $found->hasData() ? Advisory::sorted(Advisory::deduplicated($found->advisories)) : [];
-        $high = array_values(array_map(
-            static fn(Advisory $a): string => $a->id,
-            array_filter($applicable, static fn(Advisory $a): bool => $a->isHigh())
-        ));
+        // Every identifier at CVSS ≥ 7: those listed in detail, and those
+        // the source reported beyond the detail that was kept — the
+        // notification decides on this set, so it is never truncated.
+        $high = array_values(array_unique(array_merge(
+            array_map(
+                static fn(Advisory $a): string => $a->id,
+                array_filter($applicable, static fn(Advisory $a): bool => $a->isHigh())
+            ),
+            $found->hasData() ? $found->highIds : []
+        )));
         $unknownScore = array_filter($applicable, static fn(Advisory $a): bool => $a->score === null) !== [];
         if ($found->status === AdvisoryLookup::PENDING) {
             $notes[] = 'Les avis de sécurité seront consultés au prochain passage (limite de requêtes de la NVD).';
@@ -154,7 +163,11 @@ final class HostSecurityEvaluator
                     . 'numéro de version : à confirmer auprès de l\'hébergeur.';
         }
 
-        $needsUpdate = $lookup !== null && $lookup->hasData()
+        // Decided by the update half only when it actually concluded: a
+        // branch absent from the data, or one naming no latest release,
+        // leaves it unknown exactly like a source that failed — and an
+        // end-of-life branch nobody lists is where high advisories gather.
+        $needsUpdate = $updateStatus !== ComponentAssessment::UPDATE_UNKNOWN
             ? $outOfDate
             : $high !== [];
 
@@ -171,10 +184,12 @@ final class HostSecurityEvaluator
         };
 
         // Trusted either way: a verified current version cannot need an
-        // update, and a complete advisory answer without a high score
-        // cannot meet the condition. Anything else must not re-arm.
+        // update, and a complete advisory answer without a high score — and
+        // without an advisory whose score is still unknown, which may yet
+        // be 7 or more — cannot meet the condition. Anything else must not
+        // re-arm.
         $conclusive = $updateStatus === ComponentAssessment::UPDATE_CURRENT
-            || ($found->hasData() && $high === []);
+            || ($found->hasData() && $high === [] && !$unknownScore);
 
         $references = [];
         if ($family->versionReferenceUrl() !== null) {
@@ -208,6 +223,18 @@ final class HostSecurityEvaluator
             versionsCheckedAt: $lookup?->fetchedAt,
             advisoriesCheckedAt: $found->fetchedAt
         );
+    }
+
+    /**
+     * A branch the source said was supported, whose stated end of security
+     * support has passed since — the cache may be days old, and believed for
+     * up to a month after its source stops answering.
+     */
+    private static function supportEnded(ReleaseBranch $branch, ?int $now): bool
+    {
+        return $now !== null
+            && $branch->supportEnds !== null
+            && $branch->supportEnds < gmdate('Y-m-d', $now);
     }
 
     /**

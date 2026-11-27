@@ -22,10 +22,12 @@ use Core\Config\SettingService;
  *   from, each entry with its own fetch date, so a source that fails keeps
  *   its last usable answer, dated, rather than turning into « À jour ».
  *
- * Both fit a `settings.setting_value` TEXT (64 KiB) by construction: the
- * advisories kept per CPE are capped ({@see HostSecurityService::
- * KEPT_ADVISORIES}), and a document that would still overflow is not
- * written, leaving the previous one.
+ * Both must fit a `settings.setting_value` TEXT (64 KiB). The advisories
+ * kept per CPE are capped ({@see HostSecurityService::KEPT_ADVISORIES},
+ * {@see HostSecurityService::KEPT_HIGH_IDS}), the cache keeps only what the
+ * current inventory needs, and a document that would still overflow is not
+ * written: {@see saveCache()} says so, and the service retries with fewer
+ * details per CPE rather than lose what the run fetched.
  */
 final class HostSecurityStore
 {
@@ -35,8 +37,14 @@ final class HostSecurityStore
     /** Below the 65 535 bytes of a MySQL/MariaDB TEXT, with room to spare. */
     private const MAX_DOCUMENT_BYTES = 60000;
 
-    public function __construct(private readonly SettingService $settings)
-    {
+    /**
+     * @param int $maxBytes the size above which a document is not written — a parameter only so a
+     *                      test can reach the limit without building sixty kilobytes of advisories
+     */
+    public function __construct(
+        private readonly SettingService $settings,
+        private readonly int $maxBytes = self::MAX_DOCUMENT_BYTES
+    ) {
     }
 
     public function register(): void
@@ -90,10 +98,13 @@ final class HostSecurityStore
         return is_array($data) ? $data : [];
     }
 
-    /** @param array<string, mixed> $cache */
-    public function saveCache(array $cache): void
+    /**
+     * @param array<string, mixed> $cache
+     * @return bool false when the document is too large to be written — the caller trims and retries
+     */
+    public function saveCache(array $cache): bool
     {
-        $this->write(self::CACHE_SETTING, $cache);
+        return $this->write(self::CACHE_SETTING, $cache);
     }
 
     private function decode(string $key): mixed
@@ -102,13 +113,15 @@ final class HostSecurityStore
     }
 
     /** @param array<string, mixed> $document */
-    private function write(string $key, array $document): void
+    private function write(string $key, array $document): bool
     {
         $encoded = json_encode($document, JSON_INVALID_UTF8_SUBSTITUTE | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-        if ($encoded === false || strlen($encoded) > self::MAX_DOCUMENT_BYTES) {
-            return;
+        if ($encoded === false || strlen($encoded) > $this->maxBytes) {
+            return false;
         }
 
         $this->settings->setInternal($key, $encoded);
+
+        return true;
     }
 }

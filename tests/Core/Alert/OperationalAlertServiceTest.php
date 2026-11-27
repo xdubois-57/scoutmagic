@@ -314,6 +314,63 @@ class OperationalAlertServiceTest extends TestCase
         $this->assertStringNotContainsString('CVE-2026', (string) $all);
     }
 
+    // ————— Une panne du journal ou de l'envoi ne perd pas l'annonce (revue de #1415) —————
+
+    /**
+     * A journal that refuses its row can no longer stand between the
+     * transition and its notification, on either path: the first trigger
+     * and a grown subject set.
+     */
+    public function testAFailingJournalNeverSwallowsTheNotification(): void
+    {
+        $types = [];
+        $journal = $this->createStub(\Core\Journal\JournalService::class);
+        $journal->method('log')->willThrowException(new \PDOException('journal down'));
+        $service = new OperationalAlertService($this->repository, $this->notificationsRecording($types), $journal);
+
+        $this->assertTrue($service->evaluate(self::withSubjects(['CVE-2026-0001'])));
+        $this->assertTrue($service->evaluate(self::withSubjects(['CVE-2026-0001', 'CVE-2026-0002'])));
+
+        $this->assertCount(2, $types);
+        $this->assertSame(['CVE-2026-0001', 'CVE-2026-0002'], $this->repository->findOrArmed('probe')->notifiedSubjects);
+    }
+
+    /**
+     * A notification that cannot be handed off leaves nothing recorded as
+     * announced: the next pass announces it instead of believing it done.
+     */
+    public function testAFailedHandOffIsRetriedOnTheNextPass(): void
+    {
+        $failing = $this->createStub(NotificationService::class);
+        $failing->method('recipientsForType')->willReturn([['userAccountId' => 1, 'memberId' => null]]);
+        $failing->method('dispatch')->willThrowException(new \RuntimeException('queue down'));
+        $types = [];
+        $working = $this->notificationsRecording($types);
+
+        // First trigger: the failure leaves the alert armed.
+        try {
+            (new OperationalAlertService($this->repository, $failing))->evaluate(self::withSubjects(['CVE-2026-0001']));
+        } catch (\RuntimeException) {
+        }
+        $this->assertFalse($this->repository->findOrArmed('probe')->isTriggered());
+        $this->assertTrue((new OperationalAlertService($this->repository, $working))->evaluate(self::withSubjects(['CVE-2026-0001'])));
+
+        // Growth: the failure leaves the new subject unannounced.
+        try {
+            (new OperationalAlertService($this->repository, $failing))->evaluate(self::withSubjects(['CVE-2026-0001', 'CVE-2026-0002']));
+        } catch (\RuntimeException) {
+        }
+        $this->assertSame(['CVE-2026-0001'], $this->repository->findOrArmed('probe')->notifiedSubjects);
+        $this->assertTrue((new OperationalAlertService($this->repository, $working))->evaluate(self::withSubjects(['CVE-2026-0001', 'CVE-2026-0002'])));
+        $this->assertCount(2, $types);
+    }
+
+    /** @param list<string> $subjects */
+    private static function withSubjects(array $subjects): OperationalCheck
+    {
+        return new StubCheck(new AlertReading(true, false, 'v', 'Titre', 'Pourquoi', null, null, $subjects));
+    }
+
     private static function check(bool $over, bool $under, string $value): OperationalCheck
     {
         return new StubCheck(new AlertReading($over, $under, $value, 'Titre', 'Pourquoi'));

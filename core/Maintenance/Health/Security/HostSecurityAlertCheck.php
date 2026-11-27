@@ -27,7 +27,7 @@ use Core\Alert\OperationalCheck;
  *   decision 3), and never for the same set twice.
  * - **Re-armed** only on a conclusive verdict that the condition no longer
  *   holds: a version verified current, or a complete advisory answer with
- *   nothing at 7 or above.
+ *   nothing at 7 or above and no advisory whose score is still unknown.
  * - **Inconclusive** otherwise — a component not measured, a source that
  *   failed, a lookup still pending — which leaves a standing alert
  *   standing.

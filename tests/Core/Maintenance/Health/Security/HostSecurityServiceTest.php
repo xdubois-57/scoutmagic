@@ -188,6 +188,65 @@ final class HostSecurityServiceTest extends TestCase
         $this->assertCount(count(array_filter($many, static fn(Advisory $a): bool => $a->isHigh())), $php->highAdvisoryIds);
     }
 
+    /**
+     * Past the twenty advisories kept in detail, every identifier at
+     * CVSS ≥ 7 is still kept — from the fetch AND from the cache — so a new
+     * high advisory below the twentieth still grows the notified set
+     * (review of #1415).
+     */
+    public function testEveryHighIdentifierSurvivesTheDetailCapAndTheCache(): void
+    {
+        $many = [];
+        for ($i = 1; $i <= 30; $i++) {
+            $many[] = new Advisory(sprintf('CVE-2026-%04d', $i), 8.0, '3.1', null, 'u');
+        }
+        $source = $this->source([self::PHP_CPE => $many]);
+
+        $first = $this->service($source)->refresh([$this->php('php_web', '8.4.1')], self::NOW);
+        $second = $this->service($source)->refresh([$this->php('php_web', '8.4.1')], self::NOW + 60);
+
+        $this->assertCount(30, $first->find('php_web')?->highAdvisoryIds ?? []);
+        $this->assertCount(30, $second->find('php_web')?->highAdvisoryIds ?? [], 'read back from the cache');
+        $this->assertCount(1, $source->nvdRequests(), 'the second run was served from the cache');
+    }
+
+    /**
+     * A cache that no longer fits its settings row keeps fewer details per
+     * CPE rather than losing what the run fetched: the next run asks the NVD
+     * nothing again and still knows every high identifier (review of #1415).
+     */
+    public function testACacheTooLargeForItsRowIsTrimmedNotLost(): void
+    {
+        $many = [];
+        for ($i = 1; $i <= 20; $i++) {
+            $many[] = new Advisory(sprintf('CVE-2026-%04d', $i), 9.0, '3.1', 'nvd@nist.gov', 'https://nvd.nist.gov/vuln/detail/CVE-2026-' . $i);
+        }
+        $source = $this->source([self::PHP_CPE => $many]);
+        $small = new HostSecurityStore($this->settings, 2500);
+
+        (new HostSecurityService($small, $source))->refresh([$this->php('php_web', '8.4.1')], self::NOW);
+        $source->requests = [];
+        $again = (new HostSecurityService($small, $source))->refresh([$this->php('php_web', '8.4.1')], self::NOW + 60);
+
+        $this->assertNotSame([], $small->cache(), 'the cache was written');
+        $this->assertSame([], $source->requests);
+        $this->assertCount(20, $again->find('php_web')?->highAdvisoryIds ?? []);
+    }
+
+    /** A version the host left is not kept in the cache. */
+    public function testOnlyWhatTheInventoryNeedsIsCached(): void
+    {
+        $source = $this->source([]);
+        $this->service($source)->refresh([$this->php('php_web', '8.4.1')], self::NOW);
+
+        $this->service($source)->refresh([$this->php('php_web', '8.4.28')], self::NOW + 60);
+
+        $this->assertSame(
+            ['cpe:2.3:a:php:php:8.4.28:*:*:*:*:*:*:*'],
+            array_keys($this->store->cache()['advisories'] ?? [])
+        );
+    }
+
     /** @param array<string, list<Advisory>> $advisories */
     private function source(array $advisories): FakeReferenceSource
     {

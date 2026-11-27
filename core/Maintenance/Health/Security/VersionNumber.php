@@ -24,7 +24,8 @@ namespace Core\Maintenance\Health\Security;
  * - a **pre-release** (« 8.5.0RC1 », « 3.0.0-alpha1 », « 8.4.0-dev »), which
  *   no release data describes, so the check says « non vérifiable » instead
  *   of comparing it as if it were 8.5.0;
- * - OpenSSL's **patch letter** (« 1.1.1w »), which sorts after « 1.1.1t »;
+ * - OpenSSL's **patch letters** (« 1.1.1w », « 1.0.2zh »), which sort after
+ *   « 1.1.1t » and « 1.0.2z »;
  * - MariaDB's **replication prefix** (« 5.5.5-10.11.6-MariaDB »), which old
  *   clients see in front of the real version.
  */
@@ -52,7 +53,14 @@ final class VersionNumber
             $text = (string) preg_replace('/^5\.5\.5-(?=\d)/', '', $text);
         }
 
-        if (preg_match('/^v?(\d+(?:\.\d+)*)([a-z](?![a-z]))?(.*)$/is', $text, $matches) !== 1) {
+        // OpenSSL's patch letters run past « z » (« 1.0.2zh », the fix of
+        // CVE-2023-2650): two letters standing alone are part of ITS upstream
+        // version, never of another family's — where « RC1 » or « a1 » is a
+        // pre-release, and a letter followed by a digit never a patch.
+        $letters = $family !== null && $family->id === ComponentFamily::OPENSSL
+            ? '[a-z]{1,2}(?![a-z0-9])'
+            : '[a-z](?![a-z])';
+        if (preg_match('/^v?(\d+(?:\.\d+)*)(' . $letters . ')?(.*)$/is', $text, $matches) !== 1) {
             return null;
         }
 

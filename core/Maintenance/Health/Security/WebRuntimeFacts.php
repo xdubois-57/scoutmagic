@@ -56,12 +56,16 @@ final class WebRuntimeFacts
     }
 
     /**
-     * Measures this (web) process and stores it. Best effort: a diagnostic
-     * must never be why a page fails, and this runs after the page was sent.
+     * Declares the setting, measures this (web) process and stores it. Best
+     * effort, the declaration included — a registration whose insert fails
+     * rethrows — because a diagnostic must never be why a page fails, and
+     * this runs after the page was sent. A failure leaves the measurement
+     * unavailable until a later request retries.
      */
     public static function record(SettingService $settings, int $now): void
     {
         try {
+            self::register($settings);
             $encoded = json_encode(
                 (new self($now, PHP_SAPI, RuntimeVersions::measure()))->toArray(),
                 JSON_INVALID_UTF8_SUBSTITUTE

@@ -54,13 +54,27 @@ final class WebRuntimeFactsTest extends TestCase
         );
     }
 
-    /** Never fatal: a page that has already been sent must not fail on a diagnostic. */
-    public function testRecordingWithoutTheSettingIsSwallowed(): void
+    /** The response tail calls record() alone: it declares the setting itself. */
+    public function testRecordingDeclaresTheSettingItself(): void
     {
         $settings = new SettingService(new SettingRepository(DatabaseTestHelper::createTestDatabase()));
 
         WebRuntimeFacts::record($settings, 1_800_000_000);
 
-        $this->assertNull(WebRuntimeFacts::read($settings));
+        $this->assertSame(1_800_000_000, WebRuntimeFacts::read($settings)?->measuredAt);
+    }
+
+    /**
+     * Never fatal, the declaration included: a page that has already been
+     * sent must not fail on a diagnostic (review of #1415).
+     */
+    public function testAFailingDeclarationIsSwallowed(): void
+    {
+        $pdo = DatabaseTestHelper::createTestDatabase();
+        $pdo->exec('DROP TABLE settings');
+
+        WebRuntimeFacts::record(new SettingService(new SettingRepository($pdo)), 1_800_000_000);
+
+        $this->addToAssertionCount(1);
     }
 }

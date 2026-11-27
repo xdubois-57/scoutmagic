@@ -108,14 +108,23 @@ final class OperationalAlertService
         $reading = $check->read();
         $stored = $this->repository->findOrArmed($check->key());
 
+        // The notification is handed off BEFORE the state records it as
+        // given, and the journal comes last, best effort (issue #1358,
+        // review of #1415): a notification that throws leaves the alert
+        // armed — or the subjects unannounced — so the next pass tries
+        // again, and a journal that refuses a row can no longer stand
+        // between the transition and the people it is for. The price is
+        // the opposite failure: a state write that fails after the
+        // hand-off makes the next pass announce once more. A duplicate is
+        // read; a lost announcement is not.
         if (!$stored->isTriggered() && $reading->overTrigger) {
+            $this->notify($check, $reading);
             $this->repository->markTriggered($check->key(), $reading->value, $reading->subjects);
             [$title, $context] = $this->journalEntry($check->key(), $reading, [
                 'check' => $check->key(),
                 'value' => $reading->value,
             ]);
-            $this->journal?->log('core', 'operational_alert_triggered', 'warning', $title, $context);
-            $this->notify($check, $reading);
+            $this->journalBestEffort('operational_alert_triggered', $title, $context);
 
             return true;
         }
@@ -131,6 +140,7 @@ final class OperationalAlertService
         if ($stored->isTriggered() && $reading->overTrigger && $reading->subjects !== []) {
             $new = array_diff($reading->subjects, $stored->notifiedSubjects);
             if ($new !== []) {
+                $this->notify($check, $reading);
                 $this->repository->markRenotified(
                     $check->key(),
                     $reading->value,
@@ -141,8 +151,7 @@ final class OperationalAlertService
                     'value' => $reading->value,
                     'new' => array_values($new),
                 ]);
-                $this->journal?->log('core', 'operational_alert_grew', 'warning', $title, $context);
-                $this->notify($check, $reading);
+                $this->journalBestEffort('operational_alert_grew', $title, $context);
 
                 return true;
             }
@@ -171,6 +180,22 @@ final class OperationalAlertService
         }
 
         return false;
+    }
+
+    /**
+     * The journal row of a transition that has already been announced and
+     * recorded: worth writing, never worth undoing the transition for.
+     *
+     * @param array<string, mixed> $context
+     */
+    private function journalBestEffort(string $action, string $title, array $context): void
+    {
+        try {
+            $this->journal?->log('core', $action, 'warning', $title, $context);
+        } catch (\Throwable) {
+            // The notification left and the state moved; a missing journal
+            // row is the cheapest of the possible losses here.
+        }
     }
 
     /**

@@ -48,6 +48,17 @@ final class HostSecurityService
     /** Per CPE name, highest scores first; the rest are only counted. */
     public const KEPT_ADVISORIES = 20;
 
+    /**
+     * Per CPE name, the identifiers at CVSS ≥ 7 kept beyond the detailed
+     * advisories — the notification's subjects, so a new high advisory past
+     * the twentieth still makes the set grow. Bounded so the cache stays a
+     * settings row; a CPE with more than this many is far past any doubt.
+     */
+    public const KEPT_HIGH_IDS = 200;
+
+    /** When the full cache does not fit, how many detailed advisories each CPE keeps. */
+    private const TRIMMED_ADVISORIES = 5;
+
     public function __construct(
         private readonly HostSecurityStore $store,
         private readonly ReferenceSource $source,
@@ -103,11 +114,13 @@ final class HostSecurityService
             try {
                 $found = Advisory::sorted(Advisory::deduplicated($this->source->advisories($cpe)));
                 $kept = array_slice($found, 0, self::KEPT_ADVISORIES);
-                $advisories[$cpe] = new AdvisoryLookup(AdvisoryLookup::OK, $kept, count($found), $now);
+                $highIds = array_slice(self::highIds($found), 0, self::KEPT_HIGH_IDS);
+                $advisories[$cpe] = new AdvisoryLookup(AdvisoryLookup::OK, $kept, count($found), $now, $highIds);
                 $cachedAdvisories[$cpe] = [
                     'fetched_at' => $now,
                     'total' => count($found),
                     'items' => array_map(static fn(Advisory $a): array => $a->toArray(), $kept),
+                    'high_ids' => $highIds,
                 ];
                 unset($failedAt[$cpe]);
             } catch (ReferenceSourceUnavailable) {
@@ -116,15 +129,33 @@ final class HostSecurityService
             }
         }
 
-        $this->store->saveCache([
-            'branches' => self::withoutExpired($cachedBranches, $now),
-            'advisories' => self::withoutExpired($cachedAdvisories, $now),
-            'advisory_failures' => $failedAt,
-        ]);
+        // Only what this inventory needs is kept: a version the host left
+        // has nothing more to say, and keeping it is how the document would
+        // creep towards the size of a settings row.
+        $cache = [
+            'branches' => self::withoutExpired(array_intersect_key($cachedBranches, $families), $now),
+            'advisories' => self::withoutExpired(array_intersect_key($cachedAdvisories, array_flip($cpes)), $now),
+            'advisory_failures' => array_intersect_key($failedAt, array_flip($cpes)),
+        ];
+        if (!$this->store->saveCache($cache)) {
+            // Still too large: keep fewer details per CPE rather than lose
+            // what this run fetched. The identifiers at CVSS ≥ 7, the
+            // total and the date survive whole, so the next run neither
+            // asks the NVD again nor misses a new high advisory.
+            foreach ($cache['advisories'] as $cpe => $entry) {
+                $cache['advisories'][$cpe]['items'] = array_slice($entry['items'], 0, self::TRIMMED_ADVISORIES);
+            }
+            if (!$this->store->saveCache($cache)) {
+                foreach ($cache['advisories'] as $cpe => $entry) {
+                    $cache['advisories'][$cpe]['items'] = [];
+                }
+                $this->store->saveCache($cache);
+            }
+        }
 
         $snapshot = new HostSecuritySnapshot(
             $now,
-            $this->evaluator->evaluate($components, $branches, $advisories),
+            $this->evaluator->evaluate($components, $branches, $advisories, $now),
             $complete
         );
         $this->store->save($snapshot);
@@ -210,7 +241,7 @@ final class HostSecurityService
     private static function afterFailure(?AdvisoryLookup $cached, int $now): AdvisoryLookup
     {
         return $cached !== null && $now - (int) $cached->fetchedAt <= self::MAX_STALE_SECONDS
-            ? new AdvisoryLookup(AdvisoryLookup::STALE, $cached->advisories, $cached->total, $cached->fetchedAt)
+            ? new AdvisoryLookup(AdvisoryLookup::STALE, $cached->advisories, $cached->total, $cached->fetchedAt, $cached->highIds)
             : new AdvisoryLookup(AdvisoryLookup::UNAVAILABLE);
     }
 
@@ -221,12 +252,29 @@ final class HostSecurityService
         }
         $items = array_values(array_filter(array_map([Advisory::class, 'fromArray'], $entry['items'])));
 
+        $highIds = is_array($entry['high_ids'] ?? null)
+            ? array_values(array_filter($entry['high_ids'], 'is_string'))
+            : self::highIds($items);
+
         return new AdvisoryLookup(
             AdvisoryLookup::OK,
             $items,
             is_int($entry['total'] ?? null) ? $entry['total'] : count($items),
-            $entry['fetched_at']
+            $entry['fetched_at'],
+            $highIds
         );
+    }
+
+    /**
+     * @param list<Advisory> $advisories
+     * @return list<string>
+     */
+    private static function highIds(array $advisories): array
+    {
+        return array_values(array_map(
+            static fn(Advisory $a): string => $a->id,
+            array_filter($advisories, static fn(Advisory $a): bool => $a->isHigh())
+        ));
     }
 
     /**

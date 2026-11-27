@@ -14231,8 +14231,9 @@ if ($operationalRequestChecks->due()) {
     // The web PHP's exact versions (issue #1358), for the weekly host
     // security check, which runs in the cron and must never take the
     // cron's PHP_VERSION for the site's. Constants and one in-memory call;
-    // the cost is this quarter-hourly settings write. Best effort.
-    \Core\Maintenance\Health\Security\WebRuntimeFacts::register($settingService);
+    // the cost is this quarter-hourly settings write. Best effort, its
+    // registration included: record() declares the setting itself, inside
+    // the same catch, so nothing here can fail the response tail.
     \Core\Maintenance\Health\Security\WebRuntimeFacts::record($settingService, time());
 }
 

@@ -129,10 +129,11 @@ final class CheckHostSecurityHandlerTest extends TestCase
         $handler->handle([], $this->context());
         $handler->handle([], $this->context());
 
-        $count = (int) $this->pdo->query(
-            "SELECT COUNT(*) FROM scheduled_actions WHERE task_key = '" . CheckHostSecurityHandler::TASK_KEY
-            . "' AND status = 'pending'"
-        )->fetchColumn();
+        $statement = $this->pdo->prepare(
+            "SELECT COUNT(*) FROM scheduled_actions WHERE task_key = ? AND status = 'pending'"
+        );
+        $statement->execute([CheckHostSecurityHandler::TASK_KEY]);
+        $count = (int) $statement->fetchColumn();
         $this->assertSame(1, $count);
     }
 

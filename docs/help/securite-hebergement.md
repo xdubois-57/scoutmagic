@@ -29,7 +29,8 @@ relance rien.
 ## Les quatre états
 
 - **À jour** — dernière version de sa branche, et aucune faille connue
-  de gravité 7 ou plus.
+  de gravité 7 ou plus. Pour cURL, dont aucune source ne publie les
+  versions maintenues, seule l'absence de faille est vérifiée.
 - **Pas à jour** — un correctif est publié pour la branche utilisée, ou
   cette branche ne reçoit plus de correctifs. Une version majeure plus
   récente ne suffit pas à rendre une branche maintenue obsolète.

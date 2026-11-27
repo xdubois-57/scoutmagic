@@ -236,6 +236,85 @@ final class HostSecurityEvaluatorTest extends TestCase
         $this->assertFalse($assessment->conclusive);
     }
 
+    /**
+     * A branch the data does not list — an end-of-life PHP 7 that php.net
+     * dropped, say — leaves the update half unknown; a high advisory then
+     * says an update is needed, as for a source that failed (review of
+     * #1415). Before, the alert never fired for exactly that population.
+     */
+    public function testAnUnlistedBranchWithAHighAdvisoryNeedsAnUpdateAndNotifies(): void
+    {
+        $assessment = $this->php('7.2.34', [new Advisory('CVE-2026-0072', 9.8, '3.1', null, 'u')]);
+
+        $this->assertSame(ComponentAssessment::UPDATE_UNKNOWN, $assessment->updateStatus);
+        $this->assertTrue($assessment->needsUpdate);
+        $this->assertTrue($assessment->alertWorthy());
+    }
+
+    /** Same for a maintained branch that names no latest release. */
+    public function testABranchWithoutALatestReleaseFallsBackToTheAdvisories(): void
+    {
+        $assessment = $this->php('8.4.1', [new Advisory('CVE-2026-0073', 7.0, '3.1', null, 'u')], [new ReleaseBranch('8.4', null, true)]);
+
+        $this->assertTrue($assessment->alertWorthy());
+    }
+
+    /**
+     * An advisory the NVD has not scored yet may be 7 or more: it must not
+     * re-arm a standing alert (review of #1415). A known low score still can.
+     */
+    public function testAnUnscoredAdvisoryIsNeverAConclusiveAllClear(): void
+    {
+        $unscored = $this->php('8.4.1', [new Advisory('CVE-2026-0101', null, null, null, 'u')]);
+        $low = $this->php('8.4.1', [new Advisory('CVE-2026-0102', 5.0, '3.1', null, 'u')]);
+        $curl = $this->assess('curl_web', ComponentFamily::CURL, '7.81.0', null, [new Advisory('CVE-2026-0103', null, null, null, 'u')], null);
+
+        $this->assertFalse($unscored->conclusive);
+        $this->assertFalse($curl->conclusive);
+        $this->assertTrue($low->conclusive);
+    }
+
+    /**
+     * A branch cached as supported whose stated end of support has passed
+     * since is out of support now (review of #1415).
+     */
+    public function testACachedSupportedBranchPastItsEndOfSupportIsUnsupported(): void
+    {
+        $branch = new ReleaseBranch('8.1', '8.1.34', true, '2025-12-31');
+        $family = ComponentFamily::get(ComponentFamily::PHP) ?? throw new \LogicException();
+        $evaluate = static fn(int $now): ComponentAssessment => (new HostSecurityEvaluator())->evaluate(
+            [new ObservedComponent('php_web', ComponentFamily::PHP, ObservedComponent::PRESENT, '8.1.34', $now)],
+            ['php.net' => new BranchLookup(BranchLookup::OK, [$branch], $now)],
+            [$family->cpeName(VersionNumber::parse('8.1.34', $family) ?? throw new \LogicException()) => new AdvisoryLookup(AdvisoryLookup::OK, [], 0, $now)],
+            $now
+        )[0];
+
+        $this->assertSame(ComponentAssessment::UPDATE_CURRENT, $evaluate((int) strtotime('2025-12-31 12:00:00 UTC'))->updateStatus);
+        $this->assertSame(ComponentAssessment::UPDATE_UNSUPPORTED, $evaluate((int) strtotime('2026-01-01 00:00:01 UTC'))->updateStatus);
+    }
+
+    /**
+     * The identifiers at CVSS ≥ 7 a source reported beyond the detail kept
+     * are part of the set a notification is decided on.
+     */
+    public function testHighIdentifiersBeyondTheKeptDetailAreCounted(): void
+    {
+        $family = ComponentFamily::get(ComponentFamily::PHP) ?? throw new \LogicException();
+        $assessment = (new HostSecurityEvaluator())->evaluate(
+            [new ObservedComponent('php_web', ComponentFamily::PHP, ObservedComponent::PRESENT, '8.4.1', self::NOW)],
+            ['php.net' => new BranchLookup(BranchLookup::OK, [new ReleaseBranch('8.4', '8.4.28', true)], self::NOW)],
+            [$family->cpeName(VersionNumber::parse('8.4.1') ?? throw new \LogicException()) => new AdvisoryLookup(
+                AdvisoryLookup::OK,
+                [new Advisory('CVE-2026-0001', 9.8, '3.1', null, 'u')],
+                3,
+                self::NOW,
+                ['CVE-2026-0001', 'CVE-2026-0002', 'CVE-2026-0003']
+            )]
+        )[0];
+
+        $this->assertSame(['CVE-2026-0001', 'CVE-2026-0002', 'CVE-2026-0003'], $assessment->highAdvisoryIds);
+    }
+
     public function testTheSameAdvisoryTwiceInASourceIsOneAdvisory(): void
     {
         $advisory = new Advisory('CVE-2026-0001', 8.1, '3.1', null, 'u');

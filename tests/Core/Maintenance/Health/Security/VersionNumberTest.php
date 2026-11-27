@@ -32,6 +32,9 @@ final class VersionNumberTest extends TestCase
             'MariaDB with the replication prefix' => ['5.5.5-10.11.6-MariaDB-log', ComponentFamily::MARIADB, '10.11.6', null, null],
             'MySQL from Ubuntu' => ['8.0.36-0ubuntu0.22.04.1', ComponentFamily::MYSQL, '8.0.36', null, '-0ubuntu0.22.04.1'],
             'OpenSSL patch letter' => ['1.1.1w', ComponentFamily::OPENSSL, '1.1.1w', null, null],
+            'OpenSSL two patch letters' => ['1.0.2zh', ComponentFamily::OPENSSL, '1.0.2zh', null, null],
+            'OpenSSL two letters and a build' => ['1.0.2zh-fips', ComponentFamily::OPENSSL, '1.0.2zh', null, '-fips'],
+            'PHP RC stays a pre-release' => ['8.5.0rc', ComponentFamily::PHP, '8.5.0', 'rc', null],
             'OpenSSL alpha' => ['3.0.0-alpha1', ComponentFamily::OPENSSL, '3.0.0', 'alpha1', null],
         ];
     }
@@ -64,6 +67,10 @@ final class VersionNumberTest extends TestCase
         $this->assertSame(0, $compare('8.4', '8.4.0'));
         $this->assertSame(1, $compare('10.11.10', '10.11.9'));
         $this->assertSame(-1, $compare('1.1.1t', '1.1.1w'));
+        $openssl = static fn(string $a, string $b): int => (VersionNumber::parse($a, ComponentFamily::get(ComponentFamily::OPENSSL)) ?? throw new \LogicException())
+            ->compare(VersionNumber::parse($b, ComponentFamily::get(ComponentFamily::OPENSSL)) ?? throw new \LogicException());
+        $this->assertSame(-1, $openssl('1.0.2zg', '1.0.2zh'), 'the fix boundary of CVE-2023-2650');
+        $this->assertSame(1, $openssl('1.0.2zh', '1.0.2z'));
         $this->assertSame(1, $compare('1.1.1a', '1.1.1'));
         // The build suffix never takes part: the upstream number is equal.
         $this->assertSame(0, $compare('8.3.6-1ubuntu1.2', '8.3.6'));

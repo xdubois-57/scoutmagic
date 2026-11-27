@@ -115,7 +115,7 @@ final class HostInventory
                 $versions->php,
                 $at
             );
-            $components['openssl_' . $context] = self::openssl('openssl_' . $context, $versions->openssl, $at);
+            $components['openssl_' . $context] = self::openssl('openssl_' . $context, $versions, $at);
             $components['curl_' . $context] = $versions->curl === null
                 ? new ObservedComponent('curl_' . $context, ComponentFamily::CURL, ObservedComponent::ABSENT, null, $at)
                 : new ObservedComponent(
@@ -156,10 +156,23 @@ final class HostInventory
         return $ordered;
     }
 
-    private static function openssl(string $subject, ?string $text, ?int $at): ObservedComponent
+    private static function openssl(string $subject, RuntimeVersions $versions, ?int $at): ObservedComponent
     {
-        if ($text === null) {
+        if (!$versions->opensslLoaded) {
             return new ObservedComponent($subject, ComponentFamily::OPENSSL, ObservedComponent::ABSENT, null, $at);
+        }
+        $text = $versions->openssl;
+        if ($text === null) {
+            // Loaded, and the LIBRARY's version unreadable: unknown, never the
+            // header's number, which a host's in-place update leaves behind.
+            return new ObservedComponent(
+                $subject,
+                ComponentFamily::OPENSSL,
+                ObservedComponent::UNKNOWN,
+                null,
+                $at,
+                'La version de la bibliothèque OpenSSL chargée n\'a pas pu être lue.'
+            );
         }
 
         $version = self::opensslVersion($text);
