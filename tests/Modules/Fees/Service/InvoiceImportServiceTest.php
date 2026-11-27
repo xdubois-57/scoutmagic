@@ -448,6 +448,39 @@ class InvoiceImportServiceTest extends TestCase
         $this->assertNull($this->journalContext('fees_invoice_imported')['issue_year_id']);
     }
 
+    /**
+     * A date that is not a real day (« 31/02/2026 ») is no more readable
+     * than a missing one: imported, and said unchecked (#1548 review).
+     */
+    public function testAnIssueDateThatIsNotARealDayIsSaidUnchecked(): void
+    {
+        $text = (new PdfTextExtractor())->extractText($this->pdf);
+        $this->assertIsString($text);
+        $next = $this->scoutYear('2026-2027', '2026-09-01', '2027-08-31');
+
+        $outcome = $this->serviceReading(str_replace('08/01/2026', '31/02/2026', $text))->import('pdf', $next, 7);
+
+        $this->assertSame(InvoiceImportOutcome::IMPORTED, $outcome->status);
+        $this->assertTrue($outcome->yearUnchecked);
+    }
+
+    /**
+     * A document that can never be imported is refused before any year
+     * question (#1548 review): no number means no import, whatever the
+     * treasurer would have confirmed.
+     */
+    public function testADocumentWithoutANumberIsRefusedBeforeAnyYearQuestion(): void
+    {
+        $text = (new PdfTextExtractor())->extractText($this->pdf);
+        $this->assertIsString($text);
+        $next = $this->scoutYear('2026-2027', '2026-09-01', '2027-08-31');
+
+        $outcome = $this->serviceReading(str_replace('F2026/000123', '', $text))->import('pdf', $next, 7);
+
+        $this->assertSame(InvoiceImportOutcome::REFUSED, $outcome->status);
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM fees_invoices')->fetchColumn());
+    }
+
     private function scoutYear(string $label, string $start, string $end): int
     {
         $stmt = $this->pdo->prepare('INSERT INTO scout_years (label, start_date, end_date) VALUES (?, ?, ?)');

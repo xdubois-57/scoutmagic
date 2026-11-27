@@ -183,28 +183,6 @@ class InvoiceImportService
             );
         }
 
-        // The season a document belongs to is the one its issue date falls
-        // in, not the one on screen when it was imported (issue #1468). A
-        // regularisation can be issued after its season ends, so a
-        // mismatch is asked, never refused — and asked before anything is
-        // written.
-        $issueYear = $this->issueYearOf($invoice->issueDate);
-        $yearConfirmed = false;
-        if ($issueYear !== null && $issueYear['label'] !== $this->yearLabel($scoutYearId)) {
-            if ($confirmedYearId !== $scoutYearId) {
-                \assert($invoice->issueDate !== null);
-
-                return InvoiceImportOutcome::yearToConfirm(
-                    (string) $invoice->documentNumber,
-                    $invoice->issueDate,
-                    $issueYear['label'],
-                    $this->yearLabel($scoutYearId),
-                    $scoutYearId
-                );
-            }
-            $yearConfirmed = true;
-        }
-
         [$sectionIdsByCode, $unknown] = $this->resolveSections($invoice);
         if ($unknown !== []) {
             $this->journal->log(
@@ -234,6 +212,31 @@ class InvoiceImportService
                 "Le numéro de la facture n'a pas été trouvé : sans lui, le site ne peut pas reconnaître un document "
                     . "déjà importé."
             )], $invoice->ignoredRowCount);
+        }
+
+        // The season a document belongs to is the one its issue date falls
+        // in, not the one on screen when it was imported (issue #1468). A
+        // regularisation can be issued after its season ends, so a
+        // mismatch is asked, never refused — and asked before anything is
+        // written, but only of a document that could be imported at all:
+        // asked of one with no number, or billing sections the site does
+        // not know, it would send the treasurer round only to be refused
+        // on the way back (#1548 review).
+        $issueYear = $this->issueYearOf($invoice->issueDate);
+        $yearConfirmed = false;
+        if ($issueYear !== null && $issueYear['label'] !== $this->yearLabel($scoutYearId)) {
+            if ($confirmedYearId !== $scoutYearId) {
+                \assert($invoice->issueDate !== null);
+
+                return InvoiceImportOutcome::yearToConfirm(
+                    $invoice->documentNumber,
+                    $invoice->issueDate,
+                    $issueYear['label'],
+                    $this->yearLabel($scoutYearId),
+                    $scoutYearId
+                );
+            }
+            $yearConfirmed = true;
         }
 
         $index = $this->memberMatches->buildIndex($scoutYearId);
@@ -271,7 +274,9 @@ class InvoiceImportService
             $invoiceId,
             $invoice->documentNumber,
             $invoice->ignoredRowCount,
-            $this->scoutYears !== null && $invoice->issueDate === null
+            // No date, or one that is not a real day (« 31/02/2026 »):
+            // either way the year went unchecked (#1548 review).
+            $this->scoutYears !== null && $issueYear === null
         );
     }
 
