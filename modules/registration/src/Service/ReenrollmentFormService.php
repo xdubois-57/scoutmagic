@@ -157,6 +157,22 @@ class ReenrollmentFormService
     }
 
     /**
+     * The preference a saved answer may carry: `$posted` when the card
+     * offered that section to this child, null — « Peu importe » —
+     * otherwise (#1274). The one rule every answer-writing caller applies.
+     */
+    public function permittedPreference(int $memberId, int $publicYearId, string $publicYearLabel, int $posted): ?int
+    {
+        if ($posted <= 0) {
+            return null;
+        }
+
+        return in_array($posted, $this->offeredSectionIdsFor($memberId, $publicYearId, $publicYearLabel), true)
+            ? $posted
+            : null;
+    }
+
+    /**
      * Whether `$email`'s account may answer for `$memberId` — the one
      * check every save goes through, whatever the request looked like.
      */

@@ -364,8 +364,10 @@ class ReenrollmentControllerTest extends TestCase
                 'preferred_section_id' => (string) $sectionId,
             ]), []);
             $this->assertSame(302, $response->getStatusCode());
+            $answer = $this->repository->findAnswer($memberId, $this->targetYearId);
+            $this->assertNotNull($answer, 'the answer itself is saved');
 
-            return $this->repository->findAnswer($memberId, $this->targetYearId)?->preferredSectionId;
+            return $answer->preferredSectionId;
         };
 
         $this->assertSame($eclaireursB, $preferenceAfter($eclaireursB), 'offered: kept');
@@ -380,13 +382,16 @@ class ReenrollmentControllerTest extends TestCase
         $memberId = $this->createAnime('Alix', '2015-06-01', $this->louveteauxA, self::PARENT_EMAIL);
         AuthSession::login(1, self::PARENT_EMAIL, 'identified');
 
-        $this->controller->save($this->post([
+        $response = $this->controller->save($this->post([
             'member_id' => (string) $memberId,
             'decision' => 'reenrolled',
             'preferred_section_id' => (string) $this->eclaireursA,
         ]), []);
 
-        $this->assertNull($this->repository->findAnswer($memberId, $this->targetYearId)?->preferredSectionId);
+        $this->assertSame(302, $response->getStatusCode());
+        $answer = $this->repository->findAnswer($memberId, $this->targetYearId);
+        $this->assertNotNull($answer, 'the answer itself is saved');
+        $this->assertNull($answer->preferredSectionId);
     }
 
     public function testAFamilyMayChangeTheirMind(): void
