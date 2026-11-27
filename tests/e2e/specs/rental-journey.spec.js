@@ -232,6 +232,11 @@ test.describe('Rentals — one booking from the request to the deposit back', ()
 
         // « Suivre les paiements via le site » saves on its own, with the
         // usual toast, and is still on after a reload (issue #1355, D11).
+        // The tariff's save has just reloaded the page, and the text above
+        // shows as soon as it is parsed — before the deferred module that
+        // wires the switch has run. A click in that gap toggles the box with
+        // nothing listening, so the page is let finish loading first.
+        await page.waitForLoadState('load');
         const tracking = page.getByRole('switch', { name: 'Suivre les paiements via le site' });
         await tracking.check();
         await expect(page.getByText('Suivi des paiements activé.')).toBeVisible();
