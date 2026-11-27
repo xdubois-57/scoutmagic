@@ -126,7 +126,12 @@ class GroupMembershipService
         }
 
         $this->groupRepository->setArchived($group->id, Timestamps::now());
-        $this->journal('group_archived', 'Groupe archivé par un modérateur', ['group_id' => $group->id], $actorAccountId);
+        $this->journal(
+            'group_archived',
+            'Groupe archivé par un modérateur',
+            ['group_id' => $group->id],
+            $actorAccountId
+        );
     }
 
     /**

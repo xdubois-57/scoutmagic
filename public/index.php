@@ -10264,7 +10264,11 @@ if ($isEnabled('groups')) {
     // and membership only — never a post, never a count of them.
     $moduleHooks->register(
         \Core\Module\MemberDiscussionGroupProvider::class,
-        new \Modules\Groups\Service\MemberDiscussionGroupService($groupsMemberRepo, $groupsGroupRepo, $groupsArchiveRule)
+        new \Modules\Groups\Service\MemberDiscussionGroupService(
+            $groupsMemberRepo,
+            $groupsGroupRepo,
+            $groupsArchiveRule
+        )
     );
     // Per-member "last time I opened this group": drives the unread badge
     // on the group list, the home page's own activity card, and a post's
