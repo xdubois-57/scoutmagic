@@ -1268,6 +1268,8 @@ class GroupControllerTest extends TestCase
         $this->assertStringContainsString('action="/groups/' . $groupId . '/archive"', $body);
         $this->assertStringContainsString('Archiver ce groupe ?', $body);
         $this->assertMatchesRegularExpression('/<\/i>\s*Archiver\s*<\/button>/', $body);
+        // A destructive trigger (design.md): it stops everybody's participation.
+        $this->assertMatchesRegularExpression('/class="btn btn-outline-danger[^"]*">\s*<i class="bi bi-archive/', $body);
         $this->assertDoesNotMatchRegularExpression('/cl[ôo]tur/iu', $body);
     }
 

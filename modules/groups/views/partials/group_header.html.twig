@@ -66,7 +66,7 @@
                 <form method="post" action="/groups/{{ group.id }}/archive"
                       data-confirm="Archiver ce groupe ? Il passera dans « Archives » : il restera consultable, mais plus personne ne pourra y participer.">
                     {{ csrf_field()|raw }}
-                    <button type="submit" class="btn btn-outline-secondary d-flex align-items-center">
+                    <button type="submit" class="btn btn-outline-danger d-flex align-items-center">
                         <i class="bi bi-archive me-1" aria-hidden="true"></i> Archiver
                     </button>
                 </form>

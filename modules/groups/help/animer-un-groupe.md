@@ -57,4 +57,4 @@ modérateurs seuls — chacun garde alors commentaires, réactions et
 sondages). « Archiver » le range dans « Archives », en lecture seule.
 Le site archive aussi un groupe resté longtemps sans activité, et ceux
 d'une année scoute terminée. « Rouvrir » le remet dans la liste tant
-que son année scoute est en cours.
+que son année scoute n'est pas terminée.
