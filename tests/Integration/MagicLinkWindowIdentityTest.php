@@ -248,6 +248,44 @@ class MagicLinkWindowIdentityTest extends TestCase
     }
 
     /**
+     * **A session that is already signed in must type the code too**
+     * (#1256). The one button was for a window that asked while signed out:
+     * what it grants, its own poll was about to collect. A signed-in session
+     * asking for a link is a reconfirmation — it wins a fresh « connexion
+     * récente » window — and a copy of its cookie in somebody else's hands
+     * is exactly the case the window exists to keep out. Whoever presses the
+     * button in the same browser as that copy must read the code off the
+     * screen that asked.
+     */
+    public function testASignedInSessionConfirmingItsOwnLinkMustTypeTheCode(): void
+    {
+        $this->startTestSession();
+        AuthSession::login(7, self::EMAIL, 'identified');
+        $stale = time() - 3600;
+        $_SESSION['_auth']['authenticated_at'] = $stale;
+        $magicLinkId = $this->requestLink(self::EMAIL);
+        $code = (string) $this->matchCode;
+
+        $page = $this->controller->verifyMagicLink($this->verifyRequestFor($magicLinkId), []);
+        $this->assertStringContainsString('name="match_code"', $page->getBody(), 'the page asks for the code');
+
+        $withoutCode = $this->confirm($magicLinkId, null);
+        $this->assertStringContainsString('Saisissez le code', $withoutCode->getBody());
+        $this->assertSame(0, $this->usedFlag($magicLinkId), 'one button confirms nothing here');
+        $this->assertSame($stale, AuthSession::authenticatedAt());
+
+        $wrong = $code === '000000' ? '111111' : '000000';
+        $this->assertStringContainsString(
+            'Ce code ne correspond pas',
+            $this->confirm($magicLinkId, $wrong)->getBody()
+        );
+        $this->assertSame(0, $this->usedFlag($magicLinkId));
+
+        $this->assertStringContainsString('Connexion confirmée', $this->confirm($magicLinkId, $code)->getBody());
+        $this->assertSame(1, $this->usedFlag($magicLinkId), 'the right code confirms it');
+    }
+
+    /**
      * AND THE TAB IT LEFT BEHIND STOPS WAITING (issue #263): on a phone the
      * link opens in a new tab of the same browser, so the tab still showing
      * « En attente de confirmation… » holds the same session — and its next
