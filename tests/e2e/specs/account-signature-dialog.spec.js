@@ -38,7 +38,14 @@ async function trace(page, pad) {
     await page.mouse.up();
 }
 
-test('the signature is recorded through a dialog, and cancelling it writes nothing', async ({ page, context }) => {
+/**
+ * Records every uncaught error and every 5xx answer of the context, the
+ * two failures each scenario here must end without.
+ *
+ * @param {import('@playwright/test').BrowserContext} context
+ * @returns {string[]} filled as the scenario runs
+ */
+function watch(context) {
     /** @type {string[]} */
     const failures = [];
     context.on('weberror', (error) => failures.push(`uncaught: ${error.error().message}`));
@@ -47,6 +54,12 @@ test('the signature is recorded through a dialog, and cancelling it writes nothi
             failures.push(`HTTP ${response.status()} on ${response.url()}`);
         }
     });
+
+    return failures;
+}
+
+test('the signature is recorded through a dialog, and cancelling it writes nothing', async ({ page, context }) => {
+    const failures = watch(context);
 
     await loginAsMember(page);
     await page.goto('/account/signature');
@@ -88,7 +101,8 @@ test('the signature is recorded through a dialog, and cancelling it writes nothi
     expect(failures).toEqual([]);
 });
 
-test('arriving from a document to sign opens the dialog by itself', async ({ page }) => {
+test('arriving from a document to sign opens the dialog by itself', async ({ page, context }) => {
+    const failures = watch(context);
     await loginAsMember(page);
 
     // The gesture that opens it is the arrival itself.
@@ -99,4 +113,6 @@ test('arriving from a document to sign opens the dialog by itself', async ({ pag
     await expect(dialog.getByRole('heading', { name: /^(Enregistrer|Remplacer) ma signature$/ })).toBeVisible();
     await expect(dialog.getByRole('button', { name: 'Enregistrer la signature' })).toBeVisible();
     await expect(page.getByRole('link', { name: 'Continuer sans modifier ma signature' })).toHaveAttribute('href', '/account');
+
+    expect(failures).toEqual([]);
 });

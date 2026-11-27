@@ -22,8 +22,6 @@ use Core\Signature\SignatureSubmission;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\RequestWithInput;
-use Twig\Environment;
-use Twig\Loader\ArrayLoader;
 
 /**
  * « Ma signature » under Mon compte (issue #926, lot B): what it keeps,
@@ -47,10 +45,10 @@ final class AccountSignatureControllerTest extends TestCase
             new JournalService(new JournalRepository($pdo))
         );
         $this->controller = new AccountSignatureController(
-            new Environment(new ArrayLoader([
+            \Tests\TestTwig::withTemplates([
                 'account/signature.html.twig' => '{{ has_signature ? "avec" : "sans" }}|{{ return_to ?? "" }}{{ open_dialog ? "|ouvrir" : "" }}',
                 'errors/404.html.twig' => 'Introuvable',
-            ])),
+            ]),
             $this->signatures
         );
 
