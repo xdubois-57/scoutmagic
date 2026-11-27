@@ -60,7 +60,8 @@ final class SetupTokenAttempts
      */
     public static function tokenFrom(string $fileContent): string
     {
-        return preg_match('/TOKEN:\s*(' . self::TOKEN_PATTERN . ')/i', $fileContent, $matches) === 1
+        // The lookahead refuses a longer run: the first 64 characters of 65 are no token.
+        return preg_match('/TOKEN:\s*(' . self::TOKEN_PATTERN . ')(?![0-9a-f])/i', $fileContent, $matches) === 1
             ? strtolower($matches[1])
             : '';
     }

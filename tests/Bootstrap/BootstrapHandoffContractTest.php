@@ -71,6 +71,40 @@ final class BootstrapHandoffContractTest extends TestCase
         }
     }
 
+    /**
+     * What is a token in token.php is decided the same way on both sides —
+     * and a 65-character value is none, not its first 64 characters.
+     */
+    public function testBothSidesReadTheSameTokenFromTokenPhp(): void
+    {
+        $dir = sys_get_temp_dir() . '/contract_token_' . uniqid('', true);
+        mkdir($dir, 0700, true);
+        $good = str_repeat('1f', 32);
+        $contents = [
+            'exact' => "<?php /* TOKEN: {$good} */\n",
+            'upper-case' => '<?php /* TOKEN: ' . strtoupper($good) . " */\n",
+            'no space before the closing' => "<?php /* TOKEN: {$good}*/\n",
+            'one too long' => "<?php /* TOKEN: {$good}a */\n",
+            'one too short' => '<?php /* TOKEN: ' . substr($good, 1) . " */\n",
+            'empty' => '',
+        ];
+
+        try {
+            foreach ($contents as $label => $content) {
+                file_put_contents($dir . '/' . \BOOTSTRAP_TOKEN_FILE, $content);
+                $this->assertSame(
+                    \bootstrapReadTokenValue($dir),
+                    SetupTokenAttempts::tokenFrom($content),
+                    $label
+                );
+            }
+            file_put_contents($dir . '/' . \BOOTSTRAP_TOKEN_FILE, $contents['one too long']);
+            $this->assertSame('', \bootstrapReadTokenValue($dir));
+        } finally {
+            self::removeDirectory($dir);
+        }
+    }
+
     private static function removeDirectory(string $dir): void
     {
         foreach (array_diff(scandir($dir) ?: [], ['.', '..']) as $entry) {

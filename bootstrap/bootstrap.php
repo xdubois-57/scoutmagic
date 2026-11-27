@@ -1887,7 +1887,7 @@ function bootstrapReadTokenValue(string $docRoot): string
 {
     $content = (string) @file_get_contents($docRoot . '/' . BOOTSTRAP_TOKEN_FILE);
 
-    return preg_match('/TOKEN:\s*([0-9a-f]{64})/i', $content, $m) === 1 ? strtolower($m[1]) : '';
+    return preg_match('/TOKEN:\s*([0-9a-f]{64})(?![0-9a-f])/i', $content, $m) === 1 ? strtolower($m[1]) : '';
 }
 
 /**
@@ -3150,7 +3150,7 @@ HTML;
   // hands the token to anybody: the token read here goes back to the
   // server, which deletes the file once it matches (#719, B1).
   fetch('{$tokenFile}', { cache: 'no-store' }).then(function (res) { return res.text(); }).then(function (text) {
-    var found = /TOKEN:\s*([0-9a-f]{64})/i.exec(text);
+    var found = /TOKEN:\s*([0-9a-f]{64})(?![0-9a-f])/i.exec(text);
     if (!found) { return; }
     return fetch('?action=token-exposed', {
       method: 'POST',

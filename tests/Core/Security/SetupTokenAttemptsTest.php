@@ -172,6 +172,14 @@ final class SetupTokenAttemptsTest extends TestCase
         $this->assertSame('', SetupTokenAttempts::tokenFrom("<?php /* TOKEN: abc123 */\n"));
         $this->assertSame('', SetupTokenAttempts::tokenFrom('<?php /* TOKEN: ' . str_repeat('a', 63) . " */\n"));
         $this->assertSame('', SetupTokenAttempts::tokenFrom(''));
+        // Too long: the first 64 characters of 65 are not a token (CodeRabbit, #1428).
+        $this->assertSame('', SetupTokenAttempts::tokenFrom('<?php /* TOKEN: ' . str_repeat('a', 65) . " */\n"));
+        $this->assertSame('', SetupTokenAttempts::tokenFrom('<?php /* TOKEN: ' . str_repeat('a', 64) . "b1 */\n"));
+        // A delimiter that is no hexadecimal character is fine.
+        $this->assertSame(
+            str_repeat('a', 64),
+            SetupTokenAttempts::tokenFrom('<?php /* TOKEN: ' . str_repeat('a', 64) . "*/\n")
+        );
     }
 
     public function testClearRemovesTheCountAndItsLock(): void
