@@ -352,13 +352,36 @@ final class SsrfUrlValidator
             return StoredTargetVerdict::Unverifiable;
         }
 
+        // **A filtering resolver's « blocked » is not an answer about the
+        // host.** Pi-hole, AdGuard Home and most corporate filters answer a
+        // blocklisted name with the unspecified address — `0.0.0.0`, `::` —
+        // rather than with NXDOMAIN. Never safe to connect to (on Linux
+        // `0.0.0.0` reaches this very machine), so the request is refused
+        // all the same; but it says nothing about where the stored address
+        // really leads, and a filter blocking one push service would
+        // otherwise cost every member every subscription in a single send
+        // (#1269 review). Any other off-limits address next to it is still
+        // proof, and still Unsafe.
+        $sinkholed = false;
         foreach ($addresses as $ip) {
+            if (self::isUnspecifiedAddress($ip)) {
+                $sinkholed = true;
+                continue;
+            }
             if (!self::isPublicIp($ip)) {
                 return StoredTargetVerdict::Unsafe;
             }
         }
 
-        return StoredTargetVerdict::Safe;
+        return $sinkholed ? StoredTargetVerdict::Unverifiable : StoredTargetVerdict::Safe;
+    }
+
+    /** `0.0.0.0` or `::`, however spelled — what a DNS filter answers for a blocked name. */
+    private static function isUnspecifiedAddress(string $ip): bool
+    {
+        $packed = @inet_pton($ip);
+
+        return $packed !== false && trim($packed, "\0") === '';
     }
 
     /**

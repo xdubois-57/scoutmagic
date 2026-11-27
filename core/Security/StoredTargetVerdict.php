@@ -26,6 +26,10 @@ enum StoredTargetVerdict
     /** Refused on its structure, or resolving somewhere it must not be reached. */
     case Unsafe;
 
-    /** Nothing resolved, and this installation cannot resolve as the client will. */
+    /**
+     * Nothing that says where the address leads: nothing resolved and this
+     * installation cannot resolve as the client will, or the resolver
+     * answered only with a filter's « blocked » (`0.0.0.0`, `::`).
+     */
     case Unverifiable;
 }

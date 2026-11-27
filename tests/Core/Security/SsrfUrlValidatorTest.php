@@ -159,6 +159,11 @@ class SsrfUrlValidatorTest extends TestCase
             'a private range' => ['https://10.0.0.5/device', StoredTargetVerdict::Unsafe],
             'the cloud metadata address' => ['https://169.254.169.254/device', StoredTargetVerdict::Unsafe],
             'nothing at all' => ['', StoredTargetVerdict::Unsafe],
+            // A DNS filter's « blocked »: refused, never proof (#1269 review).
+            'the unspecified IPv4 address' => ['https://0.0.0.0/device', StoredTargetVerdict::Unverifiable],
+            'the unspecified IPv6 address' => ['https://[::]/device', StoredTargetVerdict::Unverifiable],
+            'the unspecified IPv6 address, long form' => ['https://[0:0:0:0:0:0:0:0]/device', StoredTargetVerdict::Unverifiable],
+            'the rest of 0.0.0.0/8 is not a filter answer' => ['https://0.1.2.3/device', StoredTargetVerdict::Unsafe],
         ];
     }
 

@@ -653,6 +653,26 @@ class NotificationServiceTest extends TestCase
         $this->assertNotNull($this->subscriptionRepository->findById($silent));
     }
 
+    /**
+     * **A DNS filter's « blocked » costs nobody a subscription** (#1269
+     * review). Pi-hole or AdGuard answer a blocklisted push service with
+     * `0.0.0.0`; nothing is sent there, and the device is kept for the day
+     * the filter lets it through.
+     */
+    public function testASubscriptionTheResolverSinkholedIsSkippedAndKept(): void
+    {
+        $userId = $this->createUserAccount();
+        $filtered = $this->subscriptionRepository->create($userId, 'https://0.0.0.0/device', 'auth', 'p256dh');
+        $notificationId = $this->notificationRepository->create($userId, null, 'core.system', 'A', 'B', null);
+
+        $this->webPush->expects($this->never())->method('queueNotification');
+        $this->webPush->method('flush')->willReturn((function () { return; yield; })());
+
+        $this->service->sendPushForNotifications([$notificationId], fn() => true);
+
+        $this->assertNotNull($this->subscriptionRepository->findById($filtered));
+    }
+
     // --- subscribe/unsubscribe (device_label, idempotency) ---
 
     public function testSubscribeIsIdempotentForTheSameEndpoint(): void
