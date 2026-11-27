@@ -158,11 +158,17 @@ CREATE TABLE IF NOT EXISTS inbound_messages (
     -- the rest. A consumer's timeline shows them so a manager can tell a
     -- private reply from one copied to the whole staff.
     to_emails_encrypted BLOB NULL,
-    body_text_encrypted BLOB NOT NULL,
+    -- MEDIUMBLOB, not BLOB (#1433). A plain BLOB caps at 65 535 bytes, and
+    -- MessageContentSanitizer lets through 256 KiB of text and 512 KiB of
+    -- HTML — an ordinary newsletter or a long quoted thread. Under a strict
+    -- SQL mode the INSERT was refused, and that one message stopped its
+    -- box: read again and refused again on every pass. The SQLite harness
+    -- does not bound a BLOB, so no local run showed it.
+    body_text_encrypted MEDIUMBLOB NOT NULL,
     -- Already sanitised through HtmlSanitizer and stripped of remote images
     -- before it was written (§7.9). The raw HTML is never stored: keeping it
     -- would mean every future reader has to remember to sanitise.
-    body_html_encrypted BLOB NOT NULL,
+    body_html_encrypted MEDIUMBLOB NOT NULL,
 
     -- The message's raw header block, kept ONLY when a consumer that
     -- claimed the message asked for it (Api\MessageRetentionPreference,

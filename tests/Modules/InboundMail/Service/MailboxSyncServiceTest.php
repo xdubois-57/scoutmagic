@@ -441,6 +441,110 @@ class MailboxSyncServiceTest extends TestCase
         $this->assertSame(1, $this->countMessages());
     }
 
+    /**
+     * A body over 64 KB — an ordinary newsletter, a long quoted thread — is
+     * stored and read back whole (#1433). The columns were plain BLOBs: on
+     * the production engine, in strict mode, the INSERT was refused, and
+     * that one message stopped its box for good. Run on both engines; only
+     * the production one can fail it.
+     */
+    public function testABodyOverSixtyFourKilobytesIsStoredWhole(): void
+    {
+        $paragraph = str_repeat('Une longue lettre d\'information, citée et recitée. ', 40) . "\n\n";
+        $text = str_repeat($paragraph, (int) ceil(70000 / strlen($paragraph)));
+        $this->client->addRawMessage('INBOX', 10, InboundMailTestHelper::rawMessage([
+            'From' => 'Lettre <lettre@example.be>',
+            'To' => 'locations@unite.be',
+            'Subject' => 'Lettre de novembre',
+            'Message-ID' => '<longue@example.be>',
+            'Date' => 'Mon, 12 Jul 2027 09:30:00 +0200',
+            'Content-Type' => 'text/plain; charset=UTF-8',
+        ], $text));
+        $this->addMessage(11, messageId: 'apres@example.be');
+
+        $outcome = $this->sync();
+
+        $this->assertFalse($outcome->isFailure(), (string) $outcome->reason);
+        $this->assertSame(2, $this->countMessages(), 'the long message and the one after it');
+        $id = $this->messageRepository->findIdByMessageId($this->mailboxId, 'longue@example.be');
+        $this->assertNotNull($id);
+        $stored = $this->messageRepository->findAnyForAnalysis($id);
+        $this->assertNotNull($stored);
+        $this->assertGreaterThan(65535, strlen($stored->bodyText));
+        $this->assertSame(11, $this->mailboxRepository->findCursor($this->mailboxId, 'INBOX')->lastUid);
+    }
+
+    /**
+     * A message the site cannot write down costs that message, never the
+     * rest of the folder (#1433): the next one is stored, the cursor moves
+     * past both, and the failure is journalled without the subject, the
+     * sender or the exception's text.
+     */
+    public function testAMessageThatCannotBeStoredDoesNotStopTheFolder(): void
+    {
+        $this->messageRepository = new class ($this->pdo, $this->encryption) extends InboundMessageRepository {
+            public function create(
+                int $mailboxId,
+                string $folder,
+                int $uidValidity,
+                int $imapUid,
+                string $messageId,
+                ?string $inReplyTo,
+                string $subject,
+                string $fromEmail,
+                ?string $fromName,
+                string $bodyText,
+                string $bodyHtml,
+                \DateTimeImmutable $sentAt,
+                array $toEmails = [],
+                bool $isBulk = false,
+                ?string $rawHeaders = null,
+                \Modules\InboundMail\Api\MessageDirection $direction = \Modules\InboundMail\Api\MessageDirection::RECEIVED,
+                bool $senderVerified = false
+            ): int {
+                if ($messageId === 'refuse@example.be') {
+                    throw new \PDOException('SQLSTATE[22001]: Data too long for column body_html_encrypted, from Jeanne');
+                }
+
+                return parent::create(
+                    $mailboxId, $folder, $uidValidity, $imapUid, $messageId, $inReplyTo, $subject, $fromEmail,
+                    $fromName, $bodyText, $bodyHtml, $sentAt, $toEmails, $isBulk, $rawHeaders, $direction,
+                    $senderVerified
+                );
+            }
+        };
+        $this->service = $this->createSyncService(journal: new JournalService(new JournalRepository($this->pdo)));
+        $this->addMessage(10, subject: 'Un secret', messageId: 'refuse@example.be');
+        $this->addMessage(11, messageId: 'apres@example.be');
+
+        $outcome = $this->sync();
+
+        $this->assertFalse($outcome->isFailure(), 'the box is not failed for one message');
+        $this->assertSame(1, $this->countMessages());
+        $this->assertNotNull($this->messageRepository->findIdByMessageId($this->mailboxId, 'apres@example.be'));
+        $this->assertSame(11, $this->mailboxRepository->findCursor($this->mailboxId, 'INBOX')->lastUid);
+
+        $row = $this->pdo->query(
+            "SELECT level, description, context FROM event_log WHERE event_type = 'inbound_message_store_failed'"
+        )->fetch(\PDO::FETCH_ASSOC);
+        $this->assertIsArray($row, 'the failure is journalled');
+        $this->assertSame('warning', $row['level']);
+        $context = json_decode((string) $row['context'], true);
+        $this->assertSame(
+            ['mailbox_id' => $this->mailboxId, 'folder' => 'INBOX', 'uid' => 10, 'error_class' => \PDOException::class],
+            $context
+        );
+        $journalled = $row['description'] . $row['context'];
+        foreach (['Un secret', 'jeanne', 'Jeanne', 'Data too long'] as $leak) {
+            $this->assertStringNotContainsString($leak, $journalled);
+        }
+
+        // The next pass starts above both: nothing is read again.
+        $this->client->calls = [];
+        $this->sync();
+        $this->assertContains('fetchSince:INBOX:11', $this->client->calls);
+    }
+
     public function testABoxNoModuleSortsIsStillReadAndStillKept(): void
     {
         // This used to skip the connection entirely, on the reasoning that

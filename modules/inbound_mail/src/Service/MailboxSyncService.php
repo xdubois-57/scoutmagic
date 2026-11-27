@@ -357,7 +357,7 @@ class MailboxSyncService
         if (!$cursor->hasPending() || $folderState->highestUid > $cursor->lastUid) {
             foreach ($client->fetchSince($folder, $cursor->lastUid, self::BATCH_SIZE) as $message) {
                 $seen++;
-                if ($this->store($mailbox, $message, $consumers, $client, $direction)) {
+                if ($this->storeAlone($mailbox, $folder, $message, $consumers, $client, $direction)) {
                     $stored++;
                 }
 
@@ -379,7 +379,7 @@ class MailboxSyncService
         if ($batch !== []) {
             foreach ($client->fetchUids($folder, $batch) as $message) {
                 $seen++;
-                if ($this->store($mailbox, $message, $consumers, $client, $direction)) {
+                if ($this->storeAlone($mailbox, $folder, $message, $consumers, $client, $direction)) {
                     $stored++;
                 }
             }
@@ -389,6 +389,53 @@ class MailboxSyncService
         $this->mailboxRepository->saveCursor($cursor);
 
         return [$seen, $stored];
+    }
+
+    /**
+     * `store()`, for one message, never for the rest of the folder (#1433).
+     *
+     * A message the site cannot write down — a body the database refuses,
+     * anything a module or the disk throws on its way in — used to leave
+     * `readFolder()` before the cursor was saved: the next pass read the
+     * same message, failed the same way, and nothing after it in the
+     * folder was ever read again. Anybody can send the box such a message.
+     * So the failure is journalled with what identifies the message on the
+     * server — never its subject, its sender or the exception's text,
+     * which may quote either (§8.6) — and the folder goes on: the cursor
+     * moves past it like past any other.
+     *
+     * @param MessageConsumerInterface[] $consumers
+     */
+    private function storeAlone(
+        Mailbox $mailbox,
+        string $folder,
+        FetchedMessage $message,
+        array $consumers,
+        IncomingMailboxClientInterface $client,
+        MessageDirection $direction
+    ): bool {
+        try {
+            return $this->store($mailbox, $message, $consumers, $client, $direction);
+        } catch (\Throwable $e) {
+            try {
+                $this->journal?->log(
+                    'inbound_mail',
+                    'inbound_message_store_failed',
+                    'warning',
+                    'Un message de la boîte n° ' . $mailbox->id . ' n\'a pas pu être enregistré ; la relève continue.',
+                    [
+                        'mailbox_id' => $mailbox->id,
+                        'folder' => $folder,
+                        'uid' => $message->uid,
+                        'error_class' => $e::class,
+                    ]
+                );
+            } catch (\Throwable $journalError) {
+                error_log('ScoutMagic: inbound message store journal failed (' . $journalError::class . ').');
+            }
+
+            return false;
+        }
     }
 
     /**
