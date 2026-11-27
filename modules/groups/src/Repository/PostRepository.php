@@ -345,8 +345,8 @@ class PostRepository
      * Same two exclusions as countNewerForGroup(), for the same reasons:
      * a hidden post is not something the reader would find, and the
      * reader's own words are never news to them. Groups with no such post
-     * are simply absent from the result. Normalisation and row reading are
-     * shared with ReplyRepository through LatestCreatedAtByGroup.
+     * are simply absent from the result. The query lives in LatestCreatedAtByGroup,
+     * beside ReplyRepository's half.
      *
      * @param int[] $groupIds
      * @param int[] $excludeMemberIds
@@ -354,25 +354,7 @@ class PostRepository
      */
     public function findLatestCreatedAtByGroups(array $groupIds, array $excludeMemberIds = []): array
     {
-        $groupIds = LatestCreatedAtByGroup::groupIds($groupIds);
-        if ($groupIds === []) {
-            return [];
-        }
-
-        $groupPlaceholders = implode(',', array_fill(0, count($groupIds), '?'));
-        $authorPlaceholders = implode(',', array_fill(0, max(1, count($excludeMemberIds)), '?'));
-        // One statement either way: with nobody to exclude, the author
-        // clause binds a single 0, which no member id is (members.id is an
-        // unsigned auto-increment, and author_member_id is NOT NULL).
-        $stmt = $this->pdo->prepare(
-            "SELECT group_id, MAX(created_at) AS latest FROM discussion_group_posts
-             WHERE group_id IN ({$groupPlaceholders}) AND hidden_at IS NULL
-               AND author_member_id NOT IN ({$authorPlaceholders})
-             GROUP BY group_id"
-        );
-        $stmt->execute([...$groupIds, ...($excludeMemberIds === [] ? [0] : array_values($excludeMemberIds))]);
-
-        return LatestCreatedAtByGroup::fromRows($stmt);
+        return LatestCreatedAtByGroup::fetch($this->pdo, LatestCreatedAtByGroup::POSTS, $groupIds, $excludeMemberIds);
     }
 
     /**
