@@ -109,6 +109,20 @@
             </div>
         {% endif %}
 
+        {% if outcome and outcome.status == 'in_progress' %}
+            <div class="alert alert-info" role="alert">
+                <h2 class="h6 alert-heading">
+                    <i class="bi bi-hourglass-split" aria-hidden="true"></i>
+                    Ce document est déjà en cours d'import
+                </h2>
+                <p class="mb-0">
+                    Le document <span class="font-monospace">{{ outcome.documentNumber }}</span> est importé en ce
+                    moment depuis une autre fenêtre. Rien n'a été enregistré ici. Réessayez dans un instant : le site
+                    vous dira alors où il a été rangé.
+                </p>
+            </div>
+        {% endif %}
+
         {% if outcome and outcome.status == 'year_to_confirm' %}
             {# Asked, never refused (issue #1468): a regularisation is
                legitimately issued after its season ends. #}

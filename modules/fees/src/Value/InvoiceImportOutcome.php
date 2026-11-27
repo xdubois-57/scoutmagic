@@ -32,6 +32,9 @@ use Modules\Fees\Invoice\InvoiceProblem;
  *   another scout year than the one it would be filed in (issue #1468).
  *   Not a refusal: a regularisation is legitimately issued after its
  *   season ends. Nothing is stored until the treasurer confirms the year.
+ * - `IN_PROGRESS` — another import of the same document is under way
+ *   right now (#1548 review). Nothing stored; retrying in a moment finds
+ *   the first one and says ALREADY_IMPORTED.
  * - `IMPORTED` — stored.
  */
 final class InvoiceImportOutcome
@@ -41,6 +44,7 @@ final class InvoiceImportOutcome
     public const STALE_ROSTER = 'stale_roster';
     public const ALREADY_IMPORTED = 'already_imported';
     public const YEAR_TO_CONFIRM = 'year_to_confirm';
+    public const IN_PROGRESS = 'in_progress';
 
     /**
      * @param InvoiceProblem[] $problems
@@ -103,6 +107,12 @@ final class InvoiceImportOutcome
             targetYearLabel: $targetYearLabel,
             targetYearId: $targetYearId
         );
+    }
+
+    /** Another import of this very document is under way: retry in a moment. */
+    public static function importInProgress(string $documentNumber): self
+    {
+        return new self(self::IN_PROGRESS, documentNumber: $documentNumber);
     }
 
     /** The same document, already filed in ANOTHER scout year. */

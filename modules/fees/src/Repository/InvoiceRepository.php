@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\Fees\Repository;
 
+use Core\Database\AdvisoryLock;
 use Core\Service\DateInput;
 use Modules\Fees\Invoice\InvoiceLine;
 use Modules\Fees\Invoice\ParsedInvoice;
@@ -23,6 +24,9 @@ use Modules\Fees\Value\StoredInvoiceLine;
  */
 class InvoiceRepository
 {
+    /** The advisory lock an import holds on its document number (see lockDocumentNumber()). */
+    private const DOCUMENT_LOCK_PREFIX = 'fees_invoice_document:';
+
     public function __construct(private \PDO $pdo)
     {
     }
@@ -131,6 +135,24 @@ class InvoiceRepository
         $row = $stmt->fetch(\PDO::FETCH_ASSOC);
 
         return $row === false ? null : $this->hydrate($row);
+    }
+
+    /**
+     * Holds this document number for the import under way (#1548 review):
+     * the lookup across years and the write that follows must not
+     * interleave with another import of the same document, or two
+     * imports of one PDF into two different years both find nothing and
+     * both store it — the unique index is per year. Timeout 0, as every
+     * caller of AdvisoryLock: false means another import holds it now.
+     */
+    public function lockDocumentNumber(string $documentNumber): bool
+    {
+        return AdvisoryLock::acquire($this->pdo, self::DOCUMENT_LOCK_PREFIX . $documentNumber);
+    }
+
+    public function unlockDocumentNumber(string $documentNumber): void
+    {
+        AdvisoryLock::release($this->pdo, self::DOCUMENT_LOCK_PREFIX . $documentNumber);
     }
 
     public function findById(int $id): ?StoredInvoice

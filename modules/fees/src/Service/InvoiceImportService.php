@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\Fees\Service;
 
 use Core\Config\ScoutYearService;
+use Core\Service\DateInput;
 use Core\Journal\JournalService;
 use Core\Member\SectionService;
 use Modules\Fees\Invoice\InvoiceProblem;
@@ -125,6 +126,30 @@ class InvoiceImportService
 
         $invoice = $reading->invoice;
         \assert($invoice !== null);
+
+        // One import of a given document at a time, from the lookup across
+        // years to the write (#1548 review): otherwise two imports of the
+        // same PDF into two different years both find nothing and both
+        // store it. The loser is told to retry, and finds the winner then.
+        $documentNumber = $invoice->documentNumber;
+        if ($documentNumber !== null && !$this->invoices->lockDocumentNumber($documentNumber)) {
+            return InvoiceImportOutcome::importInProgress($documentNumber);
+        }
+        try {
+            return $this->importRead($invoice, $scoutYearId, $importedBy, $confirmedYearId);
+        } finally {
+            if ($documentNumber !== null) {
+                $this->invoices->unlockDocumentNumber($documentNumber);
+            }
+        }
+    }
+
+    private function importRead(
+        ParsedInvoice $invoice,
+        int $scoutYearId,
+        ?int $importedBy,
+        ?int $confirmedYearId
+    ): InvoiceImportOutcome {
 
         // A document number identifies one document whatever year is on
         // screen (issue #1468): the same PDF imported while looking at
@@ -262,8 +287,8 @@ class InvoiceImportService
         if ($this->scoutYears === null || $issueDate === null) {
             return null;
         }
-        $date = \DateTimeImmutable::createFromFormat('!Y-m-d', $issueDate);
-        if ($date === false) {
+        $date = DateInput::iso($issueDate);
+        if ($date === null) {
             return null;
         }
         // The year whose own dates hold it, as this site defines them;
