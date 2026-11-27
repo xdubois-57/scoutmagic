@@ -52,12 +52,19 @@ final class MailErrorRedaction
      */
     public static function withoutAddresses(string $text): string
     {
-        $clean = (string) preg_replace(
+        return mb_substr(self::addressesRemoved($text), 0, self::MAX_LENGTH);
+    }
+
+    /**
+     * The same replacement, without the length cap: for a caller that
+     * bounds the text itself (the scheduler's journal context, #1522).
+     */
+    public static function addressesRemoved(string $text): string
+    {
+        return (string) preg_replace(
             '/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/',
             '[adresse]',
             trim($text)
         );
-
-        return mb_substr($clean, 0, self::MAX_LENGTH);
     }
 }

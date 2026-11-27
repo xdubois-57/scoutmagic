@@ -11,6 +11,7 @@ namespace Core\Scheduler;
 use Core\Debug\RequestTimeline;
 use Core\Exception\UserFacingMessage;
 use Core\Journal\JournalService;
+use Core\Mail\MailErrorRedaction;
 use Core\Module\ModuleManager;
 
 class SchedulerRunner
@@ -238,7 +239,13 @@ class SchedulerRunner
                         'module_id' => $task['module_id'],
                         'duration_ms' => $durationMs,
                         'error_class' => $e::class,
-                        'error' => JournalService::fit($e->getMessage(), self::ERROR_MAX),
+                        // Addresses removed, as from every mail error that
+                        // reaches the journal (SECURITY.md §11, #1522 review):
+                        // a task's exception can quote a recipient.
+                        'error' => JournalService::fit(
+                            MailErrorRedaction::addressesRemoved($e->getMessage()),
+                            self::ERROR_MAX
+                        ),
                     ]
                 );
             }

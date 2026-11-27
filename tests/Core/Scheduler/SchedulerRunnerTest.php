@@ -193,6 +193,30 @@ class SchedulerRunnerTest extends TestCase
     }
 
     /**
+     * A task's exception can quote a recipient (an SMTP refusal): the
+     * journal keeps the cause, not the address (#1522 review).
+     */
+    public function testAFailedTaskJournalsItsErrorWithoutAddresses(): void
+    {
+        $this->runner->registerHandler('core', 'mail_task', new class implements TaskHandlerInterface {
+            public function handle(array $payload, \Core\Scheduler\TaskContext $context): void
+            {
+                throw new \RuntimeException('550 Mailbox unavailable for parent.dupont@example.test');
+            }
+        });
+        $this->repo->create('core', 'mail_task', (new \DateTimeImmutable('-1 minute'))->format('Y-m-d H:i:s'), null, null);
+
+        $this->runner->processOverdue();
+
+        $entry = $this->pdo->query(
+            "SELECT context FROM event_log WHERE event_type = 'scheduler_task_failed' ORDER BY id DESC LIMIT 1"
+        )->fetch();
+        $error = (string) json_decode((string) $entry['context'], true)['error'];
+        $this->assertStringContainsString('550 Mailbox unavailable', $error);
+        $this->assertStringNotContainsString('parent.dupont@example.test', $error);
+    }
+
+    /**
      * The other half of the rule: a handler that throws an exception
      * written FOR the admin (marked Core\Exception\UserFacingException)
      * still gets its own sentence on the page — the gate substitutes, it
