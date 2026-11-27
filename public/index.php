@@ -9875,7 +9875,8 @@ if ($isEnabled('news')) {
             '0',
             'boolean',
             'Capacités des champs recalculées (plafond ajouté après coup)',
-            'Indique si le total consommé de chaque champ à capacité a été recalculé depuis les réponses après la correction des plafonds ajoutés ou remis après les premières réponses.',
+            'Indique si le total consommé de chaque champ à capacité a été recalculé depuis les réponses, '
+                . 'après la correction des plafonds ajoutés ou remis après les premières réponses.',
             'news',
             null,
             null,
