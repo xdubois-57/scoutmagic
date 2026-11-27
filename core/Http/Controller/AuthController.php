@@ -284,8 +284,9 @@ class AuthController extends AbstractController
 
         $isRequestingSession = PendingMagicLink::matches($id, $this->installationGeneration);
         $code = (string) $request->getBody('match_code', '');
+        $needsCode = $this->confirmationNeedsCode($id);
 
-        if (!$isRequestingSession && trim($code) === '') {
+        if ($needsCode && trim($code) === '') {
             $record = $this->authService->checkMagicLink($id, $token);
             if ($record === null) {
                 return $this->render('auth/verify.html.twig', ['valid' => false]);
@@ -300,7 +301,7 @@ class AuthController extends AbstractController
         }
 
         try {
-            $verified = $this->authService->verifyMagicLink($id, $token, $isRequestingSession ? null : $code);
+            $verified = $this->authService->verifyMagicLink($id, $token, $needsCode ? $code : null);
         } catch (MagicLinkCodeMismatch $e) {
             if ($e->linkSpent) {
                 return $this->render('auth/verify.html.twig', ['valid' => false, 'code_spent' => true]);
@@ -356,8 +357,28 @@ class AuthController extends AbstractController
     }
 
     /**
-     * The page that asks for the confirmation: one button for the session
-     * that asked for the link, the code field for any other browser.
+     * Whether confirming this link takes the code the asking window shows.
+     *
+     * Any browser but the one that asked: yes (#1099). **And the one that
+     * asked, when it is already signed in** (#1256): a signed-in session
+     * asking for a link is reconfirming itself, which wins it a fresh
+     * « connexion récente » window, and a copy of its cookie — a shared
+     * computer, a stolen session — is exactly what that window must keep
+     * out. The copy and the person share a browser, so « same browser » is
+     * not evidence of anything here; the code on the asking screen is. The
+     * single button stays for a session that asked while signed out, which
+     * only collects, through its own poll, what it was about to be given.
+     */
+    private function confirmationNeedsCode(int $id): bool
+    {
+        return !PendingMagicLink::matches($id, $this->installationGeneration)
+            || AuthSession::isAuthenticated();
+    }
+
+    /**
+     * The page that asks for the confirmation: one button for a session that
+     * asked while signed out, the code field for any other browser and for a
+     * session that is already signed in.
      */
     private function renderConfirmation(
         int $id,
@@ -370,7 +391,7 @@ class AuthController extends AbstractController
             'confirmed' => false,
             'token' => $token,
             'link_id' => $id,
-            'needs_code' => !PendingMagicLink::matches($id, $this->installationGeneration),
+            'needs_code' => $this->confirmationNeedsCode($id),
             'requested_at' => $requestedAt,
             'error' => $error,
         ]);

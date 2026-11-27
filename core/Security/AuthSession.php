@@ -101,8 +101,13 @@ class AuthSession
      */
     public static function setRole(string $role): void
     {
-        $auth = SessionStore::get(self::SESSION_KEY, []);
-        if (!isset($auth['user_account_id'])) {
+        $before = SessionStore::get(self::SESSION_KEY, []);
+        if (!isset($before['user_account_id'])) {
+            return;
+        }
+
+        $auth = self::reopenedIdentity($before);
+        if ($auth === null) {
             return;
         }
 
@@ -155,8 +160,13 @@ class AuthSession
      */
     public static function refreshIssuedAt(?int $at = null): void
     {
-        $auth = SessionStore::get(self::SESSION_KEY, []);
-        if (!isset($auth['user_account_id'])) {
+        $before = SessionStore::get(self::SESSION_KEY, []);
+        if (!isset($before['user_account_id'])) {
+            return;
+        }
+
+        $auth = self::reopenedIdentity($before);
+        if ($auth === null) {
             return;
         }
 
@@ -200,15 +210,32 @@ class AuthSession
      * copy of the old cookie (a shared computer, a stolen session) must
      * not share in it. With the old id destroyed, only the request that
      * proved itself keeps the session. Everything else in it stays.
+     *
+     * **The session is reopened FIRST, and what is stamped is what the
+     * reopened session holds** (#1256) — never the copy this request read
+     * before reopening it. `public/index.php` closes the session early, so
+     * `$_SESSION` is a snapshot by the time this runs, and another request
+     * may have signed it out, or renewed it, in between: that renewal is
+     * precisely what the old id's destruction is for. Writing the snapshot
+     * back would put the identity of a session that no longer exists into
+     * the one the cookie now designates, with a fresh window on it — the
+     * right to add a passkey, handed to the very copy of the cookie this
+     * method exists to shut out. When the reopened session no longer holds
+     * the same account and generation, nothing is written and the id is not
+     * rotated: nothing was proved.
      */
     public static function markAuthenticatedNow(): void
     {
-        $auth = SessionStore::get(self::SESSION_KEY, []);
-        if (!isset($auth['user_account_id'])) {
+        $before = SessionStore::get(self::SESSION_KEY, []);
+        if (!isset($before['user_account_id'])) {
             return;
         }
 
-        SessionStore::ensureWritable();
+        $auth = self::reopenedIdentity($before);
+        if ($auth === null) {
+            return;
+        }
+
         session_regenerate_id(true);
 
         $auth['authenticated_at'] = time();
@@ -243,7 +270,11 @@ class AuthSession
      */
     public static function setLinkedMembers(array $memberYearIds): void
     {
-        $auth = SessionStore::get(self::SESSION_KEY, []);
+        $auth = self::reopenedIdentity(SessionStore::get(self::SESSION_KEY, []));
+        if ($auth === null) {
+            return;
+        }
+
         $auth['linked_members'] = $memberYearIds;
         SessionStore::set(self::SESSION_KEY, $auth);
     }
@@ -257,5 +288,44 @@ class AuthSession
     {
         $auth = SessionStore::get(self::SESSION_KEY, []);
         return $auth['linked_members'] ?? [];
+    }
+
+    /**
+     * Reopens the session and hands back the `_auth` it holds NOW — or null
+     * when that is no longer the identity this request started from (#1256).
+     *
+     * **Why every write of `_auth` goes through here.** `public/index.php`
+     * closes the session at once, so `$_SESSION` is a snapshot the whole
+     * request long, and a write that reads it, reopens the session and then
+     * stores the snapshot overwrites what another request did in between:
+     * a sign-out, an id renewal, another account's session. `session_start()`
+     * replaces `$_SESSION` with what is stored, so what is returned here is
+     * the stored truth, and the caller changes THAT.
+     *
+     * Same identity means the same account and the same installation
+     * generation. Anything else — the session emptied, another account,
+     * another generation — is not ours to write to, and the caller stops.
+     * A session that held no identity at all before (the caller has none to
+     * defend) is compared on that: it must still hold none.
+     *
+     * @param mixed $before `_auth` as this request read it before reopening
+     * @return array<string, mixed>|null
+     */
+    private static function reopenedIdentity(mixed $before): ?array
+    {
+        $before = is_array($before) ? $before : [];
+
+        SessionStore::ensureWritable();
+
+        $after = SessionStore::get(self::SESSION_KEY, []);
+        $after = is_array($after) ? $after : [];
+
+        if (($after['user_account_id'] ?? null) !== ($before['user_account_id'] ?? null)
+            || ($after['generation'] ?? null) !== ($before['generation'] ?? null)
+        ) {
+            return null;
+        }
+
+        return $after;
     }
 }

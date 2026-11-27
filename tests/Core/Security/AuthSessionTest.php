@@ -268,6 +268,153 @@ class AuthSessionTest extends TestCase
         $this->assertSame('/login?reauth=1', RecentAuthentication::loginUrl('//evil.example/'));
     }
 
+    // ── A session another request destroyed or replaced (#1256) ──────────
+
+    /**
+     * **Every write that follows the early close re-reads the session it
+     * reopens.** `public/index.php` closes the session at once to free its
+     * lock: `$_SESSION` stays readable in memory, and the first write
+     * reopens it. Writing back the copy taken BEFORE the reopening put an
+     * identity the session no longer held into one that had been destroyed
+     * or renewed by another request in between — with a fresh « connexion
+     * récente » stamp, which is the right to add a passkey.
+     *
+     * @return iterable<string, array{0: \Closure(): void}>
+     */
+    public static function writesAfterTheEarlyClose(): iterable
+    {
+        yield 'markAuthenticatedNow' => [static fn() => AuthSession::markAuthenticatedNow()];
+        yield 'setRole' => [static fn() => AuthSession::setRole('admin')];
+        yield 'setLinkedMembers' => [static fn() => AuthSession::setLinkedMembers([7, 8])];
+        yield 'refreshIssuedAt' => [static fn() => AuthSession::refreshIssuedAt()];
+    }
+
+    /**
+     * @param \Closure(): void $write
+     * @dataProvider writesAfterTheEarlyClose
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('writesAfterTheEarlyClose')]
+    public function testAWriteNeverRevivesAnIdentityTheSessionNoLongerHolds(\Closure $write): void
+    {
+        $this->startTestSession();
+        AuthSession::login(42, 'test@example.com', 'admin');
+        // Signed out, or renewed, by another request: nothing is left.
+        $this->anotherRequestRuns(static function (): void {
+            $_SESSION = [];
+        });
+
+        $write();
+
+        $this->assertArrayNotHasKey('_auth', $_SESSION, 'the copy this request took earlier was written back');
+        $this->assertFalse(AuthSession::isAuthenticated());
+        $this->assertNull(AuthSession::authenticatedAt());
+    }
+
+    /**
+     * @param \Closure(): void $write
+     * @dataProvider writesAfterTheEarlyClose
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('writesAfterTheEarlyClose')]
+    public function testAWriteNeverTouchesAnotherAccountsSession(\Closure $write): void
+    {
+        $this->startTestSession();
+        AuthSession::login(42, 'test@example.com', 'admin');
+        $this->anotherRequestRuns(static function (): void {
+            $_SESSION['_auth'] = [
+                'user_account_id' => 99,
+                'email' => 'autre@example.com',
+                'role' => 'public',
+                'issued_at' => 1_000,
+                'authenticated_at' => 1_000,
+                'generation' => null,
+            ];
+        });
+
+        $write();
+
+        $this->assertSame(99, AuthSession::getUserAccountId());
+        $this->assertSame('public', AuthSession::getRole());
+        $this->assertSame(1_000, AuthSession::authenticatedAt(), 'no fresh window for a session that is not ours');
+        $this->assertSame(1_000, AuthSession::getIssuedAt());
+        $this->assertSame([], AuthSession::getLinkedMembers());
+    }
+
+    /**
+     * @param \Closure(): void $write
+     * @dataProvider writesAfterTheEarlyClose
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('writesAfterTheEarlyClose')]
+    public function testAWriteNeverTouchesTheSameAccountUnderAnotherGeneration(\Closure $write): void
+    {
+        $this->startTestSession();
+        AuthSession::login(42, 'test@example.com', 'admin', str_repeat('a', 64));
+        $this->anotherRequestRuns(static function (): void {
+            $_SESSION['_auth']['generation'] = str_repeat('b', 64);
+            $_SESSION['_auth']['authenticated_at'] = 1_000;
+            $_SESSION['_auth']['role'] = 'identified';
+        });
+
+        $write();
+
+        $this->assertSame(str_repeat('b', 64), AuthSession::getGeneration());
+        $this->assertSame(1_000, AuthSession::authenticatedAt());
+        $this->assertSame('identified', AuthSession::getRole());
+    }
+
+    /** An abandoned write does not rotate the id either: nothing was proved. */
+    public function testAnAbandonedFreshWindowDoesNotRotateTheSessionId(): void
+    {
+        $this->startTestSession();
+        AuthSession::login(42, 'test@example.com', 'admin');
+        $this->anotherRequestRuns(static function (): void {
+            $_SESSION = [];
+        });
+        $id = session_id();
+
+        AuthSession::markAuthenticatedNow();
+
+        $this->assertSame($id, session_id());
+    }
+
+    /** The ordinary case is unchanged: the same session, reopened, takes the write. */
+    public function testTheSameSessionReopenedStillTakesTheWrite(): void
+    {
+        $this->startTestSession();
+        AuthSession::login(42, 'test@example.com', 'admin');
+        $this->anotherRequestRuns(static function (): void {
+            // Another request that touched nothing of ours.
+        });
+
+        AuthSession::setRole('chief');
+        AuthSession::setLinkedMembers([7, 8]);
+        AuthSession::refreshIssuedAt(2_000);
+
+        $this->assertSame('chief', AuthSession::getRole());
+        $this->assertSame([7, 8], AuthSession::getLinkedMembers());
+        $this->assertSame(2_000, AuthSession::getIssuedAt());
+    }
+
+    /**
+     * What `public/index.php` leaves behind after its early close, and what
+     * another request did meanwhile: this request keeps the copy it read,
+     * the stored session is whatever `$action` made of it.
+     *
+     * @param \Closure(): void $action
+     */
+    private function anotherRequestRuns(\Closure $action): void
+    {
+        $thisRequest = $_SESSION;
+        $id = session_id();
+        session_write_close();
+
+        session_id($id);
+        session_start();
+        $action();
+        session_write_close();
+
+        $_SESSION = $thisRequest;
+    }
+
     private function startTestSession(): void
     {
         if (session_status() !== PHP_SESSION_ACTIVE) {
