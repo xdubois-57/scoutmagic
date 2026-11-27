@@ -310,6 +310,80 @@ class DeskImportServiceTest extends TestCase
         return $this->service->import($tmpFile, $this->scoutYearId, 1);
     }
 
+    private function importFixtureInto(int $scoutYearId): void
+    {
+        $tmpFile = tempnam(sys_get_temp_dir(), 'csv');
+        copy($this->fixturePath, $tmpFile);
+        $this->service->import($tmpFile, $scoutYearId, 1);
+    }
+
+    private function createScoutYear(string $label, string $startDate, string $endDate): int
+    {
+        $this->pdo->prepare('INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES (?, ?, ?, 0)')
+            ->execute([$label, $startDate, $endDate]);
+
+        return (int) $this->pdo->lastInsertId();
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    private function sectionPeriodsClosedLines(): array
+    {
+        $rows = $this->pdo->query(
+            "SELECT level, context FROM event_log WHERE category = 'core'
+             AND event_type = 'section_periods_closed_by_import' ORDER BY id"
+        )->fetchAll(\PDO::FETCH_ASSOC);
+
+        // Keys sorted: MySQL 8 stores a JSON column with its keys reordered.
+        return array_map(static function (array $row): array {
+            $line = ['level' => $row['level']] + json_decode((string) $row['context'], true);
+            ksort($line);
+
+            return $line;
+        }, $rows);
+    }
+
+    /**
+     * Issue #1461: the periods an earlier year left open, closed by the
+     * import of a later one, are journalled once per import — a count
+     * and a year.
+     */
+    public function testImportingALaterYearJournalsThePeriodsItClosed(): void
+    {
+        $this->importFixture();
+        $openPeriods = (int) $this->pdo->query(
+            'SELECT COUNT(*) FROM member_section_periods WHERE end_date IS NULL'
+        )->fetchColumn();
+        $this->assertGreaterThan(0, $openPeriods);
+
+        $nextYearId = $this->createScoutYear('2026-2027', '2026-09-01', '2027-08-31');
+        $this->importFixtureInto($nextYearId);
+
+        $this->assertSame(
+            [['closed' => $openPeriods, 'level' => 'info', 'scout_year_id' => $nextYearId]],
+            $this->sectionPeriodsClosedLines()
+        );
+    }
+
+    /**
+     * Issue #1461: re-importing an earlier year after a later one closes
+     * nothing of the later year, so no line is written.
+     */
+    public function testReImportingAnEarlierYearClosesNothingAndWritesNoLine(): void
+    {
+        $nextYearId = $this->createScoutYear('2026-2027', '2026-09-01', '2027-08-31');
+        $this->importFixtureInto($nextYearId);
+
+        $this->importFixture();
+
+        $this->assertSame([], $this->sectionPeriodsClosedLines());
+        $this->assertSame(0, (int) $this->pdo->query(
+            'SELECT COUNT(*) FROM member_section_periods
+             WHERE scout_year_id = ' . $nextYearId . ' AND end_date IS NOT NULL'
+        )->fetchColumn());
+    }
+
     public function testFullImportCycleCreatesMembersAndFunctions(): void
     {
         $result = $this->importFixture();

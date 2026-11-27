@@ -34,16 +34,27 @@ class SectionMembershipRepository
     }
 
     /**
-     * Section ids this member currently has an OPEN period for, within
-     * this exact scout year.
+     * Section ids this member has a LIVE period for, within this exact
+     * scout year: still open (NULL end_date), or closed on that year's own
+     * end_date — which is where the rollover safety net of
+     * SectionMembershipService::syncForMember() puts it, and says nothing
+     * more than "until the end of the year" (a period that only started
+     * after that end, which an import of an ended year in configuration
+     * mode can open, is closed for good once it has an end_date). Treating
+     * that second kind as
+     * closed made the next import of the same year open a duplicate next
+     * to it, and never close it when the member changed section (#1461).
      *
      * @return int[]
      */
     public function findOpenSectionIdsForMemberAndYear(int $memberId, int $scoutYearId): array
     {
         $stmt = $this->pdo->prepare(
-            'SELECT section_id FROM member_section_periods
-             WHERE member_id = ? AND scout_year_id = ? AND end_date IS NULL'
+            'SELECT DISTINCT msp.section_id FROM member_section_periods msp
+             JOIN scout_years sy ON sy.id = msp.scout_year_id
+             WHERE msp.member_id = ? AND msp.scout_year_id = ?
+               AND (msp.end_date IS NULL
+                    OR (msp.end_date >= sy.end_date AND msp.start_date < sy.end_date))'
         );
         $stmt->execute([$memberId, $scoutYearId]);
 
@@ -51,19 +62,46 @@ class SectionMembershipRepository
     }
 
     /**
-     * Every OPEN period for this member belonging to a scout year other
-     * than $scoutYearId — a period that should have been closed at an
-     * earlier rollover but wasn't (see schema/core.sql's comment). Each
-     * row carries its own scout_year_id so the caller can close it at
-     * THAT year's end_date, never at today's import date.
+     * Every OPEN period for this member belonging to a scout year that
+     * starts before $scoutYearId does — a period that should have been
+     * closed at an earlier rollover but wasn't (see schema/core.sql's
+     * comment). Each row carries its own scout_year_id so the caller can
+     * close it at THAT year's end_date, never at today's import date.
+     *
+     * Earlier years only. The import policy lets a later year be imported
+     * before an earlier one is re-imported (#930); a filter on "any other
+     * year" closed the later year's periods at their own end_date on every
+     * such alternation (#1461).
      *
      * @return MemberSectionPeriod[]
      */
-    public function findOpenPeriodsForMemberOutsideYear(int $memberId, int $scoutYearId): array
+    public function findOpenPeriodsForMemberInEarlierYears(int $memberId, int $scoutYearId): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT msp.* FROM member_section_periods msp
+             JOIN scout_years sy ON sy.id = msp.scout_year_id
+             JOIN scout_years imported ON imported.id = ?
+             WHERE msp.member_id = ? AND msp.end_date IS NULL
+               AND sy.start_date < imported.start_date'
+        );
+        $stmt->execute([$scoutYearId, $memberId]);
+
+        return array_map([$this, 'hydrate'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
+    /**
+     * Every period for (member, scout year), open and closed alike,
+     * ordered by section then start date — what
+     * SectionMembershipService::mergeOverlappingPeriods() walks.
+     *
+     * @return MemberSectionPeriod[]
+     */
+    public function findAllForMemberAndYear(int $memberId, int $scoutYearId): array
     {
         $stmt = $this->pdo->prepare(
             'SELECT * FROM member_section_periods
-             WHERE member_id = ? AND scout_year_id != ? AND end_date IS NULL'
+             WHERE member_id = ? AND scout_year_id = ?
+             ORDER BY section_id, start_date, id'
         );
         $stmt->execute([$memberId, $scoutYearId]);
 
@@ -71,24 +109,62 @@ class SectionMembershipRepository
     }
 
     /**
-     * Close every open period for (member, section, scout year) at
-     * $endDate (Y-m-d) — normally matches at most one row, but is written
-     * as a bulk UPDATE so it stays correct even if an edge case (e.g. a
-     * manually-corrected import) ever left more than one open.
+     * Close every live period for (member, section, scout year) — see
+     * findOpenSectionIdsForMemberAndYear() for "live" — at $endDate
+     * (Y-m-d), or at the year's own end_date when $endDate falls after it:
+     * a re-import of a year that has already ended never stretches one of
+     * its periods past its end. Never before the period's own start, either:
+     * a period opened after that end (an ended year imported in
+     * configuration mode) is closed on the day it started. Normally matches
+     * at most one row, but is written as a bulk UPDATE so it stays correct
+     * even if an edge case (e.g. a manually-corrected import) ever left
+     * more than one.
      */
     public function closeOpenPeriods(int $memberId, int $sectionId, int $scoutYearId, string $endDate): void
     {
+        $yearEnd = $this->findScoutYearEndDate($scoutYearId);
+        if ($yearEnd === null) {
+            return;
+        }
+
+        $closeDate = min($endDate, $yearEnd);
         $stmt = $this->pdo->prepare(
-            'UPDATE member_section_periods SET end_date = ?
-             WHERE member_id = ? AND section_id = ? AND scout_year_id = ? AND end_date IS NULL'
+            'UPDATE member_section_periods
+             SET end_date = CASE WHEN start_date > ? THEN start_date ELSE ? END
+             WHERE member_id = ? AND section_id = ? AND scout_year_id = ?
+               AND (end_date IS NULL OR (end_date >= ? AND start_date < ?))'
         );
-        $stmt->execute([$endDate, $memberId, $sectionId, $scoutYearId]);
+        $stmt->execute([$closeDate, $closeDate, $memberId, $sectionId, $scoutYearId, $yearEnd, $yearEnd]);
+    }
+
+    private function findScoutYearEndDate(int $scoutYearId): ?string
+    {
+        $stmt = $this->pdo->prepare('SELECT end_date FROM scout_years WHERE id = ?');
+        $stmt->execute([$scoutYearId]);
+        $endDate = $stmt->fetchColumn();
+
+        return $endDate === false || $endDate === null ? null : (string) $endDate;
     }
 
     public function close(int $id, string $endDate): void
     {
+        $this->setEndDate($id, $endDate);
+    }
+
+    /**
+     * NULL reopens the period — only ever used when two overlapping
+     * periods are merged and the later one was still open.
+     */
+    public function setEndDate(int $id, ?string $endDate): void
+    {
         $stmt = $this->pdo->prepare('UPDATE member_section_periods SET end_date = ? WHERE id = ?');
         $stmt->execute([$endDate, $id]);
+    }
+
+    public function delete(int $id): void
+    {
+        $stmt = $this->pdo->prepare('DELETE FROM member_section_periods WHERE id = ?');
+        $stmt->execute([$id]);
     }
 
     public function open(int $memberId, int $sectionId, int $scoutYearId, string $startDate): int
