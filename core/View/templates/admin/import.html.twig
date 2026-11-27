@@ -210,6 +210,14 @@
                 <a href="/admin/import/{{ last_import.id }}/rapport">Voir le rapport de cet import</a>.
             {% endif %}
         </div>
+        {% if reconciliation_failed|default(false) %}
+            <div class="alert alert-warning" role="alert" data-reconciliation-failed>
+                <strong>Rapprochement des inscriptions interrompu.</strong>
+                L'import est bien enregistré, mais les demandes d'inscription acceptées n'ont pas toutes
+                pu être rapprochées des membres importés. Celles qui restent « acceptées » peuvent être
+                liées à la main depuis leur fiche, avec « Lier à un membre Desk ».
+            </div>
+        {% endif %}
         {% if import_result.warnings|length > 0 %}
             <div class="alert alert-warning">
                 <strong>Avertissements :</strong>

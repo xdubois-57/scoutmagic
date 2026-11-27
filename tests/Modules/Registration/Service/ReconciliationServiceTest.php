@@ -150,6 +150,53 @@ class ReconciliationServiceTest extends TestCase
         $this->assertStringContainsString('member_ids', $rows[0]['context']);
     }
 
+    /**
+     * Issue #1434: the child's older request is encoded and linked to the
+     * member; the family filled the public form again and a chief accepted
+     * the new one. The new request stays 'accepted', the case is journaled
+     * with ids only, and the next request of the loop is still reconciled.
+     */
+    public function testAMemberAlreadyLinkedToAnotherRequestIsJournaledAndTheLoopGoesOn(): void
+    {
+        $olderId = $this->createAcceptedRequest('Dupont', 'Léa', '2019-01-01');
+        $memberId = $this->insertImportedMember('D8', 'Dupont', 'Léa', '2019-01-01');
+        $this->service->reconcileForYear($this->scoutYearId);
+        $this->assertSame($memberId, $this->requestRepository->findById($olderId)->linkedMemberId);
+
+        $againId = $this->createAcceptedRequest('Dupont', 'Léa', '2019-01-01');
+        $otherId = $this->createAcceptedRequest('Martin', 'Noé', '2018-05-05');
+        $otherMemberId = $this->insertImportedMember('D9', 'Martin', 'Noé', '2018-05-05');
+
+        $this->service->reconcileForYear($this->scoutYearId);
+
+        $again = $this->requestRepository->findById($againId);
+        $this->assertSame('accepted', $again->status);
+        $this->assertNull($again->linkedMemberId);
+        $this->assertSame($memberId, $this->requestRepository->findById($olderId)->linkedMemberId);
+
+        $other = $this->requestRepository->findById($otherId);
+        $this->assertSame('encoded', $other->status);
+        $this->assertSame($otherMemberId, $other->linkedMemberId);
+
+        $rows = $this->pdo->query(
+            "SELECT level, description, context FROM event_log WHERE event_type = 'registration_reconciliation_already_linked'"
+        )->fetchAll(\PDO::FETCH_ASSOC);
+        $this->assertCount(1, $rows);
+        $this->assertSame('warning', $rows[0]['level']);
+        $this->assertSame(
+            ['request_id' => $againId, 'linked_request_id' => $olderId, 'member_id' => $memberId],
+            json_decode((string) $rows[0]['context'], true)
+        );
+        foreach (['Dupont', 'Léa'] as $name) {
+            $this->assertStringNotContainsString($name, $rows[0]['description']);
+            $this->assertStringNotContainsString($name, (string) $rows[0]['context']);
+        }
+
+        // And again at the next import: still no exception, still one line per run.
+        $this->service->reconcileForYear($this->scoutYearId);
+        $this->assertSame('accepted', $this->requestRepository->findById($againId)->status);
+    }
+
     public function testEmptyYearIsANoOp(): void
     {
         $this->service->reconcileForYear($this->scoutYearId);
