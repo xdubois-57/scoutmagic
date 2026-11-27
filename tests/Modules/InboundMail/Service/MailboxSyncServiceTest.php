@@ -546,14 +546,20 @@ class MailboxSyncServiceTest extends TestCase
     }
 
     /**
-     * A database that is only busy is not a message to skip (#1433): a
-     * deadlock stops the folder as before, the cursor unsaved, and the
-     * message is read again on the next pass — never journalled as lost.
+     * A database server that fails is not a message to skip (#1433): busy,
+     * gone, full or read-only, it fails the same for every message, so the
+     * folder stops as before, the cursor unsaved, and the message is read
+     * again on the next pass — never journalled as lost.
+     *
+     * @param array{0: string, 1: int, 2: string} $errorInfo
      */
-    public function testADeadlockStopsTheFolderSoTheMessageIsReadAgain(): void
+    #[\PHPUnit\Framework\Attributes\DataProvider('serverFailures')]
+    public function testAServerFailureStopsTheFolderSoTheMessageIsReadAgain(array $errorInfo): void
     {
         $this->messageRepository = new class ($this->pdo, $this->encryption) extends InboundMessageRepository {
             public bool $busy = true;
+            /** @var array{0: string, 1: int, 2: string} */
+            public array $errorInfo = ['40001', 1213, 'Deadlock found'];
 
             public function create(
                 int $mailboxId,
@@ -575,8 +581,8 @@ class MailboxSyncServiceTest extends TestCase
                 bool $senderVerified = false
             ): int {
                 if ($this->busy) {
-                    $e = new \PDOException('SQLSTATE[40001]: Serialization failure: 1213 Deadlock found');
-                    $e->errorInfo = ['40001', 1213, 'Deadlock found when trying to get lock'];
+                    $e = new \PDOException('SQLSTATE[' . $this->errorInfo[0] . ']: ' . $this->errorInfo[2]);
+                    $e->errorInfo = $this->errorInfo;
                     throw $e;
                 }
 
@@ -588,6 +594,7 @@ class MailboxSyncServiceTest extends TestCase
             }
         };
         $repository = $this->messageRepository;
+        $repository->errorInfo = $errorInfo;
         $this->service = $this->createSyncService(journal: new JournalService(new JournalRepository($this->pdo)));
         $this->addMessage(10, messageId: 'occupe@example.be');
 
@@ -599,6 +606,21 @@ class MailboxSyncServiceTest extends TestCase
         $repository->busy = false;
         $this->assertFalse($this->sync()->isFailure());
         $this->assertNotNull($repository->findIdByMessageId($this->mailboxId, 'occupe@example.be'), 'read again');
+    }
+
+    /**
+     * @return array<string, array{array{0: string, 1: int, 2: string}}>
+     */
+    public static function serverFailures(): array
+    {
+        return [
+            'deadlock' => [['40001', 1213, 'Deadlock found when trying to get lock']],
+            'lock wait' => [['HY000', 1205, 'Lock wait timeout exceeded']],
+            'server gone' => [['HY000', 2006, 'MySQL server has gone away']],
+            'disk full' => [['HY000', 1021, 'Disk full; waiting for someone to free some space']],
+            'table full' => [['HY000', 1114, 'The table is full']],
+            'read-only' => [['HY000', 1290, 'The MariaDB server is running with the --read-only option']],
+        ];
     }
 
     public function testABoxNoModuleSortsIsStillReadAndStillKept(): void

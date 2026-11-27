@@ -81,6 +81,9 @@ class MailboxSyncService
      * The task simply comes back for the rest.
      */
     public const BATCH_SIZE = 50;
+
+    /** MySQL/MariaDB error codes that are the server's, not one message's (isTransientDatabaseFailure()). */
+    private const SERVER_FAILURE_CODES = [1021, 1030, 1114, 1142, 1205, 1290, 2002, 2006, 2013];
     public const ORIGIN_MANUAL = 'manual';
     public const ORIGIN_SCHEDULED = 'scheduled';
 
@@ -447,10 +450,14 @@ class MailboxSyncService
     }
 
     /**
-     * Whether `$e` — or what it wraps — is the database being busy or
-     * unreachable rather than refusing this message: a deadlock (SQLSTATE
-     * 40001), a lock wait (1205), a lost or refused connection (class 08,
-     * 2002, 2006, 2013). Such a failure is the server's, not the message's.
+     * Whether `$e` — or what it wraps — is the database server failing
+     * rather than refusing this message: busy (a deadlock, SQLSTATE 40001;
+     * a lock wait, 1205), unreachable (class 08, 2002, 2006, 2013), or
+     * unable to write anything at all (a full disk, 1021; a storage engine
+     * error, 1030; a full table, 1114; a privilege refused, 1142; a
+     * read-only server, 1290). Such a failure is the server's, the same for
+     * every message, and gone once it recovers or the operator frees space:
+     * skipping past it would lose the mail it touched for good.
      */
     private static function isTransientDatabaseFailure(\Throwable $e): bool
     {
@@ -461,7 +468,7 @@ class MailboxSyncService
             $sqlState = (string) ($cause->errorInfo[0] ?? $cause->getCode());
             $driverCode = (int) ($cause->errorInfo[1] ?? 0);
             if ($sqlState === '40001' || str_starts_with($sqlState, '08')
-                || in_array($driverCode, [1205, 2002, 2006, 2013], true)) {
+                || in_array($driverCode, self::SERVER_FAILURE_CODES, true)) {
                 return true;
             }
         }
