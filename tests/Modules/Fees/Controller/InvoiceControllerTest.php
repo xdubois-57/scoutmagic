@@ -145,7 +145,8 @@ class InvoiceControllerTest extends TestCase
                 new InvoiceMemberMatchRepository($this->pdo, $encryption),
                 $this->snapshots,
                 $sections,
-                $journal
+                $journal,
+                new ScoutYearService($this->pdo)
             ),
             new InvoiceSeasonService($this->invoices),
             new InvoiceVerificationService(
@@ -313,6 +314,65 @@ class InvoiceControllerTest extends TestCase
         $body = (string) $this->dispatch('POST', '/admin/fees/factures/import', 'upload', ['_csrf_token' => CsrfGuard::generateToken()])->getBody();
 
         $this->assertStringContainsString('déjà là', $body);
+        $this->assertSame(1, (int) $this->pdo->query('SELECT COUNT(*) FROM fees_invoices')->fetchColumn());
+    }
+
+    /**
+     * Issued in 2025-2026, uploaded while 2026-2027 is the year on screen
+     * (issue #1468): the screen asks, nothing is stored, and the same file
+     * with the confirmation goes in.
+     */
+    public function testAnInvoiceIssuedInAnotherYearAsksBeforeFilingAndAConfirmationFilesIt(): void
+    {
+        AuthSession::login(1, 'admin@test.be', 'admin');
+        $next = (new ScoutYearService($this->pdo))->ensureYear('2026-2027');
+        (new SettingService(new SettingRepository($this->pdo)))->setInternal(ScoutYearResolver::SETTING_PUBLIC_YEAR, (string) $next);
+
+        $this->givenAnUploadedFile($this->pdf);
+        $body = (string) $this->dispatch('POST', '/admin/fees/factures/import', 'upload', ['_csrf_token' => CsrfGuard::generateToken()])->getBody();
+
+        $this->assertStringContainsString('Émise en 2025-2026, rangée en 2026-2027 ?', $body);
+        $this->assertStringContainsString('name="confirmed_year_id" value="' . $next . '"', $body);
+        $this->assertStringContainsString('name="confirmed_document_number" value="F2026/000123"', $body);
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM fees_invoices')->fetchColumn());
+
+        // Confirmed for another document: asked again, nothing filed (#1548 review).
+        $this->givenAnUploadedFile($this->pdf);
+        $body = (string) $this->dispatch('POST', '/admin/fees/factures/import', 'upload', [
+            '_csrf_token' => CsrfGuard::generateToken(),
+            'confirmed_year_id' => (string) $next,
+            'confirmed_document_number' => 'F2026/000999',
+        ])->getBody();
+        $this->assertStringContainsString('Émise en 2025-2026, rangée en 2026-2027 ?', $body);
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM fees_invoices')->fetchColumn());
+
+        $this->givenAnUploadedFile($this->pdf);
+        $response = $this->dispatch('POST', '/admin/fees/factures/import', 'upload', [
+            '_csrf_token' => CsrfGuard::generateToken(),
+            'confirmed_year_id' => (string) $next,
+            'confirmed_document_number' => 'F2026/000123',
+        ]);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame($next, (int) $this->pdo->query('SELECT scout_year_id FROM fees_invoices')->fetchColumn());
+    }
+
+    /** The same document already filed in another year: the screen names that year and stores nothing. */
+    public function testTheSameDocumentInAnotherYearNamesThatYear(): void
+    {
+        AuthSession::login(1, 'admin@test.be', 'admin');
+        $this->givenAnUploadedFile($this->pdf);
+        $this->dispatch('POST', '/admin/fees/factures/import', 'upload', ['_csrf_token' => CsrfGuard::generateToken()]);
+        $next = (new ScoutYearService($this->pdo))->ensureYear('2026-2027');
+        (new SettingService(new SettingRepository($this->pdo)))->setInternal(ScoutYearResolver::SETTING_PUBLIC_YEAR, (string) $next);
+
+        $this->givenAnUploadedFile($this->pdf);
+        $body = (string) $this->dispatch('POST', '/admin/fees/factures/import', 'upload', [
+            '_csrf_token' => CsrfGuard::generateToken(),
+            'confirmed_year_id' => (string) $next,
+        ])->getBody();
+
+        $this->assertStringContainsString('Cette facture est déjà rangée dans 2025-2026', $body);
         $this->assertSame(1, (int) $this->pdo->query('SELECT COUNT(*) FROM fees_invoices')->fetchColumn());
     }
 

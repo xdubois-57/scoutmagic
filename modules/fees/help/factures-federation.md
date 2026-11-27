@@ -49,8 +49,13 @@ pas d'associer manuellement un code à une autre section.
 
 ## Importer deux fois ne crée pas de doublon
 
-Le numéro du document l'identifie. Si vous ne savez plus si une facture
-est déjà importée, réessayez : le site vous le dira sans la modifier.
+Le numéro du document l'identifie, quelle que soit l'année affichée. Si
+vous ne savez plus si une facture est déjà importée, réessayez : le site
+vous le dira sans la modifier, et nommera l'année où elle est rangée.
+
+Une facture datée d'une autre année scoute que celle affichée n'est
+rangée qu'après votre confirmation : une régularisation peut être émise
+après la fin de sa saison.
 
 ## Conserver le PDF comme justificatif
 

@@ -96,9 +96,11 @@ CREATE TABLE IF NOT EXISTS fees_ignored_households (
 -- centime is not a document anything can be checked against, and half of it
 -- in the database would be worse than none of it.
 --
--- `document_number` is the identity: importing the same PDF twice updates
--- nothing and creates nothing. A treasurer who is not sure whether they
--- already imported January's invoice must be able to just try.
+-- `document_number` is the identity, whatever scout year is on screen
+-- (issue #1468): importing the same PDF twice updates nothing and creates
+-- nothing, in the same year or in another — InvoiceImportService looks it
+-- up across every year before anything else. A treasurer who is not sure
+-- whether they already imported January's invoice must be able to just try.
 CREATE TABLE IF NOT EXISTS fees_invoices (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     scout_year_id INT UNSIGNED NOT NULL,
