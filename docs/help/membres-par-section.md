@@ -32,6 +32,9 @@ En haut de la page, touchez la pastille d'une section pour n'afficher
 que celle-là, ou « Toutes » pour les voir l'une sous l'autre. La pastille
 de la section correspondant à votre fonction est sélectionnée d'office.
 
+Chaque section présente d'abord son animateur responsable, sauf
+dans l'export Excel.
+
 ## Lire les mouvements
 
 Certaines lignes portent une étiquette de couleur : elle signale un

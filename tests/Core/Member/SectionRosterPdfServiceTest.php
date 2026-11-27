@@ -276,6 +276,27 @@ class SectionRosterPdfServiceTest extends TestCase
     }
 
     /**
+     * A new responsable reorders the animateurs (issue #1336) without anyone
+     * arriving or leaving: the order is part of the signature, so the sheet
+     * printed afterwards is a new document, never the cached one.
+     */
+    public function testANewOrderOfTheSameLeadersIsADifferentDocument(): void
+    {
+        $service = $this->service($this->cacheDirectory);
+        $alice = $this->row('Dupont', 'Alice', 'animateurs');
+        $zoe = $this->row('Dupont', 'Zoé', 'animateurs');
+
+        $service->generate(1, '2026-2027', 'U', '', [$this->section(7, 'A')], $this->roster(7, [$alice, $zoe]));
+        $first = glob($this->cacheDirectory . '/section-roster/*.pdf') ?: [];
+        $service->generate(1, '2026-2027', 'U', '', [$this->section(7, 'A')], $this->roster(7, [$zoe, $alice]));
+        $second = glob($this->cacheDirectory . '/section-roster/*.pdf') ?: [];
+
+        $this->assertCount(1, $first);
+        $this->assertCount(1, $second);
+        $this->assertNotSame($first[0], $second[0], 'the order of the leaders is part of the signature');
+    }
+
+    /**
      * Two filters are two different documents, and confusing them would
      * serve the wrong list — the one failure this cache must not have.
      */

@@ -10,7 +10,10 @@ use Core\Member\Movement\MemberMovementRepository;
 use Core\Member\MemberEmailRepository;
 use Core\Member\SectionRosterEntry;
 use Core\Member\SectionRosterRepository;
+use Core\Member\MemberProfile;
 use Core\Member\SectionRosterService;
+use Core\Module\HookRegistry;
+use Core\Module\SectionResponsableProvider;
 use Core\Security\EncryptionService;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
@@ -82,6 +85,124 @@ class SectionRosterServiceTest extends TestCase
 
         $this->assertSame('Akela', $this->findRow($roster, $akela)->sectionTotem);
         $this->assertNull($this->findRow($roster, $bob)->sectionTotem);
+    }
+
+    // ── The responsable first (issue #1336) ─────────────────────────────
+
+    public function testTheResponsableOpensTheAnimateursAndTheOthersStayAlphabetical(): void
+    {
+        $alice = $this->createMember('Alice', 'chief');
+        $bob = $this->createMember('Bob', 'chief');
+        $zoe = $this->createMember('Zoé', 'chief');
+        $calls = new \ArrayObject();
+
+        $roster = $this->serviceAnswering([$this->sectionId => $zoe], $calls)
+            ->buildRoster([$this->sectionId], $this->scoutYearId);
+
+        $this->assertSame([$zoe, $alice, $bob], $this->memberYearIds($roster[$this->sectionId]['animateurs']));
+        $this->assertSame([[[$this->sectionId], $this->scoutYearId]], $calls->getArrayCopy());
+    }
+
+    public function testWithoutAResponsableOrWithoutTheHookTheOrderStaysAlphabetical(): void
+    {
+        $alice = $this->createMember('Alice', 'chief');
+        $zoe = $this->createMember('Zoé', 'chief');
+
+        $noResponsable = $this->serviceAnswering([$this->sectionId => null])->buildRoster([$this->sectionId], $this->scoutYearId);
+        $noHook = $this->serviceWith(new HookRegistry())->buildRoster([$this->sectionId], $this->scoutYearId);
+
+        $this->assertSame([$alice, $zoe], $this->memberYearIds($noResponsable[$this->sectionId]['animateurs']));
+        $this->assertSame([$alice, $zoe], $this->memberYearIds($noHook[$this->sectionId]['animateurs']));
+    }
+
+    /**
+     * The provider says who leads the section; it does not decide who is in
+     * its list. A responsable who is not one of its animateurs — here its
+     * intendant — is neither added nor moved, and nothing is duplicated.
+     */
+    public function testAResponsableOutsideTheAnimateursIsNeverAddedOrMoved(): void
+    {
+        $alice = $this->createMember('Alice', 'chief');
+        $zoe = $this->createMember('Zoé', 'chief');
+        $bob = $this->createMember('Bob', 'intendant');
+        $chloe = $this->createMember('Chloé', 'identified');
+        $david = $this->createMember('David', 'identified');
+
+        $roster = $this->serviceAnswering([$this->sectionId => $bob])->buildRoster([$this->sectionId], $this->scoutYearId);
+
+        $this->assertSame([$alice, $zoe], $this->memberYearIds($roster[$this->sectionId]['animateurs']));
+        $this->assertSame([$bob], $this->memberYearIds($roster[$this->sectionId]['intendants']));
+        $this->assertSame([$chloe, $david], $this->memberYearIds($roster[$this->sectionId]['animes']));
+    }
+
+    /** Intendants and animés keep their alphabetical order whoever leads the section. */
+    public function testOnlyTheAnimateursAreReordered(): void
+    {
+        $this->createMember('Alice', 'chief');
+        $zoe = $this->createMember('Zoé', 'chief');
+        $chloe = $this->createMember('Chloé', 'identified');
+        $yann = $this->createMember('Yann', 'identified');
+
+        $roster = $this->serviceAnswering([$this->sectionId => $zoe])->buildRoster([$this->sectionId], $this->scoutYearId);
+
+        $this->assertSame($zoe, $roster[$this->sectionId]['animateurs'][0]->memberYearId);
+        $this->assertSame([$chloe, $yann], $this->memberYearIds($roster[$this->sectionId]['animes']));
+    }
+
+    /**
+     * « Toutes » : every section opens on ITS responsable, independently of
+     * the others, and the provider is asked once for all of them — never
+     * once per section.
+     */
+    public function testEverySectionShownOpensOnItsOwnResponsableFromOneCall(): void
+    {
+        $branchId = (int) $this->pdo->query('SELECT id FROM age_branches LIMIT 1')->fetchColumn();
+        $other = $this->createSection('LOU02', $branchId, 'Autre section');
+        $alice = $this->createMember('Alice', 'chief');
+        $zoe = $this->createMember('Zoé', 'chief');
+        $bea = $this->createMember('Béa', 'chief', $other);
+        $yves = $this->createMember('Yves', 'chief', $other);
+        $calls = new \ArrayObject();
+
+        $roster = $this->serviceAnswering([$this->sectionId => $zoe, $other => $bea], $calls)
+            ->buildRoster([$this->sectionId, $other], $this->scoutYearId);
+
+        $this->assertSame([$zoe, $alice], $this->memberYearIds($roster[$this->sectionId]['animateurs']));
+        $this->assertSame([$bea, $yves], $this->memberYearIds($roster[$other]['animateurs']));
+        $this->assertSame([[[$this->sectionId, $other], $this->scoutYearId]], $calls->getArrayCopy());
+    }
+
+    /**
+     * The year asked is the year shown — a preview of another year asks
+     * for THAT year's responsable, never the current one.
+     */
+    public function testTheResponsableIsAskedForTheYearShown(): void
+    {
+        $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES ('2026-2027', '2026-09-01', '2027-08-31', 0)");
+        $nextYear = (int) $this->pdo->lastInsertId();
+        $current = $this->scoutYearId;
+        $this->scoutYearId = $nextYear;
+        $this->createMember('Alice', 'chief');
+        $zoe = $this->createMember('Zoé', 'chief');
+        $this->scoutYearId = $current;
+        $calls = new \ArrayObject();
+
+        $roster = $this->serviceAnswering([$this->sectionId => $zoe], $calls)->buildRoster([$this->sectionId], $nextYear);
+
+        $this->assertSame($zoe, $roster[$this->sectionId]['animateurs'][0]->memberYearId);
+        $this->assertSame([[[$this->sectionId], $nextYear]], $calls->getArrayCopy());
+    }
+
+    /** A list of one, or none, has nothing to reorder: the provider is not asked at all. */
+    public function testNothingToReorderAsksNothing(): void
+    {
+        $alice = $this->createMember('Alice', 'chief');
+        $calls = new \ArrayObject();
+
+        $roster = $this->serviceAnswering([$this->sectionId => $alice], $calls)->buildRoster([$this->sectionId], $this->scoutYearId);
+
+        $this->assertSame([$alice], $this->memberYearIds($roster[$this->sectionId]['animateurs']));
+        $this->assertSame([], $calls->getArrayCopy());
     }
 
     public function testEmptyBucketsAreReturnedAsEmptyArraysNotMissing(): void
@@ -223,13 +344,102 @@ class SectionRosterServiceTest extends TestCase
         return (int) $this->pdo->lastInsertId();
     }
 
-    private function createMember(string $firstName, string $functionRole): int
+    private function createMember(string $firstName, string $functionRole, ?int $sectionId = null): int
     {
         $memberId = $this->insertMemberBase();
         $memberYearId = $this->insertMemberYear($memberId, 'x@example.com', '0470000000', null, $firstName);
-        $this->attachFunctionTo($memberYearId, $functionRole);
+        $this->attachFunction($memberYearId, $functionRole, true, $sectionId);
         return $memberYearId;
     }
+
+    private function serviceWith(HookRegistry $hooks): SectionRosterService
+    {
+        return new SectionRosterService(
+            new SectionRosterRepository($this->pdo, $this->encryption),
+            new MemberEmailRepository($this->pdo, $this->encryption),
+            new MemberMovementClassifierService(new MemberMovementRepository($this->pdo), new ScoutYearService($this->pdo)),
+            new \Core\Member\Repository\MemberSectionTotemRepository($this->pdo, $this->encryption),
+            $hooks
+        );
+    }
+
+    /**
+     * A service whose SectionResponsableProvider answers $responsableBySection
+     * (section id => member year id of the responsable, or null), recording
+     * every getResponsables() call in $calls as [section ids, year].
+     *
+     * @param array<int, ?int> $responsableBySection
+     */
+    private function serviceAnswering(array $responsableBySection, ?\ArrayObject $calls = null): SectionRosterService
+    {
+        $profiles = [];
+        foreach ($responsableBySection as $sectionId => $memberYearId) {
+            $profiles[$sectionId] = $memberYearId === null ? null : $this->profileOf($memberYearId);
+        }
+        $hooks = new HookRegistry();
+        $hooks->register(SectionResponsableProvider::class, new class ($profiles, $calls) implements SectionResponsableProvider {
+            /** @param array<int, ?MemberProfile> $profiles */
+            public function __construct(private readonly array $profiles, private readonly ?\ArrayObject $calls)
+            {
+            }
+
+            public function getResponsable(int $sectionId, int $scoutYearId): ?MemberProfile
+            {
+                throw new \LogicException('the roster asks for every section at once');
+            }
+
+            public function getResponsables(array $sectionIds, int $scoutYearId): array
+            {
+                $this->calls?->append([array_values($sectionIds), $scoutYearId]);
+                $answer = [];
+                foreach ($sectionIds as $sectionId) {
+                    $answer[$sectionId] = $this->profiles[$sectionId] ?? null;
+                }
+
+                return $answer;
+            }
+        });
+
+        return $this->serviceWith($hooks);
+    }
+
+    private function profileOf(int $memberYearId): MemberProfile
+    {
+        $stmt = $this->pdo->prepare('SELECT member_id FROM member_years WHERE id = ?');
+        $stmt->execute([$memberYearId]);
+
+        return new MemberProfile(
+            memberYearId: $memberYearId,
+            memberId: (int) $stmt->fetchColumn(),
+            deskId: 'x',
+            firstName: 'x',
+            lastName: 'x',
+            totem: null,
+            quali: null,
+            gender: null,
+            birthDate: null,
+            phone: null,
+            mobile: null,
+            email: null,
+            patrol: null,
+            formationLevel: null,
+            federationMailConsent: false,
+            unitMailConsent: false,
+            addresses: [],
+            functions: [],
+            scoutYearLabel: ''
+        );
+    }
+
+    /**
+     * @param \Core\Member\MemberRosterRow[] $rows
+     * @return list<int>
+     */
+    private function memberYearIds(array $rows): array
+    {
+        return array_map(static fn(\Core\Member\MemberRosterRow $row): int => $row->memberYearId, $rows);
+    }
+
 
     private function createMemberWithContacts(string $firstName, ?string $email, ?string $phone, ?string $mobile): int
     {
@@ -268,7 +478,7 @@ class SectionRosterServiceTest extends TestCase
         $this->attachFunction($memberYearId, $functionRole, true);
     }
 
-    private function attachFunction(int $memberYearId, string $functionRole, bool $isMain): void
+    private function attachFunction(int $memberYearId, string $functionRole, bool $isMain, ?int $sectionId = null): void
     {
         $stmt = $this->pdo->prepare('SELECT id FROM functions WHERE desk_code = ?');
         $stmt->execute([$functionRole]);
@@ -281,6 +491,6 @@ class SectionRosterServiceTest extends TestCase
         $stmt = $this->pdo->prepare(
             'INSERT INTO member_functions (member_year_id, function_id, section_id, is_main_function) VALUES (?, ?, ?, ?)'
         );
-        $stmt->execute([$memberYearId, $functionId, $this->sectionId, $isMain ? 1 : 0]);
+        $stmt->execute([$memberYearId, $functionId, $sectionId ?? $this->sectionId, $isMain ? 1 : 0]);
     }
 }

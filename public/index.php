@@ -2842,7 +2842,10 @@ $sectionRosterService = new \Core\Member\SectionRosterService(
     $sectionRosterRepository,
     $memberEmailRepository,
     $memberMovementClassifier,
-    new \Core\Member\Repository\MemberSectionTotemRepository($pdo, $encryptionService)
+    new \Core\Member\Repository\MemberSectionTotemRepository($pdo, $encryptionService),
+    // The responsable first in each section's animateurs (issue #1336),
+    // from the trombinoscope module once it has registered its hook below.
+    $moduleHooks
 );
 $memberExportRowBuilder = new \Core\Member\Export\MemberExportRowBuilder(
     $sectionRosterRepository,
