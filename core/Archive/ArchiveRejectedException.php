@@ -18,7 +18,11 @@ namespace Core\Archive;
  * of the visitor's OWN archive — something they can see, never a path of
  * this server. A library's own words never reach one: a failure inside
  * `ZipArchive` is re-stated here and nothing of it is copied.
+ *
+ * Not final for one subclass, {@see ArchiveDamagedException}: a caller
+ * that tolerates some refusals of a member (too heavy, say) must still be
+ * able to tell a damaged archive apart.
  */
-final class ArchiveRejectedException extends \RuntimeException implements \Core\Exception\UserFacingException
+class ArchiveRejectedException extends \RuntimeException implements \Core\Exception\UserFacingException
 {
 }

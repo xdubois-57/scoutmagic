@@ -30,6 +30,7 @@ use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 use Tests\Modules\DataMigration\Support\TestArchive;
 use Tests\Modules\DataMigration\Support\TestImporter;
+use Tests\Support\ZipDamage;
 use Tests\UsesProductionEngine;
 
 /**
@@ -616,6 +617,45 @@ final class RunServiceOnMysqlTest extends TestCase
         $this->assertSame(\RuntimeException::class, $context['exception']);
         $this->assertStringNotContainsString('Deux', (string) json_encode($context));
         $this->assertSame(0, $this->writtenCount());
+    }
+
+    /**
+     * An archive damaged after its verification — changed on the server
+     * since — stops the execution once the damaged member is read to its
+     * end (#1238): it used to end « done », short of lines, without a word.
+     * The run is abandoned with the reason, what was written stays, and the
+     * file is not kept. (The verification, which digests every member, is
+     * what keeps a damaged archive from being imported at all.)
+     */
+    public function testAnArchiveDamagedAfterItsVerificationStopsTheRunAndKeepsWhatWasImported(): void
+    {
+        $items = [];
+        for ($i = 1; $i <= 40; $i++) {
+            $items[] = ['id' => (string) $i, 'name' => 'Élément ' . $i . ' ' . md5((string) $i)];
+        }
+        $run = $this->deposit(TestArchive::items($items));
+        for ($i = 0; $i < 200 && $run->state === Run::UPLOADED; $i++) {
+            $run = $this->service->advance($this->importer, $run);
+        }
+        $this->assertSame(Run::ANALYSED, $run->state, (string) $run->rejectionReason);
+        ZipDamage::flipByteInMember($this->uploads->absolute((string) $run->filePath), 'items.jsonl');
+
+        $run = $this->service->confirm($run, []) ?? $this->fail('Not confirmed.');
+        for ($i = 0; $i < 200 && in_array($run->state, [Run::CONFIRMED, Run::RUNNING], true); $i++) {
+            $run = $this->service->advance($this->importer, $run);
+        }
+
+        $this->assertSame(Run::ABANDONED, $run->state);
+        $this->assertMatchesRegularExpression('/« items\.jsonl » de l\'archive est (abîmé|illisible)/', (string) $run->rejectionReason);
+        $this->assertSame($run->report['imported'], $this->writtenCount());
+        $this->assertSame($run->report['imported'], $this->mappingCount());
+        $this->assertNull($run->filePath);
+        $this->assertSame(
+            'import_stopped',
+            $this->pdo->query(
+                "SELECT event_type FROM event_log WHERE category = 'data_migration' ORDER BY id DESC LIMIT 1"
+            )->fetchColumn()
+        );
     }
 
     /**

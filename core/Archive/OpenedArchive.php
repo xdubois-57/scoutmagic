@@ -26,14 +26,20 @@ namespace Core\Archive;
  * reach a later line, does not spend the archive's budget twice: the
  * ceiling bounds what the archive holds, and the per-member ceiling still
  * bounds every single read. Plus what the caller says earlier requests
- * already read.
+ * already read. What bounds the WORK of a request is therefore the
+ * per-member ceiling times the reads it makes, and a caller reading in
+ * slices bounds those by its deadline (the data migration's execution
+ * stops each slice after about five seconds).
  *
  * **A member read to its end must match its CRC-32** (#1238): libzip does
  * not check it, and a damaged member came out shorter — or as long but
  * wrong — without a word, so a line file lost its last lines and the
  * import believed the file had no more. The check is made where the end is
  * reached; a read the caller stops early checks nothing, having not read
- * what it would check.
+ * what it would check, and the lines a line file yielded before its end
+ * were handed over before it — so a format that must not act on a damaged
+ * member reads it whole first (the data migration's verification digests
+ * every member before any is imported).
  */
 final class OpenedArchive
 {
@@ -232,17 +238,20 @@ final class OpenedArchive
      */
     private function measure(string $name, int $size, int $ceiling): void
     {
-        $counted = $this->counted[$name] ?? 0;
-        if ($size > $counted) {
-            $this->measured += $size - $counted;
-            $this->counted[$name] = $size;
-        }
-
+        // Refused before it is counted: a member left out for its size
+        // (an image over a caller's lower ceiling) does not spend the
+        // archive's budget on the chunk that crossed it.
         if ($size > $ceiling) {
             throw new ArchiveRejectedException(sprintf(
                 'L\'élément « %s » dépasse, une fois décompressé, la taille acceptée.',
                 BoundedZipReader::shown($name)
             ));
+        }
+
+        $counted = $this->counted[$name] ?? 0;
+        if ($size > $counted) {
+            $this->measured += $size - $counted;
+            $this->counted[$name] = $size;
         }
         if ($this->measured > $this->limits->maxTotalBytes) {
             throw new ArchiveRejectedException(
@@ -254,14 +263,14 @@ final class OpenedArchive
     /**
      * A member read to its end against the CRC-32 its archive declares.
      *
-     * @throws ArchiveRejectedException
+     * @throws ArchiveDamagedException
      */
     private function assertIntact(string $name, \HashContext $crc): void
     {
         $stat = $this->zip->statIndex($this->files[$name]);
         $declared = $stat === false ? null : sprintf('%08x', ((int) $stat['crc']) & 0xFFFFFFFF);
         if ($declared !== hash_final($crc)) {
-            throw new ArchiveRejectedException(sprintf(
+            throw new ArchiveDamagedException(sprintf(
                 'L\'élément « %s » de l\'archive est abîmé : son contenu ne correspond pas à son empreinte.',
                 BoundedZipReader::shown($name)
             ));
@@ -295,9 +304,10 @@ final class OpenedArchive
         return $handle;
     }
 
-    private static function unreadable(string $name): ArchiveRejectedException
+    /** A member the decompressor gives up on is damaged, as one failing its CRC is. */
+    private static function unreadable(string $name): ArchiveDamagedException
     {
-        return new ArchiveRejectedException(sprintf(
+        return new ArchiveDamagedException(sprintf(
             'L\'élément « %s » de l\'archive est illisible.',
             BoundedZipReader::shown($name)
         ));
