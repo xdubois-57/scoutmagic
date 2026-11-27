@@ -237,7 +237,15 @@ describe('document-reader', () => {
         expect(body.querySelector('img').getAttribute('src')).toBe('http://localhost:3000/locations/chalet/conditions/scan.png');
         expect(body.querySelector('a[href$="annexe.pdf"]').getAttribute('href')).toBe('http://localhost:3000/locations/chalet/conditions/annexe.pdf');
         expect(body.querySelector('a[href="/cookies"]')).not.toBeNull();
-        expect(body.querySelector('a[href="#article-3"]')).not.toBeNull();
+        // An anchor names a place in the document, not in the form behind
+        // the dialog: tapped, it opens the document at that place.
+        const anchor = /** @type {HTMLAnchorElement} */ (body.querySelector('a[href$="#article-3"]'));
+        expect(anchor.getAttribute('href')).toBe('http://localhost:3000/locations/chalet/conditions/v2#article-3');
+        window.open = vi.fn();
+        const event = new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 });
+        anchor.dispatchEvent(event);
+        expect(event.defaultPrevented).toBe(true);
+        expect(window.open).toHaveBeenCalledWith('http://localhost:3000/locations/chalet/conditions/v2#article-3', '_blank', 'noopener');
     });
 
     it('says so in the dialog when the document cannot be loaded, and can retry', async () => {

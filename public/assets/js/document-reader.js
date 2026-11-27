@@ -119,11 +119,14 @@
                 if (name.startsWith('on') || name.includes(':') || REMOVED_ATTRIBUTES.includes(name)
                     || (isUrl && !isSafeUrl(name, attr.value, base))) {
                     el.removeAttribute(attr.name);
-                } else if (isUrl && !/^([a-z][a-z0-9+.-]*:|\/|#)/i.test(attr.value.trim())) {
+                } else if (isUrl && !/^([a-z][a-z0-9+.-]*:|\/)/i.test(attr.value.trim())) {
                     // A path relative to the document (« scan.png ») is
                     // relative to ITS page; once in this one it would point
-                    // under the form's address instead (#1444 review). A
-                    // root-relative or absolute address means the same on
+                    // under the form's address instead (#1444 review). So is
+                    // an anchor (« #article-3 »): its target lost its id
+                    // here, and left as written it would name the form's
+                    // page — it opens the document itself, at that anchor.
+                    // A root-relative or absolute address means the same on
                     // both pages and is left as written.
                     el.setAttribute(attr.name, new URL(attr.value, base).href);
                 }
