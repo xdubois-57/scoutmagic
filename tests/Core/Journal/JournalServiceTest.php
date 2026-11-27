@@ -202,4 +202,19 @@ class JournalServiceTest extends TestCase
         $this->assertSame('é…', JournalService::fit('ééé', 2));
         $this->assertTrue(mb_check_encoding(JournalService::fit("Bo\xEEte", 10), 'UTF-8'));
     }
+
+    public function testAContextThatThrowsWhileEncodingStillWritesTheLine(): void
+    {
+        $throwing = new class implements \JsonSerializable {
+            public function jsonSerialize(): mixed
+            {
+                throw new \RuntimeException('cannot serialise');
+            }
+        };
+
+        $this->service->log('core', 'throwing_context', 'info', 'Ligne', ['value' => $throwing]);
+
+        $context = $this->pdo->query("SELECT context FROM event_log WHERE event_type = 'throwing_context'")->fetchColumn();
+        $this->assertSame(['context_unencodable' => true], json_decode((string) $context, true));
+    }
 }

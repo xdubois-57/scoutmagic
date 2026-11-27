@@ -15,6 +15,9 @@ class JournalService
     public const CATEGORY_MAX = 50;
     public const TYPE_MAX = 100;
 
+    /** Written in place of a context that cannot be encoded at all. */
+    private const UNENCODABLE_CONTEXT = '{"context_unencodable":true}';
+
     public function __construct(private JournalRepository $repository)
     {
     }
@@ -54,8 +57,14 @@ class JournalService
 
         $contextJson = null;
         if (!empty($context)) {
-            $encoded = json_encode($context, JSON_INVALID_UTF8_SUBSTITUTE | JSON_PARTIAL_OUTPUT_ON_ERROR);
-            $contextJson = $encoded !== false ? $encoded : '{"context_unencodable":true}';
+            // A JsonSerializable whose jsonSerialize() throws escapes
+            // json_encode() whatever its flags: the line is still written,
+            // with a marker in place of the context.
+            try {
+                $contextJson = self::encodeContext($context);
+            } catch (\Throwable) {
+                $contextJson = self::UNENCODABLE_CONTEXT;
+            }
         }
 
         // Writing the journal never fails its caller. The caller is often
@@ -79,6 +88,21 @@ class JournalService
      * $text made valid UTF-8 and at most $max characters long, an ellipsis
      * marking a cut.
      */
+    /**
+     * The context as JSON, its invalid bytes replaced; the marker when it
+     * cannot be encoded at all. A JsonSerializable value whose
+     * jsonSerialize() throws makes this throw too, which PHPStan cannot see
+     * in json_encode()'s signature: the caller catches it.
+     *
+     * @param array<string, mixed> $context
+     */
+    private static function encodeContext(array $context): string
+    {
+        $encoded = json_encode($context, JSON_INVALID_UTF8_SUBSTITUTE | JSON_PARTIAL_OUTPUT_ON_ERROR);
+
+        return $encoded !== false ? $encoded : self::UNENCODABLE_CONTEXT;
+    }
+
     public static function fit(string $text, int $max): string
     {
         $text = mb_scrub($text, 'UTF-8');

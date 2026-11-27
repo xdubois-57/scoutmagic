@@ -26,6 +26,7 @@ class SchedulerRunnerTest extends TestCase
     private SchedulerRepository $repo;
     private JournalService $journal;
     private \PDO $pdo;
+    private TaskContext $taskContext;
 
     protected function setUp(): void
     {
@@ -44,6 +45,7 @@ class SchedulerRunnerTest extends TestCase
         $userAccounts = $this->createStub(UserAccountRepository::class);
         $taskContext = new TaskContext($connection, $encryption, $mailService, $this->journal, $settingService, $userAccounts, sys_get_temp_dir());
         $this->runner->setTaskContext($taskContext);
+        $this->taskContext = $taskContext;
     }
 
     public function testProcessOverdueWithRegisteredHandler(): void
@@ -527,22 +529,6 @@ class SchedulerRunnerTest extends TestCase
         $this->assertSame('warning', $entries[0]['level']);
         $this->assertStringContainsString('abandoned_task', $entries[0]['description']);
     }
-}
-
-/**
- * Named (not anonymous) because the runner instantiates it from its class
- * NAME with no arguments — exactly what auto-resolution does to a real
- * module handler.
- */
-final class ModuleResolvedFixtureHandler implements TaskHandlerInterface
-{
-    /** @var list<array<string, mixed>> */
-    public static array $payloads = [];
-
-    public function handle(array $payload, TaskContext $context): void
-    {
-        self::$payloads[] = $payload;
-    }
 
     /**
      * A task whose exception message passes the journal's 500 characters
@@ -605,6 +591,7 @@ final class ModuleResolvedFixtureHandler implements TaskHandlerInterface
             }
         };
         $runner = new SchedulerRunner($this->repo, new JournalService($broken));
+        $runner->setTaskContext($this->taskContext);
         $handler = new class implements TaskHandlerInterface {
             public int $calls = 0;
 
@@ -625,5 +612,21 @@ final class ModuleResolvedFixtureHandler implements TaskHandlerInterface
         $this->assertSame(2, $handler->calls);
         $this->assertSame('done', $this->repo->findById($first)['status']);
         $this->assertSame('done', $this->repo->findById($second)['status']);
+    }
+}
+
+/**
+ * Named (not anonymous) because the runner instantiates it from its class
+ * NAME with no arguments — exactly what auto-resolution does to a real
+ * module handler.
+ */
+final class ModuleResolvedFixtureHandler implements TaskHandlerInterface
+{
+    /** @var list<array<string, mixed>> */
+    public static array $payloads = [];
+
+    public function handle(array $payload, TaskContext $context): void
+    {
+        self::$payloads[] = $payload;
     }
 }
