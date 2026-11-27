@@ -732,6 +732,27 @@ class ResponseServiceTest extends TestCase
         );
     }
 
+    /**
+     * The total is kept for a number field with no cap too, by the
+     * submissions themselves (#1546 review): an answer in flight while the
+     * editor sets a cap is then never left out of it — the recompute and
+     * the increment take the same row lock, and no submission takes a
+     * "no cap, nothing to count" path any more.
+     */
+    public function testANumberFieldWithoutACapStillKeepsItsTotalAndAnEditMovesIt(): void
+    {
+        $fieldId = $this->fieldRepository->create($this->formId, 0, FormField::TYPE_NUMBER, 'Places', false, null, null, null, null, null);
+        $this->submitPlaces($fieldId, '4', 'a');
+        $this->submitPlaces($fieldId, '6', 'b');
+        $this->assertSame(10.0, $this->fieldRepository->usedCapacity($fieldId));
+
+        $response = $this->responseRepository->findByFormId($this->formId)[0];
+        $this->service()->update($response, $this->form(), [$this->fieldRepository->findById($fieldId)],
+            'a@test.com', [$fieldId => '1'], null, 1);
+
+        $this->assertSame(7.0, $this->fieldRepository->usedCapacity($fieldId));
+    }
+
     /** Cap removed, answers given meanwhile, cap restored: the total counts them all. */
     public function testACapRemovedThenRestoredCountsTheAnswersGivenInBetween(): void
     {

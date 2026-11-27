@@ -594,8 +594,14 @@ class ResponseService
                 $receivableId
             );
 
+            // Kept for EVERY number field, capped or not (issue #1465):
+            // a cap set later then starts from what is already taken, and
+            // an answer in flight while the editor sets that cap is never
+            // lost between the two — FormFieldRepository::
+            // recomputeUsedCapacity() and this increment take the same
+            // row lock.
             foreach ($fields as $field) {
-                if ($field->capacityMax === null) {
+                if ($field->fieldType !== FormField::TYPE_NUMBER) {
                     continue;
                 }
                 $this->fieldRepository?->addUsedCapacity(
@@ -715,8 +721,9 @@ class ResponseService
 
             $this->responseRepository->update($response->id, $contactEmail, $normalizedAnswers);
 
+            // Every number field, capped or not: see submit() (#1465).
             foreach ($fields as $field) {
-                if ($field->capacityMax === null) {
+                if ($field->fieldType !== FormField::TYPE_NUMBER) {
                     continue;
                 }
                 $this->fieldRepository?->addUsedCapacity(

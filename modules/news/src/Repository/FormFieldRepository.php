@@ -183,9 +183,29 @@ class FormFieldRepository
      */
     public function recomputeUsedCapacity(int $fieldId, FormResponseRepository $responses): float
     {
-        $used = $responses->sumFieldValues($fieldId);
-        $stmt = $this->pdo->prepare('UPDATE news_form_fields SET capacity_used = ? WHERE id = ?');
-        $stmt->execute([$used, $fieldId]);
+        // Under the row lock a submission's increment takes (#1546
+        // review): one in flight either commits first — its answer is then
+        // in the sum — or waits for this write and adds its share on top.
+        // Without it, an answer read as absent here and added on the
+        // uncapped path would be lost for good.
+        $ownTransaction = !$this->pdo->inTransaction();
+        if ($ownTransaction) {
+            $this->pdo->beginTransaction();
+        }
+        try {
+            $this->usedCapacity($fieldId, lockForUpdate: true);
+            $used = $responses->sumFieldValues($fieldId);
+            $stmt = $this->pdo->prepare('UPDATE news_form_fields SET capacity_used = ? WHERE id = ?');
+            $stmt->execute([$used, $fieldId]);
+            if ($ownTransaction) {
+                $this->pdo->commit();
+            }
+        } catch (\Throwable $e) {
+            if ($ownTransaction) {
+                $this->pdo->rollBack();
+            }
+            throw $e;
+        }
 
         return $used;
     }
