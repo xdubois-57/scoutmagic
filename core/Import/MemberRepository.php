@@ -97,7 +97,10 @@ class MemberRepository
      */
     public function findByDeskIds(array $deskIds): array
     {
-        $deskIds = array_values(array_unique(array_filter($deskIds, static fn(string $deskId): bool => $deskId !== '')));
+        $deskIds = array_values(array_unique(array_filter(
+            $deskIds,
+            static fn(string $deskId): bool => $deskId !== ''
+        )));
         if ($deskIds === []) {
             return [];
         }

@@ -398,9 +398,10 @@ class FormController extends AbstractController
 
         // Readable in the same batch: a « Membres » answer is Desk ids,
         // and the page names the members (ResponseService::readableAnswers()).
-        $answersByResponse = $this->responseService->readableAnswers($fields, $this->responseService->getAnswersFor(
+        $storedAnswers = $this->responseService->getAnswersFor(
             array_map(static fn (array $row): int => $row['response']->id, $rows)
-        ));
+        );
+        $answersByResponse = $this->responseService->readableAnswers($fields, $storedAnswers);
         foreach ($rows as $index => $row) {
             $rows[$index]['answers'] = $this->answerLines(
                 $fields,

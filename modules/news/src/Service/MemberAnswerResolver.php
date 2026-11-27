@@ -67,7 +67,11 @@ class MemberAnswerResolver
             if ($profile === null) {
                 continue;
             }
-            $resolved[$deskId] = new MemberOption($profile->memberYearId, $profile->deskId, $profile->getDisplayNameFull());
+            $resolved[$deskId] = new MemberOption(
+                $profile->memberYearId,
+                $profile->deskId,
+                $profile->getDisplayNameFull()
+            );
         }
 
         return $resolved;

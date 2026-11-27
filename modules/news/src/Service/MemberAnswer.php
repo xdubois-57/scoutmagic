@@ -36,7 +36,10 @@ final class MemberAnswer
      */
     public static function encode(array $deskIds): string
     {
-        $deskIds = array_values(array_unique(array_filter($deskIds, static fn(string $deskId): bool => $deskId !== '')));
+        $deskIds = array_values(array_unique(array_filter(
+            $deskIds,
+            static fn(string $deskId): bool => $deskId !== ''
+        )));
         if ($deskIds === []) {
             return '';
         }
