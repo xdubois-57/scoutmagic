@@ -170,31 +170,44 @@ final class SandboxLossState
             return;
         }
 
-        if ($reason === null) {
-            $journal->log(
-                'core',
-                self::eventPrefix($channel) . '_loss_cleared',
-                'info',
-                $channel === self::CHANNEL_MAIL
-                    ? 'Capture des e-mails : plus de blocage, l\'envoi suit de nouveau sa règle ordinaire.'
-                    : 'Téléphonie simulée : plus de blocage, la ligne SOS suit de nouveau sa règle ordinaire.',
-                ['previous_reason' => $storedReason]
+        // A transition is journaled once, so its line must not be lost
+        // (review of #1549): with the row already moved, every later
+        // request would find nothing changed and never write it. Should
+        // the journal refuse, the row is put back, so the next request
+        // finds the same transition and journals it. Nothing is rethrown:
+        // this runs while every request starts, and blocking does not
+        // depend on the row — this request still answers from $live.
+        try {
+            if ($reason === null) {
+                $journal->log(
+                    'core',
+                    self::eventPrefix($channel) . '_loss_cleared',
+                    'info',
+                    $channel === self::CHANNEL_MAIL
+                        ? 'Capture des e-mails : plus de blocage, l\'envoi suit de nouveau sa règle ordinaire.'
+                        : 'Téléphonie simulée : plus de blocage, la ligne SOS suit de nouveau sa règle ordinaire.',
+                    ['previous_reason' => $storedReason]
+                );
+            } else {
+                $journal->log(
+                    'core',
+                    self::lossEvent($channel),
+                    'security',
+                    $channel === self::CHANNEL_MAIL
+                        ? 'Capture des e-mails armée mais sans effet (' . self::reasonLabel($reason) . ') : '
+                            . 'l\'envoi est suspendu jusqu\'à la décision d\'un super-administrateur.'
+                        : 'Téléphonie simulée armée mais sans effet (' . self::reasonLabel($reason) . ') : '
+                            . 'la vraie ligne SOS n\'est plus pilotée jusqu\'à la décision d\'un super-administrateur.',
+                    ['reason' => $reason]
+                );
+            }
+        } catch (\Throwable $e) {
+            $this->settingService->replaceIfUnchanged(self::settingKey($channel), $next, $stored);
+            error_log(
+                'ScoutMagic: sandbox loss transition could not be journaled (' . $e::class . '); '
+                . 'retried on the next request.'
             );
-
-            return;
         }
-
-        $journal->log(
-            'core',
-            self::lossEvent($channel),
-            'security',
-            $channel === self::CHANNEL_MAIL
-                ? 'Capture des e-mails armée mais sans effet (' . self::reasonLabel($reason) . ') : '
-                    . 'l\'envoi est suspendu jusqu\'à la décision d\'un super-administrateur.'
-                : 'Téléphonie simulée armée mais sans effet (' . self::reasonLabel($reason) . ') : '
-                    . 'la vraie ligne SOS n\'est plus pilotée jusqu\'à la décision d\'un super-administrateur.',
-            ['reason' => $reason]
-        );
     }
 
     /** The reason this channel is lost for, or null when it is not. */

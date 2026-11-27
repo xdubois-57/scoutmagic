@@ -136,6 +136,48 @@ final class SandboxLossStateTest extends TestCase
      * A release whose journal line cannot be written is undone (review of
      * #1549): real sending is never reopened without a trace of who did it.
      */
+    /**
+     * A loss whose security line cannot be written (review of #1549): this
+     * request still blocks, the row is put back, and the next request
+     * records the same transition again — so the line is written once, not
+     * never.
+     */
+    public function testALossThatCannotBeJournaledIsJournaledByTheNextRequest(): void
+    {
+        $failingJournal = new class (new JournalRepository($this->pdo)) extends JournalService {
+            public function log(
+                string $category,
+                string $type,
+                string $level,
+                string $description,
+                array $context = [],
+                ?int $userId = null
+            ): void {
+                throw new \RuntimeException('journal indisponible');
+            }
+        };
+
+        $first = $this->state();
+        $logged = ini_set('error_log', '/dev/null');
+        try {
+            $first->record(SandboxLossState::CHANNEL_MAIL, SandboxLossState::REASON_PROFILE_MISSING, $failingJournal);
+        } finally {
+            ini_set('error_log', $logged === false ? '' : $logged);
+        }
+
+        $this->assertTrue($first->isBlocked(SandboxLossState::CHANNEL_MAIL), 'This request still blocks.');
+        $this->assertSame('', (string) $this->settings()->get(SandboxLossState::SETTING_MAIL), 'The row was put back.');
+        $this->assertCount(0, $this->journalLines('mail_capture_lost'));
+
+        $next = $this->state();
+        $next->record(SandboxLossState::CHANNEL_MAIL, SandboxLossState::REASON_PROFILE_MISSING, $this->journal);
+        $this->assertTrue($next->isBlocked(SandboxLossState::CHANNEL_MAIL));
+        $this->assertCount(1, $this->journalLines('mail_capture_lost'), 'Journaled by the next request, once.');
+
+        $this->state()->record(SandboxLossState::CHANNEL_MAIL, SandboxLossState::REASON_PROFILE_MISSING, $this->journal);
+        $this->assertCount(1, $this->journalLines('mail_capture_lost'));
+    }
+
     public function testAReleaseThatCannotBeJournaledIsUndone(): void
     {
         $this->state()->record(SandboxLossState::CHANNEL_MAIL, SandboxLossState::REASON_PROFILE_MISSING, $this->journal);
