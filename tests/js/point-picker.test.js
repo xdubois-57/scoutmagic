@@ -25,6 +25,7 @@ function buildForm({ lat = '', lng = '', manual = '0', address = '', locate = fa
                 <button type="button" data-point-picker-remove>Retirer</button>
             </div>
             <button type="button" class="d-none" data-point-picker-place>Placer le point sur la carte</button>
+            <button type="button" class="d-none" data-point-picker-type aria-expanded="false">Saisir les coordonnées</button>
         </fieldset>
     `;
 }
@@ -87,6 +88,8 @@ async function load() {
     await import('../../public/assets/js/point-picker.js');
 }
 
+/** The lookup waits for focus to leave the address: one turn of the event loop. */
+const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 const value = (id) => /** @type {HTMLInputElement} */ (document.getElementById(id)).value;
 const handle = () => window.ScoutMagicPointPicker.wire(document.querySelector('[data-point-picker]'));
 
@@ -133,6 +136,240 @@ describe('point-picker', () => {
             expect(addressMarkerOf(leaflet).options.title).toBe('Adresse <du> lieu');
             // Escaped: the ring's label is text, never markup.
             expect(addressMarkerOf(leaflet).options.icon.divIcon.html).toContain('Adresse &lt;du&gt; lieu');
+        });
+
+        it('composes an address kept in several fields, the way the server writes it', async () => {
+            stubLeaflet();
+            document.body.innerHTML = `
+                <input id="a-street" value=""><input id="a-postal" value=""><input id="a-city" value="">
+                <input id="a-country" value="Belgique">
+                <fieldset data-point-picker data-locate-url="/lookup/address"
+                          data-address-fields='[["a-street"],["a-postal","a-city"],["a-country"]]'>
+                    <input type="hidden" data-point-picker-automatic>
+                    <input type="hidden" data-point-picker-manual value="0">
+                    <input type="hidden" data-point-picker-address>
+                    <div data-point-picker-fields>
+                        <input id="a-lat" data-point-picker-latitude><input id="a-lng" data-point-picker-longitude>
+                    </div>
+                    <div class="d-none" data-point-picker-map-box><div data-point-picker-map></div>
+                        <button type="button" data-point-picker-remove>Retirer</button></div>
+                    <button type="button" class="d-none" data-point-picker-place>Placer</button>
+                </fieldset>`;
+            await load();
+            answer({ success: true, found: true, latitude: 50.4421, longitude: 4.9876 });
+
+            /** @type {HTMLInputElement} */ (document.getElementById('a-street')).value = 'Rue du Tronquoy 4';
+            /** @type {HTMLInputElement} */ (document.getElementById('a-postal')).value = '5340';
+            const city = /** @type {HTMLInputElement} */ (document.getElementById('a-city'));
+            city.value = 'Mozet';
+            city.dispatchEvent(new Event('change'));
+            await settle();
+
+            expect(window.ScoutMagicApi.getJson).toHaveBeenLastCalledWith(
+                '/lookup/address?q=' + encodeURIComponent('Rue du Tronquoy 4, 5340 Mozet, Belgique')
+            );
+            expect(document.querySelector('[data-point-picker-address]').value).toBe('Rue du Tronquoy 4, 5340 Mozet, Belgique');
+            expect(value('a-lat')).toBe('50.442100');
+        });
+
+        function buildPlaceForm({ street = '', postal = '', city = '', country = 'Belgique', lat = '', lng = '', locate = true } = {}) {
+            document.body.innerHTML = `
+                <input id="a-street" value="${street}"><input id="a-postal" value="${postal}">
+                <input id="a-city" value="${city}"><input id="a-country" value="${country}">
+                <fieldset data-point-picker ${locate ? 'data-locate-url="/lookup/address"' : ''} data-address-needs="a-postal a-city"
+                          data-address-fields='[["a-street"],["a-postal","a-city"],["a-country"]]'>
+                    <input type="hidden" data-point-picker-automatic>
+                    <input type="hidden" data-point-picker-manual value="0">
+                    <input type="hidden" data-point-picker-address>
+                    <div data-point-picker-fields>
+                        <input id="a-lat" value="${lat}" data-point-picker-latitude>
+                        <input id="a-lng" value="${lng}" data-point-picker-longitude>
+                    </div>
+                    <div class="d-none" data-point-picker-map-box><div data-point-picker-map></div>
+                        <button type="button" data-point-picker-remove>Retirer</button></div>
+                    <button type="button" class="d-none" data-point-picker-place>Placer</button>
+                </fieldset>`;
+        }
+
+        it('never looks up an address that names neither a postal code nor a city', async () => {
+            stubLeaflet();
+            buildPlaceForm();
+            await load();
+            window.ScoutMagicApi.getJson = vi.fn();
+
+            const street = /** @type {HTMLInputElement} */ (document.getElementById('a-street'));
+            street.value = 'Rue du Tronquoy 4';
+            street.dispatchEvent(new Event('change'));
+            await tick();
+
+            expect(window.ScoutMagicApi.getJson).not.toHaveBeenCalled();
+        });
+
+        it('waits for focus to leave the whole address before asking once', async () => {
+            stubLeaflet();
+            buildPlaceForm({ street: 'Rue du Tronquoy 4' });
+            await load();
+            answer({ success: true, found: true, latitude: 50.4421, longitude: 4.9876 });
+            const postal = /** @type {HTMLInputElement} */ (document.getElementById('a-postal'));
+            const city = /** @type {HTMLInputElement} */ (document.getElementById('a-city'));
+
+            postal.value = '5340';
+            city.focus();
+            postal.dispatchEvent(new Event('change'));
+            await tick();
+            expect(window.ScoutMagicApi.getJson).not.toHaveBeenCalled();
+
+            city.value = 'Mozet';
+            city.dispatchEvent(new Event('change'));
+            city.blur();
+            city.dispatchEvent(new Event('focusout'));
+            await settle();
+
+            expect(window.ScoutMagicApi.getJson).toHaveBeenCalledTimes(1);
+        });
+
+        it('opening on a saved automatic point of the same address shows the address and leaves the point', async () => {
+            const fetch = vi.fn().mockResolvedValue({
+                ok: true, status: 200,
+                json: () => Promise.resolve({ success: true, found: true, latitude: 50.4999, longitude: 4.9999 }),
+            });
+            vi.stubGlobal('fetch', fetch);
+            try {
+                const leaflet = stubLeaflet();
+                buildPlaceForm({ street: 'Rue du Tronquoy 4', postal: '5340', city: 'Mozet', lat: '50.442100', lng: '4.987600' });
+                await load();
+                await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
+                await vi.waitFor(() => expect(addressMarkerOf(leaflet)).toBeDefined());
+
+                expect(pinOf(leaflet).getLatLng()).toEqual({ lat: 50.4421, lng: 4.9876 });
+                expect(value('a-lat')).toBe('50.442100');
+            } finally {
+                vi.unstubAllGlobals();
+            }
+        });
+
+        it('asks nothing on opening when the page has no lookup', async () => {
+            const fetch = vi.fn();
+            vi.stubGlobal('fetch', fetch);
+            try {
+                const leaflet = stubLeaflet();
+                buildPlaceForm({ street: 'Rue X', postal: '5340', city: 'Mozet', lat: '50.4', lng: '4.9', locate: false });
+                await load();
+                await tick();
+
+                expect(fetch).not.toHaveBeenCalled();
+                expect(pinOf(leaflet).getLatLng()).toEqual({ lat: 50.4, lng: 4.9 });
+            } finally {
+                vi.unstubAllGlobals();
+            }
+        });
+
+        it('gives the keyboard the coordinates back, and places a human\'s pin from what is typed', async () => {
+            const leaflet = stubLeaflet();
+            buildForm({ lat: '50.718400', lng: '4.635900' });
+            await load();
+            const toggle = /** @type {HTMLButtonElement} */ (document.querySelector('[data-point-picker-type]'));
+            const fields = document.querySelector('[data-point-picker-fields]');
+
+            expect(toggle.classList.contains('d-none')).toBe(false);
+            expect(fields.classList.contains('d-none')).toBe(true);
+            toggle.click();
+            expect(fields.classList.contains('d-none')).toBe(false);
+            expect(toggle.getAttribute('aria-expanded')).toBe('true');
+
+            const lat = /** @type {HTMLInputElement} */ (document.getElementById('place-latitude'));
+            const lng = /** @type {HTMLInputElement} */ (document.getElementById('place-longitude'));
+            lat.value = '50,7201';
+            lng.value = '4.6412';
+            lng.dispatchEvent(new Event('change'));
+
+            expect(pinOf(leaflet).getLatLng()).toEqual({ lat: 50.7201, lng: 4.6412 });
+            expect(value('place-latitude')).toBe('50.720100');
+            expect(document.querySelector('[data-point-picker-manual]').value).toBe('1');
+            expect(document.querySelector('[data-point-picker-origin]').textContent).toBe('point placé à la main');
+
+            lat.value = '';
+            lng.value = '';
+            lng.dispatchEvent(new Event('change'));
+            expect(pinOf(leaflet)).toBeUndefined();
+            expect(document.querySelector('[data-point-picker-manual]').value).toBe('1');
+        });
+
+        it('leaves a malformed coordinate as typed, for the server to refuse', async () => {
+            const leaflet = stubLeaflet();
+            buildForm();
+            await load();
+            const lat = /** @type {HTMLInputElement} */ (document.getElementById('place-latitude'));
+            const lng = /** @type {HTMLInputElement} */ (document.getElementById('place-longitude'));
+            lat.value = '50x';
+            lng.value = '4';
+            lng.dispatchEvent(new Event('change'));
+
+            expect(pinOf(leaflet)).toBeUndefined();
+            expect(value('place-latitude')).toBe('50x');
+        });
+
+        it('a lookup answering while a coordinate is being typed does not replace it', async () => {
+            const leaflet = stubLeaflet();
+            buildForm({ locate: true });
+            await load();
+            const lat = /** @type {HTMLInputElement} */ (document.getElementById('place-latitude'));
+            lat.value = '50.7';
+            lat.dispatchEvent(new Event('input'));
+            expect(document.querySelector('[data-point-picker-manual]').value).toBe('1');
+
+            answer({ success: true, found: true, latitude: 50.125, longitude: 5.187 });
+            leave('Gîte de Han, rue des Grottes 12');
+            await settle();
+
+            expect(pinOf(leaflet)).toBeUndefined();
+            expect(value('place-latitude')).toBe('50.7');
+        });
+
+        it('shows a refused coordinate again as typed, never rewritten into a number', async () => {
+            const leaflet = stubLeaflet();
+            buildForm({ lat: '50x', lng: '4' });
+            await load();
+
+            expect(pinOf(leaflet)).toBeUndefined();
+            expect(value('place-latitude')).toBe('50x');
+            expect(document.querySelector('[data-point-picker-fields]').classList.contains('d-none')).toBe(false);
+            expect(document.querySelector('[data-point-picker-type]').getAttribute('aria-expanded')).toBe('true');
+        });
+
+        it('an opening lookup leaves a refused half point for the person to correct', async () => {
+            const fetch = vi.fn().mockResolvedValue({
+                ok: true, status: 200,
+                json: () => Promise.resolve({ success: true, found: true, latitude: 50.125, longitude: 5.187 }),
+            });
+            vi.stubGlobal('fetch', fetch);
+            try {
+                const leaflet = stubLeaflet();
+                buildForm({ lat: '', lng: '4', address: 'Gîte de Han, rue des Grottes 12', locate: true });
+                await load();
+                await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
+                await tick();
+                await tick();
+
+                // The map stays closed: « Placer le point » will open on the address.
+                expect(pinOf(leaflet)).toBeUndefined();
+                expect(value('place-latitude')).toBe('');
+                expect(value('place-longitude')).toBe('4');
+                expect(document.querySelector('[data-point-picker-manual]').value).toBe('1');
+            } finally {
+                vi.unstubAllGlobals();
+            }
+        });
+
+        it('waits for both halves before placing a typed point', async () => {
+            const leaflet = stubLeaflet();
+            buildForm();
+            await load();
+            const lat = /** @type {HTMLInputElement} */ (document.getElementById('place-latitude'));
+            lat.value = '50.1';
+            lat.dispatchEvent(new Event('change'));
+
+            expect(pinOf(leaflet)).toBeUndefined();
         });
 
         it('redraws the map when the page says its box changed size', async () => {
@@ -353,6 +590,7 @@ describe('point-picker', () => {
             window.ScoutMagicApi.getJson = vi.fn();
 
             leave('Place du Marché 1, Namur');
+            await tick();
 
             expect(window.ScoutMagicApi.getJson).not.toHaveBeenCalled();
             expect(pinOf(leaflet)).toBeUndefined();
@@ -498,6 +736,7 @@ describe('point-picker', () => {
             expect(status().classList.contains('d-none')).toBe(false);
 
             leave('');
+            await tick();
             expect(status().classList.contains('d-none')).toBe(true);
         });
     });
