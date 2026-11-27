@@ -118,6 +118,21 @@ class InvoiceRepository
         return $row === false ? null : $this->hydrate($row);
     }
 
+    /**
+     * The document with this number, whatever scout year it was filed in
+     * (issue #1468): a federation document number identifies one
+     * document, and the year on screen when it was imported is not part
+     * of its identity. The oldest one first, should two already exist.
+     */
+    public function findByDocumentNumberInAnyYear(string $documentNumber): ?StoredInvoice
+    {
+        $stmt = $this->pdo->prepare('SELECT * FROM fees_invoices WHERE document_number = ? ORDER BY id LIMIT 1');
+        $stmt->execute([$documentNumber]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+        return $row === false ? null : $this->hydrate($row);
+    }
+
     public function findById(int $id): ?StoredInvoice
     {
         $stmt = $this->pdo->prepare('SELECT * FROM fees_invoices WHERE id = ?');

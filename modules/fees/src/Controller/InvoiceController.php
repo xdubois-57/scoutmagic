@@ -152,7 +152,16 @@ class InvoiceController extends AbstractController
         }
 
         $year = $this->effectiveYear();
-        $outcome = $this->importService->import($content, $year->id, AuthSession::getUserAccountId());
+        // The year the treasurer confirmed for a document whose issue date
+        // falls in another one (issue #1468); the service honours it only
+        // for the year it names.
+        $confirmedYearId = (int) $request->getBody('confirmed_year_id', 0);
+        $outcome = $this->importService->import(
+            $content,
+            $year->id,
+            AuthSession::getUserAccountId(),
+            $confirmedYearId > 0 ? $confirmedYearId : null
+        );
 
         if (!$outcome->isStored()) {
             return $this->render('@fees/invoice_import.html.twig', $this->formContext(['outcome' => $outcome]));
@@ -160,7 +169,13 @@ class InvoiceController extends AbstractController
 
         $this->keepPdfIfAsked($request, $outcome, $content, (string) ($file['name'] ?? 'facture.pdf'));
 
-        FlashMessage::set('success', 'Facture ' . $outcome->documentNumber . ' importée.');
+        FlashMessage::set(
+            'success',
+            'Facture ' . $outcome->documentNumber . ' importée.'
+                . ($outcome->yearUnchecked
+                    ? " Sa date d'émission n'a pas pu être lue : l'année scoute dans laquelle elle est rangée n'a pas été vérifiée."
+                    : '')
+        );
 
         return $this->redirect(self::PATH);
     }

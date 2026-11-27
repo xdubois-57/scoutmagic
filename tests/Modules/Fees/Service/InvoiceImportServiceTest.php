@@ -78,7 +78,8 @@ class InvoiceImportServiceTest extends TestCase
     new SectionRepository(Connection::withPdo($this->pdo)),
     new MemberProfileRepository(Connection::withPdo($this->pdo), $this->encryption, new MemberBadgeRepository($this->pdo))
 ),
-            new JournalService(new JournalRepository($this->pdo))
+            new JournalService(new JournalRepository($this->pdo)),
+            new \Core\Config\ScoutYearService($this->pdo)
         );
 
         $content = file_get_contents(dirname(__DIR__, 3) . '/fixtures/pdf/federation_invoice_sample.pdf');
@@ -255,7 +256,11 @@ class InvoiceImportServiceTest extends TestCase
      */
     public function testAnInvoiceInTheFederationsExportLayoutIsImported(): void
     {
-        $outcome = $this->serviceReading(FederationExportFixture::text())->import('%PDF', $this->scoutYearId, 7);
+        // The export is dated in another season than the one this test
+        // files it in: the year is confirmed, which is not what this test
+        // is about (#1468 has its own).
+        $outcome = $this->serviceReading(FederationExportFixture::text())
+            ->import('%PDF', $this->scoutYearId, 7, $this->scoutYearId);
 
         $this->assertSame(InvoiceImportOutcome::IMPORTED, $outcome->status, implode("\n", array_map(
             static fn(InvoiceProblem $p): string => $p->message,
@@ -355,6 +360,113 @@ class InvoiceImportServiceTest extends TestCase
         $this->assertStringNotContainsString('Nomaa', $context);
     }
 
+    // ------------------------------------------------ the season (#1468)
+
+    /**
+     * Issued on 8 January 2026, in 2025-2026, while 2026-2027 is on
+     * screen: asked, never refused, and nothing stored until confirmed —
+     * a regularisation can be issued after its season ends. A
+     * confirmation given for another year does not count.
+     */
+    public function testAnIssueDateInAnotherYearAsksForConfirmationBeforeAnythingIsStored(): void
+    {
+        $next = $this->scoutYear('2026-2027', '2026-09-01', '2027-08-31');
+
+        $asked = $this->service->import($this->pdf, $next, 7);
+        $this->assertSame(InvoiceImportOutcome::YEAR_TO_CONFIRM, $asked->status);
+        $this->assertSame('2025-2026', $asked->issueYearLabel);
+        $this->assertSame('2026-2027', $asked->targetYearLabel);
+        $this->assertSame($next, $asked->targetYearId);
+        $this->assertSame('2026-01-08', $asked->issueDate);
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM fees_invoices')->fetchColumn());
+
+        $wrongConfirmation = $this->service->import($this->pdf, $next, 7, $this->scoutYearId);
+        $this->assertSame(InvoiceImportOutcome::YEAR_TO_CONFIRM, $wrongConfirmation->status);
+
+        $confirmed = $this->service->import($this->pdf, $next, 7, $next);
+        $this->assertSame(InvoiceImportOutcome::IMPORTED, $confirmed->status);
+        $this->assertSame($next, $this->invoices->findById((int) $confirmed->invoiceId)?->scoutYearId);
+        $this->assertSame(
+            ['scout_year_id' => $next, 'issue_year_id' => $this->scoutYearId, 'year_confirmed' => true],
+            array_intersect_key($this->journalContext('fees_invoice_imported'), array_flip(['scout_year_id', 'issue_year_id', 'year_confirmed']))
+        );
+    }
+
+    /** In the year its issue date falls in, nothing is asked and nothing is confirmed. */
+    public function testAnIssueDateInTheTargetYearIsImportedWithoutAQuestion(): void
+    {
+        $outcome = $this->service->import($this->pdf, $this->scoutYearId, 7);
+
+        $this->assertSame(InvoiceImportOutcome::IMPORTED, $outcome->status);
+        $this->assertFalse($outcome->yearUnchecked);
+        $context = $this->journalContext('fees_invoice_imported');
+        $this->assertSame($this->scoutYearId, $context['issue_year_id']);
+        $this->assertFalse($context['year_confirmed']);
+    }
+
+    /**
+     * The same document already filed in another year is recognised: no
+     * second invoice, the screen names that year, and the journal says so
+     * with ids only — no document number (ARCHITECTURE.md §8.6).
+     */
+    public function testTheSameDocumentInAnotherYearIsRecognisedAndNamesThatYear(): void
+    {
+        $next = $this->scoutYear('2026-2027', '2026-09-01', '2027-08-31');
+        $first = $this->service->import($this->pdf, $this->scoutYearId, 7);
+
+        $again = $this->service->import($this->pdf, $next, 7, $next);
+
+        $this->assertSame(InvoiceImportOutcome::ALREADY_IMPORTED, $again->status);
+        $this->assertSame($first->invoiceId, $again->invoiceId);
+        $this->assertSame('2025-2026', $again->existingYearLabel);
+        $this->assertSame(1, (int) $this->pdo->query('SELECT COUNT(*) FROM fees_invoices')->fetchColumn());
+
+        $row = $this->pdo->query("SELECT level, context FROM event_log WHERE event_type = 'invoice_import_duplicate_other_year'")
+            ->fetch(\PDO::FETCH_ASSOC);
+        $this->assertIsArray($row);
+        $this->assertSame('warning', $row['level']);
+        $this->assertSame(
+            ['existing_invoice_id' => $first->invoiceId, 'existing_year_id' => $this->scoutYearId, 'target_year_id' => $next],
+            json_decode((string) $row['context'], true)
+        );
+        $this->assertStringNotContainsString('F2026/000123', (string) $row['context']);
+    }
+
+    /** No readable issue date: imported as before, and the outcome says the year went unchecked. */
+    public function testAnInvoiceWithoutAReadableIssueDateKeepsTheCurrentBehaviourWithAMention(): void
+    {
+        $text = (new PdfTextExtractor())->extractText($this->pdf);
+        $this->assertIsString($text);
+        $withoutDate = str_replace('08/01/2026', '', $text, $count);
+        $this->assertGreaterThan(0, $count);
+        $next = $this->scoutYear('2026-2027', '2026-09-01', '2027-08-31');
+
+        $outcome = $this->serviceReading($withoutDate)->import('pdf', $next, 7);
+
+        $this->assertSame(InvoiceImportOutcome::IMPORTED, $outcome->status);
+        $this->assertTrue($outcome->yearUnchecked);
+        $this->assertNull($this->journalContext('fees_invoice_imported')['issue_year_id']);
+    }
+
+    private function scoutYear(string $label, string $start, string $end): int
+    {
+        $stmt = $this->pdo->prepare('INSERT INTO scout_years (label, start_date, end_date) VALUES (?, ?, ?)');
+        $stmt->execute([$label, $start, $end]);
+
+        return (int) $this->pdo->lastInsertId();
+    }
+
+    /** @return array<string, mixed> the context of the latest journal line of this type */
+    private function journalContext(string $eventType): array
+    {
+        $stmt = $this->pdo->prepare('SELECT context FROM event_log WHERE event_type = ? ORDER BY id DESC LIMIT 1');
+        $stmt->execute([$eventType]);
+        $context = $stmt->fetchColumn();
+        $this->assertIsString($context, "no {$eventType} line");
+
+        return (array) json_decode($context, true);
+    }
+
     private function serviceReading(string $text): InvoiceImportService
     {
         return $this->serviceWith(new class ($text) extends PdfTextExtractor {
@@ -384,7 +496,8 @@ class InvoiceImportServiceTest extends TestCase
                     new MemberBadgeRepository($this->pdo)
                 )
             ),
-            new JournalService(new JournalRepository($this->pdo))
+            new JournalService(new JournalRepository($this->pdo)),
+            new \Core\Config\ScoutYearService($this->pdo)
         );
     }
 

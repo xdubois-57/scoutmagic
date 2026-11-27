@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\Fees\Service;
 
+use Core\Config\ScoutYearService;
 use Core\Journal\JournalService;
 use Core\Member\SectionService;
 use Modules\Fees\Invoice\InvoiceProblem;
@@ -47,7 +48,11 @@ class InvoiceImportService
         private InvoiceMemberMatchRepository $memberMatches,
         private RosterSnapshotRepository $snapshots,
         private SectionService $sections,
-        private JournalService $journal
+        private JournalService $journal,
+        // Which scout year an issue date falls in, and the labels the
+        // screen names (issue #1468). Null only where a test builds the
+        // service for something else: the year is then not checked.
+        private ?ScoutYearService $scoutYears = null
     ) {
     }
 
@@ -99,8 +104,18 @@ class InvoiceImportService
         );
     }
 
-    public function import(string $pdfContent, int $scoutYearId, ?int $importedBy): InvoiceImportOutcome
-    {
+    /**
+     * @param int|null $confirmedYearId the year the treasurer confirmed for
+     *        a document whose issue date falls in another one — honoured
+     *        only when it names $scoutYearId, so a confirmation given for
+     *        one year never files a document in another
+     */
+    public function import(
+        string $pdfContent,
+        int $scoutYearId,
+        ?int $importedBy,
+        ?int $confirmedYearId = null
+    ): InvoiceImportOutcome {
         $reading = $this->reader->read($pdfContent);
         if (!$reading->isAccepted()) {
             $this->journalRefusal($reading, $scoutYearId, $importedBy);
@@ -111,11 +126,58 @@ class InvoiceImportService
         $invoice = $reading->invoice;
         \assert($invoice !== null);
 
+        // A document number identifies one document whatever year is on
+        // screen (issue #1468): the same PDF imported while looking at
+        // another year used to become a second invoice in a second season.
         $existing = $invoice->documentNumber === null
             ? null
-            : $this->invoices->findByDocumentNumber($scoutYearId, $invoice->documentNumber);
-        if ($existing !== null) {
+            : $this->invoices->findByDocumentNumberInAnyYear($invoice->documentNumber);
+        if ($existing !== null && $existing->scoutYearId === $scoutYearId) {
             return InvoiceImportOutcome::alreadyImported($existing->id, $existing->documentNumber);
+        }
+        if ($existing !== null) {
+            // Ids only: a document number identifies a family's bill
+            // (ARCHITECTURE.md §8.6).
+            $this->journal->log(
+                'fees',
+                'invoice_import_duplicate_other_year',
+                'warning',
+                'Facture déjà importée dans une autre année scoute : rien n\'a été enregistré.',
+                [
+                    'existing_invoice_id' => $existing->id,
+                    'existing_year_id' => $existing->scoutYearId,
+                    'target_year_id' => $scoutYearId,
+                ],
+                $importedBy
+            );
+
+            return InvoiceImportOutcome::alreadyImportedInAnotherYear(
+                $existing->id,
+                $existing->documentNumber,
+                $this->yearLabel($existing->scoutYearId)
+            );
+        }
+
+        // The season a document belongs to is the one its issue date falls
+        // in, not the one on screen when it was imported (issue #1468). A
+        // regularisation can be issued after its season ends, so a
+        // mismatch is asked, never refused — and asked before anything is
+        // written.
+        $issueYear = $this->issueYearOf($invoice->issueDate);
+        $yearConfirmed = false;
+        if ($issueYear !== null && $issueYear['label'] !== $this->yearLabel($scoutYearId)) {
+            if ($confirmedYearId !== $scoutYearId) {
+                \assert($invoice->issueDate !== null);
+
+                return InvoiceImportOutcome::yearToConfirm(
+                    (string) $invoice->documentNumber,
+                    $invoice->issueDate,
+                    $issueYear['label'],
+                    $this->yearLabel($scoutYearId),
+                    $scoutYearId
+                );
+            }
+            $yearConfirmed = true;
         }
 
         [$sectionIdsByCode, $unknown] = $this->resolveSections($invoice);
@@ -171,6 +233,8 @@ class InvoiceImportService
             'Facture de la fédération importée : ' . count($invoice->lines) . ' ligne(s).',
             [
                 'scout_year_id' => $scoutYearId,
+                'issue_year_id' => $issueYear['id'] ?? null,
+                'year_confirmed' => $yearConfirmed,
                 'invoice_id' => $invoiceId,
                 'line_count' => count($invoice->lines),
                 'ignored_rows' => $invoice->ignoredRowCount,
@@ -178,7 +242,44 @@ class InvoiceImportService
             $importedBy
         );
 
-        return InvoiceImportOutcome::imported($invoiceId, $invoice->documentNumber, $invoice->ignoredRowCount);
+        return InvoiceImportOutcome::imported(
+            $invoiceId,
+            $invoice->documentNumber,
+            $invoice->ignoredRowCount,
+            $this->scoutYears !== null && $invoice->issueDate === null
+        );
+    }
+
+    /**
+     * The scout year an issue date falls in — its label always, its id
+     * when that year exists on this site — or null when the date is not
+     * readable or no year service was given.
+     *
+     * @return array{label: string, id: ?int}|null
+     */
+    private function issueYearOf(?string $issueDate): ?array
+    {
+        if ($this->scoutYears === null || $issueDate === null) {
+            return null;
+        }
+        $date = \DateTimeImmutable::createFromFormat('!Y-m-d', $issueDate);
+        if ($date === false) {
+            return null;
+        }
+        // The year whose own dates hold it, as this site defines them;
+        // the usual 1 September rule only for a year not created here.
+        foreach ($this->scoutYears->getAll() as $year) {
+            if ((string) $year['start_date'] <= $issueDate && $issueDate <= (string) $year['end_date']) {
+                return ['label' => (string) $year['label'], 'id' => (int) $year['id']];
+            }
+        }
+
+        return ['label' => ScoutYearService::labelForDate($date), 'id' => null];
+    }
+
+    private function yearLabel(int $scoutYearId): string
+    {
+        return (string) ($this->scoutYears?->findById($scoutYearId)['label'] ?? $scoutYearId);
     }
 
     /**

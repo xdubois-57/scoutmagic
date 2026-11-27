@@ -24,8 +24,14 @@ use Modules\Fees\Invoice\InvoiceProblem;
  *   button: import Desk. There is deliberately no screen offering to map
  *   an unknown code by hand — an unknown code is not a piece of data
  *   somebody forgot to enter, it is an out-of-date roster.
- * - `ALREADY_IMPORTED` — the same document number is already there.
- *   Importing twice is something a treasurer should be able to just try.
+ * - `ALREADY_IMPORTED` — the same document number is already there, in
+ *   the year aimed at or in another one (issue #1468: a document number
+ *   identifies one document whatever year is on screen). Importing twice
+ *   is something a treasurer should be able to just try.
+ * - `YEAR_TO_CONFIRM` — the document is fine, but its issue date falls in
+ *   another scout year than the one it would be filed in (issue #1468).
+ *   Not a refusal: a regularisation is legitimately issued after its
+ *   season ends. Nothing is stored until the treasurer confirms the year.
  * - `IMPORTED` — stored.
  */
 final class InvoiceImportOutcome
@@ -34,6 +40,7 @@ final class InvoiceImportOutcome
     public const REFUSED = 'refused';
     public const STALE_ROSTER = 'stale_roster';
     public const ALREADY_IMPORTED = 'already_imported';
+    public const YEAR_TO_CONFIRM = 'year_to_confirm';
 
     /**
      * @param InvoiceProblem[] $problems
@@ -47,13 +54,66 @@ final class InvoiceImportOutcome
         public readonly int $ignoredRowCount = 0,
         public readonly ?string $documentNumber = null,
         public readonly ?string $issueDate = null,
-        public readonly ?int $totalCents = null
+        public readonly ?int $totalCents = null,
+        /** The scout year the document already sits in, when it is not the one aimed at. */
+        public readonly ?string $existingYearLabel = null,
+        /** The scout year its issue date falls in — YEAR_TO_CONFIRM only. */
+        public readonly ?string $issueYearLabel = null,
+        /** The scout year it would be filed in, and its id — YEAR_TO_CONFIRM only. */
+        public readonly ?string $targetYearLabel = null,
+        public readonly ?int $targetYearId = null,
+        /** Imported without a readable issue date: the year could not be checked. */
+        public readonly bool $yearUnchecked = false
     ) {
     }
 
-    public static function imported(int $invoiceId, string $documentNumber, int $ignoredRowCount): self
+    public static function imported(
+        int $invoiceId,
+        string $documentNumber,
+        int $ignoredRowCount,
+        bool $yearUnchecked = false
+    ): self {
+        return new self(
+            self::IMPORTED,
+            $invoiceId,
+            [],
+            [],
+            $ignoredRowCount,
+            $documentNumber,
+            yearUnchecked: $yearUnchecked
+        );
+    }
+
+    /**
+     * The document's issue date falls in $issueYearLabel, not in the year
+     * it would be filed in: asked, never refused.
+     */
+    public static function yearToConfirm(
+        string $documentNumber,
+        string $issueDate,
+        string $issueYearLabel,
+        string $targetYearLabel,
+        int $targetYearId
+    ): self {
+        return new self(
+            self::YEAR_TO_CONFIRM,
+            documentNumber: $documentNumber,
+            issueDate: $issueDate,
+            issueYearLabel: $issueYearLabel,
+            targetYearLabel: $targetYearLabel,
+            targetYearId: $targetYearId
+        );
+    }
+
+    /** The same document, already filed in ANOTHER scout year. */
+    public static function alreadyImportedInAnotherYear(int $invoiceId, string $documentNumber, string $yearLabel): self
     {
-        return new self(self::IMPORTED, $invoiceId, [], [], $ignoredRowCount, $documentNumber);
+        return new self(
+            self::ALREADY_IMPORTED,
+            $invoiceId,
+            documentNumber: $documentNumber,
+            existingYearLabel: $yearLabel
+        );
     }
 
     /** @param InvoiceProblem[] $problems */

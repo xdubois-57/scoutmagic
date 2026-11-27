@@ -13594,7 +13594,9 @@ if ($isEnabled('fees')) {
                 new \Modules\Fees\Repository\InvoiceMemberMatchRepository($pdo, $encryptionService),
                 $feesSnapshotRepo,
                 $sectionService,
-                $journalService
+                $journalService,
+                // The season an issue date falls in (issue #1468).
+                $scoutYearService
             ),
             new \Modules\Fees\Service\InvoiceSeasonService($feesInvoiceRepo),
             $feesVerification,
