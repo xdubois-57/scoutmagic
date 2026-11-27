@@ -113,6 +113,33 @@ class NotificationServiceTest extends TestCase
         $this->assertFalse($records[0]->isRead());
     }
 
+    /**
+     * Only a path of this site is stored as a notification's address
+     * (#1274): every reader of it — the centre, the e-mail, the push — then
+     * follows the site's own path or none.
+     */
+    public function testAnAddressThatIsNotAPathOfThisSiteIsNotStored(): void
+    {
+        $userId = $this->createUserAccount();
+
+        $this->service->notify($userId, 'Externe', 'Corps', 'https://exemple.org/');
+        $this->service->notify($userId, 'Relative', 'Corps', '//exemple.org');
+        $this->service->dispatch(self::TEST_TYPE, [['userAccountId' => $userId, 'memberId' => null]], [
+            'title' => 'Envoyée', 'body' => 'Corps', 'url' => 'javascript:alert(1)',
+        ]);
+        $this->service->notify($userId, 'Interne', 'Corps', '/calendrier/12');
+
+        $urls = [];
+        foreach ($this->notificationRepository->findByUserAccountId($userId) as $record) {
+            $urls[$record->title] = $record->url;
+        }
+        ksort($urls);
+        $this->assertSame(
+            ['Envoyée' => null, 'Externe' => null, 'Interne' => '/calendrier/12', 'Relative' => null],
+            $urls
+        );
+    }
+
     public function testNotifyQueuesAndFlushesForEveryRegisteredDevice(): void
     {
         $userId = $this->createUserAccount();

@@ -248,6 +248,39 @@ class NotificationControllerTest extends TestCase
         $this->assertSame('/notifications', $response->getHeaders()['Location']);
     }
 
+    /**
+     * A stored address that is not a path of this site opens the centre,
+     * never the other site (#1274): « open the notification » is no open
+     * redirect, whatever ended up in the row.
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('externalAddresses')]
+    public function testMarkReadNeverRedirectsOffTheSite(string $stored): void
+    {
+        $id = $this->notificationRepository->create($this->userId, null, 'core.system', 'T', 'B', $stored);
+        $token = $this->issueCsrfToken();
+
+        $response = $this->controller->markRead(
+            new Request('POST', "/notifications/{$id}/read", [], ['_csrf_token' => $token], [], []),
+            ['id' => (string) $id]
+        );
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('/notifications', $response->getHeaders()['Location']);
+    }
+
+    /**
+     * @return array<string, array{string}>
+     */
+    public static function externalAddresses(): array
+    {
+        return [
+            'absolute' => ['https://exemple.org/'],
+            'scheme-relative' => ['//exemple.org'],
+            'backslash' => ['/\\exemple.org'],
+            'javascript' => ['javascript:alert(1)'],
+        ];
+    }
+
     public function testMarkReadRefusesANotificationBelongingToAnotherAccount(): void
     {
         $stmt = $this->pdo->prepare('INSERT INTO user_accounts (email_encrypted, email_blind_index) VALUES (?, ?)');

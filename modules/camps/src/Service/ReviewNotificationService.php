@@ -50,7 +50,7 @@ class ReviewNotificationService
      * Sends every notification that is due and returns how many stays
      * were notified.
      */
-    public function dispatchDue(\DateTimeImmutable $today, string $baseUrl = ''): int
+    public function dispatchDue(\DateTimeImmutable $today): int
     {
         if ($this->notifications === null) {
             return 0;
@@ -86,7 +86,9 @@ class ReviewNotificationService
                             'Le séjour %s est terminé. Laissez un avis pour les staffs suivants.',
                             CampLabels::dateRange($camp->startDate, $camp->endDate, $camp->yearOnly)
                         ),
-                        'url' => rtrim($baseUrl, '/') . '/chefs/camps/sejours/' . $camp->id,
+                        // A path of the site, as every notification's is
+                        // (#1274): the e-mail makes it absolute itself.
+                        'url' => '/chefs/camps/sejours/' . $camp->id,
                     ]
                 );
                 $this->camps->markReviewNotified($camp->id, $today);

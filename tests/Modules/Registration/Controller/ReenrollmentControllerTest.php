@@ -345,6 +345,55 @@ class ReenrollmentControllerTest extends TestCase
         $this->assertStringContainsString('Réinscrit', $body);
     }
 
+    /**
+     * Only a section the card offered this child is kept as their
+     * preference (#1274, SECURITY.md § 3); anything else — a section of
+     * another branch, one that does not exist, or a choice the card never
+     * asked for — is saved as « Peu importe », without an error.
+     */
+    public function testOnlyASectionTheCardOfferedIsKeptAsThePreference(): void
+    {
+        $eclaireursB = $this->createSection('ECLA2', $this->branchIdOf($this->eclaireursA), 'Éclaireurs B');
+        $memberId = $this->createAnime('Cléo', '2015-06-01', $this->louveteauxA, self::PARENT_EMAIL);
+        AuthSession::login(1, self::PARENT_EMAIL, 'identified');
+
+        $preferenceAfter = function (int $sectionId) use ($memberId): ?int {
+            $response = $this->controller->save($this->post([
+                'member_id' => (string) $memberId,
+                'decision' => 'reenrolled',
+                'preferred_section_id' => (string) $sectionId,
+            ]), []);
+            $this->assertSame(302, $response->getStatusCode());
+            $answer = $this->repository->findAnswer($memberId, $this->targetYearId);
+            $this->assertNotNull($answer, 'the answer itself is saved');
+
+            return $answer->preferredSectionId;
+        };
+
+        $this->assertSame($eclaireursB, $preferenceAfter($eclaireursB), 'offered: kept');
+        $this->assertNull($preferenceAfter($this->louveteauxA), 'a section of the branch the child leaves');
+        $this->assertNull($preferenceAfter(999999), 'a section that does not exist');
+        $this->assertSame($this->eclaireursA, $preferenceAfter($this->eclaireursA));
+    }
+
+    /** One arrival section only: the card asks nothing, so nothing is kept. */
+    public function testNoPreferenceIsKeptWhereTheCardAskedForNone(): void
+    {
+        $memberId = $this->createAnime('Alix', '2015-06-01', $this->louveteauxA, self::PARENT_EMAIL);
+        AuthSession::login(1, self::PARENT_EMAIL, 'identified');
+
+        $response = $this->controller->save($this->post([
+            'member_id' => (string) $memberId,
+            'decision' => 'reenrolled',
+            'preferred_section_id' => (string) $this->eclaireursA,
+        ]), []);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $answer = $this->repository->findAnswer($memberId, $this->targetYearId);
+        $this->assertNotNull($answer, 'the answer itself is saved');
+        $this->assertNull($answer->preferredSectionId);
+    }
+
     public function testAFamilyMayChangeTheirMind(): void
     {
         $memberId = $this->createAnime('Alix', '2017-06-01', $this->louveteauxA, self::PARENT_EMAIL);

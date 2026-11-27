@@ -53,10 +53,7 @@ class ReviewReminderHandler implements TaskHandlerInterface
             $context->notifications
         );
 
-        $sent = $service->dispatchDue(
-            new \DateTimeImmutable('today'),
-            (string) ($context->settings->get('base_url') ?? '')
-        );
+        $sent = $service->dispatchDue(new \DateTimeImmutable('today'));
 
         if ($sent > 0) {
             $context->journal->log(
