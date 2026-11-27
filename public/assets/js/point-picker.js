@@ -17,9 +17,10 @@
 //    is dragged, placed with a click or a touch, or removed, and the fields
 //    follow. Touching the pin makes it a human's point, which the module
 //    locks for ever (Core\Geo\GeoPointStore).
-// 2. **The address on the map.** When the page names an address field
-//    (`data-address-field`) and a lookup route (`data-locate-url`), leaving
-//    the field looks the address up through the page's own route (never
+// 2. **The address on the map.** When the page names its address field
+//    (`data-address-field`) — or several, composed into one line
+//    (`data-address-fields`, below) — and a lookup route (`data-locate-url`),
+//    leaving a field looks the address up through the page's own route (never
 //    Nominatim from here: the CSP says `connect-src 'self'`). The map
 //    centres on it and a fixed ring shows it; a pin nobody touched moves
 //    there too, a hand-placed one stays where it is. A lookup that finds
@@ -42,12 +43,15 @@
     var wired = new WeakMap();
 
     /**
+     * A coordinate typed by hand, only when it is a whole decimal — a
+     * comma for the decimal point, as a Belgian keyboard writes it.
+     *
      * @param {string} value
      * @returns {number|null}
      */
-    function coordinate(value) {
-        var number = Number.parseFloat(String(value).replace(',', '.'));
-        return Number.isFinite(number) ? number : null;
+    function typedCoordinate(value) {
+        var text = String(value).trim();
+        return /^-?\d+(?:[.,]\d+)?$/.test(text) ? Number.parseFloat(text.replace(',', '.')) : null;
     }
 
     /**
@@ -79,16 +83,72 @@
     }
 
     /**
+     * The fields the address is read from, as groups: the values of one
+     * group are joined by a space, the groups by « , » — a camps place's
+     * « Rue du Tronquoy 4, 5340 Mozet, Belgique » from four fields, the
+     * line Modules\Camps\Service\PlaceService::addressLine() writes, so
+     * the server can tell which address an automatic pin was found for.
+     * `data-address-fields` holds them as JSON (`[["a"], ["b", "c"]]`);
+     * a single `data-address-field` is one group of one.
+     *
+     * @param {HTMLElement} box
+     * @returns {HTMLInputElement[][]}
+     */
+    function addressGroups(box) {
+        /** @type {unknown} */
+        var ids = [];
+        if (box.dataset.addressFields) {
+            try {
+                ids = JSON.parse(box.dataset.addressFields);
+            } catch {
+                ids = [];
+            }
+        } else if (box.dataset.addressField) {
+            ids = [[box.dataset.addressField]];
+        }
+        if (!Array.isArray(ids)) {
+            return [];
+        }
+        return ids.map(function (/** @type {unknown} */ group) {
+            return (Array.isArray(group) ? group : [group])
+                .map(function (/** @type {unknown} */ id) {
+                    return /** @type {HTMLInputElement|null} */ (byId(typeof id === 'string' ? id : undefined));
+                })
+                .filter(function (/** @type {HTMLInputElement|null} */ field) {
+                    return field !== null;
+                });
+        }).filter(function (/** @type {HTMLInputElement[]} */ group) {
+            return group.length > 0;
+        });
+    }
+
+    /**
+     * @param {HTMLInputElement[][]} groups
+     * @returns {string}
+     */
+    function addressLine(groups) {
+        return groups.map(function (group) {
+            return group.map(function (field) {
+                return field.value.trim();
+            }).filter(function (text) {
+                return text !== '';
+            }).join(' ');
+        }).filter(function (text) {
+            return text !== '';
+        }).join(', ');
+    }
+
+    /**
      * The address a point the page opens with was found for.
      *
      * @param {HTMLInputElement|null} pointAddress
-     * @param {HTMLInputElement|null} address
+     * @param {HTMLInputElement[][]} groups
      */
-    function savedPinAddress(pointAddress, address) {
+    function savedPinAddress(pointAddress, groups) {
         if (pointAddress?.value) {
             return pointAddress.value;
         }
-        return address ? address.value.trim() : '';
+        return addressLine(groups);
     }
 
     /**
@@ -115,7 +175,11 @@
         var origin = box.querySelector('[data-point-picker-origin]');
         var lat = /** @type {HTMLInputElement|null} */ (box.querySelector('[data-point-picker-latitude]'));
         var lng = /** @type {HTMLInputElement|null} */ (box.querySelector('[data-point-picker-longitude]'));
-        var address = /** @type {HTMLInputElement|null} */ (byId(box.dataset.addressField));
+        var addressFields = addressGroups(box);
+        var hasAddress = addressFields.length > 0;
+        var needs = /** @type {HTMLInputElement[]} */ ((box.dataset.addressNeeds || '').split(/\s+/)
+            .map(function (id) { return byId(id); })
+            .filter(function (field) { return field !== null; }));
         var addressStatus = byId(box.dataset.addressStatus);
         if (!fields || !mapBox || !mapElement || !placeButton || !removeButton || !lat || !lng) {
             return null;
@@ -158,6 +222,22 @@
         var pinAddress = '';
 
         fields.classList.add('d-none');
+        var typeButton = /** @type {HTMLButtonElement|null} */ (box.querySelector('[data-point-picker-type]'));
+        if (typeButton) {
+            // The map wants a pointer: the fields stay one keypress away,
+            // for a keyboard, a screen reader, or coordinates copied from
+            // another map.
+            typeButton.classList.remove('d-none');
+            var toggle = typeButton;
+            toggle.addEventListener('click', function () {
+                var open = fields.classList.toggle('d-none') === false;
+                toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+                if (open) {
+                    latField.focus();
+                    latField.select();
+                }
+            });
+        }
 
         /**
          * @param {number|null} latitude
@@ -254,8 +334,11 @@
             }
         }
 
-        /** @param {[number, number]} position */
-        function placeAddress(position) {
+        /**
+         * @param {[number, number]} position
+         * @param {boolean} keepPin the pin already belongs to this address
+         */
+        function placeAddress(position, keepPin) {
             addressPosition = position;
             if (!marker && manual) {
                 // The point was removed on purpose: the map stays closed,
@@ -264,7 +347,7 @@
             }
             showMap(position);
             markAddress(position);
-            if (!manual) {
+            if (!manual && !keepPin) {
                 pin(position);
             }
             frame(position);
@@ -286,20 +369,37 @@
             place.classList.remove('d-none');
         }
 
+        /**
+         * Whether the address says enough to be looked up: with
+         * `data-address-needs`, at least one of those fields must be
+         * filled — a camps place gives a postal code or a city, as its
+         * background task requires, so « Belgique » alone never pins the
+         * middle of the country.
+         */
+        function addressIsEnough() {
+            if (needs.length === 0) {
+                return true;
+            }
+            return needs.some(function (field) {
+                return field.value.trim() !== '';
+            });
+        }
+
         var asked = 0;
-        async function locate() {
-            if (!address) {
+        /** @param {boolean} [opening] the page just opened: a saved pin of this address stays where it is */
+        async function locate(opening) {
+            if (!hasAddress) {
                 return;
             }
             if (!locateUrl) {
                 // Nothing can confirm the new address: an untouched pin
                 // from the old one must not be saved as its point.
-                dropStalePin(address.value.trim());
+                dropStalePin(addressLine(addressFields));
                 return;
             }
             var mine = ++asked;
-            var query = address.value.trim();
-            if (query.length < 4) {
+            var query = addressLine(addressFields);
+            if (query.length < 4 || !addressIsEnough()) {
                 sayAddress('');
                 forgetAddress();
                 dropStalePin(query);
@@ -327,24 +427,84 @@
                 return;
             }
             sayAddress('');
+            // Opening on a saved point of this very address: the lookup
+            // shows the address, it does not re-place a point the form
+            // would then save over the one already stored.
+            var keepPin = opening === true && marker !== null && query === pinAddress;
             if (!manual) {
                 pinAddress = query;
             }
-            placeAddress([data.latitude, data.longitude]);
+            placeAddress([data.latitude, data.longitude], keepPin);
         }
 
-        var latitude = coordinate(latField.value);
-        var longitude = coordinate(lngField.value);
-        if (latitude !== null && longitude !== null) {
+        var latitude = typedCoordinate(latField.value);
+        var longitude = typedCoordinate(lngField.value);
+        var malformed = (latField.value.trim() !== '' || lngField.value.trim() !== '')
+            && (latitude === null || longitude === null || Math.abs(latitude) > 90 || Math.abs(longitude) > 180);
+        if (malformed) {
+            // A form shown again after the server refused what was typed —
+            // « 50x », half a point: the fields stay open and as they were,
+            // for the person to correct. Read as a number and pinned, the
+            // refused value would be rewritten into one the next save takes.
+            // And it is a person's: no lookup, on opening or later, puts an
+            // automatic pin over what they have to correct.
+            manual = true;
+            fill(automatic, '0');
+            fill(manualField, '1');
+            fill(pointAddress, '');
+            fields.classList.remove('d-none');
+            box.querySelector('[data-point-picker-type]')?.setAttribute('aria-expanded', 'true');
+            place.classList.remove('d-none');
+        } else if (latitude !== null && longitude !== null) {
             // A form shown again after a refusal says which address its
             // point was found for — perhaps not the one now in the field.
             // Otherwise a saved automatic point belongs to the saved address.
-            pinAddress = savedPinAddress(pointAddress, address);
+            pinAddress = savedPinAddress(pointAddress, addressFields);
             showMap([latitude, longitude]);
             pin([latitude, longitude]);
         } else {
             place.classList.remove('d-none');
         }
+
+        /**
+         * Coordinates typed in the reopened fields: a human's point, placed
+         * on the map as a click would. Half a point waits for the other
+         * half; both emptied is « Retirer ».
+         */
+        function typed() {
+            if (latField.value.trim() === '' && lngField.value.trim() === '') {
+                removeButton.click();
+                return;
+            }
+            // A whole decimal or nothing: « 50x » is not 50. Left as typed,
+            // it reaches Core\Geo\GeoPoint::fromInput(), which refuses it
+            // with its own sentence.
+            var typedLat = typedCoordinate(latField.value);
+            var typedLng = typedCoordinate(lngField.value);
+            if (typedLat === null || typedLng === null
+                || Math.abs(typedLat) > 90 || Math.abs(typedLng) > 180) {
+                return;
+            }
+            manual = true;
+            showMap([typedLat, typedLng]);
+            pin([typedLat, typedLng]);
+            map.setView([typedLat, typedLng], 15);
+        }
+        /**
+         * The first keystroke in either field is a human's edit: a lookup
+         * answering meanwhile moves the address ring, never the half the
+         * person is typing.
+         */
+        function editing() {
+            manual = true;
+            fill(automatic, '0');
+            fill(manualField, '1');
+            fill(pointAddress, '');
+        }
+        latField.addEventListener('input', editing);
+        lngField.addEventListener('input', editing);
+        latField.addEventListener('change', typed);
+        lngField.addEventListener('change', typed);
 
         place.addEventListener('click', function () {
             showMap(addressPosition);
@@ -365,14 +525,33 @@
             place.classList.remove('d-none');
         });
 
-        if (address) {
-            // `change` fires when the field is left after an edit — once,
-            // never per keystroke (Nominatim forbids autocompletion).
-            address.addEventListener('change', function () {
-                void locate();
+        if (hasAddress) {
+            // Asked once the address is left — never per keystroke
+            // (Nominatim forbids autocompletion), and, for an address kept
+            // in several fields, once focus leaves all of them rather than
+            // on each: tabbing from the postal code to the city would
+            // otherwise ask for every half-edited combination.
+            var all = addressFields.flat();
+            var dirty = false;
+            var settle = function () {
+                setTimeout(function () {
+                    if (dirty && !all.includes(/** @type {HTMLInputElement} */ (document.activeElement))) {
+                        dirty = false;
+                        void locate();
+                    }
+                }, 0);
+            };
+            all.forEach(function (field) {
+                field.addEventListener('change', function () {
+                    dirty = true;
+                    settle();
+                });
+                field.addEventListener('focusout', settle);
             });
-            if (address.value.trim() !== '') {
-                void locate();
+            // On opening, only where a lookup can run: without one there is
+            // nothing to confirm, and nothing to drop yet.
+            if (locateUrl && addressLine(addressFields) !== '') {
+                void locate(true);
             }
         }
 

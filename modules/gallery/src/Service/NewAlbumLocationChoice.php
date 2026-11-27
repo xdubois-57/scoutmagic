@@ -11,8 +11,8 @@ namespace Modules\Gallery\Service;
 use Core\Storage\Location\StorageLocation;
 
 /**
- * What {@see GalleryLocationService::chooseForNewAlbums()} did, told to
- * the caller that has to journal it.
+ * What {@see GalleryLocationService::chooseForNewAlbums()} did — or, for
+ * `prepareChoice()`, would do — told to the caller that has to journal it.
  *
  * Three facts rather than one, because the journal entry needs all three
  * and none of them survives the write: {@see $changed} cannot be

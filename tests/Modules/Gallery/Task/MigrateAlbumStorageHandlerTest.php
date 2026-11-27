@@ -242,7 +242,18 @@ class MigrateAlbumStorageHandlerTest extends TestCase
         $album = $this->albumRepository->findById($this->albumId);
         $this->assertSame(Album::MIGRATION_FAILED, $album->migrationStatus);
         $this->assertStringContainsString('différent après copie', (string) $album->migrationError);
+        // The third place a migration fails, and the one that still named the
+        // internal path and the media number on the badge (#1242): a French
+        // sentence and nothing else, the file goes to the journal beside it.
+        $this->assertStringNotContainsString("{$this->albumId}/", (string) $album->migrationError);
+        $this->assertStringNotContainsString("#{$mediaId}", (string) $album->migrationError);
         $this->assertSame($this->sourceId, $album->locationId);
+
+        $entry = $this->failureEntry();
+        $context = json_decode((string) $entry['context'], true);
+        $this->assertSame('verify', $context['side']);
+        $this->assertSame($mediaId, $context['media_id']);
+        $this->assertStringStartsWith("{$this->albumId}/", $context['path']);
 
         $sourceBackend = new LocalStorageBackend($this->storagePath . '/source');
         $this->assertSame("thumb-bytes-{$mediaId}", $sourceBackend->get("{$this->albumId}/thumb_{$mediaId}.jpg"));

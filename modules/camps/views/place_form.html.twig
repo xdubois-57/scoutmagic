@@ -1,5 +1,12 @@
 {% extends 'base.html.twig' %}
 {% block title %}Modifier {{ place.name }} — {{ site_name }}{% endblock %}
+{% block stylesheets %}
+    {# Leaflet is vendored, never a CDN (ARCHITECTURE.md §8.119). #}
+    <link rel="stylesheet" href="{{ asset('/assets/vendor/leaflet/leaflet.css') }}">
+    {# The map's height lives in components.css (.point-picker-map), which
+       base.html.twig deliberately does not load (issue #570). #}
+    <link rel="stylesheet" href="{{ asset('/assets/css/components.css') }}">
+{% endblock %}
 {% block content %}
     <div class="page-medium">
         {% include 'partials/page_header.html.twig' with {
@@ -23,61 +30,71 @@
                 field_id: 'place-address', field_name: 'address', label: 'Adresse',
                 value: submitted.address, maxlength: 255,
                 help: 'Facultative : beaucoup de terrains sont un pré sans adresse utilisable.',
+                describedby_extra: 'place-address-status',
             } only %}
             <div class="row">
                 <div class="col-4">
                     {% include 'partials/form_field.html.twig' with {
                         field_id: 'place-postal', field_name: 'postal_code', label: 'Code postal',
                         value: submitted.postal_code, maxlength: 20,
+                        describedby_extra: 'place-address-status',
                     } only %}
                 </div>
                 <div class="col-8">
                     {% include 'partials/form_field.html.twig' with {
                         field_id: 'place-city', field_name: 'city', label: 'Ville',
                         value: submitted.city, maxlength: 120,
+                        describedby_extra: 'place-address-status',
                     } only %}
                 </div>
             </div>
             {% include 'partials/form_field.html.twig' with {
                 field_id: 'place-country', field_name: 'country', label: 'Pays',
                 value: submitted.country, maxlength: 80,
+                describedby_extra: 'place-address-status',
+                wrapper_class: 'mb-1',
             } only %}
+            {# Filled by the point picker when the map could not place the
+               address: not found, or the lookup could not run. #}
+            <p class="form-text text-warning-emphasis mb-3 d-none" id="place-address-status" aria-live="polite"></p>
             {% include 'partials/form_field.html.twig' with {
                 field_id: 'place-website', field_name: 'website_url', label: 'Site web du lieu',
                 type: 'url', value: submitted.website_url, placeholder: 'https://…', maxlength: 500,
             } only %}
 
-            <fieldset class="mb-3">
-                <legend class="form-label">Coordonnées</legend>
-                <p class="form-text mt-0">
-                    {% if place.coordinatesAreManual %}
-                        Saisies à la main : le géocodage automatique ne touchera plus ce lieu.
-                    {% elseif place.hasCoordinates() %}
-                        Trouvées automatiquement à partir de l'adresse. Corrigez-les si l'épingle
-                        n'est pas sur le bon pré — elles ne seront alors plus jamais retouchées.
-                    {% else %}
-                        Cherchées automatiquement à partir de l'adresse. Vous pouvez aussi les
-                        saisir directement, ce qui est souvent le seul moyen pour un terrain
-                        sans adresse.
-                    {% endif %}
-                </p>
-                <div class="row">
-                    <div class="col-6">
-                        {% include 'partials/form_field.html.twig' with {
-                            field_id: 'place-latitude', field_name: 'latitude', label: 'Latitude',
-                            value: submitted.latitude, inputmode: 'decimal', placeholder: '50.443210',
-                        } only %}
-                    </div>
-                    <div class="col-6">
-                        {% include 'partials/form_field.html.twig' with {
-                            field_id: 'place-longitude', field_name: 'longitude', label: 'Longitude',
-                            value: submitted.longitude, inputmode: 'decimal', placeholder: '5.001234',
-                        } only %}
-                    </div>
-                </div>
-            </fieldset>
+            {# The core's point picker (#1353): the carpool's map, with the
+               place's words and the module's own address lookup. The four
+               address fields compose one line, as PlaceService writes it. #}
+            {% if point_is_manual %}
+                {% set point_help = 'Placées à la main : le géocodage automatique ne touchera plus ce lieu, même si l\'adresse change.' %}
+            {% elseif place.hasCoordinates() %}
+                {% set point_help = 'Trouvées automatiquement à partir de l\'adresse. Déplacez l\'épingle si elle n\'est pas sur le bon pré ou à la bonne entrée de bois : le point déplacé ne sera alors plus jamais retouché.' %}
+            {% else %}
+                {% set point_help = 'Facultatives. Cherchées automatiquement à partir de l\'adresse ; pour un terrain sans adresse, placez le point vous-même sur la carte.' %}
+            {% endif %}
+            {% include 'partials/point_picker.html.twig' with {
+                id_prefix: 'place',
+                latitude: submitted.latitude,
+                longitude: submitted.longitude,
+                manual: point_is_manual,
+                automatic: submitted.point_automatic|default('0'),
+                point_address: submitted.point_address|default(''),
+                address_fields: [['place-address'], ['place-postal', 'place-city'], ['place-country']],
+                address_needs: ['place-postal', 'place-city'],
+                address_status: 'place-address-status',
+                locate_url: address_lookup ? '/chefs/camps/adresse' : '',
+                legend: 'Coordonnées',
+                pin_label: 'Point du lieu',
+                address_label: 'Adresse du lieu',
+                help: point_help,
+            } only %}
 
             <button type="submit" class="btn btn-primary">Enregistrer</button>
         </form>
     </div>
+{% endblock %}
+{% block scripts %}
+    <script src="{{ asset('/assets/vendor/leaflet/leaflet.js') }}"></script>
+    <script src="{{ asset('/assets/js/map.js') }}"></script>
+    <script src="{{ asset('/assets/js/point-picker.js') }}"></script>
 {% endblock %}

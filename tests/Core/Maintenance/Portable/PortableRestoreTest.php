@@ -13,6 +13,7 @@ use Core\Database\Connection;
 use Core\Maintenance\BackupException;
 use Core\Maintenance\BackupService;
 use Core\Maintenance\Portable\PortableArchive;
+use Core\Maintenance\Portable\PortableKeys;
 use Core\Maintenance\Portable\PortableManifest;
 use Core\Maintenance\Portable\PortableRestore;
 use Core\Security\SecretManager;
@@ -574,6 +575,92 @@ final class PortableRestoreTest extends TestCase
         file_put_contents($zipPath, $raw);
 
         return $patched;
+    }
+
+    /**
+     * **Sealed secrets that do not unseal are refused while the target is
+     * intact** (#1245).
+     *
+     * Unsealing writes nothing, yet it ran LAST — after the database had
+     * been replaced and the files extracted — so an archive whose secrets
+     * could not be opened was refused by an installation that no longer had
+     * its own data. Here the archive is genuine and only its master key's
+     * envelope is replaced, with a digest the manifest agrees with: every
+     * check that came before passes, and the one that matters is the first
+     * thing the restore does.
+     */
+    public function testSecretsThatDoNotUnsealAreRefusedBeforeTheDatabaseIsReplaced(): void
+    {
+        $connection = $this->realDbConnection();
+        $service = new BackupService($connection, $this->originBase . '/storage', $this->originBase);
+        if (!$service->supportsZipEncryption()) {
+            $this->markTestSkipped('This PHP build has no AES zip encryption, which this feature refuses without.');
+        }
+
+        $result = $service->createPortableBackup(self::PASSPHRASE, PortableHints::sample(), self::ORIGIN_ID);
+        $this->zipPath = $result['zipPath'];
+        $this->dbDumpPath = $result['dbDumpPath'];
+        $this->replaceSealedMasterKeyWithGarbage($this->zipPath);
+
+        $intact = 'cible-intacte-' . bin2hex(random_bytes(4));
+        $this->seedSetting($connection->getPdo(), 'site_name', $intact);
+        $targetKeyBefore = (string) file_get_contents($this->targetBase . '/storage/keys/master.key');
+
+        $archive = PortableArchive::open($this->zipPath, self::PASSPHRASE);
+        $archive->verifyDeclaredMembers();
+
+        try {
+            (new PortableRestore($this->targetBase, $this->targetBase . '/storage'))->apply(
+                $archive,
+                new BackupService($connection, $this->targetBase . '/storage', $this->targetBase),
+                $this->targetOwnedSecrets(),
+                $connection->getPdo()
+            );
+            $this->fail('An archive whose secrets do not unseal was restored.');
+        } catch (BackupException $e) {
+            $this->assertNotSame('', $e->getMessage());
+        } finally {
+            $archive->close();
+        }
+
+        $this->assertSame($intact, $this->readSetting($connection->getPdo(), 'site_name'), 'the database is untouched');
+        $this->assertFileDoesNotExist(
+            $this->targetBase . '/storage/uploads/tresorerie.pdf',
+            'and no file of the archive was extracted'
+        );
+        $this->assertSame(
+            $targetKeyBefore,
+            (string) file_get_contents($this->targetBase . '/storage/keys/master.key'),
+            'and the target keeps its own key'
+        );
+    }
+
+    /**
+     * Replaces the sealed master key of a genuine archive with bytes that
+     * are not an envelope, then re-declares its digest — so the archive is
+     * consistent with itself and only fails to UNSEAL.
+     */
+    private function replaceSealedMasterKeyWithGarbage(string $zipPath): void
+    {
+        $zip = new \ZipArchive();
+        $this->assertTrue($zip->open($zipPath) === true);
+
+        $keys = PortableKeys::derive(self::PASSPHRASE, PortableKeys::parseComment($zip->getArchiveComment()));
+        $zip->setPassword($keys->archivePassword());
+
+        $manifest = json_decode((string) $zip->getFromName(PortableManifest::MEMBER), true);
+        $this->assertIsArray($manifest);
+
+        $member = PortableManifest::SECRET_MEMBERS['keys/master.key'];
+        $garbage = 'des octets qui ne sont pas une enveloppe';
+        $manifest['members'][$member] = ['sha256' => hash('sha256', $garbage), 'bytes' => strlen($garbage)];
+
+        foreach ([[$member, $garbage], [PortableManifest::MEMBER, (string) json_encode($manifest)]] as [$name, $bytes]) {
+            $this->assertTrue($zip->addFromString($name, $bytes));
+            $this->assertTrue($zip->setEncryptionName($name, \ZipArchive::EM_AES_256, $keys->archivePassword()));
+        }
+
+        $this->assertTrue($zip->close());
     }
 
     /**
