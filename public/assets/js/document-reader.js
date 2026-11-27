@@ -206,7 +206,9 @@
             if (!cached) {
                 throw new Error('not cached');
             }
-            return cached.text().then(function (html) { return { html: html, base: address }; });
+            return cached.text();
+        }).then(function (/** @type {string} */ html) {
+            return { html: html, base: address };
         });
     }
 
@@ -238,6 +240,10 @@
             controller.abort();
         }, FETCH_TIMEOUT_MS) : null;
 
+        // The address the page finally came from, so its relative links
+        // resolve against it rather than against the one asked for.
+        var base = link.href;
+
         return win.fetch(link.href, {
             credentials: 'same-origin',
             headers: { Accept: 'text/html' },
@@ -248,24 +254,20 @@
                 refused.name = 'HttpError';
                 throw refused;
             }
-            var base = response.url || link.href;
-            // The timer still runs while the body streams: a body cut by
-            // it reads the offline copy too, like a request that never
-            // answered (#1444 review).
-            return response.text().then(function (html) { return { html: html, base: base }; }, function (error) {
-                if (error?.name === 'AbortError' && timedOut) {
-                    return fromCache(link.href);
-                }
-                throw error;
-            });
+            base = response.url || link.href;
+            return response.text();
+        }).then(function (/** @type {string} */ html) {
+            return { html: html, base: base };
         }, function (error) {
-            // No answer at all — offline, or too slow: the copy the
-            // service worker keeps for an offline navigation
+            // An answer the server gave stands: the copy is never read
+            // over it. Otherwise — offline, too slow, or a body the timer
+            // cut while it streamed (#1444 review) — the copy the service
+            // worker keeps for an offline navigation
             // (core/Offline/OfflineWhitelist.php, /rgpd among them). A
             // fetch() is never a navigation, so the worker itself does not
             // fall back for it; the reader asks the caches directly. A
             // dialog closed meanwhile wants nothing.
-            if (error?.name === 'AbortError' && !timedOut) {
+            if (error?.name === 'HttpError' || (error?.name === 'AbortError' && !timedOut)) {
                 throw error;
             }
             return fromCache(link.href);
