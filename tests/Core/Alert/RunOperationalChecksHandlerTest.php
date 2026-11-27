@@ -153,6 +153,37 @@ class RunOperationalChecksHandlerTest extends TestCase
     }
 
     /**
+     * Issue #1358 — « Points d'attention » is `role_min: admin`, and a host
+     * security reading (the exact PHP version, its count of CVSS ≥ 7
+     * advisories) is for superadmins alone, like every other surface of it.
+     * The composition root passes the same keys, so a chef d'unité never
+     * reads it here while the other alerts still show.
+     */
+    public function testTheAttentionPageNeverShowsAHostSecurityAlert(): void
+    {
+        $repository = new OperationalAlertRepository($this->pdo);
+        $hostKey = array_key_first(\Core\Maintenance\Health\Security\HostSecurityAlertCheck::labels());
+        $this->assertIsString($hostKey);
+        $repository->markTriggered($hostKey, '8.4.1 — 3 avis de sécurité CVSS ≥ 7');
+        $repository->markTriggered('disk_usage', '92 %');
+
+        $points = (new OperationalAttentionProvider(
+            $repository,
+            AlertSurfaces::labels(),
+            AlertSurfaces::destinations(),
+            AlertSurfaces::superadminOnlyKeys()
+        ))->collect(1);
+
+        $this->assertCount(1, $points);
+        $this->assertSame('Espace disque : 92 %', $points[0]->title);
+        $this->assertSame(
+            array_keys(\Core\Maintenance\Health\Security\HostSecurityAlertCheck::labels()),
+            AlertSurfaces::superadminOnlyKeys()
+        );
+        $this->assertStringContainsString('AlertSurfaces::superadminOnlyKeys()', (string) file_get_contents(dirname(__DIR__, 3) . '/public/index.php'));
+    }
+
+    /**
      * The default destination, and the eleven checks it is right for.
      *
      * The backup age and the cron stamp live on the maintenance page, so a

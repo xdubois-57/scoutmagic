@@ -99,25 +99,62 @@ final class OperationalAlertService
 
     /**
      * One check, one decision. Returns true only when this call is the one
-     * that moved the alert from armed to triggered.
+     * that moved the alert from armed to triggered — or, for a reading that
+     * names its subjects, the one that announced a subject not announced
+     * before.
      */
     public function evaluate(OperationalCheck $check): bool
     {
         $reading = $check->read();
         $stored = $this->repository->findOrArmed($check->key());
 
+        // The notification is handed off BEFORE the state records it as
+        // given, and the journal comes last, best effort (issue #1358,
+        // review of #1415): a notification that throws leaves the alert
+        // armed — or the subjects unannounced — so the next pass tries
+        // again, and a journal that refuses a row can no longer stand
+        // between the transition and the people it is for. The price is
+        // the opposite failure: a state write that fails after the
+        // hand-off makes the next pass announce once more. A duplicate is
+        // read; a lost announcement is not.
         if (!$stored->isTriggered() && $reading->overTrigger) {
-            $this->repository->markTriggered($check->key(), $reading->value);
-            $this->journal?->log(
-                'core',
-                'operational_alert_triggered',
-                'warning',
-                $reading->title,
-                ['check' => $check->key(), 'value' => $reading->value]
-            );
             $this->notify($check, $reading);
+            $this->repository->markTriggered($check->key(), $reading->value, $reading->subjects);
+            [$title, $context] = $this->journalEntry($check->key(), $reading, [
+                'check' => $check->key(),
+                'value' => $reading->value,
+            ]);
+            $this->journalBestEffort('operational_alert_triggered', $title, $context);
 
             return true;
+        }
+
+        // The one exception to « once, on the transition » (issue #1358,
+        // the maintainer's decision 3): a reading that names what it is
+        // about — the advisories of a host security check — speaks again
+        // when that set has GROWN since it last spoke. Once per growth: the
+        // announced set is stored, so a pass that sees the same advisories
+        // says nothing, and a new advisory on a component already in alert
+        // is still announced. Checks whose readings name nothing never get
+        // here, and keep the rule above untouched.
+        if ($stored->isTriggered() && $reading->overTrigger && $reading->subjects !== []) {
+            $new = array_diff($reading->subjects, $stored->notifiedSubjects);
+            if ($new !== []) {
+                $this->notify($check, $reading);
+                $this->repository->markRenotified(
+                    $check->key(),
+                    $reading->value,
+                    array_values(array_unique(array_merge($stored->notifiedSubjects, $reading->subjects)))
+                );
+                [$title, $context] = $this->journalEntry($check->key(), $reading, [
+                    'check' => $check->key(),
+                    'value' => $reading->value,
+                    'new' => array_values($new),
+                ]);
+                $this->journalBestEffort('operational_alert_grew', $title, $context);
+
+                return true;
+            }
         }
 
         if ($stored->isTriggered() && $reading->underRearm) {
@@ -146,6 +183,22 @@ final class OperationalAlertService
     }
 
     /**
+     * The journal row of a transition that has already been announced and
+     * recorded: worth writing, never worth undoing the transition for.
+     *
+     * @param array<string, mixed> $context
+     */
+    private function journalBestEffort(string $action, string $title, array $context): void
+    {
+        try {
+            $this->journal?->log('core', $action, 'warning', $title, $context);
+        } catch (\Throwable) {
+            // The notification left and the state moved; a missing journal
+            // row is the cheapest of the possible losses here.
+        }
+    }
+
+    /**
      * Announces to every super-admin.
      *
      * `recipientsForType()` resolves the audience from the type's own
@@ -171,5 +224,28 @@ final class OperationalAlertService
             'body' => $reading->why,
             'url' => $reading->actionUrl ?? '/config/maintenance',
         ]);
+    }
+
+    /**
+     * What the journal keeps of a reading. The journal page is
+     * `role_min: admin`, and a superadmin-only alert (the host security
+     * family, {@see AlertSurfaces::superadminOnlyKeys()}, issue #1358) reads
+     * the host's exact versions and its advisories: for those the entry says
+     * that the alert moved and which one, never the reading itself. The
+     * Santé page and the notification, both superadmin only, carry the rest.
+     *
+     * @param array<string, mixed> $context
+     * @return array{0: string, 1: array<string, mixed>}
+     */
+    private function journalEntry(string $key, AlertReading $reading, array $context): array
+    {
+        if (in_array($key, AlertSurfaces::superadminOnlyKeys(), true)) {
+            return [
+                'Alerte de sécurité de l\'hébergement (détail sur la page Santé)',
+                ['check' => $key],
+            ];
+        }
+
+        return [$reading->title, $context];
     }
 }

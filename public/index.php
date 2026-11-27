@@ -3366,7 +3366,10 @@ $attentionProviders = [
     new \Core\Alert\OperationalAttentionProvider(
         new \Core\Alert\OperationalAlertRepository($pdo),
         \Core\Alert\AlertSurfaces::labels(),
-        \Core\Alert\AlertSurfaces::destinations()
+        \Core\Alert\AlertSurfaces::destinations(),
+        // The page is role_min: admin; the host security readings are for
+        // superadmins only (issue #1358).
+        \Core\Alert\AlertSurfaces::superadminOnlyKeys()
     ),
     new \Core\Member\Duplicate\DuplicateAttentionProvider(
         new \Core\Member\Duplicate\DuplicateMemberRepository($pdo, $encryptionService)
@@ -4043,6 +4046,17 @@ $schedulerService->seed(
     'core',
     'operational_checks',
     \Core\Alert\Task\RunOperationalChecksHandler::REFERENCE,
+    new DateTimeImmutable()
+);
+
+// Same bootstrap for the weekly host security check (Core\Maintenance\Task\
+// CheckHostSecurityHandler, issue #1358): its first occurrence runs at the
+// next scheduler pass after deployment, and until it has the box on Santé de
+// l'hébergement says « pas encore vérifié ». seed(), for the reason above.
+$schedulerService->seed(
+    'core',
+    \Core\Maintenance\Task\CheckHostSecurityHandler::TASK_KEY,
+    \Core\Maintenance\Task\CheckHostSecurityHandler::REFERENCE,
     new DateTimeImmutable()
 );
 
@@ -10246,11 +10260,18 @@ if ($isEnabled('groups')) {
     // "vu par" list — all three read the same single mark, written once
     // per group page view by Service\GroupReadStateService.
     $groupsReadRepo = new \Modules\Groups\Repository\GroupReadRepository($pdo);
+    // The list's « Nouveau » badge compares the newest post or reply with
+    // that mark — content, never the activity clock a reaction moves
+    // (issue #1349) — so both content repositories are built here.
+    $groupsPostRepo = new \Modules\Groups\Repository\PostRepository($pdo);
+    $groupsReplyRepo = new \Modules\Groups\Repository\ReplyRepository($pdo);
     $groupsListService = new \Modules\Groups\Service\GroupListService(
         $groupsGroupRepo,
         $groupsSectionRepo,
         $groupsMemberRepo,
         $sectionMembershipRepository,
+        $groupsPostRepo,
+        $groupsReplyRepo,
         $groupsReadRepo
     );
     $groupsReadStateService = new \Modules\Groups\Service\GroupReadStateService(
@@ -10263,7 +10284,6 @@ if ($isEnabled('groups')) {
         $scoutYearResolver
     );
 
-    $groupsPostRepo = new \Modules\Groups\Repository\PostRepository($pdo);
     $groupsActivityService = new \Modules\Groups\Service\GroupActivityService($groupsGroupRepo, $groupsPostRepo);
 
     // Flood protection and the a-priori AI check (prompt 9). The
@@ -10295,7 +10315,6 @@ if ($isEnabled('groups')) {
     // and GalleryController.
     \assert(isset($galleryDelegatedAlbumManager));
     $groupsPostMediaRepo = new \Modules\Groups\Repository\PostMediaRepository($pdo);
-    $groupsReplyRepo = new \Modules\Groups\Repository\ReplyRepository($pdo);
     // The reply repository is needed here, not only by the reply stack
     // below: the group gallery has to drop the media of hidden REPLIES as
     // well as of hidden posts, or the very photo that got something hidden
@@ -10387,7 +10406,10 @@ if ($isEnabled('groups')) {
         $memberEmailRepository,
         $userAccountRepo,
         $roleResolver,
-        $scoutYearService
+        $scoutYearService,
+        // Each reply participant is judged in their own authorization
+        // year, which differs from the actor's during a transition.
+        $scoutYearResolver
     );
     // A moderator row granted before the flag named a login binds itself
     // to the one account behind that member, when there is exactly one
@@ -10405,7 +10427,10 @@ if ($isEnabled('groups')) {
             \Modules\Groups\Repository\ReactionNoticeRepository::forReplies($pdo),
             $settingService
         ),
-        $notificationService
+        $notificationService,
+        // Every reply of a thread, so a new one reaches all who took part
+        // in it and not only the post's author (issue #1349).
+        $groupsReplyRepo
     );
 
     // Publishing in a group for another module (social's share, §8.122):
@@ -10582,8 +10607,6 @@ if ($isEnabled('groups')) {
             $groupsReadRepo,
             $groupsPostRepo,
             $groupsReplyRepo,
-            \Modules\Groups\Repository\ReactionRepository::forPosts($pdo),
-            \Modules\Groups\Repository\ReactionRepository::forReplies($pdo),
             $notificationRepo
         )
     );
@@ -14213,6 +14236,14 @@ if ($operationalRequestChecks->due()) {
         new \Core\Alert\Check\CronSilenceCheck(new \Core\Scheduler\CronHealth($storagePath, $settingService)),
         new \Core\Alert\Check\HttpsCheck(new \Core\Http\InsecureBrowserAccess($settingService)),
     ]);
+
+    // The web PHP's exact versions (issue #1358), for the weekly host
+    // security check, which runs in the cron and must never take the
+    // cron's PHP_VERSION for the site's. Constants and one in-memory call;
+    // the cost is this quarter-hourly settings write. Best effort, its
+    // registration included: record() declares the setting itself, inside
+    // the same catch, so nothing here can fail the response tail.
+    \Core\Maintenance\Health\Security\WebRuntimeFacts::record($settingService, time());
 }
 
 // Fréquentation (§8.93): one counter incremented for one page view, and

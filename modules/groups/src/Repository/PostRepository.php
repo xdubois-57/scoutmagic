@@ -336,6 +336,28 @@ class PostRepository
     }
 
     /**
+     * When each of these groups last received a visible post written by
+     * somebody else — half of what the group list's « Nouveau » badge
+     * compares with the reader's last visit (Service\GroupListService,
+     * issue #1349). One query for the whole list rather than one per
+     * group, which is why this is not countNewerForGroup() in a loop.
+     *
+     * Same two exclusions as countNewerForGroup(), for the same reasons:
+     * a hidden post is not something the reader would find, and the
+     * reader's own words are never news to them. Groups with no such post
+     * are simply absent from the result. The query lives in LatestCreatedAtByGroup,
+     * beside ReplyRepository's half.
+     *
+     * @param int[] $groupIds
+     * @param int[] $excludeMemberIds
+     * @return array<int, string> group id => created_at of its newest such post
+     */
+    public function findLatestCreatedAtByGroups(array $groupIds, array $excludeMemberIds = []): array
+    {
+        return LatestCreatedAtByGroup::fetch($this->pdo, LatestCreatedAtByGroup::POSTS, $groupIds, $excludeMemberIds);
+    }
+
+    /**
      * @param array<string, mixed> $row
      */
     private function hydrate(array $row): Post

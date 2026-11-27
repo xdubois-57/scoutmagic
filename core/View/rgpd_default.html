@@ -30,6 +30,9 @@
 <h3>1.6. Vérification des mises à jour</h3>
 <p>Le site est averti par GitHub, via un webhook (une requête entrante depuis github.com vers le site), lorsqu'une nouvelle version du logiciel est publiée, ou — si le mode développement est activé, réservé aux environnements de test — lorsqu'un nouveau commit est envoyé sur la branche surveillée. Le site interroge également ponctuellement l'API publique de GitHub (api.github.com) pour télécharger l'archive d'une mise à jour lors de son installation, automatique ou déclenchée par un administrateur. Aucune donnée personnelle ne transite dans ces échanges, dans un sens comme dans l'autre : il s'agit uniquement de métadonnées publiques (numéro de version, notes de version) et du code source du logiciel lui-même. GitHub n'est donc pas un sous-traitant au sens du RGPD pour ce site — il s'agit d'une intégration technique, mentionnée ici par souci de transparence.</p>
 
+<h3>1.7. Contrôle de sécurité de l'hébergement</h3>
+<p>Une fois par semaine, le site compare les versions des logiciels que l'hébergeur fait tourner pour lui (PHP, serveur de base de données, OpenSSL, cURL) avec trois sources publiques : la liste des versions de PHP publiée par php.net, le service endoflife.date pour les fins de support, et la base nationale des vulnérabilités des États-Unis (NVD, tenue par le NIST) pour les failles de sécurité connues. Ces requêtes ne transmettent que les numéros de version consultés et, comme toute connexion, l'adresse du serveur qui héberge le site. Aucune donnée personnelle ne transite dans ces échanges : ces services ne sont donc pas des sous-traitants au sens du RGPD pour ce site — il s'agit d'une intégration technique, mentionnée ici par souci de transparence.</p>
+
 <h2>2. Quelles données collectons-nous et pourquoi</h2>
 
 <h3>2.1. Gestion des comptes et authentification</h3>

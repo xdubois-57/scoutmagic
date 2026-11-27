@@ -379,7 +379,7 @@ class ChecksTest extends TestCase
      */
     public function testEveryShippedCheckHasASurfaceLabel(): void
     {
-        $labels = AlertSurfaces::labels();
+        $labels = AlertSurfaces::fixedLabels();
 
         foreach ($this->everyCheckClass() as $class) {
             $this->assertArrayHasKey(
@@ -390,6 +390,23 @@ class ChecksTest extends TestCase
         }
 
         $this->assertCount(count($this->everyCheckClass()), $labels, 'no stale keys either');
+    }
+
+    /**
+     * The host security family (issue #1358) is one key per component and
+     * context, all of them named on the attention page, and none colliding
+     * with a fixed check's row.
+     */
+    public function testTheHostSecurityKeysAreLabelledAndDistinctFromTheFixedOnes(): void
+    {
+        $family = \Core\Maintenance\Health\Security\HostSecurityAlertCheck::labels();
+
+        $this->assertCount(count(\Core\Maintenance\Health\Security\HostInventory::SUBJECTS), $family);
+        $this->assertSame([], array_intersect_key($family, AlertSurfaces::fixedLabels()));
+        $this->assertSame(AlertSurfaces::fixedLabels() + $family, AlertSurfaces::labels());
+        foreach (array_keys($family) as $key) {
+            $this->assertLessThanOrEqual(64, strlen($key), 'operational_alerts.alert_key is a VARCHAR(64)');
+        }
     }
 
     /** Two checks writing the same row would overwrite each other's state. */

@@ -52,6 +52,10 @@ final class CoreTaskHandlers
                 \Core\Storage\Location\Protection\Task\RepatriateFromCopyHandler::class,
             'check_stable_update' => \Core\Maintenance\Task\CheckStableUpdateHandler::class,
             'operational_checks' => \Core\Alert\Task\RunOperationalChecksHandler::class,
+            // The weekly host security check (#1358): versions and advisories
+            // of PHP, the database server, OpenSSL and cURL.
+            \Core\Maintenance\Task\CheckHostSecurityHandler::TASK_KEY =>
+                \Core\Maintenance\Task\CheckHostSecurityHandler::class,
             'compress_section_document' => \Core\Member\Task\CompressSectionDocumentHandler::class,
             'send_notifications' => \Core\Notification\Task\SendNotificationsHandler::class,
             'send_notification_emails' => \Core\Notification\Task\SendNotificationEmailsHandler::class,

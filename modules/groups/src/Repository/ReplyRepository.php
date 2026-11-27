@@ -381,10 +381,58 @@ class ReplyRepository
     }
 
     /**
+     * The ACCOUNTS that have written a reply to this post — every reply,
+     * never one page of them, in the order they first answered.
+     *
+     * Who a new reply notifies besides the post's author (Service\
+     * GroupNotificationService::replyReceived(), issue #1349): somebody
+     * who took part in a conversation hears how it goes on. The account
+     * rather than the member, because the account is the human who typed
+     * it — a parent answering under their child's membership is the one to
+     * tell, not whoever else reads the child's mail.
+     *
+     * Hidden replies count: being masked by reports does not make their
+     * author any less a participant, and nothing of the masked text is
+     * carried by the notification this feeds. Whether each account may
+     * still read the group is the caller's question, asked at send time.
+     *
+     * @return int[]
+     */
+    public function findAuthorAccountIdsForPost(int $postId): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT author_user_account_id FROM discussion_group_replies
+             WHERE post_id = ?
+             GROUP BY author_user_account_id
+             ORDER BY MIN(id)'
+        );
+        $stmt->execute([$postId]);
+
+        return array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN));
+    }
+
+    /**
+     * When each of these groups last received a visible reply written by
+     * somebody else — the other half of the group list's « Nouveau »
+     * badge, beside Repository\PostRepository::findLatestCreatedAtByGroups().
+     * Same exclusions as countNewerForGroup(): a reply hidden itself or
+     * through its post, and the reader's own replies.
+     *
+     * @param int[] $groupIds
+     * @param int[] $excludeMemberIds
+     * @return array<int, string> group id => created_at of its newest such reply
+     */
+    public function findLatestCreatedAtByGroups(array $groupIds, array $excludeMemberIds = []): array
+    {
+        return LatestCreatedAtByGroup::fetch($this->pdo, LatestCreatedAtByGroup::REPLIES, $groupIds, $excludeMemberIds);
+    }
+
+    /**
      * How many visible replies landed in this group after $since, other
-     * people's only — half of the homepage's "réactions ou réponses"
-     * counter. A reply under a hidden post is excluded with its post: the
-     * reader could not reach it by opening the group.
+     * people's only — the homepage's « nouvelles réponses » counter
+     * (issue #1349: reactions no longer count there). A reply under a
+     * hidden post is excluded with its post: the reader could not reach
+     * it by opening the group.
      *
      * @param int[] $excludeMemberIds
      */

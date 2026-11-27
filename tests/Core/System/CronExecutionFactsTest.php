@@ -94,6 +94,40 @@ class CronExecutionFactsTest extends TestCase
         $this->assertTrue($facts->pdfReady());
     }
 
+    /**
+     * #1358: the cron's own versions of PHP, OpenSSL and cURL, stored with
+     * the rest and read back — what the weekly host security check compares
+     * for the « tâches planifiées » context. A row stored before the field
+     * existed reads as not measured.
+     */
+    public function testTheCronsOwnVersionsAreStoredAndReadBack(): void
+    {
+        CronExecutionFacts::recordIfDue(
+            $this->repository,
+            1_800_000_000,
+            static fn(int $now): CronExecutionFacts => new CronExecutionFacts(
+                $now, 'cli', true, true, 'exec', 'code 0', null, null, true, 'none',
+                new \Core\Maintenance\Health\Security\RuntimeVersions('8.3.6-1ubuntu1.2', 'OpenSSL 3.0.13 30 Jan 2024', '8.5.0', 'OpenSSL/3.0.13')
+            )
+        );
+
+        $runtime = $this->read()?->runtime;
+        $this->assertNotNull($runtime);
+        $this->assertSame(
+            ['8.3.6-1ubuntu1.2', 'OpenSSL 3.0.13 30 Jan 2024', '8.5.0', 'OpenSSL/3.0.13'],
+            [$runtime->php, $runtime->openssl, $runtime->curl, $runtime->curlSsl]
+        );
+        $this->assertContains('Version de PHP (PHP du cron) : 8.3.6-1ubuntu1.2', $this->read()?->report() ?? []);
+
+        $this->assertNull(self::facts(1_800_000_000)->runtime, 'an older measurement has none');
+    }
+
+    /** The probe measures this very process: the cron's PHP_VERSION, exactly. */
+    public function testTheProbeRecordsThisProcesssExactPhpVersion(): void
+    {
+        $this->assertSame(PHP_VERSION, CronExecutionFacts::probe(1_800_000_000)->runtime?->php);
+    }
+
     /** What was stored before the cron looked at PDFs: « not measured yet », never a verdict. */
     public function testAFactsRowStoredBeforeTheCronMeasuredPdfsReadsAsNotMeasured(): void
     {

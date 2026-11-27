@@ -13,6 +13,8 @@ use Core\Import\MemberYearRepository;
 use Core\Member\MemberAccountResolver;
 use Core\Member\MemberEmailRepository;
 use Core\Member\SectionMembershipRepository;
+use Core\ScoutYear\ScoutYearResolver;
+use Core\ScoutYear\StaffYearEligibility;
 use Core\Security\DecryptionException;
 use Core\Security\Role;
 use Core\Security\RoleResolver;
@@ -59,9 +61,12 @@ class GroupRecipientResolver
         private MemberEmailRepository $memberEmailRepository,
         private UserAccountRepository $userAccountRepository,
         private ?RoleResolver $roleResolver = null,
-        private ?ScoutYearService $scoutYearService = null
+        private ?ScoutYearService $scoutYearService = null,
+        private ?ScoutYearResolver $scoutYearResolver = null
     ) {
     }
+
+    private ?StaffYearEligibility $staffYearEligibility = null;
 
     private ?MemberAccountResolver $memberAccounts = null;
 
@@ -208,6 +213,164 @@ class GroupRecipientResolver
     public function isCurrentMember(DiscussionGroup $group, int $memberId, int $effectiveScoutYearId): bool
     {
         return in_array($memberId, $this->memberIdsFor($group, $effectiveScoutYearId), true);
+    }
+
+    /**
+     * Of these ACCOUNTS, the ones that can still open $group — as
+     * dispatch() wants them, once each, in the order given.
+     *
+     * The account-first twin of forGroup(), for an audience made of the
+     * people who WROTE something rather than of memberships: the
+     * participants of a thread a new reply notifies (Service\
+     * GroupNotificationService::replyReceived(), issue #1349). Each
+     * account is the login that typed, so the question is the one login
+     * asks — which members does this address reach in the effective year
+     * (its Desk address, then its confirmed secondary ones, exactly as
+     * Core\Member\MemberService::getLinkedMembers() resolves them, through
+     * the blind index and with nothing decrypted) — and whether one of
+     * them is in the group right now, the same membership forGroup()
+     * reads. That is Service\GroupAccessService::canRead() asked from the
+     * account's side, at send time: somebody who left the section since
+     * they wrote drops out on their own.
+     *
+     * **In each account's OWN authorization year**, not the actor's: during
+     * a year transition the staff year is served only to the accounts that
+     * reach `intendant` in it (Core\ScoutYear\ScoutYearResolver), so the
+     * chief who replies and the parent who answered before them open the
+     * group in two different years. Judging the parent in the chief's
+     * year could hand them a reply's text for a group their own session
+     * would refuse. $effectiveScoutYearId is only the fallback when this
+     * resolver was built without a ScoutYearResolver (a narrow unit test,
+     * never the composition root).
+     *
+     * An account none of whose members is in the group can still open it
+     * when it is a site admin, the one bypass canRead() knows — the author
+     * of issue #158, who posts with a borrowed member and must still hear
+     * the answers. Such a row carries `memberId: null`, as moderatorsFor()
+     * does.
+     *
+     * @param int[] $accountIds
+     * @return array<int, array{userAccountId: int, memberId: ?int}>
+     */
+    public function accountsThatCanRead(DiscussionGroup $group, int $effectiveScoutYearId, array $accountIds): array
+    {
+        $accountIds = array_values(array_unique(array_map('intval', $accountIds)));
+        if ($accountIds === []) {
+            return [];
+        }
+
+        $indexes = $this->userAccountRepository->findEmailBlindIndexesByIds($accountIds);
+
+        // Membership and Desk links are read once per distinct year, which
+        // outside a transition is one year for everybody.
+        $inGroupByYear = [];
+        $deskMembersByYear = [];
+
+        $recipients = [];
+        foreach ($accountIds as $accountId) {
+            $index = $indexes[$accountId] ?? null;
+            if ($index === null || $index === '') {
+                // No such account any more: nobody to tell.
+                continue;
+            }
+
+            $yearId = $this->authorizationYearIdFor($accountId, $effectiveScoutYearId);
+            $inGroupByYear[$yearId] ??= array_flip($this->memberIdsFor($group, $yearId));
+            $deskMembersByYear[$yearId] ??= $this->memberYearRepository->findMemberIdsByEmailBlindIndexes(
+                array_values($indexes),
+                $yearId
+            );
+
+            $memberId = $this->firstMemberInGroup(
+                [...($deskMembersByYear[$yearId][$index] ?? []), ...$this->secondaryMemberIds($index, $yearId)],
+                $inGroupByYear[$yearId]
+            );
+            if ($memberId !== null) {
+                $recipients[] = ['userAccountId' => $accountId, 'memberId' => $memberId];
+            } elseif ($this->isSiteAdminAccount($accountId)) {
+                $recipients[] = ['userAccountId' => $accountId, 'memberId' => null];
+            }
+        }
+
+        return $this->deduplicate($recipients);
+    }
+
+    /**
+     * The year this account's own session would decide access in —
+     * GroupSessionContextFactory's year (ScoutYearResolver::
+     * getAuthorizationYear()) computed for an account that is not the one
+     * signed in: the staff year when it is served to this account (it
+     * reaches `intendant` in it, through the same Core\ScoutYear\
+     * StaffYearEligibility the request uses, and the year is adjacent to
+     * the public one), the public year otherwise.
+     *
+     * The address is decrypted only if a staff year is configured at all,
+     * which is the only branch that asks for it; one that cannot be read
+     * is not served the staff year, the safe direction.
+     */
+    private function authorizationYearIdFor(int $accountId, int $fallbackYearId): int
+    {
+        if ($this->scoutYearResolver === null) {
+            return $fallbackYearId;
+        }
+
+        return $this->scoutYearResolver->getEffectiveYear(
+            null,
+            Role::PUBLIC,
+            function (int $staffYearId) use ($accountId): bool {
+                if ($this->roleResolver === null) {
+                    return false;
+                }
+                try {
+                    $account = $this->userAccountRepository->findById($accountId);
+                } catch (DecryptionException) {
+                    return false;
+                }
+                if ($account === null) {
+                    return false;
+                }
+
+                $this->staffYearEligibility ??= new StaffYearEligibility($this->roleResolver);
+
+                return $this->staffYearEligibility->isEligible($account->email, $staffYearId);
+            }
+        )->id;
+    }
+
+    /**
+     * The members a confirmed secondary address reaches in that year —
+     * login's second path (MemberService::memberYearRowsViaSecondaryEmail()):
+     * the address names members, and only those with an active record for
+     * the year count.
+     *
+     * @return int[]
+     */
+    private function secondaryMemberIds(string $blindIndex, int $scoutYearId): array
+    {
+        $memberIds = $this->memberEmailRepository->findMemberIdsByValidBlindIndex($blindIndex);
+        if ($memberIds === []) {
+            return [];
+        }
+
+        return array_map(
+            static fn(array $row): int => (int) $row['member_id'],
+            $this->memberYearRepository->findAllByMemberIds($memberIds, $scoutYearId)
+        );
+    }
+
+    /**
+     * @param int[] $memberIds
+     * @param array<int, int> $inGroup member id => anything
+     */
+    private function firstMemberInGroup(array $memberIds, array $inGroup): ?int
+    {
+        foreach ($memberIds as $memberId) {
+            if (isset($inGroup[$memberId])) {
+                return $memberId;
+            }
+        }
+
+        return null;
     }
 
     /**

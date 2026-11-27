@@ -1824,7 +1824,13 @@ CREATE TABLE IF NOT EXISTS operational_alerts (
     state ENUM('armed', 'triggered') NOT NULL DEFAULT 'armed',
     triggered_at DATETIME,
     last_notified_at DATETIME,
-    last_reading VARCHAR(255)
+    last_reading VARCHAR(255),
+    -- The subjects already announced while the alert has been triggered,
+    -- a JSON list (issue #1358): the advisory identifiers of a host
+    -- security check, so a NEW advisory on a component already in alert
+    -- is announced once, and the same set never twice. NULL for every
+    -- other check.
+    notified_subjects TEXT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------

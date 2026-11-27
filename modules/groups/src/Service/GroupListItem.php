@@ -18,10 +18,13 @@ final class GroupListItem
 {
     /**
      * @param int[] $sectionIds
-     * @param bool $hasUnread whether the group has been active since this
-     *        account last opened it. A group never opened at all counts as
-     *        unread only when it has genuinely had activity — otherwise a
-     *        brand-new empty group would announce itself as "new" forever.
+     * @param bool $hasUnread whether somebody else has published a visible
+     *        message or reply in the group since this account last opened
+     *        it (issue #1349) — never a reaction or a reopening, which only
+     *        move the activity clock. A group never opened is measured from
+     *        its creation, so an empty one is never "new"; a past-year
+     *        archive and a group the account only reads as a site admin
+     *        never carry it (Service\GroupListService::hasUnread()).
      * @param int $memberCount how many people are in the group, invited
      *        and section-derived taken together and counted once. Not the
      *        number of rows in discussion_group_members: on a section

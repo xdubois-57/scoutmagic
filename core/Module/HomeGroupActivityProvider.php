@@ -37,17 +37,18 @@ interface HomeGroupActivityProvider
      * the caller is not a member of, which is the same rule every other
      * route in the groups module enforces.
      *
-     * `single_group` is set when exactly one group has unread activity,
+     * `single_group` is set when exactly one group has something new,
      * so the banner's action can open it directly instead of the list.
-     * The three counters may all be 0 while `group_count` is not — a
-     * group can be "active" through an edit that produced nothing
-     * countable — and the banner then shows without the counter line.
+     * "Something new" is content — a post or a reply somebody else wrote
+     * — and never a reaction (issue #1349), which is why there is no
+     * reaction counter. The banner still renders without its counter line
+     * should all three be 0.
      *
      * @return null|array{
      *     group_count: int,
      *     single_group: null|array{id: int, name: string},
      *     new_posts: int,
-     *     new_replies_or_reactions: int,
+     *     new_replies: int,
      *     new_mentions: int
      * }
      */

@@ -9,6 +9,9 @@ use Core\Alert\OperationalAlert;
 use Core\Alert\OperationalAlertRepository;
 use Core\Alert\OperationalAlertService;
 use Core\Alert\OperationalCheck;
+use Core\Journal\JournalRepository;
+use Core\Journal\JournalService;
+use Core\Maintenance\Health\Security\HostSecurityAlertCheck;
 use Core\Notification\NotificationService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
@@ -259,6 +262,113 @@ class OperationalAlertServiceTest extends TestCase
 
         $this->assertSame(1, $triggered);
         $this->assertSame(1, count($types));
+    }
+
+    /**
+     * Issue #1358 — the journal page is `role_min: admin`, and a host
+     * security reading (exact version, advisory count and identifiers) is
+     * for superadmins alone. Its trigger and its growth are journaled by
+     * key only; an ordinary alert keeps its title and value.
+     */
+    public function testAHostSecurityAlertIsJournaledWithoutItsReading(): void
+    {
+        $journalRepository = new JournalRepository($this->pdo);
+        $types = [];
+        $service = new OperationalAlertService(
+            $this->repository,
+            $this->notificationsRecording($types),
+            new JournalService($journalRepository)
+        );
+        $hostKey = (string) array_key_first(HostSecurityAlertCheck::labels());
+        $reading = static fn(array $subjects): AlertReading => new AlertReading(
+            true,
+            false,
+            '8.4.1 — 1 avis',
+            'PHP du site 8.4.1 : mise à jour de sécurité nécessaire',
+            'Pourquoi',
+            null,
+            null,
+            $subjects
+        );
+
+        $this->assertTrue($service->evaluate(new StubCheck($reading(['CVE-2026-0001']), $hostKey)));
+        $this->assertTrue($service->evaluate(new StubCheck($reading(['CVE-2026-0001', 'CVE-2026-0002']), $hostKey)));
+        $this->assertTrue($service->evaluate(self::check(over: true, under: false, value: '92 %')));
+
+        foreach (['operational_alert_triggered', 'operational_alert_grew'] as $event) {
+            $entry = $journalRepository->findLatestEvent('core', $event);
+            $this->assertNotNull($entry, $event);
+            $logged = json_encode($entry, JSON_UNESCAPED_UNICODE);
+            if ($event === 'operational_alert_triggered') {
+                // The latest trigger is the ordinary probe: untouched.
+                $this->assertStringContainsString('92 %', (string) $logged);
+                continue;
+            }
+            $this->assertStringContainsString($hostKey, (string) $logged);
+            $this->assertStringNotContainsString('8.4.1', (string) $logged);
+            $this->assertStringNotContainsString('CVE-2026', (string) $logged);
+        }
+
+        $all = json_encode($this->pdo->query("SELECT * FROM event_log")->fetchAll(\PDO::FETCH_ASSOC), JSON_UNESCAPED_UNICODE);
+        $this->assertStringNotContainsString('8.4.1', (string) $all);
+        $this->assertStringNotContainsString('CVE-2026', (string) $all);
+    }
+
+    // ————— Une panne du journal ou de l'envoi ne perd pas l'annonce (revue de #1415) —————
+
+    /**
+     * A journal that refuses its row can no longer stand between the
+     * transition and its notification, on either path: the first trigger
+     * and a grown subject set.
+     */
+    public function testAFailingJournalNeverSwallowsTheNotification(): void
+    {
+        $types = [];
+        $journal = $this->createStub(\Core\Journal\JournalService::class);
+        $journal->method('log')->willThrowException(new \PDOException('journal down'));
+        $service = new OperationalAlertService($this->repository, $this->notificationsRecording($types), $journal);
+
+        $this->assertTrue($service->evaluate(self::withSubjects(['CVE-2026-0001'])));
+        $this->assertTrue($service->evaluate(self::withSubjects(['CVE-2026-0001', 'CVE-2026-0002'])));
+
+        $this->assertCount(2, $types);
+        $this->assertSame(['CVE-2026-0001', 'CVE-2026-0002'], $this->repository->findOrArmed('probe')->notifiedSubjects);
+    }
+
+    /**
+     * A notification that cannot be handed off leaves nothing recorded as
+     * announced: the next pass announces it instead of believing it done.
+     */
+    public function testAFailedHandOffIsRetriedOnTheNextPass(): void
+    {
+        $failing = $this->createStub(NotificationService::class);
+        $failing->method('recipientsForType')->willReturn([['userAccountId' => 1, 'memberId' => null]]);
+        $failing->method('dispatch')->willThrowException(new \RuntimeException('queue down'));
+        $types = [];
+        $working = $this->notificationsRecording($types);
+
+        // First trigger: the failure leaves the alert armed.
+        try {
+            (new OperationalAlertService($this->repository, $failing))->evaluate(self::withSubjects(['CVE-2026-0001']));
+        } catch (\RuntimeException) {
+        }
+        $this->assertFalse($this->repository->findOrArmed('probe')->isTriggered());
+        $this->assertTrue((new OperationalAlertService($this->repository, $working))->evaluate(self::withSubjects(['CVE-2026-0001'])));
+
+        // Growth: the failure leaves the new subject unannounced.
+        try {
+            (new OperationalAlertService($this->repository, $failing))->evaluate(self::withSubjects(['CVE-2026-0001', 'CVE-2026-0002']));
+        } catch (\RuntimeException) {
+        }
+        $this->assertSame(['CVE-2026-0001'], $this->repository->findOrArmed('probe')->notifiedSubjects);
+        $this->assertTrue((new OperationalAlertService($this->repository, $working))->evaluate(self::withSubjects(['CVE-2026-0001', 'CVE-2026-0002'])));
+        $this->assertCount(2, $types);
+    }
+
+    /** @param list<string> $subjects */
+    private static function withSubjects(array $subjects): OperationalCheck
+    {
+        return new StubCheck(new AlertReading(true, false, 'v', 'Titre', 'Pourquoi', null, null, $subjects));
     }
 
     private static function check(bool $over, bool $under, string $value): OperationalCheck

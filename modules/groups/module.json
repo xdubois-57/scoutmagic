@@ -569,8 +569,8 @@
     },
     {
       "id": "groups.reply_received",
-      "label": "Réponse à votre message",
-      "description": "Quand quelqu'un répond à un message que vous avez publié.",
+      "label": "Nouvelle réponse dans une discussion",
+      "description": "Quand quelqu'un répond à une discussion à laquelle vous participez : un message que vous avez publié, ou auquel vous avez déjà répondu. Lire une discussion ou y réagir ne vous y abonne pas.",
       "group": "Discussions",
       "role_min": "identified",
       "channels": {
