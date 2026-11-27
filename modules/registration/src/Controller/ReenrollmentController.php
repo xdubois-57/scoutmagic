@@ -129,7 +129,16 @@ class ReenrollmentController extends AbstractController
         }
 
         $decision = (string) $request->getBody('decision', '');
-        $preferred = (int) $request->getBody('preferred_section_id', 0);
+        // Only a section the card offered this child is kept (#1274): a
+        // forged id — a section that does not exist, or one not offered
+        // here — is no preference, as « Peu importe » is, rather than a
+        // skewed passage proposal or a constraint error.
+        $preferred = $this->formService->permittedPreference(
+            $memberId,
+            (int) $publicYear['id'],
+            (string) $publicYear['label'],
+            (int) $request->getBody('preferred_section_id', 0)
+        );
 
         /** @var array<int, string> $friends */
         $friends = [];
@@ -146,9 +155,9 @@ class ReenrollmentController extends AbstractController
             $memberId,
             (int) $targetYear['id'],
             $decision,
-            // 0 is « Peu importe » — a real answer, and the same "no
+            // null is « Peu importe » — a real answer, and the same "no
             // section" the field's absence would mean.
-            $preferred > 0 ? $preferred : null,
+            $preferred,
             (string) $request->getBody('family_comment', ''),
             $friends,
             (int) $publicYear['id'],

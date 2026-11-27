@@ -1227,6 +1227,73 @@ describe('sw.js: orElse() and nudgeOpenTabs()', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Issue #1274: a notification opens only a path of this site
+// ---------------------------------------------------------------------------
+describe('sw.js: a notification opens only a path of this site (issue #1274)', () => {
+    afterEach(() => {
+        delete global.self.clients;
+        delete global.self.registration;
+    });
+
+    it('keeps a path of this site, and refuses anything else', () => {
+        expect(sw.internalNotificationPath('/calendrier/12?vue=mois')).toBe('/calendrier/12?vue=mois');
+        for (const refused of [
+            'https://exemple.org/', '//exemple.org', '/\\exemple.org', 'javascript:alert(1)',
+            'calendrier', '', '/a\nb', null, 42,
+        ]) {
+            expect(sw.internalNotificationPath(refused)).toBeNull();
+        }
+    });
+
+    it('a push whose address is another site is shown without one', async () => {
+        const showNotification = vi.fn(() => Promise.resolve());
+        global.self.registration = { showNotification };
+        global.self.clients = { matchAll: vi.fn(() => Promise.resolve([])) };
+        global.caches = storedRecipient('tag-of-the-account');
+
+        const waits = [];
+        const event = new Event('push');
+        event.data = { json: () => ({
+            title: 'Salut', body: 'Corps', url: 'https://exemple.org/', recipient: 'tag-of-the-account',
+        }) };
+        event.waitUntil = (promise) => waits.push(promise);
+        global.self.dispatchEvent(event);
+        await Promise.all(waits);
+
+        expect(showNotification).toHaveBeenCalledWith('Salut', { body: 'Corps', data: { url: null } });
+    });
+
+    it('a click on a notification carrying another site opens the notification centre instead', async () => {
+        const openWindow = vi.fn(() => Promise.resolve());
+        global.self.clients = { matchAll: vi.fn(() => Promise.resolve([])), openWindow };
+
+        const waits = [];
+        const event = new Event('notificationclick');
+        event.notification = { close: vi.fn(), data: { url: '//exemple.org' } };
+        event.waitUntil = (promise) => waits.push(promise);
+        global.self.dispatchEvent(event);
+        await Promise.all(waits);
+
+        expect(event.notification.close).toHaveBeenCalled();
+        expect(openWindow).toHaveBeenCalledWith('/notifications');
+    });
+
+    it('a click on a notification of this site opens it', async () => {
+        const openWindow = vi.fn(() => Promise.resolve());
+        global.self.clients = { matchAll: vi.fn(() => Promise.resolve([])), openWindow };
+
+        const waits = [];
+        const event = new Event('notificationclick');
+        event.notification = { close: vi.fn(), data: { url: '/notifications' } };
+        event.waitUntil = (promise) => waits.push(promise);
+        global.self.dispatchEvent(event);
+        await Promise.all(waits);
+
+        expect(openWindow).toHaveBeenCalledWith('/notifications');
+    });
+});
+
+// ---------------------------------------------------------------------------
 // Issue #1123: a push is shown only to the account it was sent to
 // ---------------------------------------------------------------------------
 describe('sw.js: the push recipient guard (issue #1123)', () => {

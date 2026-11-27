@@ -1950,6 +1950,38 @@ self.addEventListener('push', function (event) {
 });
 
 /**
+ * A notification's address, kept only when it is a path of this site
+ * (#1274) — the rule of Core\Http\SafeRedirect::internalPath(), which the
+ * server already applies when it stores one. The worker checks again
+ * because it is what opens the window: a payload whose address is anything
+ * else opens nothing rather than another site.
+ *
+ * @param {unknown} url
+ * @returns {string|null}
+ */
+function internalNotificationPath(url) {
+    if (typeof url !== 'string' || !url.startsWith('/')) {
+        return null;
+    }
+    if (url.startsWith('//') || url.startsWith('/\\')) {
+        return null;
+    }
+    // Control characters (CR, LF, tab, NUL…) have no place in a path.
+    if (/[\u0000-\u001f\u007f]/.test(url)) {
+        return null;
+    }
+    try {
+        if (new URL(url, self.location.origin).origin !== self.location.origin) {
+            return null;
+        }
+    } catch (e) {
+        return null;
+    }
+
+    return url;
+}
+
+/**
  * @param {any} data
  * @returns {Promise<unknown>}
  */
@@ -1957,7 +1989,7 @@ function showPayload(data) {
     const title = data.title || 'Notification';
     const options = {
         body: data.body || '',
-        data: { url: data.url || null }
+        data: { url: internalNotificationPath(data.url) }
     };
 
     return self.registration.showNotification(title, options).then(function () {
@@ -1984,10 +2016,11 @@ function showPayload(data) {
 self.addEventListener('notificationclick', function (event) {
     event.notification.close();
 
-    const url = event.notification.data?.url;
-    if (!url) {
-        return;
-    }
+    // Checked here too: a notification shown before this rule existed
+    // carries whatever address its payload had (#1274). One without an
+    // address of this site opens the notification centre, as the server's
+    // « open » does (NotificationController::markRead()).
+    const url = internalNotificationPath(event.notification.data?.url) ?? '/notifications';
 
     event.waitUntil(
         self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function (clientList) {
@@ -2012,6 +2045,7 @@ self.addEventListener('notificationclick', function (event) {
 // rather than global) and call the real implementations directly instead
 // of reimplementing their logic in a test-only copy.
 globalThis.ScoutMagicServiceWorkerInternals = {
+    internalNotificationPath: internalNotificationPath,
     precacheRequests: precacheRequests,
     isSupersededShellRequest: isSupersededShellRequest,
     appShellResponse: appShellResponse,
