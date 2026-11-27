@@ -10,6 +10,8 @@ use Modules\Groups\Repository\GroupMemberRepository;
 use Modules\Groups\Repository\GroupReadRepository;
 use Modules\Groups\Repository\GroupRepository;
 use Modules\Groups\Repository\GroupSectionRepository;
+use Modules\Groups\Repository\PostRepository;
+use Modules\Groups\Repository\ReplyRepository;
 use Modules\Groups\Service\GroupListItem;
 use Modules\Groups\Service\GroupListService;
 use Modules\Groups\Service\GroupService;
@@ -46,7 +48,15 @@ class GroupListServiceTest extends TestCase
         $membershipRepo = new SectionMembershipRepository($this->pdo);
 
         $this->readRepo = new GroupReadRepository($this->pdo);
-        $this->listService = new GroupListService($groupRepo, $sectionRepo, $memberRepo, $membershipRepo, $this->readRepo);
+        $this->listService = new GroupListService(
+            $groupRepo,
+            $sectionRepo,
+            $memberRepo,
+            $membershipRepo,
+            new PostRepository($this->pdo),
+            new ReplyRepository($this->pdo),
+            $this->readRepo
+        );
         $this->groupService = new GroupService($groupRepo, $sectionRepo, $memberRepo);
         $this->groupRepo = $groupRepo;
 
@@ -247,25 +257,46 @@ class GroupListServiceTest extends TestCase
     }
 
     // --- unread ----------------------------------------------------------
+    //
+    // « Nouveau » means a message or a reply somebody else wrote since the
+    // reader's last visit (issue #1349) — never the activity clock, which
+    // a reaction or a reopening also moves.
 
-    /**
-     * Bumps a group's activity clock past its own creation, which is what
-     * "there is something to catch up on" actually means
-     * (Service\GroupListService::hasUnread()).
-     */
+    /** A post by somebody other than the reader, at $at. */
+    private function postBy(int $groupId, int $authorMemberId, string $at = '2030-01-01 12:00:00'): int
+    {
+        return GroupsTestHelper::createPostAt($this->pdo, $groupId, 'Bonjour', $at, 99, $authorMemberId);
+    }
+
+    /** Moves only the activity clock — what a reaction or a reopening does. */
     private function withActivity(int $groupId, string $at = '2030-01-01 12:00:00'): void
     {
         $stmt = $this->pdo->prepare('UPDATE discussion_groups SET last_activity_at = ? WHERE id = ?');
         $stmt->execute([$at, $groupId]);
     }
 
-    public function testAGroupWithActivityAndNoReadMarkCountsAsUnread(): void
+    private function unread(int $memberId, string $role = 'identified'): bool
+    {
+        return $this->listService->findCurrent($this->context([$memberId], $role))[0]->hasUnread;
+    }
+
+    /** An invitation group of $creator's, with $other invited. */
+    private function groupOfTwo(int $creator, int $other): int
+    {
+        $groupId = $this->groupService->createInvitationGroup('Groupe de travail', null, $creator);
+        $this->groupService->inviteMember($this->groupRepo->findById($groupId), $other, $creator);
+
+        return $groupId;
+    }
+
+    public function testAPostBySomebodyElseAndNoReadMarkCountsAsUnread(): void
     {
         $creator = GroupsTestHelper::createMember($this->pdo, 'U1');
-        $groupId = $this->groupService->createInvitationGroup('Groupe de travail', null, $creator);
-        $this->withActivity($groupId);
+        $other = GroupsTestHelper::createMember($this->pdo, 'U1B');
+        $groupId = $this->groupOfTwo($creator, $other);
+        $this->postBy($groupId, $other);
 
-        $this->assertTrue($this->listService->findCurrent($this->context([$creator]))[0]->hasUnread);
+        $this->assertTrue($this->unread($creator));
     }
 
     /**
@@ -273,33 +304,158 @@ class GroupListServiceTest extends TestCase
      * forever, and the badge would mean "exists" rather than "has
      * something you have not seen".
      */
-    public function testAGroupThatHasNeverHadAnyActivityIsNotUnread(): void
+    public function testAGroupWithNoContentIsNotUnread(): void
     {
         $creator = GroupsTestHelper::createMember($this->pdo, 'U2');
         $this->groupService->createInvitationGroup('Tout neuf', null, $creator);
 
-        $this->assertFalse($this->listService->findCurrent($this->context([$creator]))[0]->hasUnread);
+        $this->assertFalse($this->unread($creator));
     }
 
     public function testOpeningTheGroupClearsTheUnreadFlag(): void
     {
         $creator = GroupsTestHelper::createMember($this->pdo, 'U3');
-        $groupId = $this->groupService->createInvitationGroup('Groupe de travail', null, $creator);
-        $this->withActivity($groupId, '2030-01-01 12:00:00');
+        $other = GroupsTestHelper::createMember($this->pdo, 'U3B');
+        $groupId = $this->groupOfTwo($creator, $other);
+        $this->postBy($groupId, $other, '2030-01-01 12:00:00');
 
         $this->readRepo->markRead($groupId, $creator, '2030-01-01 12:00:01');
 
-        $this->assertFalse($this->listService->findCurrent($this->context([$creator]))[0]->hasUnread);
+        $this->assertFalse($this->unread($creator));
     }
 
-    public function testNewActivityAfterTheLastVisitMakesItUnreadAgain(): void
+    public function testANewPostAfterTheLastVisitMakesItUnreadAgain(): void
     {
         $creator = GroupsTestHelper::createMember($this->pdo, 'U4');
-        $groupId = $this->groupService->createInvitationGroup('Groupe de travail', null, $creator);
+        $other = GroupsTestHelper::createMember($this->pdo, 'U4B');
+        $groupId = $this->groupOfTwo($creator, $other);
         $this->readRepo->markRead($groupId, $creator, '2030-01-01 12:00:00');
+        $this->postBy($groupId, $other, '2030-01-02 09:00:00');
+
+        $this->assertTrue($this->unread($creator));
+    }
+
+    /** A reply is content as much as a post is — the thread badge already counts them. */
+    public function testANewReplyAfterTheLastVisitMakesItUnreadAgain(): void
+    {
+        $creator = GroupsTestHelper::createMember($this->pdo, 'U11');
+        $other = GroupsTestHelper::createMember($this->pdo, 'U11B');
+        $groupId = $this->groupOfTwo($creator, $other);
+        $postId = $this->postBy($groupId, $creator, '2030-01-01 10:00:00');
+        $this->readRepo->markRead($groupId, $creator, '2030-01-01 12:00:00');
+        GroupsTestHelper::createReplyAt($this->pdo, $postId, 'Oui', '2030-01-02 09:00:00', 99, $other);
+
+        $this->assertTrue($this->unread($creator));
+    }
+
+    /**
+     * Issue #1349, the defect itself. A reaction — added, changed or taken
+     * back — bumps the group's activity (ReactionService::toggle()), and
+     * that used to be what the badge read: it came back with nothing new
+     * to read. A reopening resets the same clock (GroupMembershipService::
+     * reopen()). Neither is content, so neither brings the badge back.
+     */
+    public function testActivityWithoutNewContentDoesNotBringTheBadgeBack(): void
+    {
+        $creator = GroupsTestHelper::createMember($this->pdo, 'U12');
+        $other = GroupsTestHelper::createMember($this->pdo, 'U12B');
+        $groupId = $this->groupOfTwo($creator, $other);
+        $postId = $this->postBy($groupId, $other, '2030-01-01 10:00:00');
+        GroupsTestHelper::createReplyAt($this->pdo, $postId, 'Oui', '2030-01-01 10:05:00', 99, $other);
+        $this->readRepo->markRead($groupId, $creator, '2030-01-01 12:00:00');
+
+        $this->pdo->prepare(
+            'INSERT INTO discussion_group_post_reactions (post_id, member_id, reaction_key, created_at) VALUES (?, ?, ?, ?)'
+        )->execute([$postId, $other, 'thumbs_up', '2030-01-02 09:00:00']);
         $this->withActivity($groupId, '2030-01-02 09:00:00');
 
-        $this->assertTrue($this->listService->findCurrent($this->context([$creator]))[0]->hasUnread);
+        $this->assertFalse($this->unread($creator), 'a reaction is not something new to read');
+
+        $this->withActivity($groupId, '2030-01-03 09:00:00');
+
+        $this->assertFalse($this->unread($creator), 'a reopening is not something new to read either');
+    }
+
+    /** The same for a group never opened: activity alone, and no content, is no badge. */
+    public function testAGroupWithActivityButNoContentIsNotUnread(): void
+    {
+        $creator = GroupsTestHelper::createMember($this->pdo, 'U13');
+        $groupId = $this->groupService->createInvitationGroup('Rouvert', null, $creator);
+        $this->withActivity($groupId);
+
+        $this->assertFalse($this->unread($creator));
+    }
+
+    /** Your own words are never news to you — the thread badges already say so. */
+    public function testTheReadersOwnContentIsNeverNew(): void
+    {
+        $creator = GroupsTestHelper::createMember($this->pdo, 'U14');
+        $groupId = $this->groupService->createInvitationGroup('Groupe de travail', null, $creator);
+        $postId = $this->postBy($groupId, $creator);
+        GroupsTestHelper::createReplyAt($this->pdo, $postId, 'Moi aussi', '2030-01-01 12:05:00', 99, $creator);
+
+        $this->assertFalse($this->unread($creator));
+    }
+
+    /**
+     * A hidden post or reply is not something the reader would find on
+     * opening the group, so it cannot be what the badge announces — the
+     * same rule as the thread badges and the home band's counters.
+     */
+    public function testHiddenContentProducesNoBadge(): void
+    {
+        $creator = GroupsTestHelper::createMember($this->pdo, 'U15');
+        $other = GroupsTestHelper::createMember($this->pdo, 'U15B');
+        $groupId = $this->groupOfTwo($creator, $other);
+        $ownPost = $this->postBy($groupId, $creator, '2030-01-01 10:00:00');
+        $this->readRepo->markRead($groupId, $creator, '2030-01-01 11:00:00');
+
+        $hiddenPost = $this->postBy($groupId, $other, '2030-01-02 09:00:00');
+        (new PostRepository($this->pdo))->setHiddenAt($hiddenPost, '2030-01-02 10:00:00');
+        $hiddenReply = GroupsTestHelper::createReplyAt($this->pdo, $ownPost, 'Masqué', '2030-01-02 09:30:00', 99, $other);
+        (new ReplyRepository($this->pdo))->setHiddenAt($hiddenReply, '2030-01-02 10:00:00');
+        GroupsTestHelper::createReplyAt($this->pdo, $hiddenPost, 'Sous un message masqué', '2030-01-02 09:45:00', 99, $other);
+
+        $this->assertFalse($this->unread($creator));
+    }
+
+    /**
+     * One query for the whole list, so one group's content must never
+     * light up another's badge.
+     */
+    public function testEachGroupIsJudgedOnItsOwnContent(): void
+    {
+        $creator = GroupsTestHelper::createMember($this->pdo, 'U16');
+        $other = GroupsTestHelper::createMember($this->pdo, 'U16B');
+        $this->groupService->createInvitationGroup('Calme', null, $creator);
+        $busy = $this->groupOfTwo($creator, $other);
+        $this->postBy($busy, $other);
+
+        $byName = [];
+        foreach ($this->listService->findCurrent($this->context([$creator])) as $item) {
+            $byName[$item->group->name] = $item->hasUnread;
+        }
+        ksort($byName);
+
+        $this->assertSame(['Calme' => false, 'Groupe de travail' => true], $byName);
+    }
+
+    /**
+     * A past-year group is a read-only archive: « Nouveau » there is not a
+     * call to action. Decided by the service, so the list and the home
+     * band cannot disagree (it used to be the controller's alone).
+     */
+    public function testAnArchivedGroupNeverCarriesTheBadge(): void
+    {
+        $creator = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'U17', $this->sectionId, $this->pastYearId);
+        $other = GroupsTestHelper::createMember($this->pdo, 'U17B');
+        $groupId = $this->groupService->createSectionGroup('Louveteaux 24-25', $this->sectionId, $this->pastYearId, $creator);
+        $this->postBy($groupId, $other);
+
+        $archived = $this->listService->findArchived($this->context([$creator]));
+
+        $this->assertCount(1, $archived);
+        $this->assertFalse($archived[0]->hasUnread);
     }
 
     /**
@@ -310,9 +466,10 @@ class GroupListServiceTest extends TestCase
     {
         $creator = GroupsTestHelper::createMember($this->pdo, 'U5');
         $second = GroupsTestHelper::createMember($this->pdo, 'U6');
-        $groupId = $this->groupService->createInvitationGroup('Groupe de travail', null, $creator);
-        $this->groupService->inviteMember($this->groupRepo->findById($groupId), $second, $creator);
-        $this->withActivity($groupId, '2030-01-01 12:00:00');
+        $other = GroupsTestHelper::createMember($this->pdo, 'U5B');
+        $groupId = $this->groupOfTwo($creator, $second);
+        $this->groupService->inviteMember($this->groupRepo->findById($groupId), $other, $creator);
+        $this->postBy($groupId, $other, '2030-01-01 12:00:00');
 
         $this->readRepo->markRead($groupId, $second, '2030-01-01 12:00:01');
 
@@ -331,7 +488,7 @@ class GroupListServiceTest extends TestCase
     {
         $creator = GroupsTestHelper::createMember($this->pdo, 'U8');
         $groupId = $this->groupService->createInvitationGroup('Groupe de travail', null, $creator);
-        $this->withActivity($groupId);
+        $this->postBy($groupId, $creator);
         $stranger = GroupsTestHelper::createMember($this->pdo, 'ADM2');
 
         $items = $this->listService->findCurrent($this->context([$stranger], 'admin'));
@@ -346,15 +503,14 @@ class GroupListServiceTest extends TestCase
     {
         $creator = GroupsTestHelper::createMember($this->pdo, 'U9');
         $admin = GroupsTestHelper::createMember($this->pdo, 'ADM3');
-        $groupId = $this->groupService->createInvitationGroup('Groupe de travail', null, $creator);
-        $this->groupService->inviteMember($this->groupRepo->findById($groupId), $admin, $creator);
-        $this->withActivity($groupId, '2030-01-01 12:00:00');
+        $groupId = $this->groupOfTwo($creator, $admin);
+        $this->postBy($groupId, $creator, '2030-01-01 12:00:00');
 
-        $this->assertTrue($this->listService->findCurrent($this->context([$admin], 'admin'))[0]->hasUnread);
+        $this->assertTrue($this->unread($admin, 'admin'));
 
         $this->readRepo->markRead($groupId, $admin, '2030-01-01 12:00:01');
 
-        $this->assertFalse($this->listService->findCurrent($this->context([$admin], 'admin'))[0]->hasUnread);
+        $this->assertFalse($this->unread($admin, 'admin'));
     }
 
     /** Belonging through a section counts as belonging, for the badge as for reading. */
@@ -362,30 +518,33 @@ class GroupListServiceTest extends TestCase
     {
         $creator = GroupsTestHelper::createMember($this->pdo, 'U10');
         $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator);
-        $this->withActivity($groupId);
+        $this->postBy($groupId, $creator);
         $admin = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'ADM4', $this->sectionId, $this->currentYearId);
 
-        $this->assertTrue($this->listService->findCurrent($this->context([$admin], 'admin'))[0]->hasUnread);
+        $this->assertTrue($this->unread($admin, 'admin'));
     }
 
     /**
      * The read repository is an optional dependency (the service predates
      * it) — without one the list still renders, it just cannot know what
-     * was already seen, so an active group stays flagged. That is the
+     * was already seen, so a group with content stays flagged. That is the
      * right way round: over-reporting "there is something new" is a
      * harmless nudge, silently under-reporting it is a missed message.
      */
-    public function testWithoutAReadRepositoryAnActiveGroupStaysFlaggedRatherThanFailing(): void
+    public function testWithoutAReadRepositoryAGroupWithContentStaysFlaggedRatherThanFailing(): void
     {
         $creator = GroupsTestHelper::createMember($this->pdo, 'U7');
-        $groupId = $this->groupService->createInvitationGroup('Groupe de travail', null, $creator);
-        $this->withActivity($groupId);
+        $other = GroupsTestHelper::createMember($this->pdo, 'U7B');
+        $groupId = $this->groupOfTwo($creator, $other);
+        $this->postBy($groupId, $other);
 
         $service = new GroupListService(
             new GroupRepository($this->pdo),
             new GroupSectionRepository($this->pdo),
             new GroupMemberRepository($this->pdo),
-            new SectionMembershipRepository($this->pdo)
+            new SectionMembershipRepository($this->pdo),
+            new PostRepository($this->pdo),
+            new ReplyRepository($this->pdo)
         );
 
         $this->assertTrue($service->findCurrent($this->context([$creator]))[0]->hasUnread);

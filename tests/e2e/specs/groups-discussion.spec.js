@@ -597,7 +597,7 @@ test('a message notifies the group but never its own author, and a comment from 
     // asserted above into a rule rather than a broken page: the comment
     // somebody ELSE wrote is in it, and their own message still is not.
     await page.goto('/notifications', { waitUntil: 'domcontentloaded' });
-    await expect(notificationRow(page, `Réponse à votre message — ${SECTION_GROUP_NAME}`)).toBeVisible();
+    await expect(notificationRow(page, `Nouvelle réponse — ${SECTION_GROUP_NAME}`)).toBeVisible();
     await expect(notificationRow(page, announcementNotice)).toHaveCount(0);
 
     await page.goto(groupUrl, { waitUntil: 'domcontentloaded' });

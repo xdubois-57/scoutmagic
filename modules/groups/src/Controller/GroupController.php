@@ -862,8 +862,9 @@ class GroupController extends AbstractController
                 'member_count' => $item->memberCount,
                 // Never on the archives tab: a past-year group is a read-only
                 // archive, so "you have not caught up" is not a call to
-                // action there, just noise on something already finished.
-                'has_unread' => $item->hasUnread && !$item->isArchived,
+                // action there. Decided once, in Service\GroupListService,
+                // which is also what the home band reads (issue #1349).
+                'has_unread' => $item->hasUnread,
             ],
             $items
         );

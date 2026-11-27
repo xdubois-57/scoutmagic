@@ -312,4 +312,69 @@ class ReplyRepositoryTest extends TestCase
 
         $this->assertNull($this->repository->findById($id));
     }
+
+    // ---- issue #1349: who took part, and what is new ----
+
+    /**
+     * Every account that answered, once each, in the order it first did —
+     * the whole thread, not a page of it, hidden replies included (their
+     * author still took part), and nothing from another post.
+     */
+    public function testFindAuthorAccountIdsForPostListsEveryReplierOnceInOrderOfFirstAnswer(): void
+    {
+        for ($i = 1; $i <= 7; $i++) {
+            GroupsTestHelper::createReplyAt($this->pdo, $this->postId, 'r' . $i, '2026-01-01 10:0' . $i . ':00', 30 + $i, 5);
+        }
+        GroupsTestHelper::createReplyAt($this->pdo, $this->postId, 'encore', '2026-01-01 10:09:00', 32, 5);
+        $hidden = GroupsTestHelper::createReplyAt($this->pdo, $this->postId, 'masquée', '2026-01-01 10:10:00', 50, 5);
+        $this->repository->setHiddenAt($hidden, '2026-01-01 11:00:00');
+        $otherPost = GroupsTestHelper::createPostAt($this->pdo, $this->groupId, 'autre', '2026-01-01 10:00:00');
+        GroupsTestHelper::createReplyAt($this->pdo, $otherPost, 'ailleurs', '2026-01-01 10:11:00', 60, 5);
+
+        $this->assertSame([31, 32, 33, 34, 35, 36, 37, 50], $this->repository->findAuthorAccountIdsForPost($this->postId));
+        $this->assertSame([], $this->repository->findAuthorAccountIdsForPost(999));
+    }
+
+    /**
+     * The newest visible reply by somebody else, per group, for the whole
+     * list in one query: hidden replies, replies under a hidden post and
+     * the reader's own are not news.
+     */
+    public function testFindLatestCreatedAtByGroupsKeepsTheNewestVisibleReplyOfOthers(): void
+    {
+        $quiet = (new GroupRepository($this->pdo))->create('Calme', null, null, 1);
+        $other = (new GroupRepository($this->pdo))->create('Autre', null, null, 1);
+        $otherPost = GroupsTestHelper::createPostAt($this->pdo, $other, 'là-bas', '2026-01-01 10:00:00');
+
+        GroupsTestHelper::createReplyAt($this->pdo, $this->postId, 'ancienne', '2026-01-01 11:00:00', 1, 9);
+        GroupsTestHelper::createReplyAt($this->pdo, $this->postId, 'la mienne', '2026-01-01 13:00:00', 1, 5);
+        $hidden = GroupsTestHelper::createReplyAt($this->pdo, $this->postId, 'masquée', '2026-01-01 14:00:00', 1, 9);
+        $this->repository->setHiddenAt($hidden, '2026-01-01 15:00:00');
+        GroupsTestHelper::createReplyAt($this->pdo, $otherPost, 'là-bas', '2026-01-01 12:00:00', 1, 9);
+
+        $this->assertSame(
+            [$this->groupId => '2026-01-01 11:00:00', $other => '2026-01-01 12:00:00'],
+            $this->sortedByKey($this->repository->findLatestCreatedAtByGroups([$this->groupId, $quiet, $other], [5]))
+        );
+        $this->assertSame(
+            '2026-01-01 13:00:00',
+            $this->repository->findLatestCreatedAtByGroups([$this->groupId])[$this->groupId],
+            'with nobody excluded, the reader\'s reply counts too'
+        );
+
+        (new \Modules\Groups\Repository\PostRepository($this->pdo))->setHiddenAt($otherPost, '2026-01-01 15:00:00');
+        $this->assertSame([], $this->repository->findLatestCreatedAtByGroups([$other]), 'a hidden post takes its replies with it');
+        $this->assertSame([], $this->repository->findLatestCreatedAtByGroups([]));
+    }
+
+    /**
+     * @param array<int, string> $map
+     * @return array<int, string>
+     */
+    private function sortedByKey(array $map): array
+    {
+        ksort($map);
+
+        return $map;
+    }
 }

@@ -5,9 +5,12 @@ declare(strict_types=1);
 namespace Tests\Modules\Groups\Service;
 
 use Core\Config\ScoutYearService;
+use Core\Config\SettingRepository;
+use Core\Config\SettingService;
 use Core\Import\MemberYearRepository;
 use Core\Member\MemberEmailRepository;
 use Core\Member\SectionMembershipRepository;
+use Core\ScoutYear\ScoutYearResolver;
 use Core\Security\EncryptionService;
 use Core\Security\RoleResolver;
 use Core\Security\UserAccountRepository;
@@ -193,6 +196,140 @@ class GroupRecipientResolverTest extends TestCase
         $resolver = $this->resolver();
         $this->assertTrue($resolver->isCurrentMember($this->group(), $inside, $this->currentYearId));
         $this->assertFalse($resolver->isCurrentMember($this->group(), $outside, $this->currentYearId));
+    }
+
+    // ---- accounts that can still read (issue #1349) ----
+
+    /**
+     * The account-first question a reply asks about each participant:
+     * which of these logins reaches a member who is in the group now —
+     * through a section, an invitation, or a confirmed secondary address —
+     * each once, with the member it reaches.
+     */
+    public function testAccountsThatCanReadKeepsTheLoginsThatReachAMemberOfTheGroup(): void
+    {
+        $derived = $this->memberInSection('DERIVED', 'derived@test.be');
+        $invited = $this->memberWithAccount('INVITED', 'invited@test.be');
+        $this->groupMemberRepo->add($this->groupId, $invited);
+        $this->memberWithAccount('OUTSIDE', 'outside@test.be');
+        $secondary = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'SECOND', $this->sectionId, $this->currentYearId);
+        $this->addMemberYear($secondary, 'desk@test.be');
+        $this->addSecondaryEmail($secondary, 'perso@test.be', 'valid');
+        $perso = $this->createAccount('perso@test.be');
+
+        $accounts = [
+            $this->accountIdFor('outside@test.be'),
+            $this->accountIdFor('derived@test.be'),
+            $this->accountIdFor('invited@test.be'),
+            $perso,
+            $this->accountIdFor('derived@test.be'),
+            4242,
+        ];
+
+        $this->assertSame(
+            [
+                ['userAccountId' => $this->accountIdFor('derived@test.be'), 'memberId' => $derived],
+                ['userAccountId' => $this->accountIdFor('invited@test.be'), 'memberId' => $invited],
+                ['userAccountId' => $perso, 'memberId' => $secondary],
+            ],
+            $this->resolver()->accountsThatCanRead($this->group(), $this->currentYearId, $accounts)
+        );
+    }
+
+    /**
+     * Resolved now: a period for another year, or an unconfirmed address,
+     * opens nothing — the same two refusals forGroup() makes.
+     */
+    public function testAccountsThatCanReadDropsALoginThatNoLongerReachesTheGroup(): void
+    {
+        $otherYearId = GroupsTestHelper::createScoutYear($this->pdo, '2024-2025', false);
+        $left = $this->memberWithAccount('LEFT', 'left@test.be');
+        $this->addPeriod($left, $this->sectionId, $otherYearId);
+        $pending = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'PENDING', $this->sectionId, $this->currentYearId);
+        $this->addMemberYear($pending, 'desk-only@test.be');
+        $this->addSecondaryEmail($pending, 'unconfirmed@test.be', 'pending');
+        $unconfirmed = $this->createAccount('unconfirmed@test.be');
+
+        $this->assertSame([], $this->resolver()->accountsThatCanRead(
+            $this->group(),
+            $this->currentYearId,
+            [$this->accountIdFor('left@test.be'), $unconfirmed]
+        ));
+    }
+
+    /**
+     * A site admin opens every group, members or not (issue #158), so a
+     * site admin who took part stays reachable — with no member attached.
+     */
+    public function testAccountsThatCanReadKeepsASiteAdminOutsideTheGroup(): void
+    {
+        $this->memberWithAccount('ADMIN', 'admin@test.be');
+        $admin = $this->accountIdFor('admin@test.be');
+        $roleResolver = $this->createStub(RoleResolver::class);
+        $roleResolver->method('resolve')->willReturnCallback(
+            static fn(string $email): string => $email === 'admin@test.be' ? 'admin' : 'identified'
+        );
+
+        $this->assertSame(
+            [['userAccountId' => $admin, 'memberId' => null]],
+            $this->resolver($roleResolver)->accountsThatCanRead($this->group(), $this->currentYearId, [$admin])
+        );
+        $this->assertSame([], $this->resolver()->accountsThatCanRead($this->group(), $this->currentYearId, []));
+    }
+
+    /**
+     * Review of #1413. During a year transition the staff year is served
+     * only to accounts that reach `intendant` in it, so the chief who
+     * replies and the parent who answered before them open the group in
+     * different years. Each participant is judged in THEIR year: a parent
+     * whose child is linked only in the year being prepared opens nothing
+     * yet, and must not receive the reply's text — while the chief, served
+     * that year, still does.
+     */
+    public function testAccountsThatCanReadJudgesEachAccountInItsOwnAuthorizationYear(): void
+    {
+        $staffYearId = GroupsTestHelper::createScoutYear($this->pdo, '2026-2027', false);
+        $invitationGroupId = $this->groupRepo->create('Camp', null, null, 1);
+
+        $child = GroupsTestHelper::createMember($this->pdo, 'NEXTYEAR');
+        $this->addMemberYearIn($child, 'parent@test.be', $staffYearId);
+        $parent = $this->createAccount('parent@test.be');
+        $chiefMember = GroupsTestHelper::createMember($this->pdo, 'CHIEF');
+        $this->addMemberYearIn($chiefMember, 'chief@test.be', $staffYearId);
+        $chief = $this->createAccount('chief@test.be');
+        $this->groupMemberRepo->add($invitationGroupId, $child);
+        $this->groupMemberRepo->add($invitationGroupId, $chiefMember);
+
+        $settings = new SettingService(new SettingRepository($this->pdo));
+        $settings->register(ScoutYearResolver::SETTING_PUBLIC_YEAR, '0', 'number', 'Public', 'Public year id', null, '^[0-9]+$', null, false);
+        $settings->register(ScoutYearResolver::SETTING_STAFF_YEAR, '0', 'number', 'Staff', 'Staff year id', null, '^[0-9]+$', null, false);
+        $settings->setInternal(ScoutYearResolver::SETTING_PUBLIC_YEAR, (string) $this->currentYearId);
+        $settings->setInternal(ScoutYearResolver::SETTING_STAFF_YEAR, (string) $staffYearId);
+
+        $roleResolver = $this->createStub(RoleResolver::class);
+        $roleResolver->method('resolve')->willReturnCallback(
+            static fn(string $email, int $yearId): string =>
+                $email === 'chief@test.be' && $yearId === $staffYearId ? 'chief' : 'identified'
+        );
+        $resolver = new GroupRecipientResolver(
+            $this->groupMemberRepo,
+            new GroupSectionRepository($this->pdo),
+            new SectionMembershipRepository($this->pdo),
+            new MemberYearRepository($this->pdo),
+            new MemberEmailRepository($this->pdo, $this->encryption),
+            new UserAccountRepository($this->pdo, $this->encryption),
+            $roleResolver,
+            new ScoutYearService($this->pdo),
+            new ScoutYearResolver(new ScoutYearService($this->pdo), $settings, new MemberYearRepository($this->pdo))
+        );
+        $group = $this->groupRepo->findById($invitationGroupId);
+        \assert($group !== null);
+
+        // The chief replies, in the staff year: that is the year handed in.
+        $this->assertSame(
+            [['userAccountId' => $chief, 'memberId' => $chiefMember]],
+            $resolver->accountsThatCanRead($group, $staffYearId, [$parent, $chief])
+        );
     }
 
     // ---- moderators ----
@@ -418,6 +555,22 @@ class GroupRecipientResolverTest extends TestCase
         $stmt->execute([
             $memberId,
             $this->currentYearId,
+            $this->encryption->encrypt('Prénom', 'member_years.first_name'),
+            $this->encryption->encrypt('Nom', 'member_years.last_name'),
+            $this->encryption->blindIndex($email, 'email'),
+            '2026-01-01 00:00:00',
+        ]);
+    }
+
+    private function addMemberYearIn(int $memberId, string $email, int $scoutYearId): void
+    {
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted, email_blind_index, created_at)
+             VALUES (?, ?, ?, ?, ?, ?)'
+        );
+        $stmt->execute([
+            $memberId,
+            $scoutYearId,
             $this->encryption->encrypt('Prénom', 'member_years.first_name'),
             $this->encryption->encrypt('Nom', 'member_years.last_name'),
             $this->encryption->blindIndex($email, 'email'),

@@ -283,6 +283,33 @@ class PageControllerTest extends TestCase
         $this->assertStringContainsString('/assets/js/home-group-activity.js', $body);
     }
 
+    /**
+     * Issue #1349. The band counts replies, and only replies, beside the
+     * new posts: a reaction is nothing to read, so the old « réactions ou
+     * réponses » wording is gone with the reactions it counted.
+     */
+    public function testTheGroupBandCountsNewReplies(): void
+    {
+        $controller = $this->controllerWithHooks([
+            HomeGroupActivityProvider::class => $this->spyGroupActivityProvider(
+                ['new_replies' => 3] + self::GROUP_ACTIVITY
+            ),
+        ]);
+
+        $body = $controller->home(new Request('GET', '/', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('2 nouveaux messages · 3 nouvelles réponses', $body);
+        $this->assertStringNotContainsString('réactions ou réponses', $body);
+
+        $single = $this->controllerWithHooks([
+            HomeGroupActivityProvider::class => $this->spyGroupActivityProvider(
+                ['new_posts' => 0, 'new_replies' => 1] + self::GROUP_ACTIVITY
+            ),
+        ])->home(new Request('GET', '/', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('1 nouvelle réponse', $single);
+    }
+
     /** A page with nothing new in the groups has nothing to refresh, and loads nothing for it. */
     public function testAPageWithoutTheGroupBandLoadsNoRefreshScript(): void
     {
@@ -372,7 +399,7 @@ class PageControllerTest extends TestCase
         'group_count' => 1,
         'single_group' => ['id' => 7, 'name' => 'Staff Louveteaux'],
         'new_posts' => 2,
-        'new_replies_or_reactions' => 0,
+        'new_replies' => 0,
         'new_mentions' => 0,
     ];
 
@@ -417,12 +444,12 @@ class PageControllerTest extends TestCase
             }
 
             /**
-             * @return null|array{group_count: int, single_group: null|array{id: int, name: string}, new_posts: int, new_replies_or_reactions: int, new_mentions: int}
+             * @return null|array{group_count: int, single_group: null|array{id: int, name: string}, new_posts: int, new_replies: int, new_mentions: int}
              */
             public function getHomeActivitySummaryForCurrentUser(): ?array
             {
                 ++$this->calls;
-                /** @var null|array{group_count: int, single_group: null|array{id: int, name: string}, new_posts: int, new_replies_or_reactions: int, new_mentions: int} $summary */
+                /** @var null|array{group_count: int, single_group: null|array{id: int, name: string}, new_posts: int, new_replies: int, new_mentions: int} $summary */
                 $summary = $this->summary;
 
                 return $summary;

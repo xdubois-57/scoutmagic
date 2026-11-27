@@ -78,7 +78,7 @@ class GroupNotificationTypesTest extends TestCase
         $this->assertSame(
             [
                 'Nouveau message dans un groupe',
-                'Réponse à votre message',
+                'Nouvelle réponse dans une discussion',
                 'Réaction à votre message',
                 'Vous êtes cité dans un groupe',
                 'Invitation à un groupe',

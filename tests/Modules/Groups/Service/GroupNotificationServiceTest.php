@@ -4,10 +4,14 @@ declare(strict_types=1);
 
 namespace Tests\Modules\Groups\Service;
 
+use Core\Config\ScoutYearService;
 use Core\Config\SettingRepository;
 use Core\Config\SettingService;
 use Core\Journal\JournalRepository;
+use Core\Import\MemberYearRepository;
 use Core\Journal\JournalService;
+use Core\Member\MemberEmailRepository;
+use Core\Member\SectionMembershipRepository;
 use Core\Notification\NotificationPreferenceRepository;
 use Core\Notification\NotificationRepository;
 use Core\Notification\NotificationService;
@@ -15,9 +19,12 @@ use Core\Notification\PushSubscriptionRepository;
 use Core\Scheduler\SchedulerRepository;
 use Core\Scheduler\SchedulerService;
 use Core\Security\EncryptionService;
+use Core\Security\RoleResolver;
 use Core\Security\UserAccountRepository;
 use Modules\Groups\Repository\DiscussionGroup;
+use Modules\Groups\Repository\GroupMemberRepository;
 use Modules\Groups\Repository\GroupRepository;
+use Modules\Groups\Repository\GroupSectionRepository;
 use Modules\Groups\Repository\Post;
 use Modules\Groups\Repository\PostRepository;
 use Modules\Groups\Repository\Reply;
@@ -193,11 +200,15 @@ class GroupNotificationServiceTest extends TestCase
         $this->assertCount(1, $rows);
         $this->assertSame('groups.reply_received', $rows[0]['type_id']);
         $this->assertSame(self::AUTHOR_ACCOUNT, $rows[0]['user_account_id']);
-        $this->assertSame('Réponse à votre message — Louveteaux', $rows[0]['title']);
+        // Not « Réponse à votre message » any more: for an earlier replier
+        // it is not their message (issue #1349).
+        $this->assertSame('Nouvelle réponse — Louveteaux', $rows[0]['title']);
         $this->assertSame('Oui, on sera là !', $rows[0]['body']);
+        $this->assertSame('/groups/' . $this->groupId . '/posts/' . $post->id, $rows[0]['url']);
     }
 
-    public function testReplyingToYourOwnPostNotifiesNobody(): void
+    /** The author answering under a post nobody else has answered tells nobody: there is nobody else. */
+    public function testReplyingToYourOwnUnansweredPostNotifiesNobody(): void
     {
         $post = $this->post('question');
         $reply = $this->reply($post->id, 'je me réponds', accountId: self::AUTHOR_ACCOUNT, memberId: self::AUTHOR_MEMBER);
@@ -228,6 +239,171 @@ class GroupNotificationServiceTest extends TestCase
             ->replyReceived($this->group(), $post, $reply, 1);
 
         $this->assertSame('Ce contenu a été masqué.', $this->rows()[0]['body']);
+    }
+
+    // ---- type 2: who a reply reaches (issue #1349) ----
+    //
+    // Everything below runs on the REAL recipient resolver over real
+    // accounts and members: who may still open the group is the whole
+    // question, and a stub would only repeat the answer it was given.
+
+    /**
+     * The validated target: A posts; B answers — A hears; C answers — A
+     * and B hear; A answers — B and C hear. Before, B heard nothing from
+     * C, and A answering told nobody at all.
+     */
+    public function testEveryoneWhoWroteInTheThreadHearsOfTheNextReply(): void
+    {
+        $people = $this->participants(['a', 'b', 'c']);
+        $post = $this->postBy($people['a']);
+        $service = $this->realService();
+
+        $service->replyReceived($this->group(), $post, $this->replyBy($post, $people['b']), $this->yearId);
+        $this->assertSame([$people['a']['account']], $this->recipientsOfLastReply());
+
+        $service->replyReceived($this->group(), $post, $this->replyBy($post, $people['c']), $this->yearId);
+        $this->assertSame($this->sorted([$people['a']['account'], $people['b']['account']]), $this->recipientsOfLastReply());
+
+        $service->replyReceived($this->group(), $post, $this->replyBy($post, $people['a']), $this->yearId);
+        $this->assertSame($this->sorted([$people['b']['account'], $people['c']['account']]), $this->recipientsOfLastReply());
+    }
+
+    /**
+     * One notification per account for one reply: however many replies
+     * it wrote, and whether or not it also wrote the post.
+     */
+    public function testEachParticipantIsNotifiedOnceWhateverTheyWrote(): void
+    {
+        $people = $this->participants(['a', 'b', 'd']);
+        $post = $this->postBy($people['a']);
+        $this->replyBy($post, $people['b']);
+        $this->replyBy($post, $people['b']);
+        $this->replyBy($post, $people['a']);
+
+        $this->realService()->replyReceived($this->group(), $post, $this->replyBy($post, $people['d']), $this->yearId);
+
+        $this->assertSame($this->sorted([$people['a']['account'], $people['b']['account']]), $this->recipientsOfLastReply());
+    }
+
+    /**
+     * Reading a thread, reacting to it, or answering ANOTHER post makes
+     * nobody a participant here — and the rest of the group is not told
+     * about every reply.
+     */
+    public function testReadersReactorsAndOtherThreadsAreNotParticipants(): void
+    {
+        $people = $this->participants(['a', 'c', 'reader', 'reactor', 'elsewhere']);
+        $post = $this->postBy($people['a']);
+        $otherPost = $this->postBy($people['reader']);
+        $this->replyBy($otherPost, $people['elsewhere']);
+        $this->pdo->prepare(
+            'INSERT INTO discussion_group_post_reactions (post_id, member_id, reaction_key, created_at) VALUES (?, ?, ?, ?)'
+        )->execute([$post->id, $people['reactor']['member'], 'thumbs_up', '2026-01-01 10:01:00']);
+        $this->pdo->prepare(
+            'INSERT INTO discussion_group_reads (group_id, member_id, last_read_at) VALUES (?, ?, ?)'
+        )->execute([$this->groupId, $people['reader']['member'], '2026-01-01 10:02:00']);
+
+        $this->realService()->replyReceived($this->group(), $post, $this->replyBy($post, $people['c']), $this->yearId);
+
+        $this->assertSame([$people['a']['account']], $this->recipientsOfLastReply());
+    }
+
+    /** Somebody who answered and has since left the group cannot open the link: not told. */
+    public function testAParticipantWhoLeftTheGroupIsNotNotified(): void
+    {
+        $people = $this->participants(['a', 'b', 'c']);
+        $post = $this->postBy($people['a']);
+        $this->replyBy($post, $people['b']);
+        (new GroupMemberRepository($this->pdo))->remove($this->groupId, $people['b']['member']);
+
+        $this->realService()->replyReceived($this->group(), $post, $this->replyBy($post, $people['c']), $this->yearId);
+
+        $this->assertSame([$people['a']['account']], $this->recipientsOfLastReply());
+    }
+
+    /**
+     * The maintainer's decision of 21 November 2026: the ACCOUNT that
+     * wrote is told, not the account behind the membership it signed with.
+     * A teenager answers from their own secondary address under their
+     * membership, whose Desk address is a parent's; the next reply reaches
+     * the teenager, and not the parent who never wrote a word here.
+     */
+    public function testTheAccountThatWroteIsNotifiedNotTheMembershipsDeskAccount(): void
+    {
+        $people = $this->participants(['a', 'c']);
+        $parent = GroupsTestHelper::seedAccountWithMembers(
+            $this->pdo, 'parent@test.be', 'Paul', 'Parent', [['first_name' => 'Théo']], $this->yearId
+        );
+        $child = $parent['member_ids'][0];
+        (new GroupMemberRepository($this->pdo))->add($this->groupId, $child);
+        $teen = $this->accountWithSecondaryAddress('theo@test.be', $child);
+
+        $post = $this->postBy($people['a']);
+        $this->replyBy($post, ['account' => $teen, 'member' => $child]);
+
+        $this->realService()->replyReceived($this->group(), $post, $this->replyBy($post, $people['c']), $this->yearId);
+
+        $recipients = $this->recipientsOfLastReply();
+        $this->assertSame($this->sorted([$people['a']['account'], $teen]), $recipients);
+        $this->assertNotContains($parent['account_id'], $recipients);
+    }
+
+    /**
+     * Issue #158 carried over: a site admin writes in a group none of
+     * their members belongs to, signing with a borrowed member. They can
+     * still open the group, so they still hear the answers — by account,
+     * the way every participant now does.
+     */
+    public function testASiteAdminWhoWroteWithABorrowedMemberIsStillNotified(): void
+    {
+        $people = $this->participants(['b']);
+        $admin = GroupsTestHelper::seedAccountWithMembers(
+            $this->pdo, 'admin@test.be', 'Ada', 'Admin', [['first_name' => 'Enfant']], $this->yearId
+        );
+        $post = $this->postBy(['account' => $admin['account_id'], 'member' => $admin['member_ids'][0]]);
+
+        $this->realService(adminEmail: 'admin@test.be')
+            ->replyReceived($this->group(), $post, $this->replyBy($post, $people['b']), $this->yearId);
+
+        $this->assertSame([$admin['account_id']], $this->recipientsOfLastReply());
+    }
+
+    /** The same author without the admin role cannot open the group: not told. */
+    public function testAnOrdinaryAuthorOutsideTheGroupIsNotNotified(): void
+    {
+        $people = $this->participants(['b']);
+        $outsider = GroupsTestHelper::seedAccountWithMembers(
+            $this->pdo, 'outsider@test.be', 'Olga', 'Out', [['first_name' => 'Enfant']], $this->yearId
+        );
+        $post = $this->postBy(['account' => $outsider['account_id'], 'member' => $outsider['member_ids'][0]]);
+
+        $this->realService()->replyReceived($this->group(), $post, $this->replyBy($post, $people['b']), $this->yearId);
+
+        $this->assertSame([], $this->recipientsOfLastReply());
+    }
+
+    /**
+     * Every earlier replier, not the last page a thread opens on
+     * (ReplyService::PAGE_SIZE): the oldest ones took part as much as the
+     * newest.
+     */
+    public function testEveryEarlierReplierCountsBeyondTheVisiblePage(): void
+    {
+        $names = ['a', 'z'];
+        for ($i = 1; $i <= 8; $i++) {
+            $names[] = 'r' . $i;
+        }
+        $people = $this->participants($names);
+        $post = $this->postBy($people['a']);
+        $expected = [$people['a']['account']];
+        for ($i = 1; $i <= 8; $i++) {
+            $this->replyBy($post, $people['r' . $i]);
+            $expected[] = $people['r' . $i]['account'];
+        }
+
+        $this->realService()->replyReceived($this->group(), $post, $this->replyBy($post, $people['z']), $this->yearId);
+
+        $this->assertSame($this->sorted($expected), $this->recipientsOfLastReply());
     }
 
     // ---- type 3: a reaction ----
@@ -505,48 +681,6 @@ class GroupNotificationServiceTest extends TestCase
     // ---- an author the group's own membership does not contain ----
 
     /**
-     * Issue #158. A site admin posts in a group none of their own members
-     * belongs to — a Meute group while their children are at the Troupe.
-     * The message goes out, signed with a borrowed member
-     * (GroupAccessService::authorMemberIdFor()), and that member is not in
-     * this group's audience. Everyone answered them and they were never
-     * told: no notification, no error, nothing to notice.
-     */
-    public function testASiteAdminIsNotifiedOfRepliesToAPostSignedByABorrowedMember(): void
-    {
-        $post = $this->post('Le camp est confirmé.');
-        $reply = $this->reply($post->id, 'Merci !', accountId: self::ACTOR_ACCOUNT, memberId: 9);
-
-        $this->serviceWith($this->resolverForAuthorOutsideTheGroup(authorIsSiteAdmin: true))
-            ->replyReceived($this->group(), $post, $reply, self::ACTOR_ACCOUNT);
-
-        $rows = $this->rows();
-        $this->assertCount(1, $rows);
-        $this->assertSame(self::AUTHOR_ACCOUNT, $rows[0]['user_account_id']);
-        $this->assertSame('groups.reply_received', $rows[0]['type_id']);
-        // The deep link has to open for them, which is the whole reason
-        // the fallback is limited to an account that can read the group.
-        $this->assertSame('/groups/' . $this->groupId . '/posts/' . $post->id, $rows[0]['url']);
-    }
-
-    /**
-     * The regression the fix above must not cause, and the reason the
-     * membership filter exists at all: an ordinary author who has left the
-     * group is still not notified, because the notification would send
-     * them to a page that 404s for them.
-     */
-    public function testAnOrdinaryAuthorWhoLeftTheGroupIsStillNotNotified(): void
-    {
-        $post = $this->post('Le camp est confirmé.');
-        $reply = $this->reply($post->id, 'Merci !', accountId: self::ACTOR_ACCOUNT, memberId: 9);
-
-        $this->serviceWith($this->resolverForAuthorOutsideTheGroup(authorIsSiteAdmin: false))
-            ->replyReceived($this->group(), $post, $reply, self::ACTOR_ACCOUNT);
-
-        $this->assertSame([], $this->rows());
-    }
-
-    /**
      * The same author, the same borrowed member, one item down: a reaction
      * to a REPLY they wrote. Resolved from the reply's own two identities,
      * so the answer cannot differ from the one a post gets.
@@ -603,7 +737,163 @@ class GroupNotificationServiceTest extends TestCase
         $this->assertSame([], $this->rows());
     }
 
+    /**
+     * Review of #1413. Resolving who to tell reads the database too — the
+     * thread's participants, their memberships — and it runs after the
+     * reply is stored. A lookup that throws must not fail that request,
+     * or a retry would store the reply twice.
+     */
+    public function testARecipientLookupFailureNeverEscapesToTheCaller(): void
+    {
+        $post = $this->post('question');
+        $reply = $this->reply($post->id, 'réponse', accountId: self::ACTOR_ACCOUNT, memberId: 9);
+        $resolver = $this->createStub(GroupRecipientResolver::class);
+        $resolver->method('accountsThatCanRead')->willThrowException(new \PDOException('server gone away'));
+        $resolver->method('forGroupExcluding')->willThrowException(new \PDOException('server gone away'));
+
+        $service = $this->serviceWith($resolver);
+        $service->replyReceived($this->group(), $post, $reply, 1);
+        $service->postPublished($this->group(), $post, 1);
+
+        $this->assertSame([], $this->rows());
+    }
+
     // ---- fixtures ----
+
+    private int $yearId = 0;
+
+    /**
+     * One account per name, each with one member explicitly invited to the
+     * group, joined the way production joins them (by the address's blind
+     * index) — for the current scout year.
+     *
+     * @param string[] $names
+     * @return array<string, array{account: int, member: int}>
+     */
+    private function participants(array $names): array
+    {
+        $this->yearId = GroupsTestHelper::createScoutYear($this->pdo, '2025-2026', true);
+        $members = new GroupMemberRepository($this->pdo);
+
+        $people = [];
+        foreach ($names as $name) {
+            $seeded = GroupsTestHelper::seedAccountWithMembers(
+                $this->pdo, $name . '@test.be', ucfirst($name), 'Test', [['first_name' => ucfirst($name)]], $this->yearId
+            );
+            $members->add($this->groupId, $seeded['member_ids'][0]);
+            $people[$name] = ['account' => $seeded['account_id'], 'member' => $seeded['member_ids'][0]];
+        }
+
+        return $people;
+    }
+
+    /** An account under $email, reaching $memberId through a confirmed secondary address. */
+    private function accountWithSecondaryAddress(string $email, int $memberId): int
+    {
+        $this->pdo->prepare(
+            'INSERT INTO member_emails (member_id, email_encrypted, email_blind_index, source, status, created_at)
+             VALUES (?, ?, ?, ?, ?, ?)'
+        )->execute([
+            $memberId,
+            $this->encryption->encrypt($email, 'member_emails.email'),
+            $this->encryption->blindIndex($email, 'email'),
+            'manual',
+            'valid',
+            '2026-01-01 00:00:00',
+        ]);
+        $this->pdo->prepare(
+            'INSERT INTO user_accounts (email_encrypted, email_blind_index, created_at) VALUES (?, ?, ?)'
+        )->execute([
+            $this->encryption->encrypt($email, 'user_accounts.email'),
+            $this->encryption->blindIndex($email, 'email'),
+            '2026-01-01 00:00:00',
+        ]);
+
+        return (int) $this->pdo->lastInsertId();
+    }
+
+    /** @param array{account: int, member: int} $author */
+    private function postBy(array $author): Post
+    {
+        $id = GroupsTestHelper::createPostAt(
+            $this->pdo,
+            $this->groupId,
+            'Qui vient samedi ?',
+            '2026-01-01 10:00:00',
+            $author['account'],
+            $author['member']
+        );
+        $post = $this->postRepo->findById($id);
+        \assert($post !== null);
+
+        return $post;
+    }
+
+    /** @param array{account: int, member: int} $author */
+    private function replyBy(Post $post, array $author): Reply
+    {
+        return $this->reply($post->id, 'Moi !', accountId: $author['account'], memberId: $author['member']);
+    }
+
+    /**
+     * The accounts the most recent dispatch wrote a reply notification
+     * for, sorted — then forgotten, so the next call reads the next one.
+     *
+     * @return int[]
+     */
+    private function recipientsOfLastReply(): array
+    {
+        $accounts = array_map(
+            static fn(array $row): int => $row['user_account_id'],
+            array_values(array_filter(
+                $this->rows(),
+                static fn(array $row): bool => $row['type_id'] === 'groups.reply_received'
+            ))
+        );
+        $this->pdo->exec('DELETE FROM notifications');
+
+        return $this->sorted($accounts);
+    }
+
+    /**
+     * @param int[] $ids
+     * @return int[]
+     */
+    private function sorted(array $ids): array
+    {
+        sort($ids);
+
+        return $ids;
+    }
+
+    /**
+     * The service over the real resolver and the real reply repository —
+     * what the composition root wires. $adminEmail is the one address the
+     * role resolver calls a site admin.
+     */
+    private function realService(?string $adminEmail = null): GroupNotificationService
+    {
+        $roleResolver = $this->createStub(RoleResolver::class);
+        $roleResolver->method('resolve')->willReturnCallback(
+            static fn(string $email): string => $email === $adminEmail ? 'admin' : 'identified'
+        );
+
+        return new GroupNotificationService(
+            new GroupRecipientResolver(
+                new GroupMemberRepository($this->pdo),
+                new GroupSectionRepository($this->pdo),
+                new SectionMembershipRepository($this->pdo),
+                new MemberYearRepository($this->pdo),
+                new MemberEmailRepository($this->pdo, $this->encryption),
+                new UserAccountRepository($this->pdo, $this->encryption),
+                $roleResolver,
+                new ScoutYearService($this->pdo)
+            ),
+            GroupsTestHelper::reactionNoticeThrottle($this->pdo, new SettingService(new SettingRepository($this->pdo))),
+            $this->notifications,
+            $this->replyRepo
+        );
+    }
 
     /**
      * A resolver whose escalation answer and moderator list are both
@@ -688,6 +978,18 @@ class GroupNotificationServiceTest extends TestCase
             }
         );
         $resolver->method('moderatorsFor')->willReturn($recipients);
+        // The real one answers which of the accounts handed to it can
+        // still open the group; here, those of $recipients.
+        $resolver->method('accountsThatCanRead')->willReturnCallback(
+            static function (DiscussionGroup $group, int $scoutYearId, array $accountIds) use ($recipients): array {
+                $wanted = array_flip($accountIds);
+
+                return array_values(array_filter(
+                    $recipients,
+                    static fn(array $r): bool => isset($wanted[$r['userAccountId']])
+                ));
+            }
+        );
         $resolver->method('isCurrentMember')->willReturn(true);
         $resolver->method('accountIdForMember')->willReturnCallback(
             static fn(int $memberId): ?int => $recipients[0]['userAccountId'] ?? null
