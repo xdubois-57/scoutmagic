@@ -38,7 +38,10 @@ class SectionMembershipRepository
      * scout year: still open (NULL end_date), or closed on that year's own
      * end_date — which is where the rollover safety net of
      * SectionMembershipService::syncForMember() puts it, and says nothing
-     * more than "until the end of the year". Treating that second kind as
+     * more than "until the end of the year" (a period that only started
+     * after that end, which an import of an ended year in configuration
+     * mode can open, is closed for good once it has an end_date). Treating
+     * that second kind as
      * closed made the next import of the same year open a duplicate next
      * to it, and never close it when the member changed section (#1461).
      *
@@ -50,7 +53,8 @@ class SectionMembershipRepository
             'SELECT DISTINCT msp.section_id FROM member_section_periods msp
              JOIN scout_years sy ON sy.id = msp.scout_year_id
              WHERE msp.member_id = ? AND msp.scout_year_id = ?
-               AND (msp.end_date IS NULL OR msp.end_date >= sy.end_date)'
+               AND (msp.end_date IS NULL
+                    OR (msp.end_date >= sy.end_date AND msp.start_date < sy.end_date))'
         );
         $stmt->execute([$memberId, $scoutYearId]);
 
@@ -109,9 +113,12 @@ class SectionMembershipRepository
      * findOpenSectionIdsForMemberAndYear() for "live" — at $endDate
      * (Y-m-d), or at the year's own end_date when $endDate falls after it:
      * a re-import of a year that has already ended never stretches one of
-     * its periods past its end. Normally matches at most one row, but is
-     * written as a bulk UPDATE so it stays correct even if an edge case
-     * (e.g. a manually-corrected import) ever left more than one.
+     * its periods past its end. Never before the period's own start, either:
+     * a period opened after that end (an ended year imported in
+     * configuration mode) is closed on the day it started. Normally matches
+     * at most one row, but is written as a bulk UPDATE so it stays correct
+     * even if an edge case (e.g. a manually-corrected import) ever left
+     * more than one.
      */
     public function closeOpenPeriods(int $memberId, int $sectionId, int $scoutYearId, string $endDate): void
     {
@@ -120,12 +127,14 @@ class SectionMembershipRepository
             return;
         }
 
+        $closeDate = min($endDate, $yearEnd);
         $stmt = $this->pdo->prepare(
-            'UPDATE member_section_periods SET end_date = ?
+            'UPDATE member_section_periods
+             SET end_date = CASE WHEN start_date > ? THEN start_date ELSE ? END
              WHERE member_id = ? AND section_id = ? AND scout_year_id = ?
-               AND (end_date IS NULL OR end_date >= ?)'
+               AND (end_date IS NULL OR (end_date >= ? AND start_date < ?))'
         );
-        $stmt->execute([min($endDate, $yearEnd), $memberId, $sectionId, $scoutYearId, $yearEnd]);
+        $stmt->execute([$closeDate, $closeDate, $memberId, $sectionId, $scoutYearId, $yearEnd, $yearEnd]);
     }
 
     private function findScoutYearEndDate(int $scoutYearId): ?string

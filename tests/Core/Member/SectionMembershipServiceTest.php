@@ -294,6 +294,31 @@ class SectionMembershipServiceTest extends TestCase
     }
 
     /**
+     * An ended year imported again in configuration mode opens a period
+     * after the year's end; leaving the section on the next such import
+     * closes it on the day it started, never before, and coming back
+     * opens a new one.
+     */
+    public function testAPeriodOpenedAfterTheYearsEndIsNeverClosedBeforeItStarts(): void
+    {
+        $this->setFunctionSection($this->memberYearId, $this->sectionA);
+        $this->sync($this->memberYearId, $this->scoutYearId, '2026-09-20');
+
+        $this->setFunctionSection($this->memberYearId, null);
+        $this->sync($this->memberYearId, $this->scoutYearId, '2026-09-25');
+
+        $this->assertSame([[$this->sectionA, '2026-09-20', '2026-09-20']], $this->periodsOf($this->scoutYearId));
+
+        $this->setFunctionSection($this->memberYearId, $this->sectionA);
+        $this->sync($this->memberYearId, $this->scoutYearId, '2026-09-30');
+
+        $this->assertSame(
+            [[$this->sectionA, '2026-09-20', '2026-09-20'], [$this->sectionA, '2026-09-30', null]],
+            $this->periodsOf($this->scoutYearId)
+        );
+    }
+
+    /**
      * What the old safety net left on an install: the later year's period
      * closed at its own end, a duplicate opened next to it, and the old
      * section of a member who moved still valid all year. The next import
