@@ -697,6 +697,13 @@ class MailTransportChainTest extends TestCase
             $this->fail('A suspended send must neither leave nor be reported as queued.');
         } catch (MailException $e) {
             $this->assertStringContainsString('suspendu', $e->getMessage());
+            // Passed on as itself, so a screen can show the person what to do
+            // (review of #1549) rather than a generic failure.
+            $this->assertInstanceOf(MailSendingSuspendedException::class, $e);
+            $this->assertStringContainsString(
+                'Configuration › Capture suspendue',
+                \Core\Exception\UserFacingMessage::from($e, 'Échec générique.')
+            );
         } finally {
             @rmdir($dkimDir);
         }
