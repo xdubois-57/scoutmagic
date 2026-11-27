@@ -124,13 +124,17 @@ final class AccountSignaturePageTest extends TestCase
         $this->assertStringContainsString('id="account-signature-title">Enregistrer ma signature</h2>', $html);
     }
 
-    /** It opens by itself only for a visitor sent here from a document to sign. */
+    /** It opens by itself only when the controller asks (arrived from a document to sign). */
     public function testTheDialogOpensByItselfOnlyWithAReturnAddress(): void
     {
         $this->assertStringNotContainsString('data-signature-dialog-open', $this->page([]));
+        $this->assertStringNotContainsString(
+            'data-signature-dialog-open',
+            $this->page(['return_to' => '/mes-locations/chalet/reservations/12'])
+        );
         $this->assertStringContainsString(
             'data-signature-dialog-open=""',
-            $this->page(['return_to' => '/mes-locations/chalet/reservations/12'])
+            $this->page(['return_to' => '/mes-locations/chalet/reservations/12', 'open_dialog' => true])
         );
     }
 

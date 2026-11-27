@@ -60,10 +60,17 @@ class AccountSignatureController extends AbstractController
             return $this->redirect('/login');
         }
 
+        $returnTo = self::returnTo((string) $request->getQuery('retour', ''));
+
         return $this->render('account/signature.html.twig', [
             'has_signature' => $this->signatures->has($account),
             'saved_at' => $this->signatures->savedAt($account),
-            'return_to' => self::returnTo((string) $request->getQuery('retour', '')),
+            'return_to' => $returnTo,
+            // The dialog opens by itself for a visitor sent here from a
+            // document to sign (issue #1356) — not for one a failed save
+            // just sent back: save() redirects here with the same `retour`
+            // and its message, which the dialog would cover.
+            'open_dialog' => $returnTo !== null && FlashMessage::peek() === null,
             'breadcrumb_current' => 'Ma signature',
         ])->setHeader('Cache-Control', 'private, no-store');
     }

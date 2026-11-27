@@ -17,7 +17,9 @@
   a button opens (issue #1356).
 
   Requires `has_signature`, `saved_at` (a date or null) and `return_to`
-  (an internal path to go back to after saving, or null).
+  (an internal path to go back to after saving, or null); `open_dialog`
+  opens the dialog as the page loads (the controller decides: arrived
+  from a document to sign, and not sent back by a failed save).
 #}
 {% block content %}
     <div class="page-medium">
@@ -82,7 +84,7 @@
             </div>
         </div>
 
-        {% set dialog_attributes = return_to ? { 'data-signature-dialog-open': '' } : {} %}
+        {% set dialog_attributes = open_dialog|default(false) ? { 'data-signature-dialog-open': '' } : {} %}
         {% include 'partials/signature_dialog.html.twig' with {
             id: 'account-signature',
             title: dialog_title,

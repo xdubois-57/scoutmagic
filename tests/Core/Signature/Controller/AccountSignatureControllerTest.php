@@ -48,7 +48,7 @@ final class AccountSignatureControllerTest extends TestCase
         );
         $this->controller = new AccountSignatureController(
             new Environment(new ArrayLoader([
-                'account/signature.html.twig' => '{{ has_signature ? "avec" : "sans" }}|{{ return_to ?? "" }}',
+                'account/signature.html.twig' => '{{ has_signature ? "avec" : "sans" }}|{{ return_to ?? "" }}{{ open_dialog ? "|ouvrir" : "" }}',
                 'errors/404.html.twig' => 'Introuvable',
             ])),
             $this->signatures
@@ -290,6 +290,27 @@ final class AccountSignatureControllerTest extends TestCase
 
         $page = $this->controller->index(new Request('GET', '/account/signature', ['retour' => $retour], [], [], []), []);
         $this->assertSame('avec|', $page->getBody());
+    }
+
+    /**
+     * Issue #1356: arriving from a document to sign opens the dialog; a
+     * failed save comes back with the same `retour` and its message, and
+     * the dialog stays closed so the message is read. The message itself
+     * is left for the page to show.
+     */
+    public function testTheDialogOpensOnArrivalButNotOverAFailedSave(): void
+    {
+        $retour = '/mes-locations/chalet/reservations/12';
+        $page = fn(): string => (string) $this->controller
+            ->index(new Request('GET', '/account/signature', ['retour' => $retour], [], [], []), [])
+            ->getBody();
+
+        $this->assertSame('sans|' . $retour . '|ouvrir', $page());
+
+        $this->post('/account/signature', ['signature_data' => '', 'retour' => $retour]);
+
+        $this->assertSame('sans|' . $retour, $page());
+        $this->assertNotNull(\Core\Http\FlashMessage::get(), 'the message is still there for the page to show');
     }
 
     public function testTheImageIsServedToItsOwnerOnlyAndNeverCached(): void
