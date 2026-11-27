@@ -11,7 +11,9 @@ namespace Modules\Camps\Controller;
 use Core\Audit\AuditService;
 use Core\Audit\AuditSource;
 use Core\Config\SettingService;
+use Core\Geo\GeoPoint;
 use Core\Geo\GeoPointException;
+use Core\Geo\PointSubmission;
 use Core\Http\Controller\AbstractController;
 use Core\Http\FlashMessage;
 use Core\Http\Request;
@@ -532,6 +534,14 @@ class CampsChiefController extends AbstractController
             'place' => $place,
             'submitted' => $submitted,
             'errors' => $errors,
+            // The core's point picker (#1353): whose the pin is, and the
+            // route that finds an address — none when geocoding is off.
+            'point_is_manual' => PointSubmission::showsManual(
+                $errors === [] ? [] : $submitted,
+                GeoPoint::fromColumns($place->latitude, $place->longitude),
+                $place->coordinatesAreManual
+            ),
+            'address_lookup' => (string) ($this->settings->get('camps_geocoding_enabled', 'camps', '1') ?? '1') === '1',
             'breadcrumb_current' => 'Modifier ' . $place->name,
             'breadcrumb_trail' => $this->trail($place),
         ]);
@@ -644,6 +654,9 @@ class CampsChiefController extends AbstractController
             'website_url' => (string) $request->getBody('website_url', ''),
             'latitude' => (string) $request->getBody('latitude', ''),
             'longitude' => (string) $request->getBody('longitude', ''),
+            'point_automatic' => (string) $request->getBody('point_automatic', '0'),
+            'point_address' => (string) $request->getBody('point_address', ''),
+            'point_manual' => (string) $request->getBody('point_manual', '0'),
         ];
     }
 
@@ -780,7 +793,10 @@ class CampsChiefController extends AbstractController
         // camp-creation form — which has no coordinate inputs — posts two
         // empty values, and PlaceService would read that as "clear the
         // point", wiping a pin a chief had placed by hand.
-        foreach (['latitude', 'longitude'] as $key) {
+        // With them, what the core's point picker says about the point
+        // (Core\Geo\PointSubmission, #1353): found from the address or
+        // placed by a human, and for which address.
+        foreach (['latitude', 'longitude', 'point_automatic', 'point_address', 'point_manual'] as $key) {
             $value = $request->getBody($key);
             if ($value !== null) {
                 $fields[$key] = (string) $value;

@@ -32,13 +32,14 @@ option.
 
 ## Tarification
 
-Le mode de facturation décide tout le reste — à la nuit, par personne et
-par nuit, au forfait, à l'exemplaire. Viennent ensuite le tarif par défaut,
-la grille par période et par catégorie, le minimum facturable et les frais.
+Le mode de facturation décide tout le reste. Viennent ensuite le tarif
+par défaut, la grille par période et par catégorie, le minimum facturable
+et les frais. Une case vide de la grille suit le tarif par défaut, en
+gris ; remplie, même à 0, elle a son prix. Deux périodes ne partagent
+jamais un jour.
 
-Le simulateur en bas de page calcule avec **le même moteur** que la page
-publique et que le contrat : s'il vous donne un chiffre qui surprend, un
-visiteur verra le même.
+Le simulateur calcule avec **le même moteur** que la page publique et le
+contrat.
 
 ## Acompte, solde et caution
 

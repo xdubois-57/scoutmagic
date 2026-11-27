@@ -147,6 +147,25 @@ final class PortableArchive
                 throw new BackupException('Le manifeste de cette sauvegarde portable est illisible.');
             }
 
+            // **The manifest has to BE encrypted, not merely to read.** A
+            // zip hands back a member stored in clear whatever password it
+            // is given, so « the first read worked » proved nothing about
+            // the passphrase: somebody able to write the archive could
+            // rewrite every member, the manifest included, in clear, with
+            // digests that agree with each other, and pass every check
+            // below (#1245). Everything this class trusts is trusted
+            // because the manifest is authenticated by the passphrase; that
+            // is only true of one that is encrypted with it. Checked before
+            // the member is read, so a refusal costs nothing.
+            if ($manifestStat !== false && $manifestStat['encryption_method'] !== \ZipArchive::EM_AES_256) {
+                throw new BackupException(
+                    'Cette sauvegarde portable n\'est pas chiffrée comme elle devrait l\'être : elle n\'a pas été '
+                    . 'écrite par ScoutMagic, ou elle a été modifiée. Rien n\'a été modifié.',
+                    0,
+                    new \RuntimeException('Portable manifest is not AES-256 encrypted')
+                );
+            }
+
             $json = $zip->getFromName(PortableManifest::MEMBER);
             if ($json === false) {
                 // The manifest is encrypted like every other member, so a
@@ -467,6 +486,8 @@ final class PortableArchive
             );
         }
 
+        $this->assertMemberEncrypted($name);
+
         $stream = $this->zip->getStream($name);
         if ($stream === false) {
             throw new BackupException(
@@ -486,6 +507,40 @@ final class PortableArchive
         fclose($stream);
 
         return hash_final($context);
+    }
+
+    /**
+     * Refuses a declared member that is not stored encrypted (#1245).
+     *
+     * The writer encrypts every member, and a member stored in clear is one
+     * somebody wrote without the passphrase: it reads whatever password is
+     * given, so nothing about it was ever checked against the passphrase.
+     * Its digest matching the manifest says only that the manifest and the
+     * member agree — which an author controlling both makes trivially true.
+     *
+     * **A member with no bytes is the one exception.** There is nothing to
+     * encrypt in it, libzip builds differ on whether they say so anyway,
+     * and what an empty member can carry is nothing; its digest is still
+     * checked against the encrypted manifest.
+     *
+     * @throws BackupException
+     */
+    private function assertMemberEncrypted(string $name): void
+    {
+        $stat = $this->zip->statName($name);
+        if ($stat === false) {
+            return;
+        }
+        if ($stat['encryption_method'] === \ZipArchive::EM_AES_256 || (int) $stat['size'] === 0) {
+            return;
+        }
+
+        throw new BackupException(
+            'Cette sauvegarde portable contient un fichier qui n\'est pas chiffré : elle a été modifiée après sa '
+            . 'création. Rien n\'a été modifié. Restaurez une copie intacte.',
+            0,
+            new \RuntimeException('Portable member is not AES-256 encrypted: ' . $name)
+        );
     }
 
     /**

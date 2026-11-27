@@ -23,6 +23,12 @@
     automatic       the posted `point_automatic`, '0' or '1' (a refused form)
     point_address   the posted `point_address` (a refused form)
     address_field   id of the address input the lookup reads (optional)
+    address_fields  or several inputs composed into one line, as groups of
+                    ids: [['x-address'], ['x-postal', 'x-city'], ['x-country']]
+                    joined « x-address, x-postal x-city, x-country » — the
+                    line the server compares `point_address` with
+    address_needs   ids of fields at least one of which must be filled for
+                    the address to be looked up (optional)
     address_status  id of the sentence under that input (optional)
     locate_url      the page's own address lookup route; none, no lookup
     legend          the fieldset's legend
@@ -34,7 +40,8 @@
           data-manual="{{ manual|default(false) ? '1' : '0' }}"
           data-pin-label="{{ pin_label|default('Point sur la carte') }}"
           data-address-label="{{ address_label|default('Adresse') }}"
-          {% if address_field|default('') %}data-address-field="{{ address_field }}"{% endif %}
+          {% if address_fields|default([]) is not empty %}data-address-fields="{{ address_fields|json_encode }}"{% elseif address_field|default('') %}data-address-field="{{ address_field }}"{% endif %}
+          {% if address_needs|default([]) is not empty %}data-address-needs="{{ address_needs|join(' ') }}"{% endif %}
           {% if address_status|default('') %}data-address-status="{{ address_status }}"{% endif %}
           {% if locate_url|default('') %}data-locate-url="{{ locate_url }}"{% endif %}>
     <legend class="form-label fs-6">{{ legend|default('Point sur la carte (facultatif)') }}</legend>
@@ -78,7 +85,13 @@
             <button type="button" class="btn btn-sm btn-outline-secondary" data-point-picker-remove>Retirer</button>
         </div>
     </div>
-    <button type="button" class="btn btn-sm btn-outline-primary d-none" data-point-picker-place>Placer le point sur la carte</button>
+    <div class="d-flex flex-wrap gap-2 mt-2">
+        <button type="button" class="btn btn-sm btn-outline-primary d-none" data-point-picker-place>Placer le point sur la carte</button>
+        {# The keyboard's way to a point (#1353): the map wants a pointer,
+           so the two fields come back on demand, and what is typed there
+           places the pin. #}
+        <button type="button" class="btn btn-sm btn-link d-none" data-point-picker-type aria-expanded="false">Saisir les coordonnées</button>
+    </div>
     {% if help|default('') %}
         <p class="form-text mb-0" data-point-picker-help>{{ help }}</p>
     {% endif %}

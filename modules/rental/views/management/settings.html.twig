@@ -71,6 +71,8 @@
     {# type="module" — the file uses `export`, and a classic <script> tag
        rejects it with a SyntaxError before a line of it runs. #}
     <script type="module" src="{{ asset('/assets/js/select-explanation.js') }}"></script>
+    {# « Nombre de personnes minimum » follows the billing unit (#1355, D7). #}
+    <script type="module" src="{{ asset('/assets/js/rental-pricing-minimum.js') }}"></script>
     {# Focuses the first field of a « Modifier » dialog when it opens, and
        opens the one a link names — « ce bien n'a encore aucun tarif »
        points straight at #tarification-edit (design.md §1.9). #}

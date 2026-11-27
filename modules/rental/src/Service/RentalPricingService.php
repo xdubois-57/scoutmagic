@@ -10,6 +10,8 @@ namespace Modules\Rental\Service;
 
 use Core\Journal\JournalService;
 use Modules\Rental\Pricing\BillingUnit;
+use Modules\Rental\Pricing\PeriodOverlap;
+use Modules\Rental\Pricing\PricePeriod;
 use Modules\Rental\Pricing\PriceQuote;
 use Modules\Rental\Pricing\PricingRequest;
 use Modules\Rental\Pricing\PricingSettings;
@@ -150,14 +152,71 @@ class RentalPricingService
             throw new RentalException('La date de fin doit suivre la date de début.');
         }
 
-        return $this->pricingRepository->createPeriod(
+        return $this->pricingRepository->withAssetLocked($assetId, function () use (
             $assetId,
             $label,
             $startDate,
             $endDate,
-            $recursYearly,
-            count($this->pricingRepository->findPeriods($assetId))
-        );
+            $recursYearly
+        ): int {
+            // A day priced by two seasons is a configuration mistake the engine
+            // can only paper over (issue #1355, D9): refused here, before
+            // anything is written, naming the period in the way and the days
+            // the two would share.
+            $candidate = new PricePeriod(0, $label, $startDate, $endDate, $recursYearly);
+            foreach ($this->pricingRepository->findPeriods($assetId) as $existing) {
+                $runs = PeriodOverlap::commonRuns($candidate, $existing);
+                if ($runs !== []) {
+                    throw new RentalException(sprintf(
+                        'Cette période chevauche « %s » (%s) : elles ont en commun les jours %s%s. '
+                        . 'Choisissez des dates sans jour commun ; rien n\'a été enregistré.',
+                        $existing->label,
+                        PeriodOverlap::describePeriod($existing),
+                        PeriodOverlap::describeRun($runs[0]),
+                        count($runs) > 1 ? ', entre autres' : ''
+                    ));
+                }
+            }
+
+            return $this->pricingRepository->createPeriod(
+                $assetId,
+                $label,
+                $startDate,
+                $endDate,
+                $recursYearly,
+                count($this->pricingRepository->findPeriods($assetId))
+            );
+        });
+    }
+
+    /**
+     * The pairs of this asset's periods that already share a day — stored
+     * before additions were checked (issue #1355, D9). Said on the settings
+     * page, never corrected automatically: which of the two is wrong is the
+     * manager's call. Each pair is in configuration order. The quote
+     * applies the first configured period covering the arrival date, so on
+     * shared days a period outside the pair may come before both.
+     *
+     * @return list<array{first: PricePeriod, second: PricePeriod, days: string}>
+     */
+    public function periodConflicts(int $assetId): array
+    {
+        $periods = $this->pricingRepository->findPeriods($assetId);
+        $conflicts = [];
+        foreach ($periods as $i => $first) {
+            foreach (array_slice($periods, $i + 1) as $second) {
+                $runs = PeriodOverlap::commonRuns($first, $second);
+                if ($runs !== []) {
+                    $conflicts[] = [
+                        'first' => $first,
+                        'second' => $second,
+                        'days' => PeriodOverlap::describeRun($runs[0]) . (count($runs) > 1 ? ', entre autres' : ''),
+                    ];
+                }
+            }
+        }
+
+        return $conflicts;
     }
 
     public function deletePeriod(int $assetId, int $periodId): void

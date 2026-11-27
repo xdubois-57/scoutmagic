@@ -110,6 +110,19 @@ final class PointSubmissionTest extends TestCase
         $this->assertFalse($submission->changes($saved, false, false));
     }
 
+    /** Dragged away and back onto the task's point: still a human's, the row is locked. */
+    public function testAHumansPinOnTheSavedAutomaticSpotLocksIt(): void
+    {
+        $saved = new GeoPoint(50.125, 5.187);
+        $submission = PointSubmission::fromInput([
+            'latitude' => '50.125000', 'longitude' => '5.187000', 'point_automatic' => '0', 'point_manual' => '1',
+        ], self::ADDRESS);
+
+        $this->assertTrue($submission->manual);
+        $this->assertTrue($submission->changes($saved, false, false));
+        $this->assertFalse($submission->changes($saved, true, false), 'already a human\'s, same spot: nothing to do');
+    }
+
     public function testRefusedCoordinatesAreSaidByGeoPoint(): void
     {
         $this->expectException(GeoPointException::class);
