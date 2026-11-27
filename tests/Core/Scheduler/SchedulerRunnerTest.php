@@ -603,11 +603,20 @@ class SchedulerRunnerTest extends TestCase
         $runner->registerHandler('core', 'fine_task', $handler);
         $first = $this->repo->create('core', 'fine_task', (new \DateTimeImmutable('-2 minutes'))->format('Y-m-d H:i:s'), null, null);
         $second = $this->repo->create('core', 'fine_task', (new \DateTimeImmutable('-1 minute'))->format('Y-m-d H:i:s'), null, null);
-        $log = ini_set('error_log', '/dev/null');
+        $logFile = (string) tempnam(sys_get_temp_dir(), 'scheduler-log');
+        $log = ini_set('error_log', $logFile);
 
-        $processed = $runner->processOverdue();
+        try {
+            $processed = $runner->processOverdue();
+            $written = (string) file_get_contents($logFile);
+        } finally {
+            ini_set('error_log', (string) $log);
+            @unlink($logFile);
+        }
 
-        ini_set('error_log', (string) $log);
+        // What the journal would have kept reaches the PHP error log.
+        $this->assertStringContainsString('scheduler_task_done « Tâche planifiée « fine_task » terminée »', $written);
+        $this->assertStringContainsString('"task_id":' . $first, $written);
         $this->assertSame(2, $processed);
         $this->assertSame(2, $handler->calls);
         $this->assertSame('done', $this->repo->findById($first)['status']);

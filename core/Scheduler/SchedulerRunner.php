@@ -280,9 +280,15 @@ class SchedulerRunner
         try {
             $this->journal->log('core', $type, $level, $description, $context);
         } catch (\Throwable $e) {
+            // The line itself, then why it could not be written: what the
+            // journal would have kept (which task, and why it failed) is
+            // the part an operator needs (#1522 review).
+            $encoded = json_encode($context, JSON_INVALID_UTF8_SUBSTITUTE | JSON_PARTIAL_OUTPUT_ON_ERROR);
             error_log(sprintf(
-                'ScoutMagic scheduler: could not journal %s (%s): %s',
+                'ScoutMagic scheduler: could not journal %s « %s » %s (%s: %s)',
                 $type,
+                JournalService::fit($description, JournalService::DESCRIPTION_MAX),
+                $encoded !== false ? $encoded : '{}',
                 $e::class,
                 JournalService::fit($e->getMessage(), 300)
             ));

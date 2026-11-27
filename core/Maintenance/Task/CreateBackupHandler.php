@@ -159,19 +159,14 @@ class CreateBackupHandler implements TaskHandlerInterface
             // caught, so anything at all can arrive — the gate keeps a
             // ZipArchive/PDO message off that page while the journal entry
             // just below keeps the real text.
+            // BackupRepository::markFailed() makes the sentence fit its
+            // column, by characters (issue #1438).
             $backupRepository->markFailed(
                 $backupId,
-                // By characters, not bytes: half an « é » is refused by
-                // MariaDB (issue #1438).
-                mb_substr(
-                    mb_scrub(UserFacingMessage::from(
-                        $e,
-                        'La sauvegarde n\'a pas pu être générée — vérifiez l\'espace disque disponible et les droits '
-                        . 'd\'écriture sur storage/, puis relancez-la.'
-                    ), 'UTF-8'),
-                    0,
-                    500,
-                    'UTF-8'
+                UserFacingMessage::from(
+                    $e,
+                    'La sauvegarde n\'a pas pu être générée — vérifiez l\'espace disque disponible et les droits '
+                    . 'd\'écriture sur storage/, puis relancez-la.'
                 )
             );
             $context->journal->log(
