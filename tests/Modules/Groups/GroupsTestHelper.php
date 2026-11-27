@@ -638,6 +638,13 @@ class GroupsTestHelper
         return (int) $pdo->lastInsertId();
     }
 
+    /**
+     * A year marked current is also made the PUBLIC year
+     * (`current_scout_year_id`), which is what Service\GroupArchiveRule
+     * and the lifecycle measure « past » against (issue #1350). Without
+     * it the public year would be the one computed from today's date, and
+     * a fixture's « current » 2025-2026 would read as a year that is over.
+     */
     public static function createScoutYear(\PDO $pdo, string $label, bool $isCurrent): int
     {
         $stmt = $pdo->prepare(
@@ -646,7 +653,55 @@ class GroupsTestHelper
         $start = substr($label, 0, 4) . '-09-01';
         $end = (string) (((int) substr($label, 0, 4)) + 1) . '-08-31';
         $stmt->execute([$label, $start, $end, $isCurrent ? 1 : 0, '2026-01-01 00:00:00']);
+        $yearId = (int) $pdo->lastInsertId();
 
-        return (int) $pdo->lastInsertId();
+        if ($isCurrent) {
+            self::setPublicYear($pdo, $yearId);
+        }
+
+        return $yearId;
+    }
+
+    /**
+     * Points `current_scout_year_id` at $scoutYearId — the public year a
+     * NEW Core\ScoutYear\ScoutYearResolver (and so a new
+     * Service\GroupArchiveRule) reads; an instance already asked keeps the
+     * year it read, exactly as one request does.
+     */
+    public static function setPublicYear(\PDO $pdo, int $scoutYearId): void
+    {
+        $update = $pdo->prepare('UPDATE settings SET setting_value = ? WHERE module_id IS NULL AND setting_key = ?');
+        $update->execute([(string) $scoutYearId, 'current_scout_year_id']);
+        if ($update->rowCount() > 0) {
+            return;
+        }
+
+        $exists = $pdo->prepare('SELECT COUNT(*) FROM settings WHERE module_id IS NULL AND setting_key = ?');
+        $exists->execute(['current_scout_year_id']);
+        if ((int) $exists->fetchColumn() > 0) {
+            return;
+        }
+
+        $pdo->prepare(
+            'INSERT INTO settings (module_id, setting_key, setting_value, label, description) VALUES (NULL, ?, ?, ?, ?)'
+        )->execute(['current_scout_year_id', (string) $scoutYearId, 'Année scoute publique', '']);
+    }
+
+    /**
+     * The real archive rule over this database's years and its public
+     * year (see setPublicYear()).
+     */
+    public static function archiveRule(\PDO $pdo): \Modules\Groups\Service\GroupArchiveRule
+    {
+        $scoutYearService = new \Core\Config\ScoutYearService($pdo);
+
+        return new \Modules\Groups\Service\GroupArchiveRule(
+            new \Core\ScoutYear\ScoutYearResolver(
+                $scoutYearService,
+                new \Core\Config\SettingService(new \Core\Config\SettingRepository($pdo)),
+                new \Core\Import\MemberYearRepository($pdo)
+            ),
+            $scoutYearService
+        );
     }
 }

@@ -66,10 +66,14 @@ class GroupRepository
         $stmt->execute([$at, $id]);
     }
 
-    public function setClosed(int $id, ?string $closedAt): void
+    /**
+     * Stamps (or, with null, clears) the group's archive date. The column
+     * is still `closed_at` — DiscussionGroup::$archivedAt says why.
+     */
+    public function setArchived(int $id, ?string $archivedAt): void
     {
         $stmt = $this->pdo->prepare('UPDATE discussion_groups SET closed_at = ? WHERE id = ?');
-        $stmt->execute([$closedAt, $id]);
+        $stmt->execute([$archivedAt, $id]);
     }
 
     public function rename(int $id, string $name): void
@@ -154,16 +158,18 @@ class GroupRepository
     }
 
     /**
-     * Open groups whose last activity predates $cutoff — the candidates
-     * for automatic closure.
+     * Groups with no archive date whose last activity predates $cutoff —
+     * the candidates for archiving on inactivity.
      *
      * Bounded by $limit and ordered oldest-first so a first run on a large
-     * install closes the most overdue groups and leaves the rest to the
-     * next run, rather than attempting everything in one pass.
+     * install archives the most overdue groups and leaves the rest to the
+     * next run, rather than attempting everything in one pass. A group
+     * already archived is never selected, so its date — the one the purge
+     * counts from — is never rewritten.
      *
      * @return DiscussionGroup[]
      */
-    public function findOpenInactiveBefore(string $cutoff, int $limit): array
+    public function findActiveInactiveBefore(string $cutoff, int $limit): array
     {
         $stmt = $this->pdo->prepare(
             'SELECT * FROM discussion_groups
@@ -177,21 +183,52 @@ class GroupRepository
     }
 
     /**
-     * Groups closed before $cutoff and safe to purge — the candidates for
-     * permanent deletion.
+     * Groups with no archive date yet whose scout year ended before
+     * $publicYearStart — the candidates for archiving at the end of the
+     * year (issue #1350).
      *
-     * $protectedScoutYearIds are excluded outright: a group of the
-     * effective year or of a future one is never purged, however long it
-     * has been closed. Without that rule, purging a closed section group
-     * of the current year would have Task\EnsureSectionGroupsHandler
+     * $publicYearStart is Service\GroupArchiveRule::publicYearStartDate(),
+     * so "past" here is the rule's own: a year whose PERIOD is over,
+     * never a year id that merely differs. A year-less group never joins
+     * (it has no year to be over), nor does one of a future year.
+     *
+     * Bounded and replayable like findActiveInactiveBefore(): an archived
+     * group drops out of the result, so the daily task stamps each one
+     * once and never moves the date afterwards.
+     *
+     * @return DiscussionGroup[]
+     */
+    public function findActiveOfYearsEndedBefore(string $publicYearStart, int $limit): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT g.* FROM discussion_groups g
+             JOIN scout_years y ON y.id = g.scout_year_id
+             WHERE g.closed_at IS NULL AND y.end_date < ?
+             ORDER BY y.end_date, g.id
+             LIMIT ' . max(1, $limit)
+        );
+        $stmt->execute([$publicYearStart]);
+
+        return array_map([$this, 'hydrate'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
+    /**
+     * Groups archived before $cutoff and safe to purge — the candidates
+     * for permanent deletion, whatever the cause of the archiving.
+     *
+     * $protectedScoutYearIds are excluded outright: a group of the public
+     * year or of a future one is never purged, however long it has been
+     * archived. Without that rule, purging an archived section group of
+     * the current year would have Task\EnsureSectionGroupsHandler
      * recreate it on its very next run — a delete/recreate loop, which is
      * also why this module needs no tombstone table to remember what it
-     * deleted.
+     * deleted. Once the public year moves on, such a group leaves the
+     * protected set and its delay counts from its archive date.
      *
      * @param int[] $protectedScoutYearIds
      * @return DiscussionGroup[]
      */
-    public function findClosedBefore(string $cutoff, array $protectedScoutYearIds, int $limit): array
+    public function findArchivedBefore(string $cutoff, array $protectedScoutYearIds, int $limit): array
     {
         $sql = 'SELECT * FROM discussion_groups WHERE closed_at IS NOT NULL AND closed_at < ?';
         $params = [$cutoff];
@@ -214,28 +251,37 @@ class GroupRepository
     }
 
     /**
-     * How many OPEN, non-section groups this member has created — what the
-     * creation quota counts.
+     * How many ACTIVE, non-section groups this member has created — what
+     * the creation quota counts.
      *
      * Two exclusions, both deliberate. A section group
      * (`section_id IS NOT NULL`) is created by
      * Task\EnsureSectionGroupsHandler and by nobody else, so counting it
-     * against a person would be counting something they did not do. A
-     * closed group (`closed_at IS NOT NULL`) is read-only and on its way
-     * to the purge — the quota is about how much live clutter one person
-     * can create, not about how much they ever created.
+     * against a person would be counting something they did not do. An
+     * archived group is read-only and on its way to the purge — the quota
+     * is about how much live clutter one person can create, not about how
+     * much they ever created.
+     *
+     * "Archived" is Service\GroupArchiveRule's, spelled in SQL: an archive
+     * date, OR a scout year that ended before $publicYearStart (which the
+     * caller takes from that rule). Without the second half, a group of a
+     * year that is over would hold a quota slot until the end-of-year
+     * task got round to dating it. A year-less group, a group of a future
+     * year and one whose year no longer resolves stay active.
      *
      * Counted on created_by_member_id, the column prompt 3 already
      * introduced: there is exactly one notion of who created a group and
      * this does not add a second.
      */
-    public function countOpenCreatedBy(int $memberId): int
+    public function countActiveCreatedBy(int $memberId, string $publicYearStart): int
     {
         $stmt = $this->pdo->prepare(
-            'SELECT COUNT(*) FROM discussion_groups
-             WHERE created_by_member_id = ? AND section_id IS NULL AND closed_at IS NULL'
+            'SELECT COUNT(*) FROM discussion_groups g
+             LEFT JOIN scout_years y ON y.id = g.scout_year_id
+             WHERE g.created_by_member_id = ? AND g.section_id IS NULL AND g.closed_at IS NULL
+               AND (y.id IS NULL OR y.end_date >= ?)'
         );
-        $stmt->execute([$memberId]);
+        $stmt->execute([$memberId, $publicYearStart]);
 
         return (int) $stmt->fetchColumn();
     }

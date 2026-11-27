@@ -60,7 +60,7 @@ final class GroupDelegatedAlbumAccessCheckerTest extends TestCase
         $groupRepo = new GroupRepository($this->pdo);
         $sectionRepo = new GroupSectionRepository($this->pdo);
         $memberRepo = new GroupMemberRepository($this->pdo);
-        $access = new GroupAccessService($memberRepo, $sectionRepo, new SectionMembershipRepository($this->pdo));
+        $access = new GroupAccessService($memberRepo, $sectionRepo, new SectionMembershipRepository($this->pdo), \Tests\Modules\Groups\GroupsTestHelper::archiveRule($this->pdo));
 
         $creator = GroupsTestHelper::createMember($this->pdo, 'C1');
         $this->groupId = (new GroupService($groupRepo, $sectionRepo, $memberRepo))

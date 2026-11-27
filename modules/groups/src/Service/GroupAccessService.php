@@ -52,10 +52,17 @@ class GroupAccessService
      */
     public const NO_AUTHOR_MEMBER_MESSAGE = 'Aucun membre de ce groupe n\'est associé à votre compte.';
 
+    /**
+     * The one sentence for every archived group, whatever archived it
+     * (issue #1350) — canParticipate()'s refusal.
+     */
+    public const ARCHIVED_MESSAGE = 'Ce groupe est archivé : vous pouvez encore le consulter, mais plus y participer.';
+
     public function __construct(
         private GroupMemberRepository $memberRepository,
         private GroupSectionRepository $sectionRepository,
-        private SectionMembershipRepository $membershipRepository
+        private SectionMembershipRepository $membershipRepository,
+        private GroupArchiveRule $archiveRule
     ) {
     }
 
@@ -80,7 +87,7 @@ class GroupAccessService
      * "moderators only" still lets every member comment, react and answer
      * a poll (canParticipate(), which is what those actions check). A
      * group nobody may answer is not a restricted group, it is a
-     * noticeboard, and "clôturé" already means that.
+     * noticeboard, and "archivé" already means that.
      *
      * Staff d'U needs no grant to publish in such a group: a site admin
      * is an implicit moderator of every group (GroupSessionContext::
@@ -134,11 +141,15 @@ class GroupAccessService
     }
 
     /**
-     * canRead() plus: the group is open, its scout year is the effective
-     * one (a past-year group is readable but read-only — that is the whole
-     * archive case), and the account has a usable identity to sign a post
-     * with. Each refusal carries its own French message so the composer
-     * can explain itself.
+     * canRead() plus: the group is not archived, and the account has a
+     * usable identity to sign a post with. Each refusal carries its own
+     * French message so the composer can explain itself.
+     *
+     * « Archived » is Service\GroupArchiveRule's, and it is ONE refusal
+     * whatever the cause — archived by hand, for inactivity, or because
+     * its scout year is over (dated yet or not). Measured against the
+     * public year, never against the year this session is on: previewing
+     * another year neither reopens an old group nor locks a current one.
      *
      * This is what every write that ANSWERS something already said checks
      * — a comment, a reaction, a vote, an edit of one's own message. What
@@ -154,17 +165,10 @@ class GroupAccessService
             );
         }
 
-        if ($group->isClosed()) {
+        if ($this->archiveRule->isArchived($group)) {
             return PostPermission::deny(
-                PostPermission::REASON_CLOSED,
-                'Ce groupe est clôturé : vous pouvez encore le consulter, mais plus y publier.'
-            );
-        }
-
-        if ($group->scoutYearId !== null && $group->scoutYearId !== $context->effectiveScoutYearId) {
-            return PostPermission::deny(
-                PostPermission::REASON_PAST_YEAR,
-                'Ce groupe appartient à une année scoute passée : il est consultable, mais en lecture seule.'
+                PostPermission::REASON_ARCHIVED,
+                self::ARCHIVED_MESSAGE
             );
         }
 

@@ -10248,10 +10248,15 @@ if ($isEnabled('groups')) {
     $groupsGroupRepo = new \Modules\Groups\Repository\GroupRepository($pdo);
     $groupsSectionRepo = new \Modules\Groups\Repository\GroupSectionRepository($pdo);
     $groupsMemberRepo = new \Modules\Groups\Repository\GroupMemberRepository($pdo);
+    // Whether a group is archived (issue #1350): one rule, measured
+    // against the PUBLIC year and never a session's preview, asked by
+    // every consumer below so there is no second notion of read-only.
+    $groupsArchiveRule = new \Modules\Groups\Service\GroupArchiveRule($scoutYearResolver, $scoutYearService);
     $groupsAccessService = new \Modules\Groups\Service\GroupAccessService(
         $groupsMemberRepo,
         $groupsSectionRepo,
-        $sectionMembershipRepository
+        $sectionMembershipRepository,
+        $groupsArchiveRule
     );
     $groupsService = new \Modules\Groups\Service\GroupService($groupsGroupRepo, $groupsSectionRepo, $groupsMemberRepo);
     // Which groups a member belongs to, for the admin member page's
@@ -10259,7 +10264,7 @@ if ($isEnabled('groups')) {
     // and membership only — never a post, never a count of them.
     $moduleHooks->register(
         \Core\Module\MemberDiscussionGroupProvider::class,
-        new \Modules\Groups\Service\MemberDiscussionGroupService($groupsMemberRepo, $groupsGroupRepo)
+        new \Modules\Groups\Service\MemberDiscussionGroupService($groupsMemberRepo, $groupsGroupRepo, $groupsArchiveRule)
     );
     // Per-member "last time I opened this group": drives the unread badge
     // on the group list, the home page's own activity card, and a post's
@@ -10278,6 +10283,7 @@ if ($isEnabled('groups')) {
         $sectionMembershipRepository,
         $groupsPostRepo,
         $groupsReplyRepo,
+        $groupsArchiveRule,
         $groupsReadRepo
     );
     $groupsReadStateService = new \Modules\Groups\Service\GroupReadStateService(
@@ -10395,7 +10401,8 @@ if ($isEnabled('groups')) {
         $groupsGroupRepo,
         $groupsMemberRepo,
         $settingService,
-        $journalService
+        $journalService,
+        $groupsArchiveRule
     );
 
     // Notifications (prompt 10). The recipient resolver reads membership
@@ -10550,6 +10557,7 @@ if ($isEnabled('groups')) {
             $groupsFeedService,
             $groupsPostMediaService,
             $groupsPostRepo,
+            $groupsArchiveRule,
             $groupsSectionGroupSync,
             $groupsModeratorBinding,
             $groupsMembershipService,
@@ -10662,7 +10670,8 @@ if ($isEnabled('groups')) {
             $groupsIdentityService,
             $groupsRecipientResolver,
             $userAccountRepo,
-            $groupsNotificationService
+            $groupsNotificationService,
+            $groupsArchiveRule
         )
     );
 }

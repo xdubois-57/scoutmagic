@@ -23,7 +23,7 @@ use Modules\Groups\Repository\PostRepository;
  *
  * - **Who may post where** is GroupAccessService's: a group the person
  *   can read and post in, signed by the member of theirs that belongs to
- *   it. A closed group, a past year, an incomplete profile are refused
+ *   it. An archived group, an incomplete profile are refused
  *   with the group's own sentence.
  * - **The post is an ordinary one**: PostService::create() applies the
  *   rate limit and the moderation, the image goes into the group's album

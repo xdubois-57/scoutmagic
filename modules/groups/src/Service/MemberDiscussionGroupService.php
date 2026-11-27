@@ -39,7 +39,8 @@ class MemberDiscussionGroupService implements MemberDiscussionGroupProvider
 {
     public function __construct(
         private GroupMemberRepository $members,
-        private GroupRepository $groups
+        private GroupRepository $groups,
+        private GroupArchiveRule $archiveRule
     ) {
     }
 
@@ -54,19 +55,24 @@ class MemberDiscussionGroupService implements MemberDiscussionGroupProvider
             if ($group === null) {
                 continue;
             }
-            $rows[] = ['group' => $group, 'is_moderator' => $membership->isModerator];
+            $rows[] = [
+                'group' => $group,
+                'is_moderator' => $membership->isModerator,
+                'is_archived' => $this->archiveRule->isArchived($group),
+            ];
         }
         if ($rows === []) {
             return [];
         }
 
-        // Open groups first, and each side most recently active first: a
-        // closed group is still part of the journey, but it is not where
-        // somebody is reachable today.
+        // Active groups first, and each side most recently active first:
+        // an archived group — whatever archived it, Service\GroupArchiveRule
+        // — is still part of the journey, but it is not where somebody is
+        // reachable today.
         usort($rows, static function (array $a, array $b): int {
-            $closed = ($a['group']->isClosed() <=> $b['group']->isClosed());
+            $archived = ($a['is_archived'] <=> $b['is_archived']);
 
-            return $closed !== 0 ? $closed : ($b['group']->lastActivityAt <=> $a['group']->lastActivityAt);
+            return $archived !== 0 ? $archived : ($b['group']->lastActivityAt <=> $a['group']->lastActivityAt);
         });
 
         return array_map(
@@ -74,7 +80,10 @@ class MemberDiscussionGroupService implements MemberDiscussionGroupProvider
                 $row['group']->name,
                 '/groups/' . $row['group']->id,
                 $row['is_moderator'],
-                $row['group']->isClosed()
+                // Core's DTO still names it isClosed; it now carries the
+                // single archived state (#1350 — its rename is the
+                // interface side's, with the admin page that reads it).
+                $row['is_archived']
             ),
             $rows
         );

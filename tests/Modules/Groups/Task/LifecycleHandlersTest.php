@@ -131,7 +131,7 @@ class LifecycleHandlersTest extends TestCase
         $sectionId = GroupsTestHelper::createSection($this->pdo, 'LOU', 'Louveteaux');
         $pastYearId = GroupsTestHelper::createScoutYear($this->pdo, '2020-2021', false);
         $groupId = $this->groupRepo->create('Louveteaux', $pastYearId, $sectionId, null);
-        $this->groupRepo->setClosed($groupId, $this->at('-24 months'));
+        $this->groupRepo->setArchived($groupId, $this->at('-24 months'));
 
         (new PurgeClosedGroupsHandler())->handle([], $this->context);
         $this->assertNull($this->groupRepo->findById($groupId));
@@ -159,14 +159,14 @@ class LifecycleHandlersTest extends TestCase
         $this->assertNotNull($this->groupRepo->findSectionGroup($sectionId, $this->currentYearId));
     }
 
-    public function testCloseInactiveGroupsClosesAnIdleGroup(): void
+    public function testTheDailyArchivingTaskArchivesAnIdleGroup(): void
     {
         $groupId = $this->groupRepo->create('Louveteaux', $this->currentYearId, null, null);
         $this->groupRepo->touchActivity($groupId, $this->at('-24 months'));
 
         (new CloseInactiveGroupsHandler())->handle([], $this->context);
 
-        $this->assertTrue($this->groupRepo->findById($groupId)->isClosed());
+        $this->assertNotNull($this->groupRepo->findById($groupId)->archivedAt);
     }
 
     /**
@@ -174,7 +174,7 @@ class LifecycleHandlersTest extends TestCase
      * groups and then running the closer on the same day must leave them
      * all open.
      */
-    public function testGroupsCreatedTodayAreStillOpenAfterTheCloserRuns(): void
+    public function testGroupsCreatedTodayAreStillActiveAfterTheArchivingTaskRuns(): void
     {
         GroupsTestHelper::createSection($this->pdo, 'LOU', 'Louveteaux');
         (new EnsureSectionGroupsHandler())->handle([], $this->context);
@@ -182,6 +182,66 @@ class LifecycleHandlersTest extends TestCase
 
         $rows = $this->pdo->query('SELECT closed_at FROM discussion_groups')->fetchAll(\PDO::FETCH_COLUMN);
         $this->assertSame([null], $rows);
+    }
+
+    /**
+     * The same daily task archives the groups whose scout year is over
+     * (issue #1350) — a group still busy yesterday, so inactivity alone
+     * would never have reached it.
+     */
+    public function testTheDailyArchivingTaskArchivesAGroupWhoseYearIsOver(): void
+    {
+        $pastYearId = GroupsTestHelper::createScoutYear($this->pdo, '2020-2021', false);
+        $groupId = $this->groupRepo->create('Ancien', $pastYearId, null, null);
+
+        (new CloseInactiveGroupsHandler())->handle([], $this->context);
+
+        $this->assertNotNull($this->groupRepo->findById($groupId)->archivedAt);
+    }
+
+    /** Run every day, it stamps each group once: the purge's starting point never moves. */
+    public function testTheDailyArchivingTaskKeepsTheDateItStampedOnEveryLaterRun(): void
+    {
+        $pastYearId = GroupsTestHelper::createScoutYear($this->pdo, '2020-2021', false);
+        $byTask = $this->groupRepo->create('Ancien', $pastYearId, null, null);
+        $byHand = $this->groupRepo->create('Archivé à la main', $pastYearId, null, null);
+        $this->groupRepo->setArchived($byHand, '2021-05-01 10:00:00');
+
+        (new CloseInactiveGroupsHandler())->handle([], $this->context);
+        $stamped = $this->groupRepo->findById($byTask)->archivedAt;
+        $this->pdo->exec("UPDATE discussion_groups SET closed_at = '2026-01-01 00:00:00' WHERE id = {$byTask}");
+        (new CloseInactiveGroupsHandler())->handle([], $this->context);
+        (new CloseInactiveGroupsHandler())->handle([], $this->context);
+
+        $this->assertNotNull($stamped);
+        $this->assertSame('2026-01-01 00:00:00', $this->groupRepo->findById($byTask)->archivedAt);
+        $this->assertSame('2021-05-01 10:00:00', $this->groupRepo->findById($byHand)->archivedAt);
+    }
+
+    /**
+     * The year changes: last year's section group is archived by the next
+     * run, the new year's group is created beside it, and the old one is
+     * neither recreated nor reopened by the sync.
+     */
+    public function testAtTheYearChangeTheOldSectionGroupIsArchivedAndANewOneCreated(): void
+    {
+        $sectionId = GroupsTestHelper::createSection($this->pdo, 'LOU', 'Louveteaux');
+        (new EnsureSectionGroupsHandler())->handle([], $this->context);
+        $oldGroupId = $this->groupRepo->findSectionGroup($sectionId, $this->currentYearId)->id;
+
+        $nextYearId = GroupsTestHelper::createScoutYear($this->pdo, \Tests\DatabaseTestHelper::scoutYear(1)[0], true);
+        // A later scheduler run reads the settings afresh.
+        $this->context->settings->clearCache();
+        (new CloseInactiveGroupsHandler())->handle([], $this->context);
+        (new EnsureSectionGroupsHandler())->handle([], $this->context);
+
+        $old = $this->groupRepo->findById($oldGroupId);
+        $this->assertNotNull($old->archivedAt);
+        $this->assertSame($oldGroupId, $this->groupRepo->findSectionGroup($sectionId, $this->currentYearId)->id);
+        $new = $this->groupRepo->findSectionGroup($sectionId, $nextYearId);
+        $this->assertNotNull($new);
+        $this->assertNull($new->archivedAt);
+        $this->assertSame(2, $this->countGroups());
     }
 
     public function testPurgePostsDeletesAnOverduePost(): void
@@ -204,21 +264,21 @@ class LifecycleHandlersTest extends TestCase
         $this->assertSame(1, (int) $this->pdo->query('SELECT COUNT(*) FROM discussion_group_posts')->fetchColumn());
     }
 
-    public function testPurgeClosedGroupsDeletesAnOverdueClosedGroupOfAPastYear(): void
+    public function testPurgeArchivedGroupsDeletesAnOverdueArchivedGroupOfAPastYear(): void
     {
         $pastYearId = GroupsTestHelper::createScoutYear($this->pdo, '2020-2021', false);
         $groupId = $this->groupRepo->create('Ancien', $pastYearId, null, null);
-        $this->groupRepo->setClosed($groupId, $this->at('-24 months'));
+        $this->groupRepo->setArchived($groupId, $this->at('-24 months'));
 
         (new PurgeClosedGroupsHandler())->handle([], $this->context);
 
         $this->assertNull($this->groupRepo->findById($groupId));
     }
 
-    public function testPurgeClosedGroupsSparesTheCurrentYear(): void
+    public function testPurgeArchivedGroupsSparesTheCurrentYear(): void
     {
         $groupId = $this->groupRepo->create('Louveteaux', $this->currentYearId, null, null);
-        $this->groupRepo->setClosed($groupId, $this->at('-60 months'));
+        $this->groupRepo->setArchived($groupId, $this->at('-60 months'));
 
         (new PurgeClosedGroupsHandler())->handle([], $this->context);
 

@@ -62,7 +62,10 @@ class GroupMemberController extends AbstractController
         // resolve one (Service\GroupAccessService::canModerate()).
         private ?GroupRecipientResolver $recipientResolver = null,
         private ?UserAccountRepository $userAccountRepository = null,
-        private ?GroupNotificationService $notificationService = null
+        private ?GroupNotificationService $notificationService = null,
+        // Display only: the header's « Archivé » badge. Without it the
+        // page simply shows none — no decision on this page reads it.
+        private ?\Modules\Groups\Service\GroupArchiveRule $archiveRule = null
     ) {
     }
 
@@ -125,6 +128,7 @@ class GroupMemberController extends AbstractController
                 $context->effectiveScoutYearLabel
             ),
             'derived_sections' => $this->sectionNames($this->sectionRepository->findSectionIds($group->id)),
+            'is_archived' => $this->archiveRule?->isArchived($group) ?? false,
             'explicit_members' => $explicit,
             'can_moderate' => $canModerate,
             'invite_candidates' => $canModerate ? $this->inviteCandidates($group, $scoutYearId) : [],

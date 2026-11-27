@@ -17,13 +17,15 @@ use Modules\Groups\Repository\DiscussionGroup;
 final class GroupListItem
 {
     /**
+     * @param bool $isArchived Service\GroupArchiveRule::isArchived() —
+     *        by hand, for inactivity, or because its scout year is over
      * @param int[] $sectionIds
      * @param bool $hasUnread whether somebody else has published a visible
      *        message or reply in the group since this account last opened
      *        it (issue #1349) — never a reaction or a reopening, which only
      *        move the activity clock. A group never opened is measured from
-     *        its creation, so an empty one is never "new"; a past-year
-     *        archive and a group the account only reads as a site admin
+     *        its creation, so an empty one is never "new"; an archived
+     *        group and a group the account only reads as a site admin
      *        never carry it (Service\GroupListService::hasUnread()).
      * @param int $memberCount how many people are in the group, invited
      *        and section-derived taken together and counted once. Not the

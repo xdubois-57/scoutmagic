@@ -112,7 +112,7 @@ class GroupMemberControllerTest extends TestCase
     ): GroupMemberController {
         AuthSession::login(1, 'parent@test.be', $role);
 
-        $access = new GroupAccessService($this->memberRepo, $this->sectionRepo, new SectionMembershipRepository($this->pdo));
+        $access = new GroupAccessService($this->memberRepo, $this->sectionRepo, new SectionMembershipRepository($this->pdo), \Tests\Modules\Groups\GroupsTestHelper::archiveRule($this->pdo));
 
         $memberService = $this->createStub(MemberService::class);
         $memberService->method('getLinkedMembers')->willReturn(array_map(fn(int $id) => $this->profile($id), $linkedMemberIds));
@@ -171,7 +171,8 @@ class GroupMemberControllerTest extends TestCase
             // do not set up.
             $this->recipientResolverStub(),
             $accountRepo,
-            $notifications
+            $notifications,
+            GroupsTestHelper::archiveRule($this->pdo)
         );
     }
 
@@ -269,16 +270,16 @@ class GroupMemberControllerTest extends TestCase
      * `can_reopen` was never passed here, so the header claimed « il ne
      * peut plus être rouvert » for EVERY closed group — including one of
      * the current year, which its own page reopens fine. The members page
-     * says "Clôturé" and nothing more; reopening belongs to the group's
+     * says "Archivé" and nothing more; reopening belongs to the group's
      * own page.
      */
-    public function testMembersPageOfAClosedCurrentYearGroupDoesNotClaimItCannotBeReopened(): void
+    public function testMembersPageOfAnArchivedCurrentYearGroupDoesNotClaimItCannotBeReopened(): void
     {
-        $this->groupRepo->setClosed($this->groupId, '2026-01-01 00:00:00');
+        $this->groupRepo->setArchived($this->groupId, '2026-01-01 00:00:00');
 
         $body = $this->controller([$this->moderatorId])->index(new Request('GET', '/g', [], [], [], []), $this->params())->getBody();
 
-        $this->assertStringContainsString('Clôturé', $body);
+        $this->assertStringContainsString('Archivé', $body);
         $this->assertStringNotContainsString('ne peut plus être rouvert', $body);
         $this->assertStringNotContainsString('Rouvrir', $body);
     }

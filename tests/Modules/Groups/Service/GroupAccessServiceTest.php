@@ -47,7 +47,7 @@ class GroupAccessServiceTest extends TestCase
         $this->groupRepo = new GroupRepository($this->pdo);
         $sectionRepo = new GroupSectionRepository($this->pdo);
         $this->memberRepo = new GroupMemberRepository($this->pdo);
-        $this->access = new GroupAccessService($this->memberRepo, $sectionRepo, new SectionMembershipRepository($this->pdo));
+        $this->access = new GroupAccessService($this->memberRepo, $sectionRepo, new SectionMembershipRepository($this->pdo), \Tests\Modules\Groups\GroupsTestHelper::archiveRule($this->pdo));
         $this->groupService = new GroupService($this->groupRepo, $sectionRepo, $this->memberRepo);
 
         $this->currentYearId = GroupsTestHelper::createScoutYear($this->pdo, '2025-2026', true);
@@ -249,27 +249,124 @@ class GroupAccessServiceTest extends TestCase
         $this->assertSame(PostPermission::REASON_NOT_MEMBER, $permission->reason);
     }
 
-    public function testCanPostRefusesAClosedGroup(): void
+    // --- archived (issue #1350): one refusal, three causes -------------
+
+    /**
+     * Archived by hand or for inactivity: both leave a date, and the date
+     * alone is enough. Still readable — archiving is never hiding.
+     */
+    public function testAnArchivedGroupIsReadableButRefusesParticipation(): void
     {
         $groupId = $this->sectionGroup();
         $memberId = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'M7', $this->louveteauxId, $this->currentYearId);
-        $this->groupRepo->setClosed($groupId, '2026-02-01 10:00:00');
+        $this->groupRepo->setArchived($groupId, '2026-02-01 10:00:00');
+        $group = $this->groupRepo->findById($groupId);
 
-        $permission = $this->access->canPost($this->groupRepo->findById($groupId), $this->context([$memberId]));
-        $this->assertFalse($permission->allowed);
-        $this->assertSame(PostPermission::REASON_CLOSED, $permission->reason);
-        $this->assertStringContainsString('clôturé', $permission->message);
+        $this->assertTrue($this->access->canRead($group, $this->context([$memberId])));
+        $this->assertArchivedRefusal($this->access->canParticipate($group, $this->context([$memberId])));
+        $this->assertArchivedRefusal($this->access->canPost($group, $this->context([$memberId])));
     }
 
-    public function testCanPostRefusesAGroupFromANonEffectiveYear(): void
+    /**
+     * The end-of-year cause, in the window between the public year
+     * changing and the daily task stamping a date: no date at all, and
+     * participation is refused from the first second all the same, with
+     * the very same reason and sentence.
+     */
+    public function testAPastYearGroupWithNoDateYetIsAlreadyArchived(): void
     {
         $creator = GroupsTestHelper::createMember($this->pdo, 'C5');
         $groupId = $this->groupService->createSectionGroup('G', $this->louveteauxId, $this->pastYearId, $creator);
         $thenMember = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'THEN2', $this->louveteauxId, $this->pastYearId);
+        $group = $this->groupRepo->findById($groupId);
+        $this->assertNull($group->archivedAt);
 
-        $permission = $this->access->canPost($this->groupRepo->findById($groupId), $this->context([$thenMember]));
+        $this->assertTrue($this->access->canRead($group, $this->context([$thenMember])));
+        $this->assertArchivedRefusal($this->access->canParticipate($group, $this->context([$thenMember])));
+    }
+
+    /**
+     * The end-of-year task has run: the date is there too. Nothing about
+     * the answer changes.
+     */
+    public function testAPastYearGroupArchivedByTheYearEndTaskRefusesParticipation(): void
+    {
+        $creator = GroupsTestHelper::createMember($this->pdo, 'C5B');
+        $groupId = $this->groupService->createSectionGroup('G', $this->louveteauxId, $this->pastYearId, $creator);
+        $thenMember = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'THEN3', $this->louveteauxId, $this->pastYearId);
+        $this->groupRepo->setArchived($groupId, '2025-09-02 03:00:00');
+
+        $this->assertArchivedRefusal(
+            $this->access->canParticipate($this->groupRepo->findById($groupId), $this->context([$thenMember]))
+        );
+    }
+
+    /**
+     * A chief previewing the past year — the session's effective year IS
+     * the group's — used to be let back in: « past » was "not the
+     * session's year". It is measured against the public year now.
+     */
+    public function testPreviewingThePastYearDoesNotReopenItsGroups(): void
+    {
+        $creator = GroupsTestHelper::createMember($this->pdo, 'C5C');
+        $groupId = $this->groupService->createSectionGroup('G', $this->louveteauxId, $this->pastYearId, $creator);
+        $thenMember = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'THEN4', $this->louveteauxId, $this->pastYearId);
+
+        $permission = $this->access->canParticipate(
+            $this->groupRepo->findById($groupId),
+            $this->context([$thenMember], 'chief', true, $this->pastYearId)
+        );
+
+        $this->assertArchivedRefusal($permission);
+    }
+
+    /**
+     * The other direction: a session on the year being prepared (the
+     * staff year) still takes part in the current year's groups, which
+     * are not archived for anybody.
+     */
+    public function testASessionOnTheNextYearStillTakesPartInTheCurrentYearsGroups(): void
+    {
+        $nextYearId = GroupsTestHelper::createScoutYear($this->pdo, '2026-2027', false);
+        $groupId = $this->sectionGroup();
+        $memberId = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'M7B', $this->louveteauxId, $this->currentYearId);
+
+        $this->assertTrue(
+            $this->access->canParticipate(
+                $this->groupRepo->findById($groupId),
+                $this->context([$memberId], 'chief', true, $nextYearId)
+            )->allowed
+        );
+    }
+
+    /**
+     * A future year's group is prepared in advance and is never « past »,
+     * whatever year the session is on.
+     */
+    public function testAFutureYearGroupIsNotArchived(): void
+    {
+        $nextYearId = GroupsTestHelper::createScoutYear($this->pdo, '2026-2027', false);
+        $creator = GroupsTestHelper::createMember($this->pdo, 'C5D');
+        $groupId = $this->groupService->createSectionGroup('G', $this->louveteauxId, $nextYearId, $creator);
+        $nextMember = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'NEXT1', $this->louveteauxId, $nextYearId);
+
+        $this->assertTrue(
+            $this->access->canParticipate(
+                $this->groupRepo->findById($groupId),
+                $this->context([$nextMember], 'identified', true, $nextYearId)
+            )->allowed
+        );
+    }
+
+    private function assertArchivedRefusal(PostPermission $permission): void
+    {
         $this->assertFalse($permission->allowed);
-        $this->assertSame(PostPermission::REASON_PAST_YEAR, $permission->reason);
+        $this->assertSame(PostPermission::REASON_ARCHIVED, $permission->reason);
+        $this->assertSame(GroupAccessService::ARCHIVED_MESSAGE, $permission->message);
+        $this->assertSame(
+            'Ce groupe est archivé : vous pouvez encore le consulter, mais plus y participer.',
+            $permission->message
+        );
     }
 
     public function testCanPostRefusesAnIncompleteProfileAndPointsAtMonCompte(): void
@@ -346,20 +443,20 @@ class GroupAccessServiceTest extends TestCase
     }
 
     /**
-     * The policy is the LAST thing checked, so a closed group still says
-     * "clôturé" rather than blaming a restriction that is not the reason
-     * this member cannot write.
+     * The policy is the LAST thing checked, so an archived group still
+     * says "archivé" rather than blaming a restriction that is not the
+     * reason this member cannot write.
      */
-    public function testAClosedModeratorsOnlyGroupStillExplainsItselfAsClosed(): void
+    public function testAnArchivedModeratorsOnlyGroupStillExplainsItselfAsArchived(): void
     {
         $groupId = $this->sectionGroup();
         $memberId = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'M23', $this->louveteauxId, $this->currentYearId);
         $this->groupRepo->setPostingPolicy($groupId, DiscussionGroup::POSTING_MODERATORS);
-        $this->groupRepo->setClosed($groupId, '2026-02-01 10:00:00');
+        $this->groupRepo->setArchived($groupId, '2026-02-01 10:00:00');
 
         $permission = $this->access->canPost($this->groupRepo->findById($groupId), $this->context([$memberId]));
 
-        $this->assertSame(PostPermission::REASON_CLOSED, $permission->reason);
+        $this->assertSame(PostPermission::REASON_ARCHIVED, $permission->reason);
     }
 
     public function testAGroupPublishesToEveryMemberByDefault(): void

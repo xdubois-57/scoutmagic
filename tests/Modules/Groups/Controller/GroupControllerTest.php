@@ -138,7 +138,7 @@ class GroupControllerTest extends TestCase
 
         $sectionRepo = new GroupSectionRepository($this->pdo);
         $memberRepo = new GroupMemberRepository($this->pdo);
-        $access = new GroupAccessService($memberRepo, $sectionRepo, new SectionMembershipRepository($this->pdo));
+        $access = new GroupAccessService($memberRepo, $sectionRepo, new SectionMembershipRepository($this->pdo), \Tests\Modules\Groups\GroupsTestHelper::archiveRule($this->pdo));
         $readRepo = new \Modules\Groups\Repository\GroupReadRepository($this->pdo);
         $this->readStateService = new \Modules\Groups\Service\GroupReadStateService($readRepo, $access);
         $listService = new GroupListService(
@@ -148,6 +148,7 @@ class GroupControllerTest extends TestCase
             new SectionMembershipRepository($this->pdo),
             new \Modules\Groups\Repository\PostRepository($this->pdo),
             new \Modules\Groups\Repository\ReplyRepository($this->pdo),
+            \Tests\Modules\Groups\GroupsTestHelper::archiveRule($this->pdo),
             $readRepo
         );
 
@@ -231,6 +232,7 @@ class GroupControllerTest extends TestCase
             $feedService,
             $postMediaService,
             $postRepo,
+            \Tests\Modules\Groups\GroupsTestHelper::archiveRule($this->pdo),
             // A REAL SectionService here, not the mock above: the sync's
             // whole job is reading which sections exist, and a mock
             // returning [] would make these tests pass by doing nothing.
@@ -252,7 +254,8 @@ class GroupControllerTest extends TestCase
                 $this->groupRepo,
                 new GroupMemberRepository($this->pdo),
                 new \Core\Config\SettingService(new \Core\Config\SettingRepository($this->pdo)),
-                new \Core\Journal\JournalService(new \Core\Journal\JournalRepository($this->pdo))
+                new \Core\Journal\JournalService(new \Core\Journal\JournalRepository($this->pdo)),
+                \Tests\Modules\Groups\GroupsTestHelper::archiveRule($this->pdo)
             ),
             null,
             // A real read-state service rather than null: production
@@ -470,7 +473,7 @@ class GroupControllerTest extends TestCase
         for ($i = 0; $i < 5; $i++) {
             $ids[] = $this->groupRepo->create("Groupe {$i}", null, null, $creator);
         }
-        $this->groupRepo->setClosed($ids[0], '2026-01-01 00:00:00');
+        $this->groupRepo->setArchived($ids[0], '2026-01-01 00:00:00');
         $_POST = ['name' => 'Le remplaçant', '_csrf_token' => $this->csrfToken()];
 
         $this->controller([$creator])->create($this->postRequest(), []);
@@ -478,7 +481,7 @@ class GroupControllerTest extends TestCase
         // Six rows in total, but only five of them OPEN — which is what
         // the quota counts, and why the sixth creation was allowed.
         $this->assertSame(6, $this->countInvitationGroupsBy($creator));
-        $this->assertSame(5, $this->groupRepo->countOpenCreatedBy($creator));
+        $this->assertSame(5, $this->groupRepo->countActiveCreatedBy($creator, '2025-09-01'));
     }
 
     private function countInvitationGroupsBy(int $memberId): int
@@ -1215,16 +1218,53 @@ class GroupControllerTest extends TestCase
         $this->assertSame(404, $response->getStatusCode());
     }
 
-    public function testShowExplainsWhyPostingIsRefusedOnAClosedGroup(): void
+    public function testShowExplainsWhyPostingIsRefusedOnAnArchivedGroup(): void
     {
         $creator = GroupsTestHelper::createMember($this->pdo, 'C4');
         $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator, 1);
-        $this->groupRepo->setClosed($groupId, '2026-02-01 00:00:00');
+        $this->groupRepo->setArchived($groupId, '2026-02-01 00:00:00');
         $member = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'M4', $this->sectionId, $this->currentYearId);
 
         $body = $this->controller([$member])->show(new Request('GET', '/groups/' . $groupId, [], [], [], []), ['id' => (string) $groupId])->getBody();
 
-        $this->assertStringContainsString('clôturé', $body);
+        $this->assertStringContainsString(GroupAccessService::ARCHIVED_MESSAGE, $body);
+    }
+
+    /**
+     * A past-year group with no date yet is archived all the same: its
+     * moderator is offered no « archive » button (it used to be, the
+     * group not being « closed »), no « Rouvrir » either, and is told why.
+     */
+    public function testAnUndatedPastYearGroupShowsAsArchivedAndNotReopenable(): void
+    {
+        $pastYearId = GroupsTestHelper::createScoutYear($this->pdo, '2024-2025', false);
+        $creator = GroupsTestHelper::createMember($this->pdo, 'C4P');
+        $groupId = $this->groupService->createSectionGroup('Louveteaux 24-25', $this->sectionId, $pastYearId, $creator, 1);
+        $admin = GroupsTestHelper::createMember($this->pdo, 'ADM4P');
+
+        $body = $this->controller([$admin], 'admin')
+            ->show(new Request('GET', '/groups/' . $groupId, [], [], [], []), ['id' => (string) $groupId])->getBody();
+
+        $this->assertStringContainsString('Archivé', $body);
+        $this->assertStringNotContainsString('/groups/' . $groupId . '/close', $body);
+        $this->assertStringNotContainsString('/groups/' . $groupId . '/reopen', $body);
+        $this->assertStringContainsString('ne peut plus être rouvert', $body);
+    }
+
+    /** A current-year group archived by hand is reopenable from its page. */
+    public function testAnArchivedCurrentYearGroupOffersRouvrir(): void
+    {
+        $creator = GroupsTestHelper::createMember($this->pdo, 'C4Q');
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator, 1);
+        $this->groupRepo->setArchived($groupId, '2026-02-01 00:00:00');
+        $admin = GroupsTestHelper::createMember($this->pdo, 'ADM4Q');
+
+        $body = $this->controller([$admin], 'admin')
+            ->show(new Request('GET', '/groups/' . $groupId, [], [], [], []), ['id' => (string) $groupId])->getBody();
+
+        $this->assertStringContainsString('/groups/' . $groupId . '/reopen', $body);
+        $this->assertStringNotContainsString('/groups/' . $groupId . '/close', $body);
+        $this->assertStringNotContainsString('ne peut plus être rouvert', $body);
     }
 
     public function testCreateRejectsAMissingCsrfToken(): void

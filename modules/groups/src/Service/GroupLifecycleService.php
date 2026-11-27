@@ -21,8 +21,17 @@ use Modules\Groups\Repository\Post;
 use Modules\Groups\Repository\PostRepository;
 
 /**
- * Automatic closure and the two retention purges — everything that
+ * Automatic archiving and the two retention purges — everything that
  * happens to a group without anybody asking.
+ *
+ * A group is archived (issue #1350: one state, « Archivé », replacing the
+ * old « Clôturé » next to « Année passée ») in three ways, and this
+ * service owns the two automatic ones — after a stretch of inactivity,
+ * and once its scout year is over. The third, by hand, is
+ * Service\GroupMembershipService::archive(). Whatever the cause, the
+ * archive date is stamped ONCE: no pass here selects a group that already
+ * has one, so a daily task can never push back the purge that counts from
+ * it.
  *
  * The three durations are settings, re-read on every run, and none of
  * them is configurable per group: a per-group override would let a
@@ -48,11 +57,13 @@ class GroupLifecycleService
 {
     public const SETTING_INACTIVITY_MONTHS = 'groups_inactivity_close_months';
     public const SETTING_POST_RETENTION_MONTHS = 'groups_post_retention_months';
-    public const SETTING_CLOSED_PURGE_MONTHS = 'groups_closed_purge_months';
+    // The key keeps its historical name (no setting migration, #1350);
+    // what it measures is now the time since the ARCHIVE date.
+    public const SETTING_ARCHIVED_PURGE_MONTHS = 'groups_closed_purge_months';
 
     private const DEFAULT_INACTIVITY_MONTHS = 12;
     private const DEFAULT_POST_RETENTION_MONTHS = 24;
-    private const DEFAULT_CLOSED_PURGE_MONTHS = 12;
+    private const DEFAULT_ARCHIVED_PURGE_MONTHS = 12;
 
     /**
      * How much one run may do. Deliberately modest: the expensive part of
@@ -73,41 +84,81 @@ class GroupLifecycleService
         private ScoutYearService $scoutYearService,
         private ScoutYearResolver $scoutYearResolver,
         private SettingService $settingService,
-        private JournalService $journalService
+        private JournalService $journalService,
+        private GroupArchiveRule $archiveRule
     ) {
     }
 
     /**
-     * Closes every group idle for longer than the configured window.
+     * Archives every active group idle for longer than the configured
+     * window.
      *
-     * A closed group is read-only and stays **fully visible** to its
-     * members — closing is not hiding, and this is the whole reason
-     * closure and purge are two separate steps months apart.
+     * An archived group is read-only and stays **fully visible** to its
+     * members — archiving is not hiding, and this is the whole reason
+     * archiving and purge are two separate steps months apart.
      *
-     * @return int groups closed in this pass
+     * @return int groups archived in this pass
      */
-    public function closeInactive(?\DateTimeImmutable $now = null): int
+    public function archiveInactive(?\DateTimeImmutable $now = null): int
     {
         $now ??= $this->now();
         $months = $this->months(self::SETTING_INACTIVITY_MONTHS, self::DEFAULT_INACTIVITY_MONTHS);
         $cutoff = $now->modify("-{$months} months")->format('Y-m-d H:i:s');
 
-        $closed = 0;
-        foreach ($this->groupRepository->findOpenInactiveBefore($cutoff, self::BATCH_SIZE) as $group) {
+        $archived = 0;
+        foreach ($this->groupRepository->findActiveInactiveBefore($cutoff, self::BATCH_SIZE) as $group) {
             // last_activity_at defaults to the creation instant and is
             // only ever bumped forward, so a group that has never held
             // anything is already measured from its creation date — which
             // is exactly what stops every freshly created section group
-            // being closed on the very next nightly run.
-            $this->groupRepository->setClosed($group->id, $now->format('Y-m-d H:i:s'));
-            $this->journal('group_auto_closed', 'Groupe clôturé automatiquement pour inactivité', [
+            // being archived on the very next nightly run.
+            $this->groupRepository->setArchived($group->id, $now->format('Y-m-d H:i:s'));
+            $this->journal('group_auto_archived', 'Groupe archivé automatiquement pour inactivité', [
                 'group_id' => $group->id,
                 'inactive_months' => $months,
             ]);
-            $closed++;
+            $archived++;
         }
 
-        return $closed;
+        return $archived;
+    }
+
+    /**
+     * Stamps an archive date on every group whose scout year is over —
+     * ended before the PUBLIC year started (Service\GroupArchiveRule).
+     *
+     * Such a group is already archived for every reader the moment the
+     * public year changes (the rule's past-year branch); what this pass
+     * adds is the DATE, which is what the purge counts from. Without it a
+     * past-year group that was still active at the year change would
+     * never reach the purge at all.
+     *
+     * Bounded like the other passes, and replayable: a group that already
+     * has a date — archived by hand, for inactivity, or by an earlier run
+     * of this one — is never selected again, so its date never moves.
+     *
+     * @return int groups archived in this pass
+     */
+    public function archiveEndedYears(?\DateTimeImmutable $now = null): int
+    {
+        $now ??= $this->now();
+
+        $candidates = $this->groupRepository->findActiveOfYearsEndedBefore(
+            $this->archiveRule->publicYearStartDate(),
+            self::BATCH_SIZE
+        );
+
+        $archived = 0;
+        foreach ($candidates as $group) {
+            $this->groupRepository->setArchived($group->id, $now->format('Y-m-d H:i:s'));
+            $this->journal('group_auto_archived_year_end', 'Groupe archivé automatiquement en fin d\'année scoute', [
+                'group_id' => $group->id,
+                'scout_year_id' => $group->scoutYearId,
+            ]);
+            $archived++;
+        }
+
+        return $archived;
     }
 
     /**
@@ -147,19 +198,24 @@ class GroupLifecycleService
     }
 
     /**
-     * Deletes groups closed longer ago than the configured window, with
-     * every post, reply, reaction, report and media in them, and the
-     * delegated gallery album itself.
+     * Deletes groups archived longer ago than the configured window —
+     * counted from the archive date, whatever archived them — with every
+     * post, reply, reaction, report and media in them, and the delegated
+     * gallery album itself.
+     *
+     * A group of the public year or of a later one is never purged (see
+     * protectedScoutYearIds()), and a past-year group that has no date
+     * yet waits for archiveEndedYears() to give it one.
      *
      * @return int groups purged in this pass
      */
-    public function purgeClosedGroups(?\DateTimeImmutable $now = null): int
+    public function purgeArchivedGroups(?\DateTimeImmutable $now = null): int
     {
         $now ??= $this->now();
-        $months = $this->months(self::SETTING_CLOSED_PURGE_MONTHS, self::DEFAULT_CLOSED_PURGE_MONTHS);
+        $months = $this->months(self::SETTING_ARCHIVED_PURGE_MONTHS, self::DEFAULT_ARCHIVED_PURGE_MONTHS);
         $cutoff = $now->modify("-{$months} months")->format('Y-m-d H:i:s');
 
-        $candidates = $this->groupRepository->findClosedBefore(
+        $candidates = $this->groupRepository->findArchivedBefore(
             $cutoff,
             $this->protectedScoutYearIds(),
             self::BATCH_SIZE
@@ -170,7 +226,7 @@ class GroupLifecycleService
             $this->deleteGroupWithEverything($group);
             $this->journal('group_purged', 'Groupe supprimé par la conservation', [
                 'group_id' => $group->id,
-                'closed_purge_months' => $months,
+                'archived_purge_months' => $months,
             ]);
             $purged++;
         }
@@ -179,10 +235,10 @@ class GroupLifecycleService
     }
 
     /**
-     * Scout years a group may never be purged from: the effective one and
+     * Scout years a group may never be purged from: the public one and
      * every later one.
      *
-     * Without this, purging a closed section group of the current year
+     * Without this, purging an archived section group of the current year
      * would have Service\SectionGroupSyncService recreate it on its very
      * next run — a delete/recreate loop, forever. Comparing by start_date
      * rather than by id because ids are insertion order, not chronology:

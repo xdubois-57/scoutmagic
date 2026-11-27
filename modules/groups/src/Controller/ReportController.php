@@ -366,9 +366,9 @@ class ReportController extends AbstractController
     }
 
     /**
-     * Reporting needs read access and a member identity, nothing more — a
-     * closed group or a past scout year still gets reported, because an
-     * item that stays readable stays reportable. That is deliberately
+     * Reporting needs read access and a member identity, nothing more — an
+     * archived group, by date or by its year, still gets reported, because
+     * an item that stays readable stays reportable. That is deliberately
      * weaker than canPost(), which governs writes to the conversation
      * itself.
      *

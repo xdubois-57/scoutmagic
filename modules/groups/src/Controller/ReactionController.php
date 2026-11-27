@@ -39,9 +39,9 @@ use Twig\Environment;
  * to THAT group — a post from another group is indistinguishable from a
  * nonexistent one.
  *
- * Writing additionally requires canPost(): a closed group, a past scout
- * year or an incomplete profile refuses a reaction exactly as it refuses a
- * post.
+ * Writing additionally requires canParticipate(): an archived group (by
+ * date or by its scout year) or an incomplete profile refuses a reaction
+ * exactly as it refuses a post.
  */
 class ReactionController extends AbstractController
 {

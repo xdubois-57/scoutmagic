@@ -44,10 +44,17 @@ CREATE TABLE discussion_groups (
     -- group under either value (Service\GroupAccessService::canPost()
     -- versus canParticipate()): a group nobody may answer is not a
     -- restricted group, it is a noticeboard, and this module already has
-    -- "clôturé" for that.
+    -- "archivé" for that.
     posting_policy ENUM('members', 'moderators') NOT NULL DEFAULT 'members',
-    -- Non-NULL closes the group: no new post, no new reply (prompt 4+).
-    -- Reading a closed group stays allowed for its members.
+    -- The ARCHIVE date (issue #1350): set when a moderator archives the
+    -- group, when the inactivity task does, or when the end-of-year task
+    -- does; cleared by a reopening. Kept under its historical name on
+    -- purpose — the schema comparator never drops a column, so a rename
+    -- would strand every date already written. Not the whole answer to
+    -- « archived? »: a group of a past scout year is archived before any
+    -- date reaches it (Service\GroupArchiveRule). Reading an archived
+    -- group stays allowed for its members; taking part does not. The
+    -- purge counts from this date.
     closed_at DATETIME NULL,
     -- Bumped by the module's service layer whenever something happens in
     -- the group (a single writer, so the column can never drift). Drives

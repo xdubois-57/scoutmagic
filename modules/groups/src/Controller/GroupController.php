@@ -23,6 +23,7 @@ use Modules\Groups\Repository\DiscussionGroup;
 use Modules\Groups\Repository\GroupRepository;
 use Modules\Groups\Repository\PostRepository;
 use Modules\Groups\Service\GroupAccessService;
+use Modules\Groups\Service\GroupArchiveRule;
 use Modules\Groups\Service\GroupListItem;
 use Modules\Groups\Service\GroupFeedService;
 use Modules\Groups\Service\GroupListService;
@@ -97,6 +98,9 @@ class GroupController extends AbstractController
         private GroupFeedService $feedService,
         private PostMediaService $postMediaService,
         private PostRepository $postRepository,
+        // Whether a group is archived and whether it may be reopened —
+        // the one rule every page of this module asks (issue #1350).
+        private GroupArchiveRule $archiveRule,
         private ?SectionGroupSyncService $sectionGroupSyncService = null,
         private ?ModeratorBindingService $moderatorBindingService = null,
         private ?GroupMembershipService $membershipService = null,
@@ -155,7 +159,8 @@ class GroupController extends AbstractController
     }
 
     /**
-     * GET /groups/archives — past-year groups the caller was a member of.
+     * GET /groups/archives — the caller's archived groups, whatever
+     * archived them (Service\GroupArchiveRule).
      *
      * @param array<string, string> $params
      */
@@ -202,12 +207,11 @@ class GroupController extends AbstractController
             'group_label' => $this->label($group, $context),
             'badges' => $this->badges($group, $context),
             'can_moderate' => $canModerate,
-            // A past-year group stays a read-only archive (prompt 3), so
-            // the button is not offered — and the header says why rather
-            // than leaving a moderator wondering where it went.
-            'can_reopen' => $canModerate
-                && $group->isClosed()
-                && ($group->scoutYearId === null || $group->scoutYearId === $context->effectiveScoutYearId),
+            // A past-year group stays a read-only archive for good, so the
+            // button is not offered — and the header says why rather than
+            // leaving a moderator wondering where it went. Measured
+            // against the public year, never the session's preview.
+            'can_reopen' => $canModerate && $this->archiveRule->canReopen($group),
             'post_permission' => $this->accessService->canPost($group, $context),
             // What the CARDS need, which is a weaker question than the
             // composer's: commenting, reacting and answering a poll stay
@@ -623,7 +627,7 @@ class GroupController extends AbstractController
             FlashMessage::set(
                 'error',
                 sprintf(
-                    'Vous avez déjà %d groupes ouverts, soit le maximum autorisé. Clôturez-en un avant d\'en créer un '
+                    'Vous avez déjà %d groupes actifs, soit le maximum autorisé. Archivez-en un avant d\'en créer un '
                         . 'nouveau.',
                     $this->membershipService->creationQuota()
                 )
@@ -687,6 +691,12 @@ class GroupController extends AbstractController
             $description = $description === '' ? null : mb_substr($description, 0, self::MAX_DESCRIPTION_LENGTH);
 
             $scoutYearId = $request->getBody('tie_to_year') !== null ? $context->effectiveScoutYearId : null;
+            // A group of a past scout year keeps that year: moving it to
+            // the current one, or to none, would reopen by the back door
+            // an archive Service\GroupArchiveRule says is final.
+            if ($this->archiveRule->isOfPastYear($group)) {
+                $scoutYearId = $group->scoutYearId;
+            }
 
             // Who may publish here. A radio pair, so the submitted value
             // is always one of the two — and anything else is normalised
@@ -703,11 +713,12 @@ class GroupController extends AbstractController
     }
 
     /**
-     * POST /groups/{id}/close — moderator only.
+     * POST /groups/{id}/close — moderator only: archives the group by
+     * hand (issue #1350; the route keeps its historical path).
      *
      * The manual counterpart of Task\CloseInactiveGroupsHandler: a
      * project that is over does not need to wait months for the
-     * inactivity window to notice. Closing is read-only, never hiding —
+     * inactivity window to notice. Archiving is read-only, never hiding —
      * the group stays fully visible to its members.
      *
      * @param array<string, string> $params
@@ -718,10 +729,10 @@ class GroupController extends AbstractController
             DiscussionGroup $group,
             GroupSessionContext $context
         ): Response {
-            $this->membershipService?->close($group, $context->userAccountId);
+            $this->membershipService?->archive($group, $context->userAccountId);
             FlashMessage::set(
                 'success',
-                'Le groupe est clôturé : il reste consultable, mais n\'accepte plus de nouvelle publication.'
+                'Le groupe est archivé : il reste consultable, mais plus personne ne peut y participer.'
             );
 
             return $this->redirect('/groups/' . $group->id);
@@ -731,10 +742,12 @@ class GroupController extends AbstractController
     /**
      * POST /groups/{id}/reopen — moderator only.
      *
-     * Without this, automatic closure would be one-way: a project group
-     * dormant between two camps would close itself and nobody could wake
-     * it up. Reopening resets last_activity_at, or the inactivity task
-     * would close it again on its very next run.
+     * Without this, automatic archiving would be one-way: a project group
+     * dormant between two camps would archive itself and nobody could
+     * wake it up. Reopening resets last_activity_at, or the inactivity
+     * task would archive it again on its very next run. A past-year group
+     * is refused whatever year the session previews
+     * (Service\GroupMembershipService::reopen()).
      *
      * @param array<string, string> $params
      */
@@ -748,11 +761,7 @@ class GroupController extends AbstractController
                 return new Response('Not Found', 404);
             }
 
-            $outcome = $this->membershipService->reopen(
-                $group,
-                $context->effectiveScoutYearId,
-                $context->userAccountId
-            );
+            $outcome = $this->membershipService->reopen($group, $context->userAccountId);
             FlashMessage::set($outcome === ReopenOutcome::REOPENED ? 'success' : 'error', $outcome->message());
 
             return $this->redirect('/groups/' . $group->id);
@@ -860,9 +869,8 @@ class GroupController extends AbstractController
                 'is_archived' => $item->isArchived,
                 'section_names' => $this->sectionNames($item->sectionIds),
                 'member_count' => $item->memberCount,
-                // Never on the archives tab: a past-year group is a read-only
-                // archive, so "you have not caught up" is not a call to
-                // action there. Decided once, in Service\GroupListService,
+                // Never on the archives tab: an archived group is read-only,
+                // so "you have not caught up" is not a call to action there. Decided once, in Service\GroupListService,
                 // which is also what the home band reads (issue #1349).
                 'has_unread' => $item->hasUnread,
             ],
@@ -886,7 +894,7 @@ class GroupController extends AbstractController
     {
         return [
             'is_moderator' => $this->accessService->canModerate($group, $context),
-            'is_archived' => $group->scoutYearId !== null && $group->scoutYearId !== $context->effectiveScoutYearId,
+            'is_archived' => $this->archiveRule->isArchived($group),
             'section_names' => $this->sectionNames($group->sectionId !== null ? [$group->sectionId] : []),
             'is_invitation' => $group->sectionId === null,
         ];

@@ -95,9 +95,6 @@
                         {% if item.is_archived %}
                             {% include 'partials/status_badge.html.twig' with { status: 'archived', label: 'Archivé' } only %}
                         {% endif %}
-                        {% if item.group.isClosed %}
-                            {% include 'partials/status_badge.html.twig' with { status: 'closed', label: 'Clôturé' } only %}
-                        {% endif %}
                     </div>
                     {#
                       The moderator's one-liner, when there is one: an

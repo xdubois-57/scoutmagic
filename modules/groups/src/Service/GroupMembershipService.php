@@ -16,9 +16,9 @@ use Modules\Groups\Repository\GroupRepository;
 use Modules\Groups\Support\Timestamps;
 
 /**
- * The three things a member or a moderator can do to a group's own state,
- * as opposed to its content: leave it, reopen it, and — before either —
- * be allowed to create it at all.
+ * What a member or a moderator can do to a group's own state, as opposed
+ * to its content: leave it, archive and reopen it, and — before any of
+ * that — be allowed to create it at all.
  *
  * Each answers with a LeaveOutcome/ReopenOutcome rather than a bool, so
  * the Controller can say in French *why* something was refused without
@@ -37,7 +37,8 @@ class GroupMembershipService
         private GroupRepository $groupRepository,
         private GroupMemberRepository $memberRepository,
         private SettingService $settingService,
-        private JournalService $journalService
+        private JournalService $journalService,
+        private GroupArchiveRule $archiveRule
     ) {
     }
 
@@ -74,30 +75,33 @@ class GroupMembershipService
     }
 
     /**
-     * Reopens a closed group.
+     * Reopens an archived group.
      *
      * **last_activity_at is reset to now**, which is the whole point: the
-     * group was almost certainly closed BY the inactivity task, so
-     * reopening without resetting it would have that same task close it
-     * again on its next nightly run — and would leave the purge clock
-     * still running against a group somebody just said they still wanted.
+     * group was quite possibly archived BY the inactivity task, so
+     * reopening without resetting it would have that same task archive it
+     * again on its next nightly run. The archive date is cleared, so the
+     * purge clock stops; a later archiving starts a new period with a new
+     * date. Neither write is content, so reopening never makes the group
+     * « Nouveau » for anybody (Service\GroupListService::hasUnread()).
      *
-     * A past-year group is refused: prompt 3's rule that an archived
-     * group is a read-only archive is not being relaxed here, and
-     * reopening one would put it back in the current year's list under
-     * the wrong year.
+     * A group of a past scout year is refused, whatever year the session
+     * previews (Service\GroupArchiveRule::canReopen(), measured against
+     * the public year): that archive is final, and reopening it would put
+     * it back among the active groups under a year that is over. A group
+     * of the current year, of a future one, or of no year is reopenable.
      */
-    public function reopen(DiscussionGroup $group, int $effectiveScoutYearId, ?int $actorAccountId): ReopenOutcome
+    public function reopen(DiscussionGroup $group, ?int $actorAccountId): ReopenOutcome
     {
-        if (!$group->isClosed()) {
-            return ReopenOutcome::NOT_CLOSED;
+        if (!$this->archiveRule->isArchived($group)) {
+            return ReopenOutcome::NOT_ARCHIVED;
         }
 
-        if ($group->scoutYearId !== null && $group->scoutYearId !== $effectiveScoutYearId) {
+        if (!$this->archiveRule->canReopen($group)) {
             return ReopenOutcome::PAST_YEAR;
         }
 
-        $this->groupRepository->setClosed($group->id, null);
+        $this->groupRepository->setArchived($group->id, null);
         $this->groupRepository->touchActivity($group->id, Timestamps::now());
 
         $this->journal('group_reopened', 'Groupe rouvert', ['group_id' => $group->id], $actorAccountId);
@@ -106,18 +110,23 @@ class GroupMembershipService
     }
 
     /**
-     * Closes a group by hand — the counterpart of reopen(), and what a
+     * Archives a group by hand — the counterpart of reopen(), and what a
      * moderator does when a project is over rather than waiting months
      * for the inactivity task to notice.
+     *
+     * A group already archived, for whatever cause, is left as it is: a
+     * date already stamped is the one the purge counts from, and a second
+     * click must not push it back. A past-year group with no date yet is
+     * left to the end-of-year task too — it is archived already.
      */
-    public function close(DiscussionGroup $group, ?int $actorAccountId): void
+    public function archive(DiscussionGroup $group, ?int $actorAccountId): void
     {
-        if ($group->isClosed()) {
+        if ($this->archiveRule->isArchived($group)) {
             return;
         }
 
-        $this->groupRepository->setClosed($group->id, Timestamps::now());
-        $this->journal('group_closed', 'Groupe clôturé par un modérateur', ['group_id' => $group->id], $actorAccountId);
+        $this->groupRepository->setArchived($group->id, Timestamps::now());
+        $this->journal('group_archived', 'Groupe archivé par un modérateur', ['group_id' => $group->id], $actorAccountId);
     }
 
     /**
@@ -129,7 +138,8 @@ class GroupMembershipService
      */
     public function canCreateAnotherGroup(int $memberId): bool
     {
-        return $this->groupRepository->countOpenCreatedBy($memberId) < $this->creationQuota();
+        return $this->groupRepository->countActiveCreatedBy($memberId, $this->archiveRule->publicYearStartDate())
+            < $this->creationQuota();
     }
 
     /**

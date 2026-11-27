@@ -55,6 +55,7 @@ class GroupListServiceTest extends TestCase
             $membershipRepo,
             new PostRepository($this->pdo),
             new ReplyRepository($this->pdo),
+            \Tests\Modules\Groups\GroupsTestHelper::archiveRule($this->pdo),
             $this->readRepo
         );
         $this->groupService = new GroupService($groupRepo, $sectionRepo, $memberRepo);
@@ -69,9 +70,15 @@ class GroupListServiceTest extends TestCase
     /**
      * @param int[] $memberIds
      */
-    private function context(array $memberIds, string $role = 'identified'): GroupSessionContext
+    private function context(array $memberIds, string $role = 'identified', ?int $sessionYearId = null): GroupSessionContext
     {
-        return new GroupSessionContext(1, Role::fromString($role), $memberIds, $this->currentYearId, true);
+        return new GroupSessionContext(
+            1,
+            Role::fromString($role),
+            $memberIds,
+            $sessionYearId ?? $this->currentYearId,
+            true
+        );
     }
 
     /**
@@ -115,6 +122,127 @@ class GroupListServiceTest extends TestCase
 
         $this->assertSame(['Groupe de travail'], $this->names($this->listService->findCurrent($context)));
         $this->assertSame([], $this->listService->findArchived($context));
+    }
+
+    // ── One archived state (issue #1350) ────────────────────────────────
+
+    /**
+     * Archived by hand or for inactivity — a date, on a group of the
+     * current year. It used to stay in the current list with a « Clôturé »
+     * badge beside a separate « Archivé »; there is one state now, and it
+     * is the Archives tab.
+     */
+    public function testAGroupWithAnArchiveDateMovesToTheArchives(): void
+    {
+        $creator = GroupsTestHelper::createMember($this->pdo, 'A1');
+        $groupId = $this->groupService->createInvitationGroup('Projet camp', $this->currentYearId, $creator);
+        $this->groupRepo->setArchived($groupId, '2026-02-01 10:00:00');
+
+        $context = $this->context([$creator]);
+
+        $this->assertSame([], $this->names($this->listService->findCurrent($context)));
+        $archived = $this->listService->findArchived($context);
+        $this->assertSame(['Projet camp'], $this->names($archived));
+        $this->assertTrue($archived[0]->isArchived);
+    }
+
+    /** A year-less group has no year to be over, but a date archives it all the same. */
+    public function testAYearLessGroupWithAnArchiveDateIsArchived(): void
+    {
+        $creator = GroupsTestHelper::createMember($this->pdo, 'A2');
+        $groupId = $this->groupService->createInvitationGroup('Groupe de travail', null, $creator);
+        $this->groupRepo->setArchived($groupId, '2026-02-01 10:00:00');
+
+        $this->assertSame(['Groupe de travail'], $this->names($this->listService->findArchived($this->context([$creator]))));
+    }
+
+    /**
+     * A group prepared for next year is not « past » — it used to be
+     * filed under Archives merely for not being the session's year.
+     */
+    public function testAFutureYearGroupIsActive(): void
+    {
+        $nextYearId = GroupsTestHelper::createScoutYear($this->pdo, '2026-2027', false);
+        $creator = GroupsTestHelper::createMember($this->pdo, 'A3');
+        $this->groupService->createInvitationGroup('Camp 2027', $nextYearId, $creator);
+
+        $context = $this->context([$creator]);
+
+        $this->assertSame(['Camp 2027'], $this->names($this->listService->findCurrent($context)));
+        $this->assertSame([], $this->listService->findArchived($context));
+    }
+
+    /**
+     * Which year the session is on decides nothing: a session on the past
+     * year does not see its groups come back to life, nor the current
+     * year's go to the archives.
+     */
+    public function testASessionOnAnotherYearChangesNoGroupsStatus(): void
+    {
+        $creator = GroupsTestHelper::createMember($this->pdo, 'A4');
+        $this->groupService->createInvitationGroup('Cette année', $this->currentYearId, $creator);
+        $this->groupService->createInvitationGroup('L\'an passé', $this->pastYearId, $creator);
+
+        $onPastYear = $this->context([$creator], 'chief', $this->pastYearId);
+
+        $this->assertSame(['Cette année'], $this->names($this->listService->findCurrent($onPastYear)));
+        $this->assertSame(['L\'an passé'], $this->names($this->listService->findArchived($onPastYear)));
+        // And nothing was written on the way.
+        foreach ($this->groupRepo->findAll() as $group) {
+            $this->assertNull($group->archivedAt);
+        }
+    }
+
+    /**
+     * « Past » compares periods, never ids: a year imported late gets a
+     * higher id than the current one and is still over.
+     */
+    public function testAYearImportedLateIsPastByItsDatesNotByItsId(): void
+    {
+        $lateYearId = GroupsTestHelper::createScoutYear($this->pdo, '2019-2020', false);
+        $this->assertGreaterThan($this->currentYearId, $lateYearId);
+        $creator = GroupsTestHelper::createMember($this->pdo, 'A5');
+        $this->groupService->createInvitationGroup('Très ancien', $lateYearId, $creator);
+
+        $this->assertSame(['Très ancien'], $this->names($this->listService->findArchived($this->context([$creator]))));
+    }
+
+    /**
+     * Archiving and reopening write no content: neither makes a group
+     * « Nouveau » for somebody who had read everything in it.
+     */
+    public function testArchivingAndReopeningNeverRaiseTheBadge(): void
+    {
+        $creator = GroupsTestHelper::createMember($this->pdo, 'A6');
+        $other = GroupsTestHelper::createMember($this->pdo, 'A6B');
+        $groupId = $this->groupOfTwo($creator, $other);
+        $this->postBy($groupId, $other, '2020-01-01 10:00:00');
+        $this->readRepo->markRead($groupId, $creator, '2020-01-01 11:00:00');
+        $membership = new \Modules\Groups\Service\GroupMembershipService(
+            $this->groupRepo,
+            new GroupMemberRepository($this->pdo),
+            new \Core\Config\SettingService(new \Core\Config\SettingRepository($this->pdo)),
+            new \Core\Journal\JournalService(new \Core\Journal\JournalRepository($this->pdo)),
+            GroupsTestHelper::archiveRule($this->pdo)
+        );
+
+        $membership->archive($this->groupRepo->findById($groupId), null);
+        $this->assertFalse($this->listService->findArchived($this->context([$creator]))[0]->hasUnread);
+
+        $membership->reopen($this->groupRepo->findById($groupId), null);
+        $this->assertFalse($this->unread($creator));
+    }
+
+    /** An archive date hides the badge just as a past year does: nothing there to catch up on. */
+    public function testAGroupArchivedByDateCarriesNoBadgeEvenWithUnreadContent(): void
+    {
+        $creator = GroupsTestHelper::createMember($this->pdo, 'A7');
+        $other = GroupsTestHelper::createMember($this->pdo, 'A7B');
+        $groupId = $this->groupOfTwo($creator, $other);
+        $this->postBy($groupId, $other);
+        $this->groupRepo->setArchived($groupId, '2026-02-01 10:00:00');
+
+        $this->assertFalse($this->listService->findArchived($this->context([$creator]))[0]->hasUnread);
     }
 
     // ── The headcount on the card ───────────────────────────────────────
@@ -233,7 +361,7 @@ class GroupListServiceTest extends TestCase
         $groupRepo = new GroupRepository($this->pdo);
         $sectionRepo = new GroupSectionRepository($this->pdo);
         $memberRepo = new GroupMemberRepository($this->pdo);
-        $access = new \Modules\Groups\Service\GroupAccessService($memberRepo, $sectionRepo, new SectionMembershipRepository($this->pdo));
+        $access = new \Modules\Groups\Service\GroupAccessService($memberRepo, $sectionRepo, new SectionMembershipRepository($this->pdo), \Tests\Modules\Groups\GroupsTestHelper::archiveRule($this->pdo));
 
         $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator);
         $this->groupService->createSectionGroup('Éclaireurs', $this->otherSectionId, $this->currentYearId, $creator);
@@ -544,7 +672,8 @@ class GroupListServiceTest extends TestCase
             new GroupMemberRepository($this->pdo),
             new SectionMembershipRepository($this->pdo),
             new PostRepository($this->pdo),
-            new ReplyRepository($this->pdo)
+            new ReplyRepository($this->pdo),
+            \Tests\Modules\Groups\GroupsTestHelper::archiveRule($this->pdo)
         );
 
         $this->assertTrue($service->findCurrent($this->context([$creator]))[0]->hasUnread);

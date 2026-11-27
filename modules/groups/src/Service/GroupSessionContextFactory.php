@@ -45,11 +45,13 @@ class GroupSessionContextFactory
         $roleEnum = Role::fromString($role);
         // The authorization year, never a chief's year preview (issue
         // #1124). Everything this context carries decides an access — the
-        // linked members a group's membership is checked against, the year
-        // a past group is read-only relative to — and a preview is chosen
-        // by the person it would authorise, for any year that ever existed:
-        // a chief previewing a past year would post in that year's groups
-        // again, as that year's parent of a child.
+        // linked members a group's membership is checked against — and a
+        // preview is chosen by the person it would authorise, for any year
+        // that ever existed: a chief previewing a past year would act in
+        // that year's groups again, as that year's parent of a child.
+        // Whether a group is ARCHIVED is not this context's to say at all:
+        // Service\GroupArchiveRule measures it against the public year
+        // (issue #1350).
         $effectiveYear = $this->scoutYearResolver->getAuthorizationYear();
 
         $linkedMemberIds = [];

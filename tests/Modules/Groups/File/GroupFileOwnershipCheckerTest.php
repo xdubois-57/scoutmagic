@@ -48,7 +48,7 @@ class GroupFileOwnershipCheckerTest extends TestCase
         $this->groupRepo = new GroupRepository($this->pdo);
         $sectionRepo = new GroupSectionRepository($this->pdo);
         $memberRepo = new GroupMemberRepository($this->pdo);
-        $access = new GroupAccessService($memberRepo, $sectionRepo, new SectionMembershipRepository($this->pdo));
+        $access = new GroupAccessService($memberRepo, $sectionRepo, new SectionMembershipRepository($this->pdo), \Tests\Modules\Groups\GroupsTestHelper::archiveRule($this->pdo));
         $this->groupService = new GroupService($this->groupRepo, $sectionRepo, $memberRepo);
 
         $resolver = $this->createStub(ScoutYearResolver::class);
@@ -215,7 +215,8 @@ class GroupFileOwnershipCheckerTest extends TestCase
             new GroupAccessService(
                 new GroupMemberRepository($this->pdo),
                 new GroupSectionRepository($this->pdo),
-                new SectionMembershipRepository($this->pdo)
+                new SectionMembershipRepository($this->pdo),
+                \Tests\Modules\Groups\GroupsTestHelper::archiveRule($this->pdo)
             ),
             $resolver,
             GroupsTestHelper::hiddenGroupFiles($this->pdo, $albums)

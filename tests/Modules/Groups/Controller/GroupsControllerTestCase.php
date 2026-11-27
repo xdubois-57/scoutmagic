@@ -119,12 +119,26 @@ abstract class GroupsControllerTestCase extends TestCase
         $_FILES = [];
     }
 
+    /**
+     * The fixture's year ends: the public year moves on to the next one.
+     * No archive date is written — the group is archived by its year
+     * alone, as it is between the switch and the daily task (#1350).
+     */
+    protected function endTheFixtureYear(): void
+    {
+        GroupsTestHelper::setPublicYear(
+            $this->pdo,
+            GroupsTestHelper::createScoutYear($this->pdo, '2026-2027', false)
+        );
+    }
+
     protected function accessService(): GroupAccessService
     {
         return new GroupAccessService(
             new GroupMemberRepository($this->pdo),
             new GroupSectionRepository($this->pdo),
-            new SectionMembershipRepository($this->pdo)
+            new SectionMembershipRepository($this->pdo),
+            \Tests\Modules\Groups\GroupsTestHelper::archiveRule($this->pdo)
         );
     }
 

@@ -18,7 +18,7 @@ use PHPUnit\Framework\Attributes\Group;
 use Tests\Modules\Groups\GroupsTestHelper;
 
 /**
- * Closing, reopening and leaving over HTTP: CSRF and the authorisation
+ * Archiving, reopening and leaving over HTTP: CSRF and the authorisation
  * boundary in both directions for each.
  *
  * @group database
@@ -47,17 +47,21 @@ class GroupLifecycleActionsTest extends GroupsControllerTestCase
             \Core\Http\Controller\AbstractController::SESSION_EXPIRED_MESSAGE,
             \Core\Http\FlashMessage::get()['message'] ?? null
         );
-        $this->assertFalse($this->group()->isClosed());
+        $this->assertNull($this->group()->archivedAt);
     }
 
-    public function testAModeratorMayCloseTheGroup(): void
+    public function testAModeratorMayArchiveTheGroup(): void
     {
         $this->withCsrf([]);
 
         $response = $this->groupController([$this->moderatorMemberId], self::OTHER_ACCOUNT)->close($this->request(), $this->params());
 
         $this->assertSame(302, $response->getStatusCode());
-        $this->assertTrue($this->group()->isClosed());
+        $this->assertNotNull($this->group()->archivedAt);
+        $this->assertSame(
+            'Le groupe est archivé : il reste consultable, mais plus personne ne peut y participer.',
+            \Core\Http\FlashMessage::get()['message'] ?? null
+        );
     }
 
     public function testAnOrdinaryMemberMayNotCloseTheGroup(): void
@@ -67,7 +71,7 @@ class GroupLifecycleActionsTest extends GroupsControllerTestCase
         $response = $this->groupController([$this->memberId])->close($this->request(), $this->params());
 
         $this->assertSame(403, $response->getStatusCode());
-        $this->assertFalse($this->group()->isClosed());
+        $this->assertNull($this->group()->archivedAt);
     }
 
     public function testANonMemberGets404OnCloseRatherThan403(): void
@@ -94,7 +98,7 @@ class GroupLifecycleActionsTest extends GroupsControllerTestCase
             \Core\Http\Controller\AbstractController::SESSION_EXPIRED_MESSAGE,
             \Core\Http\FlashMessage::get()['message'] ?? null
         );
-        $this->assertTrue($this->group()->isClosed());
+        $this->assertNotNull($this->group()->archivedAt);
     }
 
     public function testAModeratorMayReopenAClosedGroup(): void
@@ -105,7 +109,7 @@ class GroupLifecycleActionsTest extends GroupsControllerTestCase
         $response = $this->groupController([$this->moderatorMemberId], self::OTHER_ACCOUNT)->reopen($this->request(), $this->params());
 
         $this->assertSame(302, $response->getStatusCode());
-        $this->assertFalse($this->group()->isClosed());
+        $this->assertNull($this->group()->archivedAt);
     }
 
     /**
@@ -121,7 +125,7 @@ class GroupLifecycleActionsTest extends GroupsControllerTestCase
             ->reopen($this->request(), $this->params());
 
         $this->assertSame(302, $response->getStatusCode());
-        $this->assertFalse($this->group()->isClosed());
+        $this->assertNull($this->group()->archivedAt);
     }
 
     public function testAnOrdinaryMemberMayNotReopen(): void
@@ -132,7 +136,7 @@ class GroupLifecycleActionsTest extends GroupsControllerTestCase
         $response = $this->groupController([$this->memberId])->reopen($this->request(), $this->params());
 
         $this->assertSame(403, $response->getStatusCode());
-        $this->assertTrue($this->group()->isClosed());
+        $this->assertNotNull($this->group()->archivedAt);
     }
 
     /**
@@ -145,7 +149,7 @@ class GroupLifecycleActionsTest extends GroupsControllerTestCase
         $groupRepo = new GroupRepository($this->pdo);
         $groupId = $groupRepo->create('Ancien', $pastYearId, null, $this->moderatorMemberId);
         $this->memberRepo->add($groupId, $this->moderatorMemberId, true, null, self::OTHER_ACCOUNT);
-        $groupRepo->setClosed($groupId, '2025-01-01 00:00:00');
+        $groupRepo->setArchived($groupId, '2025-01-01 00:00:00');
         $this->withCsrf([]);
 
         $response = $this->groupController([$this->moderatorMemberId], self::OTHER_ACCOUNT)
@@ -154,7 +158,102 @@ class GroupLifecycleActionsTest extends GroupsControllerTestCase
         // A refusal, not an error page: the caller is a moderator of a
         // group they can read, so they get the reason in French.
         $this->assertSame(302, $response->getStatusCode());
-        $this->assertTrue($groupRepo->findById($groupId)->isClosed());
+        $this->assertNotNull($groupRepo->findById($groupId)->archivedAt);
+    }
+
+    /**
+     * The year the session is on has no say: a moderator whose session is
+     * on the past year itself — a preview, or a context still on it — is
+     * refused all the same. It used to be let through, « past » being
+     * "not the session's year".
+     */
+    public function testAPastYearGroupIsRefusedEvenWhenTheSessionIsOnThatYear(): void
+    {
+        $pastYearId = GroupsTestHelper::createScoutYear($this->pdo, '2020-2021', false);
+        $groupRepo = new GroupRepository($this->pdo);
+        $groupId = $groupRepo->create('Ancien', $pastYearId, null, $this->moderatorMemberId);
+        $this->memberRepo->add($groupId, $this->moderatorMemberId, true, null, self::OTHER_ACCOUNT);
+        $groupRepo->setArchived($groupId, '2021-06-01 00:00:00');
+        $this->withCsrf([]);
+
+        $this->groupController([$this->moderatorMemberId], self::OTHER_ACCOUNT, 'chief', $pastYearId)
+            ->reopen($this->request(), ['id' => (string) $groupId]);
+
+        $this->assertSame('2021-06-01 00:00:00', $groupRepo->findById($groupId)->archivedAt);
+        $this->assertSame(
+            \Modules\Groups\Service\ReopenOutcome::PAST_YEAR->message(),
+            \Core\Http\FlashMessage::get()['message'] ?? null
+        );
+    }
+
+    /** Archived by its year alone, no date yet: refused, and nothing written. */
+    public function testAnUndatedPastYearGroupIsRefusedRatherThanReopened(): void
+    {
+        $pastYearId = GroupsTestHelper::createScoutYear($this->pdo, '2020-2021', false);
+        $groupRepo = new GroupRepository($this->pdo);
+        $groupId = $groupRepo->create('Ancien', $pastYearId, null, $this->moderatorMemberId);
+        $this->memberRepo->add($groupId, $this->moderatorMemberId, true, null, self::OTHER_ACCOUNT);
+        $this->withCsrf([]);
+
+        $this->groupController([$this->moderatorMemberId], self::OTHER_ACCOUNT, 'chief', $pastYearId)
+            ->reopen($this->request(), ['id' => (string) $groupId]);
+
+        $this->assertSame(
+            \Modules\Groups\Service\ReopenOutcome::PAST_YEAR->message(),
+            \Core\Http\FlashMessage::get()['message'] ?? null
+        );
+        $this->assertNull($groupRepo->findById($groupId)->archivedAt);
+    }
+
+    /** A group prepared for next year is reopened like the current year's. */
+    public function testAModeratorMayReopenAFutureYearGroup(): void
+    {
+        $nextYearId = GroupsTestHelper::createScoutYear($this->pdo, '2026-2027', false);
+        $groupRepo = new GroupRepository($this->pdo);
+        $groupId = $groupRepo->create('Camp 2027', $nextYearId, null, $this->moderatorMemberId);
+        $this->memberRepo->add($groupId, $this->moderatorMemberId, true, null, self::OTHER_ACCOUNT);
+        $groupRepo->setArchived($groupId, '2026-02-01 00:00:00');
+        $this->withCsrf([]);
+
+        $this->groupController([$this->moderatorMemberId], self::OTHER_ACCOUNT)
+            ->reopen($this->request(), ['id' => (string) $groupId]);
+
+        $this->assertNull($groupRepo->findById($groupId)->archivedAt);
+    }
+
+    /**
+     * Editing is not a way round it: re-tying a past-year invitation
+     * group to the current year, or untying it, would make it reopenable.
+     * Its year stays what it was.
+     */
+    public function testEditingCannotMoveAPastYearGroupOutOfItsYear(): void
+    {
+        $pastYearId = GroupsTestHelper::createScoutYear($this->pdo, '2020-2021', false);
+        $groupRepo = new GroupRepository($this->pdo);
+        $groupId = $groupRepo->create('Ancien', $pastYearId, null, $this->moderatorMemberId);
+        $this->memberRepo->add($groupId, $this->moderatorMemberId, true, null, self::OTHER_ACCOUNT);
+
+        foreach ([['name' => 'Ancien', 'tie_to_year' => '1'], ['name' => 'Ancien']] as $body) {
+            $this->withCsrf($body);
+            $this->groupController([$this->moderatorMemberId], self::OTHER_ACCOUNT)
+                ->edit($this->request(), ['id' => (string) $groupId]);
+
+            $this->assertSame($pastYearId, $groupRepo->findById($groupId)->scoutYearId);
+        }
+    }
+
+    /** An active group's year is still the moderator's to change. */
+    public function testEditingStillUntiesAnActiveGroupFromItsYear(): void
+    {
+        $groupRepo = new GroupRepository($this->pdo);
+        $groupId = $groupRepo->create('Projet', $this->currentYearId, null, $this->moderatorMemberId);
+        $this->memberRepo->add($groupId, $this->moderatorMemberId, true, null, self::OTHER_ACCOUNT);
+        $this->withCsrf(['name' => 'Projet']);
+
+        $this->groupController([$this->moderatorMemberId], self::OTHER_ACCOUNT)
+            ->edit($this->request(), ['id' => (string) $groupId]);
+
+        $this->assertNull($groupRepo->findById($groupId)->scoutYearId);
     }
 
     /**
@@ -435,7 +534,8 @@ class GroupLifecycleActionsTest extends GroupsControllerTestCase
     private function groupController(
         array $linkedMemberIds,
         int $accountId = self::AUTHOR_ACCOUNT,
-        string $role = 'identified'
+        string $role = 'identified',
+        ?int $sessionYearId = null
     ): \Modules\Groups\Controller\GroupController {
         AuthSession::login($accountId, 'parent@test.be', $role);
         $memberService = $this->memberServiceMock($linkedMemberIds);
@@ -450,11 +550,16 @@ class GroupLifecycleActionsTest extends GroupsControllerTestCase
             $this->createStub(\Modules\Groups\Service\GroupListService::class),
             $this->accessService(),
             $this->groupService,
-            new \Modules\Groups\Service\GroupSessionContextFactory($memberService, $accountRepo, $this->scoutYearResolverMock()),
+            new \Modules\Groups\Service\GroupSessionContextFactory(
+                $memberService,
+                $accountRepo,
+                $sessionYearId === null ? $this->scoutYearResolverMock() : $this->sessionOn($sessionYearId)
+            ),
             $this->createStub(\Core\Member\SectionService::class),
             $this->createStub(\Modules\Groups\Service\GroupFeedService::class),
             $this->createStub(\Modules\Groups\Service\PostMediaService::class),
             $this->postRepo,
+            \Tests\Modules\Groups\GroupsTestHelper::archiveRule($this->pdo),
             null,
             null,
             $this->membershipService()
@@ -490,13 +595,29 @@ class GroupLifecycleActionsTest extends GroupsControllerTestCase
         );
     }
 
+    /**
+     * A session whose year — the one every decision of the session context
+     * is taken in — is $scoutYearId rather than the public one: what a
+     * year preview or a staff year looks like from this module.
+     */
+    private function sessionOn(int $scoutYearId): \Core\ScoutYear\ScoutYearResolver
+    {
+        $resolver = $this->createStub(\Core\ScoutYear\ScoutYearResolver::class);
+        $year = new \Core\ScoutYear\EffectiveScoutYear($scoutYearId, 'année de session', null);
+        $resolver->method('getEffectiveYear')->willReturn($year);
+        $resolver->method('getAuthorizationYear')->willReturn($year);
+
+        return $resolver;
+    }
+
     private function membershipService(): GroupMembershipService
     {
         return new GroupMembershipService(
             new GroupRepository($this->pdo),
             $this->memberRepo,
             new SettingService(new SettingRepository($this->pdo)),
-            new JournalService(new JournalRepository($this->pdo))
+            new JournalService(new JournalRepository($this->pdo)),
+            \Tests\Modules\Groups\GroupsTestHelper::archiveRule($this->pdo)
         );
     }
 
@@ -510,7 +631,7 @@ class GroupLifecycleActionsTest extends GroupsControllerTestCase
 
     private function closeGroup(): void
     {
-        (new GroupRepository($this->pdo))->setClosed($this->groupId, '2025-01-01 00:00:00');
+        (new GroupRepository($this->pdo))->setArchived($this->groupId, '2025-01-01 00:00:00');
     }
 
     private function request(): Request

@@ -29,7 +29,15 @@ class DiscussionGroup
         public readonly string $name,
         public readonly ?int $scoutYearId,
         public readonly ?int $sectionId,
-        public readonly ?string $closedAt,
+        // When the group was archived — by a moderator, by the inactivity
+        // task or by the end-of-year task — and NULL while it is active.
+        // Stored in the `closed_at` column, kept under its old name on
+        // purpose (issue #1350): the schema comparator never drops a
+        // column, so a rename would strand every date already written.
+        // NOT the whole answer to « is it archived? »: a group of a past
+        // scout year is archived before any date reaches it, which is why
+        // nothing reads this alone — Service\GroupArchiveRule does.
+        public readonly ?string $archivedAt,
         public readonly string $lastActivityAt,
         // NULL for a group Task\EnsureSectionGroupsHandler created — see
         // schema.sql for why an automatic creation names no creator.
@@ -53,11 +61,6 @@ class DiscussionGroup
         // caller never has to defend against a third value.
         public readonly string $postingPolicy = self::POSTING_MEMBERS
     ) {
-    }
-
-    public function isClosed(): bool
-    {
-        return $this->closedAt !== null;
     }
 
     /**
