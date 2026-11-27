@@ -450,7 +450,8 @@ class ResponseService
         // edit (module spec §11.9). Bounded to that response, unlike the
         // whole-column sum it replaces.
         if ($excludeResponseId !== null && $this->fieldRepository !== null) {
-            $used -= self::numericAnswer($field, $this->responseRepository->getValues($excludeResponseId)[$field->id] ?? null);
+            $ownAnswer = $this->responseRepository->getValues($excludeResponseId)[$field->id] ?? null;
+            $used -= self::numericAnswer($field, $ownAnswer);
         }
 
         return max(0, (int) ($field->capacityMax - $used));
