@@ -23,22 +23,26 @@ vôtre, celles de vos enfants —, il n'y a qu'une signature : la vôtre.
 
 ## L'enregistrer
 
-Deux façons, au choix :
+« Enregistrer ma signature » ouvre une fenêtre, qui propose deux
+façons, au choix :
 
 - tracez-la dans le cadre, au doigt, au stylet ou à la souris ;
   « Effacer » vide le cadre pour recommencer ;
 - ou importez une image de votre signature : PNG, JPEG ou WebP,
   5 Mo au plus, de préférence sur fond blanc ou transparent.
 
-Puis « Enregistrer ma signature ». Le site réduit l'image à la taille
+Puis « Enregistrer la signature ». « Annuler » ferme la fenêtre sans
+rien enregistrer, et elle s'ouvrira vide la fois suivante. Si vous
+arrivez depuis un document à signer, la fenêtre s'ouvre d'elle-même.
+Le site réduit l'image à la taille
 d'une signature et en retire tout ce qui n'est pas l'image elle-même.
 
 ## La remplacer ou la supprimer
 
 Votre signature enregistrée s'affiche en haut de la page, avec sa
-date. Tracez-en ou importez-en une autre puis « Remplacer ma
-signature » ; « Supprimer ma signature » la retire, après une
-confirmation.
+date. « Remplacer ma signature » ouvre la même fenêtre pour en tracer
+ou en importer une autre ; « Supprimer ma signature » la retire, après
+une confirmation.
 
 Un document que vous avez déjà signé n'est jamais modifié : il garde
 la signature qui y a été apposée au moment de signer.

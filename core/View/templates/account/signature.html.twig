@@ -13,10 +13,13 @@
 
   Two ways to record it, one form: trace it on the pad, or import an image
   of it. An untouched pad posts nothing, so an import is never overwritten
-  by an empty drawing (signature-pad.js).
+  by an empty drawing (signature-pad.js). The form lives in a dialog that
+  a button opens (issue #1356).
 
   Requires `has_signature`, `saved_at` (a date or null) and `return_to`
-  (an internal path to go back to after saving, or null).
+  (an internal path to go back to after saving, or null); `open_dialog`
+  opens the dialog as the page loads (the controller decides: arrived
+  from a document to sign, and not sent back by a failed save).
 #}
 {% block content %}
     <div class="page-medium">
@@ -57,50 +60,45 @@
             </div>
         {% endif %}
 
+        {#
+          The form itself is in a dialog (issue #1356): the page shows the
+          signature, and one button to replace it. partials/
+          signature_dialog.html.twig in « new » mode, without « Mémoriser »
+          — recording it is the whole point here — and with its own label.
+          Cancelling posts nothing; signature-dialog.js empties the pad and
+          the file when the dialog closes and refuses an empty frame.
+
+          It opens by itself only when the visitor arrives from a document
+          to sign (`?retour=`): they came here to record a signature. A
+          failed save comes back to this page with its message, the dialog
+          closed, as before.
+        #}
+        {% set dialog_title = has_signature ? 'Remplacer ma signature' : 'Enregistrer ma signature' %}
         <div class="card">
             <div class="card-body">
-                <h2 class="h5 mb-3">{{ has_signature ? 'Remplacer ma signature' : 'Enregistrer ma signature' }}</h2>
-                <form method="post" action="/account/signature" enctype="multipart/form-data"
-                      data-signature-form>
-                    {{ csrf_field()|raw }}
-                    {% if return_to %}
-                        <input type="hidden" name="retour" value="{{ return_to }}">
-                    {% endif %}
-                    <input type="hidden" name="signature_data" value="">
-
-                    <p class="form-label mb-1" id="signature-pad-label">Tracez votre signature</p>
-                    {#
-                      Traced with a pointer, so no role of its own: « img »
-                      would tell assistive technology there is nothing to
-                      do here. The import below is the way in without one.
-                    #}
-                    <canvas data-signature-pad width="900" height="300"
-                            aria-labelledby="signature-pad-label" aria-describedby="signature-file-help"
-                            class="border rounded bg-white w-100 d-block"
-                            style="max-width: 600px; aspect-ratio: 3 / 1;"></canvas>
-                    <button type="button" class="btn btn-sm btn-outline-secondary mt-2" data-signature-clear>Effacer</button>
-
-                    <div class="mt-3">
-                        <label class="form-label" for="signature-file">Ou importez une image de votre signature</label>
-                        <input type="file" class="form-control" id="signature-file" name="signature_file"
-                               accept="image/png,image/jpeg,image/webp" aria-describedby="signature-file-help">
-                        <p class="form-text" id="signature-file-help">
-                            PNG, JPEG ou WebP, 5 Mo au plus — de préférence sur fond blanc ou transparent.
-                        </p>
-                    </div>
-
-                    <button type="submit" class="btn btn-primary">
-                        {{ has_signature ? 'Remplacer ma signature' : 'Enregistrer ma signature' }}
-                    </button>
-                    {% if return_to %}
-                        <a class="ms-2" href="{{ return_to }}">Continuer sans modifier ma signature</a>
-                    {% endif %}
-                </form>
+                <button type="button" class="btn btn-primary"
+                        data-bs-toggle="modal" data-bs-target="#account-signature">{{ dialog_title }}</button>
+                {% if return_to %}
+                    <a class="ms-2" href="{{ return_to }}">Continuer sans modifier ma signature</a>
+                {% endif %}
             </div>
         </div>
+
+        {% set dialog_attributes = open_dialog|default(false) ? { 'data-signature-dialog-open': '' } : {} %}
+        {% include 'partials/signature_dialog.html.twig' with {
+            id: 'account-signature',
+            title: dialog_title,
+            action: '/account/signature',
+            fields: return_to ? { retour: return_to } : {},
+            has_stored_signature: false,
+            allow_remember: false,
+            submit_label: 'Enregistrer la signature',
+            form_attributes: dialog_attributes,
+        } only %}
     </div>
 {% endblock %}
 
 {% block scripts %}
     <script src="{{ asset('/assets/js/signature-pad.js') }}"></script>
+    <script src="{{ asset('/assets/js/signature-dialog.js') }}"></script>
 {% endblock %}

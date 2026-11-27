@@ -40,6 +40,20 @@ class FlashMessage
     }
 
     /**
+     * The pending flash message, left in place for the page that shows it.
+     *
+     * For a controller that must know whether the page it renders comes
+     * back with a message — « Ma signature » keeps its dialog closed over
+     * an error it would otherwise hide (issue #1356).
+     *
+     * @return array{type: string, message: string}|null
+     */
+    public static function peek(): ?array
+    {
+        return SessionStore::get(self::SESSION_KEY);
+    }
+
+    /**
      * Get and clear the flash message.
      *
      * @return array{type: string, message: string}|null

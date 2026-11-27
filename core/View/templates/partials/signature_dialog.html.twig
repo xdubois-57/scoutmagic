@@ -45,7 +45,12 @@
   signature » brings the visitor back to. `form_attributes` (name → value)
   adds attributes to the form — a page whose script turns forms into
   fetches passes what makes it stand aside (Locations: `data-async: 'off'`),
-  since an open dialog does not survive its panels being re-rendered. The
+  since an open dialog does not survive its panels being re-rendered.
+  `submit_label` names the footer button (default « Signer le document »):
+  « Ma signature » records a signature rather than signing anything, and
+  says « Enregistrer la signature » (issue #1356). An attribute
+  `data-signature-dialog-open` among `form_attributes` opens the dialog
+  as the page loads (signature-dialog.js). The
   body is partials/signature_fields.html.twig, without a prefix: the
   fields of one signer, which a page signing for two in a form of its own
   includes twice (issue #989, lot D). The page loads signature-pad.js then signature-dialog.js, which wires a
@@ -73,6 +78,7 @@
     consequence: consequence|default(''),
     manage_return: manage_return|default(''),
     form_attributes: form_attributes|default({}),
+    submit_label: submit_label|default('Signer le document'),
 } only %}
     {% block body %}
         <form method="post" action="{{ action }}" id="{{ form_id }}" enctype="multipart/form-data"
@@ -96,6 +102,6 @@
     {% endblock %}
     {% block footer %}
         <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Annuler</button>
-        <button type="submit" class="btn btn-primary" form="{{ form_id }}">Signer le document</button>
+        <button type="submit" class="btn btn-primary" form="{{ form_id }}">{{ submit_label }}</button>
     {% endblock %}
 {% endembed %}

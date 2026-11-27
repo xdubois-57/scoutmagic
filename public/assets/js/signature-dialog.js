@@ -287,9 +287,28 @@
         });
     }
 
+    /**
+     * Opens the dialog of every form that asks for it (`data-signature-dialog-open`).
+     *
+     * @param {ParentNode} root
+     */
+    function openOnLoad(root) {
+        const bs = /** @type {any} */ (globalThis).bootstrap;
+        root.querySelectorAll('form[data-signature-dialog-form][data-signature-dialog-open]').forEach((form) => {
+            const modal = form.closest('.modal');
+            if (modal && bs?.Modal) {
+                bs.Modal.getOrCreateInstance(modal).show();
+            }
+        });
+    }
+
     document.querySelectorAll(FORMS).forEach((element) => {
         wire(/** @type {HTMLFormElement} */ (element));
     });
+    // « Ma signature » reached from a document to sign (`?retour=`, issue
+    // #1356): the visitor came to record a signature, so its dialog opens
+    // at once. Anywhere else a dialog waits for its button.
+    openOnLoad(document);
     // Bootstrap's modal events bubble: one listener serves every dialog,
     // the ones a fetch brings later included.
     document.addEventListener('show.bs.modal', onShow);
@@ -308,6 +327,7 @@
     // Test-only: nothing in production reads this.
     globalThis.ScoutMagicSignatureDialogInternals = {
         PREVIEW_URL: PREVIEW_URL,
+        openOnLoad: openOnLoad,
         wipe: wipe,
         preview: preview,
         isEmpty: isEmpty,

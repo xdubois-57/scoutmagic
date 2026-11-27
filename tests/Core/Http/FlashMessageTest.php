@@ -91,4 +91,16 @@ class FlashMessageTest extends TestCase
             session_start();
         }
     }
+
+    /** peek() reads the message without taking it from the page that shows it (issue #1356). */
+    public function testPeekLeavesTheMessageInPlace(): void
+    {
+        $this->assertNull(FlashMessage::peek());
+
+        FlashMessage::set('error', 'Refusé.');
+
+        $this->assertSame(['type' => 'error', 'message' => 'Refusé.'], FlashMessage::peek());
+        $this->assertSame(['type' => 'error', 'message' => 'Refusé.'], FlashMessage::get());
+        $this->assertNull(FlashMessage::peek());
+    }
 }
