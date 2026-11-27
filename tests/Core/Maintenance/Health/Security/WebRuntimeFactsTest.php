@@ -40,7 +40,21 @@ final class WebRuntimeFactsTest extends TestCase
         $this->assertSame(1_800_000_000, $facts->measuredAt);
         $this->assertSame(PHP_SAPI, $facts->sapi);
         $this->assertSame(PHP_VERSION, $facts->versions->php);
-        $this->assertSame(extension_loaded('openssl') ? OPENSSL_VERSION_TEXT : null, $facts->versions->openssl);
+        // The loaded library is what is stored as `openssl`; the build-time
+        // header is kept apart, never in its place (review of #1415).
+        $this->assertSame(extension_loaded('openssl'), $facts->versions->opensslLoaded);
+        $this->assertSame(extension_loaded('openssl') ? self::loadedLibrary() : null, $facts->versions->openssl);
+        $this->assertSame(extension_loaded('openssl') ? OPENSSL_VERSION_TEXT : null, $facts->versions->opensslHeader);
+    }
+
+    /** What the openssl extension itself reports as its loaded library. */
+    private static function loadedLibrary(): ?string
+    {
+        $extension = new \ReflectionExtension('openssl');
+        ob_start();
+        $extension->info();
+
+        return RuntimeVersions::opensslLibraryFrom((string) ob_get_clean());
     }
 
     public function testAMalformedRowReadsAsNeverMeasured(): void
