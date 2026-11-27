@@ -212,7 +212,7 @@ $controller->confirmLink(
 
         $authService = $this->createStub(AuthService::class);
         $authService->method('isMagicLinkConfirmed')->willReturn(true);
-        $authService->method('getUserForConfirmedLink')
+        $authService->method('collectConfirmedLink')
             ->willReturn($this->userRepo->findById($account->id));
 
         $controller = $this->controllerWith($authService);
@@ -232,7 +232,7 @@ $controller->confirmLink(
 
         $authService = $this->createStub(AuthService::class);
         $authService->method('isMagicLinkConfirmed')->willReturn(true);
-        $authService->method('getUserForConfirmedLink')
+        $authService->method('collectConfirmedLink')
             ->willReturn($this->userRepo->findById($account->id));
 
         $controller = $this->controllerWith($authService);

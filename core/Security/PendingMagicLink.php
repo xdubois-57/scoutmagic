@@ -103,6 +103,20 @@ final class PendingMagicLink
     }
 
     /**
+     * matches() and pollTokenMatches() against the session AS STORED, not
+     * as this request loaded it (issue #1530): the session is reopened
+     * first, which re-reads it. A request that began before another one
+     * renewed the session id — the button that confirmed the link in this
+     * very browser — finds it gone, and with it the pending link.
+     */
+    public static function stillPendingFor(int $magicLinkId, ?string $generation, ?string $pollToken): bool
+    {
+        SessionStore::ensureWritable();
+
+        return self::matches($magicLinkId, $generation) && self::pollTokenMatches($pollToken);
+    }
+
+    /**
      * Dropped once the link has been collected (or the session logs out) —
      * a pending id is single-use, like the link behind it.
      */

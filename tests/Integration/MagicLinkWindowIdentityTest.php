@@ -308,6 +308,55 @@ class MagicLinkWindowIdentityTest extends TestCase
     }
 
     /**
+     * Issue #1530: the shared-computer attack. Somebody notes the cookie of
+     * a signed-out browser, asks from home for a link to the chef's
+     * address with it, and keeps polling. The chef, in that browser, sees
+     * one button and confirms. A poll that loaded the session before the
+     * button renewed its id still holds the pending link and the poll
+     * token — and must not open a second session: the button collected the
+     * link when it confirmed it.
+     */
+    public function testAPollHoldingTheSessionFromBeforeTheButtonOpensNoSession(): void
+    {
+        $this->startTestSession();
+        $magicLinkId = $this->requestLink(self::EMAIL);
+        $loadedByTheSuspendedPoll = $_SESSION;
+
+        $this->confirm($magicLinkId, null);
+        $this->assertTrue(AuthSession::isAuthenticated(), 'the browser that confirmed is signed in');
+
+        $_SESSION = $loadedByTheSuspendedPoll;
+        $this->poll($magicLinkId);
+
+        $this->assertFalse(AuthSession::isAuthenticated());
+        $this->assertNull(AuthSession::getUserAccountId());
+    }
+
+    /**
+     * Issue #1530: a link confirmed from another browser, with the code, is
+     * collected by ONE poll. A second one holding the same session as it
+     * stood before the first signed in gets nothing.
+     */
+    public function testAConfirmedLinkIsCollectedByOnePollOnly(): void
+    {
+        $this->startTestSession();
+        $magicLinkId = $this->requestLink(self::EMAIL);
+        $code = (string) $this->matchCode;
+        $requestingSession = $_SESSION;
+
+        $_SESSION = [];
+        $this->confirm($magicLinkId, $code);
+
+        $_SESSION = $requestingSession;
+        $this->assertTrue($this->poll($magicLinkId));
+        $this->assertTrue(AuthSession::isAuthenticated());
+
+        $_SESSION = $requestingSession;
+        $this->poll($magicLinkId);
+        $this->assertFalse(AuthSession::isAuthenticated());
+    }
+
+    /**
      * A second browser cannot collect what the first one asked for: the
      * poll endpoint answers "not confirmed yet" to anyone but the
      * requesting session, whatever the id (Core\Security\PendingMagicLink).

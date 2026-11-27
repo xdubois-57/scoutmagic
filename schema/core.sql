@@ -125,6 +125,14 @@ CREATE TABLE magic_links (
     -- Wrong codes typed so far; the link is spent at
     -- AuthService::MAX_MATCH_ATTEMPTS.
     match_attempts SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+    -- When a session was opened with this confirmed link (issue #1530):
+    -- taken once, by one conditional UPDATE, so a confirmed link opens one
+    -- session and never a second. Set in the very statement that confirms
+    -- the link when the confirming browser is the session that asked — it
+    -- is signed in there and then, and no poll may open another — and by
+    -- the poll that collects it otherwise. NULL on rows from before it
+    -- existed: they expire on their own within fifteen minutes.
+    collected_at DATETIME,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_token_hash (token_hash),
     INDEX idx_email_blind (email_blind_index),

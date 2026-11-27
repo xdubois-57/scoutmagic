@@ -243,6 +243,7 @@ class DatabaseTestHelper
             confirmed_at TEXT,
             match_code_hash TEXT,
             match_attempts INTEGER NOT NULL DEFAULT 0,
+            collected_at TEXT,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )');
 
