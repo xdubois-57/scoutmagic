@@ -47,10 +47,12 @@ vous dit laquelle pose problème. Votre réponse précédente est alors
 conservée intacte. Une quantité s'écrit en nombre entier, jamais
 négatif.
 
-Si l'inscription est payante, **le montant suit votre modification**,
-et votre communication structurée ne change pas : utilisez toujours la
-même pour votre virement. Après l'enregistrement, la page de
-confirmation vous dit ce qu'il reste à payer :
+Si l'inscription est payante, **le montant suit votre modification**.
+Pour votre virement, utilisez la communication structurée de votre
+**dernière** confirmation : elle reste la même, sauf si une inscription
+devenue gratuite avant tout paiement redevient payante. Après
+l'enregistrement, la page de confirmation vous dit ce qu'il reste à
+payer :
 
 - vous ajoutez des places à une inscription déjà payée : seule la
   **différence** est demandée, à côté de ce que l'unité a « Déjà reçu ».

@@ -1115,4 +1115,61 @@ class ResponseServiceTest extends TestCase
             [$this->fieldRepository->findById($adultsId)], 'b@test.com', [$adultsId => '2'], null, 1);
         $this->assertFalse($this->responseRepository->findById($negative)?->hasInvalidQuantity());
     }
+
+    /**
+     * Two edits of one response, both loaded while it had no receivable:
+     * the second decides on the link as stored, never on its own stale
+     * copy, so it moves the receivable the first raised instead of raising
+     * another.
+     */
+    public function testAnEditDecidesOnTheStoredReceivableLinkNotOnAStaleCopy(): void
+    {
+        $this->makeFormPaying();
+        $fieldId = $this->fieldRepository->create($this->formId, 0, FormField::TYPE_NUMBER, 'Adultes', false, null, null, null, 18.0, null);
+        $field = $this->fieldRepository->findById($fieldId);
+        $responseId = $this->responseRepository->create($this->formId, 42, null, 'a@test.com', [$fieldId => '0'], null, null);
+        $stale = $this->responseRepository->findById($responseId);
+        // The competing edit committed its receivable meanwhile.
+        $this->responseRepository->setReceivable($responseId, '+++090/9337/55493+++', 55);
+
+        $finance = $this->createMock(ExpectedReceivableInterface::class);
+        $finance->method('getReceivableStanding')->willReturn(self::standing(1800, 0));
+        $finance->expects($this->never())->method('createReceivable');
+        $finance->expects($this->once())->method('updateReceivableAmount')->with(55, 3600, false);
+
+        $updated = $this->payingService($finance)->update($stale, $this->form(), [$field], 'a@test.com', [$fieldId => '2'], null, 1);
+
+        $this->assertSame(55, $updated->receivableId);
+    }
+
+    /**
+     * The reprise flags what the door would call invalid, the same rule
+     * throughout: a fraction, a figure above the per-response ceiling, and
+     * an answer that can no longer be read.
+     */
+    public function testTheRepriseFlagsAboveTheCeilingAndUnreadableAnswersToo(): void
+    {
+        $boxesId = $this->fieldRepository->create($this->formId, 0, FormField::TYPE_NUMBER, 'Boîtes', false, null, null, null, 6.0, null);
+        $tooMany = $this->responseRepository->create($this->formId, null, null, 'a@test.com', [$boxesId => '1000'], null, null);
+        $unreadable = $this->responseRepository->create($this->formId, null, null, 'b@test.com', [$boxesId => '2'], null, null);
+        $clean = $this->responseRepository->create($this->formId, null, null, 'c@test.com', [$boxesId => '999'], null, null);
+        $this->pdo->prepare('UPDATE news_form_response_values SET value = ? WHERE response_id = ?')->execute(['corrompu', $unreadable]);
+
+        $this->assertSame(2, $this->service()->flagResponsesWithInvalidQuantities());
+        $this->assertTrue($this->responseRepository->findById($tooMany)?->hasInvalidQuantity());
+        $this->assertTrue($this->responseRepository->findById($unreadable)?->hasInvalidQuantity());
+        $this->assertFalse($this->responseRepository->findById($clean)?->hasInvalidQuantity());
+    }
+
+    /** The reprise's recompute gives no place to a fraction stored before #1525. */
+    public function testTheRecomputedTotalCountsAStoredFractionAsNothing(): void
+    {
+        $fieldId = $this->fieldRepository->create($this->formId, 0, FormField::TYPE_NUMBER, 'Places', false, null, null, 100, null, null);
+        $this->responseRepository->create($this->formId, null, null, 'a@test.com', [$fieldId => '2'], null, null);
+        $this->responseRepository->create($this->formId, null, null, 'b@test.com', [$fieldId => '1.5'], null, null);
+
+        $this->fieldRepository->recomputeUsedCapacities($this->responseRepository);
+
+        $this->assertSame(2.0, $this->fieldRepository->usedCapacity($fieldId));
+    }
 }

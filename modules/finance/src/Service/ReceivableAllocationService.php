@@ -1984,6 +1984,24 @@ class ReceivableAllocationService
         return !$this->receivableRepository->seesCommittedWrites();
     }
 
+    /**
+     * Whether any money — a payment or a refund — is allocated to this
+     * receivable as COMMITTED now, through a locking read when the caller's
+     * transaction is somebody else's REPEATABLE READ (currentReads()). Meant
+     * to be asked under the receivable's lock
+     * (ExpectedReceivableService::deleteReceivable()).
+     */
+    public function holdsCommittedMoney(int $receivableId): bool
+    {
+        foreach ($this->allocationRepository->findByReceivableId($receivableId, $this->currentReads()) as $allocation) {
+            if ($allocation->amountCents !== 0) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private function allocatedCents(int $receivableId, bool $current = false): int
     {
         $total = 0;

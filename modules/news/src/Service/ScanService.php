@@ -462,13 +462,14 @@ class ScanService
     /**
      * What this response booked, in words — « Repas adulte × 2 ».
      *
-     * **A stored quantity that is not a whole number is never dropped**
-     * (issue #1525). It can only predate the server's refusal of negative
-     * and fractional quantities, and it is exactly what made a ticket look
-     * paid for four when it was paid for none: « Adultes × 4 » with the
-     * « Enfants × −8 » left out. Such a line is kept, marked `invalid`,
-     * and the door shows it as a warning. Only an empty answer and a
-     * plain zero — nothing booked — are left out.
+     * **A stored quantity the server would refuse today is never dropped**
+     * (issue #1525) — negative, fractional, anything but digits, or above
+     * the field's capacity (999 without one): FormField::storedQuantity().
+     * It can only predate that rule, and it is exactly what made a ticket
+     * look paid for four when it was paid for none: « Adultes × 4 » with
+     * the « Enfants × −8 » left out. Such a line is kept, marked `invalid`,
+     * shown as a warning, and counts no seat (seatsForAnswers()). Only an
+     * empty answer and a plain zero — nothing booked — are left out.
      *
      * @param FormField[] $fields
      * @param array<int, string> $answers
@@ -481,12 +482,12 @@ class ScanService
             if (!self::isSeatField($field)) {
                 continue;
             }
-            $quantity = trim((string) ($answers[$field->id] ?? ''));
-            $whole = preg_match('/^\d+$/', $quantity) === 1;
-            if ($quantity === '' || ($whole && (int) $quantity === 0)) {
+            $stored = (string) ($answers[$field->id] ?? '');
+            $seats = $field->storedQuantity($stored);
+            if ($seats === 0) {
                 continue;
             }
-            $lines[] = ['label' => (string) $field->label, 'quantity' => $quantity, 'invalid' => !$whole];
+            $lines[] = ['label' => (string) $field->label, 'quantity' => trim($stored), 'invalid' => $seats === null];
         }
 
         return $lines;
@@ -562,9 +563,10 @@ class ScanService
 
         $total = 0;
         foreach ($seatFields as $field) {
-            // A negative stored before issue #1525 counts no seat, rather
-            // than taking seats off the response's other lines.
-            $total += max(0, (int) (float) ($answers[$field->id] ?? '0'));
+            // A quantity the server would refuse today (issue #1525) counts
+            // no seat — a negative would take seats off the other lines, and
+            // a cast would make « 2.5 » two.
+            $total += $field->storedQuantity($answers[$field->id] ?? '') ?? 0;
         }
 
         return $total;

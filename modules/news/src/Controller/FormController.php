@@ -308,6 +308,10 @@ class FormController extends AbstractController
             'answers' => $this->answerLines($fields, $readableAnswers[$response->id]),
             'payment' => $this->responseService->buildPaymentSummary($form, $response, $total),
             'amount_owed_back' => $this->responseService->amountOwedBackCents($response),
+            // Shown on their own when nothing is left to pay — the payment
+            // card, with its QR, appears only for an amount still due.
+            'amount_total' => $total,
+            'amount_received' => $this->responseService->amountReceivedCents($response),
             'edit_url' => ($response->userAccountId !== null && $form->isOpen())
                 ? '/news/' . $article->id . '/form/responses/' . $response->id . '/edit'
                 : null,

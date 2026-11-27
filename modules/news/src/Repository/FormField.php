@@ -84,6 +84,14 @@ final class FormField
             && in_array($this->fieldType, self::OPTION_BASED_TYPES, true);
     }
 
+    /**
+     * The most one answer may ask of a quantity field that has no capacity
+     * of its own (issue #1525). Far above any real order of a unit's event,
+     * far below what a typed `1e5` once put on the books: 1 800 000 €
+     * « à recevoir » for an 18 € meal.
+     */
+    public const MAX_QUANTITY_PER_ANSWER = 999;
+
     public function isPriced(): bool
     {
         return $this->fieldType === self::TYPE_NUMBER && $this->pricePerUnit !== null;
@@ -99,6 +107,26 @@ final class FormField
     {
         return $this->fieldType === self::TYPE_NUMBER
             && ($this->pricePerUnit !== null || $this->capacityMax !== null);
+    }
+
+    /**
+     * The units a STORED answer of this quantity field counts, or null
+     * when the answer is one the server refuses today (issue #1525): not
+     * written in digits alone, or above the field's capacity — or above
+     * MAX_QUANTITY_PER_ANSWER when it has none. An empty answer counts
+     * zero. What the door shows as « invalide », what the reprise flags,
+     * and what a seat total leaves out are all this one rule.
+     */
+    public function storedQuantity(?string $stored): ?int
+    {
+        if ($stored === null || $stored === '') {
+            return 0;
+        }
+        if (preg_match('/^\d+$/', $stored) !== 1) {
+            return null;
+        }
+
+        return \Core\Service\IntegerInput::bounded($stored, 0, $this->capacityMax ?? self::MAX_QUANTITY_PER_ANSWER);
     }
 
     /** The same field with $text in place of its text. */

@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\News\Repository;
 
+use Core\Security\DecryptionException;
 use Core\Security\EncryptionService;
 
 class FormResponseRepository
@@ -280,11 +281,25 @@ class FormResponseRepository
             if ($row['value'] === null) {
                 continue;
             }
-            // A negative answer stored before the server refused one
-            // (issue #1525) gives no place back: counted as nothing, never
-            // as a negative that would shrink the total and sell the
-            // places a second time.
-            $sum += max(0.0, (float) $this->encryption->decrypt($row['value'], 'news_form_response_values.value'));
+            // Only a whole number written in digits consumes places — the
+            // rule the server applies to a quantity since issue #1525. A
+            // negative stored before then gives no place back (it would
+            // shrink the total and sell the places a second time), and a
+            // fraction or anything else counts as nothing rather than as
+            // whatever a cast makes of it. Every caller sums a capped or
+            // priced field, which is a quantity. An answer that can no
+            // longer be decrypted counts as nothing too, rather than
+            // making the whole sum — and the reprise reading it — fail;
+            // the reprise flags its response for the Staff d'U
+            // (findNumberAnswers()).
+            try {
+                $value = $this->encryption->decrypt($row['value'], 'news_form_response_values.value');
+            } catch (DecryptionException) {
+                continue;
+            }
+            if (preg_match('/^\d+$/', $value) === 1) {
+                $sum += (float) $value;
+            }
         }
 
         return $sum;
@@ -295,6 +310,37 @@ class FormResponseRepository
         $stmt = $this->pdo->prepare('UPDATE news_form_responses SET structured_communication = ?, receivable_id = ? '
             . 'WHERE id = ?');
         $stmt->execute([$structuredCommunication, $receivableId, $responseId]);
+    }
+
+    /**
+     * The receivable link as COMMITTED now, read under a lock on the
+     * response's row — what an edit decides on (Service\ResponseService::
+     * moveReceivable()). Two edits of one response loaded while it had no
+     * receivable would otherwise both create one. A plain read is not
+     * enough on MySQL/MariaDB: inside a REPEATABLE READ transaction it
+     * returns the snapshot taken at the transaction's first read, and
+     * misses the link a competing edit committed since; `FOR UPDATE` reads
+     * the latest committed row and holds it. SQLite serialises writers
+     * and has no such clause.
+     *
+     * @return array{receivable_id: ?int, structured_communication: ?string}
+     */
+    public function lockReceivableLink(int $responseId): array
+    {
+        $sql = 'SELECT receivable_id, structured_communication FROM news_form_responses WHERE id = ?';
+        if ($this->pdo->getAttribute(\PDO::ATTR_DRIVER_NAME) === 'mysql') {
+            $sql .= ' FOR UPDATE';
+        }
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute([$responseId]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+        return [
+            'receivable_id' => is_array($row) && $row['receivable_id'] !== null ? (int) $row['receivable_id'] : null,
+            'structured_communication' => is_array($row) && $row['structured_communication'] !== null
+                ? (string) $row['structured_communication']
+                : null,
+        ];
     }
 
     /**
@@ -316,7 +362,12 @@ class FormResponseRepository
      * responses stored with a negative or fractional quantity. A one-off
      * pass over the whole table, never run on a page.
      *
-     * @return list<array{response_id: int, field_id: int, value: string}>
+     * An answer that can no longer be decrypted (a corrupted value, a key
+     * changed) comes back as null rather than stopping the pass: the
+     * reprise would otherwise never complete and run again on every
+     * request.
+     *
+     * @return list<array{response_id: int, field_id: int, value: ?string}>
      */
     public function findNumberAnswers(): array
     {
@@ -329,10 +380,15 @@ class FormResponseRepository
 
         $answers = [];
         foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            try {
+                $value = $this->encryption->decrypt($row['value'], 'news_form_response_values.value');
+            } catch (DecryptionException) {
+                $value = null;
+            }
             $answers[] = [
                 'response_id' => (int) $row['response_id'],
                 'field_id' => (int) $row['field_id'],
-                'value' => $this->encryption->decrypt($row['value'], 'news_form_response_values.value'),
+                'value' => $value,
             ];
         }
 

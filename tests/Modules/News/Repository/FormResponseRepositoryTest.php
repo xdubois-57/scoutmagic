@@ -239,4 +239,46 @@ class FormResponseRepositoryTest extends TestCase
         $this->assertFalse($this->repository->findById($flagged)?->hasInvalidQuantity());
         $this->assertSame([], $this->repository->countInvalidQuantitiesByArticle());
     }
+
+    public function testASumOfAnswersCountsOnlyWholeNumbers(): void
+    {
+        $numberId = $this->fieldRepository->create($this->formId, 1, FormField::TYPE_NUMBER, 'Places', false, null, null, 100, null, null);
+        foreach (['2', '1.5', '1e2', ' 3', 'abc'] as $index => $value) {
+            $this->repository->create($this->formId, null, null, $index . '@test.com', [$numberId => $value], null, null);
+        }
+
+        $this->assertSame(2.0, $this->repository->sumFieldValues($numberId));
+    }
+
+    /**
+     * One answer that no longer decrypts must not stop the one-off reprise:
+     * it would never write its flag, and run again on every request.
+     */
+    public function testAnUnreadableAnswerIsSkippedBySumsAndReturnedAsNullToTheReprise(): void
+    {
+        $numberId = $this->fieldRepository->create($this->formId, 1, FormField::TYPE_NUMBER, 'Places', false, null, null, 100, null, null);
+        $this->repository->create($this->formId, null, null, 'a@test.com', [$numberId => '2'], null, null);
+        $broken = $this->repository->create($this->formId, null, null, 'b@test.com', [$numberId => '3'], null, null);
+        $this->pdo->prepare('UPDATE news_form_response_values SET value = ? WHERE response_id = ?')->execute(['corrompu', $broken]);
+
+        $this->assertSame(2.0, $this->repository->sumFieldValues($numberId));
+        $unreadable = array_values(array_filter(
+            $this->repository->findNumberAnswers(),
+            static fn (array $answer): bool => $answer['response_id'] === $broken
+        ));
+        $this->assertSame([['response_id' => $broken, 'field_id' => $numberId, 'value' => null]], $unreadable);
+    }
+
+    public function testLockReceivableLinkReadsTheStoredLink(): void
+    {
+        $id = $this->repository->create($this->formId, null, null, 'a@test.com', [], null, null);
+        $this->assertSame(['receivable_id' => null, 'structured_communication' => null], $this->repository->lockReceivableLink($id));
+
+        $this->repository->setReceivable($id, '+++100/0000/00034+++', 42);
+
+        $this->assertSame(
+            ['receivable_id' => 42, 'structured_communication' => '+++100/0000/00034+++'],
+            $this->repository->lockReceivableLink($id)
+        );
+    }
 }

@@ -31,9 +31,9 @@ virement. Un paiement fait en plusieurs fois est additionné
 automatiquement, et une ligne reste « Partiel » tant que le compte n'a
 pas tout reçu.
 
-**Un montant attendu peut changer.** Quand une famille ou le Staff
-d'Unité modifie une réponse à un formulaire payant, le montant attendu
-suit la nouvelle réponse, avec la même communication. S'il descend sous
+**Un montant attendu peut changer.** Quand une réponse à un formulaire
+payant est modifiée, le montant attendu suit la nouvelle réponse, avec la même communication ; une créance
+encore impayée dont la réponse devient gratuite est supprimée. S'il descend sous
 ce qui a déjà été reçu, la différence apparaît en trop-perçu dans
 « Paiements à traiter » : c'est à vous de la rembourser.
 

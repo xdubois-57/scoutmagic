@@ -44,6 +44,18 @@
             </div>
         {% endif %}
 
+        {# Nothing left to pay on a response that was paid, after an edit
+           (issue #1525): the new total and what came in are still said,
+           without a payment card asking for nothing. #}
+        {% if not payment and amount_received|default(0) > 0 %}
+            <div class="card mb-3">
+                <div class="card-body">
+                    <p class="fw-bold mb-1">Montant de votre réponse : {{ amount_total|money }}</p>
+                    <p class="mb-0">Déjà reçu : {{ amount_received|money_cents }}</p>
+                </div>
+            </div>
+        {% endif %}
+
         {# A paid response corrected down below what came in (issue #1525):
            the family is told the unit owes them the difference, rather than
            left to wonder where their money went. #}

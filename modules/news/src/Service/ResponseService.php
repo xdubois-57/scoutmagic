@@ -42,14 +42,9 @@ class ResponseService
     /**
      * The most one response may ask of a quantity field that has no
      * capacity of its own (issue #1525) — a capped field is bounded by
-     * what remains of its capacity instead.
-     *
-     * Far above any real order of a unit's event (a family booking a
-     * dinner, a box of waffles for the whole street), and far below what
-     * a typed `1e5` would have put on the books: 1 800 000 € « à recevoir »
-     * for an 18 € meal.
+     * what remains of its capacity instead. FormField owns the figure.
      */
-    public const MAX_QUANTITY_PER_RESPONSE = 999;
+    public const MAX_QUANTITY_PER_RESPONSE = FormField::MAX_QUANTITY_PER_ANSWER;
 
     /** The module name finance's receivables are raised under. */
     private const RECEIVABLE_SOURCE = 'news';
@@ -201,6 +196,19 @@ class ResponseService
     public function amountOwedBackCents(FormResponse $response): int
     {
         return $this->standingOf($response)->amountOverpaidCents ?? 0;
+    }
+
+    /**
+     * What has come in for this response, in cents, net of refunds — what
+     * the confirmation page shows beside the new total when nothing is
+     * left to pay (a paid response corrected, issue #1525). Zero when
+     * finance cannot say.
+     */
+    public function amountReceivedCents(FormResponse $response): int
+    {
+        $standing = $this->standingOf($response);
+
+        return $standing !== null ? max(0, $standing->amountReceivedCents - $standing->amountRefundedCents) : 0;
     }
 
     private function standingOf(FormResponse $response): ?ReceivableStanding
@@ -783,12 +791,17 @@ class ResponseService
     {
         $notRecorded = "Votre modification n'a pas été enregistrée.";
         $cents = (int) round($total * 100);
+        // The link as committed now, under the response's row lock — never
+        // the caller's copy of the response, loaded before that lock: a
+        // competing edit may have raised a receivable since, and deciding
+        // on the stale copy would raise a second one.
+        $receivableId = $this->responseRepository->lockReceivableLink($response->id)['receivable_id'];
 
         $standing = null;
-        if ($response->receivableId !== null && $this->expectedReceivable !== null) {
+        if ($receivableId !== null && $this->expectedReceivable !== null) {
             $standing = $this->expectedReceivable->getReceivableStanding(
                 self::RECEIVABLE_SOURCE,
-                $response->receivableId
+                $receivableId
             );
             // Linked to a receivable finance no longer knows (deleted by
             // hand): the link is dropped, and the response is treated as
@@ -799,15 +812,15 @@ class ResponseService
         }
 
         if ($standing === null) {
-            if ($response->receivableId !== null && $this->expectedReceivable === null) {
+            if ($receivableId !== null && $this->expectedReceivable === null) {
                 // Finance is disabled: nothing can be read or moved.
                 return false;
             }
             if (!$this->opensReceivable($form, $total)) {
                 return false;
             }
-            [$communication, $receivableId] = $this->openReceivable($form, $total, $contactEmail, $notRecorded);
-            $this->responseRepository->setReceivable($response->id, $communication, $receivableId);
+            [$communication, $newReceivableId] = $this->openReceivable($form, $total, $contactEmail, $notRecorded);
+            $this->responseRepository->setReceivable($response->id, $communication, $newReceivableId);
 
             return true;
         }
@@ -819,14 +832,14 @@ class ResponseService
         $held = $standing->amountReceivedCents - $standing->amountRefundedCents;
         try {
             if ($cents === 0 && $standing->amountReceivedCents === 0 && $standing->amountRefundedCents === 0) {
-                $this->expectedReceivable->deleteReceivable(self::RECEIVABLE_SOURCE, $response->receivableId);
+                $this->expectedReceivable->deleteReceivable(self::RECEIVABLE_SOURCE, $receivableId);
                 $this->responseRepository->clearReceivable($response->id);
 
                 return true;
             }
 
             $this->expectedReceivable->updateReceivableAmount(
-                $response->receivableId,
+                $receivableId,
                 $cents,
                 allowBelowReceived: $cents < $held
             );
@@ -879,9 +892,17 @@ class ResponseService
         return count($flagged);
     }
 
-    /** Whether a stored number answer breaks the rules normalizeNumberAnswer() now applies. */
-    private static function isInvalidStoredNumber(FormField $field, string $value): bool
+    /**
+     * Whether a stored number answer breaks the rules normalizeNumberAnswer()
+     * now applies — the same rule as the door's (FormField::storedQuantity()).
+     * An answer that cannot be read at all (null) is flagged too: a person
+     * has to look at it.
+     */
+    private static function isInvalidStoredNumber(FormField $field, ?string $value): bool
     {
+        if ($value === null) {
+            return true;
+        }
         if ($value === '') {
             return false;
         }
@@ -889,7 +910,7 @@ class ResponseService
             return true;
         }
 
-        return $field->isQuantity() && preg_match('/^\d+$/', $value) !== 1;
+        return $field->isQuantity() && $field->storedQuantity($value) === null;
     }
 
     public function canEditResponse(FormResponse $response, NewsForm $form, Role $role, ?int $currentAccountId): bool

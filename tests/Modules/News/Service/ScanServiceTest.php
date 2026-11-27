@@ -304,6 +304,44 @@ class ScanServiceTest extends TestCase
         $this->assertSame([['label' => 'Repas adulte', 'quantity' => '0.5', 'invalid' => true]], $verdict['seats']);
     }
 
+    /**
+     * « 2.5 » is invalid AND counts no seat: a cast once made it two, in
+     * the verdict and in the head-of-screen counters alike.
+     */
+    public function testAFractionalQuantityCountsNoSeatAnywhere(): void
+    {
+        [, $formId] = $this->event('Souper spaghetti');
+        $f = $this->dinnerFields($formId);
+        $responseId = $this->booking($formId, [$f['name'] => 'Roskam', $f['adults'] => '2.5', $f['children'] => '1'], 'a@test.com', true);
+        $reference = (string) $this->responses->findById($responseId)?->ticketReference;
+        $form = $this->forms->findById($formId);
+
+        $verdict = $this->service()->verdictFor($form, TicketService::format($reference));
+        $counters = $this->service()->counters($form);
+
+        $this->assertTrue($verdict['seats'][0]['invalid']);
+        $this->assertSame(1, $verdict['seat_total']);
+        $this->assertSame(1, $counters['sold']);
+        $this->assertSame(1, $counters['entered']);
+    }
+
+    /**
+     * A priced field with no capacity once took any number: a stored 1000
+     * is above what one response may ask (999) and is flagged, not counted.
+     */
+    public function testAStoredQuantityAboveThePerResponseCeilingIsInvalid(): void
+    {
+        [, $formId] = $this->event('Vente de gaufres');
+        $boxes = $this->fields->create($formId, 0, FormField::TYPE_NUMBER, 'Boîtes', false, null, null, null, 6.0, null);
+        $responseId = $this->booking($formId, [$boxes => '1000'], 'a@test.com');
+        $reference = (string) $this->responses->findById($responseId)?->ticketReference;
+
+        $verdict = $this->service()->verdictFor($this->forms->findById($formId), TicketService::format($reference));
+
+        $this->assertSame([['label' => 'Boîtes', 'quantity' => '1000', 'invalid' => true]], $verdict['seats']);
+        $this->assertSame(0, $verdict['seat_total']);
+    }
+
     /** The printed list carries the same lines: it is the door's fallback. */
     public function testThePrintedListKeepsAnInvalidQuantityToo(): void
     {

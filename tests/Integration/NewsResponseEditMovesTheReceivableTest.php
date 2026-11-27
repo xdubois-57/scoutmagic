@@ -228,6 +228,26 @@ final class NewsResponseEditMovesTheReceivableTest extends TestCase
         $this->assertSame(5400, $standing->amountOverpaidCents);
         $this->assertSame(5400, $this->responseService()->amountOwedBackCents($edited));
 
+        // The family's confirmation: nothing left to pay, so no payment
+        // card — but the new total, what came in and the refund are said.
+        $form = $this->forms->findById($this->formId);
+        $page = \Tests\TestTwig::create(['news'])->render('@news/confirmation.html.twig', [
+            'article' => $this->article,
+            'breadcrumb_current' => $this->article->title,
+            'response' => $edited,
+            'answers' => [],
+            'payment' => $this->responseService()->buildPaymentSummary($form, $edited, 36.0),
+            'amount_owed_back' => $this->responseService()->amountOwedBackCents($edited),
+            'amount_total' => 36.0,
+            'amount_received' => $this->responseService()->amountReceivedCents($edited),
+            'edit_url' => null,
+        ]);
+        $text = html_entity_decode(strip_tags($page));
+        $this->assertStringContainsString('Montant de votre réponse : 36,00', $text);
+        $this->assertStringContainsString('Déjà reçu : 90,00', $text);
+        $this->assertStringContainsString('54,00', $text);
+        $this->assertStringNotContainsString('Montant à payer', $text);
+
         // Down to nothing: the receivable stays, at zero, as the
         // overpayment it now is.
         $zero = $this->edit($edited, '0');
