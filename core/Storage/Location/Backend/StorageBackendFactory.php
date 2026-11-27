@@ -93,6 +93,22 @@ class StorageBackendFactory
         }
 
         if ($config instanceof ObjectStorageLocationConfig) {
+            // **Checked again here, like the WebDAV address below** (#1269,
+            // SECURITY.md §17). The access key signs every request to this
+            // endpoint, and the AWS client resolves the host itself when it
+            // connects: a name that resolved public when the form was saved
+            // can point inside the hosting network now, and a row can have
+            // arrived since the form. The stored-value check, so a resolver
+            // that cannot answer is not called a wrong address. The
+            // message is what the location's check records, and the
+            // « en erreur » attention point carries it.
+            if (!SsrfUrlValidator::isStoredHttpsTargetStillSafe($config->endpoint, true)) {
+                throw new StorageLocationException(
+                    'L\'adresse enregistrée pour ce service S3 ne mène plus à une adresse publique en https. '
+                    . 'Vérifiez-la sur la fiche de cet emplacement.'
+                );
+            }
+
             return new ObjectStorageBackend(
                 $config->endpoint,
                 $config->region,

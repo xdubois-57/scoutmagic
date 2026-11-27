@@ -11,6 +11,8 @@ namespace Modules\LlmConnector\Task;
 use Core\Scheduler\TaskContext;
 use Core\Scheduler\TaskHandlerInterface;
 use Core\Scheduler\SchedulerService;
+use Core\Security\SsrfUrlValidator;
+use Modules\LlmConnector\Api\LlmException;
 use Modules\LlmConnector\Provider\AnthropicProvider;
 use Modules\LlmConnector\Provider\LlmProviderInterface;
 use Modules\LlmConnector\Provider\MistralProvider;
@@ -29,6 +31,24 @@ class RefreshModelsHandler implements TaskHandlerInterface
 {
     private const CHAIN_PAYLOAD = ['capability_checks_version' => 1];
     private const RETRY_DELAYS = [900, 3600, 21600, 86400];
+
+    /**
+     * Whether a stored provider address may still be called (#1269). Null
+     * is the real check; see the constructor.
+     *
+     * @var (\Closure(string): bool)|null
+     */
+    private ?\Closure $endpointIsStillSafe = null;
+
+    /**
+     * @param (\Closure(string): bool)|null $endpointIsStillSafe null is
+     *        {@see SsrfUrlValidator::isStoredHttpsTargetStillSafe()};
+     *        injectable only so a test can stand in for the resolver
+     */
+    public function __construct(?\Closure $endpointIsStillSafe = null)
+    {
+        $this->endpointIsStillSafe = $endpointIsStillSafe;
+    }
 
     /** Seed from either entry point; upgrade a legacy weekly delay only once. */
     public static function bootstrap(SchedulerService $scheduler): void
@@ -71,6 +91,13 @@ class RefreshModelsHandler implements TaskHandlerInterface
                 $configured = $providerRepo->findById($provider['id']);
                 if ($configured === null || !$configured['is_active']) {
                     continue;
+                }
+                // Checked again before every refresh, not only when the
+                // address was saved (#1269, SECURITY.md §17): the API key
+                // is sent to it, and nobody is watching this run. A refusal
+                // is journalled below like any other failure.
+                if (!$this->mayCall($configured['api_endpoint'])) {
+                    throw LlmException::unsafeEndpoint();
                 }
                 $driver = $this->createDriver(
                     $configured['driver'],
@@ -168,6 +195,14 @@ class RefreshModelsHandler implements TaskHandlerInterface
         }
 
         $schedulerService->rearm('llm_connector', 'refresh_models', 'weekly', $nextRun, self::CHAIN_PAYLOAD);
+    }
+
+    private function mayCall(string $endpoint): bool
+    {
+        $check = $this->endpointIsStillSafe
+            ?? static fn (string $url): bool => SsrfUrlValidator::isStoredHttpsTargetStillSafe($url);
+
+        return $check($endpoint);
     }
 
     protected function createDriver(string $driver, string $apiEndpoint, string $apiKey): LlmProviderInterface

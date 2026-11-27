@@ -34,6 +34,15 @@ use Modules\LlmConnector\Api\LlmException;
  *    strict_types raises a TypeError, which is not an LlmException and so
  *    escapes every consumer's catch block, aborting a whole categorization
  *    batch over one bad row.
+ *
+ * It is also where the call is kept on the address it was configured for
+ * (#1269, SECURITY.md §17). Every request carries the provider's API key in
+ * a header, and the stream wrapper follows redirects by default — resending
+ * those headers to wherever a `Location` points. So a redirect is never
+ * followed: it is a failure, reported with a fixed sentence that does not
+ * name the target. And a response is read up to a ceiling, not to the end,
+ * so a provider (or anything answering in its place) cannot make the server
+ * buffer an unbounded body.
  */
 final class HttpTransport
 {
@@ -46,6 +55,14 @@ final class HttpTransport
     private const MAX_ERROR_BODY_CHARS = 500;
 
     /**
+     * Largest response body read from a provider, in bytes. A completion of
+     * the longest output this module ever asks for is a few hundred
+     * kilobytes of JSON, and a model catalogue far less: 8 MiB leaves every
+     * genuine answer whole and still stops a body that never ends.
+     */
+    public const MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
+
+    /**
      * @param array<int, string> $headers
      * @return array<string, mixed>
      */
@@ -56,6 +73,7 @@ final class HttpTransport
             'header' => implode("\r\n", $headers),
             'timeout' => $timeout,
             'ignore_errors' => true,
+            'follow_location' => 0,
         ]);
     }
 
@@ -81,6 +99,7 @@ final class HttpTransport
             'content' => $jsonBody,
             'timeout' => $timeout,
             'ignore_errors' => true,
+            'follow_location' => 0,
         ]);
     }
 
@@ -93,7 +112,9 @@ final class HttpTransport
         $context = stream_context_create(['http' => $httpOptions]);
 
         StreamResponseHeaders::clear();
-        $body = @file_get_contents($url, false, $context);
+        // One byte past the ceiling, so « exactly at it » and « beyond it »
+        // stay two different answers.
+        $body = @file_get_contents($url, false, $context, 0, self::MAX_RESPONSE_BYTES + 1);
 
         if ($body === false) {
             // No response at all: connection refused, DNS failure, or the
@@ -106,6 +127,17 @@ final class HttpTransport
         // describe that request — never a stale one from another provider
         // call earlier in the same process.
         $status = $this->statusCode(StreamResponseHeaders::last());
+
+        if ($status >= 300 && $status < 400) {
+            // Not followed (follow_location is off), and not described
+            // either: the target is wherever the response pointed, which
+            // is precisely the address the key must not reach.
+            throw LlmException::redirected($status);
+        }
+
+        if (strlen($body) > self::MAX_RESPONSE_BYTES) {
+            throw LlmException::responseTooLarge(self::MAX_RESPONSE_BYTES);
+        }
 
         if ($status === 429) {
             throw LlmException::rateLimited($this->shorten($body));
@@ -130,8 +162,9 @@ final class HttpTransport
     }
 
     /**
-     * The last status line in the header list — a redirect chain leaves the
-     * earlier ones in place, and it is the final response that matters.
+     * The last status line in the header list. Redirects are not followed,
+     * so there is normally just one; the last is still the one read, so a
+     * list that does carry several is answered by its final response.
      *
      * @param array<int, string> $responseHeaders
      */

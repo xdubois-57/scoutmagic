@@ -17,6 +17,7 @@ use Core\Security\Role;
 use Core\ScoutYear\AuthorizationYears;
 use Core\ScoutYear\AuthorizationYearService;
 use Core\Security\RoleResolver;
+use Core\Security\SsrfUrlValidator;
 use Core\Security\UserAccount;
 use Core\Security\UserAccountRepository;
 use Minishlink\WebPush\Encryption;
@@ -1025,6 +1026,20 @@ class NotificationService
         }
 
         foreach ($subscriptions as $subscription) {
+            // **Checked again at send time, not only when the device
+            // subscribed** (#1269, SECURITY.md §17). Any signed-in member
+            // chooses this address, and the library resolves it itself when
+            // it connects: a name that was public then can point inside the
+            // hosting network now. Such a subscription is removed, exactly
+            // as a push service's « gone » is, and nothing says why — the
+            // member who stored it learns nothing about what it reaches.
+            // The stored-value check, so a resolver that cannot answer
+            // does not cost a device its subscription.
+            if (!SsrfUrlValidator::isStoredHttpsTargetStillSafe($subscription->endpoint)) {
+                $this->pushSubscriptionRepository->delete($subscription->id);
+                continue;
+            }
+
             try {
                 $this->webPush->queueNotification(
                     Subscription::create([

@@ -8,6 +8,7 @@ use Core\Security\EncryptionService;
 use Core\Storage\Location\Backend\LocalStorageBackend;
 use Core\Storage\Location\Backend\StorageBackendFactory;
 use Core\Storage\Location\Config\LocalLocationConfig;
+use Core\Storage\Location\Config\ObjectStorageLocationConfig;
 use Core\Storage\Location\Config\WebDavLocationConfig;
 use Core\Storage\Location\Backend\WebDav\WebDavAccessException;
 use Core\Storage\Location\StorageLocation;
@@ -136,6 +137,45 @@ class StorageBackendFactoryTest extends TestCase
         );
 
         $this->assertInstanceOf(\Core\Storage\Location\Backend\WebDavBackend::class, $backend);
+    }
+
+    private function objectStorageLocation(string $endpoint): StorageLocation
+    {
+        return new StorageLocation(
+            id: 11,
+            type: StorageLocationType::ObjectStorage,
+            label: 'Bucket',
+            config: new ObjectStorageLocationConfig($endpoint, 'fr-par', 'photos', 'AKIA'),
+            isDefault: false,
+            secretConfigured: true,
+            lastCheckedAt: null,
+            lastCheckOk: null,
+            lastCheckError: null,
+            createdAt: '2026-01-01 00:00:00'
+        );
+    }
+
+    /**
+     * **An S3 endpoint is checked again here too** (#1269, SECURITY.md §17).
+     * The access key signs every request to it and the AWS client resolves
+     * the host itself; the form's check is long past by then. Refused with
+     * a sentence the location's check records, before a client exists.
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('addressesNoCredentialMayTravelTo')]
+    public function testAStoredS3EndpointIsRefusedAgainBeforeTheKeySignsAnything(string $endpoint): void
+    {
+        $this->expectException(StorageLocationException::class);
+        $this->expectExceptionMessage('adresse publique');
+
+        $this->factory->create($this->objectStorageLocation(str_replace('/dav', '', $endpoint)));
+    }
+
+    /** And, as for WebDAV, a name nothing answers for right now is not called wrong. */
+    public function testAnS3EndpointTheResolverCannotAnswerForIsNotCalledWrong(): void
+    {
+        $backend = $this->factory->create($this->objectStorageLocation('https://s3.inexistant.example.org'));
+
+        $this->assertInstanceOf(\Core\Storage\Location\Backend\ObjectStorageBackend::class, $backend);
     }
 
     public function testARelativePathHangsUnderTheSitesStorageFolder(): void

@@ -601,6 +601,34 @@ class NotificationServiceTest extends TestCase
         $this->assertNull($this->subscriptionRepository->findById($subId));
     }
 
+    /**
+     * **A subscription address is checked again at send time** (#1269,
+     * SECURITY.md §17). Any signed-in member chooses it, and the push
+     * library resolves it itself when it connects: one that now leads
+     * inside the hosting network is removed, like a « gone » device, and
+     * nothing is sent to it. The other device still gets its push.
+     */
+    public function testASubscriptionWhoseAddressIsNoLongerPublicIsRemovedWithoutSending(): void
+    {
+        $userId = $this->createUserAccount();
+        $rebound = $this->subscriptionRepository->create($userId, 'https://10.0.0.5/push/device', 'auth', 'p256dh');
+        $kept = $this->subscriptionRepository->create($userId, 'https://push.example/device', 'auth2', 'p256dh2');
+        $notificationId = $this->notificationRepository->create($userId, null, 'core.system', 'A', 'B', null);
+
+        $sentTo = [];
+        $this->webPush->method('queueNotification')
+            ->willReturnCallback(function ($subscription) use (&$sentTo): void {
+                $sentTo[] = $subscription->getEndpoint();
+            });
+        $this->webPush->method('flush')->willReturn((function () { return; yield; })());
+
+        $this->service->sendPushForNotifications([$notificationId], fn() => true);
+
+        $this->assertSame(['https://push.example/device'], $sentTo);
+        $this->assertNull($this->subscriptionRepository->findById($rebound));
+        $this->assertNotNull($this->subscriptionRepository->findById($kept));
+    }
+
     // --- subscribe/unsubscribe (device_label, idempotency) ---
 
     public function testSubscribeIsIdempotentForTheSameEndpoint(): void
