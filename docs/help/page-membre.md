@@ -63,6 +63,10 @@ mise à jour suivante.
 
 ## Qui voit quoi ?
 
-Vous voyez tout. Un animateur ou un membre du Staff d'Unité peut
-consulter la page pour son travail, mais ne voit ni vos documents
-privés ni vos adresses e-mail, et ne peut pas changer la photo.
+Vous voyez tout. Seuls le Chef d'Unité et les membres de la famille
+(l'adresse e-mail de l'animé ou une adresse confirmée de ses parents)
+peuvent ouvrir cette page. Le Chef d'Unité la consulte pour son travail,
+mais ne voit ni vos documents privés ni vos adresses e-mail, et ne peut
+pas changer la photo. Un animateur de section ne peut pas l'ouvrir pour
+un animé qui n'est pas de sa famille : s'il est aussi parent, il voit la
+page de ses propres enfants comme tout parent.

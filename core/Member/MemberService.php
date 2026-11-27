@@ -343,6 +343,29 @@ class MemberService
     }
 
     /**
+     * Whether the signed-in account may open the family page
+     * (/members/{id}) of this member-year: the family itself — the member's
+     * current address, a confirmed secondary address, the temporary member —
+     * or the unit leader (admin and above), who has the administration page
+     * besides (issue #1266).
+     *
+     * Deliberately narrower than canAccess(), which stays open to every
+     * chief for the surfaces that need it: the page carries the member's
+     * open payments (IBAN, structured communication, QR) of every financial
+     * account, which AccountVisibility hides from a chief for the accounts
+     * of other sections and the ones reserved to the unit leader. A chief
+     * who is also a parent passes through the family rule, like any parent.
+     */
+    public function canOpenFamilyPage(string $userEmail, int $memberYearId, string $userRole): bool
+    {
+        if (Role::fromString($userRole)->hasAccess(Role::ADMIN)) {
+            return true;
+        }
+
+        return $this->canAccess($userEmail, $memberYearId, 'identified');
+    }
+
+    /**
      * Check if a user account (by email) has access to a specific member_year.
      *
      * Access granted if:

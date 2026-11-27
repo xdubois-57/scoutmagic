@@ -126,6 +126,7 @@ class MemberControllerTest extends TestCase
 
         $memberService = $this->createStub(MemberService::class);
         $memberService->method('canAccess')->willReturn(true);
+        $memberService->method('canOpenFamilyPage')->willReturn(true);
         $memberService->method('getMemberProfile')->willReturn($profile);
 
         $controller = $this->newController($this->createStub(Environment::class), $memberService);
@@ -139,17 +140,13 @@ class MemberControllerTest extends TestCase
     public function testShowPageRendersForChiefViewingAnyMember(): void
     {
         // Set up as chief
-        $_SESSION['auth'] = [
-            'user_account_id' => 1,
-            'email' => 'chief@example.com',
-            'role' => 'chief',
-            'linked_members' => [],
-        ];
+        \Core\Security\AuthSession::login(1, 'chief@example.com', 'chief');
 
         $profile = $this->makeProfile(['totem' => 'Mowgli']);
 
         $memberService = $this->createStub(MemberService::class);
         $memberService->method('canAccess')->willReturn(true);
+        $memberService->method('canOpenFamilyPage')->willReturn(true);
         $memberService->method('getMemberProfile')->willReturn($profile);
 
         $controller = $this->newController($this->createStub(Environment::class), $memberService);
@@ -171,6 +168,7 @@ class MemberControllerTest extends TestCase
         // Mock member service to deny access
         $memberService = $this->createStub(MemberService::class);
         $memberService->method('canAccess')->willReturn(false);
+        $memberService->method('canOpenFamilyPage')->willReturn(false);
 
         $twig = $this->createMock(Environment::class);
         $twig->expects($this->once())
@@ -193,10 +191,58 @@ class MemberControllerTest extends TestCase
         $this->assertStringContainsString('Accès refusé', $response->getBody());
     }
 
+    /**
+     * Issue #1266: a chief who is not of the family is refused like a parent
+     * looking at another family's child — the guard is the family-page rule,
+     * not canAccess(), which still opens every page to a chief for the other
+     * surfaces. Same 403, so nothing says whether the member exists.
+     */
+    public function testShowPageReturns403ForAChiefOutsideTheFamily(): void
+    {
+        \Core\Security\AuthSession::login(1, 'chief@example.com', 'chief');
+
+        $memberService = $this->createMock(MemberService::class);
+        $memberService->method('canAccess')->willReturn(true);
+        $memberService->expects($this->once())
+            ->method('canOpenFamilyPage')
+            ->with('chief@example.com', 2, 'chief')
+            ->willReturn(false);
+        $memberService->expects($this->never())->method('getMemberProfile');
+
+        $twig = $this->createMock(Environment::class);
+        $twig->expects($this->once())
+            ->method('render')
+            ->with('errors/403.html.twig', $this->anything())
+            ->willReturn('<h1>Accès refusé</h1>');
+
+        $controller = $this->newController($twig, $memberService);
+        $response = $controller->show(new Request('GET', '/members/2', [], [], [], []), ['id' => '2']);
+
+        $this->assertSame(403, $response->getStatusCode());
+    }
+
+    public function testShowPageAsksTheFamilyPageRuleWithTheRealRole(): void
+    {
+        \Core\Security\AuthSession::login(1, 'admin@example.com', 'admin');
+
+        $memberService = $this->createMock(MemberService::class);
+        $memberService->expects($this->once())
+            ->method('canOpenFamilyPage')
+            ->with('admin@example.com', 2, 'admin')
+            ->willReturn(true);
+        $memberService->method('getMemberProfile')->willReturn($this->makeProfile());
+
+        $controller = $this->newController($this->createStub(Environment::class), $memberService);
+        $response = $controller->show(new Request('GET', '/members/2', [], [], [], []), ['id' => '2']);
+
+        $this->assertSame(200, $response->getStatusCode());
+    }
+
     public function testShowPageReturns404ForNonExistentMemberYear(): void
     {
         $memberService = $this->createStub(MemberService::class);
         $memberService->method('canAccess')->willReturn(true);
+        $memberService->method('canOpenFamilyPage')->willReturn(true);
         $memberService->method('getMemberProfile')
             ->willThrowException(new MemberNotFoundException());
 
@@ -215,6 +261,7 @@ class MemberControllerTest extends TestCase
 
         $memberService = $this->createStub(MemberService::class);
         $memberService->method('canAccess')->willReturn(true);
+        $memberService->method('canOpenFamilyPage')->willReturn(true);
         $memberService->method('getMemberProfile')->willReturn($profile);
 
         $twig = $this->createMock(Environment::class);
@@ -239,17 +286,13 @@ class MemberControllerTest extends TestCase
     public function testContactInfoIsVisibleToChief(): void
     {
         // Set up as chief
-        $_SESSION['auth'] = [
-            'user_account_id' => 1,
-            'email' => 'chief@example.com',
-            'role' => 'chief',
-            'linked_members' => [],
-        ];
+        \Core\Security\AuthSession::login(1, 'chief@example.com', 'chief');
 
         $profile = $this->makeProfile(['totem' => 'Mowgli']);
 
         $memberService = $this->createStub(MemberService::class);
         $memberService->method('canAccess')->willReturn(true);
+        $memberService->method('canOpenFamilyPage')->willReturn(true);
         $memberService->method('getMemberProfile')->willReturn($profile);
 
         $twig = $this->createMock(Environment::class);
@@ -276,6 +319,7 @@ class MemberControllerTest extends TestCase
         // Mock canAccess to return true for the email match but not for chief role
         $memberService = $this->createStub(MemberService::class);
         $memberService->method('canAccess')->willReturn(true);
+        $memberService->method('canOpenFamilyPage')->willReturn(true);
         $memberService->method('getMemberProfile')->willReturn($this->makeProfile());
 
         $twig = $this->createMock(Environment::class);
@@ -303,6 +347,7 @@ class MemberControllerTest extends TestCase
 
         $memberService = $this->createStub(MemberService::class);
         $memberService->method('canAccess')->willReturn(true);
+        $memberService->method('canOpenFamilyPage')->willReturn(true);
         $memberService->method('getMemberProfile')->willReturn($profile);
 
         $twig = $this->createMock(Environment::class);
@@ -330,6 +375,7 @@ class MemberControllerTest extends TestCase
 
         $memberService = $this->createStub(MemberService::class);
         $memberService->method('canAccess')->willReturn(true);
+        $memberService->method('canOpenFamilyPage')->willReturn(true);
         $memberService->method('getMemberProfile')->willReturn($profile);
 
         $twig = $this->createMock(Environment::class);
@@ -357,6 +403,7 @@ class MemberControllerTest extends TestCase
 
         $memberService = $this->createStub(MemberService::class);
         $memberService->method('canAccess')->willReturn(true);
+        $memberService->method('canOpenFamilyPage')->willReturn(true);
         $memberService->method('getMemberProfile')->willReturn($profile);
 
         $twig = $this->createMock(Environment::class);
