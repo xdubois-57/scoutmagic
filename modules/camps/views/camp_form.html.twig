@@ -53,7 +53,11 @@
                     help: 'Si le lieu n\'est pas dans la liste, laissez « Un nouveau lieu » et remplissez les champs ci-dessous.',
                 } only %}
 
-                <div id="camps-new-place">
+                {# A fieldset so that hiding it also disables it (camps-new-place.js):
+                   a hidden field the browser still validates would block the
+                   submit without saying why, and the server ignores this
+                   block for an existing place anyway. #}
+                <fieldset id="camps-new-place">
                     {% include 'partials/form_field.html.twig' with {
                         field_id: 'place-name', field_name: 'place_name', label: 'Nom du lieu',
                         placeholder: 'Domaine de Mozet', maxlength: 150, value: submitted.place_name,
@@ -113,7 +117,7 @@
                         address_label: 'Adresse du lieu',
                         help: 'Facultatives. Cherchées automatiquement à partir de l\'adresse ; pour un terrain sans adresse, placez le point vous-même sur la carte.',
                     } only %}
-                </div>
+                </fieldset>
             {% endif %}
 
             <h2 class="h6 text-uppercase text-body-secondary mb-3">Séjour</h2>

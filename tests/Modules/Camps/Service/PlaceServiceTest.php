@@ -411,6 +411,20 @@ class PlaceServiceTest extends TestCase
         $this->assertNull($place->geocodedAt);
     }
 
+    /** « Retirer » on a new place: nothing saved to remove, and the task must still find the point. */
+    public function testANewPlaceWhosePinWasRemovedIsNotLocked(): void
+    {
+        $id = $this->service->create([
+            'name' => 'Domaine de Mozet', 'city' => 'Mozet',
+            'latitude' => '', 'longitude' => '', 'point_automatic' => '0', 'point_manual' => '1',
+        ], 42);
+
+        $place = $this->places->findById($id);
+        $this->assertNull($place?->latitude);
+        $this->assertFalse($place->coordinatesAreManual);
+        $this->assertSame(1, $this->audit->page(PlaceService::ENTITY_TYPE, $id, 1, 10)->total, 'only « Lieu créé »');
+    }
+
     private function placeAt(
         string $address,
         string $postalCode,

@@ -72,8 +72,11 @@ class PlaceService
 
         // Placed or found on the form: recorded as the edit form would,
         // so a pin nobody touched stays automatic and a human's is locked.
-        // Nothing posted, the background task finds the point.
-        if ($submission !== null && ($submission->point !== null || $submission->removed)) {
+        // No point — none given, or « Retirer » on a pin a new place never
+        // had saved — locks nothing: the background task finds the point,
+        // where a « no point » written here would bar it from this place
+        // for ever, and record a change from nothing to nothing.
+        if ($submission?->point !== null) {
             $place = $this->places->findById($id);
             if ($place !== null) {
                 $this->updateCoordinates(

@@ -15,9 +15,10 @@ function buildForm(selected) {
             <option value="" ${selected === '' ? 'selected' : ''}>Un nouveau lieu</option>
             <option value="7" ${selected === '7' ? 'selected' : ''}>Ferme du Bois</option>
         </select>
-        <div id="camps-new-place">
+        <fieldset id="camps-new-place">
+            <input type="url" id="place-website" name="website_url" value="pas une url">
             <fieldset data-point-picker></fieldset>
-        </div>
+        </fieldset>
     `;
 }
 
@@ -27,7 +28,11 @@ async function load() {
 }
 
 function block() {
-    return /** @type {HTMLElement} */ (document.getElementById('camps-new-place'));
+    return /** @type {HTMLFieldSetElement} */ (document.getElementById('camps-new-place'));
+}
+
+function website() {
+    return /** @type {HTMLInputElement} */ (document.getElementById('place-website'));
 }
 
 function choose(value) {
@@ -66,6 +71,20 @@ describe('camps-new-place', () => {
 
         expect(block().hidden).toBe(true);
         expect(refresh).not.toHaveBeenCalled();
+    });
+
+    // A hidden field the browser still validated would block the submit
+    // without saying why: hidden, the block is disabled too.
+    it('disables the hidden block so that its fields neither block the submit nor travel', async () => {
+        buildForm('7');
+        await load();
+
+        expect(block().disabled).toBe(true);
+        expect(website().willValidate).toBe(false);
+
+        choose('');
+        expect(block().disabled).toBe(false);
+        expect(website().willValidate).toBe(true);
     });
 
     it('follows the choice, redrawing the map each time the block appears', async () => {

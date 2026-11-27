@@ -804,10 +804,11 @@ class CampsChiefController extends AbstractController
         ];
 
         // Coordinates travel only when the submitted form actually
-        // carried them. Setting the keys unconditionally would mean the
-        // camp-creation form — which has no coordinate inputs — posts two
-        // empty values, and PlaceService would read that as "clear the
-        // point", wiping a pin a chief had placed by hand.
+        // carried them — the place form, and the stay form's new-place
+        // block (#1353). Setting the keys unconditionally would turn a
+        // form without the picker into two empty values, which
+        // PlaceService would read as "clear the point", wiping a pin a
+        // chief had placed by hand.
         // With them, what the core's point picker says about the point
         // (Core\Geo\PointSubmission, #1353): found from the address or
         // placed by a human, and for which address.
