@@ -2810,6 +2810,55 @@ class NewsIntegrationTest extends TestCase
     }
 
     /**
+     * Issue #1381: an answered « Membres » field turned into a text field is
+     * refused before the article is written — title included — so the
+     * refusal leaves both the article and its form as they were.
+     */
+    public function testUpdateChangingAnAnsweredMembersFieldLeavesTheArticleUntouched(): void
+    {
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+        $articleId = $this->articleRepository->create(
+            'Avant',
+            Article::VISIBILITY_PUBLIC,
+            true,
+            null,
+            null,
+            $this->chiefAccountId
+        );
+        $form = $this->formService->save($articleId, [
+            'access' => \Modules\News\Repository\NewsForm::ACCESS_IDENTIFIED,
+            'response_limit' => \Modules\News\Repository\NewsForm::RESPONSE_LIMIT_UNLIMITED,
+            'opens_at' => null, 'closes_at' => null, 'is_force_closed' => false,
+            'response_role_min' => 'chief', 'digest_email' => null, 'finance_account_id' => null,
+        ], [[
+            'id' => null, 'field_type' => 'checkbox', 'label' => 'Pour qui ?', 'is_required' => false,
+            'options_source' => 'members', 'options_manual' => null, 'capacity_max' => null,
+            'price_per_unit' => null, 'confirmation_text' => null,
+        ]]);
+        $fieldId = $this->formService->getFields($form->id)[0]->id;
+        $this->responseRepository->create($form->id, null, null, 'famille@test.com', [], null, null);
+
+        $request = new Request('POST', '/news/' . $articleId, [], [
+            '_csrf_token' => CsrfGuard::generateToken(),
+            'title' => 'Après',
+            'summary' => 'Un résumé en une phrase.',
+            'visibility' => 'public',
+            'form_response_limit' => 'unlimited',
+            'form_response_role_min' => 'chief',
+            'fields_json' => json_encode([['id' => $fieldId, 'field_type' => 'short_text', 'label' => 'Pour qui ?']]),
+        ], [], []);
+        $_FILES['image'] = $this->fakeUploadedImage();
+
+        $response = $this->newsController->update($request, ['id' => (string) $articleId]);
+
+        $this->assertSame(422, $response->getStatusCode());
+        $body = html_entity_decode($response->getBody(), ENT_QUOTES);
+        $this->assertStringContainsString('a déjà des réponses', $body);
+        $this->assertSame('Avant', $this->articleRepository->findById($articleId)?->title);
+        $this->assertTrue($this->formService->getFields($form->id)[0]->isMemberSourced());
+    }
+
+    /**
      * The settings an author had just chosen, as the editor's POST sends
      * them — and a field label the server refuses, so the form comes back
      * with an error (issue #1140).

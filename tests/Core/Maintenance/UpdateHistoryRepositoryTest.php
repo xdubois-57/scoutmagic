@@ -231,14 +231,15 @@ class UpdateHistoryRepositoryTest extends TestCase
         // refresh it.
         $queued = $this->repository->create('1.1.0', '1.2.0', false, $this->userId);
         $this->ageProgress($queued, 40);
+        // Read back rather than recomputed: « 40 minutes ago » worked out a
+        // second time could fall on the next second and fail for nothing.
+        $queuedBefore = $this->progressAt($queued);
 
         $this->repository->touchInProgress();
 
         $this->assertNotNull($this->repository->findInProgress());
-        $this->assertSame(
-            $this->progressAt($queued),
-            (new \DateTimeImmutable('-40 minutes'))->format('Y-m-d H:i:s')
-        );
+        $this->assertNotNull($queuedBefore);
+        $this->assertSame($queuedBefore, $this->progressAt($queued));
     }
 
     /**

@@ -80,6 +80,77 @@ class MemberRepository
     }
 
     /**
+     * The grouped form of findByDeskId(), and the same rule: a direct
+     * match on a member that has NOT been merged away first, then
+     * `member_desk_id_aliases`. Two queries whatever the number of codes,
+     * for a page or an export that holds many of them.
+     *
+     * Keyed by the code exactly as it was passed in; a code that
+     * designates nobody is simply absent. The comparison is the
+     * collation's (utf8mb4_unicode_ci: case-insensitive), so a row is
+     * mapped back to the code asked for through a lowercased key — keyed
+     * by the stored spelling, a code the engine found would still be
+     * reported unknown. `MemberRepositoryOnMysqlTest` holds it.
+     *
+     * @param string[] $deskIds
+     * @return array<string, array{id: int, desk_id: string}>
+     */
+    public function findByDeskIds(array $deskIds): array
+    {
+        $deskIds = array_values(array_unique(array_filter(
+            $deskIds,
+            static fn(string $deskId): bool => $deskId !== ''
+        )));
+        if ($deskIds === []) {
+            return [];
+        }
+
+        $byKey = [];
+        $placeholders = implode(',', array_fill(0, count($deskIds), '?'));
+        $stmt = $this->pdo->prepare(
+            "SELECT id, desk_id FROM members WHERE desk_id IN ({$placeholders}) AND merged_into_member_id IS NULL"
+        );
+        $stmt->execute($deskIds);
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $byKey[mb_strtolower((string) $row['desk_id'])] = [
+                'id' => (int) $row['id'],
+                'desk_id' => (string) $row['desk_id'],
+            ];
+        }
+
+        $missing = array_values(array_filter(
+            $deskIds,
+            static fn(string $deskId): bool => !isset($byKey[mb_strtolower($deskId)])
+        ));
+        if ($missing !== []) {
+            $placeholders = implode(',', array_fill(0, count($missing), '?'));
+            $stmt = $this->pdo->prepare(
+                "SELECT a.desk_id AS alias, m.id, m.desk_id
+                 FROM member_desk_id_aliases a
+                 JOIN members m ON m.id = a.member_id
+                 WHERE a.desk_id IN ({$placeholders})"
+            );
+            $stmt->execute($missing);
+            foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+                $byKey[mb_strtolower((string) $row['alias'])] = [
+                    'id' => (int) $row['id'],
+                    'desk_id' => (string) $row['desk_id'],
+                ];
+            }
+        }
+
+        $found = [];
+        foreach ($deskIds as $deskId) {
+            $match = $byKey[mb_strtolower($deskId)] ?? null;
+            if ($match !== null) {
+                $found[$deskId] = $match;
+            }
+        }
+
+        return $found;
+    }
+
+    /**
      * Find or create a member by desk_id. Returns the member ID.
      */
     public function upsertByDeskId(string $deskId): int

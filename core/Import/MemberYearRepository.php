@@ -353,6 +353,45 @@ class MemberYearRepository
     }
 
     /**
+     * The `member_years` id of each member's newest scout year — the same
+     * "most recent" as findMostRecentNamesForMembers() above, for a caller
+     * that hydrates the whole annual record (`MemberProfileRepository::
+     * hydrateMany()`) rather than reading one column.
+     *
+     * A member who has left the unit still has an answer: their last
+     * year. A member with no annual record at all is absent.
+     *
+     * @param int[] $memberIds
+     * @return array<int, int> member id => member_year id
+     */
+    public function findMostRecentIdsForMembers(array $memberIds): array
+    {
+        $memberIds = array_values(array_unique(array_map('intval', $memberIds)));
+        if ($memberIds === []) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($memberIds), '?'));
+        // Oldest year first so the loop keeps overwriting with newer ones,
+        // exactly as the two methods above.
+        $stmt = $this->pdo->prepare(
+            "SELECT my.id, my.member_id
+             FROM member_years my
+             JOIN scout_years sy ON sy.id = my.scout_year_id
+             WHERE my.member_id IN ({$placeholders})
+             ORDER BY sy.start_date ASC"
+        );
+        $stmt->execute($memberIds);
+
+        $ids = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $ids[(int) $row['member_id']] = (int) $row['id'];
+        }
+
+        return $ids;
+    }
+
+    /**
      * Find all member_year rows for a given email blind index and scout year.
      *
      * @return array<int, array<string, mixed>>

@@ -361,6 +361,46 @@ class ScanServiceTest extends TestCase
         $this->assertSame([], $this->service()->searchResponses($form, 'Roskam'));
     }
 
+    /**
+     * A « Membres » field stores Desk ids (issue #1381): the door searches
+     * the names they stand for, never the codes.
+     */
+    public function testTheSearchFindsAMemberChosenInAMembersFieldByName(): void
+    {
+        [, $formId] = $this->event('Souper spaghetti');
+        $who = $this->fields->create(
+            $formId, 0, FormField::TYPE_CHECKBOX, 'Pour qui ?', false, FormField::OPTIONS_SOURCE_MEMBERS, null, null, null, null
+        );
+        $this->booking($formId, [$who => \Modules\News\Service\MemberAnswer::encode(['D-4711'])], 'famille@example.be');
+        $form = $this->forms->findById($formId);
+        $this->assertNotNull($form);
+
+        $readable = new class extends \Modules\News\Service\ResponseService {
+            public function __construct()
+            {
+                // No parent: this stub only names the members.
+            }
+
+            public function readableAnswers(array $fields, array $answersByResponse): array
+            {
+                return array_map(
+                    static fn(array $answers): array => array_map(
+                        static fn(string $value): string => str_replace('["D-4711"]', 'Castor (Zoé Lambert)', $value),
+                        $answers
+                    ),
+                    $answersByResponse
+                );
+            }
+        };
+        $service = new ScanService(
+            $this->forms, $this->fields, $this->responses, $this->articles, $this->tickets, null, null, $readable
+        );
+
+        $this->assertCount(1, $service->searchResponses($form, 'zoe lambert'));
+        $this->assertCount(1, $service->searchResponses($form, 'Castor'));
+        $this->assertSame([], $service->searchResponses($form, 'D-4711'), 'A code is not what anybody types at the door.');
+    }
+
     public function testTheSearchIgnoresAccentsAndCase(): void
     {
         [, $formId] = $this->event('Souper spaghetti');

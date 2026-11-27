@@ -65,7 +65,11 @@ class ScanService
         // does not recognise a transfer payload — which is exactly the
         // state of a site whose events are all free, since a free event
         // has no transfer QR to confuse anybody with.
-        private ?EpcPayloadReaderInterface $epcReader = null
+        private ?EpcPayloadReaderInterface $epcReader = null,
+        // Names the members a « Membres » field stores as Desk ids (issue
+        // #1381), so the door's search finds a child by name. Null searches
+        // the stored answers as they are.
+        private ?ResponseService $readableAnswers = null
     ) {
     }
 
@@ -334,10 +338,19 @@ class ScanService
         $fields = $this->fields->findByFormId($form->id);
         $matches = [];
 
-        foreach ($this->responses->findByFormId($form->id) as $response) {
-            $answers = $this->responses->getValues($response->id);
+        $responses = $this->responses->findByFormId($form->id);
+        $storedByResponse = $this->responses->getValuesForResponses(
+            array_map(static fn(FormResponse $response): int => $response->id, $responses)
+        );
+        // A « Membres » answer stores Desk ids (issue #1381): searched as
+        // stored, a child's name would never be found at the door.
+        $readableByResponse = $this->readableAnswers?->readableAnswers($fields, $storedByResponse) ?? $storedByResponse;
+
+        foreach ($responses as $response) {
+            $answers = $storedByResponse[$response->id] ?? [];
             $haystack = self::normalizeForSearch(
-                $response->contactEmail . ' ' . implode(' ', $answers) . ' ' . (string) $response->ticketReference
+                $response->contactEmail . ' ' . implode(' ', $readableByResponse[$response->id] ?? [])
+                    . ' ' . (string) $response->ticketReference
             );
             if (!str_contains($haystack, $needle)) {
                 continue;

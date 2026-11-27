@@ -507,8 +507,10 @@ class NewsController extends AbstractController
 
         try {
             // Before anything is written: a refused field label must not
-            // leave the article updated and its form not (issue #1120).
+            // leave the article updated and its form not (issue #1120) —
+            // nor an answered « Membres » field changing kind (#1381).
             $this->formService->assertFieldLabels($this->extractFields($request));
+            $this->formService->assertAnsweredMemberFieldsKeepTheirKind($article->id, $this->extractFields($request));
             $scheduleAt = $this->requestedScheduleMoment($request, $intent, $article);
             $imageFileId = $this->resolveUploadedImageFileId($request, $visibility, $accountId);
 
@@ -1488,7 +1490,7 @@ class NewsController extends AbstractController
      * remaining count.
      *
      * @param FormField[] $fields
-     * @param array<int, string> $memberOptions
+     * @param array<int, \Modules\News\Service\MemberOption> $memberOptions
      * @return array<int, array<string, mixed>>
      */
     private function fieldsForPreview(array $fields, array $memberOptions): array
@@ -1496,9 +1498,7 @@ class NewsController extends AbstractController
         return array_map(
             fn(FormField $field) => [
                 'field' => $field,
-                'options' => $field->optionsSource === FormField::OPTIONS_SOURCE_MEMBERS
-                    ? array_values($memberOptions)
-                    : $field->manualOptions(),
+                'options' => $this->responseService->optionsFor($field, $memberOptions),
                 'remaining_capacity' => $field->capacityMax,
             ],
             $fields
@@ -1695,18 +1695,15 @@ class NewsController extends AbstractController
 
     /**
      * @param FormField[] $fields
-     * @param array<int, string> $memberOptions
+     * @param array<int, \Modules\News\Service\MemberOption> $memberOptions
      * @return array<int, array<string, mixed>>
      */
     private function fieldsForTemplate(array $fields, array $memberOptions): array
     {
         return array_map(function (FormField $field) use ($memberOptions) {
-            $options = $field->optionsSource === FormField::OPTIONS_SOURCE_MEMBERS
-                ? array_values($memberOptions)
-                : $field->manualOptions();
             return [
                 'field' => $field,
-                'options' => $options,
+                'options' => $this->responseService->optionsFor($field, $memberOptions),
                 'remaining_capacity' => $this->responseService->remainingCapacity($field),
             ];
         }, $fields);
