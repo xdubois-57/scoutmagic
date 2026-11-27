@@ -146,7 +146,8 @@ class ImportControllerTest extends TestCase
         // the only place that passes one.
         $this->rebuildController = function (
             ?\Core\Storage\DiskBudget $diskBudget = null,
-            ?DeskImportService $importServiceOverride = null
+            ?DeskImportService $importServiceOverride = null,
+            ?\Modules\Registration\Api\ReconciliationTrigger $reconciliation = null
         ) use (
             $twig,
             $importService,
@@ -185,7 +186,7 @@ class ImportControllerTest extends TestCase
                     new \Core\Import\ImportReportRepository($this->pdo, $this->encryption)
                 ),
                 $storagePath,
-                null,
+                $reconciliation,
                 $diskBudget
             );
         };
@@ -798,6 +799,79 @@ class ImportControllerTest extends TestCase
         $this->assertCount(1, $deposited, 'the barrier was reached with a deposited file');
         $this->assertFileDoesNotExist($deposited[0], 'the deposited CSV was kept');
         $this->assertSame([], glob($this->storagePath . '/temp/import_*.csv') ?: [], 'the deposited CSV was kept');
+    }
+
+    /**
+     * Issue #1434: the import is committed before the reconciliation runs,
+     * so a reconciliation that throws must not replace the import's report
+     * with an error page. The page renders the success and a warning.
+     */
+    public function testAReconciliationThatThrowsStillShowsTheImportReport(): void
+    {
+        $service = $this->createStub(DeskImportService::class);
+        $service->method('import')->willReturnCallback(
+            static function (string $filePath): \Core\Import\ImportResult {
+                file_put_contents($filePath, "Nom;Prénom\nDupont;Marie\n");
+
+                return new \Core\Import\ImportResult(12, 14, 0, []);
+            }
+        );
+        $reconciliation = $this->createStub(\Modules\Registration\Api\ReconciliationTrigger::class);
+        $reconciliation->method('reconcileForYear')->willThrowException(
+            new \Modules\Registration\Service\RegistrationException(
+                "Ce membre est déjà lié à une autre demande d'inscription."
+            )
+        );
+        $controller = ($this->rebuildController)($this->roomyBudget(), $service, $reconciliation);
+
+        $_FILES['csv_file'] = [
+            'name' => 'effectifs.csv',
+            'type' => 'text/csv',
+            'tmp_name' => $this->storagePath . '/never-read.csv',
+            'error' => UPLOAD_ERR_OK,
+            'size' => 4096,
+        ];
+
+        try {
+            $response = $controller->import($this->postWithCsrf(), []);
+        } finally {
+            unset($_FILES['csv_file']);
+        }
+
+        $this->assertSame(200, $response->getStatusCode());
+        $body = html_entity_decode($response->getBody(), ENT_QUOTES | ENT_HTML5);
+        $this->assertStringContainsString('Import réussi.', $body);
+        $this->assertStringContainsString('12 membres importés (14 lignes).', $body);
+        $this->assertStringContainsString('Rapprochement des inscriptions interrompu.', $body);
+        $this->assertSame([], glob($this->storagePath . '/temp/import_*.csv') ?: [], 'the deposited CSV was kept');
+    }
+
+    /** Without a failure, no warning about the reconciliation. */
+    public function testASuccessfulReconciliationAddsNoWarning(): void
+    {
+        $service = $this->createStub(DeskImportService::class);
+        $service->method('import')->willReturn(new \Core\Import\ImportResult(3, 3, 0, []));
+        $reconciliation = $this->createMock(\Modules\Registration\Api\ReconciliationTrigger::class);
+        $reconciliation->expects($this->once())->method('reconcileForYear');
+        $controller = ($this->rebuildController)($this->roomyBudget(), $service, $reconciliation);
+
+        $_FILES['csv_file'] = [
+            'name' => 'effectifs.csv',
+            'type' => 'text/csv',
+            'tmp_name' => $this->storagePath . '/never-read.csv',
+            'error' => UPLOAD_ERR_OK,
+            'size' => 4096,
+        ];
+
+        try {
+            $response = $controller->import($this->postWithCsrf(), []);
+        } finally {
+            unset($_FILES['csv_file']);
+        }
+
+        $body = html_entity_decode($response->getBody(), ENT_QUOTES | ENT_HTML5);
+        $this->assertStringContainsString('Import réussi.', $body);
+        $this->assertStringNotContainsString('data-reconciliation-failed', $body);
     }
 
     private function postWithCsrf(): Request
