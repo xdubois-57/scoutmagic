@@ -10,7 +10,12 @@
 <div class="alert alert-warning">
     <p><strong>Jeton d'installation requis.</strong></p>
     <p>Pour des raisons de sécurité, l'assistant de configuration ne peut être ouvert qu'après la création d'un fichier <code>token.php</code> à la racine du site (via FTP) — ce site ne génère jamais ce jeton lui-même tant que le fichier n'existe pas.</p>
+    {% if unusable %}
+    <p>Le fichier <code>token.php</code> existe, mais il ne contient pas de jeton valide : un jeton est une suite d'exactement 64 caractères hexadécimaux (<code>0-9</code>, <code>a-f</code>).</p>
+    <p>Remplacez son contenu par exactement ceci :</p>
+    {% else %}
     <p>Créez un fichier nommé <code>token.php</code> à la racine de votre site, avec exactement ce contenu :</p>
+    {% endif %}
     <pre class="bg-body-tertiary p-2 rounded"><code>{{ example_content }}</code></pre>
     <p class="mb-0">Rechargez ensuite cette page, puis saisissez la même valeur ci-dessous.</p>
 </div>

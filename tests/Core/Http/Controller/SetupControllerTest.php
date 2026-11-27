@@ -297,7 +297,7 @@ class SetupControllerTest extends TestCase
 
     public function testIndexShowsTokenFormWhenTokenFileExistsAndNotYetVerified(): void
     {
-        unset($_SESSION['setup_token_verified'], $_SESSION['setup_token_locked_until'], $_SESSION['setup_token_attempts']);
+        unset($_SESSION['setup_token_verified']);
         file_put_contents($this->tempDir . '/token.php', "<?php /* TOKEN: " . str_repeat('a', 64) . " */\n");
 
         $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath, $this->tempDir);
@@ -312,7 +312,7 @@ class SetupControllerTest extends TestCase
 
     public function testVerifyTokenGrantsAccessWithCorrectTokenThenIndexShowsForm(): void
     {
-        unset($_SESSION['setup_token_verified'], $_SESSION['setup_token_locked_until'], $_SESSION['setup_token_attempts']);
+        unset($_SESSION['setup_token_verified']);
         $realToken = str_repeat('b', 64);
         file_put_contents($this->tempDir . '/token.php', "<?php /* TOKEN: {$realToken} */\n");
 
@@ -452,9 +452,9 @@ class SetupControllerTest extends TestCase
         return (new \Core\Maintenance\Portable\DepositedArchive($this->tempDir))->adopt($zipPath);
     }
 
-    public function testVerifyTokenRejectsWrongTokenAndIncrementsAttempts(): void
+    public function testVerifyTokenRejectsWrongTokenAndCountsTheAttemptOnTheServer(): void
     {
-        unset($_SESSION['setup_token_verified'], $_SESSION['setup_token_locked_until'], $_SESSION['setup_token_attempts']);
+        unset($_SESSION['setup_token_verified']);
         file_put_contents($this->tempDir . '/token.php', "<?php /* TOKEN: " . str_repeat('c', 64) . " */\n");
 
         $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath, $this->tempDir);
@@ -464,17 +464,19 @@ class SetupControllerTest extends TestCase
         $controller->verifyToken($request, []);
 
         $this->assertNotTrue($_SESSION['setup_token_verified'] ?? false);
-        $this->assertSame(1, $_SESSION['setup_token_attempts'] ?? 0);
+        $this->assertSame(1, $this->serverSideAttempts());
+        $this->assertArrayNotHasKey('setup_token_attempts', $_SESSION, 'the count is no longer the session\'s');
     }
 
     /**
-     * Hard stop after ~10 attempts — session-based since there is no
-     * database yet at this point (Core\Security\LoginThrottler's pattern
+     * Hard stop at the fourth wrong guess, then the ladder climbs (issue
+     * #1270: kept in the file the bootstrap uses, since there is no
+     * database yet at this point — Core\Security\LoginThrottler's pattern
      * doesn't apply pre-init).
      */
-    public function testVerifyTokenLocksOutAfterTenFailedAttempts(): void
+    public function testVerifyTokenLocksOutAfterFourFailedAttempts(): void
     {
-        unset($_SESSION['setup_token_verified'], $_SESSION['setup_token_locked_until'], $_SESSION['setup_token_attempts']);
+        unset($_SESSION['setup_token_verified']);
         file_put_contents($this->tempDir . '/token.php', "<?php /* TOKEN: " . str_repeat('d', 64) . " */\n");
 
         $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath, $this->tempDir);
@@ -485,10 +487,95 @@ class SetupControllerTest extends TestCase
             $controller->verifyToken($request, []);
         }
 
-        $this->assertGreaterThan(time(), $_SESSION['setup_token_locked_until'] ?? 0);
-
+        $this->assertSame(4, $this->serverSideAttempts(), 'a locked gate counts nothing more');
         $response = $controller->index(new Request('GET', '/setup', [], [], [], []), []);
         $this->assertStringContainsString('Trop de tentatives', $response->getBody());
+    }
+
+    /**
+     * Issue #1270: the visitor's cookie held the count, so throwing it away
+     * started again. A new session finds the gate as the last one left it.
+     */
+    public function testAClearedSessionDoesNotResetTheAttempts(): void
+    {
+        $token = str_repeat('e', 64);
+        file_put_contents($this->tempDir . '/token.php', "<?php /* TOKEN: {$token} */\n");
+        $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath, $this->tempDir);
+        for ($i = 0; $i < 4; $i++) {
+            $csrf = $this->issueCsrfToken();
+            $controller->verifyToken(
+                new Request('POST', '/setup/verify-token', [], ['_csrf_token' => $csrf, 'token' => 'wrong'], [], []),
+                []
+            );
+        }
+
+        $_SESSION = [];
+        $csrf = $this->issueCsrfToken();
+        $response = $controller->verifyToken(
+            new Request('POST', '/setup/verify-token', [], ['_csrf_token' => $csrf, 'token' => $token], [], []),
+            []
+        );
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertNotTrue($_SESSION['setup_token_verified'] ?? false, 'the right token is not even read while locked');
+        $index = $controller->index(new Request('GET', '/setup', [], [], [], []), []);
+        $this->assertStringContainsString('Trop de tentatives', $index->getBody());
+    }
+
+    public function testTheRightTokenResetsTheServerSideCount(): void
+    {
+        $token = str_repeat('f', 64);
+        file_put_contents($this->tempDir . '/token.php', "<?php /* TOKEN: {$token} */\n");
+        $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath, $this->tempDir);
+        foreach (['wrong', 'wrong', $token] as $typed) {
+            $csrf = $this->issueCsrfToken();
+            $controller->verifyToken(
+                new Request('POST', '/setup/verify-token', [], ['_csrf_token' => $csrf, 'token' => $typed], [], []),
+                []
+            );
+        }
+
+        $this->assertTrue($_SESSION['setup_token_verified'] ?? false);
+        $this->assertSame(0, $this->serverSideAttempts());
+    }
+
+    /** Issue #1270: the bootstrap asks for exactly 64 characters, so does the wizard. */
+    public function testATokenFileWithAShortTokenIsNoTokenAtAll(): void
+    {
+        unset($_SESSION['setup_token_verified']);
+        file_put_contents($this->tempDir . '/token.php', "<?php /* TOKEN: abc123 */\n");
+        $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath, $this->tempDir);
+
+        $csrf = $this->issueCsrfToken();
+        $controller->verifyToken(
+            new Request('POST', '/setup/verify-token', [], ['_csrf_token' => $csrf, 'token' => 'abc123'], [], []),
+            []
+        );
+
+        $this->assertNotTrue($_SESSION['setup_token_verified'] ?? false);
+        $body = $controller->index(new Request('GET', '/setup', [], [], [], []), [])->getBody();
+        $this->assertStringContainsString('64 caractères hexadécimaux', $body);
+        $this->assertStringNotContainsString('name="token"', $body, 'no form to type a token that cannot be right');
+    }
+
+    public function testDeletingTheTokenFileAlsoForgetsTheCount(): void
+    {
+        $access = new \Core\Security\SetupTokenAttempts($this->tempDir);
+        $access->verify('wrong', str_repeat('a', 64), time());
+        $this->assertFileExists($this->tempDir . '/' . \Core\Security\SetupTokenAttempts::ACCESS_FILE);
+
+        $access->clear();
+
+        $this->assertFileDoesNotExist($this->tempDir . '/' . \Core\Security\SetupTokenAttempts::ACCESS_FILE);
+    }
+
+    private function serverSideAttempts(): int
+    {
+        $raw = (string) @file_get_contents($this->tempDir . '/' . \Core\Security\SetupTokenAttempts::ACCESS_FILE);
+        preg_match('/\/\*(.*)\*\//s', $raw, $matches);
+        $data = json_decode(trim($matches[1] ?? ''), true);
+
+        return (int) (is_array($data) ? ($data[\Core\Security\SetupTokenAttempts::KEY_ATTEMPTS] ?? 0) : 0);
     }
 
     public function testIndexShowsConfigurationWhenInitialized(): void

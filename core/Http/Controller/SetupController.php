@@ -41,6 +41,7 @@ use Core\Photo\UnitLogoService;
 use Core\Scheduler\CronHealth;
 use Core\Security\AuthSession;
 use Core\Security\BootstrapHandoff;
+use Core\Security\SetupTokenAttempts;
 use Core\Security\CsrfGuard;
 use Core\Security\EncryptionService;
 use Core\Security\PasswordPolicy;
@@ -1389,10 +1390,13 @@ class SetupController extends AbstractController
     /**
      * POST /setup/verify-token — checks a submitted token against token.php
      * (created via FTP by the bootstrap installer, or manually by the
-     * operator). Session-based progressive lockout: there is no database
-     * to back Core\Security\LoginThrottler's pattern yet at this point
-     * (that's the whole reason this gate exists), so failures are tracked
-     * per-session instead, with the same tiered escalation shape.
+     * operator). There is no database to back Core\Security\LoginThrottler's
+     * pattern yet at this point (that's the whole reason this gate exists),
+     * and a count kept in the session starts over with a new cookie, so the
+     * failures are counted in the file the bootstrap installer counts its own
+     * in, beside token.php, with the same tiered escalation (issue #1270 —
+     * {@see SetupTokenAttempts}): global, recorded before the comparison, and
+     * an attempt that cannot be recorded is not compared.
      *
      * @param array<string, string> $params
      */
@@ -1405,19 +1409,18 @@ class SetupController extends AbstractController
             return $guard;
         }
 
-        $lockedUntil = (int) SessionStore::get('setup_token_locked_until', 0);
-        if ($lockedUntil > time()) {
+        $tokenPath = $this->findTokenFile();
+        $expected = $tokenPath !== null ? SetupTokenAttempts::tokenFrom((string) @file_get_contents($tokenPath)) : '';
+        if ($tokenPath === null || $expected === '') {
+            // No usable token.php: nothing to guess, and the gate says so.
             return $this->redirect('/setup');
         }
 
-        $tokenPath = $this->findTokenFile();
-        $expected = $tokenPath !== null ? $this->extractTokenValue((string) @file_get_contents($tokenPath)) : '';
-        $submitted = trim((string) $request->getBody('token', ''));
+        $result = (new SetupTokenAttempts(dirname($tokenPath)))
+            ->verify((string) $request->getBody('token', ''), $expected, time());
 
-        $valid = $tokenPath !== null && $expected !== '' && $submitted !== '' && hash_equals($expected, $submitted);
-
-        if ($valid) {
-            SessionStore::remove('setup_token_attempts', 'setup_token_locked_until', 'setup_token_error');
+        if ($result['ok']) {
+            SessionStore::remove('setup_token_error');
             SessionStore::set('setup_token_verified', true);
             $this->journalService?->log(
                 'core',
@@ -1431,29 +1434,19 @@ class SetupController extends AbstractController
             return $this->redirect('/setup');
         }
 
-        $attempts = (int) SessionStore::get('setup_token_attempts', 0) + 1;
-        SessionStore::set('setup_token_attempts', $attempts);
-        SessionStore::set('setup_token_error', 'Jeton invalide.');
+        SessionStore::set('setup_token_error', (string) ($result['error'] ?? 'Jeton invalide.'));
 
-        if ($attempts >= 10) {
-            SessionStore::set('setup_token_locked_until', time() + 86400);
-            SessionStore::set('setup_token_error', 'Trop de tentatives — nouvel essai possible dans 24 heures.');
-        } elseif ($attempts >= 8) {
-            SessionStore::set('setup_token_locked_until', time() + 1800);
-        } elseif ($attempts >= 6) {
-            SessionStore::set('setup_token_locked_until', time() + 300);
-        } elseif ($attempts >= 4) {
-            SessionStore::set('setup_token_locked_until', time() + 60);
+        // A locked gate read nothing: it is not a new wrong guess.
+        if (isset($result['attempts'])) {
+            $this->journalService?->log(
+                'core',
+                'setup_token_failed',
+                'security',
+                'Tentative de jeton d\'installation invalide',
+                // Only what event_log.ip_address does not already hold.
+                ['attempts' => $result['attempts']]
+            );
         }
-
-        $this->journalService?->log(
-            'core',
-            'setup_token_failed',
-            'security',
-            'Tentative de jeton d\'installation invalide',
-            // Only what event_log.ip_address does not already hold.
-            ['attempts' => $attempts]
-        );
 
         return $this->redirect('/setup');
     }
@@ -2283,20 +2276,25 @@ class SetupController extends AbstractController
         }
 
         $tokenPath = $this->findTokenFile();
+        $expected = $tokenPath !== null ? SetupTokenAttempts::tokenFrom((string) @file_get_contents($tokenPath)) : '';
 
-        if ($tokenPath === null) {
+        if ($tokenPath === null || $expected === '') {
             $example = bin2hex(random_bytes(32));
             return $this->render('setup/token_gate.html.twig', [
                 'state' => 'missing',
+                // token.php is there but holds no token of exactly 64 hexadecimal
+                // characters (#1270): the bootstrap would not take it, nor does this.
+                'unusable' => $tokenPath !== null,
                 'example_content' => "<?php /* TOKEN: {$example} */\n",
             ]);
         }
 
-        $lockedUntil = (int) SessionStore::get('setup_token_locked_until', 0);
-        if ($lockedUntil > time()) {
+        $now = time();
+        $lockedUntil = (new SetupTokenAttempts(dirname($tokenPath)))->lockedUntil($now);
+        if ($lockedUntil > 0) {
             return $this->render('setup/token_gate.html.twig', [
                 'state' => 'locked',
-                'retry_after' => $lockedUntil - time(),
+                'retry_after' => $lockedUntil - $now,
             ]);
         }
 
@@ -2324,7 +2322,7 @@ class SetupController extends AbstractController
             return false;
         }
 
-        $token = $this->extractTokenValue((string) @file_get_contents($tokenPath));
+        $token = SetupTokenAttempts::tokenFrom((string) @file_get_contents($tokenPath));
         if (!BootstrapHandoff::proofIsValid($cookie, $token, time())) {
             return false;
         }
@@ -2376,15 +2374,6 @@ class SetupController extends AbstractController
         return null;
     }
 
-    private function extractTokenValue(string $fileContent): string
-    {
-        if (preg_match('/TOKEN:\s*([0-9a-f]+)/i', $fileContent, $matches) === 1) {
-            return $matches[1];
-        }
-
-        return '';
-    }
-
     /**
      * Deletes token.php once first-time setup genuinely completes — not at
      * token verification (which only unlocks the form), matching
@@ -2399,6 +2388,8 @@ class SetupController extends AbstractController
         }
 
         if (@unlink($tokenPath)) {
+            // The count of wrong guesses has nothing left to guard.
+            (new SetupTokenAttempts(dirname($tokenPath)))->clear();
             return true;
         }
 
