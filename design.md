@@ -956,8 +956,12 @@ job. The dialog shows the canonical page's own content — the element its
 template marks `data-document-reader-content` (with
 `data-document-reader-title`), fetched at the link's address, so the
 rental conditions are the exact archived version the form holds. It is
-parsed by DOMParser and stripped of scripts, forms, embeds, styles, ids
-and event handlers before it enters the page; a failure is said in the
+parsed by DOMParser and stripped of scripts, forms, embeds, SVG/MathML,
+styles, ids, namespaced attributes and event handlers before it enters
+the page, and a link or image keeps its address only on an allowlist of
+schemes (`http:`, `https:`, `mailto:`, `tel:`, `data:image/` for an
+image), judged after the URL parser — the rule `Core\Security\HtmlSanitizer`
+follows; a failure is said in the
 dialog with « Réessayer » and « Ouvrir à part », never a navigation. A
 link to this site inside the dialog — the notice's own « page de
 préférences cookies », « Ouvrir à part » — goes to `window.open()`, as

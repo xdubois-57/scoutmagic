@@ -188,6 +188,34 @@ describe('document-reader', () => {
         expect(/** @type {any} */ (window).__leaked).toBeUndefined();
     });
 
+    it('keeps only allowed schemes, however the dangerous one is disguised', async () => {
+        // The bypasses of a scheme blocklist (#1444 review): an embedded tab,
+        // a leading control character, vbscript:, a data: page, and SVG's
+        // own xlink:href, which no href check sees.
+        pretendStandalone(true);
+        respond(page(`<div data-document-reader-content>
+            <a id="tab" href="java\tscript:window.__leaked = true">tab</a>
+            <a id="ctl" href="\u0001javascript:window.__leaked = true">ctl</a>
+            <a id="vb" href="vbscript:msgbox(1)">vb</a>
+            <a id="data" href="data:text/html,<script>window.__leaked = true</script>">data</a>
+            <svg><a xlink:href="javascript:window.__leaked = true"><text>svg</text></a></svg>
+            <img id="img" src="data:image/png;base64,iVBORw0KGgo=" srcset="javascript:alert(1) 1x" alt="">
+            <a id="mail" href="mailto:contact@example.test">mail</a>
+            <a id="rel" href="/cookies">rel</a>
+        </div>`));
+
+        click('conditions');
+        await settle();
+        const body = readerBody();
+        const hrefs = Array.from(body.querySelectorAll('a')).map((a) => a.getAttribute('href'));
+
+        expect(hrefs).toEqual([null, null, null, null, 'mailto:contact@example.test', '/cookies']);
+        expect(body.querySelector('svg, math')).toBeNull();
+        expect(body.innerHTML).not.toMatch(/javascript|vbscript|xlink/i);
+        expect(body.querySelector('img').getAttribute('src')).toBe('data:image/png;base64,iVBORw0KGgo=');
+        expect(body.querySelector('img').hasAttribute('srcset')).toBe(false);
+    });
+
     it('says so in the dialog when the document cannot be loaded, and can retry', async () => {
         pretendStandalone(true);
         window.fetch = vi.fn(() => Promise.reject(new TypeError('offline')));

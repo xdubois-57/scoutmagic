@@ -42,7 +42,40 @@
     var CONTENT_ATTRIBUTE = 'data-document-reader-content';
     // What a document to read never needs, and what could act on the page
     // if it came along: anything that runs, loads, submits or restyles.
-    var REMOVED_ELEMENTS = 'script, style, link, meta, base, iframe, frame, object, embed, form, input, button, select, textarea, template, noscript';
+    // svg and math carry links of their own (xlink:href) that nothing
+    // below would see, and a document to read has no use for either.
+    var REMOVED_ELEMENTS = 'script, style, link, meta, base, iframe, frame, object, embed, form, input, button, select, textarea, template, noscript, svg, math';
+    // The schemes a link or an image may keep — an allowlist, never a
+    // list of dangerous ones, for the reason Core\Security\HtmlSanitizer
+    // gives: a blocklist always misses one (#1444 review). The value is
+    // resolved by the URL parser, which strips the tabs, newlines and
+    // leading control characters a browser ignores, so « java\tscript: »
+    // is judged as the javascript: it would become.
+    var SAFE_LINK_SCHEMES = ['http:', 'https:', 'mailto:', 'tel:'];
+    // Attributes that would load or run something and that a document to
+    // read never needs; whatever they hold, they go.
+    var REMOVED_ATTRIBUTES = ['srcset', 'action', 'formaction', 'background', 'poster', 'ping', 'style', 'id'];
+
+    /**
+     * Whether a link or image address may stay in the document.
+     *
+     * @param {string} name href or src
+     * @param {string} value as written
+     * @returns {boolean}
+     */
+    function isSafeUrl(name, value) {
+        var url;
+        try {
+            url = new URL(value, doc.location.href);
+        } catch (e) {
+            return false;
+        }
+        if (SAFE_LINK_SCHEMES.indexOf(url.protocol) !== -1) {
+            return true;
+        }
+        // An image may be inline; an img never runs what it shows.
+        return name === 'src' && url.protocol === 'data:' && /^data:image\//i.test(url.href);
+    }
 
     /** @type {HTMLAnchorElement|null} the link the open dialog came from */
     var openedFrom = null;
@@ -76,13 +109,13 @@
         content.querySelectorAll('*').forEach(function (el) {
             Array.prototype.slice.call(el.attributes).forEach(function (attr) {
                 var name = attr.name.toLowerCase();
-                // Event handlers, and ids: the page this lands on has its
-                // own, and a second #rgpd-last-updated would answer its
+                // Event handlers; namespaced attributes (xlink:href and
+                // the like); and ids: the page this lands on has its own,
+                // and a second #rgpd-last-updated would answer its
                 // getElementById() calls in its place.
-                if (name.indexOf('on') === 0 || name === 'id' || name === 'style') {
+                if (name.indexOf('on') === 0 || name.indexOf(':') !== -1 || REMOVED_ATTRIBUTES.indexOf(name) !== -1) {
                     el.removeAttribute(attr.name);
-                } else if ((name === 'href' || name === 'src' || name === 'action' || name === 'formaction')
-                    && /^\s*(javascript|data|vbscript):/i.test(attr.value) && !(name === 'src' && /^\s*data:image\//i.test(attr.value))) {
+                } else if ((name === 'href' || name === 'src') && !isSafeUrl(name, attr.value)) {
                     el.removeAttribute(attr.name);
                 }
             });
