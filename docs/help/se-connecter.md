@@ -15,7 +15,10 @@ related: un-email-plusieurs-animes, mon-compte, adresses-email
 Vous vous connectez avec votre adresse e-mail — celle que l'unité
 connaît. Trois méthodes existent, présentées en trois onglets. Quelle que
 soit la méthode, cochez d'abord la case « J'accepte la politique de
-protection des données ».
+protection des données ». Son lien ouvre la politique dans un nouvel
+onglet ; dans l'application installée, elle s'ouvre dans une fenêtre
+par-dessus la page, et « Fermer et revenir » vous ramène sur l'onglet de
+connexion que vous aviez choisi, adresse e-mail comprise.
 
 ## Le lien magique (recommandé)
 

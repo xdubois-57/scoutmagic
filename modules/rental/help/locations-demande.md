@@ -41,8 +41,10 @@ Si l'une de ces règles ne passe pas, la page vous le dit et vous rend ce
 que vous aviez tapé.
 
 Deux cases sont à cocher : les conditions de location, et l'information
-sur l'usage de vos données. Chacune renvoie à son texte, qui s'ouvre dans
-un nouvel onglet : vous ne perdez pas ce que vous avez déjà tapé. Une
+sur l'usage de vos données. Chacune renvoie à son texte, dans un nouvel
+onglet — ou, dans l'application installée, dans une fenêtre par-dessus le
+formulaire, que « Fermer et revenir » vous rend intact. Lire ne coche pas
+la case. Une
 unité qui n'a pas écrit ses propres conditions présente un jeu standard,
 complet, fourni avec le site.
 
