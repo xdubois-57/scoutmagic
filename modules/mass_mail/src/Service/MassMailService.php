@@ -334,6 +334,26 @@ class MassMailService
     }
 
     /**
+     * The batch's line for a message it did not send because its address
+     * unsubscribed after the freeze (issue #1437): `info`, the two ids and
+     * nothing else, as the issue asks — and the email's number at the head
+     * of the description like every other line of this module, which is
+     * what a search of the journal for one mailing matches on.
+     */
+    public function journalDeliverySkippedUnsubscribed(int $emailId, int $deliveryId): void
+    {
+        $this->journalService->log(
+            'mass_mail',
+            'delivery_skipped_unsubscribed',
+            'info',
+            self::emailPrefix($emailId) . ' : message #' . $deliveryId
+                . ' non envoyé, l\'adresse s\'est désinscrite des emails groupés',
+            ['email_id' => $emailId, 'delivery_id' => $deliveryId],
+            null
+        );
+    }
+
+    /**
      * One journal entry for a member the communication is meant for and to
      * whom no message at all could be written — no eligible address. The
      * target exists (it reads « Non envoyée » on the member page and in the

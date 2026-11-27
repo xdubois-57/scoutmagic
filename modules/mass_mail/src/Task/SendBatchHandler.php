@@ -134,14 +134,7 @@ class SendBatchHandler implements TaskHandlerInterface
             // address (#1032) is off the list and goes out as usual.
             if ($suppressedAddresses->isSuppressed($delivery->emailAddress)) {
                 $deliveryRepository->recordSendFailure($delivery->id, MassMailService::REASON_UNSUBSCRIBED);
-                $context->journal->log(
-                    'mass_mail',
-                    'delivery_skipped_unsubscribed',
-                    'info',
-                    'Message non envoyé : l\'adresse s\'est désinscrite des emails groupés',
-                    ['email_id' => $email->id, 'delivery_id' => $delivery->id],
-                    null
-                );
+                $massMailService->journalDeliverySkippedUnsubscribed($email->id, $delivery->id);
                 $errorCount++;
                 continue;
             }

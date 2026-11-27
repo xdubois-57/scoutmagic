@@ -441,6 +441,7 @@ class SendBatchHandlerTest extends TestCase
         ksort($context);
         $this->assertSame(['delivery_id' => $skipped[0]->id, 'email_id' => $this->emailId], $context);
         $this->assertStringNotContainsString('@', (string) json_encode($rows));
+        $this->assertStringStartsWith('Email groupé #' . $this->emailId . ' ', (string) $rows[0]['description']);
     }
 
     /**
