@@ -264,7 +264,7 @@ class CampsChiefController extends AbstractController
             );
             $this->saveNote($campId, (string) $request->getBody('note', ''), null, $actorId);
             $this->fileMessageUnder($campId, (int) $request->getBody('message_id', 0));
-        } catch (CampsException $e) {
+        } catch (CampsException | GeoPointException $e) {
             // The form comes back with what was typed in it. A redirect to
             // an empty form threw away a place description, a set of
             // sections and a note over one bad date — and the message
@@ -521,6 +521,10 @@ class CampsChiefController extends AbstractController
             'submitted' => $submitted,
             'errors' => $errors,
             'note' => (string) ($submitted['note'] ?? ''),
+            // The new place's point picker (#1353): a refused form says
+            // whose its pin was; a first display has none.
+            'point_is_manual' => PointSubmission::showsManual($errors === [] ? [] : $submitted, null, false),
+            'address_lookup' => (string) ($this->settings->get('camps_geocoding_enabled', 'camps', '1') ?? '1') === '1',
         ]);
     }
 
@@ -565,6 +569,12 @@ class CampsChiefController extends AbstractController
             'city' => '',
             'country' => (string) ($this->settings->get('camps_default_country', 'camps', 'Belgique') ?? ''),
             'website_url' => '',
+            // The new place's point (#1353): none until the picker places one.
+            'latitude' => '',
+            'longitude' => '',
+            'point_automatic' => '0',
+            'point_address' => '',
+            'point_manual' => '0',
             'stay_type' => $camp !== null ? $camp->stayType : Camp::STAY_GRAND_CAMP,
             'start_date' => $camp !== null ? ($camp->startDate ?? '') : '',
             'end_date' => $camp !== null ? ($camp->endDate ?? '') : '',
@@ -608,6 +618,11 @@ class CampsChiefController extends AbstractController
             'city' => (string) $request->getBody('city', ''),
             'country' => (string) $request->getBody('country', ''),
             'website_url' => (string) $request->getBody('website_url', ''),
+            'latitude' => (string) $request->getBody('latitude', ''),
+            'longitude' => (string) $request->getBody('longitude', ''),
+            'point_automatic' => (string) $request->getBody('point_automatic', '0'),
+            'point_address' => (string) $request->getBody('point_address', ''),
+            'point_manual' => (string) $request->getBody('point_manual', '0'),
             'stay_type' => (string) $request->getBody('stay_type', Camp::STAY_GRAND_CAMP),
             'start_date' => (string) $request->getBody('start_date', ''),
             'end_date' => (string) $request->getBody('end_date', ''),
@@ -789,10 +804,11 @@ class CampsChiefController extends AbstractController
         ];
 
         // Coordinates travel only when the submitted form actually
-        // carried them. Setting the keys unconditionally would mean the
-        // camp-creation form — which has no coordinate inputs — posts two
-        // empty values, and PlaceService would read that as "clear the
-        // point", wiping a pin a chief had placed by hand.
+        // carried them — the place form, and the stay form's new-place
+        // block (#1353). Setting the keys unconditionally would turn a
+        // form without the picker into two empty values, which
+        // PlaceService would read as "clear the point", wiping a pin a
+        // chief had placed by hand.
         // With them, what the core's point picker says about the point
         // (Core\Geo\PointSubmission, #1353): found from the address or
         // placed by a human, and for which address.

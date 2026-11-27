@@ -349,6 +349,82 @@ class PlaceServiceTest extends TestCase
         $this->assertTrue($this->places->findById($place->id)?->coordinatesAreManual);
     }
 
+    /** The stay form's new-place block (#1353): a pin found for its address is saved with it, automatic. */
+    public function testANewPlaceKeepsTheAutomaticPointOfItsForm(): void
+    {
+        $id = $this->service->create([
+            'name' => 'Domaine de Mozet', 'address' => 'Rue du Tronquoy 4', 'postal_code' => '5340',
+            'city' => 'Mozet', 'country' => 'Belgique',
+            'latitude' => '50.442100', 'longitude' => '4.987600',
+            'point_automatic' => '1', 'point_address' => 'Rue du Tronquoy 4, 5340 Mozet, Belgique',
+        ], 42);
+
+        $place = $this->places->findById($id);
+        $this->assertFalse($place?->coordinatesAreManual);
+        $this->assertEqualsWithDelta(50.4421, (float) $place->latitude, 0.000001);
+        $this->assertNotNull($place->geocodedAt);
+    }
+
+    public function testANewPlaceKeepsAHumansPointLocked(): void
+    {
+        $id = $this->service->create([
+            'name' => 'Le pré de Jules',
+            'latitude' => '50,443210', 'longitude' => '5.001234', 'point_automatic' => '0', 'point_manual' => '1',
+        ], 42);
+
+        $place = $this->places->findById($id);
+        $this->assertTrue($place?->coordinatesAreManual);
+        $this->assertEqualsWithDelta(5.001234, (float) $place->longitude, 0.000001);
+    }
+
+    /** Typed without the script: a human's point too. */
+    public function testANewPlaceWithCoordinatesTypedWithoutTheScriptIsLocked(): void
+    {
+        $id = $this->service->create(['name' => 'Le pré de Jules', 'latitude' => '50.4', 'longitude' => '5.0'], 42);
+
+        $this->assertTrue($this->places->findById($id)?->coordinatesAreManual);
+    }
+
+    public function testANewPlaceWithRefusedCoordinatesIsNotCreated(): void
+    {
+        try {
+            $this->service->create(['name' => 'Le pré de Jules', 'latitude' => '91', 'longitude' => '5'], 42);
+            $this->fail('the coordinates should have been refused');
+        } catch (GeoPointException) {
+        }
+
+        $count = $this->pdo->query('SELECT COUNT(*) FROM camp_places')?->fetchColumn();
+        $this->assertSame(0, (int) $count);
+    }
+
+    /** Empty fields and nobody touched the pin: the task finds the point later. */
+    public function testANewPlaceWithEmptyCoordinatesWaitsForTheTask(): void
+    {
+        $id = $this->service->create([
+            'name' => 'Domaine de Mozet', 'city' => 'Mozet',
+            'latitude' => '', 'longitude' => '', 'point_automatic' => '0', 'point_manual' => '0',
+        ], 42);
+
+        $place = $this->places->findById($id);
+        $this->assertNull($place?->latitude);
+        $this->assertFalse($place->coordinatesAreManual);
+        $this->assertNull($place->geocodedAt);
+    }
+
+    /** « Retirer » on a new place: nothing saved to remove, and the task must still find the point. */
+    public function testANewPlaceWhosePinWasRemovedIsNotLocked(): void
+    {
+        $id = $this->service->create([
+            'name' => 'Domaine de Mozet', 'city' => 'Mozet',
+            'latitude' => '', 'longitude' => '', 'point_automatic' => '0', 'point_manual' => '1',
+        ], 42);
+
+        $place = $this->places->findById($id);
+        $this->assertNull($place?->latitude);
+        $this->assertFalse($place->coordinatesAreManual);
+        $this->assertSame(1, $this->audit->page(PlaceService::ENTITY_TYPE, $id, 1, 10)->total, 'only « Lieu créé »');
+    }
+
     private function placeAt(
         string $address,
         string $postalCode,
