@@ -80,6 +80,61 @@ final class AccountSignaturePageTest extends TestCase
     }
 
     /**
+     * Issue #1356: the page shows a button, and the form lives in a dialog
+     * it opens — the shared signature dialog, in « new » mode, with its
+     * own label and without « Mémoriser », recording being the point here.
+     */
+    public function testTheFormLivesInADialogThatAButtonOpens(): void
+    {
+        $html = $this->page(['has_signature' => true]);
+
+        $this->assertMatchesRegularExpression(
+            '#<button type="button" class="btn btn-primary"\s+data-bs-toggle="modal" data-bs-target="\#account-signature">Remplacer ma signature</button>#u',
+            $html
+        );
+        $this->assertMatchesRegularExpression('#<div class="modal fade" id="account-signature"[^>]*data-bs-backdrop="static"#', $html);
+        $this->assertStringContainsString('<h2 class="modal-title h5" id="account-signature-title">Remplacer ma signature</h2>', $html);
+
+        // The form is in the dialog's body, its submit button in the footer
+        // and tied to it by form="…".
+        $this->assertMatchesRegularExpression(
+            '#<form method="post" action="/account/signature" id="account-signature-form" enctype="multipart/form-data"\s+data-signature-form data-signature-dialog-form\s+data-signature-mode="new"#',
+            $html
+        );
+        $this->assertStringContainsString('<button type="submit" class="btn btn-primary" form="account-signature-form">Enregistrer la signature</button>', $html);
+        $this->assertStringContainsString('data-bs-dismiss="modal">Annuler</button>', $html);
+        $this->assertStringNotContainsString('Signer le document', $html);
+        $this->assertStringNotContainsString('remember_signature', $html);
+
+        $pad = strpos($html, 'data-signature-pad');
+        $this->assertNotFalse($pad);
+        $this->assertGreaterThan(strpos($html, 'id="account-signature"'), $pad, 'the pad is inside the dialog');
+        $this->assertLessThan(
+            strpos($html, '/assets/js/signature-dialog.js'),
+            (int) strpos($html, '/assets/js/signature-pad.js'),
+            'signature-pad.js first, then signature-dialog.js'
+        );
+    }
+
+    public function testWithoutASignatureTheButtonAndTheDialogSayEnregistrer(): void
+    {
+        $html = $this->page([]);
+
+        $this->assertStringContainsString('data-bs-target="#account-signature">Enregistrer ma signature</button>', $html);
+        $this->assertStringContainsString('id="account-signature-title">Enregistrer ma signature</h2>', $html);
+    }
+
+    /** It opens by itself only for a visitor sent here from a document to sign. */
+    public function testTheDialogOpensByItselfOnlyWithAReturnAddress(): void
+    {
+        $this->assertStringNotContainsString('data-signature-dialog-open', $this->page([]));
+        $this->assertStringContainsString(
+            'data-signature-dialog-open=""',
+            $this->page(['return_to' => '/mes-locations/chalet/reservations/12'])
+        );
+    }
+
+    /**
      * @param array<string, mixed> $context
      */
     private function account(array $context): string

@@ -8,7 +8,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import '../../public/assets/js/signature-pad.js';
 import '../../public/assets/js/signature-dialog.js';
 
-const { PREVIEW_URL, wipe, preview, isEmpty, emptySigners, wire, restore } = /** @type {any} */ (globalThis).ScoutMagicSignatureDialogInternals;
+const { PREVIEW_URL, wipe, preview, isEmpty, emptySigners, wire, restore, openOnLoad } = /** @type {any} */ (globalThis).ScoutMagicSignatureDialogInternals;
 
 /**
  * The dialog as the partial renders it, in one mode — wired as the page
@@ -495,5 +495,42 @@ describe('two signers in a form of the page (issue #989, lot D)', () => {
 
         expect(pads.renter.context.clearRect).not.toHaveBeenCalled();
         expect(field(form, 'renter_signer_name').value).toBe('Jeanne Martin');
+    });
+});
+
+describe('« Ma signature » reached from a document to sign (issue #1356)', () => {
+    it('opens the dialog of a form that asks for it, and only that one', () => {
+        const show = vi.fn();
+        const shown = [];
+        /** @type {any} */ (globalThis).bootstrap = {
+            Modal: { getOrCreateInstance: (element) => { shown.push(element.id); return { show }; } },
+        };
+        document.body.innerHTML = `
+            <div class="modal" id="account-signature">
+                <form data-signature-form data-signature-dialog-form data-signature-dialog-open></form>
+            </div>
+            <div class="modal" id="other">
+                <form data-signature-form data-signature-dialog-form></form>
+            </div>`;
+
+        openOnLoad(document);
+
+        expect(shown).toEqual(['account-signature']);
+        expect(show).toHaveBeenCalledTimes(1);
+        delete /** @type {any} */ (globalThis).bootstrap;
+    });
+
+    it('opens nothing when the page asks for nothing', () => {
+        const getOrCreateInstance = vi.fn();
+        /** @type {any} */ (globalThis).bootstrap = { Modal: { getOrCreateInstance } };
+        document.body.innerHTML = `
+            <div class="modal" id="account-signature">
+                <form data-signature-form data-signature-dialog-form></form>
+            </div>`;
+
+        openOnLoad(document);
+
+        expect(getOrCreateInstance).not.toHaveBeenCalled();
+        delete /** @type {any} */ (globalThis).bootstrap;
     });
 });
