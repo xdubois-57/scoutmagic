@@ -130,4 +130,36 @@ class PendingMagicLinkTest extends TestCase
         $this->assertFalse(PendingMagicLink::pollTokenMatches(hash('sha256', '')));
         $this->assertFalse(PendingMagicLink::pollTokenMatches('anything'));
     }
+
+    /**
+     * Issue #1530: a request holds the session as it loaded it. When the
+     * stored session no longer has the pending link — another request
+     * renewed or emptied it meanwhile — stillPendingFor() reads the stored
+     * one and says no, where matches() on the snapshot still says yes.
+     */
+    public function testStillPendingForReadsTheStoredSessionNotThisRequestsSnapshot(): void
+    {
+        PendingMagicLink::forget();
+        session_write_close();
+
+        $_SESSION = [
+            '_pending_magic_link' => 5,
+            '_pending_magic_link_generation' => 'gen',
+            '_pending_magic_link_poll_token' => hash('sha256', 'token'),
+        ];
+        $this->assertTrue(PendingMagicLink::matches(5, 'gen'));
+
+        $this->assertFalse(PendingMagicLink::stillPendingFor(5, 'gen', 'token'));
+        $this->assertFalse(PendingMagicLink::matches(5, 'gen'));
+    }
+
+    public function testStillPendingForAcceptsTheStoredPendingLinkAndItsToken(): void
+    {
+        $token = PendingMagicLink::remember(5, 'gen');
+        session_write_close();
+
+        $this->assertTrue(PendingMagicLink::stillPendingFor(5, 'gen', $token));
+        $this->assertFalse(PendingMagicLink::stillPendingFor(5, 'gen', 'another'));
+        $this->assertFalse(PendingMagicLink::stillPendingFor(6, 'gen', $token));
+    }
 }

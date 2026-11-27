@@ -19,7 +19,8 @@ class MagicLinkRecord
         public readonly ?\DateTimeImmutable $confirmedAt,
         public readonly \DateTimeImmutable $createdAt,
         public readonly ?string $matchCodeHash = null,
-        public readonly int $matchAttempts = 0
+        public readonly int $matchAttempts = 0,
+        public readonly ?\DateTimeImmutable $collectedAt = null
     ) {
     }
 }

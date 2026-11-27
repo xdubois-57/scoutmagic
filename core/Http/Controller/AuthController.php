@@ -301,7 +301,17 @@ class AuthController extends AbstractController
         }
 
         try {
-            $verified = $this->authService->verifyMagicLink($id, $token, $needsCode ? $code : null);
+            // The session that asked is signed in below, by this request:
+            // the link is collected in the statement that confirms it, so
+            // no poll — not even one that loaded this session before
+            // login() renewed its id — can open a second session with it
+            // (issue #1530).
+            $verified = $this->authService->verifyMagicLink(
+                $id,
+                $token,
+                $needsCode ? $code : null,
+                $isRequestingSession
+            );
         } catch (MagicLinkCodeMismatch $e) {
             if ($e->linkSpent) {
                 return $this->render('auth/verify.html.twig', ['valid' => false, 'code_spent' => true]);
@@ -439,8 +449,31 @@ class AuthController extends AbstractController
         // tab of it — and then there is nothing left to do but say so, which
         // is what stops the "En attente de confirmation…" screen (issue #263).
         if (!AuthSession::isAuthenticated()) {
-            $user = $this->authService->getUserForConfirmedLink($id);
-            if ($user !== null && $this->isMemberAuthorized($user->email)) {
+            // One session per confirmed link (issue #1530). A link confirmed
+            // in the session that asked was collected there, by the button
+            // that signed it in; any other is taken here, once, by a
+            // conditional UPDATE. This request read its session when it
+            // began, so it may hold a copy that is already gone — a poll
+            // suspended while that button renewed the id. Losing the link
+            // writes nothing: the page stops waiting, and a browser signed
+            // in by the button is already signed in.
+            $user = $this->authService->collectConfirmedLink($id);
+            if ($user === null) {
+                return $this->json(['confirmed' => true, 'redirect' => '/']);
+            }
+            // Read the session again, as stored, before writing an identity
+            // into it: login() is the one writer that does not compare what
+            // it overwrites (AuthSession::reopenedIdentity()), so the
+            // pending link and the poll token are checked against what is
+            // stored now rather than against this request's snapshot.
+            if (!PendingMagicLink::stillPendingFor(
+                $id,
+                $this->installationGeneration,
+                is_string($pollToken) ? $pollToken : null
+            )) {
+                return $this->json(['confirmed' => false]);
+            }
+            if ($this->isMemberAuthorized($user->email)) {
                 $role = $this->resolveRole($user->email, $user->id);
                 AuthSession::login($user->id, $user->email, $role, $this->installationGeneration);
                 $this->storeLinkedMembers($user->email);
