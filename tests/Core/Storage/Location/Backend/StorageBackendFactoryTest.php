@@ -170,9 +170,29 @@ class StorageBackendFactoryTest extends TestCase
         $this->factory->create($this->objectStorageLocation(str_replace('/dav', '', $endpoint)));
     }
 
+    /**
+     * **The host the client dials is checked, not only the one typed**
+     * (#1269 review). A « {bucket}.host » endpoint is stripped to « host »
+     * before the client connects; here the typed name resolves to nothing
+     * — tolerated — while the stripped one is a private address.
+     */
+    public function testAnS3EndpointWhoseBucketPrefixHidesAPrivateHostIsRefused(): void
+    {
+        $this->expectException(StorageLocationException::class);
+        $this->expectExceptionMessage('adresse publique');
+
+        $this->factory->create($this->objectStorageLocation('https://photos.10.0.0.5'));
+    }
+
     /** And, as for WebDAV, a name nothing answers for right now is not called wrong. */
     public function testAnS3EndpointTheResolverCannotAnswerForIsNotCalledWrong(): void
     {
+        // Only where this installation resolves as the client does: without
+        // getaddrinfo the silence proves nothing, and the check refuses.
+        if (!function_exists('socket_addrinfo_lookup')) {
+            $this->expectException(StorageLocationException::class);
+        }
+
         $backend = $this->factory->create($this->objectStorageLocation('https://s3.inexistant.example.org'));
 
         $this->assertInstanceOf(\Core\Storage\Location\Backend\ObjectStorageBackend::class, $backend);

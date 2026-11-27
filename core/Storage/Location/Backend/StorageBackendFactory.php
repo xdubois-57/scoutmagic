@@ -102,7 +102,17 @@ class StorageBackendFactory
             // that cannot answer is not called a wrong address. The
             // message is what the location's check records, and the
             // « en erreur » attention point carries it.
-            if (!SsrfUrlValidator::isStoredHttpsTargetStillSafe($config->endpoint, true)) {
+            //
+            // **Both the address as saved and the one the client dials**:
+            // a « {bucket}.host » endpoint is stripped to « host » before
+            // the client connects (ObjectStorageBackend::
+            // stripBucketFromEndpointHost()), and the stripped name can
+            // resolve elsewhere than the one typed.
+            $dialled = ObjectStorageBackend::stripBucketFromEndpointHost($config->endpoint, $config->bucket);
+            if (
+                !SsrfUrlValidator::isStoredHttpsTargetStillSafe($config->endpoint, true)
+                || !SsrfUrlValidator::isStoredHttpsTargetStillSafe($dialled, true)
+            ) {
                 throw new StorageLocationException(
                     'L\'adresse enregistrée pour ce service S3 ne mène plus à une adresse publique en https. '
                     . 'Vérifiez-la sur la fiche de cet emplacement.'

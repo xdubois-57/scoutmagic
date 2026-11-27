@@ -295,9 +295,12 @@ class LlmConnectorServiceTest extends TestCase
      */
     public function testAnAddressTheResolverCannotAnswerForIsNotRefusedByTheCheck(): void
     {
-        $this->assertTrue(\Core\Security\SsrfUrlValidator::isStoredHttpsTargetStillSafe(
-            'https://fournisseur-inexistant.example.org'
-        ));
+        // Only where this installation resolves as the client does: without
+        // getaddrinfo the silence proves nothing, and the check refuses.
+        $this->assertSame(
+            function_exists('socket_addrinfo_lookup'),
+            \Core\Security\SsrfUrlValidator::isStoredHttpsTargetStillSafe('https://fournisseur-inexistant.example.org')
+        );
     }
 
     private function extractJson(string $content): string

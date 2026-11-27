@@ -486,7 +486,7 @@ final class ImmediateDeliveryTest extends TestCase
     {
         (new PushSubscriptionRepository($this->pdo, $this->encryption))->create(
             $userAccountId,
-            'https://push.example.test/send/' . uniqid(),
+            'https://93.184.216.34/send/' . uniqid(),
             'auth-key',
             'p256dh-key',
             'Téléphone'

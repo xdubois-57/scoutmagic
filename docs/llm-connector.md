@@ -160,8 +160,17 @@ est donc vérifiée à l’enregistrement, puis **de nouveau avant chaque appel*
 `RefreshModelsHandler` et le test de connexion la refusent dès qu’elle ne
 mène plus à une adresse publique en https. Le refus intervient avant la
 création du driver, donc avant tout envoi. Le message ne cite pas l’adresse.
-Un nom que le résolveur ne sait pas résoudre sur le moment n’est pas
-refusé : l’appel qui suit ne joindrait rien non plus.
+
+Les deux contrôles ne traitent pas de la même façon un nom que le résolveur
+ne sait pas résoudre sur le moment :
+
+- le test de connexion (`ConfigController::testConnection()`) applique le
+  contrôle strict, `isPublicHttpsUrl()`, et refuse ce nom ;
+- l’appel et le rafraîchissement appliquent le contrôle des valeurs
+  enregistrées. Ils laissent passer ce nom seulement si le serveur résout
+  comme le client HTTP, c’est-à-dire si `socket_addrinfo_lookup()`
+  (ext-sockets) est disponible. L’appel qui suit ne joindrait alors rien
+  non plus. Sans ext-sockets, une résolution vide est refusée.
 
 `HttpTransport` **ne suit aucune redirection**. Le flux HTTP de PHP les suit
 par défaut et renvoie les en-têtes de la requête, clé comprise, à la cible.

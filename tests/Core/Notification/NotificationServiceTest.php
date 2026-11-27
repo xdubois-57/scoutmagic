@@ -116,8 +116,8 @@ class NotificationServiceTest extends TestCase
     public function testNotifyQueuesAndFlushesForEveryRegisteredDevice(): void
     {
         $userId = $this->createUserAccount();
-        $this->service->subscribe($userId, 'https://push.example/device-1', 'auth1', 'p256dh1');
-        $this->service->subscribe($userId, 'https://push.example/device-2', 'auth2', 'p256dh2');
+        $this->service->subscribe($userId, 'https://93.184.216.34/device-1', 'auth1', 'p256dh1');
+        $this->service->subscribe($userId, 'https://93.184.216.34/device-2', 'auth2', 'p256dh2');
 
         $this->webPush->expects($this->exactly(2))->method('queueNotification');
         $this->webPush->method('flush')->willReturn((function () { return; yield; })());
@@ -146,7 +146,7 @@ class NotificationServiceTest extends TestCase
         );
 
         $userId = $this->createUserAccount();
-        $service->subscribe($userId, 'https://push.example/device-1', 'auth1', 'p256dh1');
+        $service->subscribe($userId, 'https://93.184.216.34/device-1', 'auth1', 'p256dh1');
 
         $service->notify($userId, 'Titre', 'Corps');
 
@@ -162,7 +162,7 @@ class NotificationServiceTest extends TestCase
     public function testATitleThatIsNotUtf8IsKeptInTheAppAndPushedToNoDevice(): void
     {
         $userId = $this->createUserAccount();
-        $this->service->subscribe($userId, 'https://push.example/device-1', 'auth1', 'p256dh1');
+        $this->service->subscribe($userId, 'https://93.184.216.34/device-1', 'auth1', 'p256dh1');
         $this->webPush->expects($this->never())->method('queueNotification');
         $this->webPush->expects($this->never())->method('flush');
 
@@ -200,8 +200,8 @@ class NotificationServiceTest extends TestCase
             $this->userAccountRepository
         );
         $userId = $this->createUserAccount();
-        $service->subscribe($userId, 'https://push.example/device-1', 'auth1', 'p256dh1');
-        $service->subscribe($userId, 'https://push.example/device-2', 'auth2', 'p256dh2');
+        $service->subscribe($userId, 'https://93.184.216.34/device-1', 'auth1', 'p256dh1');
+        $service->subscribe($userId, 'https://93.184.216.34/device-2', 'auth2', 'p256dh2');
 
         $service->notify($userId, 'Titre', 'Court.', '/' . str_repeat('x', 5000));
 
@@ -500,7 +500,7 @@ class NotificationServiceTest extends TestCase
     {
         $userId = $this->createUserAccount();
         $this->userAccountRepository->updateNotificationSettings($userId, null, null, true);
-        $this->service->subscribe($userId, 'https://push.example/device', 'auth', 'p256dh');
+        $this->service->subscribe($userId, 'https://93.184.216.34/device', 'auth', 'p256dh');
         $notificationId = $this->notificationRepository->create($userId, null, 'core.system', 'Real Title', 'Real Body', null);
 
         $capturedPayload = null;
@@ -521,7 +521,7 @@ class NotificationServiceTest extends TestCase
     public function testSendPushForNotificationsIncludesRealTitleWithoutDiscretion(): void
     {
         $userId = $this->createUserAccount();
-        $this->service->subscribe($userId, 'https://push.example/device', 'auth', 'p256dh');
+        $this->service->subscribe($userId, 'https://93.184.216.34/device', 'auth', 'p256dh');
         $notificationId = $this->notificationRepository->create($userId, null, 'core.system', 'Real Title', 'Real Body', null);
 
         $capturedPayload = null;
@@ -547,7 +547,7 @@ class NotificationServiceTest extends TestCase
     {
         $userId = $this->createUserAccount();
         $this->userAccountRepository->updateNotificationSettings($userId, null, null, true);
-        $this->service->subscribe($userId, 'https://push.example/device', 'auth', 'p256dh');
+        $this->service->subscribe($userId, 'https://93.184.216.34/device', 'auth', 'p256dh');
         $notificationId = $this->notificationRepository->create($userId, null, 'core.system', 'T', 'B', null);
 
         $capturedPayload = null;
@@ -587,13 +587,13 @@ class NotificationServiceTest extends TestCase
     public function testFlushMarksAnExpiredSubscriptionDeleted(): void
     {
         $userId = $this->createUserAccount();
-        $subId = $this->subscriptionRepository->create($userId, 'https://push.example/gone', 'auth', 'p256dh');
+        $subId = $this->subscriptionRepository->create($userId, 'https://93.184.216.34/gone', 'auth', 'p256dh');
         $notificationId = $this->notificationRepository->create($userId, null, 'core.system', 'A', 'B', null);
 
         $expiredReport = $this->createStub(MessageSentReport::class);
         $expiredReport->method('isSubscriptionExpired')->willReturn(true);
         $expiredReport->method('isSuccess')->willReturn(false);
-        $expiredReport->method('getEndpoint')->willReturn('https://push.example/gone');
+        $expiredReport->method('getEndpoint')->willReturn('https://93.184.216.34/gone');
         $this->webPush->method('flush')->willReturn((function () use ($expiredReport) { yield $expiredReport; })());
 
         $this->service->sendPushForNotifications([$notificationId], fn() => true);
@@ -679,8 +679,8 @@ class NotificationServiceTest extends TestCase
     {
         $userId = $this->createUserAccount();
 
-        $this->service->subscribe($userId, 'https://push.example/device', 'auth-old', 'p256dh-old', 'Chrome sur Android');
-        $this->service->subscribe($userId, 'https://push.example/device', 'auth-new', 'p256dh-new', 'Chrome sur Android');
+        $this->service->subscribe($userId, 'https://93.184.216.34/device', 'auth-old', 'p256dh-old', 'Chrome sur Android');
+        $this->service->subscribe($userId, 'https://93.184.216.34/device', 'auth-new', 'p256dh-new', 'Chrome sur Android');
 
         $subscriptions = $this->subscriptionRepository->findByUserAccountId($userId);
         $this->assertCount(1, $subscriptions);
@@ -696,14 +696,14 @@ class NotificationServiceTest extends TestCase
     {
         $first = $this->createUserAccount();
         $second = $this->createUserAccount();
-        $this->service->subscribe($first, 'https://push.example/shared', 'auth-1', 'p256dh-1');
-        $this->service->subscribe($first, 'https://push.example/first-only', 'auth-2', 'p256dh-2');
+        $this->service->subscribe($first, 'https://93.184.216.34/shared', 'auth-1', 'p256dh-1');
+        $this->service->subscribe($first, 'https://93.184.216.34/first-only', 'auth-2', 'p256dh-2');
 
-        $this->service->subscribe($second, 'https://push.example/shared', 'auth-3', 'p256dh-3');
+        $this->service->subscribe($second, 'https://93.184.216.34/shared', 'auth-3', 'p256dh-3');
 
         $firstRows = $this->subscriptionRepository->findByUserAccountId($first);
         $this->assertCount(1, $firstRows);
-        $this->assertSame('https://push.example/first-only', $firstRows[0]->endpoint);
+        $this->assertSame('https://93.184.216.34/first-only', $firstRows[0]->endpoint);
         $secondRows = $this->subscriptionRepository->findByUserAccountId($second);
         $this->assertCount(1, $secondRows);
         $this->assertSame('auth-3', $secondRows[0]->authKey);
@@ -713,11 +713,11 @@ class NotificationServiceTest extends TestCase
     {
         $first = $this->createUserAccount();
         $second = $this->createUserAccount();
-        $this->subscriptionRepository->create($first, 'https://push.example/shared', 'auth-1', 'p256dh-1');
-        $this->subscriptionRepository->create($second, 'https://push.example/shared', 'auth-2', 'p256dh-2');
-        $this->subscriptionRepository->create($second, 'https://push.example/kept', 'auth-3', 'p256dh-3');
+        $this->subscriptionRepository->create($first, 'https://93.184.216.34/shared', 'auth-1', 'p256dh-1');
+        $this->subscriptionRepository->create($second, 'https://93.184.216.34/shared', 'auth-2', 'p256dh-2');
+        $this->subscriptionRepository->create($second, 'https://93.184.216.34/kept', 'auth-3', 'p256dh-3');
 
-        $this->assertTrue($this->service->forgetDevice('https://push.example/shared'));
+        $this->assertTrue($this->service->forgetDevice('https://93.184.216.34/shared'));
 
         $this->assertSame([], $this->subscriptionRepository->findByUserAccountId($first));
         $this->assertCount(1, $this->subscriptionRepository->findByUserAccountId($second));
@@ -737,30 +737,30 @@ class NotificationServiceTest extends TestCase
     {
         $this->assertTrue(NotificationService::isPlausibleEndpoint('https://fcm.googleapis.com/fcm/send/abc:APA91b'));
         $this->assertTrue(NotificationService::isPlausibleEndpoint('https://web.push.apple.com/QGuQyavXutnMf'));
-        $this->assertTrue(NotificationService::isPlausibleEndpoint('https://push.example/' . str_repeat('a', 2000)));
-        $this->assertFalse(NotificationService::isPlausibleEndpoint('https://push.example/' . str_repeat('a', 2100)));
+        $this->assertTrue(NotificationService::isPlausibleEndpoint('https://93.184.216.34/' . str_repeat('a', 2000)));
+        $this->assertFalse(NotificationService::isPlausibleEndpoint('https://93.184.216.34/' . str_repeat('a', 2100)));
         $this->assertFalse(NotificationService::isPlausibleEndpoint('https://'));
-        $this->assertFalse(NotificationService::isPlausibleEndpoint(' https://push.example/x'));
+        $this->assertFalse(NotificationService::isPlausibleEndpoint(' https://93.184.216.34/x'));
     }
 
     public function testUnsubscribeRemovesOnlyThatEndpoint(): void
     {
         $userId = $this->createUserAccount();
-        $this->service->subscribe($userId, 'https://push.example/keep', 'auth1', 'p256dh1');
-        $this->service->subscribe($userId, 'https://push.example/drop', 'auth2', 'p256dh2');
+        $this->service->subscribe($userId, 'https://93.184.216.34/keep', 'auth1', 'p256dh1');
+        $this->service->subscribe($userId, 'https://93.184.216.34/drop', 'auth2', 'p256dh2');
 
-        $this->service->unsubscribe($userId, 'https://push.example/drop');
+        $this->service->unsubscribe($userId, 'https://93.184.216.34/drop');
 
         $remaining = $this->subscriptionRepository->findByUserAccountId($userId);
         $this->assertCount(1, $remaining);
-        $this->assertSame('https://push.example/keep', $remaining[0]->endpoint);
+        $this->assertSame('https://93.184.216.34/keep', $remaining[0]->endpoint);
     }
 
     public function testUnsubscribeAllRemovesEveryDevice(): void
     {
         $userId = $this->createUserAccount();
-        $this->service->subscribe($userId, 'https://push.example/a', 'auth1', 'p256dh1');
-        $this->service->subscribe($userId, 'https://push.example/b', 'auth2', 'p256dh2');
+        $this->service->subscribe($userId, 'https://93.184.216.34/a', 'auth1', 'p256dh1');
+        $this->service->subscribe($userId, 'https://93.184.216.34/b', 'auth2', 'p256dh2');
 
         $this->service->unsubscribeAll($userId);
 
