@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Tests\Modules\DataMigration\Ics;
 
+use Modules\DataMigration\Ics\CurrentZoneNameFinder;
 use Modules\DataMigration\Ics\IcsEventReader;
 use Modules\DataMigration\Ics\IcsUnreadableException;
 use PHPUnit\Framework\TestCase;
@@ -192,8 +193,91 @@ final class IcsEventReaderTest extends TestCase
             . "END:VCALENDAR\r\n"
         );
 
+        $this->assertCount(1, $events);
         $this->assertSame(IcsEventReader::STATE_EVENT, $events[0]['state']);
         $this->assertSame('09:00', $events[0]['start_time']);
+    }
+
+    /**
+     * The same three zones under their old names — in a TZID, or in the
+     * X-LIC-LOCATION some generators add — are looked up under the current
+     * ones, which every host knows (#1238).
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('renamedZoneNames')]
+    public function testARenamedZoneNameIsLookedUpUnderItsCurrentName(string $old, string $current, bool $inLic): void
+    {
+        $zone = $inLic
+            ? "BEGIN:VTIMEZONE\r\nTZID:Zone locale\r\nX-LIC-LOCATION:{$old}\r\n"
+                . "BEGIN:STANDARD\r\nDTSTART:16010101T000000\r\nTZOFFSETFROM:+0000\r\nTZOFFSETTO:+0000\r\n"
+                . "END:STANDARD\r\nEND:VTIMEZONE\r\n"
+            : '';
+        $tzid = $inLic ? 'Zone locale' : $old;
+
+        $events = $this->convertText(
+            "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Test//FR\r\n" . $zone
+            . "BEGIN:VEVENT\r\nUID:legacy-1\r\nSUMMARY:Jamboree\r\n"
+            . "DTSTART;TZID={$tzid}:20250310T090000\r\nEND:VEVENT\r\n"
+            . "END:VCALENDAR\r\n"
+        );
+
+        $expected = (new \DateTimeImmutable('2025-03-10 09:00:00', new \DateTimeZone($current)))
+            ->setTimezone(new \DateTimeZone(IcsEventReader::TIME_ZONE));
+        $this->assertCount(1, $events);
+        $this->assertSame(IcsEventReader::STATE_EVENT, $events[0]['state'], (string) ($events[0]['reason'] ?? ''));
+        $this->assertSame($expected->format('H:i'), $events[0]['start_time']);
+    }
+
+    /**
+     * @return array<string, array{string, string, bool}>
+     */
+    public static function renamedZoneNames(): array
+    {
+        $cases = [];
+        foreach (CurrentZoneNameFinder::RENAMED as $old => $current) {
+            $cases[$old . ' as TZID'] = [$old, $current, false];
+            $cases[$old . ' as X-LIC-LOCATION'] = [$old, $current, true];
+        }
+
+        return $cases;
+    }
+
+    /**
+     * A zone vobject cannot resolve without throwing is an event the
+     * import cannot place, said as such — and PHP's default zone is left
+     * as it was.
+     */
+    public function testAZoneWhoseLookupThrowsIsAnUnknownZone(): void
+    {
+        $default = date_default_timezone_get();
+        $throwing = new class implements \Sabre\VObject\TimezoneGuesser\TimezoneGuesser {
+            public function guess(\Sabre\VObject\Component\VTimeZone $vtimezone, bool $failIfUncertain = false): ?\DateTimeZone
+            {
+                throw new \RuntimeException('Unknown or bad timezone');
+            }
+        };
+        // Ahead of vobject's own guessers, for this test only.
+        \Sabre\VObject\TimeZoneUtil::addTimezoneGuesser('lic', $throwing);
+
+        try {
+            $events = $this->convertText(
+                "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Test//FR\r\n"
+                . "BEGIN:VTIMEZONE\r\nTZID:Zone cassée\r\n"
+                . "BEGIN:STANDARD\r\nDTSTART:16010101T000000\r\nTZOFFSETFROM:+0100\r\nTZOFFSETTO:+0100\r\n"
+                . "END:STANDARD\r\nEND:VTIMEZONE\r\n"
+                . "BEGIN:VEVENT\r\nUID:broken-1\r\nSUMMARY:Jamboree\r\n"
+                . "DTSTART;TZID=Zone cassée:20250310T090000\r\nEND:VEVENT\r\n"
+                . "END:VCALENDAR\r\n"
+            );
+        } finally {
+            \Sabre\VObject\TimeZoneUtil::clean();
+        }
+
+        $this->assertCount(1, $events);
+        $this->assertSame(
+            ['unreadable', 'fuseau horaire inconnu', 'broken-1'],
+            [$events[0]['state'], $events[0]['reason'] ?? null, $events[0]['uid']]
+        );
+        $this->assertSame($default, date_default_timezone_get());
     }
 
     public function testAFileThatIsNotACalendarIsRefusedAsAWhole(): void
