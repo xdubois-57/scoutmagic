@@ -180,11 +180,14 @@ class SchedulerRunnerTest extends TestCase
         $this->assertStringContainsString('leaky_task', $lastError);
         $this->assertStringContainsString('journal des événements', $lastError);
 
-        // Not lost, just moved: the journal keeps the real text.
+        // Not lost, just moved: the journal keeps the real text, in the
+        // line's context rather than its description (issue #1438).
         $entry = $this->pdo->query(
-            "SELECT description FROM event_log WHERE event_type = 'scheduler_task_failed' ORDER BY id DESC LIMIT 1"
+            "SELECT context FROM event_log WHERE event_type = 'scheduler_task_failed' ORDER BY id DESC LIMIT 1"
         )->fetch();
-        $this->assertStringContainsString('SQLSTATE', (string) $entry['description']);
+        $context = json_decode((string) $entry['context'], true);
+        $this->assertStringContainsString('SQLSTATE', (string) $context['error']);
+        $this->assertSame(\PDOException::class, $context['error_class']);
     }
 
     /**
@@ -539,5 +542,88 @@ final class ModuleResolvedFixtureHandler implements TaskHandlerInterface
     public function handle(array $payload, TaskContext $context): void
     {
         self::$payloads[] = $payload;
+    }
+
+    /**
+     * A task whose exception message passes the journal's 500 characters
+     * no longer ends the pass (issue #1438): the next task runs, and the
+     * failure line keeps the message in its context, bounded.
+     */
+    public function testALongFailureMessageNeitherStopsThePassNorIsLost(): void
+    {
+        $failing = new class implements TaskHandlerInterface {
+            public function handle(array $payload, TaskContext $context): void
+            {
+                throw new \RuntimeException(str_repeat('é', 2000) . ' et la suite');
+            }
+        };
+        $next = new class implements TaskHandlerInterface {
+            public bool $called = false;
+
+            public function handle(array $payload, TaskContext $context): void
+            {
+                $this->called = true;
+            }
+        };
+        $this->runner->registerHandler('core', 'long_failure', $failing);
+        $this->runner->registerHandler('core', 'after_it', $next);
+        $this->repo->create('core', 'long_failure', (new \DateTimeImmutable('-2 minutes'))->format('Y-m-d H:i:s'), null, null);
+        $nextId = $this->repo->create('core', 'after_it', (new \DateTimeImmutable('-1 minute'))->format('Y-m-d H:i:s'), null, null);
+
+        $this->runner->processOverdue();
+
+        $this->assertTrue($next->called);
+        $this->assertSame('done', $this->repo->findById($nextId)['status']);
+
+        $row = $this->pdo->query("SELECT description, context FROM event_log WHERE event_type = 'scheduler_task_failed'")->fetch(\PDO::FETCH_ASSOC);
+        $this->assertIsArray($row);
+        $this->assertSame('Tâche planifiée « long_failure » échouée', $row['description']);
+        $context = json_decode((string) $row['context'], true);
+        $this->assertSame(\RuntimeException::class, $context['error_class']);
+        $this->assertSame(2000, mb_strlen($context['error'], 'UTF-8'));
+        $this->assertStringStartsWith('éé', $context['error']);
+        $this->assertSame('core', $context['module_id']);
+    }
+
+    /**
+     * A journal that cannot write does not turn a task that succeeded into
+     * one marked failed, and does not stop the pass (issue #1438).
+     */
+    public function testAJournalThatCannotWriteLeavesASuccessfulTaskDone(): void
+    {
+        $broken = new class ($this->pdo) extends JournalRepository {
+            public function insert(
+                string $category,
+                string $type,
+                string $level,
+                string $description,
+                ?string $contextJson,
+                ?int $userId,
+                ?string $ipAddress = null
+            ): void {
+                throw new \PDOException('SQLSTATE[22001]: Data too long for column description');
+            }
+        };
+        $runner = new SchedulerRunner($this->repo, new JournalService($broken));
+        $handler = new class implements TaskHandlerInterface {
+            public int $calls = 0;
+
+            public function handle(array $payload, TaskContext $context): void
+            {
+                $this->calls++;
+            }
+        };
+        $runner->registerHandler('core', 'fine_task', $handler);
+        $first = $this->repo->create('core', 'fine_task', (new \DateTimeImmutable('-2 minutes'))->format('Y-m-d H:i:s'), null, null);
+        $second = $this->repo->create('core', 'fine_task', (new \DateTimeImmutable('-1 minute'))->format('Y-m-d H:i:s'), null, null);
+        $log = ini_set('error_log', '/dev/null');
+
+        $processed = $runner->processOverdue();
+
+        ini_set('error_log', (string) $log);
+        $this->assertSame(2, $processed);
+        $this->assertSame(2, $handler->calls);
+        $this->assertSame('done', $this->repo->findById($first)['status']);
+        $this->assertSame('done', $this->repo->findById($second)['status']);
     }
 }

@@ -167,4 +167,39 @@ class JournalServiceTest extends TestCase
         $this->assertCount(1, $results);
         $this->assertSame(9, (int) $results[0]['user_account_id']);
     }
+
+    /**
+     * Writing the journal never fails its caller (issue #1438): the caller
+     * is often reporting a failure of its own, and an exception from here
+     * replaced it and stopped the loop it was in.
+     */
+    public function testAJournalThatCannotWriteNeverThrowsAtItsCaller(): void
+    {
+        $broken = new class ($this->pdo) extends JournalRepository {
+            public function insert(
+                string $category,
+                string $type,
+                string $level,
+                string $description,
+                ?string $contextJson,
+                ?int $userId,
+                ?string $ipAddress = null
+            ): void {
+                throw new \PDOException('SQLSTATE[22001]: Data too long for column description');
+            }
+        };
+        $log = ini_set('error_log', '/dev/null');
+
+        (new JournalService($broken))->log('core', 'anything', 'info', 'Ligne');
+
+        ini_set('error_log', (string) $log);
+        $this->addToAssertionCount(1);
+    }
+
+    public function testFitCutsByCharactersAndMarksTheCut(): void
+    {
+        $this->assertSame('éé', JournalService::fit('éé', 2));
+        $this->assertSame('é…', JournalService::fit('ééé', 2));
+        $this->assertTrue(mb_check_encoding(JournalService::fit("Bo\xEEte", 10), 'UTF-8'));
+    }
 }

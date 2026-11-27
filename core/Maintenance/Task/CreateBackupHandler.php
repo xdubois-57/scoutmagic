@@ -161,14 +161,17 @@ class CreateBackupHandler implements TaskHandlerInterface
             // just below keeps the real text.
             $backupRepository->markFailed(
                 $backupId,
-                substr(
-                    UserFacingMessage::from(
+                // By characters, not bytes: half an « é » is refused by
+                // MariaDB (issue #1438).
+                mb_substr(
+                    mb_scrub(UserFacingMessage::from(
                         $e,
                         'La sauvegarde n\'a pas pu être générée — vérifiez l\'espace disque disponible et les droits '
                         . 'd\'écriture sur storage/, puis relancez-la.'
-                    ),
+                    ), 'UTF-8'),
                     0,
-                    500
+                    500,
+                    'UTF-8'
                 )
             );
             $context->journal->log(

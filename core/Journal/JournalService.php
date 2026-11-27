@@ -10,6 +10,11 @@ namespace Core\Journal;
 
 class JournalService
 {
+    /** The widths of event_log's columns (schema/core.sql), in characters. */
+    public const DESCRIPTION_MAX = 500;
+    public const CATEGORY_MAX = 50;
+    public const TYPE_MAX = 100;
+
     public function __construct(private JournalRepository $repository)
     {
     }
@@ -24,11 +29,8 @@ class JournalService
      *                                 'error' is what Core\Http\ErrorHandler
      *                                 writes for an uncaught throwable.
      * @param string      $description Human-readable short description (no personal data!).
-     *                                 Stored in a VARCHAR(500): a longer one is
-     *                                 refused by the database, so a caller whose
-     *                                 text is not bounded by construction must
-     *                                 shorten it itself (see
-     *                                 Core\Http\ErrorHandler::describe()).
+     *                                 Stored in a VARCHAR(500): this method cuts
+     *                                 it to fit, by characters (issue #1438).
      * @param array<string, mixed> $context Optional JSON context
      * @param int|null    $userId      User account ID, null for system actions
      */
@@ -40,8 +42,51 @@ class JournalService
         array $context = [],
         ?int $userId = null
     ): void {
-        $contextJson = !empty($context) ? json_encode($context) : null;
-        $this->repository->insert($category, $type, $level, $description, $contextJson, $userId, self::currentIp());
+        // The one door every journal line goes through, so it is the one
+        // place that makes a line fit (issue #1438). A description longer
+        // than its VARCHAR(500) is refused by MySQL/MariaDB in strict mode
+        // — SQLite, which the suite runs on, stores anything — and a byte
+        // that is not UTF-8 makes json_encode() fail on every engine. Cut
+        // by characters, never bytes: half an « é » is refused too.
+        $description = self::fit($description, self::DESCRIPTION_MAX);
+        $category = self::fit($category, self::CATEGORY_MAX);
+        $type = self::fit($type, self::TYPE_MAX);
+
+        $contextJson = null;
+        if (!empty($context)) {
+            $encoded = json_encode($context, JSON_INVALID_UTF8_SUBSTITUTE | JSON_PARTIAL_OUTPUT_ON_ERROR);
+            $contextJson = $encoded !== false ? $encoded : '{"context_unencodable":true}';
+        }
+
+        // Writing the journal never fails its caller. The caller is often
+        // reporting a failure of its own — SchedulerRunner's catch block
+        // was — and an exception from here replaced that failure with one
+        // about the journal, and stopped whatever loop it was in.
+        try {
+            $this->repository->insert($category, $type, $level, $description, $contextJson, $userId, self::currentIp());
+        } catch (\Throwable $e) {
+            error_log(sprintf(
+                'ScoutMagic journal: could not write %s/%s (%s): %s',
+                $category,
+                $type,
+                $e::class,
+                self::fit($e->getMessage(), 300)
+            ));
+        }
+    }
+
+    /**
+     * $text made valid UTF-8 and at most $max characters long, an ellipsis
+     * marking a cut.
+     */
+    public static function fit(string $text, int $max): string
+    {
+        $text = mb_scrub($text, 'UTF-8');
+        if (mb_strlen($text, 'UTF-8') <= $max) {
+            return $text;
+        }
+
+        return mb_substr($text, 0, $max - 1, 'UTF-8') . '…';
     }
 
     /**

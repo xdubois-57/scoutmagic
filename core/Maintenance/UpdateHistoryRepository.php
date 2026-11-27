@@ -355,7 +355,7 @@ class UpdateHistoryRepository
     {
         $stmt = $this->pdo->prepare("UPDATE update_history SET status = 'failed', error_message = ?, completed_at = ? "
             . "WHERE id = ?");
-        $stmt->execute([substr($errorMessage, 0, 500), self::now(), $id]);
+        $stmt->execute([mb_substr(mb_scrub($errorMessage, 'UTF-8'), 0, 500, 'UTF-8'), self::now(), $id]);
     }
 
     /**
@@ -371,7 +371,7 @@ class UpdateHistoryRepository
     {
         $stmt = $this->pdo->prepare("UPDATE update_history SET status = 'skipped', error_message = ?, completed_at = ? "
             . "WHERE id = ?");
-        $stmt->execute([substr($reason, 0, 500), self::now(), $id]);
+        $stmt->execute([mb_substr(mb_scrub($reason, 'UTF-8'), 0, 500, 'UTF-8'), self::now(), $id]);
     }
 
     /**
@@ -399,7 +399,7 @@ class UpdateHistoryRepository
             "UPDATE update_history SET status = 'skipped', error_message = ?, completed_at = ?
               WHERE id = ? AND status = 'pending'"
         );
-        $stmt->execute([substr($reason, 0, 500), self::now(), $id]);
+        $stmt->execute([mb_substr(mb_scrub($reason, 'UTF-8'), 0, 500, 'UTF-8'), self::now(), $id]);
 
         return $stmt->rowCount() === 1;
     }
@@ -408,7 +408,7 @@ class UpdateHistoryRepository
     {
         $stmt = $this->pdo->prepare("UPDATE update_history SET status = 'rolled_back', error_message = ?, "
             . "completed_at = ? WHERE id = ?");
-        $stmt->execute([substr($errorMessage, 0, 500), self::now(), $id]);
+        $stmt->execute([mb_substr(mb_scrub($errorMessage, 'UTF-8'), 0, 500, 'UTF-8'), self::now(), $id]);
     }
 
     /**

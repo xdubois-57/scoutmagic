@@ -15,6 +15,9 @@ use Core\Module\ModuleManager;
 
 class SchedulerRunner
 {
+    /** How much of a failed task's exception message its journal line keeps, in characters. */
+    private const ERROR_MAX = 2000;
+
     /** @var array<string, TaskHandlerInterface> */
     private array $handlers = [];
 
@@ -138,6 +141,7 @@ class SchedulerRunner
             $handlerKey = $task['module_id'] . '::' . $task['task_key'];
             $handler = $this->handlers[$handlerKey] ?? null;
             $taskStart = microtime(true);
+            $doneInMs = null;
             RequestTimeline::mark('scheduler_task_start:' . $handlerKey, ['task_id' => $task['id']]);
 
             // A registered factory builds the handler on first use, with
@@ -201,14 +205,7 @@ class SchedulerRunner
                     'scheduler_task_done:' . $handlerKey,
                     ['task_id' => $task['id'], 'duration_ms' => $durationMs]
                 );
-
-                $this->journal->log(
-                    'core',
-                    'scheduler_task_done',
-                    'info',
-                    "Tâche planifiée « {$task['task_key']} » terminée",
-                    ['task_id' => $task['id'], 'module_id' => $task['module_id'], 'duration_ms' => $durationMs]
-                );
+                $doneInMs = $durationMs;
             } catch (\Throwable $e) {
                 // scheduled_actions.last_error is written here and rendered
                 // much later, inside a <pre>, on Configuration > Actions
@@ -230,12 +227,35 @@ class SchedulerRunner
                     'scheduler_task_failed:' . $handlerKey,
                     ['task_id' => $task['id'], 'duration_ms' => $durationMs]
                 );
+                // The exception's own text goes in the context, bounded, and
+                // never in the description: a remote service's answer or a
+                // SQL error quoting its query easily passes the column's 500
+                // characters (issue #1438).
                 $this->journal->log(
                     'core',
                     'scheduler_task_failed',
                     'info',
-                    "Tâche planifiée « {$task['task_key']} » échouée : " . $e->getMessage(),
-                    ['task_id' => $task['id'], 'module_id' => $task['module_id'], 'duration_ms' => $durationMs]
+                    "Tâche planifiée « {$task['task_key']} » échouée",
+                    [
+                        'task_id' => $task['id'],
+                        'module_id' => $task['module_id'],
+                        'duration_ms' => $durationMs,
+                        'error_class' => $e::class,
+                        'error' => JournalService::fit($e->getMessage(), self::ERROR_MAX),
+                    ]
+                );
+            }
+
+            // Journaled once the task is settled, outside the try: a
+            // journal line that went wrong must not turn a task that
+            // succeeded into one marked failed (issue #1438).
+            if ($doneInMs !== null) {
+                $this->journal->log(
+                    'core',
+                    'scheduler_task_done',
+                    'info',
+                    "Tâche planifiée « {$task['task_key']} » terminée",
+                    ['task_id' => $task['id'], 'module_id' => $task['module_id'], 'duration_ms' => $doneInMs]
                 );
             }
         }
