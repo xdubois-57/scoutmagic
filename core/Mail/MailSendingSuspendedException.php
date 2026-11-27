@@ -8,6 +8,8 @@ declare(strict_types=1);
 
 namespace Core\Mail;
 
+use Core\Exception\UserFacingException;
+
 /**
  * The site refused to send at all, on purpose: the mail capture is armed
  * but no longer acting (Core\Security\SandboxLossState, issue #1469).
@@ -19,8 +21,11 @@ namespace Core\Mail;
  * to the next relay, because no relay refused anything. Recording it as a
  * relay failure would open every provider's circuit breaker on an
  * installation whose relays are working perfectly.
+ *
+ * User-facing: its one message is a French sentence that names only what
+ * a person can see and do — the page where the decision is taken.
  */
-final class MailSendingSuspendedException extends MailException
+final class MailSendingSuspendedException extends MailException implements UserFacingException
 {
     public static function captureLost(): self
     {
