@@ -31,7 +31,10 @@ class PlaceService
     }
 
     /**
-     * @param array<string, string|null> $fields name/address/postal_code/city/country/website_url
+     * @param array<string, string|null> $fields name/address/postal_code/city/country/website_url,
+     *        and the point picker's latitude/longitude/point_* when the form carried them
+     * @throws CampsException
+     * @throws \Core\Geo\GeoPointException
      */
     public function create(array $fields, ?int $actorUserAccountId, AuditSource $source = AuditSource::Human): int
     {
@@ -40,14 +43,20 @@ class PlaceService
             throw new CampsException('Un lieu a besoin d\'un nom.');
         }
 
-        $id = $this->places->create(
-            $name,
-            Support::clean($fields['address'] ?? null),
-            Support::clean($fields['postal_code'] ?? null),
-            Support::clean($fields['city'] ?? null),
-            Support::clean($fields['country'] ?? null),
-            $this->cleanWebsiteUrl($fields['website_url'] ?? null),
-        );
+        $address = Support::clean($fields['address'] ?? null);
+        $postalCode = Support::clean($fields['postal_code'] ?? null);
+        $city = Support::clean($fields['city'] ?? null);
+        $country = Support::clean($fields['country'] ?? null);
+        $websiteUrl = $this->cleanWebsiteUrl($fields['website_url'] ?? null);
+
+        // The point the new-place block's picker carried (#1353), read —
+        // and refused, GeoPointException — before anything is written, so a
+        // refused form leaves no place behind.
+        $submission = array_key_exists('latitude', $fields) || array_key_exists('longitude', $fields)
+            ? PointSubmission::fromInput($fields, (string) $this->addressLine($address, $postalCode, $city, $country))
+            : null;
+
+        $id = $this->places->create($name, $address, $postalCode, $city, $country, $websiteUrl);
 
         $this->audit->record(
             self::ENTITY_TYPE,
@@ -60,6 +69,26 @@ class PlaceService
             null,
             $actorUserAccountId
         );
+
+        // Placed or found on the form: recorded as the edit form would,
+        // so a pin nobody touched stays automatic and a human's is locked.
+        // No point — none given, or « Retirer » on a pin a new place never
+        // had saved — locks nothing: the background task finds the point,
+        // where a « no point » written here would bar it from this place
+        // for ever, and record a change from nothing to nothing.
+        if ($submission?->point !== null) {
+            $place = $this->places->findById($id);
+            if ($place !== null) {
+                $this->updateCoordinates(
+                    $place,
+                    $submission,
+                    $postalCode !== null || $city !== null,
+                    false,
+                    $source,
+                    $actorUserAccountId
+                );
+            }
+        }
 
         return $id;
     }

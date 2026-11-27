@@ -365,6 +365,75 @@ class CampsChiefControllerTest extends TestCase
 
     // ── Past stays are paginated ────────────────────────────────────
 
+    // ── The new place's point, on the stay form (#1353) ─────────────
+
+    public function testTheStayFormOffersThePointPickerForANewPlace(): void
+    {
+        $page = $this->controller->create(new Request('GET', '/chefs/camps/nouveau', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('id="camps-new-place"', $page);
+        $this->assertStringContainsString('data-point-picker', $page);
+        $this->assertStringContainsString('data-locate-url="/chefs/camps/adresse"', $page);
+        $this->assertStringContainsString('data-address-needs="place-postal place-city"', $page);
+        $this->assertStringContainsString('id="new-place-latitude"', $page);
+        $this->assertStringContainsString('data-manual="0"', $page);
+        $this->assertStringContainsString('/assets/js/camps-new-place.js', $page);
+        $this->assertStringContainsString('/assets/css/components.css', $page);
+    }
+
+    public function testANewPlaceIsCreatedWithThePointOfTheStayForm(): void
+    {
+        $this->post([
+            'latitude' => '50.443210', 'longitude' => '5.001234', 'point_automatic' => '0', 'point_manual' => '1',
+        ]);
+
+        $place = $this->places->findAllVisible()[0];
+        $this->assertTrue($place->coordinatesAreManual);
+        $this->assertEqualsWithDelta(50.443210, (float) $place->latitude, 0.000001);
+    }
+
+    public function testRefusedCoordinatesRenderTheStayFormAgainWithThem(): void
+    {
+        $response = $this->post(['latitude' => '91', 'longitude' => '5', 'point_manual' => '1']);
+        $page = $response->getBody();
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame(0, $this->countPlaces());
+        $this->assertStringContainsString('alert-danger', $page);
+        $this->assertMatchesRegularExpression('/id="new-place-latitude"[^>]*value="91"/', $page);
+        $this->assertStringContainsString('data-manual="1"', $page);
+    }
+
+    public function testARefusedStayKeepsThePointOfItsNewPlace(): void
+    {
+        $page = $this->post([
+            'start_date' => '', 'end_date' => '', 'year_only' => '',
+            'latitude' => '50.442100', 'longitude' => '4.987600',
+            'point_automatic' => '1', 'point_address' => 'Mozet',
+        ])->getBody();
+
+        $this->assertMatchesRegularExpression('/id="new-place-latitude"[^>]*value="50.442100"/', $page);
+        $this->assertMatchesRegularExpression('/name="point_automatic" value="1"/', $page);
+        $this->assertStringContainsString('name="point_address" value="Mozet"', $page);
+        $this->assertStringContainsString('data-manual="0"', $page);
+    }
+
+    /** An existing place keeps its own point: the hidden new-place block's fields are ignored. */
+    public function testAnExistingPlaceIgnoresTheNewPlacesPoint(): void
+    {
+        $placeId = $this->places->create('Ferme du Bois', null, null, 'Mozet', null, null);
+
+        $this->post([
+            'place_id' => (string) $placeId, 'confirm_new' => '0',
+            'latitude' => '50.443210', 'longitude' => '5.001234', 'point_manual' => '1',
+        ]);
+
+        $place = $this->places->findById($placeId);
+        $this->assertCount(1, $this->camps->findByPlace($placeId));
+        $this->assertNull($place?->latitude);
+        $this->assertFalse($place->coordinatesAreManual);
+    }
+
     public function testThePastStaysSettingIsActuallyRead(): void
     {
         $placeId = $this->places->create('Domaine de Mozet', null, null, 'Mozet', null, null);
