@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\DataMigration\Importer;
 
 use Core\Archive\ArchiveLimits;
+use Core\Archive\ArchiveDamagedException;
 use Core\Archive\ArchiveRejectedException;
 use Core\Image\ImageDimensionException;
 use Core\Image\ImageDimensionGuard;
@@ -645,10 +646,11 @@ final class NewsHistoryImporter implements Importer
                 $bytes .= $chunk;
             }, NewsImportWriterInterface::MAX_IMAGE_BYTES);
         } catch (ArchiveRejectedException $e) {
-            // The archive's own budget is not this image's fault: that
-            // stays an error. Heavier than 5 MB, though, the image is left
-            // out and its article is not.
-            if ($archive->measuredTotal() > self::MAX_UNPACKED_BYTES) {
+            // The archive's own budget is not this image's fault, and a
+            // damaged archive is not a smaller one (#1238): both stay an
+            // error. Heavier than 5 MB, though, the image is left out and
+            // its article is not.
+            if ($e instanceof ArchiveDamagedException || $archive->measuredTotal() > self::MAX_UNPACKED_BYTES) {
                 throw $e;
             }
 

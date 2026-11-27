@@ -40,6 +40,7 @@ use Modules\News\Service\NewsException;
 use Modules\News\Service\NewsImportWriter;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
+use Tests\Support\ZipDamage;
 use Tests\UsesProductionEngine;
 
 /**
@@ -313,6 +314,35 @@ final class NewsHistoryImporterOnMysqlTest extends TestCase
             ->fetch(\PDO::FETCH_ASSOC);
         $this->assertIsArray($souper, 'The article itself is imported.');
         $this->assertNull($souper['image_file_id']);
+    }
+
+    /**
+     * An image damaged after the verification — the file changed on the
+     * server since — is not an image too heavy to keep (#1238): its article
+     * is counted as an error, never imported quietly without its image, and
+     * the others are imported.
+     */
+    public function testAnImageDamagedAfterTheVerificationIsAnErrorNotAnImageLeftOut(): void
+    {
+        $run = $this->analysed($this->copy(self::FIXTURES . '/exemple.zip'));
+        ZipDamage::flipByteInMember(
+            (new UploadStorage($this->storage))->absolute((string) $run->filePath),
+            'media/ed4160dce6a2404eaa50cefd9d57cc3bdc02de5c2e5a80eeebc62bf1e16cfcd2'
+        );
+
+        $run = $this->drive($this->service->confirm($run, []) ?? $this->fail('Not confirmed.'));
+
+        // Two articles of the example share that image.
+        $this->assertSame(Run::DONE, $run->state, (string) $run->rejectionReason);
+        $this->assertSame(
+            ['a-1187', 'f-0412'],
+            array_column($run->report['error_samples'], 'reference')
+        );
+        $this->assertSame(2, $run->report['imported']);
+        $this->assertFalse(
+            $this->pdo->query("SELECT 1 FROM news_articles WHERE title = 'Souper aux spaghettis 2023'")->fetchColumn(),
+            'The article whose image is damaged is not imported without it.'
+        );
     }
 
     private function copyTree(string $from, string $to): void

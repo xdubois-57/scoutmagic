@@ -8,11 +8,13 @@ declare(strict_types=1);
 
 namespace Tests\Core\Archive;
 
+use Core\Archive\ArchiveDamagedException;
 use Core\Archive\ArchiveLimits;
 use Core\Archive\ArchiveRejectedException;
 use Core\Archive\BoundedZipReader;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
+use Tests\Support\ZipDamage;
 
 /**
  * The reader every archive a stranger built goes through: names that
@@ -278,16 +280,52 @@ final class BoundedZipReaderTest extends TestCase
         }
     }
 
+    /** A stored member comes out whole but wrong: only its CRC says so, as a damaged archive. */
+    public function testAStoredMemberThatDoesNotMatchItsCrcIsDamaged(): void
+    {
+        $archive = $this->reader()->open($this->damaged(\ZipArchive::CM_STORE));
+
+        $this->expectException(ArchiveDamagedException::class);
+        $this->expectExceptionMessage('L\'élément « lignes.jsonl » de l\'archive est abîmé');
+        try {
+            $archive->digest('lignes.jsonl');
+        } finally {
+            $archive->close();
+        }
+    }
+
+    /**
+     * A read refused at a lowered ceiling does not spend the archive's
+     * budget on the chunk that crossed it.
+     */
+    public function testAReadRefusedAtItsCeilingIsNotCounted(): void
+    {
+        $archive = $this->reader()->open($this->zip(['image.json' => str_repeat('a', 1000)]));
+
+        try {
+            $archive->read('image.json', 500);
+            $this->fail('The lowered ceiling should have refused the member.');
+        } catch (ArchiveRejectedException) {
+        }
+
+        $this->assertSame(0, $archive->measuredTotal());
+        $archive->close();
+    }
+
     /** A read stopped early checks nothing: it has not read what it would check. */
     public function testALineFileReadOnlyInPartChecksNothing(): void
     {
         $archive = $this->reader()->open($this->damaged(\ZipArchive::CM_STORE));
 
+        $first = null;
         foreach ($archive->lines('lignes.jsonl') as $line) {
-            $this->assertStringStartsWith('{"n":0,', $line);
+            $first = $line;
             break;
         }
         $archive->close();
+
+        $this->assertNotNull($first);
+        $this->assertStringStartsWith('{"n":0,', $first);
     }
 
     /**
@@ -298,7 +336,7 @@ final class BoundedZipReaderTest extends TestCase
         return ['stored' => [\ZipArchive::CM_STORE], 'deflated' => [\ZipArchive::CM_DEFLATE]];
     }
 
-    /** An archive whose line file has one byte flipped after its first lines. */
+    /** An archive whose line file has one byte flipped in the middle of its data. */
     private function damaged(int $method): string
     {
         $content = '';
@@ -311,11 +349,7 @@ final class BoundedZipReaderTest extends TestCase
             $zip->setCompressionName('lignes.jsonl', $method);
         });
 
-        $bytes = (string) file_get_contents($path);
-        // Past the local header (30 bytes) and the name, well inside the data.
-        $at = 30 + strlen('lignes.jsonl') + 200;
-        $bytes[$at] = chr(ord($bytes[$at]) ^ 0xFF);
-        file_put_contents($path, $bytes);
+        ZipDamage::flipByteInMember($path, 'lignes.jsonl');
 
         return $path;
     }
