@@ -18,9 +18,10 @@ use Modules\Rental\Repository\RentalAssetManagerRepository;
  * A Desk import is the moment the roster becomes authoritative again:
  * whoever left simply stops appearing. A grant held by someone no longer on
  * the roster is **deactivated, never deleted**, and their return
- * **reactivates** it — the same deactivate-then-reactivate shape core
- * already uses for sections
- * (`Core\Import\MappingResolver::deactivateAllSections()`) and member years,
+ * **reactivates** it — the same shape core already uses for member years
+ * (`Core\Import\MemberYearRepository::deactivateAllForYear()`) and, from
+ * the rosters themselves, for sections
+ * (`Core\Import\MappingResolver::recomputeSectionActivity()`),
  * and for the same reason: a member missing from one import (a data-entry
  * slip, a late registration) must come back without a chief re-granting
  * anything, while a member who genuinely left loses access immediately.

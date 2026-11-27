@@ -11,6 +11,7 @@ namespace Core\Import;
 use Core\Journal\JournalService;
 use Core\Module\FunctionFlagsProvider;
 use Core\Module\HookRegistry;
+use Core\Member\UnitStaffSectionService;
 
 class MappingResolver
 {
@@ -172,15 +173,15 @@ class MappingResolver
     }
 
     /**
-     * Resolve a raw section code. Auto-creates if not found; reactivates an
-     * existing section (see deactivateAllSections()) since it's referenced
-     * by this import.
+     * Resolve a raw section code. Auto-creates if not found. Whether the
+     * section is active is decided once, at the end of the import, from the
+     * rosters (recomputeSectionActivity(), issue #1460) — never from being
+     * named by one year's file.
      */
     public function resolveSection(string $sectionCode, int $branchId, ?string $sectionName): int
     {
         $existing = $this->sectionRepo->findByDeskCode($sectionCode);
         if ($existing !== null) {
-            $this->sectionRepo->activate($existing['id']);
             return $existing['id'];
         }
 
@@ -191,13 +192,25 @@ class MappingResolver
     }
 
     /**
-     * Mark every section inactive before an import — resolveSection()
-     * reactivates each one actually referenced. See
-     * ImportSectionRepository::deactivateAll().
+     * Ids of the sections active right now — taken before an import, so
+     * that its journal line can say what the import changed.
+     *
+     * @return list<int>
      */
-    public function deactivateAllSections(): void
+    public function activeSectionIds(): array
     {
-        $this->sectionRepo->deactivateAll();
+        return $this->sectionRepo->activeIds();
+    }
+
+    /**
+     * Recompute which sections are active, once the import has written its
+     * roster: those with members in a scout year starting on or after
+     * $fromStartDate, plus Staff d'U. See
+     * ImportSectionRepository::recomputeActive().
+     */
+    public function recomputeSectionActivity(string $fromStartDate): void
+    {
+        $this->sectionRepo->recomputeActive($fromStartDate, UnitStaffSectionService::DESK_CODE);
     }
 
     /**
