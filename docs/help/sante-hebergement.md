@@ -32,7 +32,8 @@ hébergeur. Un bandeau en haut compte les lignes à régler.
   aucune erreur ne le signale. Si elle n'a jamais été détectée, ou plus
   depuis un moment, la page affiche la ligne exacte à ajouter dans la
   rubrique « Tâches planifiées » ou « Cron ». Le mot `php` au début de la
-  ligne est obligatoire.
+  ligne est obligatoire. En orange, elle se déclenche mais ses passages
+  s'interrompent avant la fin : voyez le journal.
 - **Exécution de commandes**, deux lignes : le PHP qui répond aux
   visiteurs et celui du cron peuvent avoir des droits différents. La
   vidéo et la compression des PDF dépendent du cron, qui les vérifie

@@ -332,4 +332,132 @@ class SchedulerRepositoryTest extends TestCase
             'the stamp is the moment of the claim, not of anything else'
         );
     }
+
+    // --- started vs. merely claimed (issue #1439) -------------------------
+
+    public function testMarkingAStartStampsTheRowOnce(): void
+    {
+        $this->insertAction('due_task', '-1 minute');
+        $id = (int) $this->repo->claimOverdue()[0]['id'];
+
+        $this->assertTrue($this->repo->markStarted($id));
+        $this->assertNotNull($this->repo->findById($id)['started_at']);
+        $this->assertFalse($this->repo->markStarted($id), 'a row already started is not started again');
+    }
+
+    /** A row that went back to the pool is no longer the caller's to start. */
+    public function testARowThatIsNoLongerProcessingCannotBeStarted(): void
+    {
+        $this->insertAction('due_task', '-1 minute');
+        $id = (int) $this->repo->claimOverdue()[0]['id'];
+        $this->repo->release($id);
+
+        $this->assertFalse($this->repo->markStarted($id));
+        $this->assertNull($this->repo->findById($id)['started_at']);
+    }
+
+    /**
+     * Under the pass lock, a row an earlier pass claimed and never started
+     * belongs to a pass that no longer exists: back to 'pending' at once,
+     * with no attempt counted. The row that WAS started stays where it is.
+     */
+    public function testRowsClaimedButNeverStartedAreReleasedAndTheStartedOneIsNot(): void
+    {
+        $this->insertAction('first', '-1 minute');
+        $this->insertAction('second', '-1 minute');
+        $this->insertAction('third', '-1 minute');
+        $claimed = $this->repo->claimOverdue();
+        $ids = array_map(static fn(array $row): int => (int) $row['id'], $claimed);
+        sort($ids);
+        $this->repo->markStarted($ids[0]);
+
+        $released = $this->repo->releaseNeverStarted();
+        sort($released);
+
+        $this->assertSame([$ids[1], $ids[2]], $released);
+        $this->assertSame('processing', $this->repo->findById($ids[0])['status']);
+        foreach ([$ids[1], $ids[2]] as $id) {
+            $row = $this->repo->findById($id);
+            $this->assertSame('pending', $row['status']);
+            $this->assertNull($row['claimed_at']);
+            $this->assertSame(0, (int) $row['attempts']);
+        }
+        $this->assertSame([], $this->repo->releaseNeverStarted(), 'nothing left to release');
+    }
+
+    /**
+     * A 'processing' row with no claim stamp was not put there by
+     * claimOverdue() — the restore handler re-inserting its own running
+     * row, a row claimed by a version older than the stamp — so nothing
+     * says it was not running. It is left to the slow path.
+     */
+    public function testAProcessingRowWithoutAClaimStampIsNotReleasedAtOnce(): void
+    {
+        $id = $this->claimAndStrand('restore_backup', '-1 minute', null);
+
+        $this->assertSame([], $this->repo->releaseNeverStarted());
+        $this->assertSame('processing', $this->repo->findById($id)['status']);
+    }
+
+    public function testEachReclaimCountsAnAttempt(): void
+    {
+        $id = $this->claimAndStrand('abandoned_task', '-1 minute', '-12 hours');
+
+        $reclaimed = $this->repo->reclaimAbandoned();
+
+        $this->assertSame(1, $reclaimed[0]['attempts']);
+        $this->assertFalse($reclaimed[0]['abandoned']);
+        $row = $this->repo->findById($id);
+        $this->assertSame(1, (int) $row['attempts']);
+        $this->assertNull($row['started_at']);
+        $this->assertNull($row['last_error']);
+    }
+
+    /**
+     * The reclaim that reaches the ceiling gives up: 'failed', with a
+     * message the Actions planifiées page can show, rather than another
+     * six-hour wait for the same death.
+     */
+    public function testTheReclaimThatReachesTheCeilingMarksTheRowFailed(): void
+    {
+        $id = $this->claimAndStrand('killer_task', '-1 minute', '-12 hours');
+        $this->pdo->prepare('UPDATE scheduled_actions SET attempts = ? WHERE id = ?')
+            ->execute([SchedulerRepository::ABANDON_AFTER_ATTEMPTS - 1, $id]);
+
+        $handled = $this->repo->reclaimAbandoned();
+
+        $this->assertCount(1, $handled);
+        $this->assertTrue($handled[0]['abandoned']);
+        $this->assertSame(SchedulerRepository::ABANDON_AFTER_ATTEMPTS, $handled[0]['attempts']);
+        $row = $this->repo->findById($id);
+        $this->assertSame('failed', $row['status']);
+        $this->assertSame(SchedulerRepository::ABANDON_AFTER_ATTEMPTS, (int) $row['attempts']);
+        $this->assertStringContainsString('« killer_task » a été abandonnée', (string) $row['last_error']);
+        $this->assertNull($row['claimed_at']);
+    }
+
+    /**
+     * Since when a started row has been RUNNING is what the delay is about:
+     * a row claimed long ago but started a moment ago (a long list ahead
+     * of it) is not abandoned.
+     */
+    public function testTheDelayRunsFromTheStartWhenThereIsOne(): void
+    {
+        $id = $this->claimAndStrand('late_starter', '-1 minute', '-12 hours');
+        $this->repo->markStarted($id);
+
+        $this->assertSame([], $this->repo->reclaimAbandoned());
+        $this->assertSame('processing', $this->repo->findById($id)['status']);
+    }
+
+    public function testReleasingClearsTheStartStamp(): void
+    {
+        $this->insertAction('due_task', '-1 minute');
+        $id = (int) $this->repo->claimOverdue()[0]['id'];
+        $this->repo->markStarted($id);
+
+        $this->repo->release($id);
+
+        $this->assertNull($this->repo->findById($id)['started_at']);
+    }
 }

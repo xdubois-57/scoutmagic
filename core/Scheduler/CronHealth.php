@@ -22,20 +22,26 @@ use Core\Config\SettingService;
  * and no page anywhere said so. This class exists so that both the setup
  * page and the maintenance page can say it.
  *
- * The three sources, and why each one is needed:
+ * The four sources, and why each one is needed:
  *
  * - **The heartbeat file** (`storage/temp/cron-heartbeat`), written at the
  *   very top of `public/cron.php` before the autoloader. It is the only
  *   source that works **before the site is initialized**, which is exactly
  *   when the setup gate has to reach a verdict, and the only one that
- *   distinguishes "the crontab fired but the pass died" from "the crontab
- *   never fired".
+ *   distinguishes "the crontab fired but the script died before the
+ *   database" from "the crontab never fired".
  * - **`cron_last_run`**, the setting the same script stamps once it has a
- *   database. That is the last FULL successful pass, and it survives a
- *   `storage/temp` sweep, which the heartbeat does not.
+ *   database and holds the single-flight lock — the START of the last
+ *   pass that set out to do its work, before any of that work. It
+ *   survives a `storage/temp` sweep, which the heartbeat does not.
  * - **`Core\Scheduler\CronRunHistory`**, the ring buffer beside it, which
  *   is the only source of an interval — one stamp cannot tell an hourly
- *   crontab apart from a per-minute one.
+ *   crontab apart from a per-minute one. It records starts too.
+ * - **`Core\Scheduler\CronPassEnd`**, the one stamp written at the END of
+ *   a pass, after every task. Every other trace is written before the
+ *   work, so without it a cron whose passes all die mid-way read as
+ *   active (issue #1439). Compared with the ring buffer, it answers
+ *   CronStatus::passesDoNotFinish().
  *
  * Purely read-only: nothing here writes, registers a setting, or touches
  * the scheduler. It is safe to build on a request that has no database.
@@ -133,10 +139,11 @@ final class CronHealth
         $now ??= time();
 
         $heartbeat = $this->readHeartbeat();
-        $fullPass = $this->readLastFullPass();
+        $passStart = $this->readLastPassStart();
         $intervals = $this->medianInterval();
+        $passEnd = $this->settings !== null ? CronPassEnd::read($this->settings) : null;
 
-        $lastSeen = max($heartbeat ?? 0, $fullPass ?? 0);
+        $lastSeen = max($heartbeat ?? 0, $passStart ?? 0);
 
         if ($lastSeen <= 0) {
             $state = CronStatus::STATE_NEVER;
@@ -146,7 +153,46 @@ final class CronHealth
             $state = CronStatus::STATE_STALE;
         }
 
-        return new CronStatus($state, $heartbeat, $fullPass, $intervals, $now);
+        return new CronStatus(
+            $state,
+            $heartbeat,
+            $passStart,
+            $intervals,
+            $now,
+            $passEnd,
+            $this->startsAfter($passEnd)
+        );
+    }
+
+    /**
+     * How many recorded pass starts come strictly after $passEnd.
+     *
+     * Zero when no pass has ever been recorded as finished, and that is a
+     * choice, not an oversight: the stamp is new (issue #1439), so every
+     * installation upgrading to it holds a ring buffer of starts that
+     * predate it, and counting those would report its cron as failing
+     * until the first pass ends — on the very page an administrator opens
+     * right after an update. « Never recorded » is unknown, not broken.
+     *
+     * Strictly after: a pass that ends in the same second the next one
+     * starts must not count that start against it. Erring low is the safe
+     * direction here, since one start too few only delays the verdict by
+     * a pass.
+     */
+    private function startsAfter(?int $passEnd): int
+    {
+        if ($this->settings === null || $passEnd === null) {
+            return 0;
+        }
+
+        $after = 0;
+        foreach (CronRunHistory::read($this->settings) as $start) {
+            if ($start > $passEnd) {
+                $after++;
+            }
+        }
+
+        return $after;
     }
 
     /**
@@ -176,7 +222,7 @@ final class CronHealth
         return $mtime === false ? null : $mtime;
     }
 
-    private function readLastFullPass(): ?int
+    private function readLastPassStart(): ?int
     {
         if ($this->settings === null) {
             return null;

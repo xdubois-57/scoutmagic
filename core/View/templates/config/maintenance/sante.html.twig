@@ -183,7 +183,9 @@
                                     </form>
                                 {% endif %}
 
-                                {% if check.key == 'cron' and not check.isOk() %}
+                                {# The crontab line only when the cron is absent or silent: a cron that
+                                   fires and dies mid-pass (degraded) has the right line already. #}
+                                {% if check.key == 'cron' and check.state == 'missing' %}
                                     <div class="alert alert-danger small mt-2 mb-0" role="alert" id="maintenance-cron-warning">
                                         <div class="input-group input-group-sm mb-2">
                                             <input type="text" class="form-control font-monospace" value="{{ cron_crontab_line }}" readonly id="maintenance-cron-line" aria-label="Ligne crontab">

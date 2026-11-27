@@ -558,6 +558,30 @@ class SystemCollectorsTest extends TestCase
     }
 
     /**
+     * #1439: the crontab fires, its passes start, and none gets to the end.
+     * Every start stamp says « actif »; the end stamp is what says not.
+     */
+    public function testACronWhosePassesStartWithoutFinishingIsCalledOut(): void
+    {
+        $this->registerCronSettings();
+        \Core\Scheduler\CronPassEnd::register($this->settings);
+        $now = time();
+        $this->settings->setInternal('cron_last_run', (string) $now);
+        $this->settings->setInternal(
+            \Core\Scheduler\CronRunHistory::SETTING,
+            (string) json_encode([$now - 3700, $now - 120, $now - 60, $now])
+        );
+        $this->settings->setInternal(\Core\Scheduler\CronPassEnd::SETTING, (string) ($now - 3600));
+
+        $result = $this->runCollector(new CronCadenceCollector());
+        $report = $result['entries']['cron-cadence.txt'];
+
+        $this->assertStringContainsString('cron_last_pass_end : ', $report);
+        $this->assertStringContainsString('ATTENTION : 3 passages ont démarré depuis le dernier passage terminé', $report);
+        $this->assertContains('Les passages du cron démarrent mais ne vont pas jusqu\'au bout.', $result['notes']);
+    }
+
+    /**
      * The number that mattered. Six production update failures all read
      * "stuck at migrating for more than 15 minutes", and the cause was
      * trivial unrelated tasks running six minutes after their due time

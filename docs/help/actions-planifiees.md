@@ -31,6 +31,17 @@ La page se consulte uniquement : on n'y relance ni n'y annule rien.
 Une tâche échouée est généralement reprogrammée par la fonction qui
 l'avait créée, et les échecs notables sont aussi consignés au journal.
 
+## Quand un passage du cron s'interrompt
+
+L'hébergeur peut arrêter un passage du cron en plein travail (mémoire
+épuisée, durée dépassée). Les tâches que ce passage n'avait pas encore
+commencées repartent dès le passage suivant, et le journal le signale.
+La tâche qui était en cours reste « En cours » jusqu'à six heures, puis
+elle est relancée et sa colonne « Tentatives » augmente. Après trois
+interruptions, elle passe en **Échoué** avec un message qui l'explique,
+et une erreur est consignée au journal : c'est souvent elle qui fait
+tomber le passage.
+
 ## Pourquoi une tâche part en retard
 
 Le site exécute ses tâches d'une seule façon : la **tâche planifiée

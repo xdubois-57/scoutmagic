@@ -24,10 +24,10 @@ if (PHP_SAPI !== 'cli') {
 // SecretManager, before the database exists.
 //
 // The DB stamp further down ('cron_last_run') is written only once
-// autoload + secrets + a live connection have all succeeded, so it answers
-// "a full cron pass completed", never "the crontab fired". Those are
-// different facts, and the difference is exactly what went undiagnosed in
-// production: a crontab entry configured on the hosting panel with a bare
+// autoload + secrets + a live connection + the single-flight lock have all
+// succeeded, so it answers "a pass started its work", never merely "the
+// crontab fired". Those are different facts, and the difference is exactly
+// what went undiagnosed in production: a crontab entry configured on the hosting panel with a bare
 // script path (no `php` prefix) executed nothing at all for days, and
 // `cron_last_run: 0` looked identical to a site whose operator had simply
 // never configured one. The setup page's cron gate needs the same
@@ -130,8 +130,8 @@ $pdo = $connection->getPdo();
 // crontab to overlap with.
 //
 // Taken here, before anything is stamped or done: a pass that stands down
-// has not completed, so it must not write `cron_last_run` (which means "a
-// full pass finished") nor a `CronRunHistory` entry.
+// never started its work, so it must not write `cron_last_run` (which
+// means "a pass took the lock and started") nor a `CronRunHistory` entry.
 //
 // **And it exits SILENTLY**, which is the deliberate part. Anything this
 // script prints becomes an email from the host's cron daemon, so a backup
@@ -153,19 +153,31 @@ $encryptionService = EncryptionService::fromEncodedKeys(
 // Create services
 $settingService = new SettingService(new SettingRepository($pdo));
 
-// Marks that a full pass of THIS entry point completed. It is written
-// here and nowhere else, which is what makes it evidence: a web request
-// cannot produce it. Core\Http\Controller\NotificationConfigController
-// warns on /config/notifications when it is missing or stale, and
-// Core\Scheduler\CronHealth reads it beside the heartbeat and the ring
-// buffer — a crontab is a requirement now, and this is one of the three
-// traces that says whether the installation actually has one.
+// What is written, and when — four traces, three of them at the START:
+//
+// - the heartbeat file, at the very top of this file (launched at all);
+// - `cron_last_run`, HERE: this pass holds the lock and is about to do its
+//   work — before the modules load, before the migration, before a single
+//   task runs. It says nothing about whether the pass gets to the end;
+// - one `CronRunHistory` entry, a few lines down, at the same moment;
+// - `CronPassEnd`, at the very END of this file, after every task and
+//   every purge: the one trace that says a pass went all the way through.
+//
+// A pass that dies in between (memory exhausted, killed by the host, a
+// fatal error in a handler) leaves the first three and not the last, and
+// Core\Scheduler\CronHealth reads that difference (issue #1439). All four
+// are written here and nowhere else, which is what makes them evidence: a
+// web request cannot produce them. Core\Http\Controller\
+// NotificationConfigController warns on /config/notifications when
+// `cron_last_run` is missing or stale.
 $settingService->register(
     'cron_last_run',
     '0',
     'number',
-    'Dernier passage du cron réel',
-    'Horodatage (timestamp Unix) du dernier passage complet de public/cron.php — écrit par lui seul. Lecture seule.',
+    'Dernier passage du cron réel démarré',
+    'Horodatage (timestamp Unix) du début du dernier passage de public/cron.php, écrit avant les tâches : il '
+    . 'ne dit pas si ce passage est allé jusqu\'au bout (voir « Dernier passage du cron réel terminé »). '
+    . 'Écrit par lui seul. Lecture seule.',
     null,
     null,
     null,
@@ -194,6 +206,9 @@ $cronSettingRepository->updateValue(null, 'cron_last_run', (string) time());
 // interval needs two timestamps (Core\Scheduler\CronRunHistory).
 \Core\Scheduler\CronRunHistory::register($settingService);
 \Core\Scheduler\CronRunHistory::record($cronSettingRepository, time());
+// Registered here with its siblings, written only at the very end of the
+// file: record() updates the row, it does not create one.
+\Core\Scheduler\CronPassEnd::register($settingService);
 
 // What THIS PHP can execute (#700) is measured after the scheduled work
 // below: see CronExecutionFacts::recordIfDue() further down.
@@ -524,6 +539,12 @@ $deleted = $journalService->cleanup($retentionDays);
 if ($processed > 0 || $deleted > 0) {
     echo "Processed {$processed} task(s), deleted {$deleted} old journal entry/entries.\n";
 }
+
+// The pass got to the end: the one stamp written AFTER the work. Last on
+// purpose — everything above, the tasks, the probes and the purges, is
+// what a pass that dies never reaches, and CronHealth reports a cron whose
+// passes start without arriving here (issue #1439).
+\Core\Scheduler\CronPassEnd::record($cronSettingRepository, time());
 
 // Belt and braces: a MySQL/MariaDB advisory lock belongs to a CONNECTION
 // and the server drops it the instant that connection closes — which is

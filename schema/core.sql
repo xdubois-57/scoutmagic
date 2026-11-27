@@ -1191,6 +1191,23 @@ CREATE TABLE scheduled_actions (
     -- existed: the reaper falls back to run_at for those, which is the
     -- only thing it can read on an installation that has just migrated.
     claimed_at DATETIME,
+    -- When SchedulerRunner actually STARTED this row's handler, as opposed
+    -- to when claimOverdue() reserved it. A pass claims every due row at
+    -- once and then runs them one by one, so a pass killed in the middle
+    -- of its list (memory exhausted, process killed by the host) leaves
+    -- two kinds of 'processing' row behind: the one that was running, and
+    -- the ones it never reached. Only this column tells them apart.
+    --
+    -- Under the single-flight lock (CronPassLock) a pass that finds a row
+    -- claimed (claimed_at set) but never started (this column NULL) knows
+    -- no other pass can be about to start it, and hands it straight back
+    -- to 'pending' (SchedulerRepository::releaseNeverStarted()). The row
+    -- that WAS running keeps the RECLAIM_AFTER_HOURS delay of
+    -- reclaimAbandoned(), and that reclaim counts an attempt.
+    --
+    -- Cleared whenever the row goes back to 'pending'; kept on a row that
+    -- ended 'done' or 'failed', where it says when the run began.
+    started_at DATETIME,
     INDEX idx_status_run (status, run_at),
     INDEX idx_status_claimed (status, claimed_at),
     INDEX idx_module_task (module_id, task_key),

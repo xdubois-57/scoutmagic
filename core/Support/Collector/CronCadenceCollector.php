@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Core\Support\Collector;
 
 use Core\Scheduler\CronHealth;
+use Core\Scheduler\CronPassEnd;
 use Core\Scheduler\CronRunHistory;
 use Core\Scheduler\CronStatus;
 use Core\Support\SupportCollectorContext;
@@ -94,7 +95,9 @@ class CronCadenceCollector implements SupportCollectorInterface
 
         $lines[] = '## Horodatages bruts';
         $lines[] = 'cron_last_run : ' . $this->stamp($cronLastRun, $now)
-            . '  (écrit uniquement par public/cron.php — un vrai crontab)';
+            . '  (écrit par public/cron.php au début de chaque passage, avant les tâches)';
+        $lines[] = CronPassEnd::SETTING . ' : ' . $this->stamp($status->lastPassEndAt ?? 0, $now)
+            . '  (écrit par public/cron.php à la fin d\'un passage allé jusqu\'au bout)';
         $lines[] = 'battement de cœur (storage/' . CronHealth::HEARTBEAT_FILE . ') : '
             . $this->stamp($status->lastHeartbeatAt ?? 0, $now)
             . '  (écrit tout en haut de public/cron.php, avant même l\'autoloader)';
@@ -130,6 +133,15 @@ class CronCadenceCollector implements SupportCollectorInterface
             $lines[] = 'VRAI CRON : détecté et actif (dernier passage il y a '
                 . $this->duration((int) $sinceLastSeen)
                 . ').';
+        }
+
+        // Every stamp but one is written at the START of a pass, so a cron
+        // whose passes all die mid-way looks active above (issue #1439).
+        if ($status->passesDoNotFinish()) {
+            $lines[] = 'ATTENTION : ' . $status->startsSinceLastPassEnd . ' passages ont démarré depuis le dernier'
+                . ' passage terminé (il y a ' . $this->duration((int) $status->secondsSinceLastPassEnd()) . ') :';
+            $lines[] = 'les passages s\'interrompent avant la fin — mémoire, durée maximale, ou erreur fatale.';
+            $context->addNote('Les passages du cron démarrent mais ne vont pas jusqu\'au bout.');
         }
 
         // A heartbeat with no cron_last_run behind it is its own diagnosis,
