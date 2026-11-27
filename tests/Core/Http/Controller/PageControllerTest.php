@@ -978,6 +978,28 @@ class PageControllerTest extends TestCase
         $this->assertSame(200, $response->getStatusCode());
         $this->assertStringContainsString('Protection des données', $response->getBody());
     }
+
+    /**
+     * The document reader (issue #1431) shows the canonical notice from this
+     * page — its marked block, which holds the rendered notice and nothing
+     * of the page around it.
+     */
+    public function testRgpdPageMarksTheNoticeForTheDocumentReader(): void
+    {
+        $response = $this->controller->rgpd(new Request('GET', '/rgpd', [], [], [], []), []);
+
+        $page = new \DOMDocument();
+        @$page->loadHTML((string) $response->getBody());
+        $marked = (new \DOMXPath($page))->query('//*[@data-document-reader-content]');
+
+        $this->assertSame(1, $marked->length);
+        $block = $marked->item(0);
+        $this->assertInstanceOf(\DOMElement::class, $block);
+        $this->assertSame('Protection des données', $block->getAttribute('data-document-reader-title'));
+        $this->assertSame(1, (new \DOMXPath($page))->query('.//*[contains(@class, "rich-text")]', $block)->length);
+        $this->assertNotSame('', trim($block->textContent), 'the notice itself, not an empty shell');
+        $this->assertSame(0, (new \DOMXPath($page))->query('.//form|.//script|.//nav', $block)->length);
+    }
     /**
      * A registry carrying exactly one hook — what the composition root
      * builds, reduced to the hook under test.
