@@ -612,7 +612,9 @@ class NotificationServiceTest extends TestCase
     {
         $userId = $this->createUserAccount();
         $rebound = $this->subscriptionRepository->create($userId, 'https://10.0.0.5/push/device', 'auth', 'p256dh');
-        $kept = $this->subscriptionRepository->create($userId, 'https://push.example/device', 'auth2', 'p256dh2');
+        // A public literal: kept and sent whether or not this installation
+        // can resolve names the way the push client does.
+        $kept = $this->subscriptionRepository->create($userId, 'https://93.184.216.34/device', 'auth2', 'p256dh2');
         $notificationId = $this->notificationRepository->create($userId, null, 'core.system', 'A', 'B', null);
 
         $sentTo = [];
@@ -624,9 +626,31 @@ class NotificationServiceTest extends TestCase
 
         $this->service->sendPushForNotifications([$notificationId], fn() => true);
 
-        $this->assertSame(['https://push.example/device'], $sentTo);
+        $this->assertSame(['https://93.184.216.34/device'], $sentTo);
         $this->assertNull($this->subscriptionRepository->findById($rebound));
         $this->assertNotNull($this->subscriptionRepository->findById($kept));
+    }
+
+    /**
+     * **And a subscription whose address merely went unanswered is kept**
+     * (#1269 review). Deleting it would end the member's push for good —
+     * the browser never registers again by itself — over what may be a
+     * resolver blink. Where we resolve as the client does it is sent; where
+     * we cannot, it is skipped this time. Either way the row stays.
+     */
+    public function testASubscriptionWhoseAddressDoesNotResolveRightNowIsKept(): void
+    {
+        $userId = $this->createUserAccount();
+        $silent = $this->subscriptionRepository->create($userId, 'https://push-inexistant.example.org/device', 'auth', 'p256dh');
+        $notificationId = $this->notificationRepository->create($userId, null, 'core.system', 'A', 'B', null);
+
+        $this->webPush->expects(function_exists('socket_addrinfo_lookup') ? $this->once() : $this->never())
+            ->method('queueNotification');
+        $this->webPush->method('flush')->willReturn((function () { return; yield; })());
+
+        $this->service->sendPushForNotifications([$notificationId], fn() => true);
+
+        $this->assertNotNull($this->subscriptionRepository->findById($silent));
     }
 
     // --- subscribe/unsubscribe (device_label, idempotency) ---

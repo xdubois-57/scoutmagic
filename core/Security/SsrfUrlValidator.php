@@ -285,39 +285,80 @@ final class SsrfUrlValidator
      * being re-checked before a request goes out. Everything structural —
      * the scheme, embedded credentials, the port — is refused exactly as
      * before; only « the resolver said nothing » stops being a refusal.
+     *
+     * False covers two different facts, which {@see isStoredHttpsTargetKnownUnsafe()}
+     * tells apart: an address shown to be unsafe, and one that could not be
+     * verified at all. Refusing the request about to go out is right for
+     * both; destroying the stored value is right only for the first.
      */
     public static function isStoredHttpsTargetStillSafe(string $url, bool $allowCustomPort = false): bool
     {
+        return self::storedHttpsTargetVerdict($url, $allowCustomPort) === StoredTargetVerdict::Safe;
+    }
+
+    /**
+     * That a stored address is **shown** to be unsafe: refused on its
+     * structure, or resolving somewhere it must not be reached.
+     *
+     * Not true for an address this installation merely could not verify —
+     * a host nothing answers for, on an installation without ext-sockets,
+     * where that silence says nothing about where the client would go.
+     * That case is refused by {@see isStoredHttpsTargetStillSafe()} all the
+     * same, but a caller that would *delete* what it stored (a Web Push
+     * subscription, #1269) must wait for proof: a resolver blink is not a
+     * reason to cost a member their device.
+     */
+    public static function isStoredHttpsTargetKnownUnsafe(string $url, bool $allowCustomPort = false): bool
+    {
+        return self::storedHttpsTargetVerdict($url, $allowCustomPort) === StoredTargetVerdict::Unsafe;
+    }
+
+    /**
+     * Both answers above in one resolution, for a caller that acts on
+     * each — the address is looked up once, not twice.
+     */
+    public static function storedHttpsTargetVerdict(
+        string $url,
+        bool $allowCustomPort = false
+    ): StoredTargetVerdict {
         $parts = @parse_url($url);
         if (!is_array($parts)) {
-            return false;
+            return StoredTargetVerdict::Unsafe;
         }
         if (strtolower((string) ($parts['scheme'] ?? '')) !== 'https') {
-            return false;
+            return StoredTargetVerdict::Unsafe;
         }
         if (isset($parts['user']) || isset($parts['pass'])) {
-            return false;
+            return StoredTargetVerdict::Unsafe;
         }
 
         $host = $parts['host'] ?? null;
         if (!is_string($host) || $host === '') {
-            return false;
+            return StoredTargetVerdict::Unsafe;
         }
         if (!$allowCustomPort && ($parts['port'] ?? 443) !== 443) {
-            return false;
+            return StoredTargetVerdict::Unsafe;
         }
+
+        $addresses = self::addressesOf($host);
 
         // « Nothing resolved » is only an acceptable answer when we looked
         // with the resolver the request itself will use. Without it, the
         // silence says nothing about where cURL would go, and sending the
         // share's credentials on that basis is the hole this exists to
         // close — so the lenient branch is the one that goes away, not the
-        // check.
-        if (self::addressesOf($host) === [] && !self::canSeeWhatTheClientSees()) {
-            return false;
+        // check. Unverifiable, not unsafe: nothing showed it was.
+        if ($addresses === [] && !self::canSeeWhatTheClientSees()) {
+            return StoredTargetVerdict::Unverifiable;
         }
 
-        return !self::resolvesOutsideThePublicInternet($host);
+        foreach ($addresses as $ip) {
+            if (!self::isPublicIp($ip)) {
+                return StoredTargetVerdict::Unsafe;
+            }
+        }
+
+        return StoredTargetVerdict::Safe;
     }
 
     /**

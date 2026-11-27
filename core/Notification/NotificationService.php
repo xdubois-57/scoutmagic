@@ -18,6 +18,7 @@ use Core\ScoutYear\AuthorizationYears;
 use Core\ScoutYear\AuthorizationYearService;
 use Core\Security\RoleResolver;
 use Core\Security\SsrfUrlValidator;
+use Core\Security\StoredTargetVerdict;
 use Core\Security\UserAccount;
 use Core\Security\UserAccountRepository;
 use Minishlink\WebPush\Encryption;
@@ -1033,10 +1034,18 @@ class NotificationService
             // hosting network now. Such a subscription is removed, exactly
             // as a push service's « gone » is, and nothing says why — the
             // member who stored it learns nothing about what it reaches.
-            // The stored-value check, so a resolver that cannot answer
-            // does not cost a device its subscription.
-            if (!SsrfUrlValidator::isStoredHttpsTargetStillSafe($subscription->endpoint)) {
+            // Only an address SHOWN to be unsafe costs the device its
+            // subscription. One this installation could not verify —
+            // nothing answered, and without ext-sockets that silence
+            // proves nothing — is skipped for this send and kept: a
+            // resolver blink must not silently end a member's push, which
+            // the browser never re-registers on its own.
+            $verdict = SsrfUrlValidator::storedHttpsTargetVerdict($subscription->endpoint);
+            if ($verdict === StoredTargetVerdict::Unsafe) {
                 $this->pushSubscriptionRepository->delete($subscription->id);
+                continue;
+            }
+            if ($verdict !== StoredTargetVerdict::Safe) {
                 continue;
             }
 
