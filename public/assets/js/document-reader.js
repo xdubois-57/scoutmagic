@@ -52,10 +52,10 @@
     // resolved by the URL parser, which strips the tabs, newlines and
     // leading control characters a browser ignores, so « java\tscript: »
     // is judged as the javascript: it would become.
-    var SAFE_LINK_SCHEMES = ['http:', 'https:', 'mailto:', 'tel:'];
+    var SAFE_LINK_SCHEMES = new Set(['http:', 'https:', 'mailto:', 'tel:']);
     // Attributes that would load or run something and that a document to
     // read never needs; whatever they hold, they go.
-    var REMOVED_ATTRIBUTES = ['srcset', 'action', 'formaction', 'background', 'poster', 'ping', 'style', 'id'];
+    var REMOVED_ATTRIBUTES = new Set(['srcset', 'action', 'formaction', 'background', 'poster', 'ping', 'style', 'id']);
 
     /**
      * Whether a link or image address may stay in the document.
@@ -72,7 +72,7 @@
         } catch (e) {
             return false;
         }
-        if (SAFE_LINK_SCHEMES.includes(url.protocol)) {
+        if (SAFE_LINK_SCHEMES.has(url.protocol)) {
             return true;
         }
         // An image may be inline; an img never runs what it shows.
@@ -117,7 +117,7 @@
                 // and a second #rgpd-last-updated would answer its
                 // getElementById() calls in its place.
                 var isUrl = name === 'href' || name === 'src';
-                if (name.startsWith('on') || name.includes(':') || REMOVED_ATTRIBUTES.includes(name)
+                if (name.startsWith('on') || name.includes(':') || REMOVED_ATTRIBUTES.has(name)
                     || (isUrl && !isSafeUrl(name, attr.value, base))) {
                     el.removeAttribute(attr.name);
                 } else if (isUrl && !/^([a-z][a-z0-9+.-]*:|\/)/i.test(attr.value.trim())) {
