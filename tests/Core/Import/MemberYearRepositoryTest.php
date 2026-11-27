@@ -257,4 +257,33 @@ class MemberYearRepositoryTest extends TestCase
 
         $this->assertSame(0, $this->offsetOf($this->repo->upsert($memberId, $this->scoutYearId, $this->encryptedPayload())));
     }
+
+    /**
+     * Issue #1381: a « Membres » form answer is named from the member's
+     * newest record, which is the one whose scout year STARTS last — not
+     * the highest id, since a past year can be created after a later one.
+     */
+    public function testTheMostRecentRecordOfEachMemberIsTheNewestYearsWhateverTheInsertionOrder(): void
+    {
+        $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('d201')");
+        $returning = (int) $this->pdo->lastInsertId();
+        $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('d202')");
+        $leaver = (int) $this->pdo->lastInsertId();
+        $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('d203')");
+        $neverRecorded = (int) $this->pdo->lastInsertId();
+
+        $current = $this->repo->upsert($returning, $this->scoutYearId, $this->encryptedPayload());
+        $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES ('2023-2024', '2023-09-01', '2024-08-31', 0)");
+        $olderYearId = (int) $this->pdo->lastInsertId();
+        $this->repo->upsert($returning, $olderYearId, $this->encryptedPayload());
+        $leaversLast = $this->repo->upsert($leaver, $olderYearId, $this->encryptedPayload());
+
+        // Keyed by member, in no order the method promises.
+        $found = $this->repo->findMostRecentIdsForMembers([$returning, $leaver, $neverRecorded, $returning]);
+        ksort($found);
+        $expected = [$returning => $current, $leaver => $leaversLast];
+        ksort($expected);
+        $this->assertSame($expected, $found);
+        $this->assertSame([], $this->repo->findMostRecentIdsForMembers([]));
+    }
 }

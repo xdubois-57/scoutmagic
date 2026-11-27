@@ -220,7 +220,10 @@ class ImportEngine
         if ($format === null) {
             return new ImportSource(null, null, $run->sourceParameters, $absolute);
         }
-        if ($absolute === null) {
+        // Forgotten by the run, or gone from the disk between two slices
+        // (#1238): the server lost it, and saying « not a readable ZIP »
+        // would send the person looking for a fault in their own file.
+        if ($absolute === null || !is_file($absolute)) {
             throw new ArchiveRejectedException('Le fichier déposé n\'est plus sur le serveur. Déposez-le à nouveau.');
         }
 

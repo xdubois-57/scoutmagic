@@ -10,6 +10,7 @@ namespace Modules\LlmConnector\Service;
 
 use Core\Config\AppClock;
 use Core\Journal\JournalService;
+use Core\Security\SsrfUrlValidator;
 use Modules\LlmConnector\Api\LlmConnectorInterface;
 use Modules\LlmConnector\Api\LlmException;
 use Modules\LlmConnector\Api\LlmRequest;
@@ -49,7 +50,16 @@ class LlmConnectorService implements LlmConnectorInterface
          * before it are a configuration gap, which LlmAttentionProvider
          * reads from isAvailable() instead.
          */
-        private ?LastFailureStore $lastFailure = null
+        private ?LastFailureStore $lastFailure = null,
+        /**
+         * Whether the stored provider address may still be called (#1269).
+         * Null is the real check, {@see SsrfUrlValidator::isStoredHttpsTargetStillSafe()};
+         * injectable only so a test can point a driver at its local stub
+         * server, which is plain http on 127.0.0.1 by construction.
+         *
+         * @var (\Closure(string): bool)|null
+         */
+        private ?\Closure $endpointIsStillSafe = null
     ) {
     }
 
@@ -93,6 +103,22 @@ class LlmConnectorService implements LlmConnectorInterface
                 $request->tier,
                 (string) $provider['name'],
                 null
+            );
+        }
+
+        // **Checked again here, not only when it was saved** (#1269,
+        // SECURITY.md §17). The API key travels to this address on every
+        // call, and a host that resolved public when the superadmin saved
+        // it can resolve inside the hosting network now (rebinding, a
+        // lapsed domain), or the row can have arrived since the form — a
+        // restore, a hand-edited column. Refused before the driver exists,
+        // so before a single header leaves the server.
+        if (!$this->mayCall($provider['api_endpoint'])) {
+            throw $this->journalRefusal(
+                LlmException::unsafeEndpoint(),
+                $request->tier,
+                (string) $provider['name'],
+                $model['model_id']
             );
         }
 
@@ -232,6 +258,20 @@ class LlmConnectorService implements LlmConnectorInterface
      * `info`, like its sibling — a missing model is a setting nobody made
      * yet, not an incident.
      */
+    /**
+     * The stored-value check rather than the save-time one: a host the
+     * resolver cannot answer for right now is not a refusal, because the
+     * call about to be made cannot reach anything either — an address
+     * that resolves somewhere it must not be reached is.
+     */
+    private function mayCall(string $endpoint): bool
+    {
+        $check = $this->endpointIsStillSafe
+            ?? static fn (string $url): bool => SsrfUrlValidator::isStoredHttpsTargetStillSafe($url);
+
+        return $check($endpoint);
+    }
+
     private function journalRefusal(
         LlmException $exception,
         LlmTier $tier,

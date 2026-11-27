@@ -1,7 +1,10 @@
 {#
   Renders one form field's input widget (module spec §11.4). Expects in
-  scope: `field` (Modules\News\Repository\FormField), `options` (string[]),
-  `remaining_capacity` (?int), `value` (existing answer, default ''),
+  scope: `field` (Modules\News\Repository\FormField), `options` (a list of
+  {value, label} — Service\ResponseService::optionsFor(): a manual option
+  is both, a member is their Desk id and their full name),
+  `remaining_capacity` (?int), `value` (existing answer, default '': a
+  string, or a list of option values for checkboxes),
   `disabled` (bool, preview/read-only mode), `csrf_free` (bool, unused —
   kept for symmetry). Reused by detail.html.twig (submit), response_edit.
   html.twig (edit) and editor.html.twig's preview tab.
@@ -66,8 +69,11 @@
     {% elseif field.fieldType == 'dropdown' %}
         <select class="form-select" id="{{ input_name }}" name="{{ input_name }}" {{ field.isRequired ? 'required' : '' }} {{ disabled ? 'disabled' : '' }}>
             <option value="" {{ value == '' ? 'selected' : '' }}>Choisissez…</option>
+            {# `same as`, never `==`: Twig compares numeric strings as
+               numbers, and two Desk ids « 0123 » and « 123 » would both
+               read as selected. #}
             {% for option in options %}
-                <option value="{{ option }}" {{ value == option ? 'selected' : '' }}>{{ option }}</option>
+                <option value="{{ option.value }}" {{ value is same as(option.value) ? 'selected' : '' }}>{{ option.label }}</option>
             {% endfor %}
         </select>
 
@@ -76,8 +82,8 @@
             {% for option in options %}
                 <div class="form-check">
                     <input class="form-check-input" type="radio" name="{{ input_name }}" id="{{ input_name }}_{{ loop.index }}"
-                           value="{{ option }}" {{ value == option ? 'checked' : '' }} {{ field.isRequired ? 'required' : '' }} {{ disabled ? 'disabled' : '' }}>
-                    <label class="form-check-label" for="{{ input_name }}_{{ loop.index }}">{{ option }}</label>
+                           value="{{ option.value }}" {{ value is same as(option.value) ? 'checked' : '' }} {{ field.isRequired ? 'required' : '' }} {{ disabled ? 'disabled' : '' }}>
+                    <label class="form-check-label" for="{{ input_name }}_{{ loop.index }}">{{ option.label }}</label>
                 </div>
             {% endfor %}
         </fieldset>
@@ -88,8 +94,8 @@
             {% for option in options %}
                 <div class="form-check">
                     <input class="form-check-input" type="checkbox" name="{{ input_name }}[]" id="{{ input_name }}_{{ loop.index }}"
-                           value="{{ option }}" {{ option in selected ? 'checked' : '' }} {{ disabled ? 'disabled' : '' }}>
-                    <label class="form-check-label" for="{{ input_name }}_{{ loop.index }}">{{ option }}</label>
+                           value="{{ option.value }}" {{ selected|filter(chosen => chosen is same as(option.value)) is not empty ? 'checked' : '' }} {{ disabled ? 'disabled' : '' }}>
+                    <label class="form-check-label" for="{{ input_name }}_{{ loop.index }}">{{ option.label }}</label>
                 </div>
             {% endfor %}
         </fieldset>

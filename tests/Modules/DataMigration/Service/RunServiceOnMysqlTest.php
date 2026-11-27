@@ -550,7 +550,8 @@ final class RunServiceOnMysqlTest extends TestCase
 
     /**
      * The stored file disappears before its verification starts: the run
-     * is rejected with the reason, nothing is written, and no file is left.
+     * is rejected with the reason — the server lost it, the file is not
+     * said to be damaged (#1238) — nothing is written, and no file is left.
      */
     public function testAFileLostBeforeItsVerificationRejectsTheRun(): void
     {
@@ -561,7 +562,7 @@ final class RunServiceOnMysqlTest extends TestCase
         $run = $this->service->advance($this->importer, $run);
 
         $this->assertSame(Run::ABANDONED, $run->state);
-        $this->assertSame('Le fichier n\'est pas une archive ZIP lisible.', $run->rejectionReason);
+        $this->assertSame('Le fichier déposé n\'est plus sur le serveur. Déposez-le à nouveau.', $run->rejectionReason);
         $this->assertNull($run->filePath);
         $this->assertSame(0, $this->writtenCount());
     }
@@ -582,7 +583,7 @@ final class RunServiceOnMysqlTest extends TestCase
         $run = $this->service->advance($this->importer, $run);
 
         $this->assertSame(Run::ABANDONED, $run->state);
-        $this->assertSame('Le fichier n\'est pas une archive ZIP lisible.', $run->rejectionReason);
+        $this->assertSame('Le fichier déposé n\'est plus sur le serveur. Déposez-le à nouveau.', $run->rejectionReason);
         $this->assertSame(0, (int) ($run->analysis['total'] ?? 0));
         $this->assertSame(0, $this->writtenCount());
     }

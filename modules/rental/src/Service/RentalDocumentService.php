@@ -1413,6 +1413,16 @@ class RentalDocumentService
     }
 
     /**
+     * The landlord an asset with none of its own is let by — the module's,
+     * else the unit — computed WITHOUT this asset's own landlord (issue
+     * #1355, D14), so its settings can offer it as a choice.
+     */
+    public function defaultLandlord(): Landlord
+    {
+        return Landlord::resolve($this->settingService);
+    }
+
+    /**
      * The mention an invoice with no VAT on it needs, stating the legal
      * basis of the exemption.
      *

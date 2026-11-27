@@ -52,7 +52,10 @@ class LlmConnectorServiceTest extends TestCase
         $this->service = new LlmConnectorService(
             $this->providerRepo,
             $this->modelRepo,
-            $this->journalService
+            $this->journalService,
+            // The stub server is plain http on 127.0.0.1; the address check
+            // itself is covered by the tests below (#1269).
+            endpointIsStillSafe: static fn (string $url): bool => true
         );
     }
 
@@ -204,6 +207,100 @@ class LlmConnectorServiceTest extends TestCase
         $this->modelRepo->assignTier($models[0]['id'], LlmTier::CHEAP);
 
         $this->assertFalse($this->service->isAvailable());
+    }
+
+    /**
+     * **The stored address is checked again before every call** (#1269,
+     * SECURITY.md §17). It was vetted when the superadmin saved it, but the
+     * API key travels to it on every request, and a host can resolve
+     * somewhere else since — or the row can have arrived without the form.
+     *
+     * @return array<string, array{string}>
+     */
+    public static function addressesTheKeyMustNotTravelTo(): array
+    {
+        return [
+            'plain http' => ['http://api.anthropic.com'],
+            'the loopback interface' => ['https://127.0.0.1'],
+            'a private range' => ['https://10.0.0.5'],
+            'the cloud metadata address' => ['https://169.254.169.254'],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('addressesTheKeyMustNotTravelTo')]
+    public function testAStoredAddressThatNoLongerLeadsToAPublicHostIsRefused(string $endpoint): void
+    {
+        $providerId = $this->providerRepo->create('Anthropic', 'anthropic', $endpoint, 'sk-test', true);
+        $this->modelRepo->upsert($providerId, 'claude-haiku', 'Claude Haiku');
+        $this->modelRepo->assignTier($this->modelRepo->findByProvider($providerId)[0]['id'], LlmTier::CHEAP);
+
+        // The real check, not the permissive one setUp() hands the stub tests.
+        $service = new LlmConnectorService($this->providerRepo, $this->modelRepo, $this->journalService);
+
+        $this->journalService->expects($this->once())
+            ->method('log')
+            ->with(
+                'llm_connector',
+                'llm_request_failed',
+                'info',
+                'LLM request failed',
+                $this->callback(static fn (array $context): bool => $context['error_code'] === LlmException::API_ERROR),
+                null
+            );
+
+        try {
+            $service->complete(new LlmRequest(LlmTier::CHEAP, 'Bonjour'));
+            $this->fail('Expected an LlmException.');
+        } catch (LlmException $e) {
+            $this->assertSame(LlmException::API_ERROR, $e->getCode());
+            $this->assertStringContainsString('adresse publique', $e->getMessage());
+            // The sentence names no address: whoever triggered the call
+            // reads it, and the address is the superadmin's to look at.
+            $this->assertStringNotContainsString($endpoint, $e->getMessage());
+        }
+    }
+
+    /**
+     * **Refused before the driver exists, so before a single header leaves
+     * the server.** A server stands at the address; it must hear nothing.
+     */
+    public function testARefusedAddressIsNeverContacted(): void
+    {
+        $this->server = StubHttpServer::start([['body' => '{"choices":[{"message":{"content":"Lu"},"finish_reason":"stop"}]}']]);
+        $providerId = $this->providerRepo->create('Scaleway', 'scaleway', $this->server->baseUrl(), 'key', true);
+        $this->modelRepo->upsert($providerId, 'glm-5.2', 'GLM 5.2');
+        $this->modelRepo->assignTier($this->modelRepo->findByProvider($providerId)[0]['id'], LlmTier::CHEAP);
+
+        $refusing = new LlmConnectorService(
+            $this->providerRepo,
+            $this->modelRepo,
+            $this->journalService,
+            endpointIsStillSafe: static fn (string $url): bool => false
+        );
+
+        try {
+            $refusing->complete(new LlmRequest(LlmTier::CHEAP, 'Bonjour'));
+            $this->fail('Expected an LlmException.');
+        } catch (LlmException $e) {
+            $this->assertStringContainsString('adresse publique', $e->getMessage());
+        }
+
+        $this->assertSame([], $this->server->requests());
+    }
+
+    /**
+     * And a public provider whose name the resolver cannot answer for right
+     * now is not refused: the call that follows cannot reach anything
+     * either, and the message would accuse an address that may be fine.
+     */
+    public function testAnAddressTheResolverCannotAnswerForIsNotRefusedByTheCheck(): void
+    {
+        // Only where this installation resolves as the client does: without
+        // getaddrinfo the silence proves nothing, and the check refuses.
+        $this->assertSame(
+            (function_exists('socket_addrinfo_lookup') && function_exists('socket_addrinfo_explain')),
+            \Core\Security\SsrfUrlValidator::isStoredHttpsTargetStillSafe('https://fournisseur-inexistant.example.org')
+        );
     }
 
     private function extractJson(string $content): string

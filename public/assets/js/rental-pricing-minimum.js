@@ -25,7 +25,7 @@
 export function selectionIsPersonBased(select) {
     const option = select.options[select.selectedIndex];
 
-    return option !== undefined && option.dataset.personBased === '1';
+    return option?.dataset.personBased === '1';
 }
 
 /**
@@ -56,7 +56,7 @@ export function applyMinimumChoice(select, choice, note) {
     }
 
     const radio = /** @type {HTMLInputElement|null} */ (choice.querySelector('input[type="radio"]'));
-    if (radio && radio.checked) {
+    if (radio?.checked) {
         radio.checked = false;
         const form = select.form;
         const none = form

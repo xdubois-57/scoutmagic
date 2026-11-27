@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Core\Security;
 
 use Core\Security\SsrfUrlValidator;
+use Core\Security\StoredTargetVerdict;
 use Core\Security\SsrfValidationException;
 use PHPUnit\Framework\TestCase;
 
@@ -128,6 +129,56 @@ class SsrfUrlValidatorTest extends TestCase
     }
 
     /**
+     * **« Not safe » is two facts, and only one of them is proof** (#1269).
+     * A Web Push subscription is deleted on a refusal, so a refusal that
+     * only means « nothing answered, and we cannot resolve as the client
+     * does » must not read as one that showed the address unsafe. Where
+     * ext-sockets is missing, a host nothing answers for is Unverifiable:
+     * refused for this request, never called unsafe.
+     */
+    public function testAnAddressThatCouldNotBeVerifiedIsNeverCalledUnsafe(): void
+    {
+        $url = 'https://push-inexistant.example.org/device';
+
+        $this->assertSame(
+            function_exists('socket_addrinfo_lookup') && function_exists('socket_addrinfo_explain')
+                ? StoredTargetVerdict::Safe
+                : StoredTargetVerdict::Unverifiable,
+            SsrfUrlValidator::storedHttpsTargetVerdict($url)
+        );
+        $this->assertFalse(SsrfUrlValidator::isStoredHttpsTargetKnownUnsafe($url));
+    }
+
+    /** @return array<string, array{string, StoredTargetVerdict}> */
+    public static function storedVerdicts(): array
+    {
+        return [
+            'a public literal' => ['https://93.184.216.34/device', StoredTargetVerdict::Safe],
+            'plain http' => ['http://93.184.216.34/device', StoredTargetVerdict::Unsafe],
+            'embedded credentials' => ['https://u:p@93.184.216.34/device', StoredTargetVerdict::Unsafe],
+            'a custom port' => ['https://93.184.216.34:8443/device', StoredTargetVerdict::Unsafe],
+            'the loopback interface' => ['https://127.0.0.1/device', StoredTargetVerdict::Unsafe],
+            'a private range' => ['https://10.0.0.5/device', StoredTargetVerdict::Unsafe],
+            'the cloud metadata address' => ['https://169.254.169.254/device', StoredTargetVerdict::Unsafe],
+            'nothing at all' => ['', StoredTargetVerdict::Unsafe],
+            // A DNS filter's « blocked »: refused, never proof (#1269 review).
+            'the unspecified IPv4 address' => ['https://0.0.0.0/device', StoredTargetVerdict::Unverifiable],
+            'the unspecified IPv6 address' => ['https://[::]/device', StoredTargetVerdict::Unverifiable],
+            'the unspecified IPv6 address, long form' => ['https://[0:0:0:0:0:0:0:0]/device', StoredTargetVerdict::Unverifiable],
+            'the rest of 0.0.0.0/8 is not a filter answer' => ['https://0.1.2.3/device', StoredTargetVerdict::Unsafe],
+        ];
+    }
+
+    /** And the two booleans read the same verdict, never a second opinion. */
+    #[\PHPUnit\Framework\Attributes\DataProvider('storedVerdicts')]
+    public function testTheStoredVerdictAndItsTwoReadingsAgree(string $url, StoredTargetVerdict $expected): void
+    {
+        $this->assertSame($expected, SsrfUrlValidator::storedHttpsTargetVerdict($url));
+        $this->assertSame($expected === StoredTargetVerdict::Safe, SsrfUrlValidator::isStoredHttpsTargetStillSafe($url));
+        $this->assertSame($expected === StoredTargetVerdict::Unsafe, SsrfUrlValidator::isStoredHttpsTargetKnownUnsafe($url));
+    }
+
+    /**
      * **The IPv6 half of the same gap, which was a live hole.**
      *
      * `gethostbyname()` closed the NSS gap for IPv4 only. A name carrying
@@ -215,7 +266,7 @@ class SsrfUrlValidatorTest extends TestCase
      */
     private static function aNameOnlyReachableAsPrivateIpv6(): ?string
     {
-        if (!function_exists('socket_addrinfo_lookup')) {
+        if (!(function_exists('socket_addrinfo_lookup') && function_exists('socket_addrinfo_explain'))) {
             return null;
         }
 

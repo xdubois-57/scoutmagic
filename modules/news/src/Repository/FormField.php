@@ -73,6 +73,17 @@ final class FormField
         return array_values(array_filter(array_map('trim', explode("\n", $this->optionsManual)), fn($o) => $o !== ''));
     }
 
+    /**
+     * A dropdown, radio or checkbox field whose options are the
+     * respondent's members: its answer stores Desk ids, never names
+     * (Service\MemberAnswer).
+     */
+    public function isMemberSourced(): bool
+    {
+        return $this->optionsSource === self::OPTIONS_SOURCE_MEMBERS
+            && in_array($this->fieldType, self::OPTION_BASED_TYPES, true);
+    }
+
     public function isPriced(): bool
     {
         return $this->fieldType === self::TYPE_NUMBER && $this->pricePerUnit !== null;

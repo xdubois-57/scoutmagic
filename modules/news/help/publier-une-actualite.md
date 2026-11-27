@@ -35,7 +35,9 @@ aucun aperçu.
 ## Construire le formulaire
 
 « Ajouter un champ » propose textes, nombres, dates, listes, choix
-uniques ou multiples... Sur chaque champ : obligatoire ou non, une
+uniques ou multiples. Une liste ou un choix peut proposer les **membres
+liés au compte**, nommés « Totem (Prénom Nom) ». Sur chaque champ :
+obligatoire ou non, une
 **capacité maximale** (le formulaire affiche alors les places
 restantes et ferme l'option une fois pleine), et un **prix unitaire**
 pour un champ payant. Les « Paramètres du formulaire » règlent les
@@ -47,8 +49,7 @@ choisi — et qui peut consulter les réponses.
 
 > Sur un article Public ou en lien direct, les répondants ne sont pas
 > connectés : impossible de limiter les réponses par personne, et les
-> options « membres liés au compte » sont indisponibles. Prévoyez-le
-> dans la formulation de vos questions.
+> options « membres liés au compte » sont indisponibles.
 
 ## Diffuser et suivre
 
@@ -59,8 +60,7 @@ paiement (Payé, Partiel, Non payé) calculé depuis les extraits
 bancaires ; « Exporter » télécharge le tout — le fichier est
 réutilisable tel quel comme liste de publipostage.
 
-« Écrire » va plus vite encore : le bouton prépare
-directement un brouillon de publipostage adressé à tous ceux qui ont
+« Écrire » prépare un brouillon de publipostage adressé à tous ceux qui ont
 répondu et vous dépose dans l'écran de composition, chaque champ du
 formulaire disponible comme variable. Rien n'est envoyé — le message
 reste à écrire, et il part ensuite comme n'importe quel publipostage.

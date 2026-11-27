@@ -172,7 +172,16 @@ final class BoundedZipReaderTest extends TestCase
         $this->paths[] = $path;
 
         $this->expectException(ArchiveRejectedException::class);
+        $this->expectExceptionMessage('n\'est pas une archive ZIP lisible');
         $this->reader()->open($path);
+    }
+
+    /** A file the server lost is not said to be a damaged archive (#1238). */
+    public function testAMissingFileIsSaidToBeMissing(): void
+    {
+        $this->expectException(ArchiveRejectedException::class);
+        $this->expectExceptionMessage('Le fichier est introuvable sur le serveur.');
+        $this->reader()->open(sys_get_temp_dir() . '/bzr_missing_' . bin2hex(random_bytes(6)) . '.zip');
     }
 
     /**

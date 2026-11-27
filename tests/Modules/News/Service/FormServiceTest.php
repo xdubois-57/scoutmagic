@@ -173,6 +173,129 @@ class FormServiceTest extends TestCase
         $this->assertSame('Nom complet', $fields[0]->label);
     }
 
+    // ── A « Membres » field keeps its kind once answered (issue #1381) ──
+
+    /** @return array<string, mixed> */
+    private static function choiceField(?int $id, string $type, ?string $source, ?string $manual = null): array
+    {
+        return [
+            'id' => $id, 'field_type' => $type, 'label' => 'Pour qui ?', 'is_required' => false,
+            'options_source' => $source, 'options_manual' => $manual, 'capacity_max' => null,
+            'price_per_unit' => null, 'confirmation_text' => null,
+        ];
+    }
+
+    private function answerOnce(int $formId): void
+    {
+        $this->pdo->prepare(
+            'INSERT INTO news_form_responses (form_id, contact_email, contact_email_blind_index, submitted_at) VALUES (?, ?, ?, ?)'
+        )->execute([$formId, 'enc', 'idx', '2026-11-26 12:00:00']);
+    }
+
+    /** @return array<string, array{array<string, mixed>}> */
+    public static function changesOfKind(): array
+    {
+        return [
+            'members to manual options' => [self::choiceField(null, FormField::TYPE_CHECKBOX, FormField::OPTIONS_SOURCE_MANUAL, "Un\nDeux")],
+            'members to a text field' => [self::choiceField(null, FormField::TYPE_SHORT_TEXT, null)],
+        ];
+    }
+
+    /**
+     * An answered « Membres » field stores Desk ids: turned into anything
+     * else, its answers would read as raw codes. Refused, and nothing of
+     * the form is written.
+     *
+     * @param array<string, mixed> $change
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('changesOfKind')]
+    public function testAnAnsweredMembersFieldCannotStopBeingOne(array $change): void
+    {
+        $form = $this->service->save($this->articleId, $this->baseSettings(), [
+            self::choiceField(null, FormField::TYPE_CHECKBOX, FormField::OPTIONS_SOURCE_MEMBERS),
+        ]);
+        $fieldId = $this->service->getFields($form->id)[0]->id;
+        $this->answerOnce($form->id);
+
+        try {
+            $this->service->save(
+                $this->articleId,
+                $this->baseSettings(['digest_email' => 'chef@example.org']),
+                [array_merge($change, ['id' => $fieldId])]
+            );
+            $this->fail('The change of kind must be refused.');
+        } catch (NewsException $e) {
+            $this->assertStringContainsString('a déjà des réponses', $e->getMessage());
+        }
+
+        $field = $this->service->getFields($form->id)[0];
+        $this->assertTrue($field->isMemberSourced());
+        $this->assertNull($this->service->findByArticleId($this->articleId)?->digestEmail, 'Nothing of the form was written.');
+    }
+
+    /** The other way round: answered texts would read as members nobody can find. */
+    public function testAnAnsweredManualFieldCannotBecomeAMembersOne(): void
+    {
+        $form = $this->service->save($this->articleId, $this->baseSettings(), [
+            self::choiceField(null, FormField::TYPE_RADIO, FormField::OPTIONS_SOURCE_MANUAL, "Oui\nNon"),
+        ]);
+        $fieldId = $this->service->getFields($form->id)[0]->id;
+        $this->answerOnce($form->id);
+
+        $this->expectException(NewsException::class);
+        $this->service->save($this->articleId, $this->baseSettings(), [
+            self::choiceField($fieldId, FormField::TYPE_RADIO, FormField::OPTIONS_SOURCE_MEMBERS),
+        ]);
+    }
+
+    /**
+     * An answered « Membres » checkbox may hold several members per answer:
+     * turned into a single choice, the next save would keep only the first.
+     */
+    public function testAnAnsweredMembersCheckboxCannotBecomeASingleChoice(): void
+    {
+        $form = $this->service->save($this->articleId, $this->baseSettings(), [
+            self::choiceField(null, FormField::TYPE_CHECKBOX, FormField::OPTIONS_SOURCE_MEMBERS),
+        ]);
+        $fieldId = $this->service->getFields($form->id)[0]->id;
+        $this->answerOnce($form->id);
+
+        try {
+            $this->service->save($this->articleId, $this->baseSettings(), [
+                self::choiceField($fieldId, FormField::TYPE_RADIO, FormField::OPTIONS_SOURCE_MEMBERS),
+            ]);
+            $this->fail('A checkbox turned into a single choice must be refused once answered.');
+        } catch (NewsException $e) {
+            $this->assertStringContainsString('de plusieurs membres à un seul', $e->getMessage());
+        }
+
+        $this->assertSame(FormField::TYPE_CHECKBOX, $this->service->getFields($form->id)[0]->fieldType);
+    }
+
+    /** Before any answer, and for any other edit, a field changes freely. */
+    public function testAFieldChangesKindFreelyUntilAnswered(): void
+    {
+        $form = $this->service->save($this->articleId, $this->baseSettings(), [
+            self::choiceField(null, FormField::TYPE_CHECKBOX, FormField::OPTIONS_SOURCE_MEMBERS),
+        ]);
+        $fieldId = $this->service->getFields($form->id)[0]->id;
+
+        $this->service->save($this->articleId, $this->baseSettings(), [
+            self::choiceField($fieldId, FormField::TYPE_SHORT_TEXT, null),
+        ]);
+        $this->assertFalse($this->service->getFields($form->id)[0]->isMemberSourced());
+
+        $this->service->save($this->articleId, $this->baseSettings(), [
+            self::choiceField($fieldId, FormField::TYPE_DROPDOWN, FormField::OPTIONS_SOURCE_MEMBERS),
+        ]);
+        $this->answerOnce($form->id);
+        // Answered: dropdown to radio keeps it a « Membres » field, allowed.
+        $this->service->save($this->articleId, $this->baseSettings(), [
+            self::choiceField($fieldId, FormField::TYPE_RADIO, FormField::OPTIONS_SOURCE_MEMBERS),
+        ]);
+        $this->assertSame(FormField::TYPE_RADIO, $this->service->getFields($form->id)[0]->fieldType);
+    }
+
     public function testSecondSaveRemovesFieldsNoLongerPresent(): void
     {
         $form = $this->service->save($this->articleId, $this->baseSettings(), [

@@ -188,6 +188,9 @@ class FormService
             );
         } else {
             $formId = $existing->id;
+            // Checked before anything of the form is written — and called
+            // by the editor before the article is (NewsController::update()).
+            $this->assertAnsweredMemberFieldsKeepTheirKind($articleId, $fields);
             $this->formRepository->update(
                 $formId,
                 $access,
@@ -454,6 +457,68 @@ class FormService
         foreach (array_diff($existingIds, $incomingIds) as $removedId) {
             $this->fieldRepository->delete($removedId);
         }
+    }
+
+    /**
+     * A « Membres » answer stores Desk ids, any other a text
+     * (Service\MemberAnswer, issue #1381). Once the form of article
+     * $articleId has answers, a field may neither switch between the two
+     * — codes would read as text, or texts as members nobody can find —
+     * nor go from several members to one: a checkbox turned into a list or
+     * a radio would keep only the first member of each answer at its next
+     * save. Refused before anything is written, the article included, and a
+     * new field is the way to ask something else. A list may still become a
+     * radio, or the other way round.
+     *
+     * @param array<int, array{id: ?int, field_type: string, options_source: ?string}> $fields
+     * @throws NewsException
+     */
+    public function assertAnsweredMemberFieldsKeepTheirKind(int $articleId, array $fields): void
+    {
+        $form = $this->formRepository->findByArticleId($articleId);
+        if ($form === null) {
+            return;
+        }
+
+        $existingById = [];
+        foreach ($this->fieldRepository->findByFormId($form->id) as $existingField) {
+            $existingById[$existingField->id] = $existingField;
+        }
+        $hasResponses = null;
+        foreach ($fields as $field) {
+            $before = $field['id'] !== null ? ($existingById[$field['id']] ?? null) : null;
+            if ($before === null || !$this->changesAnswerKind($before, $field)) {
+                continue;
+            }
+            $hasResponses ??= $this->hasResponses($form->id);
+            if ($hasResponses) {
+                throw new NewsException(
+                    'Le champ « ' . ($before->label ?? '') . ' » a déjà des réponses : il ne peut plus passer '
+                    . 'aux options « Membres » ni les quitter, ni passer de plusieurs membres à un seul, sans quoi '
+                    . 'ces réponses deviendraient illisibles ou incomplètes. Ajoutez plutôt un nouveau champ.'
+                );
+            }
+        }
+    }
+
+    /**
+     * Whether saving $after over $before changes what its answers mean: a
+     * field entering or leaving « Membres », or a « Membres » checkbox
+     * becoming a single choice.
+     *
+     * @param array{field_type: string, options_source: ?string} $after
+     */
+    private function changesAnswerKind(FormField $before, array $after): bool
+    {
+        $afterIsMemberSourced = $after['options_source'] === FormField::OPTIONS_SOURCE_MEMBERS
+            && in_array($after['field_type'], FormField::OPTION_BASED_TYPES, true);
+        if ($before->isMemberSourced() !== $afterIsMemberSourced) {
+            return true;
+        }
+
+        return $afterIsMemberSourced
+            && $before->fieldType === FormField::TYPE_CHECKBOX
+            && $after['field_type'] !== FormField::TYPE_CHECKBOX;
     }
 
     private function normalizeResponseLimit(string $value): string

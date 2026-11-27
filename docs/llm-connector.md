@@ -150,3 +150,35 @@ contenu soumis. Les tests simulent les API localement : ils n’appellent
 jamais réellement Scaleway. `ProviderCatalogRefreshOnMysqlTest` exerce les
 deux entrées sur le schéma réel et vérifie aussi le rollback et l’isolation
 entre fournisseurs.
+
+## Adresse du fournisseur et clé d’API
+
+La clé d’API part dans un en-tête à chaque appel. L’adresse du fournisseur
+est donc vérifiée à l’enregistrement, puis **de nouveau avant chaque appel**
+([SECURITY.md §17](../SECURITY.md#configured-endpoints-handed-to-a-library-http-client), #1269) :
+`LlmConnectorService::complete()`, le rafraîchissement planifié
+`RefreshModelsHandler` et le test de connexion la refusent dès qu’elle ne
+mène plus à une adresse publique en https. Le refus intervient avant la
+création du driver, donc avant tout envoi. Le message ne cite pas l’adresse.
+
+Les deux contrôles ne traitent pas de la même façon un nom que le résolveur
+ne sait pas résoudre sur le moment :
+
+- le test de connexion (`ConfigController::testConnection()`) applique le
+  contrôle strict, `isPublicHttpsUrl()`, et refuse ce nom ;
+- l’appel et le rafraîchissement appliquent le contrôle des valeurs
+  enregistrées. Ils laissent passer ce nom seulement si le serveur résout
+  comme le client HTTP, c’est-à-dire si `socket_addrinfo_lookup()`
+  (ext-sockets) est disponible. L’appel qui suit ne joindrait alors rien
+  non plus. Sans ext-sockets, une résolution vide est refusée.
+
+`HttpTransport` **ne suit aucune redirection**. Le flux HTTP de PHP les suit
+par défaut et renvoie les en-têtes de la requête, clé comprise, à la cible.
+Une réponse 3xx est une erreur, dont le message donne le statut et jamais la
+cible. Une réponse au-delà de `HttpTransport::MAX_RESPONSE_BYTES` (8 Mio)
+est refusée sans être lue jusqu’au bout.
+
+Les tests des drivers parlent à un serveur local en http sur `127.0.0.1`. Ils
+construisent le service avec `endpointIsStillSafe`, qui remplace la
+vérification. Les tests de la vérification elle-même construisent le service
+sans ce paramètre.

@@ -911,7 +911,16 @@ class StorageConfigController extends AbstractController
         // internal address (SSRF), audit M6. A custom port is allowed since
         // S3-compatible providers vary; the host must still be public.
         $endpoint = (string) ($data['endpoint'] ?? '');
-        if (!SsrfUrlValidator::isPublicHttpsUrl($endpoint, true)) {
+        // The host the client dials too: a « {bucket}.host » endpoint is
+        // stripped to « host » before connecting (#1269 review).
+        $dialled = ObjectStorageBackend::stripBucketFromEndpointHost(
+            $endpoint,
+            (string) ($data['bucket'] ?? '')
+        );
+        if (
+            !SsrfUrlValidator::isPublicHttpsUrl($endpoint, true)
+            || !SsrfUrlValidator::isPublicHttpsUrl($dialled, true)
+        ) {
             return $this->json(
                 ['success' => false, 'error' => "L'adresse du service doit être une URL https publique."],
                 422
@@ -1348,8 +1357,17 @@ class StorageConfigController extends AbstractController
 
         $endpoint = (string) $request->getBody('s3_endpoint', '');
         // Validated at save time and not only on « Tester » : runtime reads
-        // and writes trust the stored value.
-        if (!SsrfUrlValidator::isPublicHttpsUrl($endpoint, true)) {
+        // and writes trust the stored value. Both the address as typed and
+        // the host the client dials once a leading « {bucket}. » is
+        // stripped (#1269 review).
+        $dialled = ObjectStorageBackend::stripBucketFromEndpointHost(
+            $endpoint,
+            (string) $request->getBody('s3_bucket', '')
+        );
+        if (
+            !SsrfUrlValidator::isPublicHttpsUrl($endpoint, true)
+            || !SsrfUrlValidator::isPublicHttpsUrl($dialled, true)
+        ) {
             throw new StorageLocationException("L'adresse du service S3 doit être une URL https publique.");
         }
 

@@ -1,35 +1,94 @@
 {#
   The « Rappels » section of an asset's settings (§6.29, §22.11).
 
-  One line per reminder: what it is called, how long before it is said, and
-  whether it is said at all for this asset.
+  A summary first (issue #1355, D15): how many reminders are active for
+  each recipient, which delays this asset changes, which reminders it
+  switches off. The thirteen fields live in the « Modifier les rappels »
+  dialog, each named with who it goes to — « Aux gestionnaires du bien » or
+  « Au locataire », from ReminderKind::isInternal(). Without a reachable
+  manager the internal ones still go to the Staff d'U; the screen does not
+  say so.
 
   **An empty delay means « prends le défaut de l'unité », never « jamais ».**
-  Twelve fields on every asset are twelve fields nobody fills in, so a blank
-  one has to keep working — and the unit's number is written underneath, so
-  what a manager reads is what would actually apply rather than a value they
-  would have to keep in step by hand. Turning a reminder off is the
-  checkbox's job: a remorque has neither an inventory nor a security deposit,
-  and those reminders on it are guaranteed noise.
+  Thirteen fields on every asset are thirteen fields nobody fills in, so a
+  blank one has to keep working — and the unit's number is written
+  underneath, so what a manager reads is what would actually apply rather
+  than a value they would have to keep in step by hand. Turning a reminder
+  off is the checkbox's job: a remorque has neither an inventory nor a
+  security deposit, and those reminders on it are guaranteed noise.
 
   Requires `asset`, `reminders` and `csrf_token`.
 #}
+{% set managers_active = reminders|filter(r => r.internal and r.active)|length %}
+{% set renter_active = reminders|filter(r => not r.internal and r.active)|length %}
+{% set customised = reminders|filter(r => r.days is not null) %}
+{% set switched_off = reminders|filter(r => not r.active) %}
 <div class="card mb-4" id="rappels">
     <div class="card-body">
-        <h2 class="h5 mb-2">Rappels</h2>
-        <p class="text-body-secondary small">
-            Ce que ce bien change aux rappels de l'unité. Un champ vide reprend la valeur
-            de l'unité, indiquée en dessous ; <strong>0</strong> veut dire « le jour même ».
-            Décochez pour ne pas envoyer un rappel du tout sur ce bien.
-        </p>
+        <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-1">
+            <h2 class="h5 mb-0">Rappels</h2>
+            <button type="button" class="btn btn-sm btn-outline-secondary"
+                    data-bs-toggle="modal" data-bs-target="#rappels-edit">
+                <i class="bi bi-pencil" aria-hidden="true"></i>
+                Modifier
+            </button>
+        </div>
 
-        <form method="post" action="/mes-locations/{{ asset.slug }}/reglages/rappels">
+        <dl class="row mb-0 mt-2">
+            <dt class="col-sm-5 col-lg-4">Aux gestionnaires du bien</dt>
+            <dd class="col-sm-7 col-lg-8" data-reminders-managers>
+                {{ managers_active }} rappel{{ managers_active > 1 ? 's' : '' }} actif{{ managers_active > 1 ? 's' : '' }}
+            </dd>
+
+            <dt class="col-sm-5 col-lg-4">Au locataire</dt>
+            <dd class="col-sm-7 col-lg-8" data-reminders-renter>
+                {{ renter_active }} rappel{{ renter_active > 1 ? 's' : '' }} actif{{ renter_active > 1 ? 's' : '' }}
+            </dd>
+
+            <dt class="col-sm-5 col-lg-4">Délais personnalisés</dt>
+            <dd class="col-sm-7 col-lg-8">
+                {% for reminder in customised %}
+                    {{ reminder.label }} : {{ reminder.days }} j (défaut {{ reminder.default_days }}){% if not loop.last %}<br>{% endif %}
+                {% else %}
+                    Aucun
+                {% endfor %}
+            </dd>
+
+            <dt class="col-sm-5 col-lg-4">Désactivés</dt>
+            <dd class="col-sm-7 col-lg-8">
+                {% for reminder in switched_off %}
+                    {{ reminder.label }}{% if not loop.last %}<br>{% endif %}
+                {% else %}
+                    Aucun
+                {% endfor %}
+            </dd>
+        </dl>
+        <p class="form-text mb-0">Les autres rappels suivent les délais par défaut de l'unité.</p>
+    </div>
+</div>
+
+{# Outside the card: a modal nested in one inherits its stacking context. #}
+{% embed 'partials/modal.html.twig' with {
+    id: 'rappels-edit',
+    title: 'Modifier les rappels',
+    section_editor: true,
+    size: 'lg',
+    scrollable: true,
+    asset: asset,
+    reminders: reminders,
+} only %}
+    {% block body %}
+        <form method="post" action="/mes-locations/{{ asset.slug }}/reglages/rappels" id="reminders-form">
             {{ csrf_field()|raw }}
+            <p class="form-text mt-0">
+                Un délai vide reprend la valeur par défaut, indiquée sous le champ ; <strong>0</strong> veut
+                dire « le jour même ». Décochez un rappel pour ne pas l'envoyer pour ce bien.
+            </p>
             <div class="table-responsive">
                 <table class="table table-sm align-middle mb-3">
                     <thead>
                         <tr>
-                            <th scope="col">Rappel</th>
+                            <th scope="col">Rappel et destinataire</th>
                             <th scope="col" style="width: 10rem;">Délai (jours)</th>
                             <th scope="col" style="width: 7rem;">Actif</th>
                         </tr>
@@ -41,6 +100,9 @@
                                     <label class="form-label mb-0" for="reminder-days-{{ reminder.key }}">
                                         {{ reminder.label }}
                                     </label>
+                                    <span class="text-body-secondary small d-block" data-reminder-recipient>
+                                        {{ reminder.internal ? 'Aux gestionnaires du bien' : 'Au locataire' }}
+                                    </span>
                                     {% if reminder.repeats %}
                                         <span class="text-body-secondary small d-block">Répété tant que la situation dure.</span>
                                     {% endif %}
@@ -74,13 +136,15 @@
                     </tbody>
                 </table>
             </div>
-
-            <button type="submit" class="btn btn-outline-secondary">Enregistrer les rappels</button>
-            <span class="form-text d-block">
+            <p class="form-text mb-0">
                 Les valeurs par défaut de l'unité se règlent dans « Configuration &gt; Réglages »,
                 section Locations. La passe tourne une fois par jour : un délai se compte en
                 jours, jamais en heures.
-            </span>
+            </p>
         </form>
-    </div>
-</div>
+    {% endblock %}
+    {% block footer %}
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Annuler</button>
+        <button type="submit" form="reminders-form" class="btn btn-primary">Enregistrer les rappels</button>
+    {% endblock %}
+{% endembed %}
