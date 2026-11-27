@@ -545,6 +545,62 @@ class MailboxSyncServiceTest extends TestCase
         $this->assertContains('fetchSince:INBOX:11', $this->client->calls);
     }
 
+    /**
+     * A database that is only busy is not a message to skip (#1433): a
+     * deadlock stops the folder as before, the cursor unsaved, and the
+     * message is read again on the next pass — never journalled as lost.
+     */
+    public function testADeadlockStopsTheFolderSoTheMessageIsReadAgain(): void
+    {
+        $this->messageRepository = new class ($this->pdo, $this->encryption) extends InboundMessageRepository {
+            public bool $busy = true;
+
+            public function create(
+                int $mailboxId,
+                string $folder,
+                int $uidValidity,
+                int $imapUid,
+                string $messageId,
+                ?string $inReplyTo,
+                string $subject,
+                string $fromEmail,
+                ?string $fromName,
+                string $bodyText,
+                string $bodyHtml,
+                \DateTimeImmutable $sentAt,
+                array $toEmails = [],
+                bool $isBulk = false,
+                ?string $rawHeaders = null,
+                \Modules\InboundMail\Api\MessageDirection $direction = \Modules\InboundMail\Api\MessageDirection::RECEIVED,
+                bool $senderVerified = false
+            ): int {
+                if ($this->busy) {
+                    $e = new \PDOException('SQLSTATE[40001]: Serialization failure: 1213 Deadlock found');
+                    $e->errorInfo = ['40001', 1213, 'Deadlock found when trying to get lock'];
+                    throw $e;
+                }
+
+                return parent::create(
+                    $mailboxId, $folder, $uidValidity, $imapUid, $messageId, $inReplyTo, $subject, $fromEmail,
+                    $fromName, $bodyText, $bodyHtml, $sentAt, $toEmails, $isBulk, $rawHeaders, $direction,
+                    $senderVerified
+                );
+            }
+        };
+        $repository = $this->messageRepository;
+        $this->service = $this->createSyncService(journal: new JournalService(new JournalRepository($this->pdo)));
+        $this->addMessage(10, messageId: 'occupe@example.be');
+
+        $this->assertTrue($this->sync()->isFailure(), 'the pass fails, as before');
+        $this->assertSame(0, (int) $this->pdo->query(
+            "SELECT COUNT(*) FROM event_log WHERE event_type = 'inbound_message_store_failed'"
+        )->fetchColumn());
+
+        $repository->busy = false;
+        $this->assertFalse($this->sync()->isFailure());
+        $this->assertNotNull($repository->findIdByMessageId($this->mailboxId, 'occupe@example.be'), 'read again');
+    }
+
     public function testABoxNoModuleSortsIsStillReadAndStillKept(): void
     {
         // This used to skip the connection entirely, on the reasoning that

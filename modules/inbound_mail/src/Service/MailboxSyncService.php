@@ -417,12 +417,20 @@ class MailboxSyncService
         try {
             return $this->store($mailbox, $message, $consumers, $client, $direction);
         } catch (\Throwable $e) {
+            // A database that is only busy or briefly gone fails the same
+            // way for every message, and succeeds on the next pass: that
+            // one stops the folder as before, the cursor unsaved, so the
+            // message is read again rather than skipped for good.
+            if (self::isTransientDatabaseFailure($e)) {
+                throw $e;
+            }
             try {
                 $this->journal?->log(
                     'inbound_mail',
                     'inbound_message_store_failed',
                     'warning',
-                    'Un message de la boîte n° ' . $mailbox->id . ' n\'a pas pu être enregistré ; la relève continue.',
+                    'Un message de la boîte n° ' . $mailbox->id
+                        . ' n\'a pas pu être enregistré ou traité entièrement ; la relève continue.',
                     [
                         'mailbox_id' => $mailbox->id,
                         'folder' => $folder,
@@ -436,6 +444,29 @@ class MailboxSyncService
 
             return false;
         }
+    }
+
+    /**
+     * Whether `$e` — or what it wraps — is the database being busy or
+     * unreachable rather than refusing this message: a deadlock (SQLSTATE
+     * 40001), a lock wait (1205), a lost or refused connection (class 08,
+     * 2002, 2006, 2013). Such a failure is the server's, not the message's.
+     */
+    private static function isTransientDatabaseFailure(\Throwable $e): bool
+    {
+        for ($cause = $e; $cause !== null; $cause = $cause->getPrevious()) {
+            if (!$cause instanceof \PDOException) {
+                continue;
+            }
+            $sqlState = (string) ($cause->errorInfo[0] ?? $cause->getCode());
+            $driverCode = (int) ($cause->errorInfo[1] ?? 0);
+            if ($sqlState === '40001' || str_starts_with($sqlState, '08')
+                || in_array($driverCode, [1205, 2002, 2006, 2013], true)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
