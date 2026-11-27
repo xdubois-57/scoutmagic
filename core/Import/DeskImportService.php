@@ -161,8 +161,9 @@ class DeskImportService
             // inactive — force it back on immediately.
             $this->unitStaffSectionService->ensureSection();
 
+            $closedByRollover = 0;
             foreach ($parsed->members as $member) {
-                $this->importMember($member, $scoutYearId, $warnings, $asOf);
+                $closedByRollover += $this->importMember($member, $scoutYearId, $warnings, $asOf);
             }
 
             // Recompute Staff d'U from stored roles, including defaults just
@@ -268,6 +269,20 @@ class DeskImportService
             ['snapshot_id' => $snapshot->id, 'scout_year_id' => $scoutYearId, 'count' => $snapshot->memberCount],
             $importedBy > 0 ? $importedBy : null
         );
+
+        // Section periods an earlier scout year left open, closed at that
+        // year's end by this import (SectionMembershipService). Written
+        // only when there were some: a count and a year, nobody's name.
+        if ($closedByRollover > 0) {
+            $this->journal->log(
+                'core',
+                'section_periods_closed_by_import',
+                'info',
+                'Périodes de section d\'une année antérieure clôturées par un import Desk : ' . $closedByRollover,
+                ['scout_year_id' => $scoutYearId, 'closed' => $closedByRollover],
+                $importedBy > 0 ? $importedBy : null
+            );
+        }
 
         // Members this import CREATED, compared with earlier scout years:
         // somebody who left and came back was re-created in Desk under a
@@ -462,6 +477,9 @@ class DeskImportService
     }
 
     /**
+     * Returns how many periods of an earlier scout year the section sync
+     * closed for this member ({@see SectionMembershipService::syncForMember()}).
+     *
      * @param string[] $warnings
      */
     private function importMember(
@@ -469,7 +487,7 @@ class DeskImportService
         int $scoutYearId,
         array &$warnings,
         \DateTimeImmutable $asOf
-    ): void
+    ): int
     {
         // Upsert member
         $memberId = $this->memberRepository->upsertByDeskId($member->deskId);
@@ -647,7 +665,7 @@ class DeskImportService
         }
         $this->memberYearRepository->replaceFunctions($memberYearId, $functions);
 
-        $this->sectionMembershipService->syncForMember($memberId, $memberYearId, $scoutYearId, $asOf);
+        return $this->sectionMembershipService->syncForMember($memberId, $memberYearId, $scoutYearId, $asOf);
     }
 
     private function ensureUserAccount(string $email, string $blindIndex): void

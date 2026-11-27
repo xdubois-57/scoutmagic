@@ -428,6 +428,29 @@ validated together on save (`SettingsController::update()`, through the
 page's existing JSON answer); a stored pair that does not hold together
 falls back to both defaults rather than to a guess.
 
+**Section periods survive the policy's alternation** (#1461). Because the
+policy lets the next year be imported in July and the current one again
+in August, `SectionMembershipService::syncForMember()` must not read the
+other year as "the past". Its rollover safety net closes only the open
+periods of years that **start before** the imported one
+(`findOpenPeriodsForMemberInEarlierYears()`), at that year's own
+`end_date`, and the import journals the total once
+(`section_periods_closed_by_import`, `info`, the scout year and the
+count). A period closed on its own year's `end_date` is still that
+year's period — "until the end of the year" — so a later import of the
+same year neither opens a second one next to it nor fails to close it
+when the member changes section; a section left on a re-import after
+the year ended is closed at that end, never later. The earlier filter,
+"any other year", closed the next year's periods at their own end on
+every alternation: each following import added a duplicate per member,
+and a member who had changed section kept the old one — and its private
+section documents — all year. `mergeOverlappingPeriods()` repairs that
+on the member's next import of the year: periods of one section that
+overlap are folded into the earliest (earliest start, latest end), while
+leaving a section and coming back, which never overlaps, stays two
+periods. The old section of somebody who moved is closed on the day of
+that import, the only date the site knows.
+
 **The roster-replacement barrier** (`Core\Import\RosterReplacementGuard`,
 SECURITY.md §13). A Desk export filtered on one section is a valid CSV
 that replaces the roster with a fortieth of it — and takes the importer's

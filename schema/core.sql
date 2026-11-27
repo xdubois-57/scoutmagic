@@ -475,10 +475,13 @@ CREATE TABLE member_functions (
 -- set is closed (end_date = the import date), any new section gets a
 -- freshly opened period (start_date = the import date) — sections
 -- unchanged since the last import are left untouched, so re-running the
--- same CSV creates nothing new. A period from an earlier scout year that
--- is still open when a later year's import runs (i.e. scout-year
--- rollover was never explicitly triggered) is closed at that earlier
--- year's own end_date, never at today's import date — "active in
+-- same CSV creates nothing new. A period from an earlier scout year (one
+-- that starts before the imported year — never the next one, which the
+-- import policy lets be imported first, #1461) that is still open when a
+-- later year's import runs (i.e. scout-year rollover was never explicitly
+-- triggered) is closed at that earlier year's own end_date, never at
+-- today's import date; a period closed on its own year's end_date still
+-- counts as that year's current period — "active in
 -- section S for scout year Y" (Core\Member\SectionDocumentOwnershipChecker,
 -- the Staffs/member-page section documents feature) means Y's configured
 -- reference date falls within a period for (member, S, Y).
