@@ -467,8 +467,10 @@ class AuthService
     }
 
     /**
-     * Get the user account associated with a confirmed magic link.
-     * Used by the polling endpoint to create a session on Device A.
+     * Get the user account associated with a confirmed magic link, without
+     * collecting it. The polling endpoint reads it for a session that is
+     * already signed in (« confirmez votre identité », issue #1115); opening
+     * a session goes through collectConfirmedLink(), once (issue #1530).
      */
     public function getUserForConfirmedLink(int $id): ?UserAccount
     {
