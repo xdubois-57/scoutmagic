@@ -10,6 +10,7 @@ namespace Core\System;
 
 use Core\Config\SettingRepository;
 use Core\Config\SettingService;
+use Core\Maintenance\Health\Security\RuntimeVersions;
 use Core\Pdf\PdfCompressor;
 
 /**
@@ -64,6 +65,13 @@ final class CronExecutionFacts
          * while never measured.
          */
         public readonly ?string $pdfBackend = null,
+        /**
+         * The exact versions of PHP, OpenSSL and cURL this cron's PHP runs
+         * with (#1358) — the weekly host security check compares them, and
+         * they can differ from the web's. Null while an older measurement,
+         * taken before this field existed, is all there is.
+         */
+        public readonly ?RuntimeVersions $runtime = null,
     ) {
     }
 
@@ -86,6 +94,7 @@ final class CronExecutionFacts
             $shell['works'] ? ExecutableLocator::find('ffprobe') : null,
             $pdf->canUseProcOpen(),
             $pdf->detectBackend(),
+            RuntimeVersions::measure(),
         );
     }
 
@@ -146,6 +155,7 @@ final class CronExecutionFacts
             'ffprobe (PHP du cron) : ' . ($this->ffprobePath ?? 'introuvable'),
             'proc_open disponible (PHP du cron) : ' . $yesNo($this->pdfProcOpen),
             'Outil de compression PDF (PHP du cron) : ' . $tool,
+            'Version de PHP (PHP du cron) : ' . ($this->runtime !== null ? $this->runtime->php : 'pas encore mesurée'),
         ];
     }
 
@@ -157,7 +167,7 @@ final class CronExecutionFacts
             'text',
             'Capacités d\'exécution du cron',
             'Ce que le PHP du cron sait exécuter (fonction, erreur exacte, ffmpeg, ffprobe, proc_open et outil '
-                . 'de compression PDF), en JSON, avec l\'heure de la mesure. Écrit par public/cron.php, lu par la '
+                . 'de compression PDF) et ses versions de PHP, d\'OpenSSL et de cURL, en JSON, avec l\'heure de la mesure. Écrit par public/cron.php, lu par la '
                 . 'page Santé de l\'hébergement et par la galerie. Lecture seule.',
             null,
             null,
@@ -218,6 +228,7 @@ final class CronExecutionFacts
             'ffprobe' => $this->ffprobePath,
             'pdf_proc_open' => $this->pdfProcOpen,
             'pdf_backend' => $this->pdfBackend,
+            'runtime' => $this->runtime?->toArray(),
         ];
     }
 
@@ -244,6 +255,8 @@ final class CronExecutionFacts
             // never « proc_open is off » nor « no tool ».
             is_bool($data['pdf_proc_open'] ?? null) ? $data['pdf_proc_open'] : null,
             $string($data['pdf_backend'] ?? null),
+            // Absent from what was stored before #1358: « not measured yet ».
+            RuntimeVersions::fromArray($data['runtime'] ?? null),
         );
     }
 }

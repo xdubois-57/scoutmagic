@@ -3366,7 +3366,10 @@ $attentionProviders = [
     new \Core\Alert\OperationalAttentionProvider(
         new \Core\Alert\OperationalAlertRepository($pdo),
         \Core\Alert\AlertSurfaces::labels(),
-        \Core\Alert\AlertSurfaces::destinations()
+        \Core\Alert\AlertSurfaces::destinations(),
+        // The page is role_min: admin; the host security readings are for
+        // superadmins only (issue #1358).
+        \Core\Alert\AlertSurfaces::superadminOnlyKeys()
     ),
     new \Core\Member\Duplicate\DuplicateAttentionProvider(
         new \Core\Member\Duplicate\DuplicateMemberRepository($pdo, $encryptionService)
@@ -4043,6 +4046,17 @@ $schedulerService->seed(
     'core',
     'operational_checks',
     \Core\Alert\Task\RunOperationalChecksHandler::REFERENCE,
+    new DateTimeImmutable()
+);
+
+// Same bootstrap for the weekly host security check (Core\Maintenance\Task\
+// CheckHostSecurityHandler, issue #1358): its first occurrence runs at the
+// next scheduler pass after deployment, and until it has the box on Santé de
+// l'hébergement says « pas encore vérifié ». seed(), for the reason above.
+$schedulerService->seed(
+    'core',
+    \Core\Maintenance\Task\CheckHostSecurityHandler::TASK_KEY,
+    \Core\Maintenance\Task\CheckHostSecurityHandler::REFERENCE,
     new DateTimeImmutable()
 );
 
@@ -14222,6 +14236,14 @@ if ($operationalRequestChecks->due()) {
         new \Core\Alert\Check\CronSilenceCheck(new \Core\Scheduler\CronHealth($storagePath, $settingService)),
         new \Core\Alert\Check\HttpsCheck(new \Core\Http\InsecureBrowserAccess($settingService)),
     ]);
+
+    // The web PHP's exact versions (issue #1358), for the weekly host
+    // security check, which runs in the cron and must never take the
+    // cron's PHP_VERSION for the site's. Constants and one in-memory call;
+    // the cost is this quarter-hourly settings write. Best effort, its
+    // registration included: record() declares the setting itself, inside
+    // the same catch, so nothing here can fail the response tail.
+    \Core\Maintenance\Health\Security\WebRuntimeFacts::record($settingService, time());
 }
 
 // Fréquentation (§8.93): one counter incremented for one page view, and

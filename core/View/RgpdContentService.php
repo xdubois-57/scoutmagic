@@ -778,7 +778,11 @@ webhook, requête entrante depuis github.com — lors de la publication d'une no
 la branche de développement, aucune donnée personnelle transmise dans un sens ni dans l'autre, GitHub n'est PAS un
 sous-traitant) concerne une fonctionnalité du cœur du site, présente sur toute installation ScoutMagic. Conserve-la
 TOUJOURS intégralement, indépendamment de {$modulesText} — ne la place jamais en section 4 (sous-traitants) ni en
-section 5.2 (transferts hors UE), puisqu'aucune donnée personnelle n'y transite.
+section 5.2 (transferts hors UE), puisqu'aucune donnée personnelle n'y transite. Il en va exactement de même
+pour la section 1.7 "Contrôle de sécurité de l'hébergement" (une fois par semaine, le site interroge php.net,
+endoflife.date et la NVD du NIST, aux États-Unis, avec les seuls numéros de version de PHP, de la base de données,
+d'OpenSSL et de cURL — aucune donnée personnelle, ces services ne sont PAS des sous-traitants) : fonctionnalité du
+cœur, conserve-la TOUJOURS intégralement, jamais en section 4 ni en section 5.2.
 25. **Module Rétrospectives (module retro)** : Si "retro" ne figure PAS dans la liste des modules actifs
 ({$modulesText}), retire entièrement la sous-section "Module Rétrospectives" de la section 2.4. Si "retro" est actif,
 conserve-la intégralement — c'est un module conçu pour minimiser au maximum les données personnelles traitées (aucun

@@ -25,8 +25,36 @@ namespace Core\Alert;
  */
 final class AlertSurfaces
 {
-    /** @return array<string, string> alert key => French surface name */
+    /**
+     * Every fixed check's key, then the host security family's — one key
+     * per component and context ({@see \Core\Maintenance\Health\Security\
+     * HostSecurityAlertCheck::labels()}, issue #1358), which lives beside
+     * the evaluation it reads rather than under `Check/`.
+     *
+     * @return array<string, string> alert key => French surface name
+     */
     public static function labels(): array
+    {
+        return self::fixedLabels() + \Core\Maintenance\Health\Security\HostSecurityAlertCheck::labels();
+    }
+
+    /**
+     * The alerts the « Points d'attention » page (`role_min: admin`) must
+     * not show: the host security family (issue #1358), whose reading
+     * carries the host's exact component version and its count of CVSS ≥ 7
+     * advisories. Every other surface of that data — the Santé box, its
+     * help topic, the notification — is restricted to superadmins, and this
+     * page would otherwise hand it to every chef d'unité.
+     *
+     * @return string[]
+     */
+    public static function superadminOnlyKeys(): array
+    {
+        return array_keys(\Core\Maintenance\Health\Security\HostSecurityAlertCheck::labels());
+    }
+
+    /** @return array<string, string> the one-key checks of `core/Alert/Check/` */
+    public static function fixedLabels(): array
     {
         return [
             Check\DiskUsageCheck::KEY => 'Espace disque',

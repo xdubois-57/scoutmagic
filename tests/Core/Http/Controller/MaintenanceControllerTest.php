@@ -334,7 +334,8 @@ class MaintenanceControllerTest extends TestCase
     public function testEveryBoxShowsItsContentWithoutAFold(): void
     {
         $boxes = [
-            'index' => ['maintenance-health'],
+            // The security box (#1358) sits above the dependencies.
+            'index' => ['maintenance-host-security', 'maintenance-health'],
             'updatePage' => ['maintenance-update', 'maintenance-auto-update'],
             'manualBackupPage' => ['maintenance-backups'],
             // One box since IT-05: « Hors site » is its second half, no
@@ -939,6 +940,143 @@ class MaintenanceControllerTest extends TestCase
         $this->assertStringContainsString("à régler chez l'hébergeur.", $body);
         $this->assertStringContainsString('<a href="/config/stockage">', $body);
         $this->assertStringNotContainsString('Espace disque :', $body);
+    }
+
+    // ————— Mises à jour et sécurité de l'hébergement (#1358) —————
+
+    /** Before any check has run, the box says so — never « À jour ». */
+    public function testTheSecurityBoxWaitsForItsFirstCheckAboveTheDependencies(): void
+    {
+        $body = $this->page('index');
+
+        $this->assertStringContainsString('id="host-security-pending"', $body);
+        $this->assertStringContainsString('Pas encore vérifié.', $body);
+        $this->assertStringNotContainsString('id="host-security-summary"', $body);
+        $this->assertLessThan(
+            strpos($body, 'id="maintenance-health"'),
+            strpos($body, 'id="maintenance-host-security"'),
+            'the new box sits above « Ce dont le site dépend »'
+        );
+        $this->assertStringContainsString('id="host-check-cron"', $body, 'the existing lines stay');
+    }
+
+    /**
+     * The counter is the dependency lines not ok, plus ONE point per
+     * component and context out of date or potentially vulnerable: here the
+     * never-run cron, PHP du site with two advisories, and MariaDB behind —
+     * 1 + 1 + 1, the two advisories counting once. Its wording and its look
+     * are the ones the page already had; the vulnerable component turns it red.
+     */
+    public function testTheExistingCounterAddsOnePointPerComponentFromTheSameSnapshot(): void
+    {
+        $this->storeSecuritySnapshot();
+
+        $body = $this->page('index');
+
+        $this->assertStringContainsString("<strong>3 points à régler chez l'hébergeur.</strong>", $body);
+        $this->assertSame(1, substr_count($body, 'id="host-health-summary"'), 'one warning, not two competing');
+        $this->assertMatchesRegularExpression('~<div class="alert alert-danger" id="host-health-summary" role="alert">~', $body);
+        $this->assertStringContainsString('id="host-security-php_web" data-state="vulnerable"', $body);
+        $this->assertStringContainsString('id="host-security-database" data-state="outdated"', $body);
+        $this->assertStringContainsString('id="host-security-php_cron" data-state="unverifiable"', $body);
+        $this->assertStringContainsString('CVE-2026-0001', $body);
+        $this->assertStringContainsString('9,8 (CVSS 3.1, nvd@nist.gov)', $body);
+        $this->assertStringContainsString('id="host-security-summary" data-state="vulnerable"', $body);
+    }
+
+    /**
+     * With every dependency line in order, the summary is red because of the
+     * potentially vulnerable component alone (the maintainer's decision 4),
+     * and counts only the security box's points.
+     */
+    public function testAPotentiallyVulnerableComponentAloneTurnsTheSummaryRed(): void
+    {
+        $now = time();
+        $this->writeCronHeartbeat($now - 40);
+        $this->settingService->register('cron_last_run', (string) ($now - 40), 'number', 'L', 'D', null, null, null, false, 999);
+        $this->storeSecuritySnapshot();
+
+        $body = $this->page('index');
+
+        $this->assertMatchesRegularExpression('~id="host-check-cron" data-state="ok"~', $body);
+        $this->assertStringContainsString("<strong>2 points à régler chez l'hébergeur.</strong>", $body);
+        $this->assertMatchesRegularExpression('~<div class="alert alert-danger" id="host-health-summary" role="alert">~', $body);
+    }
+
+    /**
+     * With the real host measured, the same arithmetic holds on whatever
+     * this machine lacks: its own not-ok lines, plus the snapshot's two.
+     */
+    public function testTheCounterAddsTheSnapshotPointsToTheMeasuredHostLines(): void
+    {
+        $backups = new BackupService($this->connection, $this->storagePath, dirname($this->storagePath));
+        $health = new HostHealth($this->storagePath, $this->settingService, $backups, new \PDO('sqlite::memory:'));
+        $existing = count(array_filter(HostHealth::checks($health->detect()), static fn($check): bool => !$check->isOk()));
+        $this->storeSecuritySnapshot();
+
+        $body = (string) ($this->rebuildController)($backups, $health)
+            ->index(new Request('GET', '/config/maintenance', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('<strong>' . ($existing + 2) . " points à régler chez l'hébergeur.</strong>", $body);
+    }
+
+    /**
+     * The links under a line describe the version data, so they carry ITS
+     * date — and none when the version source never answered, even though
+     * the NVD did (review of #1415).
+     */
+    public function testTheReferenceLinksAreDatedByTheVersionDataOnly(): void
+    {
+        $store = new \Core\Maintenance\Health\Security\HostSecurityStore($this->settingService);
+        $store->register();
+        $source = new \Tests\Core\Maintenance\Health\Security\FakeReferenceSource();
+        $source->failing = ['php.net' => true];
+        $now = time();
+        (new \Core\Maintenance\Health\Security\HostSecurityService($store, $source))->refresh([
+            new \Core\Maintenance\Health\Security\ObservedComponent('php_web', 'php', 'present', '8.4.1', $now),
+        ], $now);
+
+        $body = $this->page('index');
+
+        $this->assertStringContainsString('Versions maintenues (php.net)', $body);
+        $this->assertStringNotContainsString('— consulté le', $body);
+    }
+
+    /** Rendering the page consults no source and arms no chain: it only reads. */
+    public function testTheHealthPageArmsNoSecurityCheck(): void
+    {
+        $this->page('index');
+
+        $this->assertNull((new SchedulerRepository($this->pdo))->findByModuleAndKey(
+            'core',
+            \Core\Maintenance\Task\CheckHostSecurityHandler::TASK_KEY,
+            \Core\Maintenance\Task\CheckHostSecurityHandler::REFERENCE
+        ));
+    }
+
+    private function storeSecuritySnapshot(): void
+    {
+        $store = new \Core\Maintenance\Health\Security\HostSecurityStore($this->settingService);
+        $store->register();
+        $source = new \Tests\Core\Maintenance\Health\Security\FakeReferenceSource(
+            [new \Core\Maintenance\Health\Security\ReleaseBranch('8.4', '8.4.28', true)],
+            ['mariadb' => [new \Core\Maintenance\Health\Security\ReleaseBranch('10.11', '10.11.14', true)]],
+            ['cpe:2.3:a:php:php:8.4.1:*:*:*:*:*:*:*' => [
+                new \Core\Maintenance\Health\Security\Advisory('CVE-2026-0001', 9.8, '3.1', 'nvd@nist.gov', 'https://nvd.nist.gov/vuln/detail/CVE-2026-0001'),
+                new \Core\Maintenance\Health\Security\Advisory('CVE-2026-0002', 7.5, '3.1', 'nvd@nist.gov', 'https://nvd.nist.gov/vuln/detail/CVE-2026-0002'),
+            ]]
+        );
+        $now = time();
+        (new \Core\Maintenance\Health\Security\HostSecurityService($store, $source))->refresh(
+            \Core\Maintenance\Health\Security\HostInventory::collect(
+                new \Core\Maintenance\Health\Security\WebRuntimeFacts($now - 60, 'fpm-fcgi', new \Core\Maintenance\Health\Security\RuntimeVersions('8.4.1', null, null, null)),
+                null,
+                'mysql',
+                '10.11.6-MariaDB',
+                $now
+            ),
+            $now
+        );
     }
 
     /**

@@ -165,7 +165,8 @@ class NotificationRegistry
                 id: 'core.operational_alert',
                 label: 'Alerte opérationnelle',
                 description: "Quand quelque chose ne va plus sur le site lui-même : disque presque plein, "
-                    . "sauvegardes trop anciennes, tâche planifiée arrêtée",
+                    . "sauvegardes trop anciennes, tâche planifiée arrêtée, "
+                    . "faille de sécurité connue chez l'hébergeur",
                 group: 'Maintenance',
                 roleMin: 'superadmin',
                 channels: ['in_app' => 'default_on', 'push' => 'default_on', 'email' => 'default_on'],

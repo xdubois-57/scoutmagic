@@ -49,11 +49,15 @@ final class OperationalAttentionProvider implements AttentionPointProvider
      *        the alerts that need somewhere other than the maintenance
      *        page — see {@see AlertSurfaces::destinations()}, which is
      *        also where the reason each one is an exception is written.
+     * @param string[] $superadminOnlyKeys alerts this page never shows — see
+     *        {@see AlertSurfaces::superadminOnlyKeys()}: the page is
+     *        `role_min: admin`, and their reading is for superadmins alone.
      */
     public function __construct(
         private readonly OperationalAlertRepository $repository,
         private readonly array $labels = [],
-        private readonly array $destinations = []
+        private readonly array $destinations = [],
+        private readonly array $superadminOnlyKeys = []
     ) {
     }
 
@@ -74,8 +78,13 @@ final class OperationalAttentionProvider implements AttentionPointProvider
     public function collect(int $scoutYearId): array
     {
         $points = [];
+        $hidden = array_flip($this->superadminOnlyKeys);
 
         foreach ($this->repository->findTriggered() as $alert) {
+            if (isset($hidden[$alert->alertKey])) {
+                continue;
+            }
+
             $surface = $this->labels[$alert->alertKey] ?? null;
 
             // Issue #352 — this page used to send every alert to the
