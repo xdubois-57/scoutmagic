@@ -65,8 +65,8 @@ function click(id, init = {}) {
     return event;
 }
 
-function respond(body, ok = true, status = 200) {
-    window.fetch = vi.fn(() => Promise.resolve({ ok, status, text: () => Promise.resolve(body) }));
+function respond(body, ok = true, status = 200, url = '') {
+    window.fetch = vi.fn(() => Promise.resolve({ ok, status, url, text: () => Promise.resolve(body) }));
 }
 
 async function settle() {
@@ -214,6 +214,30 @@ describe('document-reader', () => {
         expect(body.innerHTML).not.toMatch(/javascript|vbscript|xlink/i);
         expect(body.querySelector('img').getAttribute('src')).toBe('data:image/png;base64,iVBORw0KGgo=');
         expect(body.querySelector('img').hasAttribute('srcset')).toBe(false);
+    });
+
+    it('resolves an address relative to the document against the document, not the form', async () => {
+        pretendStandalone(true);
+        respond(
+            page(`<div data-document-reader-content>
+                <img src="scan.png" alt="">
+                <a href="annexe.pdf">annexe</a>
+                <a href="/cookies">cookies</a>
+                <a href="#article-3">article 3</a>
+            </div>`),
+            true,
+            200,
+            'http://localhost:3000/locations/chalet/conditions/v2'
+        );
+
+        click('conditions');
+        await settle();
+        const body = readerBody();
+
+        expect(body.querySelector('img').getAttribute('src')).toBe('http://localhost:3000/locations/chalet/conditions/scan.png');
+        expect(body.querySelector('a[href$="annexe.pdf"]').getAttribute('href')).toBe('http://localhost:3000/locations/chalet/conditions/annexe.pdf');
+        expect(body.querySelector('a[href="/cookies"]')).not.toBeNull();
+        expect(body.querySelector('a[href="#article-3"]')).not.toBeNull();
     });
 
     it('says so in the dialog when the document cannot be loaded, and can retry', async () => {

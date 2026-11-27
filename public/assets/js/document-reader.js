@@ -61,12 +61,13 @@
      *
      * @param {string} name href or src
      * @param {string} value as written
+     * @param {string} base the address of the page the document came from
      * @returns {boolean}
      */
-    function isSafeUrl(name, value) {
+    function isSafeUrl(name, value, base) {
         var url;
         try {
-            url = new URL(value, doc.location.href);
+            url = new URL(value, base);
         } catch (e) {
             return false;
         }
@@ -95,9 +96,10 @@
      * The content element of a fetched page, made safe to show here.
      *
      * @param {string} html the whole page as the server sent it
+     * @param {string} base the address it was served from (after redirects)
      * @returns {{title: string, nodes: Node[]}|null} null when the page has no marked content
      */
-    function extract(html) {
+    function extract(html, base) {
         var parsed = new DOMParser().parseFromString(html, 'text/html');
         var content = parsed.querySelector('[' + CONTENT_ATTRIBUTE + ']');
         if (!content) {
@@ -115,8 +117,15 @@
                 // getElementById() calls in its place.
                 if (name.indexOf('on') === 0 || name.indexOf(':') !== -1 || REMOVED_ATTRIBUTES.indexOf(name) !== -1) {
                     el.removeAttribute(attr.name);
-                } else if ((name === 'href' || name === 'src') && !isSafeUrl(name, attr.value)) {
+                } else if ((name === 'href' || name === 'src') && !isSafeUrl(name, attr.value, base)) {
                     el.removeAttribute(attr.name);
+                } else if ((name === 'href' || name === 'src') && !/^([a-z][a-z0-9+.-]*:|\/|#)/i.test(attr.value.trim())) {
+                    // A path relative to the document (« scan.png ») is
+                    // relative to ITS page; once in this one it would point
+                    // under the form's address instead (#1444 review). A
+                    // root-relative or absolute address means the same on
+                    // both pages and is left as written.
+                    el.setAttribute(attr.name, new URL(attr.value, base).href);
                 }
             });
             if (el.tagName === 'A' && el.hasAttribute('href')) {
@@ -205,12 +214,13 @@
             if (!response.ok) {
                 throw new Error('HTTP ' + response.status);
             }
-            return response.text();
-        }).then(function (html) {
+            var base = response.url || link.href;
+            return response.text().then(function (html) { return { html: html, base: base }; });
+        }).then(function (page) {
             if (pending !== controller) {
                 return;
             }
-            var result = extract(html);
+            var result = extract(page.html, page.base);
             if (!result) {
                 throw new Error('no document content');
             }

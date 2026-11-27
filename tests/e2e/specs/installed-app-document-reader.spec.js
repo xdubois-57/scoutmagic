@@ -45,11 +45,31 @@ async function pretendInstalled(page) {
     });
 }
 
+/**
+ * Records every uncaught error and every 5xx answer, the two failures
+ * every scenario here must end without. On the CONTEXT rather than the
+ * page, so the windows a scenario opens — the notice in a browser tab,
+ * the cookie preferences — are watched from their first response too.
+ *
+ * @param {import('@playwright/test').BrowserContext} context
+ * @returns {string[]} filled as the scenario runs
+ */
+function watch(context) {
+    /** @type {string[]} */
+    const failures = [];
+    context.on('weberror', (error) => failures.push(`uncaught: ${error.error().message}`));
+    context.on('response', (response) => {
+        if (response.status() >= 500) {
+            failures.push(`HTTP ${response.status()} on ${response.url()}`);
+        }
+    });
+
+    return failures;
+}
+
 test.describe('Document reader', () => {
-    test('in the installed app, the privacy notice opens over the sign-in form and closes back onto it', async ({ page }) => {
-        /** @type {string[]} */
-        const pageErrors = [];
-        page.on('pageerror', (error) => pageErrors.push(error.message));
+    test('in the installed app, the privacy notice opens over the sign-in form and closes back onto it', async ({ page, context }) => {
+        const failures = watch(context);
         await pretendInstalled(page);
 
         await page.goto('/login');
@@ -89,10 +109,11 @@ test.describe('Document reader', () => {
         await expect(passwordTab.getByLabel(/^Adresse email(\s*\*)?$/)).toHaveValue('famille.dupont@example.test');
         await expect(passwordTab.getByRole('checkbox', { name: /J'accepte la politique/ })).not.toBeChecked();
         await expect(passwordTab.getByRole('link', { name: 'politique de protection des données' })).toBeFocused();
-        expect(pageErrors).toEqual([]);
+        expect(failures).toEqual([]);
     });
 
     test('in a browser tab, the same link opens a new tab and the form stays where it was', async ({ page, context }) => {
+        const failures = watch(context);
         await page.goto('/login');
         await page.waitForLoadState('load');
         const magicLinkTab = page.locator('#tab-magic-link');
@@ -108,5 +129,6 @@ test.describe('Document reader', () => {
         await expect(page).toHaveURL(/\/login$/);
         await expect(magicLinkTab.getByLabel('Adresse email')).toHaveValue('famille.dupont@example.test');
         await notice.close();
+        expect(failures).toEqual([]);
     });
 });
