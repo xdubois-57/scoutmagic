@@ -64,4 +64,19 @@ describe('wireTrackingSwitch', () => {
         expect(toggle.checked).toBe(false);
         expect(toasts[0]).toEqual(['Associez un compte.', 'error']);
     });
+
+    it('keeps aria-checked with the state it puts back, since setting .checked fires no change event', async () => {
+        const synced = [];
+        window.ScoutMagicNav = { syncSwitchAriaChecked: (input) => synced.push(input.checked) };
+        window.ScoutMagicApi = { postJson: vi.fn().mockResolvedValue({ status: 422, data: { success: false, enabled: false, error: 'Associez un compte.' } }) };
+        const toggle = /** @type {HTMLInputElement} */ (document.querySelector('input'));
+        wireTrackingSwitch(toggle);
+
+        toggle.checked = true;
+        toggle.dispatchEvent(new Event('change'));
+        await vi.waitFor(() => expect(toasts).toHaveLength(1));
+
+        expect(synced).toEqual([false]);
+        delete window.ScoutMagicNav;
+    });
 });

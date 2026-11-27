@@ -37,6 +37,7 @@
                 <input class="form-check-input" type="checkbox" role="switch" id="payments-tracking"
                        data-payments-tracking="/mes-locations/{{ asset.slug }}/reglages/suivi-paiements"
                        aria-describedby="payments-tracking-help"
+                       aria-checked="{{ payment_settings.enabled ? 'true' : 'false' }}"
                        {{ payment_settings.enabled ? 'checked' : '' }}>
                 <label class="form-check-label" for="payments-tracking">Suivre les paiements via le site</label>
             </div>

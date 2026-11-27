@@ -44,6 +44,19 @@ export function settledState(requested, res) {
  * @returns {void}
  */
 export function wireTrackingSwitch(toggle) {
+    /**
+     * Sets the switch and keeps its aria-checked with it. nav.js only syncs
+     * aria-checked on a real `change` event, and setting `.checked` from
+     * code fires none: without this, a refused save would read unchecked
+     * on screen while still announcing « coché » (SonarCloud Web:S6807).
+     *
+     * @param {boolean} checked
+     */
+    function show(checked) {
+        toggle.checked = checked;
+        window.ScoutMagicNav?.syncSwitchAriaChecked?.(toggle);
+    }
+
     const url = toggle.dataset.paymentsTracking;
     if (!url) {
         return;
@@ -53,13 +66,13 @@ export function wireTrackingSwitch(toggle) {
         const requested = toggle.checked;
         const api = window.ScoutMagicApi;
         if (!api) {
-            toggle.checked = !requested;
+            show(!requested);
             return;
         }
         toggle.disabled = true;
         void api.postJson(url, { enabled: requested }).then(function (res) {
             const settled = settledState(requested, res);
-            toggle.checked = settled.checked;
+            show(settled.checked);
             toggle.disabled = false;
             window.ScoutMagicToast?.show(settled.message, { variant: settled.ok ? 'success' : 'error' });
         });
