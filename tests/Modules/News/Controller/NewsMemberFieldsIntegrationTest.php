@@ -32,7 +32,6 @@ use Core\Url\ShortUrlRepository;
 use Core\Url\ShortUrlService;
 use Core\View\EditableContentRepository;
 use Core\View\EditableContentService;
-use Core\View\TwigFactory;
 use Modules\News\Controller\FormController;
 use Modules\News\Controller\NewsController;
 use Modules\News\Repository\Article;
@@ -126,11 +125,7 @@ final class NewsMemberFieldsIntegrationTest extends TestCase
             new MemberProfileRepository($connection, $this->encryption, new MemberBadgeRepository($this->pdo))
         );
 
-        $twig = TwigFactory::create(
-            dirname(__DIR__, 4) . '/core/View/templates',
-            false,
-            ['news' => dirname(__DIR__, 4) . '/modules/news/views']
-        );
+        $twig = \Tests\TestTwig::create(['news']);
         $twig->addGlobal('site_name', 'Test Unit');
         $twig->addGlobal('is_authenticated', true);
         $twig->addGlobal('current_user_role', 'identified');

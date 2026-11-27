@@ -24,8 +24,9 @@ laquelle l'unité vous écrira au sujet de cette inscription.
 
 Les membres que vous aviez choisis restent cochés. Un membre que votre
 compte ne rejoint plus cette année apparaît comme « Membre
-indisponible » : laissé coché, il reste dans votre réponse ; décoché, il
-en sort, et vous ne pourrez plus le choisir à nouveau.
+indisponible » : laissé coché, il reste dans votre réponse. Parmi des
+cases à cocher, décoché, il en sort, et vous ne pourrez plus le choisir
+à nouveau ; dans un choix unique, choisissez un autre membre.
 
 ## Quand c'est possible
 

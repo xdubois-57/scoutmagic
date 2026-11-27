@@ -278,10 +278,12 @@ class MemberYearRepositoryTest extends TestCase
         $this->repo->upsert($returning, $olderYearId, $this->encryptedPayload());
         $leaversLast = $this->repo->upsert($leaver, $olderYearId, $this->encryptedPayload());
 
-        $this->assertSame(
-            [$returning => $current, $leaver => $leaversLast],
-            $this->repo->findMostRecentIdsForMembers([$returning, $leaver, $neverRecorded, $returning])
-        );
+        // Keyed by member, in no order the method promises.
+        $found = $this->repo->findMostRecentIdsForMembers([$returning, $leaver, $neverRecorded, $returning]);
+        ksort($found);
+        $expected = [$returning => $current, $leaver => $leaversLast];
+        ksort($expected);
+        $this->assertSame($expected, $found);
         $this->assertSame([], $this->repo->findMostRecentIdsForMembers([]));
     }
 }

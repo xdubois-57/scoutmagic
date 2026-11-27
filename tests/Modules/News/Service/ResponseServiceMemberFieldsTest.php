@@ -120,11 +120,7 @@ final class ResponseServiceMemberFieldsTest extends TestCase
             new SectionRepository($connection),
             new MemberProfileRepository($connection, $this->encryption, new MemberBadgeRepository($this->pdo))
         );
-        $twig = \Core\View\TwigFactory::create(
-            dirname(__DIR__, 4) . '/core/View/templates',
-            false,
-            ['news' => dirname(__DIR__, 4) . '/modules/news/views']
-        );
+        $twig = \Tests\TestTwig::create(['news']);
         $twig->addGlobal('site_name', 'Test Unit');
         $renderer = EmailTemplateRendererFactory::shippedOnlyForModule($twig, 'news');
 

@@ -507,8 +507,10 @@ class NewsController extends AbstractController
 
         try {
             // Before anything is written: a refused field label must not
-            // leave the article updated and its form not (issue #1120).
+            // leave the article updated and its form not (issue #1120) —
+            // nor an answered « Membres » field changing kind (#1381).
             $this->formService->assertFieldLabels($this->extractFields($request));
+            $this->formService->assertAnsweredMemberFieldsKeepTheirKind($article->id, $this->extractFields($request));
             $scheduleAt = $this->requestedScheduleMoment($request, $intent, $article);
             $imageFileId = $this->resolveUploadedImageFileId($request, $visibility, $accountId);
 

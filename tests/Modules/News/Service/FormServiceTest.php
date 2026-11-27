@@ -248,6 +248,30 @@ class FormServiceTest extends TestCase
         ]);
     }
 
+    /**
+     * An answered « Membres » checkbox may hold several members per answer:
+     * turned into a single choice, the next save would keep only the first.
+     */
+    public function testAnAnsweredMembersCheckboxCannotBecomeASingleChoice(): void
+    {
+        $form = $this->service->save($this->articleId, $this->baseSettings(), [
+            self::choiceField(null, FormField::TYPE_CHECKBOX, FormField::OPTIONS_SOURCE_MEMBERS),
+        ]);
+        $fieldId = $this->service->getFields($form->id)[0]->id;
+        $this->answerOnce($form->id);
+
+        try {
+            $this->service->save($this->articleId, $this->baseSettings(), [
+                self::choiceField($fieldId, FormField::TYPE_RADIO, FormField::OPTIONS_SOURCE_MEMBERS),
+            ]);
+            $this->fail('A checkbox turned into a single choice must be refused once answered.');
+        } catch (NewsException $e) {
+            $this->assertStringContainsString('de plusieurs membres à un seul', $e->getMessage());
+        }
+
+        $this->assertSame(FormField::TYPE_CHECKBOX, $this->service->getFields($form->id)[0]->fieldType);
+    }
+
     /** Before any answer, and for any other edit, a field changes freely. */
     public function testAFieldChangesKindFreelyUntilAnswered(): void
     {
