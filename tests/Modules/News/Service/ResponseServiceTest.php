@@ -1175,4 +1175,23 @@ class ResponseServiceTest extends TestCase
 
         $this->assertSame(2.0, $this->fieldRepository->usedCapacity($fieldId));
     }
+
+    /**
+     * The reprise's recompute counts each answer as the door does: 11 on a
+     * field capped at 10 holds no place, and an edit of it gives back
+     * exactly what was counted — nothing.
+     */
+    public function testTheRecomputedTotalCountsNothingAboveTheCapacity(): void
+    {
+        $fieldId = $this->fieldRepository->create($this->formId, 0, FormField::TYPE_NUMBER, 'Places', false, null, null, 10, null, null);
+        $over = $this->responseRepository->create($this->formId, 42, null, 'a@test.com', [$fieldId => '11'], null, null);
+        $this->responseRepository->create($this->formId, null, null, 'b@test.com', [$fieldId => '4'], null, null);
+
+        $this->fieldRepository->recomputeUsedCapacities($this->responseRepository);
+        $this->assertSame(4.0, $this->fieldRepository->usedCapacity($fieldId));
+
+        $this->service()->update($this->responseRepository->findById($over), $this->form(),
+            [$this->fieldRepository->findById($fieldId)], 'a@test.com', [$fieldId => '3'], null, 1);
+        $this->assertSame(7.0, $this->fieldRepository->usedCapacity($fieldId));
+    }
 }

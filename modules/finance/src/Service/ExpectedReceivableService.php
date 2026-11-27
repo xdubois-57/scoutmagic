@@ -125,7 +125,7 @@ class ExpectedReceivableService implements ExpectedReceivableInterface
             throw new FinanceException('Un montant attendu ne peut pas être négatif.');
         }
 
-        $receivable = $this->repository->findById($receivableId);
+        $receivable = $this->repository->findById($receivableId, $this->currentReads());
         if ($receivable === null) {
             throw new FinanceException("Cette créance n'existe pas.");
         }
@@ -169,7 +169,7 @@ class ExpectedReceivableService implements ExpectedReceivableInterface
      */
     public function getReceivableStatus(int $receivableId): array
     {
-        $receivable = $this->repository->findById($receivableId);
+        $receivable = $this->repository->findById($receivableId, $this->currentReads());
         if ($receivable === null) {
             return ['amount_due' => 0, 'amount_received' => 0, 'status' => 'unpaid'];
         }
@@ -354,9 +354,23 @@ class ExpectedReceivableService implements ExpectedReceivableInterface
      */
     private function ownedBy(string $sourceModule, int $receivableId): ?ExpectedReceivable
     {
-        $receivable = $this->repository->findById($receivableId);
+        $receivable = $this->repository->findById($receivableId, $this->currentReads());
 
         return $receivable !== null && $receivable->sourceModule === $sourceModule ? $receivable : null;
+    }
+
+    /**
+     * Whether the receivable itself must be read as COMMITTED now (issue
+     * #1525): called inside a consuming module's own transaction — a news
+     * edit, at REPEATABLE READ — a plain read answers that transaction's
+     * snapshot, in which a receivable another session raised since does
+     * not exist yet. The caller would then take it for one deleted by hand
+     * and raise a second. A locking read sees it, as
+     * ReceivableAllocationService's reads under a lock already do.
+     */
+    private function currentReads(): bool
+    {
+        return !$this->repository->seesCommittedWrites();
     }
 
     private function digitsOnly(string $value): string

@@ -250,7 +250,7 @@ class FormResponseRepository
     }
 
     /**
-     * Sum of all numeric answers for $fieldId across every response
+     * Sum of the quantities $field's answers hold across every response
      * (module spec: capacity is the cumulative sum of all responses).
      * Values are encrypted, so this decrypts and sums in PHP — never in
      * SQL. $lockForUpdate takes a real row lock on MySQL (InnoDB) to
@@ -263,7 +263,7 @@ class FormResponseRepository
      * @param int|null $excludeResponseId when editing an existing response, its own previous value is excluded from the
      *     sum (module spec: "their own previous value is returned to the pool for the edit")
      */
-    public function sumFieldValues(int $fieldId, ?int $excludeResponseId = null, bool $lockForUpdate = false): float
+    public function sumFieldValues(FormField $field, ?int $excludeResponseId = null, bool $lockForUpdate = false): float
     {
         $sql = 'SELECT value, response_id FROM news_form_response_values WHERE field_id = ?';
         if ($lockForUpdate && $this->pdo->getAttribute(\PDO::ATTR_DRIVER_NAME) === 'mysql') {
@@ -271,9 +271,9 @@ class FormResponseRepository
         }
 
         $stmt = $this->pdo->prepare($sql);
-        $stmt->execute([$fieldId]);
+        $stmt->execute([$field->id]);
 
-        $sum = 0.0;
+        $sum = 0;
         foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
             if ($excludeResponseId !== null && (int) $row['response_id'] === $excludeResponseId) {
                 continue;
@@ -281,14 +281,15 @@ class FormResponseRepository
             if ($row['value'] === null) {
                 continue;
             }
-            // Only a whole number written in digits consumes places — the
-            // rule the server applies to a quantity since issue #1525. A
-            // negative stored before then gives no place back (it would
-            // shrink the total and sell the places a second time), and a
-            // fraction or anything else counts as nothing rather than as
-            // whatever a cast makes of it. Every caller sums a capped or
-            // priced field, which is a quantity. An answer that can no
-            // longer be decrypted counts as nothing too, rather than
+            // Each answer counts exactly what FormField::storedQuantity()
+            // says (issue #1525) — the rule the door and the reprise apply
+            // too: a whole number in digits, within the field's capacity or
+            // the per-answer ceiling, and nothing otherwise. A negative
+            // stored before then gives no place back (it would shrink the
+            // total and sell the places a second time), and a fraction, a
+            // figure above the ceiling or anything else consumes nothing
+            // rather than whatever a cast makes of it. An answer that can
+            // no longer be decrypted counts as nothing too, rather than
             // making the whole sum — and the reprise reading it — fail;
             // the reprise flags its response for the Staff d'U
             // (findNumberAnswers()).
@@ -297,12 +298,10 @@ class FormResponseRepository
             } catch (DecryptionException) {
                 continue;
             }
-            if (preg_match('/^\d+$/', $value) === 1) {
-                $sum += (float) $value;
-            }
+            $sum += $field->storedQuantity($value) ?? 0;
         }
 
-        return $sum;
+        return (float) $sum;
     }
 
     public function setReceivable(int $responseId, string $structuredCommunication, int $receivableId): void

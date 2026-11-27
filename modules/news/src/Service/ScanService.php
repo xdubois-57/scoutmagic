@@ -521,7 +521,7 @@ class ScanService
 
         $total = 0;
         foreach ($seatFields as $field) {
-            $total += (int) $this->responses->sumFieldValues($field->id);
+            $total += (int) $this->responses->sumFieldValues($field);
         }
 
         return $total;

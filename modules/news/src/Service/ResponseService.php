@@ -444,13 +444,13 @@ class ResponseService
         // per scan.
         $used = $this->fieldRepository !== null
             ? $field->capacityUsed
-            : $this->responseRepository->sumFieldValues($field->id, $excludeResponseId);
+            : $this->responseRepository->sumFieldValues($field, $excludeResponseId);
 
         // One response's own share, given back for the length of its
         // edit (module spec §11.9). Bounded to that response, unlike the
         // whole-column sum it replaces.
         if ($excludeResponseId !== null && $this->fieldRepository !== null) {
-            $used -= self::numericAnswer($this->responseRepository->getValues($excludeResponseId)[$field->id] ?? null);
+            $used -= self::numericAnswer($field, $this->responseRepository->getValues($excludeResponseId)[$field->id] ?? null);
         }
 
         return max(0, (int) ($field->capacityMax - $used));
@@ -494,14 +494,15 @@ class ResponseService
     }
 
     /**
-     * An answer read as the number it consumes, or zero when it is not one
-     * — and zero for a negative one stored before the server refused them
-     * (issue #1525), which never gave places back to the running total
-     * either (FormResponseRepository::sumFieldValues()).
+     * A stored answer read as the places it consumes — exactly
+     * FormField::storedQuantity(), zero for one the server would refuse
+     * today (issue #1525). The same rule as the running total's own sum
+     * (FormResponseRepository::sumFieldValues()), so an edit gives back
+     * exactly what that total counted for it.
      */
-    private static function numericAnswer(?string $answer): float
+    private static function numericAnswer(FormField $field, ?string $answer): float
     {
-        return $answer !== null && is_numeric($answer) ? max(0.0, (float) $answer) : 0.0;
+        return (float) ($field->storedQuantity($answer) ?? 0);
     }
 
     /**
@@ -621,7 +622,7 @@ class ResponseService
                 // submission's own share once it is written.
                 $used = $this->fieldRepository !== null
                     ? $this->fieldRepository->usedCapacity($field->id, lockForUpdate: true)
-                    : $this->responseRepository->sumFieldValues($field->id, null, lockForUpdate: true);
+                    : $this->responseRepository->sumFieldValues($field, null, lockForUpdate: true);
                 if ($used + $requested > $field->capacityMax) {
                     throw new NewsException('Il n\'y a plus assez de places disponibles pour "' . $field->label . '".');
                 }
@@ -816,7 +817,10 @@ class ResponseService
             );
             // Linked to a receivable finance no longer knows (deleted by
             // hand): the link is dropped, and the response is treated as
-            // one that has none.
+            // one that has none. Finance reads the receivable as committed
+            // now inside this transaction (ExpectedReceivableService::
+            // currentReads()), so one a competing edit raised after this
+            // transaction's snapshot is found, never mistaken for gone.
             if ($standing === null) {
                 $this->responseRepository->clearReceivable($response->id);
             }
@@ -971,10 +975,10 @@ class ResponseService
                     continue;
                 }
                 $requested = (float) ($normalizedAnswers[$field->id] ?? 0);
-                $previous = self::numericAnswer($previousAnswers[$field->id] ?? null);
+                $previous = self::numericAnswer($field, $previousAnswers[$field->id] ?? null);
                 $used = $this->fieldRepository !== null
                     ? $this->fieldRepository->usedCapacity($field->id, lockForUpdate: true) - $previous
-                    : $this->responseRepository->sumFieldValues($field->id, $response->id, lockForUpdate: true);
+                    : $this->responseRepository->sumFieldValues($field, $response->id, lockForUpdate: true);
                 if ($used + $requested > $field->capacityMax) {
                     throw new NewsException('Il n\'y a plus assez de places disponibles pour "' . $field->label . '".');
                 }
@@ -989,7 +993,7 @@ class ResponseService
                 $this->fieldRepository?->addUsedCapacity(
                     $field->id,
                     (float) ($normalizedAnswers[$field->id] ?? 0)
-                        - self::numericAnswer($previousAnswers[$field->id] ?? null)
+                        - self::numericAnswer($field, $previousAnswers[$field->id] ?? null)
                 );
             }
 

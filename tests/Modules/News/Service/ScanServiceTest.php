@@ -360,6 +360,22 @@ class ScanServiceTest extends TestCase
         $this->assertSame(0, $verdict['seat_total']);
     }
 
+    /**
+     * The sold counter applies the door's rule answer by answer: 1000 on
+     * an uncapped priced field and 11 on a field capped at 10 are flagged
+     * at the door, so they sell no seat in the counter either.
+     */
+    public function testTheSoldCounterCountsNothingAboveAFieldsCeiling(): void
+    {
+        [, $formId] = $this->event('Vente de gaufres');
+        $boxes = $this->fields->create($formId, 0, FormField::TYPE_NUMBER, 'Boîtes', false, null, null, null, 6.0, null);
+        $places = $this->fields->create($formId, 1, FormField::TYPE_NUMBER, 'Places', false, null, null, 10, null, null);
+        $this->booking($formId, [$boxes => '1000', $places => '11'], 'a@test.com');
+        $this->booking($formId, [$boxes => '2', $places => '3'], 'b@test.com');
+
+        $this->assertSame(5, $this->service()->counters($this->forms->findById($formId))['sold']);
+    }
+
     /** The printed list carries the same lines: it is the door's fallback. */
     public function testThePrintedListKeepsAnInvalidQuantityToo(): void
     {

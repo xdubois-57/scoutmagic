@@ -124,7 +124,7 @@ class FormResponseRepositoryTest extends TestCase
         $this->repository->create($this->formId, null, null, 'a@test.com', [$numberFieldId => '3'], null, null);
         $this->repository->create($this->formId, null, null, 'b@test.com', [$numberFieldId => '4'], null, null);
 
-        $sum = $this->repository->sumFieldValues($numberFieldId);
+        $sum = $this->repository->sumFieldValues($this->fieldRepository->findById($numberFieldId));
 
         $this->assertSame(7.0, $sum);
     }
@@ -136,7 +136,7 @@ class FormResponseRepositoryTest extends TestCase
         $id1 = $this->repository->create($this->formId, null, null, 'a@test.com', [$numberFieldId => '3'], null, null);
         $this->repository->create($this->formId, null, null, 'b@test.com', [$numberFieldId => '4'], null, null);
 
-        $sum = $this->repository->sumFieldValues($numberFieldId, excludeResponseId: $id1);
+        $sum = $this->repository->sumFieldValues($this->fieldRepository->findById($numberFieldId), excludeResponseId: $id1);
 
         $this->assertSame(4.0, $sum);
     }
@@ -201,7 +201,7 @@ class FormResponseRepositoryTest extends TestCase
         $this->repository->create($this->formId, null, null, 'a@test.com', [$numberId => '4'], null, null);
         $this->repository->create($this->formId, null, null, 'b@test.com', [$numberId => '-60'], null, null);
 
-        $this->assertSame(4.0, $this->repository->sumFieldValues($numberId));
+        $this->assertSame(4.0, $this->repository->sumFieldValues($this->fieldRepository->findById($numberId)));
     }
 
     public function testFindNumberAnswersReadsEveryNumberAnswerAndNothingElse(): void
@@ -247,7 +247,7 @@ class FormResponseRepositoryTest extends TestCase
             $this->repository->create($this->formId, null, null, $index . '@test.com', [$numberId => $value], null, null);
         }
 
-        $this->assertSame(2.0, $this->repository->sumFieldValues($numberId));
+        $this->assertSame(2.0, $this->repository->sumFieldValues($this->fieldRepository->findById($numberId)));
     }
 
     /**
@@ -261,7 +261,7 @@ class FormResponseRepositoryTest extends TestCase
         $broken = $this->repository->create($this->formId, null, null, 'b@test.com', [$numberId => '3'], null, null);
         $this->pdo->prepare('UPDATE news_form_response_values SET value = ? WHERE response_id = ?')->execute(['corrompu', $broken]);
 
-        $this->assertSame(2.0, $this->repository->sumFieldValues($numberId));
+        $this->assertSame(2.0, $this->repository->sumFieldValues($this->fieldRepository->findById($numberId)));
         $unreadable = array_values(array_filter(
             $this->repository->findNumberAnswers(),
             static fn (array $answer): bool => $answer['response_id'] === $broken
@@ -280,5 +280,17 @@ class FormResponseRepositoryTest extends TestCase
             ['receivable_id' => 42, 'structured_communication' => '+++100/0000/00034+++'],
             $this->repository->lockReceivableLink($id)
         );
+    }
+
+    /** The sum applies FormField::storedQuantity() per answer: above the ceiling counts nothing. */
+    public function testASumOfAnswersCountsNothingAboveTheFieldsCeiling(): void
+    {
+        $cappedId = $this->fieldRepository->create($this->formId, 1, FormField::TYPE_NUMBER, 'Places', false, null, null, 10, null, null);
+        $pricedId = $this->fieldRepository->create($this->formId, 2, FormField::TYPE_NUMBER, 'Boîtes', false, null, null, null, 6.0, null);
+        $this->repository->create($this->formId, null, null, 'a@test.com', [$cappedId => '11', $pricedId => '1000'], null, null);
+        $this->repository->create($this->formId, null, null, 'b@test.com', [$cappedId => '10', $pricedId => '999'], null, null);
+
+        $this->assertSame(10.0, $this->repository->sumFieldValues($this->fieldRepository->findById($cappedId)));
+        $this->assertSame(999.0, $this->repository->sumFieldValues($this->fieldRepository->findById($pricedId)));
     }
 }
