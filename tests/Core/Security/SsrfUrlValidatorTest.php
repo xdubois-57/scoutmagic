@@ -141,7 +141,9 @@ class SsrfUrlValidatorTest extends TestCase
         $url = 'https://push-inexistant.example.org/device';
 
         $this->assertSame(
-            function_exists('socket_addrinfo_lookup') ? StoredTargetVerdict::Safe : StoredTargetVerdict::Unverifiable,
+            function_exists('socket_addrinfo_lookup') && function_exists('socket_addrinfo_explain')
+                ? StoredTargetVerdict::Safe
+                : StoredTargetVerdict::Unverifiable,
             SsrfUrlValidator::storedHttpsTargetVerdict($url)
         );
         $this->assertFalse(SsrfUrlValidator::isStoredHttpsTargetKnownUnsafe($url));
@@ -264,7 +266,7 @@ class SsrfUrlValidatorTest extends TestCase
      */
     private static function aNameOnlyReachableAsPrivateIpv6(): ?string
     {
-        if (!function_exists('socket_addrinfo_lookup')) {
+        if (!(function_exists('socket_addrinfo_lookup') && function_exists('socket_addrinfo_explain'))) {
             return null;
         }
 

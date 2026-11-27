@@ -189,7 +189,7 @@ class StorageBackendFactoryTest extends TestCase
     {
         // Only where this installation resolves as the client does: without
         // getaddrinfo the silence proves nothing, and the check refuses.
-        if (!function_exists('socket_addrinfo_lookup')) {
+        if (!function_exists('socket_addrinfo_lookup') || !function_exists('socket_addrinfo_explain')) {
             $this->expectException(StorageLocationException::class);
         }
 

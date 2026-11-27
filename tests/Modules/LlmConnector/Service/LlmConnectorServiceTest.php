@@ -298,7 +298,7 @@ class LlmConnectorServiceTest extends TestCase
         // Only where this installation resolves as the client does: without
         // getaddrinfo the silence proves nothing, and the check refuses.
         $this->assertSame(
-            function_exists('socket_addrinfo_lookup'),
+            (function_exists('socket_addrinfo_lookup') && function_exists('socket_addrinfo_explain')),
             \Core\Security\SsrfUrlValidator::isStoredHttpsTargetStillSafe('https://fournisseur-inexistant.example.org')
         );
     }

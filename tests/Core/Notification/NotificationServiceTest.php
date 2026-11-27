@@ -644,7 +644,8 @@ class NotificationServiceTest extends TestCase
         $silent = $this->subscriptionRepository->create($userId, 'https://push-inexistant.example.org/device', 'auth', 'p256dh');
         $notificationId = $this->notificationRepository->create($userId, null, 'core.system', 'A', 'B', null);
 
-        $this->webPush->expects(function_exists('socket_addrinfo_lookup') ? $this->once() : $this->never())
+        $resolvesAsTheClient = function_exists('socket_addrinfo_lookup') && function_exists('socket_addrinfo_explain');
+        $this->webPush->expects($resolvesAsTheClient ? $this->once() : $this->never())
             ->method('queueNotification');
         $this->webPush->method('flush')->willReturn((function () { return; yield; })());
 
