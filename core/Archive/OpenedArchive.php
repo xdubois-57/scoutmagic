@@ -214,8 +214,10 @@ final class OpenedArchive
                 }
 
                 if ($finished) {
-                    // Before the last line: a damaged member's last line is
-                    // the one most likely cut.
+                    // Before a last line that has no newline of its own —
+                    // the one a cut member most likely ends on. Every line
+                    // that had one was handed over already (see the class
+                    // comment: the verification is what reads it whole).
                     $this->assertIntact($name, $crc);
                     if ($number >= $fromLine && trim($buffer) !== '') {
                         yield $number => rtrim($buffer, "\r");

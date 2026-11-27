@@ -1263,7 +1263,7 @@ describe('sw.js: a notification opens only a path of this site (issue #1274)', (
         expect(showNotification).toHaveBeenCalledWith('Salut', { body: 'Corps', data: { url: null } });
     });
 
-    it('a click on a notification carrying another site opens nothing', async () => {
+    it('a click on a notification carrying another site opens the notification centre instead', async () => {
         const openWindow = vi.fn(() => Promise.resolve());
         global.self.clients = { matchAll: vi.fn(() => Promise.resolve([])), openWindow };
 
@@ -1275,7 +1275,7 @@ describe('sw.js: a notification opens only a path of this site (issue #1274)', (
         await Promise.all(waits);
 
         expect(event.notification.close).toHaveBeenCalled();
-        expect(openWindow).not.toHaveBeenCalled();
+        expect(openWindow).toHaveBeenCalledWith('/notifications');
     });
 
     it('a click on a notification of this site opens it', async () => {

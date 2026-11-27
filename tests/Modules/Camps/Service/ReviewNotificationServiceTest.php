@@ -171,11 +171,13 @@ class ReviewNotificationServiceTest extends TestCase
             $this->anything(),
             $this->callback(static function (array $payload) use ($campId): bool {
                 return str_contains($payload['body'], '5–12 juillet 2026')
-                    && str_ends_with((string) $payload['url'], '/chefs/camps/sejours/' . $campId);
+                    // A path, not an absolute address: the core keeps only a
+                    // path of the site (#1274).
+                    && $payload['url'] === '/chefs/camps/sejours/' . $campId;
             })
         );
 
-        $this->service($notifications)->dispatchDue($this->today(), 'https://unite.example/');
+        $this->service($notifications)->dispatchDue($this->today());
     }
 
     // ── Who hears about it ──────────────────────────────────────────

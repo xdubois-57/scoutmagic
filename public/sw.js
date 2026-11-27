@@ -2017,11 +2017,10 @@ self.addEventListener('notificationclick', function (event) {
     event.notification.close();
 
     // Checked here too: a notification shown before this rule existed
-    // carries whatever address its payload had (#1274).
-    const url = internalNotificationPath(event.notification.data?.url);
-    if (!url) {
-        return;
-    }
+    // carries whatever address its payload had (#1274). One without an
+    // address of this site opens the notification centre, as the server's
+    // « open » does (NotificationController::markRead()).
+    const url = internalNotificationPath(event.notification.data?.url) ?? '/notifications';
 
     event.waitUntil(
         self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function (clientList) {
