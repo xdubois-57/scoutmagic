@@ -282,13 +282,18 @@ class FormResponseRepositoryTest extends TestCase
         );
     }
 
-    /** The sum applies FormField::storedQuantity() per answer: above the ceiling counts nothing. */
-    public function testASumOfAnswersCountsNothingAboveTheFieldsCeiling(): void
+    /**
+     * The sum applies FormField::storedQuantity() per answer: above the
+     * per-answer ceiling counts nothing, but an answer above a capacity
+     * lowered since it was written still counts — it was valid then.
+     */
+    public function testASumOfAnswersCountsNothingAboveTheCeilingButKeepsAnswersAboveALoweredCapacity(): void
     {
         $cappedId = $this->fieldRepository->create($this->formId, 1, FormField::TYPE_NUMBER, 'Places', false, null, null, 10, null, null);
         $pricedId = $this->fieldRepository->create($this->formId, 2, FormField::TYPE_NUMBER, 'Boîtes', false, null, null, null, 6.0, null);
-        $this->repository->create($this->formId, null, null, 'a@test.com', [$cappedId => '11', $pricedId => '1000'], null, null);
-        $this->repository->create($this->formId, null, null, 'b@test.com', [$cappedId => '10', $pricedId => '999'], null, null);
+        $this->repository->create($this->formId, null, null, 'a@test.com', [$cappedId => '8', $pricedId => '1000'], null, null);
+        $this->repository->create($this->formId, null, null, 'b@test.com', [$cappedId => '2', $pricedId => '999'], null, null);
+        $this->pdo->prepare('UPDATE news_form_fields SET capacity_max = 5 WHERE id = ?')->execute([$cappedId]);
 
         $this->assertSame(10.0, $this->repository->sumFieldValues($this->fieldRepository->findById($cappedId)));
         $this->assertSame(999.0, $this->repository->sumFieldValues($this->fieldRepository->findById($pricedId)));

@@ -551,28 +551,27 @@ test('a paid response edited upwards moves its receivable: the family is asked f
     await expect(row.getByText('Payé')).toBeVisible();
 
     // ---------------------------------------------------------------
-    // The Staff d'U corrects the answer to three meals: the confirmation
-    // asks for the 36 € still due, not the whole 54 €, and says why.
+    // The Staff d'U corrects the answer to three meals. Staff editing
+    // somebody else's response go back to the responses list — the
+    // confirmation page is the family's — and the family is told by
+    // e-mail: the 36 € still due, not the whole 54 €, and why.
     // ---------------------------------------------------------------
     await row.getByRole('link', { name: 'Modifier' }).click();
     await page.waitForURL(/\/form\/responses\/\d+\/edit$/, { waitUntil: 'domcontentloaded' });
     await page.getByLabel(new RegExp(MEAL_LABEL)).fill('3');
     await page.getByRole('button', { name: 'Enregistrer les modifications' }).click();
-    await page.waitForURL(/\/form\/confirmation$/, { waitUntil: 'domcontentloaded' });
-    await expect(page.getByText('Montant à payer : 36,00 €')).toBeVisible();
-    await expect(page.getByText('Déjà reçu : 18,00 €')).toBeVisible();
-    await expect(page.locator('.card.border-primary')).toContainText(communication);
+    await page.waitForURL(/\/form\/responses$/, { waitUntil: 'domcontentloaded' });
+    await expect(page.getByText('La réponse a été modifiée.')).toBeVisible();
 
-    // The family is told too, by the same confirmation e-mail.
     const notice = await waitForMail(
         (message) => message.to.includes(EDIT_FAMILY_EMAIL) && message.text.includes('36,00'),
         { description: `the confirmation of the edit addressed to ${EDIT_FAMILY_EMAIL}` },
     );
+    expect(notice.text).toContain('Montant à payer : 36,00');
+    expect(notice.text).toContain('Déjà reçu : 18,00');
     expect(notice.text).toContain(communication);
-    expect(notice.text).toContain('18,00');
 
     // And the response is no longer « Payé »: 54 € due, 18 € received.
-    await page.goto(`${articleUrl}/form/responses`, { waitUntil: 'domcontentloaded' });
     await expect(row.getByText('Partiel')).toBeVisible();
     await expect(row.getByText('54,00 €')).toBeVisible();
 

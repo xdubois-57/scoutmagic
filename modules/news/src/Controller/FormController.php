@@ -930,13 +930,23 @@ class FormController extends AbstractController
             $accountId
         );
 
-        // The confirmation page, as after a submission: the edit may have
-        // moved what is owed (issue #1525), and that page is where the
-        // amount left to pay — or the difference the unit owes back — is
-        // shown, with the communication and the QR to pay it.
-        $this->rememberConfirmation($article->id, $response->id);
+        // The respondent editing their own response lands on the
+        // confirmation page, as after a submission: the edit may have moved
+        // what is owed (issue #1525), and that page shows what is left to
+        // pay — or what the unit owes back — with the communication and the
+        // QR. A member of staff correcting somebody else's response goes
+        // back to the responses list instead: that page is the family's,
+        // and remembering a foreign response in the staff member's session
+        // would overwrite their own confirmation.
+        if ($accountId !== null && $response->userAccountId === $accountId) {
+            $this->rememberConfirmation($article->id, $response->id);
 
-        return $this->redirect('/news/' . $article->id . '/form/confirmation');
+            return $this->redirect('/news/' . $article->id . '/form/confirmation');
+        }
+
+        FlashMessage::set('success', 'La réponse a été modifiée.');
+
+        return $this->redirect('/news/' . $article->id . '/form/responses');
     }
 
     /**

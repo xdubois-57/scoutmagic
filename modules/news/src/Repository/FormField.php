@@ -111,11 +111,20 @@ final class FormField
 
     /**
      * The units a STORED answer of this quantity field counts, or null
-     * when the answer is one the server refuses today (issue #1525): not
-     * written in digits alone, or above the field's capacity — or above
-     * MAX_QUANTITY_PER_ANSWER when it has none. An empty answer counts
-     * zero. What the door shows as « invalide », what the reprise flags,
-     * and what a seat total leaves out are all this one rule.
+     * when the answer is one the server would never have taken (issue
+     * #1525): not written in digits alone, or above the per-answer ceiling
+     * — MAX_QUANTITY_PER_ANSWER, raised to the capacity when that is larger
+     * (a capacity can only lift this ceiling, never lower it). What the
+     * door shows as « invalide », what the reprise flags, and what every
+     * seat or capacity sum leaves out are all this one rule. An empty
+     * answer counts zero.
+     *
+     * **Never bounded by the field's current capacity**: staff may lower
+     * it after people booked, and an answer that was valid when it was
+     * written stays valid — counting it as nothing would free its places
+     * for resale and flag a family who did nothing wrong. What remains of a
+     * capacity is checked when an answer is written (ResponseService),
+     * under the row lock, and nowhere else.
      */
     public function storedQuantity(?string $stored): ?int
     {
@@ -126,7 +135,11 @@ final class FormField
             return null;
         }
 
-        return \Core\Service\IntegerInput::bounded($stored, 0, $this->capacityMax ?? self::MAX_QUANTITY_PER_ANSWER);
+        return \Core\Service\IntegerInput::bounded(
+            $stored,
+            0,
+            max(self::MAX_QUANTITY_PER_ANSWER, $this->capacityMax ?? 0)
+        );
     }
 
     /** The same field with $text in place of its text. */

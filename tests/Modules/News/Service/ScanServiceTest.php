@@ -362,18 +362,33 @@ class ScanServiceTest extends TestCase
 
     /**
      * The sold counter applies the door's rule answer by answer: 1000 on
-     * an uncapped priced field and 11 on a field capped at 10 are flagged
-     * at the door, so they sell no seat in the counter either.
+     * an uncapped priced field is above the per-answer ceiling and sells no
+     * seat. A booking of 8 on a field whose capacity was lowered to 5 since
+     * stays a valid booking: counted, and not flagged at the door.
      */
-    public function testTheSoldCounterCountsNothingAboveAFieldsCeiling(): void
+    public function testTheSoldCounterSkipsAboveTheCeilingButKeepsABookingAboveALoweredCapacity(): void
     {
         [, $formId] = $this->event('Vente de gaufres');
         $boxes = $this->fields->create($formId, 0, FormField::TYPE_NUMBER, 'Boîtes', false, null, null, null, 6.0, null);
         $places = $this->fields->create($formId, 1, FormField::TYPE_NUMBER, 'Places', false, null, null, 10, null, null);
-        $this->booking($formId, [$boxes => '1000', $places => '11'], 'a@test.com');
-        $this->booking($formId, [$boxes => '2', $places => '3'], 'b@test.com');
+        $this->booking($formId, [$boxes => '1000', $places => '8'], 'a@test.com');
+        $responseId = $this->booking($formId, [$boxes => '2', $places => '1'], 'b@test.com');
+        $this->pdo->prepare('UPDATE news_form_fields SET capacity_max = 5 WHERE id = ?')->execute([$places]);
+        $form = $this->forms->findById($formId);
 
-        $this->assertSame(5, $this->service()->counters($this->forms->findById($formId))['sold']);
+        $this->assertSame(11, $this->service()->counters($form)['sold']);
+
+        $first = $this->responses->findByFormId($formId)[0];
+        $verdict = $this->service()->verdictForResponse($form, $first);
+        $this->assertSame(
+            [
+                ['label' => 'Boîtes', 'quantity' => '1000', 'invalid' => true],
+                ['label' => 'Places', 'quantity' => '8', 'invalid' => false],
+            ],
+            $verdict['seats']
+        );
+        $this->assertSame(8, $verdict['seat_total']);
+        $this->assertNotSame($first->id, $responseId);
     }
 
     /** The printed list carries the same lines: it is the door's fallback. */

@@ -1177,21 +1177,23 @@ class ResponseServiceTest extends TestCase
     }
 
     /**
-     * The reprise's recompute counts each answer as the door does: 11 on a
-     * field capped at 10 holds no place, and an edit of it gives back
-     * exactly what was counted — nothing.
+     * A capacity lowered after people booked does not void their bookings:
+     * 8 written when the field was capped at 10 still holds its places in
+     * the recomputed total, and the reprise does not flag it. Only the
+     * per-answer ceiling (999) voids a stored answer.
      */
-    public function testTheRecomputedTotalCountsNothingAboveTheCapacity(): void
+    public function testABookingAboveALoweredCapacityStillCountsAndIsNotFlagged(): void
     {
         $fieldId = $this->fieldRepository->create($this->formId, 0, FormField::TYPE_NUMBER, 'Places', false, null, null, 10, null, null);
-        $over = $this->responseRepository->create($this->formId, 42, null, 'a@test.com', [$fieldId => '11'], null, null);
-        $this->responseRepository->create($this->formId, null, null, 'b@test.com', [$fieldId => '4'], null, null);
+        $booked = $this->responseRepository->create($this->formId, 42, null, 'a@test.com', [$fieldId => '8'], null, null);
+        $this->responseRepository->create($this->formId, null, null, 'b@test.com', [$fieldId => '1'], null, null);
+        $this->pdo->prepare('UPDATE news_form_fields SET capacity_max = 5 WHERE id = ?')->execute([$fieldId]);
 
         $this->fieldRepository->recomputeUsedCapacities($this->responseRepository);
-        $this->assertSame(4.0, $this->fieldRepository->usedCapacity($fieldId));
+        $this->assertSame(9.0, $this->fieldRepository->usedCapacity($fieldId));
 
-        $this->service()->update($this->responseRepository->findById($over), $this->form(),
-            [$this->fieldRepository->findById($fieldId)], 'a@test.com', [$fieldId => '3'], null, 1);
-        $this->assertSame(7.0, $this->fieldRepository->usedCapacity($fieldId));
+        $this->assertSame(0, $this->service()->flagResponsesWithInvalidQuantities());
+        $this->assertFalse($this->responseRepository->findById($booked)?->hasInvalidQuantity());
+        $this->assertSame(0, $this->service()->remainingCapacity($this->fieldRepository->findById($fieldId)));
     }
 }
