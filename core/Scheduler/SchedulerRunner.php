@@ -99,8 +99,7 @@ class SchedulerRunner
         // means a row freed here is picked up by this very pass rather
         // than waiting for the next one.
         foreach ($this->repository->reclaimAbandoned() as $abandoned) {
-            $this->journal->log(
-                'core',
+            $this->journalSafely(
                 'scheduler_task_reclaimed',
                 'warning',
                 "Tâche planifiée « {$abandoned['task_key']} » reprise : elle était retenue depuis trop "
@@ -165,8 +164,7 @@ class SchedulerRunner
                     (int) $task['id'],
                     'No handler registered for ' . $handlerKey
                 );
-                $this->journal->log(
-                    'core',
+                $this->journalSafely(
                     'scheduler_task_failed',
                     'info',
                     "Tâche planifiée « {$task['task_key']} » échouée : aucun gestionnaire enregistré",
@@ -231,8 +229,7 @@ class SchedulerRunner
                 // never in the description: a remote service's answer or a
                 // SQL error quoting its query easily passes the column's 500
                 // characters (issue #1438).
-                $this->journal->log(
-                    'core',
+                $this->journalSafely(
                     'scheduler_task_failed',
                     'info',
                     "Tâche planifiée « {$task['task_key']} » échouée",
@@ -250,8 +247,7 @@ class SchedulerRunner
             // journal line that went wrong must not turn a task that
             // succeeded into one marked failed (issue #1438).
             if ($doneInMs !== null) {
-                $this->journal->log(
-                    'core',
+                $this->journalSafely(
                     'scheduler_task_done',
                     'info',
                     "Tâche planifiée « {$task['task_key']} » terminée",
@@ -267,5 +263,29 @@ class SchedulerRunner
     {
         // Should never be called in production — TaskContext must be set during boot
         throw new \RuntimeException('TaskContext not set on SchedulerRunner');
+    }
+
+    /**
+     * A journal line of the runner's own, written without ever stopping
+     * the pass (issue #1438). The runner writes from the catch block that
+     * reports a failed task and between two tasks of one pass: a journal
+     * that cannot be written there would replace the task's own failure
+     * with its own, end the loop, and leave the tasks claimed by this pass
+     * stuck in `processing`. The line goes to the PHP error log instead.
+     *
+     * @param array<string, mixed> $context
+     */
+    private function journalSafely(string $type, string $level, string $description, array $context): void
+    {
+        try {
+            $this->journal->log('core', $type, $level, $description, $context);
+        } catch (\Throwable $e) {
+            error_log(sprintf(
+                'ScoutMagic scheduler: could not journal %s (%s): %s',
+                $type,
+                $e::class,
+                JournalService::fit($e->getMessage(), 300)
+            ));
+        }
     }
 }

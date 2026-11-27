@@ -67,21 +67,13 @@ class JournalService
             }
         }
 
-        // Writing the journal never fails its caller. The caller is often
-        // reporting a failure of its own — SchedulerRunner's catch block
-        // was — and an exception from here replaced that failure with one
-        // about the journal, and stopped whatever loop it was in.
-        try {
-            $this->repository->insert($category, $type, $level, $description, $contextJson, $userId, self::currentIp());
-        } catch (\Throwable $e) {
-            error_log(sprintf(
-                'ScoutMagic journal: could not write %s/%s (%s): %s',
-                $category,
-                $type,
-                $e::class,
-                self::fit($e->getMessage(), 300)
-            ));
-        }
+        // What is left to fail is the database itself — an outage, a
+        // missing table — and that still reaches the caller, on purpose:
+        // whether an action may stand without its journal line is the
+        // caller's decision, and some say no (a reactivated address rolls
+        // back when its audit cannot be written). A caller that must carry
+        // on regardless catches it, as SchedulerRunner does.
+        $this->repository->insert($category, $type, $level, $description, $contextJson, $userId, self::currentIp());
     }
 
     /**

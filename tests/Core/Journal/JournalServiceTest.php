@@ -169,11 +169,12 @@ class JournalServiceTest extends TestCase
     }
 
     /**
-     * Writing the journal never fails its caller (issue #1438): the caller
-     * is often reporting a failure of its own, and an exception from here
-     * replaced it and stopped the loop it was in.
+     * A database that refuses the line still reaches the caller (issue
+     * #1438): whether an action may stand without its journal line is the
+     * caller's decision — a reactivated address rolls back when its audit
+     * cannot be written — so log() makes every line fit and stops there.
      */
-    public function testAJournalThatCannotWriteNeverThrowsAtItsCaller(): void
+    public function testADatabaseThatRefusesTheLineStillReachesTheCaller(): void
     {
         $broken = new class ($this->pdo) extends JournalRepository {
             public function insert(
@@ -185,15 +186,12 @@ class JournalServiceTest extends TestCase
                 ?int $userId,
                 ?string $ipAddress = null
             ): void {
-                throw new \PDOException('SQLSTATE[22001]: Data too long for column description');
+                throw new \PDOException('SQLSTATE[HY000]: no such table: event_log');
             }
         };
-        $log = ini_set('error_log', '/dev/null');
 
+        $this->expectException(\PDOException::class);
         (new JournalService($broken))->log('core', 'anything', 'info', 'Ligne');
-
-        ini_set('error_log', (string) $log);
-        $this->addToAssertionCount(1);
     }
 
     public function testFitCutsByCharactersAndMarksTheCut(): void
