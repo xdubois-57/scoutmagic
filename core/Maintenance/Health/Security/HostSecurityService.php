@@ -37,6 +37,14 @@ final class HostSecurityService
     /** Four, under the NVD's five per thirty seconds even if a run overlaps the previous one's tail. */
     public const NVD_REQUESTS_PER_RUN = 4;
 
+    /**
+     * How long a CPE name whose advisory request failed is left alone. A
+     * failure is remembered, so a source that keeps failing (an outage, a
+     * 429) costs each name one attempt per this period instead of keeping
+     * the run « incomplete » and the task re-arming every minute forever.
+     */
+    public const RETRY_AFTER_FAILURE_SECONDS = 6 * 3600;
+
     /** Per CPE name, highest scores first; the rest are only counted. */
     public const KEPT_ADVISORIES = 20;
 
@@ -55,6 +63,10 @@ final class HostSecurityService
         $cache = $this->store->cache();
         $cachedBranches = is_array($cache['branches'] ?? null) ? $cache['branches'] : [];
         $cachedAdvisories = is_array($cache['advisories'] ?? null) ? $cache['advisories'] : [];
+        $failedAt = array_filter(
+            is_array($cache['advisory_failures'] ?? null) ? $cache['advisory_failures'] : [],
+            static fn(mixed $at): bool => is_int($at) && $now - $at < self::RETRY_AFTER_FAILURE_SECONDS
+        );
 
         [$families, $cpes] = $this->needs($components);
 
@@ -75,6 +87,12 @@ final class HostSecurityService
                 $advisories[$cpe] = $cached;
                 continue;
             }
+            if (isset($failedAt[$cpe])) {
+                // Failed recently: answered from what is known, without
+                // spending the budget nor holding the run open.
+                $advisories[$cpe] = self::afterFailure($cached, $now);
+                continue;
+            }
             if ($budget === 0) {
                 $complete = false;
                 $advisories[$cpe] = new AdvisoryLookup(AdvisoryLookup::PENDING);
@@ -91,16 +109,17 @@ final class HostSecurityService
                     'total' => count($found),
                     'items' => array_map(static fn(Advisory $a): array => $a->toArray(), $kept),
                 ];
+                unset($failedAt[$cpe]);
             } catch (ReferenceSourceUnavailable) {
-                $advisories[$cpe] = $cached !== null && $now - (int) $cached->fetchedAt <= self::MAX_STALE_SECONDS
-                    ? new AdvisoryLookup(AdvisoryLookup::STALE, $cached->advisories, $cached->total, $cached->fetchedAt)
-                    : new AdvisoryLookup(AdvisoryLookup::UNAVAILABLE);
+                $advisories[$cpe] = self::afterFailure($cached, $now);
+                $failedAt[$cpe] = $now;
             }
         }
 
         $this->store->saveCache([
             'branches' => self::withoutExpired($cachedBranches, $now),
             'advisories' => self::withoutExpired($cachedAdvisories, $now),
+            'advisory_failures' => $failedAt,
         ]);
 
         $snapshot = new HostSecuritySnapshot(
@@ -185,6 +204,14 @@ final class HostSecurityService
             array_values(array_filter(array_map([ReleaseBranch::class, 'fromArray'], $entry['items']))),
             $entry['fetched_at']
         );
+    }
+
+    /** What a CPE name whose source failed reads: the last answer while it is believable, else nothing. */
+    private static function afterFailure(?AdvisoryLookup $cached, int $now): AdvisoryLookup
+    {
+        return $cached !== null && $now - (int) $cached->fetchedAt <= self::MAX_STALE_SECONDS
+            ? new AdvisoryLookup(AdvisoryLookup::STALE, $cached->advisories, $cached->total, $cached->fetchedAt)
+            : new AdvisoryLookup(AdvisoryLookup::UNAVAILABLE);
     }
 
     private static function cachedAdvisories(mixed $entry): ?AdvisoryLookup

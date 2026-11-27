@@ -104,6 +104,40 @@ final class HostSecurityServiceTest extends TestCase
     }
 
     /**
+     * Review of #1415: a NVD that keeps failing must not hold the run
+     * « incomplete » for ever, which re-armed the task every minute. A
+     * failed name is left alone for RETRY_AFTER_FAILURE_SECONDS, so each
+     * name costs one attempt and the run completes; then it is tried again.
+     */
+    public function testAFailingNvdCostsEachNameOneAttemptAndTheRunStillCompletes(): void
+    {
+        $source = $this->source([]);
+        $source->failing = ['nvd' => true];
+        $components = [];
+        foreach (['8.4.1', '8.4.2', '8.4.3', '8.4.4', '8.4.5', '8.4.6'] as $i => $version) {
+            $components[] = $this->php($i % 2 === 0 ? 'php_web' : 'php_cron', $version);
+        }
+
+        $first = $this->service($source)->refresh($components, self::NOW);
+        $this->assertCount(HostSecurityService::NVD_REQUESTS_PER_RUN, $source->nvdRequests());
+        $this->assertFalse($first->complete);
+
+        $source->requests = [];
+        $second = $this->service($source)->refresh($components, self::NOW + 60);
+        $this->assertCount(2, $source->nvdRequests(), 'the four that just failed are not asked again');
+        $this->assertTrue($second->complete, 'nothing left pending: the task goes back to weekly');
+        $this->assertContains(AdvisoryLookup::UNAVAILABLE, array_map(static fn(ComponentAssessment $a): string => $a->advisoryStatus, $second->assessments));
+
+        $source->requests = [];
+        $this->assertTrue($this->service($source)->refresh($components, self::NOW + 120)->complete);
+        $this->assertSame([], $source->nvdRequests());
+
+        $source->requests = [];
+        $this->service($source)->refresh($components, self::NOW + HostSecurityService::RETRY_AFTER_FAILURE_SECONDS + 1);
+        $this->assertCount(HostSecurityService::NVD_REQUESTS_PER_RUN, $source->nvdRequests(), 'retried once the period is over');
+    }
+
+    /**
      * A source that fails keeps its last answer, dated: a vulnerable
      * component stays vulnerable rather than turning « À jour ».
      */

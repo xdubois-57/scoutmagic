@@ -111,8 +111,15 @@ final class HostSecurityEvaluator
                 $updateStatus = ComponentAssessment::UPDATE_UNSUPPORTED;
             } elseif ($latest !== null && $latest->compare($version) > 0) {
                 $updateStatus = ComponentAssessment::UPDATE_BEHIND;
-            } elseif ($latest !== null || $branch->supported === true) {
+            } elseif ($latest !== null) {
+                // Only a comparison makes a version current: a branch said
+                // to be maintained but naming no latest release proves
+                // nothing about this one, and leaves UPDATE_UNKNOWN —
+                // which neither reads « À jour » nor re-arms an alert.
                 $updateStatus = ComponentAssessment::UPDATE_CURRENT;
+            } else {
+                $notes[] = 'La source des versions ne donne pas la dernière version de la branche '
+                    . implode('.', array_slice($version->segments, 0, 2)) . '.';
             }
         }
 
@@ -154,7 +161,10 @@ final class HostSecurityEvaluator
         $state = match (true) {
             $high !== [] => ComponentAssessment::STATE_VULNERABLE,
             $outOfDate => ComponentAssessment::STATE_OUTDATED,
-            $updateStatus === ComponentAssessment::UPDATE_UNKNOWN,
+            // A family no source publishes versions for (cURL) is judged on
+            // its advisories alone, as its note says: a complete answer with
+            // no high score is « À jour », not « Non vérifiable » for ever.
+            $updateStatus === ComponentAssessment::UPDATE_UNKNOWN && $lookup !== null,
             !$found->hasData(),
             $unknownScore => ComponentAssessment::STATE_UNVERIFIABLE,
             default => ComponentAssessment::STATE_UP_TO_DATE,

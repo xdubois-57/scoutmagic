@@ -197,6 +197,45 @@ final class HostSecurityEvaluatorTest extends TestCase
         $this->assertTrue($assessment->alertWorthy());
     }
 
+    /**
+     * Review of #1415: with no version source, a complete advisory answer
+     * with no high score is « À jour » — otherwise cURL kept every
+     * installation's summary at « Non vérifiable » for ever.
+     */
+    public function testWithoutAVersionSourceACleanCompleteAdvisoryAnswerIsUpToDate(): void
+    {
+        $assessment = $this->assess('curl_web', ComponentFamily::CURL, '8.11.1', null, [new Advisory('CVE-2026-0003', 5.3, '3.1', null, 'u')], null);
+
+        $this->assertSame(ComponentAssessment::UPDATE_UNKNOWN, $assessment->updateStatus);
+        $this->assertSame(ComponentAssessment::STATE_UP_TO_DATE, $assessment->state);
+        $this->assertTrue($assessment->conclusive);
+
+        $unanswered = $this->assess('curl_web', ComponentFamily::CURL, '8.11.1', null, null, null);
+        $this->assertSame(ComponentAssessment::STATE_UNVERIFIABLE, $unanswered->state);
+        $this->assertFalse($unanswered->conclusive);
+    }
+
+    /**
+     * Review of #1415: a branch said to be maintained but naming no latest
+     * release compares nothing, so it neither reads « À jour » nor makes the
+     * assessment conclusive (which would re-arm a standing alert).
+     */
+    public function testAMaintainedBranchWithoutALatestReleaseProvesNothing(): void
+    {
+        $assessment = $this->assess(
+            'php_web',
+            ComponentFamily::PHP,
+            '8.4.20',
+            [new ReleaseBranch('8.4', null, true)],
+            null,
+            'php.net'
+        );
+
+        $this->assertSame(ComponentAssessment::UPDATE_UNKNOWN, $assessment->updateStatus);
+        $this->assertSame(ComponentAssessment::STATE_UNVERIFIABLE, $assessment->state);
+        $this->assertFalse($assessment->conclusive);
+    }
+
     public function testTheSameAdvisoryTwiceInASourceIsOneAdvisory(): void
     {
         $advisory = new Advisory('CVE-2026-0001', 8.1, '3.1', null, 'u');
