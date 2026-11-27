@@ -219,6 +219,49 @@ class MemberServiceTest extends TestCase
         $this->assertTrue($this->service->canAccess('any@example.com', $memberYearId, 'admin'));
     }
 
+    /**
+     * Issue #1266: the family page opens for the family and for the unit
+     * leader (admin and above) — not for a chief or an intendant who is not
+     * of the family, whatever canAccess() says for the other surfaces.
+     */
+    public function testCanOpenFamilyPageIsOpenToAdminAndAbove(): void
+    {
+        $memberYearId = $this->createTestMember('different@example.com');
+
+        $this->assertTrue($this->service->canOpenFamilyPage('any@example.com', $memberYearId, 'admin'));
+        $this->assertTrue($this->service->canOpenFamilyPage('any@example.com', $memberYearId, 'superadmin'));
+    }
+
+    public function testCanOpenFamilyPageIsClosedToAChiefOrIntendantOutsideTheFamily(): void
+    {
+        $memberYearId = $this->createTestMember('different@example.com');
+
+        $this->assertFalse($this->service->canOpenFamilyPage('any@example.com', $memberYearId, 'chief'));
+        $this->assertFalse($this->service->canOpenFamilyPage('any@example.com', $memberYearId, 'intendant'));
+        $this->assertFalse($this->service->canOpenFamilyPage('any@example.com', $memberYearId, 'identified'));
+        // canAccess() is shared and unchanged: it still opens every page to a chief.
+        $this->assertTrue($this->service->canAccess('any@example.com', $memberYearId, 'chief'));
+    }
+
+    public function testCanOpenFamilyPageIsOpenToAChiefWhoIsAlsoTheParent(): void
+    {
+        $memberYearId = $this->createTestMember($this->testEmail);
+
+        $this->assertTrue($this->service->canOpenFamilyPage($this->testEmail, $memberYearId, 'chief'));
+        $this->assertTrue($this->service->canOpenFamilyPage($this->testEmail, $memberYearId, 'identified'));
+    }
+
+    public function testCanOpenFamilyPageAcceptsAValidSecondaryAddressOfTheFamily(): void
+    {
+        $service = $this->serviceWithSecondaryEmails();
+        $memberYearId = $this->createTestMember($this->testEmail, 'Baloo');
+        $otherMemberYearId = $this->createTestMember('someone.else@example.com', 'Kaa');
+        $this->addSecondaryEmail($this->memberIdOf($memberYearId), 'alias@example.com', 'valid');
+
+        $this->assertTrue($service->canOpenFamilyPage('alias@example.com', $memberYearId, 'chief'));
+        $this->assertFalse($service->canOpenFamilyPage('alias@example.com', $otherMemberYearId, 'chief'));
+    }
+
     public function testCanAccessReturnsFalseForDifferentEmailWithIdentifiedRole(): void
     {
         $memberYearId = $this->createTestMember($this->testEmail);

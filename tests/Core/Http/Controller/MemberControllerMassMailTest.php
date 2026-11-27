@@ -79,7 +79,7 @@ class MemberControllerMassMailTest extends TestCase
         $stmt->execute([$this->memberId, $scoutYearId, $this->encryption->encrypt('John', 'member_years.first_name'), $this->encryption->encrypt('Doe', 'member_years.last_name')]);
         $this->memberYearId = (int) $this->pdo->lastInsertId();
 
-        AuthSession::login(1, 'chief@test.example', 'chief');
+        AuthSession::login(1, 'admin@test.example', 'admin');
     }
 
     protected function tearDown(): void

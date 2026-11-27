@@ -50,11 +50,14 @@ class MemberController extends AbstractController
         $userRole = AuthSession::getRole();
 
         // Fine-grained access check — role_min:identified alone only
-        // proves the visitor is logged in; canAccess() is what actually
-        // scopes this page to "chief/admin, or the member themselves".
-        if (!$this->memberService->canAccess($userEmail, $memberYearId, $userRole)) {
+        // proves the visitor is logged in; canOpenFamilyPage() is what
+        // actually scopes this page to "the family, or the unit leader"
+        // (issue #1266). A chief outside the family gets the very refusal
+        // a parent gets on another family's child, whether the member
+        // exists or not.
+        if (!$this->memberService->canOpenFamilyPage($userEmail, $memberYearId, $userRole)) {
             return $this->forbidden(
-                "Cette fiche n'est consultable que par la personne concernée et par les animateurs.",
+                "Cette fiche n'est consultable que par la famille de la personne concernée et par le Chef d'Unité.",
                 $request
             );
         }

@@ -63,9 +63,13 @@ class MemberEmailController extends AbstractController
         $userEmail = AuthSession::getEmail() ?? '';
         $userRole = AuthSession::getRole();
 
-        if (!$this->memberService->canAccess($userEmail, $memberYearId, $userRole)) {
+        // Same rule as the family page this entry hangs from (issue #1266):
+        // the family, or the unit leader — a chief outside the family reads
+        // the communication from the mass-mail module, not through a
+        // member's page.
+        if (!$this->memberService->canOpenFamilyPage($userEmail, $memberYearId, $userRole)) {
             return $this->forbidden(
-                "Ce courrier n'est consultable que par la personne concernée et par les animateurs.",
+                "Ce courrier n'est consultable que par la famille de la personne concernée et par le Chef d'Unité.",
                 $request
             );
         }
@@ -135,7 +139,7 @@ class MemberEmailController extends AbstractController
                 $displayNames[$scoutYearId . ':' . $id] = $name;
             }
         }
-        $opensEveryPage = Role::fromString($userRole)->hasAccess(Role::CHIEF);
+        $opensEveryPage = Role::fromString($userRole)->hasAccess(Role::ADMIN);
 
         $named = [];
         $withoutName = [];
@@ -144,7 +148,7 @@ class MemberEmailController extends AbstractController
             $otherMemberYearId = $memberYearIds[$key] ?? null;
 
             $visible = $otherMemberYearId !== null
-                ? $this->memberService->canAccess($userEmail, $otherMemberYearId, $userRole)
+                ? $this->memberService->canOpenFamilyPage($userEmail, $otherMemberYearId, $userRole)
                 : $opensEveryPage;
             if (!$visible) {
                 continue;

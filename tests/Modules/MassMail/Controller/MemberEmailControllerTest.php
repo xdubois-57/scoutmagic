@@ -127,9 +127,9 @@ class MemberEmailControllerTest extends TestCase
         $this->assertStringContainsString('Sujet', $response->getBody());
     }
 
-    public function testAllowedForAChiefViewingAnyMember(): void
+    public function testAllowedForTheUnitLeaderViewingAnyMember(): void
     {
-        AuthSession::login(1, 'chief@test.example', 'chief');
+        AuthSession::login(1, 'admin@test.example', 'admin');
         $massMailQuery = $this->createStub(MassMailQueryInterface::class);
         $massMailQuery->method('findEmailDetailForMember')
             ->willReturn(['subject' => 'Sujet', 'body_html' => '<p>Corps</p>', 'sent_at' => '2026-01-01 10:00:00', 'section_name' => 'Meute A', 'merge_purged' => false, 'not_sent' => false, 'other_targets' => []]);
@@ -141,6 +141,34 @@ class MemberEmailControllerTest extends TestCase
         );
 
         $this->assertSame(200, $response->getStatusCode());
+    }
+
+    /**
+     * Issue #1266: the entry hangs from the family page, closed to a chief
+     * outside the family — the same refusal, with no read of the entry.
+     */
+    public function testDeniedToAChiefOutsideTheFamily(): void
+    {
+        AuthSession::login(1, 'chief@test.example', 'chief');
+        $massMailQuery = $this->createMock(MassMailQueryInterface::class);
+        $massMailQuery->expects($this->never())->method('findEmailDetailForMember');
+
+        $controller = $this->buildController($massMailQuery);
+        $response = $controller->show(
+            new Request('GET', "/members/{$this->memberYearId}/emails/5", [], [], [], []),
+            ['id' => (string) $this->memberYearId, 'target_id' => '5']
+        );
+
+        $this->assertSame(403, $response->getStatusCode());
+    }
+
+    public function testAllowedForAChiefWhoIsAlsoTheParent(): void
+    {
+        AuthSession::login(1, 'member@test.example', 'chief');
+        $massMailQuery = $this->createStub(MassMailQueryInterface::class);
+        $massMailQuery->method('findEmailDetailForMember')->willReturn($this->detail([]));
+
+        $this->assertSame(200, $this->show($massMailQuery, 5)->getStatusCode());
     }
 
     /**
@@ -324,7 +352,7 @@ class MemberEmailControllerTest extends TestCase
 
     /**
      * A target with no member_years row for its year has no entry to link
-     * to: a chief, who may open every page, reads the name without a link;
+     * to: the unit leader, who may open every page, reads the name without a link;
      * an identified reader, for whom there is no page to check, reads
      * nothing.
      */
@@ -337,7 +365,7 @@ class MemberEmailControllerTest extends TestCase
             ['target_id' => 43, 'member_id' => $carl['member_id'], 'scout_year_id' => $oldYear],
         ]];
 
-        AuthSession::login(1, 'chief@test.example', 'chief');
+        AuthSession::login(1, 'admin@test.example', 'admin');
         $massMailQuery = $this->createStub(MassMailQueryInterface::class);
         $massMailQuery->method('findEmailDetailForMember')->willReturn($this->detail($others));
         $body = $this->show($massMailQuery, 5)->getBody();
@@ -352,7 +380,7 @@ class MemberEmailControllerTest extends TestCase
     }
 
     /**
-     * A chief opening one entry of a whole-unit communication may see
+     * The unit leader opening one entry of a whole-unit communication may see
      * every other member: the first ten, by name, are named and the rest
      * counted.
      */
@@ -365,7 +393,7 @@ class MemberEmailControllerTest extends TestCase
             $others[] = ['target_id' => 100 + $index, 'member_id' => $member['member_id'], 'scout_year_id' => $this->scoutYearId];
         }
 
-        AuthSession::login(1, 'chief@test.example', 'chief');
+        AuthSession::login(1, 'admin@test.example', 'admin');
         $massMailQuery = $this->createStub(MassMailQueryInterface::class);
         $massMailQuery->method('findEmailDetailForMember')->willReturn($this->detail(['other_targets' => $others]));
         $body = $this->show($massMailQuery, 5)->getBody();
@@ -441,7 +469,7 @@ class MemberEmailControllerTest extends TestCase
 
     public function testReturns404ForANonExistentMemberYear(): void
     {
-        AuthSession::login(1, 'stranger@test.example', 'chief');
+        AuthSession::login(1, 'stranger@test.example', 'admin');
         $massMailQuery = $this->createStub(MassMailQueryInterface::class);
 
         $controller = $this->buildController($massMailQuery);
