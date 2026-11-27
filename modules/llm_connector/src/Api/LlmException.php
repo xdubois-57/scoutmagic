@@ -106,6 +106,53 @@ class LlmException extends \RuntimeException implements UserFacingException
     }
 
     /**
+     * The provider answered with a redirect, which is not followed (#1269).
+     *
+     * **The target is not in the sentence, nor in the detail.** It is
+     * whatever the response pointed at — the one address the API key must
+     * not travel to, and not one an administrator should be invited to
+     * copy into the configuration. The status is kept: it is short and it
+     * is ours to show.
+     */
+    public static function redirected(int $httpStatus): self
+    {
+        return new self(
+            "Le fournisseur IA a répondu par une redirection (HTTP {$httpStatus}), qui n'est pas suivie — "
+                . "vérifiez l'adresse configurée pour ce fournisseur.",
+            self::API_ERROR,
+            null,
+            "Redirect not followed (HTTP {$httpStatus})."
+        );
+    }
+
+    /** The response went past the ceiling the transport reads up to (#1269). */
+    public static function responseTooLarge(int $maxBytes): self
+    {
+        return new self(
+            'Le fournisseur IA a renvoyé une réponse trop volumineuse — elle n\'a pas été lue.',
+            self::API_ERROR,
+            null,
+            "Response larger than {$maxBytes} bytes."
+        );
+    }
+
+    /**
+     * The stored provider address no longer leads to a public https host
+     * (#1269, SECURITY.md §17) — refused before the API key leaves the
+     * server. Which check failed is not said: the sentence is read by
+     * whoever triggered the call, and the address is the superadmin's to
+     * look at.
+     */
+    public static function unsafeEndpoint(): self
+    {
+        return new self(
+            'L\'adresse enregistrée pour le fournisseur IA ne mène plus à une adresse publique en https — '
+                . 'vérifiez-la dans la configuration du connecteur IA.',
+            self::API_ERROR
+        );
+    }
+
+    /**
      * The request could not even be built — our side of the wire, not the
      * provider's (an unencodable prompt, see Provider\HttpTransport).
      */

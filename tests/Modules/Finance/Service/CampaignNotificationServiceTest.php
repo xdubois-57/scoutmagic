@@ -221,7 +221,7 @@ class CampaignNotificationServiceTest extends TestCase
     {
         $userAccounts = new UserAccountRepository($this->pdo, $this->encryption);
         $userAccounts->updateNotificationSettings($this->accountIds['roskam'], null, null, true);
-        $this->notifications->subscribe($this->accountIds['roskam'], 'https://push.test/endpoint', 'auth-key', 'p256dh-key');
+        $this->notifications->subscribe($this->accountIds['roskam'], 'https://93.184.216.34/endpoint', 'auth-key', 'p256dh-key');
 
         $pushed = [];
         $webPush = $this->createStub(WebPush::class);

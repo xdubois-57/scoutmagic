@@ -49,7 +49,10 @@ class LlmAttentionProviderTest extends TestCase
             $this->providers,
             $this->models,
             $this->createMock(JournalService::class),
-            $this->store
+            $this->store,
+            // The stub server is plain http on 127.0.0.1; the address check
+            // itself is covered in LlmConnectorServiceTest (#1269).
+            endpointIsStillSafe: static fn (string $url): bool => true
         );
     }
 

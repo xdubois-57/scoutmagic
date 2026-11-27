@@ -73,7 +73,8 @@ class LlmConnectorAvailabilityTest extends TestCase
             $failure->expects($this->never())->method('recordFailure');
             $failure->expects($this->never())->method('clear');
             $service = new LlmConnectorService($this->providerRepoReturning($provider), $models,
-                $this->createStub(JournalService::class), $failure);
+                $this->createStub(JournalService::class), $failure,
+                endpointIsStillSafe: static fn (string $url): bool => true);
             $code = null;
             try {
                 $service->complete(new LlmRequest(tier: LlmTier::CHEAP, prompt: 'Private receipt',
@@ -161,7 +162,10 @@ class LlmConnectorAvailabilityTest extends TestCase
         return new LlmConnectorService(
             $providerRepo,
             $modelRepo,
-            $journal ?? $this->createStub(JournalService::class)
+            $journal ?? $this->createStub(JournalService::class),
+            // The stub server is plain http on 127.0.0.1; the address check
+            // itself is covered in LlmConnectorServiceTest (#1269).
+            endpointIsStillSafe: static fn (string $url): bool => true
         );
     }
 

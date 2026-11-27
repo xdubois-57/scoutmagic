@@ -123,6 +123,83 @@ class RefreshModelsHandlerTest extends TestCase
         $handler->handle([], $context);
     }
 
+    /**
+     * **The scheduled refresh checks the stored address again before it
+     * calls** (#1269, SECURITY.md §17). Nobody watches this run, and the
+     * API key travels on it: an address that now leads inside the hosting
+     * network is refused before any driver exists, and the refusal is
+     * journalled like any other failed refresh.
+     */
+    public function testAStoredAddressThatLeadsToAPrivateHostIsRefusedBeforeAnyDriverIsBuilt(): void
+    {
+        $this->providerRepo->create('Rebound', 'anthropic', 'https://10.0.0.5', 'sk-test', true);
+
+        $this->journalService->expects($this->once())
+            ->method('log')
+            ->with(
+                'llm_connector',
+                'models_refresh_failed',
+                'info',
+                $this->stringContains('Rebound'),
+                $this->callback(static fn (array $context): bool
+                    => $context['error_type'] === \Modules\LlmConnector\Api\LlmException::class),
+                null
+            );
+
+        $handler = new class extends RefreshModelsHandler {
+            public int $driversBuilt = 0;
+
+            protected function createDriver(
+                string $driver,
+                string $apiEndpoint,
+                string $apiKey
+            ): \Modules\LlmConnector\Provider\LlmProviderInterface {
+                $this->driversBuilt++;
+
+                return parent::createDriver($driver, $apiEndpoint, $apiKey);
+            }
+        };
+        $handler->handle([], $this->createTaskContext());
+
+        $this->assertSame(0, $handler->driversBuilt);
+        $this->assertSame([], $this->modelRepo->findByProvider(1));
+    }
+
+    /** The check is the one injected, and a passing one lets the driver be built. */
+    public function testAnAddressTheCheckAcceptsGoesOnToTheDriver(): void
+    {
+        $this->providerRepo->create('Accepted', 'anthropic', 'https://10.0.0.5', 'sk-test', true);
+
+        // What fails is the driver this time, not the address check.
+        $this->journalService->expects($this->once())
+            ->method('log')
+            ->with(
+                'llm_connector',
+                'models_refresh_failed',
+                'info',
+                $this->stringContains('Accepted'),
+                $this->callback(static fn (array $context): bool => $context['error_type'] === \RuntimeException::class),
+                null
+            );
+
+        $handler = new class (static fn (string $url): bool => true) extends RefreshModelsHandler {
+            public int $driversBuilt = 0;
+
+            protected function createDriver(
+                string $driver,
+                string $apiEndpoint,
+                string $apiKey
+            ): \Modules\LlmConnector\Provider\LlmProviderInterface {
+                $this->driversBuilt++;
+
+                throw new \RuntimeException('No network in this test.');
+            }
+        };
+        $handler->handle([], $this->createTaskContext());
+
+        $this->assertSame(1, $handler->driversBuilt);
+    }
+
     private function createTaskContext(): TaskContext
     {
         $connection = Connection::withPdo($this->pdo);

@@ -18,10 +18,15 @@ class HttpTransportTest extends TestCase
 {
     private ?StubHttpServer $server = null;
 
+    /** Where a redirect points, in the tests that need one. */
+    private ?StubHttpServer $elsewhere = null;
+
     protected function tearDown(): void
     {
         $this->server?->stop();
         $this->server = null;
+        $this->elsewhere?->stop();
+        $this->elsewhere = null;
     }
 
     public function testDecodesASuccessfulJsonResponse(): void
@@ -186,5 +191,92 @@ class HttpTransportTest extends TestCase
         $this->expectExceptionCode(LlmException::TIMEOUT);
 
         (new HttpTransport())->getJson('http://127.0.0.1:19/x', [], 1);
+    }
+
+    /**
+     * **A redirect is not followed, so the key never reaches its target**
+     * (#1269, SECURITY.md §17). The stream wrapper follows `Location` by
+     * default and sends the request's own headers along — the provider's
+     * API key among them. A second server stands where the redirect
+     * points: it must receive nothing at all.
+     */
+    public function testARedirectIsNotFollowedAndTheKeyNeverReachesItsTarget(): void
+    {
+        $this->elsewhere = StubHttpServer::start([['status' => 200, 'body' => '{"ok":true}']]);
+        $target = $this->elsewhere->baseUrl() . '/collect';
+        $this->server = StubHttpServer::start([
+            ['status' => 302, 'body' => '', 'headers' => ['Location: ' . $target]],
+        ]);
+
+        try {
+            (new HttpTransport())->postJson(
+                $this->server->baseUrl() . '/v1/messages',
+                ['x-api-key: sk-secret-key'],
+                ['a' => 1],
+                5
+            );
+            self::fail('Expected an LlmException.');
+        } catch (LlmException $e) {
+            self::assertSame(LlmException::API_ERROR, $e->getCode());
+            self::assertStringContainsString('redirection', $e->getMessage());
+            self::assertStringContainsString('HTTP 302', $e->getMessage());
+            // The target is named nowhere: not to the reader, not to the journal.
+            self::assertStringNotContainsString($target, $e->getMessage());
+            self::assertStringNotContainsString($target, (string) $e->detail);
+        }
+
+        self::assertSame([], $this->elsewhere->requests(), 'the redirect target was contacted');
+        self::assertSame('sk-secret-key', $this->server->lastRequest()['headers']['HTTP_X_API_KEY'] ?? null);
+    }
+
+    /** The same for a GET — the model catalogue carries the key just as well. */
+    public function testAPermanentRedirectOnAGetIsNotFollowedEither(): void
+    {
+        $this->elsewhere = StubHttpServer::start([['status' => 200, 'body' => '{"data":[]}']]);
+        $this->server = StubHttpServer::start([
+            ['status' => 308, 'body' => '', 'headers' => ['Location: ' . $this->elsewhere->baseUrl() . '/v1/models']],
+        ]);
+
+        try {
+            (new HttpTransport())->getJson($this->server->baseUrl() . '/v1/models', ['Authorization: Bearer k'], 5);
+            self::fail('Expected an LlmException.');
+        } catch (LlmException $e) {
+            self::assertStringContainsString('HTTP 308', $e->getMessage());
+        }
+
+        self::assertSame([], $this->elsewhere->requests());
+    }
+
+    /**
+     * **A response past the ceiling is refused, not buffered whole** (#1269):
+     * the body is read up to one byte beyond it, and that byte is enough to
+     * say no.
+     */
+    public function testAResponseBeyondTheCeilingIsRefused(): void
+    {
+        $this->server = StubHttpServer::start([
+            ['status' => 200, 'body' => '{"a":"' . str_repeat('x', HttpTransport::MAX_RESPONSE_BYTES) . '"}'],
+        ]);
+
+        try {
+            (new HttpTransport())->getJson($this->server->baseUrl() . '/x', [], 20);
+            self::fail('Expected an LlmException.');
+        } catch (LlmException $e) {
+            self::assertSame(LlmException::API_ERROR, $e->getCode());
+            self::assertStringContainsString('trop volumineuse', $e->getMessage());
+        }
+    }
+
+    /** And a response exactly at the ceiling is still read and decoded. */
+    public function testAResponseExactlyAtTheCeilingIsStillRead(): void
+    {
+        $padding = HttpTransport::MAX_RESPONSE_BYTES - strlen('{"a":""}');
+        $this->server = StubHttpServer::start([
+            ['status' => 200, 'body' => '{"a":"' . str_repeat('x', $padding) . '"}'],
+        ]);
+
+        $decoded = (new HttpTransport())->getJson($this->server->baseUrl() . '/x', [], 20);
+
+        self::assertSame($padding, strlen((string) $decoded['a']));
     }
 }
