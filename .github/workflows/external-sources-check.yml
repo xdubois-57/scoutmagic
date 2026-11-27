@@ -202,7 +202,11 @@ jobs:
               /^$/ { inside = 0 }
               inside { print }
             ' "${report}")"
-            fingerprint="$(printf '%s' "${section}" | grep '✗' | sha256sum | cut -c1-16)"
+            # « after 2 attempts » says how a silent source was asked (the retry,
+            # issue #1405), not what is wrong with it: left in, the first run
+            # after the retry went in would tell every issue already open for
+            # a silent source that its divergence had changed.
+            fingerprint="$(printf '%s' "${section}" | grep '✗' | sed -E 's/ after [0-9]+ attempts//' | sha256sum | cut -c1-16)"
             # Only this step writes a marker: an HTML comment opened in the
             # agent's text or in the report (which quotes fetched pages)
             # could otherwise pass for another source's marker next week.

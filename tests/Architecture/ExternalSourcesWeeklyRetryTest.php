@@ -73,6 +73,70 @@ final class ExternalSourcesWeeklyRetryTest extends TestCase
         }
     }
 
+    /**
+     * The fingerprint of a divergence, as the workflow computes it: the
+     * command substitution of its `fingerprint=` line.
+     */
+    private static function fingerprintCommand(): string
+    {
+        $contents = file_get_contents(dirname(__DIR__, 2) . '/' . self::WORKFLOW);
+        self::assertIsString($contents);
+        self::assertSame(
+            1,
+            preg_match('/^\s*fingerprint="\$\((.+)\)"\s*$/m', $contents, $matches),
+            'the workflow no longer computes its fingerprint on a line this test can read'
+        );
+
+        return $matches[1];
+    }
+
+    private static function fingerprintOf(string $section): string
+    {
+        $process = proc_open(
+            ['bash', '-c', 'section="$1"; printf "%s" "$(' . self::fingerprintCommand() . ')"', 'bash', $section],
+            [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+            $pipes
+        );
+        self::assertIsResource($process);
+        $out = (string) stream_get_contents($pipes[1]);
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+        proc_close($process);
+
+        return $out;
+    }
+
+    /**
+     * The fingerprint is how next week's run knows an open issue is still
+     * about the same divergence: the same fingerprint gets no comment, a new
+     * one gets « the divergence changed ». The checker words a source that
+     * stayed silent through its retry with « after 2 attempts », which one
+     * request never said — so, once the retry is on, every issue already
+     * open for a silent source would be told, once, that its divergence
+     * changed when nothing about the source had. The number of attempts is
+     * how it was asked, not what is wrong: it must not be part of what is
+     * compared.
+     */
+    public function testTheAttemptsASilentSourceWasAskedForAreNotPartOfItsFingerprint(): void
+    {
+        $once = "[scaleway-privacy] https://example.test/privacy\n"
+            . "  ✗ no answer (Connection timed out) — unknown domain, or the host is down";
+        $twice = "[scaleway-privacy] https://example.test/privacy\n"
+            . "  ✗ no answer after 2 attempts (Connection timed out) — unknown domain, or the host is down";
+
+        $this->assertNotSame('', self::fingerprintOf($once), 'the fingerprint command did not run');
+        $this->assertSame(self::fingerprintOf($once), self::fingerprintOf($twice));
+    }
+
+    /** What the fingerprint is for still works: a divergence that really changed has another one. */
+    public function testAChangedDivergenceStillHasAnotherFingerprint(): void
+    {
+        $silent = "[x] https://example.test\n  ✗ no answer (Connection timed out) — unknown domain, or the host is down";
+        $gone = "[x] https://example.test\n  ✗ HTTP 404, expected 200";
+
+        $this->assertNotSame(self::fingerprintOf($silent), self::fingerprintOf($gone));
+    }
+
     /** The release gate is not changed by this: it asked twice before, and still does. */
     public function testTheReleaseGateStillAsksASilentSourceASecondTime(): void
     {
