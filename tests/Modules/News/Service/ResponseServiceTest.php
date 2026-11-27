@@ -940,7 +940,9 @@ class ResponseServiceTest extends TestCase
             'down, still above what came in' => ['10', [18000, 1800], '5', 'update', 9000, false],
             'down, below what came in' => ['10', [18000, 18000], '2', 'update', 3600, true],
             'from zero to a price' => ['0', null, '2', 'create', 3600, null],
-            'to zero, nothing paid' => ['2', [3600, 0], '0', 'delete', null, null],
+            // Kept at zero, never deleted: a transfer still on its way
+            // must find it (an import lags by days).
+            'to zero, nothing paid yet' => ['2', [3600, 0], '0', 'update', 0, false],
             'to zero, already paid' => ['2', [3600, 3600], '0', 'update', 0, true],
             'unchanged' => ['2', [3600, 0], '2', 'none', null, null],
         ];
@@ -979,8 +981,6 @@ class ResponseServiceTest extends TestCase
         $finance->expects($expectedCall === 'update' ? $this->once() : $this->never())
             ->method('updateReceivableAmount')
             ->with(55, $expectedCents, $expectedBelowReceived);
-        $finance->expects($expectedCall === 'delete' ? $this->once() : $this->never())
-            ->method('deleteReceivable')->with('news', 55);
         $finance->expects($expectedCall === 'create' ? $this->once() : $this->never())
             ->method('createReceivable')
             ->with('news', $this->formId, 7, $expectedCents, '+++100/0000/00034+++', 'a@test.com', 9)
@@ -993,7 +993,6 @@ class ResponseServiceTest extends TestCase
         $this->assertSame($new, $this->service()->getAnswers($responseId)[$fieldId]);
         match ($expectedCall) {
             'create' => $this->assertSame([77, '+++100/0000/00034+++'], [$updated->receivableId, $updated->structuredCommunication]),
-            'delete' => $this->assertSame([null, null], [$updated->receivableId, $updated->structuredCommunication]),
             default => $this->assertSame(55, $updated->receivableId, 'the receivable moves in place, communication kept'),
         };
     }
@@ -1153,9 +1152,13 @@ class ResponseServiceTest extends TestCase
         $tooMany = $this->responseRepository->create($this->formId, null, null, 'a@test.com', [$boxesId => '1000'], null, null);
         $unreadable = $this->responseRepository->create($this->formId, null, null, 'b@test.com', [$boxesId => '2'], null, null);
         $clean = $this->responseRepository->create($this->formId, null, null, 'c@test.com', [$boxesId => '999'], null, null);
+        // Accepted by is_numeric() before #1525, refused now, and invalid
+        // at the door too (ScanServiceTest).
+        $spaced = $this->responseRepository->create($this->formId, null, null, 'd@test.com', [$boxesId => ' 3'], null, null);
         $this->pdo->prepare('UPDATE news_form_response_values SET value = ? WHERE response_id = ?')->execute(['corrompu', $unreadable]);
 
-        $this->assertSame(2, $this->service()->flagResponsesWithInvalidQuantities());
+        $this->assertSame(3, $this->service()->flagResponsesWithInvalidQuantities());
+        $this->assertTrue($this->responseRepository->findById($spaced)?->hasInvalidQuantity());
         $this->assertTrue($this->responseRepository->findById($tooMany)?->hasInvalidQuantity());
         $this->assertTrue($this->responseRepository->findById($unreadable)?->hasInvalidQuantity());
         $this->assertFalse($this->responseRepository->findById($clean)?->hasInvalidQuantity());

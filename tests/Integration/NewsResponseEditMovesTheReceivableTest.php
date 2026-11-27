@@ -255,15 +255,36 @@ final class NewsResponseEditMovesTheReceivableTest extends TestCase
         $this->assertSame(9000, $this->receivables->getReceivableStanding('news', (int) $zero->receivableId)?->amountOverpaidCents);
     }
 
-    public function testAnUnpaidResponseEditedToZeroLosesItsReceivableAndAFreeOneGainsOne(): void
+    /**
+     * Corrected to zero before the bank statement came in: the receivable
+     * stays, at zero and with its communication, so the transfer the family
+     * already made is matched and reads as a trop-perçu to refund — never
+     * money nobody expected. It owes nothing meanwhile, and a later edit
+     * back up moves the same receivable.
+     */
+    public function testAnUnpaidResponseEditedToZeroKeepsItsReceivableForALateTransfer(): void
     {
         $response = $this->answer('2');
-        $this->assertSame(1, (int) $this->pdo->query('SELECT COUNT(*) FROM finance_expected_receivables')->fetchColumn());
 
         $free = $this->edit($response, '0');
+        $this->assertSame($response->receivableId, $free->receivableId);
+        $this->assertSame($response->structuredCommunication, $free->structuredCommunication);
+        $standing = $this->receivables->getReceivableStanding('news', (int) $free->receivableId);
+        $this->assertSame([0, 'paid'], [$standing?->amountDueCents, $standing?->status], 'owes nothing, on no unpaid list');
+
+        $this->pay($response, 36.00);
+        $this->assertSame(3600, $this->receivables->getReceivableStanding('news', (int) $free->receivableId)?->amountOverpaidCents);
+
+        $paying = $this->edit($free, '3');
+        $this->assertSame($response->receivableId, $paying->receivableId);
+        $this->assertSame(5400, $this->receivables->getReceivableStatus((int) $paying->receivableId)['amount_due']);
+        $this->assertSame(1, (int) $this->pdo->query('SELECT COUNT(*) FROM finance_expected_receivables')->fetchColumn());
+    }
+
+    public function testAFreeResponseEditedIntoAPaidOneGainsItsReceivable(): void
+    {
+        $free = $this->answer('0');
         $this->assertNull($free->receivableId);
-        $this->assertNull($free->structuredCommunication);
-        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM finance_expected_receivables')->fetchColumn());
         $this->assertNull($this->paymentAtTheDoor($free));
 
         $paying = $this->edit($free, '3');

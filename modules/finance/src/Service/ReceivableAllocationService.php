@@ -1984,24 +1984,6 @@ class ReceivableAllocationService
         return !$this->receivableRepository->seesCommittedWrites();
     }
 
-    /**
-     * Whether any money — a payment or a refund — is allocated to this
-     * receivable as COMMITTED now, through a locking read when the caller's
-     * transaction is somebody else's REPEATABLE READ (currentReads()). Meant
-     * to be asked under the receivable's lock
-     * (ExpectedReceivableService::deleteReceivable()).
-     */
-    public function holdsCommittedMoney(int $receivableId): bool
-    {
-        foreach ($this->allocationRepository->findByReceivableId($receivableId, $this->currentReads()) as $allocation) {
-            if ($allocation->amountCents !== 0) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
     private function allocatedCents(int $receivableId, bool $current = false): int
     {
         $total = 0;
@@ -2033,6 +2015,13 @@ class ReceivableAllocationService
     {
         if ($receivable->isWaived()) {
             return ReceivableSettlement::STATUS_WAIVED;
+        }
+        // Nothing is expected any more — an order corrected down to zero
+        // (issue #1525) keeps its receivable, so a transfer still on its
+        // way is matched and reads as a trop-perçu. It owes nothing, and
+        // reading « Non payé » would put it on every unpaid list.
+        if ($receivable->amountDueCents <= 0) {
+            return ReceivableSettlement::STATUS_PAID;
         }
         if ($allocatedCents <= 0) {
             return ReceivableSettlement::STATUS_UNPAID;

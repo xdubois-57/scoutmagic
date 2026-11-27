@@ -49,8 +49,7 @@ négatif.
 
 Si l'inscription est payante, **le montant suit votre modification**.
 Pour votre virement, utilisez la communication structurée de votre
-**dernière** confirmation : elle reste la même, sauf si une inscription
-devenue gratuite avant tout paiement redevient payante. Après
+**dernière** confirmation : une fois donnée, elle ne change plus. Après
 l'enregistrement, la page de confirmation vous dit ce qu'il reste à
 payer :
 

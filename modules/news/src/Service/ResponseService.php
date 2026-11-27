@@ -781,9 +781,11 @@ class ResponseService
      *   has already come in, finance is told so explicitly, and the
      *   surplus reads as a trop-perçu on the treasurer's « Paiements à
      *   traiter » — never silently;
-     * - the total became zero: a receivable nothing ever paid is deleted,
-     *   with the response's link to it; one that received money stays, at
-     *   zero, as the trop-perçu it now is.
+     * - the total became zero: the receivable stays, at zero, with its
+     *   communication — never deleted, even when nothing has come in yet:
+     *   imports lag by days, and a transfer already made must still find
+     *   its receivable and read as a trop-perçu rather than as money nobody
+     *   expected. Finance reads a zero amount as owing nothing.
      *
      * @return bool whether what the response owes changed
      */
@@ -831,13 +833,6 @@ class ResponseService
 
         $held = $standing->amountReceivedCents - $standing->amountRefundedCents;
         try {
-            if ($cents === 0 && $standing->amountReceivedCents === 0 && $standing->amountRefundedCents === 0) {
-                $this->expectedReceivable->deleteReceivable(self::RECEIVABLE_SOURCE, $receivableId);
-                $this->responseRepository->clearReceivable($response->id);
-
-                return true;
-            }
-
             $this->expectedReceivable->updateReceivableAmount(
                 $receivableId,
                 $cents,

@@ -104,26 +104,6 @@ interface ExpectedReceivableInterface
      */
     public function deleteReceivablesForSource(string $sourceModule, int $sourceReferenceId): void;
 
-    /**
-     * Removes ONE receivable that nothing has paid — a consuming module
-     * calls this when what it was raised for no longer costs anything
-     * (a form response corrected down to zero, issue #1525).
-     *
-     * **Refused once any money has arrived for it**, refunds included:
-     * deleting it then would drop the trace of a payment the unit holds,
-     * and with it the surplus somebody is owed. The caller lowers such a
-     * receivable to zero with updateReceivableAmount(…, true) instead, so
-     * the surplus reads as a trop-perçu.
-     *
-     * Names its source module like the refund side below: an id that is
-     * unknown or another module's is refused exactly as absent.
-     *
-     * @throws \Modules\Finance\Api\FinanceException with a French sentence
-     *         when the receivable is not this module's, or when money has
-     *         already arrived for it.
-     */
-    public function deleteReceivable(string $sourceModule, int $receivableId): void;
-
     // ── the refund side (chantier #927, §2.6) ───────────────────────────
 
     /**

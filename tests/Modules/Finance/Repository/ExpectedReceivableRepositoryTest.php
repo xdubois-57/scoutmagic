@@ -124,17 +124,6 @@ class ExpectedReceivableRepositoryTest extends TestCase
         $this->assertSame(2500, $this->repository->findById($this->receivableId)?->amountDueCents);
     }
 
-    public function testDeleteRemovesThatReceivableAndNoOther(): void
-    {
-        $accountId = (int) $this->pdo->query('SELECT account_id FROM finance_expected_receivables')->fetchColumn();
-        $other = $this->repository->create('news', 42, $accountId, 100, StructuredCommunicationService::format('1230000001'), null);
-
-        $this->repository->delete($this->receivableId);
-
-        $this->assertNull($this->repository->findById($this->receivableId));
-        $this->assertNotNull($this->repository->findById($other));
-    }
-
     public function testItFindsAReceivableByItsIssuedForm(): void
     {
         $found = $this->repository->findByCommunication($this->communication);

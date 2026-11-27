@@ -342,6 +342,24 @@ class ScanServiceTest extends TestCase
         $this->assertSame(0, $verdict['seat_total']);
     }
 
+    /**
+     * One rule with the reprise (FormField::storedQuantity()), on the raw
+     * stored text: « 3 » with a leading space was accepted before and is
+     * refused now, so the door marks it as the reprise flags it.
+     */
+    public function testAQuantityStoredWithASpaceIsInvalidAtTheDoorAsInTheReprise(): void
+    {
+        [, $formId] = $this->event('Souper spaghetti');
+        $f = $this->dinnerFields($formId);
+        $responseId = $this->booking($formId, [$f['name'] => 'Roskam', $f['adults'] => ' 3'], 'a@test.com');
+        $reference = (string) $this->responses->findById($responseId)?->ticketReference;
+
+        $verdict = $this->service()->verdictFor($this->forms->findById($formId), TicketService::format($reference));
+
+        $this->assertSame([['label' => 'Repas adulte', 'quantity' => '3', 'invalid' => true]], $verdict['seats']);
+        $this->assertSame(0, $verdict['seat_total']);
+    }
+
     /** The printed list carries the same lines: it is the door's fallback. */
     public function testThePrintedListKeepsAnInvalidQuantityToo(): void
     {

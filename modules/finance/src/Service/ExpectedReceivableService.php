@@ -182,37 +182,6 @@ class ExpectedReceivableService implements ExpectedReceivableInterface
         $this->repository->deleteBySource($sourceModule, $sourceReferenceId);
     }
 
-    public function deleteReceivable(string $sourceModule, int $receivableId): void
-    {
-        $receivable = $this->ownedBy($sourceModule, $receivableId);
-        if ($receivable === null) {
-            throw new FinanceException("Cette créance n'existe pas.");
-        }
-
-        // Decided under the receivable's lock, after the same reconciling
-        // read every status goes through: a payment imported a minute ago
-        // is counted, and one being attached right now waits for this.
-        // Plus the allocations as COMMITTED now: called inside a module's
-        // own REPEATABLE READ transaction, the settlement's reads see that
-        // transaction's snapshot, which the lock does not refresh — a
-        // payment committed since would be missed and deleted with it.
-        $this->repository->withReceivableLocked($receivableId, function () use ($receivable): void {
-            $settlement = $this->allocations->refreshAndSettle([$receivable])[$receivable->id];
-            if (
-                $settlement->amountDesignatedCents > 0
-                || $settlement->amountRefundedCents > 0
-                || $this->allocations->holdsCommittedMoney($receivable->id)
-            ) {
-                throw new FinanceException(
-                    'Cette créance a déjà reçu un paiement : elle ne peut pas être supprimée. '
-                    . 'Ramenez son montant à zéro pour faire apparaître le trop-perçu à rembourser.'
-                );
-            }
-
-            $this->repository->delete($receivable->id);
-        });
-    }
-
     public function getReceivableStanding(string $sourceModule, int $receivableId): ?ReceivableStanding
     {
         $receivable = $this->ownedBy($sourceModule, $receivableId);
@@ -229,6 +198,9 @@ class ExpectedReceivableService implements ExpectedReceivableInterface
         $netReceived = $settlement->amountDesignatedCents - $settlement->amountRefundedCents;
         $status = match (true) {
             $settlement->isWaived() => ReceivableSettlement::STATUS_WAIVED,
+            // Nothing expected any more (an amount lowered to zero, issue
+            // #1525): settled, whatever came in — a surplus is a trop-perçu.
+            $settlement->amountDueCents <= 0 => ReceivableSettlement::STATUS_PAID,
             $netReceived <= 0 => ReceivableSettlement::STATUS_UNPAID,
             $netReceived >= $settlement->amountDueCents => ReceivableSettlement::STATUS_PAID,
             default => ReceivableSettlement::STATUS_PARTIAL,
