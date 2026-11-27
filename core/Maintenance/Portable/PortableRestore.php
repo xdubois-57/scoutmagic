@@ -279,6 +279,16 @@ final class PortableRestore
     {
         $entries = $this->plannedEntries($archive);
 
+        // **The keys are unsealed before anything is written** (#1245).
+        // Unsealing writes nothing, and it is the one check that depends on
+        // the passphrase itself — AES-GCM, not the zip's. It used to be the
+        // last step, after the database had been replaced and the files
+        // extracted, so an archive whose secrets would not open was refused
+        // by an installation that no longer had its own data. An archive
+        // that cannot give up its keys cannot serve a restore: it is refused
+        // here, while the target is still whole.
+        $secrets = $archive->unsealSecrets();
+
         $dumpPath = $this->writeDump($archive);
 
         try {
@@ -291,7 +301,7 @@ final class PortableRestore
         }
 
         $this->extractFiles($archive, $entries);
-        $this->installSecrets($archive, $targetOwnedSecrets);
+        $this->installSecrets($archive, $targetOwnedSecrets, $secrets);
     }
 
     /**
@@ -447,11 +457,18 @@ final class PortableRestore
      *        secrets being replaced. A key absent here is simply not
      *        overridden — the wizard has no `base_url` to give at the step
      *        where the restore happens.
+     * @param array<string, string>|null $unsealed the archive's secrets, when
+     *        the caller has already unsealed them — {@see apply()} does so
+     *        before touching the database, so that keys that will not open
+     *        cost nothing. Null means unseal now.
      * @throws BackupException
      */
-    public function installSecrets(PortableArchive $archive, array $targetOwnedSecrets): void
-    {
-        $secrets = $archive->unsealSecrets();
+    public function installSecrets(
+        PortableArchive $archive,
+        array $targetOwnedSecrets,
+        ?array $unsealed = null
+    ): void {
+        $secrets = $unsealed ?? $archive->unsealSecrets();
 
         foreach ($secrets as $relativeTarget => $plaintext) {
             // Belt and braces over {@see PortableArchive::unsealSecrets()},

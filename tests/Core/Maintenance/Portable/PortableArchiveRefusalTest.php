@@ -680,6 +680,113 @@ final class PortableArchiveRefusalTest extends TestCase
         }
     }
 
+    // ── Everything is encrypted, not merely named (#1245) ───────────────
+
+    /**
+     * **The manifest stored in clear.** A zip reads a member kept this way
+     * whatever password it is given, so the first read — which was the only
+     * thing standing for « the passphrase is right » — passed for anybody.
+     * Refused at the door, before any other member is touched, and before
+     * the manifest is believed.
+     */
+    public function testAManifestStoredInClearIsRefusedBeforeAnythingElseIsRead(): void
+    {
+        $path = $this->buildArchive(['clearManifest' => true]);
+
+        try {
+            PortableArchive::open($path, self::PASSPHRASE);
+            $this->fail('An archive whose manifest is in clear was opened.');
+        } catch (BackupException $e) {
+            $this->assertStringContainsString('pas chiffrée', $e->getMessage());
+        }
+    }
+
+    /** Even with a WRONG passphrase: the clear manifest is the thing refused, not the phrase. */
+    public function testAManifestInClearIsRefusedWhateverPassphraseIsGiven(): void
+    {
+        $path = $this->buildArchive(['clearManifest' => true]);
+
+        $this->expectException(BackupException::class);
+        $this->expectExceptionMessage('pas chiffrée');
+
+        PortableArchive::open($path, 'une phrase tout à fait différente');
+    }
+
+    /** The scenario of the ticket: every member rewritten in clear, with digests that agree. */
+    public function testAnArchiveRewrittenEntirelyInClearIsRefusedAtOpen(): void
+    {
+        $path = $this->buildArchive([
+            'clearManifest' => true,
+            'clearMembers' => [
+                'database.sql',
+                'storage/uploads/doc.pdf',
+                ...array_values(PortableManifest::SECRET_MEMBERS),
+            ],
+        ]);
+
+        $this->expectException(BackupException::class);
+        $this->expectExceptionMessage('pas chiffrée');
+
+        PortableArchive::open($path, self::PASSPHRASE);
+    }
+
+    /**
+     * **One case per kind of member**, each declared with a digest that
+     * matches what is stored — so the digest is not what refuses it, the
+     * missing encryption is, and before the member is read.
+     *
+     * @dataProvider clearMembers
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('clearMembers')]
+    public function testADeclaredMemberStoredInClearIsRefusedBeforeAnyWrite(string $member): void
+    {
+        $archive = $this->open(['clearMembers' => [$member]]);
+
+        try {
+            $archive->verifyDeclaredMembers();
+            $this->fail("A declared member stored in clear was accepted: {$member}");
+        } catch (BackupException $e) {
+            $this->assertStringContainsString('pas chiffré', $e->getMessage());
+        } finally {
+            $archive->close();
+        }
+    }
+
+    /** @return iterable<string, array{0: string}> */
+    public static function clearMembers(): iterable
+    {
+        yield 'the database dump' => ['database.sql'];
+        yield 'the sealed master key' => [PortableManifest::SECRET_MEMBERS['keys/master.key']];
+        yield 'the sealed settings' => [PortableManifest::SECRET_MEMBERS['config/secrets.enc']];
+        yield 'a storage file' => ['storage/uploads/doc.pdf'];
+    }
+
+    /** An archive the writer produced is encrypted throughout, and still opens and verifies. */
+    public function testAnArchiveEncryptedThroughoutStillVerifies(): void
+    {
+        $archive = $this->open(['emptyFile' => true]);
+
+        $archive->verifyDeclaredMembers();
+        $this->assertContains('storage/uploads/vide.txt', $archive->restorableEntries());
+
+        $archive->close();
+    }
+
+    /**
+     * A member with no bytes has nothing to encrypt, and libzip builds differ
+     * on whether they say so. It is accepted in clear — its digest, checked
+     * against the encrypted manifest, is the whole of what it can carry.
+     */
+    public function testAnEmptyDeclaredFileInClearIsNotWhatIsRefused(): void
+    {
+        $archive = $this->open(['emptyFile' => true, 'clearMembers' => ['storage/uploads/vide.txt']]);
+
+        $archive->verifyDeclaredMembers();
+        $this->addToAssertionCount(1);
+
+        $archive->close();
+    }
+
     /**
      * Format 2 named none of its storage files: refused with a sentence of
      * its own (the maintainer's choice on #1103), rather than « mettez le
@@ -731,7 +838,7 @@ final class PortableArchiveRefusalTest extends TestCase
             }
 
             if (($options['dropSecrets'] ?? false) !== true) {
-                $this->addEncrypted($zip, $member, $stored, $password);
+                $this->addMember($zip, $member, $stored, $password, $options);
             }
             // The digest of what the archive CLAIMS to hold, so a corrupted
             // member disagrees with its own manifest.
@@ -740,7 +847,7 @@ final class PortableArchiveRefusalTest extends TestCase
 
         $dump = (string) ($options['database'] ?? '-- un dump');
         if (($options['dropDatabase'] ?? false) !== true) {
-            $this->addEncrypted($zip, 'database.sql', $dump, $password);
+            $this->addMember($zip, 'database.sql', $dump, $password, $options);
             // Declared like every other member, which is the point: the
             // digest walk visits the dump too.
             $members['database.sql'] = ['sha256' => hash('sha256', $dump), 'bytes' => strlen($dump)];
@@ -748,8 +855,14 @@ final class PortableArchiveRefusalTest extends TestCase
         // Every storage file is declared with its digest, as the writer
         // declares it since format 3 (issue #1103).
         if (($options['noData'] ?? false) !== true) {
-            $this->addEncrypted($zip, 'storage/uploads/doc.pdf', 'des octets', $password);
+            $this->addMember($zip, 'storage/uploads/doc.pdf', 'des octets', $password, $options);
             $members['storage/uploads/doc.pdf'] = ['sha256' => hash('sha256', 'des octets'), 'bytes' => 10];
+        }
+        // A declared file with nothing in it: libzip may or may not encrypt
+        // what has no bytes, and the reader must accept either.
+        if (($options['emptyFile'] ?? null) !== null) {
+            $this->addMember($zip, 'storage/uploads/vide.txt', '', $password, $options);
+            $members['storage/uploads/vide.txt'] = ['sha256' => hash('sha256', ''), 'bytes' => 0];
         }
 
         if (is_string($options['extraEntry'] ?? null)) {
@@ -788,7 +901,14 @@ final class PortableArchiveRefusalTest extends TestCase
         if (is_string($options['manifestPadding'] ?? null)) {
             $manifest['padding'] = $options['manifestPadding'];
         }
-        $this->addEncrypted($zip, PortableManifest::MEMBER, (string) json_encode($manifest), $password);
+        // The manifest in clear, as somebody without the passphrase writes it
+        // (#1245): a zip reads a member stored this way whatever password it
+        // is given.
+        if (($options['clearManifest'] ?? false) === true) {
+            $this->assertTrue($zip->addFromString(PortableManifest::MEMBER, (string) json_encode($manifest)));
+        } else {
+            $this->addEncrypted($zip, PortableManifest::MEMBER, (string) json_encode($manifest), $password);
+        }
 
         $this->assertTrue($zip->setArchiveComment(PortableKeys::comment(
             $derivation,
@@ -797,6 +917,29 @@ final class PortableArchiveRefusalTest extends TestCase
         $zip->close();
 
         return $path;
+    }
+
+    /**
+     * A member of the archive: encrypted like the writer's, unless the case
+     * names it among `clearMembers` — stored in clear, which is what an
+     * archive rewritten by somebody without the passphrase looks like.
+     *
+     * @param array<string, mixed> $options
+     */
+    private function addMember(
+        \ZipArchive $zip,
+        string $name,
+        string $contents,
+        string $password,
+        array $options
+    ): void {
+        if (in_array($name, (array) ($options['clearMembers'] ?? []), true)) {
+            $this->assertTrue($zip->addFromString($name, $contents));
+
+            return;
+        }
+
+        $this->addEncrypted($zip, $name, $contents, $password);
     }
 
     private function addEncrypted(\ZipArchive $zip, string $name, string $contents, string $password): void

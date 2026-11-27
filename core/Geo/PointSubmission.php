@@ -49,7 +49,9 @@ final class PointSubmission
         /** The pin came from the address lookup and nobody touched it. */
         public readonly bool $automatic,
         /** A human removed the pin with « Retirer ». */
-        public readonly bool $removed
+        public readonly bool $removed,
+        /** The script says a human placed, moved or removed the pin. */
+        public readonly bool $manual = false
     ) {
     }
 
@@ -79,7 +81,8 @@ final class PointSubmission
             $point,
             $given,
             $automatic,
-            $given && $point === null && !$automatic && (string) ($input['point_manual'] ?? '') === '1'
+            $given && $point === null && !$automatic && (string) ($input['point_manual'] ?? '') === '1',
+            $given && !$automatic && (string) ($input['point_manual'] ?? '') === '1'
         );
     }
 
@@ -102,6 +105,11 @@ final class PointSubmission
 
         return $this->point?->line() !== $saved?->line()
             || ($addressChanged && $this->automatic && $this->point !== null)
+            // A pin the script says a human placed — dragged away and back,
+            // or dropped exactly where the task had put it — locks the row
+            // even on the same coordinates. Without the script nothing says
+            // so, and a point posted back untouched stays as it was.
+            || ($this->manual && $this->point !== null && !$savedIsManual)
             // « Retirer » on a row the task has not placed yet: nothing to
             // compare, but a human's « no point » all the same.
             || ($this->removed && !$savedIsManual);

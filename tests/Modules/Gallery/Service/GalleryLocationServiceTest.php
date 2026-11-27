@@ -99,6 +99,37 @@ class GalleryLocationServiceTest extends TestCase
         $this->assertTrue($choice->changed());
     }
 
+    /**
+     * What a caller saving the choice together with other settings asks
+     * first (#1242): the answer, and nothing written.
+     */
+    public function testPreparingAChoiceAnswersWithoutWritingAnything(): void
+    {
+        $first = $this->declareLocation('Premier');
+        $second = $this->declareLocation('Second');
+        $this->service->chooseForNewAlbums($first);
+
+        $choice = $this->service->prepareChoice($second);
+
+        $this->assertSame($first, $choice->previousId);
+        $this->assertSame($second, $choice->selectedId);
+        $this->assertTrue($choice->changed());
+        $this->assertSame('Second', $choice->frenchName());
+        $this->assertSame(
+            $first,
+            (int) $this->settings->get(GalleryLocationService::NEW_ALBUM_LOCATION_SETTING, 'gallery', 0),
+            'the setting still names the first one'
+        );
+    }
+
+    public function testPreparingAChoiceRefusesWhatChoosingRefuses(): void
+    {
+        $this->expectException(GalleryLocationException::class);
+        $this->expectExceptionMessage("L'emplacement choisi pour les nouveaux albums n'existe plus.");
+
+        $this->service->prepareChoice(4242);
+    }
+
     public function testRechoosingTheSameLocationIsNotAChange(): void
     {
         $id = $this->declareLocation('Disque réseau');

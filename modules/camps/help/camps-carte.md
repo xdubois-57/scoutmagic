@@ -36,8 +36,16 @@ coordonnées sont un confort.
 C'est l'adresse d'un terrain qui est envoyée, jamais celle d'une personne.
 Le géocodage automatique peut être coupé dans la configuration du module.
 
-**À la main**, sur la fiche d'un lieu. C'est souvent le seul moyen pour un
-pré sans adresse utilisable — et c'est le plus fiable.
+Le formulaire « Modifier le lieu » cherche aussi l'adresse dès que vous
+quittez un de ses champs, et montre le point trouvé sur une carte. Ce
+point reste automatique tant que vous n'y touchez pas. Le formulaire
+« Nouveau camp » fait de même quand vous y décrivez **un nouveau lieu** :
+la carte apparaît avec ses champs, et le point est enregistré avec le lieu.
+
+**À la main**, sur cette même carte : touchez-la pour placer l'épingle,
+faites-la glisser pour l'affiner, ou « Retirer » pour l'enlever. C'est
+souvent le seul moyen pour un pré sans adresse utilisable — et c'est le
+plus fiable.
 
 ## La règle qui compte
 

@@ -178,6 +178,27 @@ class GalleryLocationService
      */
     public function chooseForNewAlbums(int $locationId): NewAlbumLocationChoice
     {
+        $choice = $this->prepareChoice($locationId);
+
+        $this->settingService->set(self::NEW_ALBUM_LOCATION_SETTING, (string) $choice->selectedId, 'gallery');
+
+        return $choice;
+    }
+
+    /**
+     * What choosing this location WOULD do, with nothing written.
+     *
+     * For a caller that saves the choice together with other settings: the
+     * refusal has to come before any of them is written, or the page says
+     * « l'emplacement n'existe plus » over numbers that were saved all the
+     * same (#1242). The caller writes `NEW_ALBUM_LOCATION_SETTING` itself,
+     * in the same transaction as the rest; `chooseForNewAlbums()` is this
+     * plus the write, for one that has nothing else to save.
+     *
+     * @throws GalleryLocationException as {@see self::chooseForNewAlbums()}
+     */
+    public function prepareChoice(int $locationId): NewAlbumLocationChoice
+    {
         $previousId = (int) $this->settingService->get(self::NEW_ALBUM_LOCATION_SETTING, 'gallery', 0);
 
         $selected = null;
@@ -190,8 +211,6 @@ class GalleryLocationService
                 );
             }
         }
-
-        $this->settingService->set(self::NEW_ALBUM_LOCATION_SETTING, (string) max(0, $locationId), 'gallery');
 
         return new NewAlbumLocationChoice($previousId, max(0, $locationId), $selected);
     }

@@ -164,6 +164,52 @@ test.describe('Camps', () => {
         ).toHaveCount(1);
     });
 
+    // The core's point picker on the stay form (#1353): the point given to a
+    // NEW place is saved with it and found again, exactly, on the place's own
+    // edit form. Placed through « Saisir les coordonnées » — the keyboard's
+    // way to a point — so the scenario needs neither a pointer on map tiles
+    // nor an address lookup: without a postal code or a city the picker asks
+    // nothing (address_needs), and no request leaves for Nominatim.
+    test('a point given to a new place is saved with it and found again on its form', async ({ page }) => {
+        await loginAsAdmin(page);
+        const placeName = `Pré de Jules ${SUFFIX}`;
+
+        await page.goto('/chefs/camps/nouveau');
+        await expect(page.getByRole('heading', { name: 'Nouveau camp' })).toBeVisible();
+        // « Un nouveau lieu » is the default choice: the block, and its map, are shown.
+        await expect(page.locator('#camps-new-place')).toBeVisible();
+
+        await page.locator('input[name="place_name"]').fill(placeName);
+        await page.getByRole('button', { name: 'Saisir les coordonnées' }).click();
+        await page.locator('#new-place-latitude').fill('50,443210');
+        await page.locator('#new-place-longitude').fill('5.001234');
+        await page.locator('#new-place-longitude').press('Tab');
+        await expect(page.locator('[data-point-picker-origin]')).toHaveText('point placé à la main');
+
+        await page.locator('input[name="start_date"]').fill(START);
+        await page.locator('input[name="end_date"]').fill(END);
+        await page.getByRole('button', { name: 'Créer le séjour' }).click();
+
+        // The stay's page, then its place's own edit form.
+        await page.getByRole('link', { name: placeName }).first().click();
+        await expect(page.getByRole('heading', { name: placeName })).toBeVisible();
+        await page.goto(page.url().replace(/\/?$/, '') + '/modifier');
+        await expect(page.getByRole('heading', { name: 'Modifier le lieu' })).toBeVisible();
+
+        // Exactly the point typed, and a human's — never re-placed by the task.
+        await expect(page.locator('#place-latitude')).toHaveValue('50.443210');
+        await expect(page.locator('#place-longitude')).toHaveValue('5.001234');
+        await expect(page.locator('[data-point-picker-origin]')).toHaveText('point placé à la main');
+        await expect(page.locator('[data-point-picker-line]')).toHaveText('50.443210, 5.001234');
+
+        // An existing place has its own point: the new-place block goes away.
+        await page.goto('/chefs/camps/nouveau');
+        // The option's label adds the locality (« — Belgique »): picked by its value.
+        const option = page.locator('select[name="place_id"] option', { hasText: placeName });
+        await page.locator('select[name="place_id"]').selectOption(String(await option.getAttribute('value')));
+        await expect(page.locator('#camps-new-place')).toBeHidden();
+    });
+
     test('the map opens by itself, and remembers being folded only with functional consent', async ({ page }) => {
         // The map is EXPANDED by default ON A WIDE SCREEN — which this
         // project's viewport is — and built as the page loads

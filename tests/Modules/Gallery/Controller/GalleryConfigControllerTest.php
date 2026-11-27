@@ -579,8 +579,10 @@ class GalleryConfigControllerTest extends TestCase
     /**
      * The location picked for new albums was deleted while the page was
      * open: the administrator reads the service's own sentence, and the
-     * setting keeps naming what it named. The numbers of the same tab were
-     * already written by then; pinned as it is.
+     * setting keeps naming what it named. **Nothing else of the tab is
+     * written either** (#1242): the page answers « l'emplacement n'existe
+     * plus », and it used to say so over numbers that had been saved all the
+     * same — a screen saying nothing passed while part of it had.
      */
     public function testSaveNamesALocationDeletedSinceThePageWasRendered(): void
     {
@@ -589,6 +591,7 @@ class GalleryConfigControllerTest extends TestCase
             'gallery',
             0
         );
+        $mediaLimitBefore = (string) $this->settingService->get('gallery_max_media_per_album', 'gallery');
         $body = [
             '_csrf_token' => $this->csrfToken(),
             'gallery_max_media_per_album' => '150',
@@ -608,10 +611,53 @@ class GalleryConfigControllerTest extends TestCase
             $before,
             (string) $this->settingService->get(GalleryLocationService::NEW_ALBUM_LOCATION_SETTING, 'gallery', 0)
         );
-        $this->assertSame('150', (string) $this->settingService->get('gallery_max_media_per_album', 'gallery'));
+        $this->assertSame(
+            $mediaLimitBefore,
+            (string) $this->settingService->get('gallery_max_media_per_album', 'gallery'),
+            'the numbers of the same tab are not saved behind a refusal'
+        );
         $stmt = $this->pdo->prepare('SELECT COUNT(*) FROM event_log WHERE category = ? AND event_type = ?');
         $stmt->execute(['gallery', 'config_update_failed']);
         $this->assertSame(0, (int) $stmt->fetchColumn());
+    }
+
+    /** The checkboxes of the tab are held back too, not only the numbers. */
+    public function testARefusedLocationAlsoLeavesTheTabsCheckboxesAlone(): void
+    {
+        // The Général tab's own checkbox, absent from the body: it would be
+        // written « 0 » by a save that went through.
+        $this->settingService->set('gallery_allow_external', '1', 'gallery');
+        $body = [
+            '_csrf_token' => $this->csrfToken(),
+            'gallery_max_media_per_album' => '150',
+            GalleryLocationService::NEW_ALBUM_LOCATION_SETTING => '99999',
+        ];
+
+        $this->controller->save($this->saveRequest($body, 'general'), []);
+
+        $this->settingService->clearCache();
+        $this->assertSame('1', (string) $this->settingService->get('gallery_allow_external', 'gallery'));
+    }
+
+    /** A valid choice still saves the numbers and the location together. */
+    public function testAValidLocationSavesWithTheNumbersOfTheTab(): void
+    {
+        $id = $this->storageLocationRepository->findAll()[0]->id;
+        $body = [
+            '_csrf_token' => $this->csrfToken(),
+            'gallery_max_media_per_album' => '150',
+            GalleryLocationService::NEW_ALBUM_LOCATION_SETTING => (string) $id,
+        ];
+
+        $response = $this->controller->save($this->saveRequest($body, 'general'), []);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->settingService->clearCache();
+        $this->assertSame('150', (string) $this->settingService->get('gallery_max_media_per_album', 'gallery'));
+        $this->assertSame(
+            (string) $id,
+            (string) $this->settingService->get(GalleryLocationService::NEW_ALBUM_LOCATION_SETTING, 'gallery', 0)
+        );
     }
 
     public function testSaveRendersTheValidationMessage(): void
@@ -670,7 +716,7 @@ class GalleryConfigControllerTest extends TestCase
     public function testSaveShowsAWrittenSentenceRatherThanAThrowablesOwnMessage(): void
     {
         $settingService = $this->createStub(SettingService::class);
-        $settingService->method('set')->willThrowException(
+        $settingService->method('setMany')->willThrowException(
             new \PDOException("SQLSTATE[42S22]: Column not found: 1054 Unknown column 'value' in 'field list'")
         );
 
