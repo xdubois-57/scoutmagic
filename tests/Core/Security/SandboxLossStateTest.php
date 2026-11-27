@@ -132,6 +132,39 @@ final class SandboxLossStateTest extends TestCase
         );
     }
 
+    /**
+     * A release whose journal line cannot be written is undone (review of
+     * #1549): real sending is never reopened without a trace of who did it.
+     */
+    public function testAReleaseThatCannotBeJournaledIsUndone(): void
+    {
+        $this->state()->record(SandboxLossState::CHANNEL_MAIL, SandboxLossState::REASON_PROFILE_MISSING, $this->journal);
+        $failingJournal = new class (new JournalRepository($this->pdo)) extends JournalService {
+            public function log(
+                string $category,
+                string $type,
+                string $level,
+                string $description,
+                array $context = [],
+                ?int $userId = null
+            ): void {
+                throw new \RuntimeException('journal indisponible');
+            }
+        };
+
+        try {
+            $this->state()->release(SandboxLossState::CHANNEL_MAIL, 42, $failingJournal);
+            $this->fail('The journal failure must reach the caller.');
+        } catch (\RuntimeException $e) {
+            $this->assertSame('journal indisponible', $e->getMessage());
+        }
+
+        $state = $this->state();
+        $this->assertTrue($state->isBlocked(SandboxLossState::CHANNEL_MAIL), 'Still blocked: the release was undone.');
+        $this->assertSame(SandboxLossState::REASON_PROFILE_MISSING, (string) $this->settings()->get(SandboxLossState::SETTING_MAIL));
+        $this->assertTrue($state->release(SandboxLossState::CHANNEL_MAIL, 42, $this->journal), 'And it can be decided again.');
+    }
+
     public function testNothingToReleaseWhileNothingIsLost(): void
     {
         $this->assertFalse($this->state()->release(SandboxLossState::CHANNEL_MAIL, 1, $this->journal));

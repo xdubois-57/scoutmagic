@@ -224,6 +224,12 @@ final class SandboxLossState
      * The superadmin's decision: reopen real sending on this channel while
      * the loss lasts. Journaled at level `security` with the acting
      * account. False when there was nothing to release.
+     *
+     * **No release without its journal line.** The row is written first,
+     * so that two superadmins deciding at once journal one release between
+     * them; should the journal write then fail, the row is put back and
+     * the failure propagates. Real sending reopened with no trace of who
+     * reopened it is the one outcome a security decision cannot have.
      */
     public function release(string $channel, ?int $userId, JournalService $journal): bool
     {
@@ -242,18 +248,28 @@ final class SandboxLossState
             return false;
         }
 
-        $journal->log(
-            'core',
-            self::eventPrefix($channel) . '_loss_released',
-            'security',
-            $channel === self::CHANNEL_MAIL
-                ? 'Envoi réel des e-mails rouvert par un super-administrateur alors que la capture est armée '
-                    . 'mais sans effet.'
-                : 'Vraie ligne SOS rouverte par un super-administrateur alors que la téléphonie simulée est armée '
-                    . 'mais sans effet.',
-            ['reason' => $reason],
-            $userId
-        );
+        try {
+            $journal->log(
+                'core',
+                self::eventPrefix($channel) . '_loss_released',
+                'security',
+                $channel === self::CHANNEL_MAIL
+                    ? 'Envoi réel des e-mails rouvert par un super-administrateur alors que la capture est armée '
+                        . 'mais sans effet.'
+                    : 'Vraie ligne SOS rouverte par un super-administrateur alors que la téléphonie simulée est '
+                        . 'armée mais sans effet.',
+                ['reason' => $reason],
+                $userId
+            );
+        } catch (\Throwable $e) {
+            $this->settingService->replaceIfUnchanged(
+                self::settingKey($channel),
+                $reason . self::RELEASED_SUFFIX,
+                $stored
+            );
+
+            throw $e;
+        }
 
         return true;
     }
