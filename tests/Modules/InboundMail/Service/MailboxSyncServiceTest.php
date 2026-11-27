@@ -18,6 +18,7 @@ use Modules\InboundMail\Api\MessageCandidate;
 use Modules\InboundMail\Api\LinkOrigin;
 use Modules\InboundMail\Api\InboundMessage;
 use Modules\InboundMail\Api\MessageConsumerInterface;
+use Modules\InboundMail\Api\MessageDirection;
 use Modules\InboundMail\Client\FakeMailboxClient;
 use Modules\InboundMail\Client\FetchedMessage;
 use Modules\InboundMail\Mime\MimeMessageParser;
@@ -439,6 +440,194 @@ class MailboxSyncServiceTest extends TestCase
 
         $this->assertContains('fetchSince:INBOX:11', $this->client->calls, 'the next pass starts above it');
         $this->assertSame(1, $this->countMessages());
+    }
+
+    /**
+     * A body over 64 KB — an ordinary newsletter, a long quoted thread — is
+     * stored and read back whole (#1433). The columns were plain BLOBs: on
+     * the production engine, in strict mode, the INSERT was refused, and
+     * that one message stopped its box for good. Run on both engines; only
+     * the production one can fail it.
+     */
+    public function testABodyOverSixtyFourKilobytesIsStoredWhole(): void
+    {
+        $paragraph = str_repeat('Une longue lettre d\'information, citée et recitée. ', 40) . "\n\n";
+        $text = str_repeat($paragraph, (int) ceil(70000 / strlen($paragraph)));
+        $this->client->addRawMessage('INBOX', 10, InboundMailTestHelper::rawMessage([
+            'From' => 'Lettre <lettre@example.be>',
+            'To' => 'locations@unite.be',
+            'Subject' => 'Lettre de novembre',
+            'Message-ID' => '<longue@example.be>',
+            'Date' => 'Mon, 12 Jul 2027 09:30:00 +0200',
+            'Content-Type' => 'text/plain; charset=UTF-8',
+        ], $text));
+        $this->addMessage(11, messageId: 'apres@example.be');
+
+        $outcome = $this->sync();
+
+        $this->assertFalse($outcome->isFailure(), (string) $outcome->reason);
+        $this->assertSame(2, $this->countMessages(), 'the long message and the one after it');
+        $id = $this->messageRepository->findIdByMessageId($this->mailboxId, 'longue@example.be');
+        $this->assertNotNull($id);
+        $stored = $this->messageRepository->findAnyForAnalysis($id);
+        $this->assertNotNull($stored);
+        $this->assertGreaterThan(65535, strlen($stored->bodyText));
+        $this->assertSame(11, $this->mailboxRepository->findCursor($this->mailboxId, 'INBOX')->lastUid);
+    }
+
+    /**
+     * A message the site cannot write down costs that message, never the
+     * rest of the folder (#1433): the next one is stored, the cursor moves
+     * past both, and the failure is journalled without the subject, the
+     * sender or the exception's text.
+     */
+    public function testAMessageThatCannotBeStoredDoesNotStopTheFolder(): void
+    {
+        $this->messageRepository = new class ($this->pdo, $this->encryption) extends InboundMessageRepository {
+            public function create(
+                int $mailboxId,
+                string $folder,
+                int $uidValidity,
+                int $imapUid,
+                string $messageId,
+                ?string $inReplyTo,
+                string $subject,
+                string $fromEmail,
+                ?string $fromName,
+                string $bodyText,
+                string $bodyHtml,
+                \DateTimeImmutable $sentAt,
+                array $toEmails = [],
+                bool $isBulk = false,
+                ?string $rawHeaders = null,
+                MessageDirection $direction = MessageDirection::RECEIVED,
+                bool $senderVerified = false
+            ): int {
+                if ($messageId === 'refuse@example.be') {
+                    throw new \PDOException(
+                        'SQLSTATE[22001]: Data too long for column body_html_encrypted, from Jeanne'
+                    );
+                }
+
+                return parent::create(
+                    $mailboxId, $folder, $uidValidity, $imapUid, $messageId, $inReplyTo, $subject, $fromEmail,
+                    $fromName, $bodyText, $bodyHtml, $sentAt, $toEmails, $isBulk, $rawHeaders, $direction,
+                    $senderVerified
+                );
+            }
+        };
+        $this->service = $this->createSyncService(journal: new JournalService(new JournalRepository($this->pdo)));
+        $this->addMessage(10, subject: 'Un secret', messageId: 'refuse@example.be');
+        $this->addMessage(11, messageId: 'apres@example.be');
+
+        $outcome = $this->sync();
+
+        $this->assertFalse($outcome->isFailure(), 'the box is not failed for one message');
+        $this->assertSame(1, $this->countMessages());
+        $this->assertNotNull($this->messageRepository->findIdByMessageId($this->mailboxId, 'apres@example.be'));
+        $this->assertSame(11, $this->mailboxRepository->findCursor($this->mailboxId, 'INBOX')->lastUid);
+
+        $row = $this->pdo->query(
+            "SELECT level, description, context FROM event_log WHERE event_type = 'inbound_message_store_failed'"
+        )->fetch(\PDO::FETCH_ASSOC);
+        $this->assertIsArray($row, 'the failure is journalled');
+        $this->assertSame('warning', $row['level']);
+        // Compared without regard to key order: MySQL 8 stores a JSON
+        // column with its keys reordered.
+        $context = (array) json_decode((string) $row['context'], true);
+        $expected = [
+            'mailbox_id' => $this->mailboxId, 'folder' => 'INBOX', 'uid' => 10, 'error_class' => \PDOException::class,
+        ];
+        ksort($context);
+        ksort($expected);
+        $this->assertSame($expected, $context);
+        $journalled = $row['description'] . $row['context'];
+        foreach (['Un secret', 'jeanne', 'Jeanne', 'Data too long'] as $leak) {
+            $this->assertStringNotContainsString($leak, $journalled);
+        }
+
+        // The next pass starts above both: nothing is read again.
+        $this->client->calls = [];
+        $this->sync();
+        $this->assertContains('fetchSince:INBOX:11', $this->client->calls);
+    }
+
+    /**
+     * A database server that fails is not a message to skip (#1433): busy,
+     * gone, full or read-only, it fails the same for every message, so the
+     * folder stops as before, the cursor unsaved, and the message is read
+     * again on the next pass — never journalled as lost.
+     *
+     * @param array{0: string, 1: int, 2: string} $errorInfo
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('serverFailures')]
+    public function testAServerFailureStopsTheFolderSoTheMessageIsReadAgain(array $errorInfo): void
+    {
+        $this->messageRepository = new class ($this->pdo, $this->encryption) extends InboundMessageRepository {
+            public bool $busy = true;
+            /** @var array{0: string, 1: int, 2: string} */
+            public array $errorInfo = ['40001', 1213, 'Deadlock found'];
+
+            public function create(
+                int $mailboxId,
+                string $folder,
+                int $uidValidity,
+                int $imapUid,
+                string $messageId,
+                ?string $inReplyTo,
+                string $subject,
+                string $fromEmail,
+                ?string $fromName,
+                string $bodyText,
+                string $bodyHtml,
+                \DateTimeImmutable $sentAt,
+                array $toEmails = [],
+                bool $isBulk = false,
+                ?string $rawHeaders = null,
+                MessageDirection $direction = MessageDirection::RECEIVED,
+                bool $senderVerified = false
+            ): int {
+                if ($this->busy) {
+                    $e = new \PDOException('SQLSTATE[' . $this->errorInfo[0] . ']: ' . $this->errorInfo[2]);
+                    $e->errorInfo = $this->errorInfo;
+                    throw $e;
+                }
+
+                return parent::create(
+                    $mailboxId, $folder, $uidValidity, $imapUid, $messageId, $inReplyTo, $subject, $fromEmail,
+                    $fromName, $bodyText, $bodyHtml, $sentAt, $toEmails, $isBulk, $rawHeaders, $direction,
+                    $senderVerified
+                );
+            }
+        };
+        $repository = $this->messageRepository;
+        $repository->errorInfo = $errorInfo;
+        $this->service = $this->createSyncService(journal: new JournalService(new JournalRepository($this->pdo)));
+        $this->addMessage(10, messageId: 'occupe@example.be');
+
+        $this->assertTrue($this->sync()->isFailure(), 'the pass fails, as before');
+        $this->assertSame(0, (int) $this->pdo->query(
+            "SELECT COUNT(*) FROM event_log WHERE event_type = 'inbound_message_store_failed'"
+        )->fetchColumn());
+
+        $repository->busy = false;
+        $this->assertFalse($this->sync()->isFailure());
+        $this->assertNotNull($repository->findIdByMessageId($this->mailboxId, 'occupe@example.be'), 'read again');
+    }
+
+    /**
+     * @return array<string, array{array{0: string, 1: int, 2: string}}>
+     */
+    public static function serverFailures(): array
+    {
+        return [
+            'deadlock' => [['40001', 1213, 'Deadlock found when trying to get lock']],
+            'lock wait' => [['HY000', 1205, 'Lock wait timeout exceeded']],
+            'server gone' => [['HY000', 2006, 'MySQL server has gone away']],
+            'disk full' => [['HY000', 1021, 'Disk full; waiting for someone to free some space']],
+            'table full' => [['HY000', 1114, 'The table is full']],
+            'read-only' => [['HY000', 1290, 'The MariaDB server is running with the --read-only option']],
+        ];
     }
 
     public function testABoxNoModuleSortsIsStillReadAndStillKept(): void
