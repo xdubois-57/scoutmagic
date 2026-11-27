@@ -38,6 +38,7 @@ final class UserFacingExceptionInventoryTest extends TestCase
      * @var list<class-string>
      */
     private const USER_FACING = [
+        \Core\Archive\ArchiveDamagedException::class,
         \Core\Archive\ArchiveRejectedException::class,
         \Core\Badge\BadgeException::class,
         \Core\Config\SettingException::class,
