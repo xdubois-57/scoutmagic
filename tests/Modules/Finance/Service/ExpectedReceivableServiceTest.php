@@ -552,6 +552,52 @@ class ExpectedReceivableServiceTest extends TestCase
         $this->assertSame(12000, $this->service->getReceivableStatus($second)['amount_due']);
     }
 
+    /**
+     * Issue #1525: a form response corrected down to nothing takes its
+     * unpaid receivable with it — and only that one.
+     */
+    public function testAnUnpaidReceivableCanBeDeletedOnItsOwn(): void
+    {
+        $gone = $this->service->createReceivable('news', 12, $this->accountId, 2500, '+++100/0000/00034+++', null, $this->categoryId);
+        $kept = $this->service->createReceivable('news', 12, $this->accountId, 3000, '+++200/0000/00068+++', null, $this->categoryId);
+
+        $this->service->deleteReceivable('news', $gone);
+
+        $ids = array_map('intval', $this->pdo->query('SELECT id FROM finance_expected_receivables')->fetchAll(\PDO::FETCH_COLUMN));
+        $this->assertSame([$kept], $ids);
+        $this->assertFalse($this->pdo->inTransaction());
+    }
+
+    /**
+     * Money arrived: deleting would drop the trace of a payment the unit
+     * holds, and the surplus somebody is owed with it.
+     */
+    public function testAReceivableThatReceivedMoneyIsNeverDeleted(): void
+    {
+        $id = $this->service->createReceivable('news', 12, $this->accountId, 2500, '+++100/0000/00034+++', null, $this->categoryId);
+        $this->createTransaction('Virement +++100/0000/00034+++', 10.00);
+
+        try {
+            $this->service->deleteReceivable('news', $id);
+            $this->fail('A paid receivable must not be deleted.');
+        } catch (FinanceException $e) {
+            $this->assertStringContainsString('déjà reçu un paiement', $e->getMessage());
+        }
+
+        $this->assertSame(1, (int) $this->pdo->query('SELECT COUNT(*) FROM finance_expected_receivables')->fetchColumn());
+    }
+
+    /** Another module's receivable is answered exactly as absent. */
+    public function testAnotherModulesReceivableCannotBeDeleted(): void
+    {
+        $id = $this->service->createReceivable('rental', 3, $this->accountId, 2500, '+++100/0000/00034+++', null, $this->categoryId);
+
+        $this->expectException(FinanceException::class);
+        $this->expectExceptionMessage("Cette créance n'existe pas.");
+
+        $this->service->deleteReceivable('news', $id);
+    }
+
     private function createTransaction(string $label, float $amount): void
     {
         $this->transactionRepository->create(

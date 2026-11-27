@@ -171,8 +171,10 @@ class FormResponseRepository
     public function update(int $responseId, string $contactEmail, array $values): void
     {
         $stmt = $this->pdo->prepare(
-            'UPDATE news_form_responses SET contact_email = ?, contact_email_blind_index = ?, updated_at = ? WHERE id '
-                . '= ?'
+            // The answers written here passed the current validation, so a
+            // quantity flagged by the reprise of issue #1525 is gone.
+            'UPDATE news_form_responses SET contact_email = ?, contact_email_blind_index = ?, updated_at = ?, '
+                . 'invalid_quantity_flagged_at = NULL WHERE id = ?'
         );
         $stmt->execute([
             $this->encryption->encrypt(
@@ -278,7 +280,11 @@ class FormResponseRepository
             if ($row['value'] === null) {
                 continue;
             }
-            $sum += (float) $this->encryption->decrypt($row['value'], 'news_form_response_values.value');
+            // A negative answer stored before the server refused one
+            // (issue #1525) gives no place back: counted as nothing, never
+            // as a negative that would shrink the total and sell the
+            // places a second time.
+            $sum += max(0.0, (float) $this->encryption->decrypt($row['value'], 'news_form_response_values.value'));
         }
 
         return $sum;
@@ -289,6 +295,93 @@ class FormResponseRepository
         $stmt = $this->pdo->prepare('UPDATE news_form_responses SET structured_communication = ?, receivable_id = ? '
             . 'WHERE id = ?');
         $stmt->execute([$structuredCommunication, $receivableId, $responseId]);
+    }
+
+    /**
+     * Unlinks the response from its receivable and its communication — the
+     * receivable was deleted because the response no longer costs anything
+     * (Service\ResponseService::update()).
+     */
+    public function clearReceivable(int $responseId): void
+    {
+        $stmt = $this->pdo->prepare(
+            'UPDATE news_form_responses SET structured_communication = NULL, receivable_id = NULL WHERE id = ?'
+        );
+        $stmt->execute([$responseId]);
+    }
+
+    /**
+     * Every answer to a number field, decrypted, with what makes the field
+     * a quantity — what the reprise of issue #1525 reads once to find the
+     * responses stored with a negative or fractional quantity. A one-off
+     * pass over the whole table, never run on a page.
+     *
+     * @return list<array{response_id: int, field_id: int, value: string}>
+     */
+    public function findNumberAnswers(): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT v.response_id, v.field_id, v.value FROM news_form_response_values v '
+                . 'JOIN news_form_fields f ON f.id = v.field_id '
+                . "WHERE f.field_type = 'number' AND v.value IS NOT NULL ORDER BY v.response_id, v.field_id"
+        );
+        $stmt->execute();
+
+        $answers = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $answers[] = [
+                'response_id' => (int) $row['response_id'],
+                'field_id' => (int) $row['field_id'],
+                'value' => $this->encryption->decrypt($row['value'], 'news_form_response_values.value'),
+            ];
+        }
+
+        return $answers;
+    }
+
+    /**
+     * Marks these responses as holding an invalid quantity (issue #1525).
+     * A response already marked keeps its first date.
+     *
+     * @param int[] $responseIds
+     */
+    public function flagInvalidQuantity(array $responseIds, string $at): void
+    {
+        $stmt = $this->pdo->prepare(
+            'UPDATE news_form_responses SET invalid_quantity_flagged_at = ? '
+                . 'WHERE id = ? AND invalid_quantity_flagged_at IS NULL'
+        );
+        foreach (array_unique($responseIds) as $responseId) {
+            $stmt->execute([$at, (int) $responseId]);
+        }
+    }
+
+    /**
+     * How many flagged responses each article's form still holds — one
+     * aggregate query, which is what lets the attention-points page show it
+     * on every display (Core\Attention\AttentionPointProvider).
+     *
+     * @return list<array{article_id: int, title: string, count: int}>
+     */
+    public function countInvalidQuantitiesByArticle(): array
+    {
+        $stmt = $this->pdo->query(
+            'SELECT a.id AS article_id, a.title, COUNT(*) AS flagged FROM news_form_responses r '
+                . 'JOIN news_forms f ON f.id = r.form_id '
+                . 'JOIN news_articles a ON a.id = f.news_article_id '
+                . 'WHERE r.invalid_quantity_flagged_at IS NOT NULL '
+                . 'GROUP BY a.id, a.title ORDER BY a.id'
+        );
+        \assert($stmt !== false);
+
+        return array_map(
+            static fn (array $row): array => [
+                'article_id' => (int) $row['article_id'],
+                'title' => (string) $row['title'],
+                'count' => (int) $row['flagged'],
+            ],
+            $stmt->fetchAll(\PDO::FETCH_ASSOC)
+        );
     }
 
     /**
@@ -409,7 +502,10 @@ class FormResponseRepository
             submittedAt: (string) $row['submitted_at'],
             updatedAt: $row['updated_at'] !== null ? (string) $row['updated_at'] : null,
             ticketReference: ($row['ticket_reference'] ?? null) !== null ? (string) $row['ticket_reference'] : null,
-            ticketUsedAt: ($row['ticket_used_at'] ?? null) !== null ? (string) $row['ticket_used_at'] : null
+            ticketUsedAt: ($row['ticket_used_at'] ?? null) !== null ? (string) $row['ticket_used_at'] : null,
+            invalidQuantityFlaggedAt: ($row['invalid_quantity_flagged_at'] ?? null) !== null
+                ? (string) $row['invalid_quantity_flagged_at']
+                : null
         );
     }
 }

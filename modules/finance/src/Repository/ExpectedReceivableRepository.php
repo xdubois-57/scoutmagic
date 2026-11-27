@@ -389,6 +389,17 @@ class ExpectedReceivableRepository
         return $stmt !== false ? array_map('strval', $stmt->fetchAll(\PDO::FETCH_COLUMN)) : [];
     }
 
+    /**
+     * One receivable, by id — its allocations go with it (ON DELETE
+     * CASCADE). The caller has checked it was never paid
+     * (Service\ExpectedReceivableService::deleteReceivable()).
+     */
+    public function delete(int $id): void
+    {
+        $stmt = $this->pdo->prepare('DELETE FROM finance_expected_receivables WHERE id = ?');
+        $stmt->execute([$id]);
+    }
+
     public function deleteBySource(string $sourceModule, int $sourceReferenceId): void
     {
         $stmt = $this->pdo->prepare('DELETE FROM finance_expected_receivables WHERE source_module = ? AND '

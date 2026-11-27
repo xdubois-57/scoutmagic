@@ -36,7 +36,7 @@
                         {%- if row.seats is empty -%}
                             {{ row.seat_total }} place{{ row.seat_total > 1 ? 's' : '' }}
                         {%- else -%}
-                            {% for seat in row.seats %}{{ seat.label }} × {{ seat.quantity }}{{ not loop.last ? ', ' : '' }}{% endfor %}
+                            {% for seat in row.seats %}{{ seat.label }} × {{ seat.quantity }}{{ seat.invalid|default(false) ? ' (à vérifier)' : '' }}{{ not loop.last ? ', ' : '' }}{% endfor %}
                         {%- endif -%}
                     </td>
                     {% if expects_payment %}

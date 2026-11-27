@@ -181,4 +181,62 @@ class FormResponseRepositoryTest extends TestCase
         $this->assertNull($this->repository->findById($second)?->ticketReference);
         $this->assertSame('K7QW3XPM2R', $this->repository->findById($first)?->ticketReference);
     }
+
+    // --- Issue #1525 ---
+
+    public function testClearReceivableUnlinksTheCommunicationAndTheReceivable(): void
+    {
+        $id = $this->repository->create($this->formId, null, null, 'a@test.com', [], '+++100/0000/00034+++', 42);
+
+        $this->repository->clearReceivable($id);
+
+        $response = $this->repository->findById($id);
+        $this->assertNull($response?->structuredCommunication);
+        $this->assertNull($response?->receivableId);
+    }
+
+    public function testASumOfAnswersCountsAStoredNegativeAsNothing(): void
+    {
+        $numberId = $this->fieldRepository->create($this->formId, 1, FormField::TYPE_NUMBER, 'Places', false, null, null, 100, null, null);
+        $this->repository->create($this->formId, null, null, 'a@test.com', [$numberId => '4'], null, null);
+        $this->repository->create($this->formId, null, null, 'b@test.com', [$numberId => '-60'], null, null);
+
+        $this->assertSame(4.0, $this->repository->sumFieldValues($numberId));
+    }
+
+    public function testFindNumberAnswersReadsEveryNumberAnswerAndNothingElse(): void
+    {
+        $numberId = $this->fieldRepository->create($this->formId, 1, FormField::TYPE_NUMBER, 'Adultes', false, null, null, null, 18.0, null);
+        $first = $this->repository->create($this->formId, null, null, 'a@test.com', [$this->fieldId => 'Alice', $numberId => '-8'], null, null);
+        $this->repository->create($this->formId, null, null, 'b@test.com', [$this->fieldId => 'Bob', $numberId => ''], null, null);
+
+        $this->assertSame(
+            [['response_id' => $first, 'field_id' => $numberId, 'value' => '-8']],
+            $this->repository->findNumberAnswers()
+        );
+    }
+
+    public function testAFlaggedResponseIsCountedPerArticleUntilItIsSavedAgain(): void
+    {
+        $flagged = $this->repository->create($this->formId, null, null, 'a@test.com', [], null, null);
+        $other = $this->repository->create($this->formId, null, null, 'b@test.com', [], null, null);
+        $this->repository->create($this->formId, null, null, 'c@test.com', [], null, null);
+
+        $this->repository->flagInvalidQuantity([$flagged, $other], '2026-11-27 10:00:00');
+        // Flagging again keeps the first date.
+        $this->repository->flagInvalidQuantity([$flagged], '2026-11-28 10:00:00');
+
+        $this->assertSame('2026-11-27 10:00:00', $this->repository->findById($flagged)?->invalidQuantityFlaggedAt);
+        $articleId = (int) $this->pdo->query('SELECT news_article_id FROM news_forms')->fetchColumn();
+        $this->assertSame(
+            [['article_id' => $articleId, 'title' => 'Camp', 'count' => 2]],
+            $this->repository->countInvalidQuantitiesByArticle()
+        );
+
+        $this->repository->update($flagged, 'a@test.com', []);
+        $this->repository->update($other, 'b@test.com', []);
+
+        $this->assertFalse($this->repository->findById($flagged)?->hasInvalidQuantity());
+        $this->assertSame([], $this->repository->countInvalidQuantitiesByArticle());
+    }
 }

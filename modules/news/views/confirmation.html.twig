@@ -26,6 +26,11 @@
             <div class="card mb-3 border-primary">
                 <div class="card-body">
                     <p class="fw-bold fs-5">Montant à payer : {{ payment.total|money }}</p>
+                    {# After an edit that raised the amount (issue #1525):
+                       what is asked is the difference, and this says why. #}
+                    {% if payment.received|default(0) > 0 %}
+                        <p class="mb-1">Déjà reçu : {{ payment.received|money }}</p>
+                    {% endif %}
                     <p class="mb-1">Compte : {{ payment.beneficiary }}</p>
                     <p class="mb-1">IBAN : {{ payment.iban }}</p>
                     <p class="mb-3">Communication structurée : <strong>{{ payment.communication }}</strong></p>
@@ -36,6 +41,16 @@
                         Scannez ce QR code avec votre application bancaire pour effectuer le paiement.
                     </p>
                 </div>
+            </div>
+        {% endif %}
+
+        {# A paid response corrected down below what came in (issue #1525):
+           the family is told the unit owes them the difference, rather than
+           left to wonder where their money went. #}
+        {% if amount_owed_back|default(0) > 0 %}
+            <div class="alert alert-info" role="status">
+                Vous avez payé {{ amount_owed_back|money_cents }} de plus que le nouveau montant de votre réponse.
+                L'unité vous remboursera cette différence : vous n'avez rien à faire.
             </div>
         {% endif %}
 

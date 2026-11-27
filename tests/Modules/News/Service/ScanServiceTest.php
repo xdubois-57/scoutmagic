@@ -258,9 +258,63 @@ class ScanServiceTest extends TestCase
         $this->assertSame('Roskam', $verdict['holder'], 'the name the form collected, not the address');
         $this->assertSame(4, $verdict['seat_total']);
         $this->assertSame(
-            [['label' => 'Repas adulte', 'quantity' => '2'], ['label' => 'Repas enfant', 'quantity' => '2']],
+            [
+                ['label' => 'Repas adulte', 'quantity' => '2', 'invalid' => false],
+                ['label' => 'Repas enfant', 'quantity' => '2', 'invalid' => false],
+            ],
             $verdict['seats']
         );
+    }
+
+    /**
+     * Issue #1525. A quantity stored before the server refused negatives
+     * and fractions used to be dropped from the verdict, so « Adultes × 4,
+     * Enfants × −8 » — a total of zero, no receivable, a valid ticket —
+     * read at the door as an ordinary booking for four. The line stays,
+     * marked, and gives no seat; only a plain zero is left out.
+     */
+    public function testAStoredQuantityThatIsNotAWholeNumberIsNeverSilentlyDropped(): void
+    {
+        [, $formId] = $this->event('Souper spaghetti');
+        $f = $this->dinnerFields($formId);
+        $responseId = $this->booking($formId, [$f['name'] => 'Roskam', $f['adults'] => '4', $f['children'] => '-8'], 'a@test.com');
+        $reference = (string) $this->responses->findById($responseId)?->ticketReference;
+
+        $verdict = $this->service()->verdictFor($this->forms->findById($formId), TicketService::format($reference));
+
+        $this->assertSame(
+            [
+                ['label' => 'Repas adulte', 'quantity' => '4', 'invalid' => false],
+                ['label' => 'Repas enfant', 'quantity' => '-8', 'invalid' => true],
+            ],
+            $verdict['seats']
+        );
+        $this->assertSame(4, $verdict['seat_total'], 'a negative takes no seat off the others');
+    }
+
+    public function testAFractionalQuantityIsShownAsInvalidAndAZeroIsLeftOut(): void
+    {
+        [, $formId] = $this->event('Souper spaghetti');
+        $f = $this->dinnerFields($formId);
+        $responseId = $this->booking($formId, [$f['name'] => 'Roskam', $f['adults'] => '0.5', $f['children'] => '0'], 'a@test.com');
+        $reference = (string) $this->responses->findById($responseId)?->ticketReference;
+
+        $verdict = $this->service()->verdictFor($this->forms->findById($formId), TicketService::format($reference));
+
+        $this->assertSame([['label' => 'Repas adulte', 'quantity' => '0.5', 'invalid' => true]], $verdict['seats']);
+    }
+
+    /** The printed list carries the same lines: it is the door's fallback. */
+    public function testThePrintedListKeepsAnInvalidQuantityToo(): void
+    {
+        [, $formId] = $this->event('Souper spaghetti');
+        $f = $this->dinnerFields($formId);
+        $this->booking($formId, [$f['name'] => 'Roskam', $f['adults'] => '4', $f['children'] => '-8'], 'a@test.com');
+
+        $rows = $this->service()->expectedAttendees($this->forms->findById($formId));
+
+        $this->assertCount(2, $rows[0]['seats']);
+        $this->assertTrue($rows[0]['seats'][1]['invalid']);
     }
 
     public function testAUsedTicketSaysWhenItWasUsed(): void

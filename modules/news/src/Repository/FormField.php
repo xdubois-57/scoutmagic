@@ -89,6 +89,18 @@ final class FormField
         return $this->fieldType === self::TYPE_NUMBER && $this->pricePerUnit !== null;
     }
 
+    /**
+     * A number that counts something — places, meals, tickets: it carries
+     * a price or a capacity. Its answer is a whole number of units, never
+     * a fraction and never a negative (issue #1525), because it is
+     * multiplied by a price and added to a running capacity total.
+     */
+    public function isQuantity(): bool
+    {
+        return $this->fieldType === self::TYPE_NUMBER
+            && ($this->pricePerUnit !== null || $this->capacityMax !== null);
+    }
+
     /** The same field with $text in place of its text. */
     public function withConfirmationText(?string $text): self
     {

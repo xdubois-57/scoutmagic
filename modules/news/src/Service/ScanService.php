@@ -252,7 +252,7 @@ class ScanService
      *     form: ?NewsForm,
      *     article_title: ?string,
      *     event_date: ?string,
-     *     seats: array<int, array{label: string, quantity: string}>,
+     *     seats: array<int, array{label: string, quantity: string, invalid: bool}>,
      *     seat_total: int,
      *     payment: ?array{amount_due: int, amount_received: int, status: string, receivable_id: int},
      *     used_at: ?string,
@@ -279,7 +279,7 @@ class ScanService
      *     form: ?NewsForm,
      *     article_title: ?string,
      *     event_date: ?string,
-     *     seats: array<int, array{label: string, quantity: string}>,
+     *     seats: array<int, array{label: string, quantity: string, invalid: bool}>,
      *     seat_total: int,
      *     payment: ?array{amount_due: int, amount_received: int, status: string, receivable_id: int},
      *     used_at: ?string,
@@ -383,7 +383,7 @@ class ScanService
      *     array{
      *         label: string,
      *         reference: string,
-     *         seats: array<int, array{label: string, quantity: string}>,
+     *         seats: array<int, array{label: string, quantity: string, invalid: bool}>,
      *         seat_total: int,
      *         payment: ?array{amount_due: int, amount_received: int, status: string, receivable_id: int}
      *     }
@@ -462,9 +462,17 @@ class ScanService
     /**
      * What this response booked, in words — « Repas adulte × 2 ».
      *
+     * **A stored quantity that is not a whole number is never dropped**
+     * (issue #1525). It can only predate the server's refusal of negative
+     * and fractional quantities, and it is exactly what made a ticket look
+     * paid for four when it was paid for none: « Adultes × 4 » with the
+     * « Enfants × −8 » left out. Such a line is kept, marked `invalid`,
+     * and the door shows it as a warning. Only an empty answer and a
+     * plain zero — nothing booked — are left out.
+     *
      * @param FormField[] $fields
      * @param array<int, string> $answers
-     * @return array<int, array{label: string, quantity: string}>
+     * @return array<int, array{label: string, quantity: string, invalid: bool}>
      */
     private function seatLines(array $fields, array $answers): array
     {
@@ -474,10 +482,11 @@ class ScanService
                 continue;
             }
             $quantity = trim((string) ($answers[$field->id] ?? ''));
-            if ($quantity === '' || (float) $quantity <= 0) {
+            $whole = preg_match('/^\d+$/', $quantity) === 1;
+            if ($quantity === '' || ($whole && (int) $quantity === 0)) {
                 continue;
             }
-            $lines[] = ['label' => (string) $field->label, 'quantity' => $quantity];
+            $lines[] = ['label' => (string) $field->label, 'quantity' => $quantity, 'invalid' => !$whole];
         }
 
         return $lines;
@@ -553,7 +562,9 @@ class ScanService
 
         $total = 0;
         foreach ($seatFields as $field) {
-            $total += (int) (float) ($answers[$field->id] ?? '0');
+            // A negative stored before issue #1525 counts no seat, rather
+            // than taking seats off the response's other lines.
+            $total += max(0, (int) (float) ($answers[$field->id] ?? '0'));
         }
 
         return $total;
@@ -592,7 +603,7 @@ class ScanService
      *     form: ?NewsForm,
      *     article_title: ?string,
      *     event_date: ?string,
-     *     seats: array<int, array{label: string, quantity: string}>,
+     *     seats: array<int, array{label: string, quantity: string, invalid: bool}>,
      *     seat_total: int,
      *     payment: ?array{amount_due: int, amount_received: int, status: string, receivable_id: int},
      *     used_at: ?string,

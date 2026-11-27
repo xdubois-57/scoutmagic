@@ -307,6 +307,7 @@ class FormController extends AbstractController
             'response' => $response,
             'answers' => $this->answerLines($fields, $readableAnswers[$response->id]),
             'payment' => $this->responseService->buildPaymentSummary($form, $response, $total),
+            'amount_owed_back' => $this->responseService->amountOwedBackCents($response),
             'edit_url' => ($response->userAccountId !== null && $form->isOpen())
                 ? '/news/' . $article->id . '/form/responses/' . $response->id . '/edit'
                 : null,
@@ -896,7 +897,8 @@ class FormController extends AbstractController
                 (string) $request->getBody('contact_email', ''),
                 $this->extractAnswers($request, $fields),
                 AuthSession::getEmail(),
-                $scoutYearId
+                $scoutYearId,
+                $article
             );
         } catch (NewsException $e) {
             $memberOptions = $form->access === NewsForm::ACCESS_IDENTIFIED
@@ -924,7 +926,13 @@ class FormController extends AbstractController
             $accountId
         );
 
-        return $this->redirect('/news/' . $article->id);
+        // The confirmation page, as after a submission: the edit may have
+        // moved what is owed (issue #1525), and that page is where the
+        // amount left to pay — or the difference the unit owes back — is
+        // shown, with the communication and the QR to pay it.
+        $this->rememberConfirmation($article->id, $response->id);
+
+        return $this->redirect('/news/' . $article->id . '/form/confirmation');
     }
 
     /**

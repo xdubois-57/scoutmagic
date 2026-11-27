@@ -44,12 +44,16 @@ d'Unité peut corriger une réponse à votre place.
 Une option limitée peut s'être remplie entre-temps : si vous demandez
 plus de places qu'il n'en reste, la page refuse l'enregistrement et
 vous dit laquelle pose problème. Votre réponse précédente est alors
-conservée intacte.
+conservée intacte. Une quantité s'écrit en nombre entier, jamais
+négatif.
 
-Si l'inscription est payante, votre communication structurée ne change
-pas : utilisez toujours la même pour votre virement.
+Si l'inscription est payante, **le montant suit votre modification**,
+et votre communication structurée ne change pas : utilisez toujours la
+même pour votre virement. Après l'enregistrement, la page de
+confirmation vous dit ce qu'il reste à payer :
 
-> Le montant réclamé, lui, **ne se recalcule pas tout seul** : il reste
-> celui de votre première réponse. Si votre modification change ce que
-> vous devez, dites-le à l'unité — c'est un membre du Staff d'Unité qui
-> ajuste le montant, et lui seul.
+- vous ajoutez des places à une inscription déjà payée : seule la
+  **différence** est demandée, à côté de ce que l'unité a « Déjà reçu ».
+  Un e-mail de confirmation vous le redit ;
+- vous en retirez après avoir payé : vous n'avez rien à faire, la page
+  vous indique le montant payé en trop, et l'unité vous le rembourse.

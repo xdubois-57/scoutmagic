@@ -182,6 +182,29 @@ class ExpectedReceivableService implements ExpectedReceivableInterface
         $this->repository->deleteBySource($sourceModule, $sourceReferenceId);
     }
 
+    public function deleteReceivable(string $sourceModule, int $receivableId): void
+    {
+        $receivable = $this->ownedBy($sourceModule, $receivableId);
+        if ($receivable === null) {
+            throw new FinanceException("Cette créance n'existe pas.");
+        }
+
+        // Decided under the receivable's lock, after the same reconciling
+        // read every status goes through: a payment imported a minute ago
+        // is counted, and one being attached right now waits for this.
+        $this->repository->withReceivableLocked($receivableId, function () use ($receivable): void {
+            $settlement = $this->allocations->refreshAndSettle([$receivable])[$receivable->id];
+            if ($settlement->amountDesignatedCents > 0 || $settlement->amountRefundedCents > 0) {
+                throw new FinanceException(
+                    'Cette créance a déjà reçu un paiement : elle ne peut pas être supprimée. '
+                    . 'Ramenez son montant à zéro pour faire apparaître le trop-perçu à rembourser.'
+                );
+            }
+
+            $this->repository->delete($receivable->id);
+        });
+    }
+
     public function getReceivableStanding(string $sourceModule, int $receivableId): ?ReceivableStanding
     {
         $receivable = $this->ownedBy($sourceModule, $receivableId);
