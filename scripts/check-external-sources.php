@@ -16,14 +16,18 @@ declare(strict_types=1);
  *
  * `--retry-unreachable` allows a second request to a source that did not
  * answer at all (issue #760: a host answering one request in three made the
- * release gate a coin toss). Only the release gate passes it; without it, a
- * source is asked once. Any other argument exits 2.
+ * release gate a coin toss; issue #1405: one silent request made the weekly
+ * run file an issue for an address that was right). Both callers below pass
+ * it; without it, a source is asked once. A source that answered with a
+ * status — a 404, a 410, a 500 — is never asked again and diverges at once.
+ * Any other argument exits 2.
  *
  * Two callers, one verdict:
  * - `scripts/release.sh`'s sixth gate, « Sources externes », which refuses
  *   the release on exit 1, and passes `--retry-unreachable`;
- * - `.github/workflows/external-sources-check.yml`, weekly, where Claude
- *   reads this report and opens or updates an issue per divergence
+ * - `.github/workflows/external-sources-check.yml`, weekly, which passes
+ *   `--retry-unreachable` too (#1405) and where Claude reads this report and
+ *   opens or updates an issue per divergence
  *   (`.claude/skills/external-sources/SKILL.md`);
  *
  * « Fixe le backlog » no longer runs it (issue #923): the weekly workflow files
