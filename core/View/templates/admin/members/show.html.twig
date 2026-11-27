@@ -525,8 +525,8 @@
                                     {% if group.isModerator %}
                                         <span class="badge text-bg-light border flex-shrink-0">Animateur</span>
                                     {% endif %}
-                                    {% if group.isClosed %}
-                                        {% include 'partials/status_badge.html.twig' with { status: 'closed', label: 'clôturé' } only %}
+                                    {% if group.isArchived %}
+                                        {% include 'partials/status_badge.html.twig' with { status: 'archived', label: 'archivé' } only %}
                                     {% endif %}
                                     <i class="bi bi-chevron-right text-body-secondary flex-shrink-0" aria-hidden="true"></i>
                                 </a>

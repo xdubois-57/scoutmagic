@@ -1,7 +1,7 @@
 ---
 id: animer-un-groupe
 title: Créer et animer un groupe
-summary: Ouvrir un groupe, inviter, modérer, épingler, clôturer.
+summary: Ouvrir un groupe, inviter, modérer, épingler, archiver.
 category: Espace animateurs
 role_min: chief
 question: Comment ouvrir un groupe de discussion pour ma section ?
@@ -48,11 +48,13 @@ retenu avant publication avec une reformulation proposée à son auteur.
 Ce filet est facultatif et peut laisser passer : le signalement et
 votre jugement restent la vraie modération.
 
-## Épingler, régler, clôturer
+## Épingler, régler, archiver
 
 Un seul message s'épingle à la fois, pour une durée choisie — épingler
 le suivant décroche le précédent. « Modifier le groupe » change son
 nom, sa description et qui peut publier (tout le monde, ou les
 modérateurs seuls — chacun garde alors commentaires, réactions et
-sondages). « Clôturer » fige le groupe en lecture seule ; il peut
-rouvrir tant que son année scoute est en cours.
+sondages). « Archiver » le range dans « Archives », en lecture seule.
+Le site archive aussi un groupe resté longtemps sans activité, et ceux
+d'une année scoute terminée. « Rouvrir » le remet dans la liste tant
+que son année scoute est en cours.

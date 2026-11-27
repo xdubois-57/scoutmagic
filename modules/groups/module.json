@@ -201,10 +201,10 @@
       "label": ""
     },
     {
-      "path": "/groups/{id}/close",
+      "path": "/groups/{id}/archive",
       "method": "POST",
       "controller": "Modules\\Groups\\Controller\\GroupController",
-      "action": "close",
+      "action": "archive",
       "menu": "espace_animes",
       "role_min": "identified",
       "label": ""
@@ -485,8 +485,8 @@
       "key": "groups_inactivity_close_months",
       "default_value": "12",
       "type": "number",
-      "label": "Clôture automatique après inactivité (mois)",
-      "description": "Nombre de mois sans aucun message, réponse ni réaction au bout desquels un groupe est clôturé automatiquement. Un groupe clôturé reste entièrement visible et consultable par ses membres : il n'accepte simplement plus de nouvelle publication. Un groupe qui n'a jamais rien contenu est compté à partir de sa date de création, pas depuis toujours."
+      "label": "Archivage automatique après inactivité (mois)",
+      "description": "Nombre de mois sans aucun message, réponse ni réaction au bout desquels un groupe est archivé automatiquement. Un groupe archivé passe dans « Archives » et reste entièrement visible et consultable par ses membres : il n'accepte simplement plus de nouvelle publication. Un groupe qui n'a jamais rien contenu est compté à partir de sa date de création, pas depuis toujours."
     },
     {
       "key": "groups_post_retention_months",
@@ -499,15 +499,15 @@
       "key": "groups_closed_purge_months",
       "default_value": "12",
       "type": "number",
-      "label": "Suppression des groupes clôturés (mois)",
-      "description": "Nombre de mois après la clôture d'un groupe au bout desquels ce groupe est supprimé définitivement, avec tout son contenu et sa galerie. Un groupe de l'année scoute en cours ou d'une année à venir n'est jamais supprimé automatiquement, même clôturé."
+      "label": "Suppression des groupes archivés (mois)",
+      "description": "Nombre de mois après l'archivage d'un groupe au bout desquels ce groupe est supprimé définitivement, avec tout son contenu et sa galerie. Le délai part de la date d'archivage, que le groupe ait été archivé à la main, après inactivité ou à la fin de son année scoute. Un groupe de l'année scoute en cours ou d'une année à venir n'est jamais supprimé automatiquement, même archivé."
     },
     {
       "key": "groups_max_created_per_member",
       "default_value": "5",
       "type": "number",
       "label": "Groupes créés par personne (maximum)",
-      "description": "Nombre maximum de groupes sur invitation qu'une même personne peut avoir ouverts en même temps. Les groupes de section, créés automatiquement, ne sont pas comptés, et un groupe clôturé ne compte plus. Cette limite s'applique à tout le monde, administrateurs compris : elle évite l'encombrement de la liste des groupes, ce n'est pas une question de droits."
+      "description": "Nombre maximum de groupes sur invitation qu'une même personne peut avoir ouverts en même temps. Les groupes de section, créés automatiquement, ne sont pas comptés, et un groupe archivé ne compte plus. Cette limite s'applique à tout le monde, administrateurs compris : elle évite l'encombrement de la liste des groupes, ce n'est pas une question de droits."
     },
     {
       "key": "groups_draft_ttl_minutes",

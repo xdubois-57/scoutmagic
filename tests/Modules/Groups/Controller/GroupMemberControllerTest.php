@@ -255,15 +255,15 @@ class GroupMemberControllerTest extends TestCase
     /**
      * The header partial is included with `only`: the page's own
      * `can_moderate` (which gates the member controls below) must not
-     * leak into it, where it used to render the Clôturer button on the
+     * leak into it, where it used to render the Archiver button on the
      * members page.
      */
     public function testMembersPageOffersNoCloseControlEvenToAModerator(): void
     {
         $body = $this->controller([$this->moderatorId])->index(new Request('GET', '/g', [], [], [], []), $this->params())->getBody();
 
-        $this->assertStringNotContainsString('Clôturer', $body);
-        $this->assertStringNotContainsString('/groups/' . $this->groupId . '/close', $body);
+        $this->assertStringNotContainsString('Archiver', $body);
+        $this->assertStringNotContainsString('/groups/' . $this->groupId . '/archive', $body);
     }
 
     /**

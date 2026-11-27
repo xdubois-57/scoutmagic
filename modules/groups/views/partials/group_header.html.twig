@@ -43,12 +43,12 @@
     </div>
     <div class="d-flex gap-2 flex-wrap">
         {#
-          Closing and reopening are a moderator's, and belong to the
+          Archiving and reopening are a moderator's, and belong to the
           group's OWN page only: GroupController::show() is the sole
           caller that resolves `can_moderate` and `can_reopen` into this
           partial. The members page includes it with `only` and passes
           neither (its own context defines can_moderate for its member
-          controls, which used to leak in here and put a Clôturer button
+          controls, which used to leak in here and put an Archiver button
           on the members page); search and reports never receive them
           from their controllers at all.
         #}
@@ -63,11 +63,11 @@
                     </form>
                 {% endif %}
             {% else %}
-                <form method="post" action="/groups/{{ group.id }}/close"
-                      data-confirm="Clôturer ce groupe ? Il restera consultable, mais plus personne ne pourra y publier.">
+                <form method="post" action="/groups/{{ group.id }}/archive"
+                      data-confirm="Archiver ce groupe ? Il passera dans « Archives » : il restera consultable, mais plus personne ne pourra y participer.">
                     {{ csrf_field()|raw }}
                     <button type="submit" class="btn btn-outline-secondary d-flex align-items-center">
-                        <i class="bi bi-archive me-1" aria-hidden="true"></i> Clôturer
+                        <i class="bi bi-archive me-1" aria-hidden="true"></i> Archiver
                     </button>
                 </form>
             {% endif %}

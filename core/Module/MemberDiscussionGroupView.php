@@ -23,14 +23,15 @@ final class MemberDiscussionGroupView
      * @param string $name        the group's name
      * @param string $path        site-absolute path of the group's page
      * @param bool $isModerator   whether they run it, not merely belong to it
-     * @param bool $isClosed      a closed group is still part of the journey,
-     *        and saying so is what stops it reading as current
+     * @param bool $isArchived    an archived group — by hand, after inactivity
+     *        or at the end of its scout year — is still part of the
+     *        journey, and saying so is what stops it reading as current
      */
     public function __construct(
         public readonly string $name,
         public readonly string $path,
         public readonly bool $isModerator,
-        public readonly bool $isClosed,
+        public readonly bool $isArchived,
     ) {
     }
 }

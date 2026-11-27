@@ -18,7 +18,7 @@ réponse a été publié par quelqu'un d'autre depuis votre dernière visite
 du groupe. Ouvrir le groupe le fait disparaître.
 
 Une réaction, ajoutée, changée ou retirée, ne le fait pas réapparaître :
-il n'y a rien de nouveau à lire. La réouverture d'un groupe clôturé non
+il n'y a rien de nouveau à lire. La réouverture d'un groupe archivé non
 plus. Vos propres messages ne comptent jamais, pas plus qu'un contenu
 masqué par des signalements, et un groupe archivé n'en porte pas.
 

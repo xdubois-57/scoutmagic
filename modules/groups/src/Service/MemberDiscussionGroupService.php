@@ -80,9 +80,8 @@ class MemberDiscussionGroupService implements MemberDiscussionGroupProvider
                 $row['group']->name,
                 '/groups/' . $row['group']->id,
                 $row['is_moderator'],
-                // Core's DTO still names it isClosed; it now carries the
-                // single archived state (#1350 — its rename is the
-                // interface side's, with the admin page that reads it).
+                // The single archived state of Service\GroupArchiveRule
+                // (#1350), whatever archived the group.
                 $row['is_archived']
             ),
             $rows
