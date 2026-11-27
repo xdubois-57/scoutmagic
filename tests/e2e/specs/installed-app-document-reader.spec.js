@@ -95,6 +95,8 @@ test.describe('Document reader', () => {
             dialog.getByRole('link', { name: 'page de préférences cookies' }).click(),
         ]);
         await expect(cookies).toHaveURL(/\/cookies$/);
+        // Loaded before it is closed, so its scripts have run under watch().
+        await cookies.waitForLoadState('load');
         await cookies.close();
         await expect(page).toHaveURL(/\/login$/);
 
@@ -123,7 +125,7 @@ test.describe('Document reader', () => {
             context.waitForEvent('page'),
             magicLinkTab.getByRole('link', { name: 'politique de protection des données' }).click(),
         ]);
-        await notice.waitForLoadState();
+        await notice.waitForLoadState('load');
 
         await expect(notice).toHaveURL(/\/rgpd$/);
         await expect(page).toHaveURL(/\/login$/);
