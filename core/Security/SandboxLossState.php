@@ -147,6 +147,13 @@ final class SandboxLossState
 
         $this->live[$channel] = $reason;
 
+        // Read the row as it is now, not as this request's settings cache
+        // loaded it at start-up (#1549 review): between the two, other
+        // requests may have recovered (emptying a release) and lost again.
+        // Compared with a stale `<reason>:released`, the same reason would
+        // write nothing, and isBlocked() would answer from that stale
+        // release — real delivery for a loss no superadmin has released.
+        $this->settingService->clearCache();
         $stored = $this->storedValue($channel);
         [$storedReason] = self::parse($stored);
 

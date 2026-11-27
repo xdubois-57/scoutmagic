@@ -196,6 +196,33 @@ final class SandboxLossStateTest extends TestCase
     }
 
     /**
+     * A request whose settings cache still holds an old release, while
+     * other requests recovered and lost again since (#1549 review): the
+     * loss it records is compared with the row as it is now, so the stale
+     * release does not reopen real sending.
+     */
+    public function testAReleaseLeftInAStaleCacheDoesNotReopenANewLoss(): void
+    {
+        $this->state()->record(SandboxLossState::CHANNEL_MAIL, SandboxLossState::REASON_MODULE_UNLOADED, $this->journal);
+        $this->state()->release(SandboxLossState::CHANNEL_MAIL, 1, $this->journal);
+
+        $staleSettings = $this->settings();
+        $this->assertSame(
+            SandboxLossState::REASON_MODULE_UNLOADED . ':released',
+            (string) $staleSettings->get(SandboxLossState::SETTING_MAIL)
+        );
+
+        $this->state()->record(SandboxLossState::CHANNEL_MAIL, null, $this->journal);
+        $this->state()->record(SandboxLossState::CHANNEL_MAIL, SandboxLossState::REASON_MODULE_UNLOADED, $this->journal);
+
+        $stale = new SandboxLossState($staleSettings);
+        $stale->record(SandboxLossState::CHANNEL_MAIL, SandboxLossState::REASON_MODULE_UNLOADED, $this->journal);
+
+        $this->assertTrue($stale->isBlocked(SandboxLossState::CHANNEL_MAIL));
+        $this->assertFalse($stale->isReleased(SandboxLossState::CHANNEL_MAIL));
+    }
+
+    /**
      * Failing to remember a loss must never be what reopens real sending:
      * a row that cannot be written still blocks this request.
      */
