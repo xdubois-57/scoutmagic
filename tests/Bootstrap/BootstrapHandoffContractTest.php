@@ -6,6 +6,7 @@ namespace Tests\Bootstrap;
 
 use Core\Maintenance\Portable\PortableManifest;
 use Core\Security\BootstrapHandoff;
+use Core\Security\SetupTokenAttempts;
 use PHPUnit\Framework\TestCase;
 
 if (!defined('BOOTSTRAP_TEST')) {
@@ -30,6 +31,72 @@ final class BootstrapHandoffContractTest extends TestCase
         $this->assertSame(BootstrapHandoff::ARCHIVE_PATH, \BOOTSTRAP_ARCHIVE_PATH);
         $this->assertSame(BootstrapHandoff::INCOMING_DIR, \BOOTSTRAP_INCOMING_DIR);
         $this->assertSame(BootstrapHandoff::RESTORE_MODE_URL, \BOOTSTRAP_RESTORE_MODE_URL);
+    }
+
+    /**
+     * The wizard counts wrong tokens in the bootstrap's own file (#1270):
+     * the names, the keys and the ladder are copied on both sides, and a
+     * count written by one is read by the other.
+     */
+    public function testTheWizardCountsItsTokenAttemptsInTheBootstrapsFile(): void
+    {
+        $this->assertSame(SetupTokenAttempts::ACCESS_FILE, \BOOTSTRAP_ACCESS_FILE);
+        $this->assertSame(SetupTokenAttempts::LOCK_FILE, \BOOTSTRAP_ACCESS_LOCK_FILE);
+
+        $dir = sys_get_temp_dir() . '/contract_access_' . uniqid('', true);
+        mkdir($dir, 0700, true);
+        $token = str_repeat('1f', 32);
+        $now = 1_800_000_000;
+
+        try {
+            // Three wrong guesses typed at the bootstrap, one at the wizard: that is four.
+            for ($i = 0; $i < 3; $i++) {
+                \bootstrapVerifyToken($dir, 'wrong', $now);
+            }
+            $wizard = new SetupTokenAttempts($dir);
+            $fourth = $wizard->verify('wrong', $token, $now);
+
+            $this->assertSame(4, $fourth['attempts'] ?? null);
+            $access = \bootstrapReadAccess($dir);
+            $this->assertSame(4, $access[SetupTokenAttempts::KEY_ATTEMPTS] ?? null);
+            $this->assertSame($now + 60, $access[SetupTokenAttempts::KEY_LOCKED_UNTIL] ?? null);
+            $this->assertSame($now + 60, $wizard->lockedUntil($now));
+
+            // The ladder is the same on both sides, step by step.
+            foreach ([1, 3, 4, 5, 6, 7, 8, 9, 10, 11] as $attempts) {
+                $this->assertSame(\bootstrapTokenLockSeconds($attempts), $this->wizardLockSeconds($attempts), "after {$attempts}");
+            }
+        } finally {
+            self::removeDirectory($dir);
+        }
+    }
+
+    private static function removeDirectory(string $dir): void
+    {
+        foreach (array_diff(scandir($dir) ?: [], ['.', '..']) as $entry) {
+            unlink($dir . '/' . $entry);
+        }
+        rmdir($dir);
+    }
+
+    /** The seconds the wizard locks for after the given number of wrong guesses. */
+    private function wizardLockSeconds(int $attempts): int
+    {
+        $dir = sys_get_temp_dir() . '/contract_ladder_' . uniqid('', true);
+        mkdir($dir, 0700, true);
+        $now = 1_800_000_000;
+        file_put_contents(
+            $dir . '/' . SetupTokenAttempts::ACCESS_FILE,
+            "<?php\n/*\n" . json_encode([SetupTokenAttempts::KEY_ATTEMPTS => $attempts - 1]) . "\n*/\n"
+        );
+
+        try {
+            $result = (new SetupTokenAttempts($dir))->verify('wrong', str_repeat('1f', 32), $now);
+
+            return ($result['locked_until'] ?? $now) - $now;
+        } finally {
+            self::removeDirectory($dir);
+        }
     }
 
     public function testTheArchiveCommentFormatIsTheOneTheWizardWrites(): void
