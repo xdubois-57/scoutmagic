@@ -51,6 +51,7 @@ final class SandboxLossAttentionProviderTest extends TestCase
             $points[0]->title
         );
         $this->assertStringContainsString('profil d\'installation est absent de config/app.php', $points[0]->why);
+        $this->assertStringContainsString('seuls les liens de connexion partent encore', $points[0]->why);
         $this->assertSame(AttentionPoint::SEVERITY_URGENT, $points[0]->severity);
         $this->assertSame('Décider', $points[0]->actionLabel);
         $this->assertSame(SandboxLossState::PAGE_URL, $points[0]->actionUrl);

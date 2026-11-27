@@ -59,7 +59,11 @@ final class SandboxLossController extends AbstractController
                     ? 'Capture des e-mails'
                     : 'Téléphonie simulée',
                 'blocked_effect' => $channel === SandboxLossState::CHANNEL_MAIL
-                    ? 'Aucun e-mail ne part : chaque envoi échoue et est noté au journal.'
+                    // The sign-in link the capture was letting through still
+                    // leaves (Core\Mail\SuspendedMailTransport): it is how a
+                    // superadmin signs in to reach this very page.
+                    ? 'Les e-mails ne partent plus : chaque envoi échoue et est noté au journal. Seuls les liens '
+                        . 'de connexion partent encore, si le bac à sable était réglé pour les laisser passer.'
                     : 'Le site ne pilote plus la ligne SOS : il ne la lit plus et ne la redirige plus.',
                 'released_effect' => $channel === SandboxLossState::CHANNEL_MAIL
                     ? 'L\'envoi réel est rouvert : les e-mails partent vers leurs vrais destinataires.'

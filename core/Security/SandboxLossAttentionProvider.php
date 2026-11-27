@@ -47,8 +47,9 @@ final class SandboxLossAttentionProvider implements AttentionPointProvider
             $points[] = new AttentionPoint(
                 title: 'La capture des e-mails est armée mais n\'agit plus : l\'envoi est suspendu',
                 why: 'Raison : ' . SandboxLossState::reasonLabel($mailReason) . '. Plutôt que de renvoyer les '
-                    . 'messages vers les vraies adresses des membres et des parents, le site n\'envoie plus aucun '
-                    . 'e-mail tant qu\'un super-administrateur n\'a pas décidé.',
+                    . 'messages vers les vraies adresses des membres et des parents, le site n\'envoie plus '
+                    . 'd\'e-mails tant qu\'un super-administrateur n\'a pas décidé — seuls les liens de connexion '
+                    . 'partent encore, si le bac à sable était réglé pour les laisser passer.',
                 actionLabel: 'Décider',
                 actionUrl: SandboxLossState::PAGE_URL,
                 severity: AttentionPoint::SEVERITY_URGENT

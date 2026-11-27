@@ -102,6 +102,11 @@ final class SandboxLossControllerTest extends TestCase
         $this->assertStringContainsString('Capture des e-mails', $html);
         $this->assertStringContainsString('le profil d&#039;installation est absent de config/app.php', $html);
         $this->assertStringContainsString('installation_profile dans config/app.php', $html);
+        $this->assertStringContainsString(
+            'Seuls les liens de connexion partent encore, si le bac à sable était réglé pour les laisser passer.',
+            $html,
+            'The exempted sign-in link still leaves (SuspendedMailTransport): the page must not say otherwise.'
+        );
         $this->assertMatchesRegularExpression(
             '~<form method="post" action="' . preg_quote(SandboxLossController::RELEASE_URL, '~')
                 . '" data-confirm="Rouvrir l&#039;envoi réel \?[^"]+">~',
