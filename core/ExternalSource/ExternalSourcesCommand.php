@@ -18,7 +18,8 @@ namespace Core\ExternalSource;
  * only what cannot be — the CLI guard, the autoloader, and the real network
  * and shipped scale plugged in. The one option is `--retry-unreachable`
  * (issue #760): a source that did not answer at all is asked a second time.
- * Only the release gate passes it; the weekly check asks each source once.
+ * Both callers pass it — the release gate and the weekly check (issue
+ * #1405); without it, a source is asked once.
  */
 final class ExternalSourcesCommand
 {
