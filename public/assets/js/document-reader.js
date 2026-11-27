@@ -249,7 +249,15 @@
                 throw refused;
             }
             var base = response.url || link.href;
-            return response.text().then(function (html) { return { html: html, base: base }; });
+            // The timer still runs while the body streams: a body cut by
+            // it reads the offline copy too, like a request that never
+            // answered (#1444 review).
+            return response.text().then(function (html) { return { html: html, base: base }; }, function (error) {
+                if (error?.name === 'AbortError' && timedOut) {
+                    return fromCache(link.href);
+                }
+                throw error;
+            });
         }, function (error) {
             // No answer at all — offline, or too slow: the copy the
             // service worker keeps for an offline navigation
@@ -278,7 +286,9 @@
                 scroller.scrollTop = 0;
             }
         }).catch(function (error) {
-            if (pending !== controller || error?.name === 'AbortError') {
+            // An abort the dialog asked for (closed, or another document
+            // opened) wants nothing; one the timer caused is a failure.
+            if (pending !== controller || (error?.name === 'AbortError' && !timedOut)) {
                 return;
             }
             showError(body, link);

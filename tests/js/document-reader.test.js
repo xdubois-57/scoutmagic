@@ -360,6 +360,54 @@ describe('document-reader', () => {
         expect(readerBody().textContent).not.toContain('Chargement');
     });
 
+    it('reads the offline copy when the connection stalls in the middle of the page', async () => {
+        // Headers arrived, then the body stopped coming: the timer cuts the
+        // body read, which must end like a request that never answered,
+        // never on « Chargement… » for ever (#1444 review).
+        vi.useFakeTimers();
+        pretendStandalone(true);
+        window.fetch = vi.fn((_url, init) => Promise.resolve({
+            ok: true,
+            status: 200,
+            url: 'http://localhost:3000/locations/chalet/conditions/v2',
+            text: () => new Promise((_resolve, reject) => {
+                init.signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+            }),
+        }));
+        const match = vi.fn(() => Promise.resolve({ text: () => Promise.resolve(page('<div data-document-reader-content>Hors ligne</div>')) }));
+        /** @type {any} */ (window).caches = { match };
+
+        click('conditions');
+        await vi.advanceTimersByTimeAsync(8000);
+        vi.useRealTimers();
+        await settle();
+
+        expect(match).toHaveBeenCalled();
+        expect(readerBody().textContent).toContain('Hors ligne');
+        delete /** @type {any} */ (window).caches;
+    });
+
+    it('shows the error when the connection stalls in the middle of the page and no copy is kept', async () => {
+        vi.useFakeTimers();
+        pretendStandalone(true);
+        window.fetch = vi.fn((_url, init) => Promise.resolve({
+            ok: true,
+            status: 200,
+            url: 'http://localhost:3000/locations/chalet/conditions/v2',
+            text: () => new Promise((_resolve, reject) => {
+                init.signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+            }),
+        }));
+
+        click('conditions');
+        await vi.advanceTimersByTimeAsync(8000);
+        vi.useRealTimers();
+        await settle();
+
+        expect(readerBody().querySelector('[role="alert"]')).not.toBeNull();
+        expect(readerBody().textContent).not.toContain('Chargement');
+    });
+
     it('hands a link of this site to Safari on an iPhone, where window.open() would keep it in the app', async () => {
         pretendStandalone(true);
         const userAgent = Object.getOwnPropertyDescriptor(window.navigator, 'userAgent');
