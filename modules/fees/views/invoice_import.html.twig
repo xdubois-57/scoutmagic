@@ -240,6 +240,7 @@
                     <div class="form-check mb-3">
                         <input class="form-check-input" type="checkbox" id="invoice-confirmed-year"
                                name="confirmed_year_id" value="{{ outcome.targetYearId }}" required>
+                        <input type="hidden" name="confirmed_document_number" value="{{ outcome.documentNumber }}">
                         <label class="form-check-label" for="invoice-confirmed-year">
                             Ranger cette facture dans {{ outcome.targetYearLabel }} malgré sa date d'émission
                         </label>

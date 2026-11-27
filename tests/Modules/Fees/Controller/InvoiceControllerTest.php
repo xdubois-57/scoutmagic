@@ -333,12 +333,24 @@ class InvoiceControllerTest extends TestCase
 
         $this->assertStringContainsString('Émise en 2025-2026, rangée en 2026-2027 ?', $body);
         $this->assertStringContainsString('name="confirmed_year_id" value="' . $next . '"', $body);
+        $this->assertStringContainsString('name="confirmed_document_number" value="F2026/000123"', $body);
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM fees_invoices')->fetchColumn());
+
+        // Confirmed for another document: asked again, nothing filed (#1548 review).
+        $this->givenAnUploadedFile($this->pdf);
+        $body = (string) $this->dispatch('POST', '/admin/fees/factures/import', 'upload', [
+            '_csrf_token' => CsrfGuard::generateToken(),
+            'confirmed_year_id' => (string) $next,
+            'confirmed_document_number' => 'F2026/000999',
+        ])->getBody();
+        $this->assertStringContainsString('Émise en 2025-2026, rangée en 2026-2027 ?', $body);
         $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM fees_invoices')->fetchColumn());
 
         $this->givenAnUploadedFile($this->pdf);
         $response = $this->dispatch('POST', '/admin/fees/factures/import', 'upload', [
             '_csrf_token' => CsrfGuard::generateToken(),
             'confirmed_year_id' => (string) $next,
+            'confirmed_document_number' => 'F2026/000123',
         ]);
 
         $this->assertSame(302, $response->getStatusCode());

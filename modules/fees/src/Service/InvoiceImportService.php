@@ -110,12 +110,17 @@ class InvoiceImportService
      *        a document whose issue date falls in another one — honoured
      *        only when it names $scoutYearId, so a confirmation given for
      *        one year never files a document in another
+     * @param string|null $confirmedDocumentNumber the number of the document
+     *        that confirmation was asked about — honoured only for that
+     *        document, so a confirmation sent back with another PDF
+     *        attached never files the other one unasked (#1548 review)
      */
     public function import(
         string $pdfContent,
         int $scoutYearId,
         ?int $importedBy,
-        ?int $confirmedYearId = null
+        ?int $confirmedYearId = null,
+        ?string $confirmedDocumentNumber = null
     ): InvoiceImportOutcome {
         $reading = $this->reader->read($pdfContent);
         if (!$reading->isAccepted()) {
@@ -136,7 +141,11 @@ class InvoiceImportService
             return InvoiceImportOutcome::importInProgress($documentNumber);
         }
         try {
-            return $this->importRead($invoice, $scoutYearId, $importedBy, $confirmedYearId);
+            $yearConfirmed = $confirmedYearId === $scoutYearId
+                && $documentNumber !== null
+                && $confirmedDocumentNumber === $documentNumber;
+
+            return $this->importRead($invoice, $scoutYearId, $importedBy, $yearConfirmed);
         } finally {
             if ($documentNumber !== null) {
                 $this->invoices->unlockDocumentNumber($documentNumber);
@@ -148,7 +157,7 @@ class InvoiceImportService
         ParsedInvoice $invoice,
         int $scoutYearId,
         ?int $importedBy,
-        ?int $confirmedYearId
+        bool $yearConfirmedByTreasurer
     ): InvoiceImportOutcome {
 
         // A document number identifies one document whatever year is on
@@ -225,7 +234,7 @@ class InvoiceImportService
         $issueYear = $this->issueYearOf($invoice->issueDate);
         $yearConfirmed = false;
         if ($issueYear !== null && $issueYear['label'] !== $this->yearLabel($scoutYearId)) {
-            if ($confirmedYearId !== $scoutYearId) {
+            if (!$yearConfirmedByTreasurer) {
                 \assert($invoice->issueDate !== null);
 
                 return InvoiceImportOutcome::yearToConfirm(

@@ -155,12 +155,15 @@ class InvoiceController extends AbstractController
         // The year the treasurer confirmed for a document whose issue date
         // falls in another one (issue #1468); the service honours it only
         // for the year it names.
+        // That confirmation is tied to the document it was asked about.
         $confirmedYearId = (int) $request->getBody('confirmed_year_id', 0);
+        $confirmedDocumentNumber = trim((string) $request->getBody('confirmed_document_number', ''));
         $outcome = $this->importService->import(
             $content,
             $year->id,
             AuthSession::getUserAccountId(),
-            $confirmedYearId > 0 ? $confirmedYearId : null
+            $confirmedYearId > 0 ? $confirmedYearId : null,
+            $confirmedDocumentNumber !== '' ? $confirmedDocumentNumber : null
         );
 
         if (!$outcome->isStored()) {

@@ -259,8 +259,9 @@ class InvoiceImportServiceTest extends TestCase
         // The export is dated in another season than the one this test
         // files it in: the year is confirmed, which is not what this test
         // is about (#1468 has its own).
-        $outcome = $this->serviceReading(FederationExportFixture::text())
-            ->import('%PDF', $this->scoutYearId, 7, $this->scoutYearId);
+        $service = $this->serviceReading(FederationExportFixture::text());
+        $asked = $service->import('%PDF', $this->scoutYearId, 7);
+        $outcome = $service->import('%PDF', $this->scoutYearId, 7, $this->scoutYearId, $asked->documentNumber);
 
         $this->assertSame(InvoiceImportOutcome::IMPORTED, $outcome->status, implode("\n", array_map(
             static fn(InvoiceProblem $p): string => $p->message,
@@ -380,16 +381,38 @@ class InvoiceImportServiceTest extends TestCase
         $this->assertSame('2026-01-08', $asked->issueDate);
         $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM fees_invoices')->fetchColumn());
 
-        $wrongConfirmation = $this->service->import($this->pdf, $next, 7, $this->scoutYearId);
+        $wrongConfirmation = $this->service->import($this->pdf, $next, 7, $this->scoutYearId, 'F2026/000123');
         $this->assertSame(InvoiceImportOutcome::YEAR_TO_CONFIRM, $wrongConfirmation->status);
 
-        $confirmed = $this->service->import($this->pdf, $next, 7, $next);
+        $this->assertSame(
+            InvoiceImportOutcome::YEAR_TO_CONFIRM,
+            $this->service->import($this->pdf, $next, 7, $next)->status,
+            'a confirmation that names no document confirms none'
+        );
+
+        $confirmed = $this->service->import($this->pdf, $next, 7, $next, 'F2026/000123');
         $this->assertSame(InvoiceImportOutcome::IMPORTED, $confirmed->status);
         $this->assertSame($next, $this->invoices->findById((int) $confirmed->invoiceId)?->scoutYearId);
         $this->assertSame(
             ['scout_year_id' => $next, 'issue_year_id' => $this->scoutYearId, 'year_confirmed' => true],
             array_intersect_key($this->journalContext('fees_invoice_imported'), array_flip(['scout_year_id', 'issue_year_id', 'year_confirmed']))
         );
+    }
+
+    /**
+     * The confirmation was given for one document: sent back with another
+     * PDF attached, it does not file that other one (#1548 review) — the
+     * question is asked again, about the document actually sent.
+     */
+    public function testAConfirmationGivenForAnotherDocumentIsNotHonoured(): void
+    {
+        $next = $this->scoutYear('2026-2027', '2026-09-01', '2027-08-31');
+
+        $outcome = $this->service->import($this->pdf, $next, 7, $next, 'F2026/000999');
+
+        $this->assertSame(InvoiceImportOutcome::YEAR_TO_CONFIRM, $outcome->status);
+        $this->assertSame('F2026/000123', $outcome->documentNumber);
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM fees_invoices')->fetchColumn());
     }
 
     /** In the year its issue date falls in, nothing is asked and nothing is confirmed. */
