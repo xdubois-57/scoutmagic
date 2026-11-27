@@ -38,6 +38,24 @@ export function settledState(requested, res) {
 }
 
 /**
+ * Shows the parts of the « Paiements » card that belong to the state the
+ * switch now shows, and hides the others (#1429 review). The page renders
+ * both explanations — and the account, only meaningful while tracking is
+ * on — and the switch saves without reloading, so without this the card
+ * would keep describing the state it was loaded in.
+ *
+ * @param {boolean} tracked
+ * @param {ParentNode} card
+ * @returns {void}
+ */
+export function showCardFor(tracked, card) {
+    card.querySelectorAll('[data-payments-when]').forEach(function (element) {
+        const part = /** @type {HTMLElement} */ (element);
+        part.hidden = (part.dataset.paymentsWhen === 'on') !== tracked;
+    });
+}
+
+/**
  * Wires one switch.
  *
  * @param {HTMLInputElement} toggle
@@ -55,6 +73,7 @@ export function wireTrackingSwitch(toggle) {
     function show(checked) {
         toggle.checked = checked;
         window.ScoutMagicNav?.syncSwitchAriaChecked?.(toggle);
+        showCardFor(checked, toggle.closest('.card') ?? document);
     }
 
     const url = toggle.dataset.paymentsTracking;

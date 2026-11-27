@@ -41,14 +41,19 @@
                        {{ payment_settings.enabled ? 'checked' : '' }}>
                 <label class="form-check-label" for="payments-tracking">Suivre les paiements via le site</label>
             </div>
+            {# Both states are rendered and the stored one shown: the switch
+               saves without reloading, and rental-payments-tracking.js shows
+               whatever follows it (data-payments-when) once the server has
+               answered — the card never contradicts the switch (#1429 review). #}
             <p class="form-text mt-0" id="payments-tracking-help">
-                {% if payment_settings.enabled %}
+                <span data-payments-when="on"{{ payment_settings.enabled ? '' : ' hidden' }}>
                     Une créance est créée pour chaque réservation, avec une communication structurée et un
                     QR code. Le site rapproche les virements reçus.
-                {% else %}
+                </span>
+                <span data-payments-when="off"{{ payment_settings.enabled ? ' hidden' : '' }}>
                     Sans ce suivi, les conditions restent indiquées dans le contrat et vous vérifiez les
                     paiements vous-même.
-                {% endif %}
+                </span>
             </p>
             {% if not account_pinned %}
                 <p class="form-text text-danger" data-payments-account-missing>
@@ -63,7 +68,7 @@
                 </p>
             {% endif %}
 
-            {% if payment_settings.enabled %}
+            <div data-payments-when="on"{{ payment_settings.enabled ? '' : ' hidden' }}>
                 <dl class="row mb-2">
                     <dt class="col-sm-5 col-lg-4">Compte</dt>
                     <dd class="col-sm-7 col-lg-8">
@@ -82,7 +87,7 @@
                         </span>
                     </dd>
                 </dl>
-            {% endif %}
+            </div>
         {% else %}
             <p class="form-text mt-0" data-payments-no-finance>
                 Le suivi des paiements par le site n'est pas disponible sur cette installation. Vous
@@ -136,8 +141,9 @@
             </button>
         </div>
 
-        {% if finance_available and payment_settings.enabled %}
-            <p class="text-body-secondary small mb-0 mt-3">
+        {% if finance_available %}
+            <p class="text-body-secondary small mb-0 mt-3"
+               data-payments-when="on"{{ payment_settings.enabled ? '' : ' hidden' }}>
                 Une seule créance par réservation, avec une seule communication structurée : l'acompte est un
                 <strong>seuil</strong> sur cette créance. La <strong>caution se rend par virement</strong>,
                 avec la communication de la réservation, et Finances le rapproche à l'import de l'extrait.

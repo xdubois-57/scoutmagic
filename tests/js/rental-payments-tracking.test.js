@@ -2,7 +2,7 @@
 // REAL implementation in public/assets/js/rental-payments-tracking.js: the
 // payment-tracking switch saves on change and shows the state stored (#1355).
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { settledState, wireTrackingSwitch } from '../../public/assets/js/rental-payments-tracking.js';
+import { settledState, showCardFor, wireTrackingSwitch } from '../../public/assets/js/rental-payments-tracking.js';
 
 describe('settledState', () => {
     it('shows what the server stored on success', () => {
@@ -18,6 +18,24 @@ describe('settledState', () => {
     it('undoes the click when the server said nothing', () => {
         expect(settledState(true, { status: 0, data: null })).toEqual({ checked: false, ok: false, message: 'Erreur réseau.' });
         expect(settledState(false, { status: 500, data: null }).checked).toBe(true);
+    });
+});
+
+describe('showCardFor', () => {
+    it('shows the parts of the card that belong to the state, and hides the others', () => {
+        document.body.innerHTML = '<div class="card">'
+            + '<span data-payments-when="on" hidden>suivi</span>'
+            + '<span data-payments-when="off">manuel</span>'
+            + '<dl data-payments-when="on" hidden>compte</dl></div>';
+        const card = /** @type {HTMLElement} */ (document.querySelector('.card'));
+
+        showCardFor(true, card);
+        expect(Array.from(card.querySelectorAll('[data-payments-when]')).map((e) => /** @type {HTMLElement} */ (e).hidden))
+            .toEqual([false, true, false]);
+
+        showCardFor(false, card);
+        expect(Array.from(card.querySelectorAll('[data-payments-when]')).map((e) => /** @type {HTMLElement} */ (e).hidden))
+            .toEqual([true, false, true]);
     });
 });
 
@@ -50,6 +68,38 @@ describe('wireTrackingSwitch', () => {
         expect(toggle.checked).toBe(true);
         expect(toggle.disabled).toBe(false);
         expect(toasts[0]).toEqual(['Suivi des paiements activé.', 'success']);
+    });
+
+    it('updates the card from the state saved, without a reload', async () => {
+        document.body.innerHTML = '<div class="card">'
+            + '<input type="checkbox" data-payments-tracking="/mes-locations/local/reglages/suivi-paiements">'
+            + '<span data-payments-when="on" hidden>suivi</span><span data-payments-when="off">manuel</span></div>';
+        window.ScoutMagicApi = { postJson: vi.fn().mockResolvedValue({ status: 200, data: { success: true, enabled: true, message: 'Suivi des paiements activé.' } }) };
+        const toggle = /** @type {HTMLInputElement} */ (document.querySelector('input'));
+        wireTrackingSwitch(toggle);
+
+        toggle.checked = true;
+        toggle.dispatchEvent(new Event('change'));
+        await vi.waitFor(() => expect(toasts).toHaveLength(1));
+
+        expect(/** @type {HTMLElement} */ (document.querySelector('[data-payments-when="on"]')).hidden).toBe(false);
+        expect(/** @type {HTMLElement} */ (document.querySelector('[data-payments-when="off"]')).hidden).toBe(true);
+    });
+
+    it('leaves the card as it was when the server refuses', async () => {
+        document.body.innerHTML = '<div class="card">'
+            + '<input type="checkbox" data-payments-tracking="/mes-locations/local/reglages/suivi-paiements">'
+            + '<span data-payments-when="on" hidden>suivi</span><span data-payments-when="off">manuel</span></div>';
+        window.ScoutMagicApi = { postJson: vi.fn().mockResolvedValue({ status: 422, data: { success: false, enabled: false, error: 'Associez un compte.' } }) };
+        const toggle = /** @type {HTMLInputElement} */ (document.querySelector('input'));
+        wireTrackingSwitch(toggle);
+
+        toggle.checked = true;
+        toggle.dispatchEvent(new Event('change'));
+        await vi.waitFor(() => expect(toasts).toHaveLength(1));
+
+        expect(/** @type {HTMLElement} */ (document.querySelector('[data-payments-when="on"]')).hidden).toBe(true);
+        expect(/** @type {HTMLElement} */ (document.querySelector('[data-payments-when="off"]')).hidden).toBe(false);
     });
 
     it('returns to the stored state when the server refuses', async () => {

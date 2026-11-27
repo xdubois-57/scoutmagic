@@ -178,9 +178,11 @@ class RentalPaymentService
             );
         }
 
-        $current = $this->paymentRepository->loadSettings($assetId);
-
-        $this->saveSettings($assetId, $current->withFinanceAccount($financeAccountId, $financeCategoryId));
+        $this->rewriteSettings(
+            $assetId,
+            static fn (PaymentSettings $current): PaymentSettings
+                => $current->withFinanceAccount($financeAccountId, $financeCategoryId)
+        );
     }
 
     /**
@@ -203,11 +205,10 @@ class RentalPaymentService
      */
     public function saveManagedSettings(int $assetId, PaymentSettings $settings): void
     {
-        $current = $this->paymentRepository->loadSettings($assetId);
-
-        $this->saveSettings(
+        $this->rewriteSettings(
             $assetId,
-            $settings->withFinanceAccount($current->financeAccountId, $current->financeCategoryId)
+            static fn (PaymentSettings $current): PaymentSettings
+                => $settings->withFinanceAccount($current->financeAccountId, $current->financeCategoryId)
         );
     }
 
@@ -225,23 +226,26 @@ class RentalPaymentService
      */
     public function saveTracking(int $assetId, bool $enabled): PaymentSettings
     {
-        $current = $this->paymentRepository->loadSettings($assetId);
         if ($enabled && !$this->isAvailable()) {
             throw new RentalException(
                 'Le suivi des paiements par le site n\'est pas disponible sur cette installation.'
             );
         }
-        if ($enabled && ($current->financeAccountId === null || $current->financeCategoryId === null)) {
-            throw new RentalException(
-                'Le site doit savoir sur quel compte les virements arrivent : associez d\'abord un compte et '
-                . 'une catégorie dans « Biens à louer › Compte des paiements ».'
-            );
-        }
 
-        $updated = $current->withTracking($enabled);
-        $this->saveSettings($assetId, $updated);
+        $check = static function (PaymentSettings $current) use ($enabled): PaymentSettings {
+            // Read under the lock: an account unpinned a moment ago must
+            // not be switched on against.
+            if ($enabled && ($current->financeAccountId === null || $current->financeCategoryId === null)) {
+                throw new RentalException(
+                    'Le site doit savoir sur quel compte les virements arrivent : associez d\'abord un compte et '
+                    . 'une catégorie dans « Biens à louer › Compte des paiements ».'
+                );
+            }
 
-        return $updated;
+            return $current->withTracking($enabled);
+        };
+
+        return $this->rewriteSettings($assetId, $check);
     }
 
     /**
@@ -259,9 +263,9 @@ class RentalPaymentService
         ?int $depositDueDays,
         ?int $balanceDueDays
     ): void {
-        $this->saveSettings(
+        $this->rewriteSettings(
             $assetId,
-            $this->paymentRepository->loadSettings($assetId)->withDepositTerms(
+            static fn (PaymentSettings $current): PaymentSettings => $current->withDepositTerms(
                 $depositMode,
                 $depositAmountCents,
                 $depositPercentage,
@@ -283,10 +287,38 @@ class RentalPaymentService
             throw new RentalException('Indiquez le montant de la caution demandée.');
         }
 
-        $this->saveSettings(
+        $this->rewriteSettings(
             $assetId,
-            $this->paymentRepository->loadSettings($assetId)->withSecurityDeposit($enabled, $amountCents)
+            static fn (PaymentSettings $current): PaymentSettings
+                => $current->withSecurityDeposit($enabled, $amountCents)
         );
+    }
+
+    /**
+     * Reads the stored settings, applies `$change`, saves the result — all
+     * under the asset lock (#1429 review).
+     *
+     * **Every writer of this row goes through here.** Each one owns a part
+     * of the row and carries the rest across from what it read, so two of
+     * them interleaving without the lock — a tracking switch and a security
+     * deposit saved in the same second, both reading « tracking off » —
+     * would let the second write back the first one's stale half, and both
+     * would report success. Under the lock the second reads what the first
+     * wrote. The lock is re-entrant, so a caller already holding it joins.
+     *
+     * @param callable(PaymentSettings): PaymentSettings $change
+     * @throws RentalException from `$change` or the save, nothing written
+     */
+    private function rewriteSettings(int $assetId, callable $change): PaymentSettings
+    {
+        $rewrite = function () use ($assetId, $change): PaymentSettings {
+            $updated = $change($this->paymentRepository->loadSettings($assetId));
+            $this->saveSettings($assetId, $updated);
+
+            return $updated;
+        };
+
+        return $this->paymentRepository->withAssetLocked($assetId, $rewrite);
     }
 
     // ── The booking's receivable ────────────────────────────────────────

@@ -245,8 +245,8 @@ test.describe('Rentals — one booking from the request to the deposit back', ()
 
         // The security deposit, from its own dialog.
         const securityDeposit = await openSectionEditor(page, 'caution-edit');
-        await securityDeposit.locator('input[name="security_deposit_enabled"]').check();
-        await securityDeposit.locator('input[name="security_deposit_amount"]').fill(SECURITY_DEPOSIT);
+        await securityDeposit.getByRole('checkbox', { name: 'Demander une caution' }).check();
+        await securityDeposit.getByLabel('Montant (€)').fill(SECURITY_DEPOSIT);
         await securityDeposit.getByRole('button', { name: 'Enregistrer la caution' }).click();
         await expect(page.locator('#paiements')).toContainText(SECURITY_DEPOSIT);
         await expect(page.getByRole('switch', { name: 'Suivre les paiements via le site' })).toBeChecked();

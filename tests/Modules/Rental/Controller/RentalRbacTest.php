@@ -1315,6 +1315,117 @@ class RentalRbacTest extends TestCase
     }
 
     /**
+     * The three payment writes of lot D (#1355, D11), each dispatched at the
+     * role_min its manifest entry really declares, with no session at all:
+     * the router turns the visitor away before any controller runs
+     * (#1429 review). `suivi-paiements` is JSON, the two others are forms;
+     * the router decides before either body is read.
+     *
+     * @return array<string, array{string, string}>
+     */
+    public static function paymentWriteRoutes(): array
+    {
+        return [
+            'acompte' => ['acompte', 'saveDeposit'],
+            'caution' => ['caution', 'saveSecurityDeposit'],
+            'suivi des paiements' => ['suivi-paiements', 'saveTracking'],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('paymentWriteRoutes')]
+    public function testAnAnonymousVisitorIsRefusedEveryPaymentWrite(string $suffix, string $action): void
+    {
+        $this->createAsset('Local', 'local');
+        AuthSession::logout();
+
+        $route = $this->manifestRoute('POST', '/mes-locations/{slug}/reglages/' . $suffix);
+        $this->assertSame($action, $route['action']);
+
+        $response = $this->dispatchPost(
+            $route['path'],
+            '/mes-locations/local/reglages/' . $suffix,
+            \Modules\Rental\Controller\RentalPricingController::class,
+            $route['action'],
+            $route['role_min']
+        );
+
+        $this->assertContains($response->getStatusCode(), [302, 401, 403]);
+    }
+
+    /**
+     * And the JSON switch opens for the asset's own manager, with the body it
+     * really reads — not the form body the other writes take — and stays shut
+     * for anybody else. This installation has no payment service wired, so
+     * what the manager gets is the controller's own « not available here »
+     * answer: the router let them through, which is the point.
+     */
+    public function testThePaymentTrackingSwitchOpensForItsManagerAndNobodyElse(): void
+    {
+        $this->createAsset('Local', 'local');
+        $route = $this->manifestRoute('POST', '/mes-locations/{slug}/reglages/suivi-paiements');
+
+        AuthSession::login(1, 'nobody@test.be', 'identified');
+        $refused = $this->dispatchJson($route, '/mes-locations/local/reglages/suivi-paiements', ['enabled' => true]);
+        $this->assertSame(404, $refused->getStatusCode());
+
+        $this->loginAsManagerOf('local');
+        $response = $this->dispatchJson($route, '/mes-locations/local/reglages/suivi-paiements', ['enabled' => true]);
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertStringContainsString('pas disponible', (string) $response->getBody());
+    }
+
+    /**
+     * The manifest entry for one route, so a test dispatches at the
+     * role_min actually declared rather than one it assumes.
+     *
+     * @return array{path: string, method: string, action: string, role_min: string}
+     */
+    private function manifestRoute(string $method, string $path): array
+    {
+        $manifest = json_decode(
+            (string) file_get_contents(dirname(__DIR__, 4) . '/modules/rental/module.json'),
+            true
+        );
+        $routes = array_values(array_filter(
+            $manifest['routes'],
+            static fn(array $route) => $route['path'] === $path && $route['method'] === $method
+        ));
+        $this->assertCount(1, $routes, $method . ' ' . $path);
+
+        return $routes[0];
+    }
+
+    /**
+     * A JSON POST through the real Router and FrontController, with the
+     * CSRF token inside the JSON body — how ScoutMagicApi.postJson() sends
+     * it.
+     *
+     * @param array{path: string, action: string, role_min: string} $route
+     * @param array<string, mixed> $body
+     */
+    private function dispatchJson(array $route, string $requestPath, array $body): Response
+    {
+        $router = new Router();
+        $controllerClass = \Modules\Rental\Controller\RentalPricingController::class;
+        $router->addRoute('POST', $route['path'], $controllerClass, $route['action'], $route['role_min']);
+
+        $configFile = sys_get_temp_dir() . '/test_rental_config_' . uniqid() . '.php';
+        file_put_contents($configFile, "<?php\nreturn ['site_name' => 'Test', 'debug' => false];");
+
+        $frontController = new FrontController($router, $this->twig, new AppConfig($configFile));
+        $frontController->registerController($controllerClass, $this->controllerFor($controllerClass));
+
+        $body['_csrf_token'] = \Core\Security\CsrfGuard::generateToken();
+        $response = $frontController->handle(
+            new \Tests\RequestWithInput('POST', $requestPath, [], [], [], [], json_encode($body))
+        );
+        @unlink($configFile);
+
+        return $response;
+    }
+
+    /**
      * Every write action of the settings page, one per case: an identified
      * visitor who does not manage the asset must get 404 from each of them.
      * A single one of these left unchecked is a tariff anybody logged in can
