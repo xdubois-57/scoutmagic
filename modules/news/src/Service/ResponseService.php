@@ -141,7 +141,14 @@ class ResponseService
      * refunds. Nothing left to pay — paid, waived, or overpaid — is no
      * payment block at all.
      *
-     * @return array{total: float, received: float, iban: string, beneficiary: string, communication: string, qr_data_uri: string}|null
+     * @return array{
+     *     total: float,
+     *     received: float,
+     *     iban: string,
+     *     beneficiary: string,
+     *     communication: string,
+     *     qr_data_uri: string
+     * }|null
      */
     public function buildPaymentSummary(NewsForm $form, FormResponse $response, float $total): ?array
     {
@@ -711,7 +718,9 @@ class ResponseService
     {
         $total = $this->computeTotal($fields, $normalizedAnswers);
         if ($total < 0.0) {
-            throw new NewsException('Le total de cette réponse ne peut pas être négatif : vérifiez les quantités indiquées.');
+            throw new NewsException(
+                'Le total de cette réponse ne peut pas être négatif : vérifiez les quantités indiquées.'
+            );
         }
 
         return $total;
@@ -1147,7 +1156,8 @@ class ResponseService
         if ($quantity === null) {
             throw new NewsException($field->capacityMax !== null
                 ? 'Il n\'y a plus assez de places disponibles pour "' . $label . '".'
-                : 'Le champ "' . $label . '" ne peut pas dépasser ' . self::MAX_QUANTITY_PER_RESPONSE . ' par réponse.');
+                : 'Le champ "' . $label . '" ne peut pas dépasser '
+                    . self::MAX_QUANTITY_PER_RESPONSE . ' par réponse.');
         }
 
         return (string) $quantity;

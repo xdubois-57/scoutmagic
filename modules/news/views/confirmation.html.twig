@@ -60,10 +60,10 @@
            the family is told the unit owes them the difference, rather than
            left to wonder where their money went. #}
         {% if amount_owed_back|default(0) > 0 %}
-            <div class="alert alert-info" role="status">
+            <output class="alert alert-info d-block">
                 Vous avez payé {{ amount_owed_back|money_cents }} de plus que le nouveau montant de votre réponse.
                 L'unité vous remboursera cette différence : vous n'avez rien à faire.
-            </div>
+            </output>
         {% endif %}
 
         <div class="d-flex flex-column flex-sm-row gap-2 justify-content-center">

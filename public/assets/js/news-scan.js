@@ -78,7 +78,7 @@
      * @returns {string}
      */
     function invalidQuantityHtml(verdict) {
-        if (!verdict.seats || !verdict.seats.some(function (seat) { return seat.invalid; })) return '';
+        if (!verdict.seats?.some(function (seat) { return seat.invalid; })) return '';
 
         return '<div class="alert alert-warning d-flex align-items-start gap-2 py-2 mb-0 mt-3" role="status">'
             + '<i class="bi bi-exclamation-triangle mt-1" aria-hidden="true"></i>'

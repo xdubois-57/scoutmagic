@@ -9879,8 +9879,8 @@ if ($isEnabled('news')) {
             '0',
             'boolean',
             'Quantités invalides recherchées',
-            'Indique si les réponses enregistrées avec une quantité négative ou non entière ont été recherchées '
-                . 'et signalées, et les capacités recalculées.',
+            'Indique si les réponses enregistrées avec une quantité négative ou non entière '
+                . 'ont été recherchées et signalées, et les capacités recalculées.',
             'news',
             null,
             null,
