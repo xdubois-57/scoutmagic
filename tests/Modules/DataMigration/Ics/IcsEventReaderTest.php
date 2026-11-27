@@ -228,6 +228,40 @@ final class IcsEventReaderTest extends TestCase
     }
 
     /**
+     * Outlook's Windows names for the same three zones: vobject's own map
+     * already gives their current names. Pinned, so that an update of it
+     * going back to the old ones would be seen (#1238).
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('windowsNamesOfRenamedZones')]
+    public function testAWindowsNameOfARenamedZoneIsPlaced(string $windows, string $current): void
+    {
+        $events = $this->convertText(
+            "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Test//FR\r\n"
+            . "BEGIN:VEVENT\r\nUID:windows-1\r\nSUMMARY:Jamboree\r\n"
+            . "DTSTART;TZID={$windows}:20250310T090000\r\nEND:VEVENT\r\n"
+            . "END:VCALENDAR\r\n"
+        );
+
+        $expected = (new \DateTimeImmutable('2025-03-10 09:00:00', new \DateTimeZone($current)))
+            ->setTimezone(new \DateTimeZone(IcsEventReader::TIME_ZONE));
+        $this->assertCount(1, $events);
+        $this->assertSame(IcsEventReader::STATE_EVENT, $events[0]['state'], (string) ($events[0]['reason'] ?? ''));
+        $this->assertSame($expected->format('H:i'), $events[0]['start_time']);
+    }
+
+    /**
+     * @return array<string, array{string, string}>
+     */
+    public static function windowsNamesOfRenamedZones(): array
+    {
+        return [
+            'India' => ['India Standard Time', 'Asia/Kolkata'],
+            'Greenland' => ['Greenland Standard Time', 'America/Nuuk'],
+            'Myanmar' => ['Myanmar Standard Time', 'Asia/Yangon'],
+        ];
+    }
+
+    /**
      * @return array<string, array{string, string, bool}>
      */
     public static function renamedZoneNames(): array
