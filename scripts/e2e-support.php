@@ -2668,8 +2668,19 @@ function e2eCopyTree(string $source, string $destination): void
     }
 }
 
+/**
+ * Removes a directory tree. A path that is already absent is a success, not
+ * a warning (issue #1384): this is a cleanup, and the caller does not ask
+ * for the thing to exist — `storage/temp/twig_cache` is a derived cache a
+ * fresh checkout has not got yet. A dangling symlink is not "absent" and is
+ * handled below as before, and a real failure to delete still warns.
+ */
 function e2eRemoveTree(string $path): void
 {
+    if (!is_link($path) && !file_exists($path)) {
+        return;
+    }
+
     /** @var list<string> $entries */
     $entries = array_values(array_diff((array) scandir($path), ['.', '..']));
     foreach ($entries as $entry) {
