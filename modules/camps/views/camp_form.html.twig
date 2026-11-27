@@ -1,6 +1,10 @@
 {% extends 'base.html.twig' %}
 {% block title %}{{ camp ? 'Modifier le séjour' : 'Nouveau camp' }} — {{ site_name }}{% endblock %}
-{% block stylesheets %}<link rel="stylesheet" href="{{ asset('/assets/css/components.css') }}">{% endblock %}
+{% block stylesheets %}
+    <link rel="stylesheet" href="{{ asset('/assets/css/components.css') }}">
+    {# The new place's map (#1353): Leaflet is vendored, never a CDN (§8.119). #}
+    {% if not camp %}<link rel="stylesheet" href="{{ asset('/assets/vendor/leaflet/leaflet.css') }}">{% endif %}
+{% endblock %}
 {% block content %}
     <div class="page-medium">
         {% include 'partials/page_header.html.twig' with {
@@ -58,28 +62,56 @@
                         field_id: 'place-address', field_name: 'address', label: 'Adresse',
                         help: 'Facultative : beaucoup de terrains sont un pré sans adresse utilisable.',
                         maxlength: 255, value: submitted.address,
+                        describedby_extra: 'place-address-status',
                     } only %}
                     <div class="row">
                         <div class="col-4">
                             {% include 'partials/form_field.html.twig' with {
                                 field_id: 'place-postal', field_name: 'postal_code', label: 'Code postal',
                                 maxlength: 20, value: submitted.postal_code,
+                                describedby_extra: 'place-address-status',
                             } only %}
                         </div>
                         <div class="col-8">
                             {% include 'partials/form_field.html.twig' with {
                                 field_id: 'place-city', field_name: 'city', label: 'Ville',
                                 maxlength: 120, value: submitted.city,
+                                describedby_extra: 'place-address-status',
                             } only %}
                         </div>
                     </div>
                     {% include 'partials/form_field.html.twig' with {
                         field_id: 'place-country', field_name: 'country', label: 'Pays',
                         value: submitted.country, maxlength: 80,
+                        describedby_extra: 'place-address-status',
+                        wrapper_class: 'mb-1',
                     } only %}
+                    {# Filled by the point picker when the map could not place the
+                       address: not found, or the lookup could not run. #}
+                    <p class="form-text text-warning-emphasis mb-3 d-none" id="place-address-status" aria-live="polite"></p>
                     {% include 'partials/form_field.html.twig' with {
                         field_id: 'place-website', field_name: 'website_url', label: 'Site web du lieu',
                         type: 'url', placeholder: 'https://…', maxlength: 500, value: submitted.website_url,
+                    } only %}
+                    {# The core's point picker (#1353), as on « Modifier le lieu ».
+                       This block is shown only while « Un nouveau lieu » is
+                       chosen (camps-new-place.js), which tells the map when it
+                       appears; without the script it is simply always there. #}
+                    {% include 'partials/point_picker.html.twig' with {
+                        id_prefix: 'new-place',
+                        latitude: submitted.latitude|default(''),
+                        longitude: submitted.longitude|default(''),
+                        manual: point_is_manual,
+                        automatic: submitted.point_automatic|default('0'),
+                        point_address: submitted.point_address|default(''),
+                        address_fields: [['place-address'], ['place-postal', 'place-city'], ['place-country']],
+                        address_needs: ['place-postal', 'place-city'],
+                        address_status: 'place-address-status',
+                        locate_url: address_lookup ? '/chefs/camps/adresse' : '',
+                        legend: 'Coordonnées',
+                        pin_label: 'Point du lieu',
+                        address_label: 'Adresse du lieu',
+                        help: 'Facultatives. Cherchées automatiquement à partir de l\'adresse ; pour un terrain sans adresse, placez le point vous-même sur la carte.',
                     } only %}
                 </div>
             {% endif %}
@@ -189,4 +221,10 @@
 {% endblock %}
 {% block scripts %}
     <script src="{{ asset('/assets/js/camps-booked-by.js') }}"></script>
+    {% if not camp %}
+        <script src="{{ asset('/assets/vendor/leaflet/leaflet.js') }}"></script>
+        <script src="{{ asset('/assets/js/map.js') }}"></script>
+        <script src="{{ asset('/assets/js/point-picker.js') }}"></script>
+        <script src="{{ asset('/assets/js/camps-new-place.js') }}"></script>
+    {% endif %}
 {% endblock %}
