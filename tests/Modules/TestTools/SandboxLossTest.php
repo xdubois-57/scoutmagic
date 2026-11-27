@@ -1,0 +1,259 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Tests\Modules\TestTools;
+
+use Core\Config\SettingRepository;
+use Core\Config\SettingService;
+use Core\Module\InstallationProfile;
+use Core\Module\ModuleRegistryRepository;
+use Core\Security\SandboxLossState;
+use Modules\TestTools\Sandbox\SandboxLoss;
+use Modules\TestTools\Service\MailSandboxService;
+use Modules\TestTools\Telephony\SimulatedTelephony;
+use PHPUnit\Framework\Attributes\Group;
+use PHPUnit\Framework\TestCase;
+use Tests\DatabaseTestHelper;
+
+/**
+ * Why an armed sandbox no longer acts (issue #1469): each reason, and null
+ * whenever the sandbox is not armed or still holds.
+ */
+#[Group('database')]
+final class SandboxLossTest extends TestCase
+{
+    private SettingService $settings;
+    private ModuleRegistryRepository $registry;
+
+    protected function setUp(): void
+    {
+        TestToolsTestHelper::ensureAutoloadable();
+
+        $pdo = DatabaseTestHelper::createTestDatabase();
+        $this->settings = new SettingService(new SettingRepository($pdo));
+        $this->registry = new ModuleRegistryRepository($pdo);
+        foreach ([MailSandboxService::SETTING_ARMED, SimulatedTelephony::SETTING_ARMED] as $key) {
+            $this->settings->register(
+                $key,
+                '0',
+                'boolean',
+                'Interrupteur',
+                'Réglage de test.',
+                MailSandboxService::MODULE_ID,
+                null,
+                null,
+                false
+            );
+        }
+        $this->registry->upsert(MailSandboxService::MODULE_ID, true, '1.0.0', null);
+    }
+
+    private static function modulesDir(): string
+    {
+        return dirname(__DIR__, 3) . '/modules';
+    }
+
+    /**
+     * A modules directory holding only test_tools, with the given
+     * module.json content — or none at all when null.
+     */
+    private function modulesDirWith(?string $manifest): string
+    {
+        $dir = sys_get_temp_dir() . '/sandbox_loss_modules_' . bin2hex(random_bytes(4));
+        mkdir($dir . '/' . MailSandboxService::MODULE_ID, 0700, true);
+        if ($manifest !== null) {
+            file_put_contents($dir . '/' . MailSandboxService::MODULE_ID . '/module.json', $manifest);
+        }
+        $this->tempDirs[] = $dir;
+
+        return $dir;
+    }
+
+    /** @var list<string> */
+    private array $tempDirs = [];
+
+    protected function tearDown(): void
+    {
+        foreach ($this->tempDirs as $dir) {
+            exec('rm -rf ' . escapeshellarg($dir));
+        }
+    }
+
+    private function armMail(): void
+    {
+        $this->settings->setInternal(MailSandboxService::SETTING_ARMED, '1', MailSandboxService::MODULE_ID);
+    }
+
+    private function armTelephony(): void
+    {
+        $this->settings->setInternal(SimulatedTelephony::SETTING_ARMED, '1', MailSandboxService::MODULE_ID);
+    }
+
+    private function local(): InstallationProfile
+    {
+        return new InstallationProfile([InstallationProfile::FLAG_LOCAL_INSTALLATION]);
+    }
+
+    private function mailReason(InstallationProfile $profile, mixed $declared): ?string
+    {
+        return SandboxLoss::mailLossReason($profile, $declared, $this->registry, $this->settings, self::modulesDir());
+    }
+
+    public function testNothingIsLostWhileTheSwitchIsNotArmed(): void
+    {
+        $this->assertNull($this->mailReason(new InstallationProfile(), []));
+        $this->assertNull(
+            SandboxLoss::telephonyLossReason(new InstallationProfile(), [], $this->registry, $this->settings, self::modulesDir())
+        );
+    }
+
+    public function testNothingIsLostWhileTheCaptureStillHolds(): void
+    {
+        $this->armMail();
+
+        $this->assertNull($this->mailReason($this->local(), ['local_installation']));
+    }
+
+    public function testNoDeclarationLeftIsAMissingProfile(): void
+    {
+        $this->armMail();
+
+        $this->assertSame(SandboxLossState::REASON_PROFILE_MISSING, $this->mailReason(new InstallationProfile(), []));
+        $this->assertSame(
+            SandboxLossState::REASON_PROFILE_MISSING,
+            $this->mailReason(new InstallationProfile(), 'not even a list')
+        );
+        $this->assertSame(
+            SandboxLossState::REASON_PROFILE_MISSING,
+            $this->mailReason(new InstallationProfile(), ['statistics_receiver'])
+        );
+    }
+
+    public function testADeclaredFlagTheHostNoLongerSatisfiesIsAHostMismatch(): void
+    {
+        $this->armMail();
+
+        $this->assertSame(
+            SandboxLossState::REASON_HOST_MISMATCH,
+            $this->mailReason(new InstallationProfile(), ['reference_installation'])
+        );
+        $this->assertSame(
+            SandboxLossState::REASON_HOST_MISMATCH,
+            $this->mailReason(new InstallationProfile(), ['local_installation'])
+        );
+    }
+
+    public function testAHoldingProfileWithTheModuleOffIsAnUnloadedModule(): void
+    {
+        $this->armMail();
+        $this->registry->setEnabled(MailSandboxService::MODULE_ID, false);
+
+        $this->assertSame(
+            SandboxLossState::REASON_MODULE_UNLOADED,
+            $this->mailReason($this->local(), ['local_installation'])
+        );
+    }
+
+    public function testAModuleNeverRegisteredIsUnloadedToo(): void
+    {
+        $pdo = DatabaseTestHelper::createTestDatabase();
+        $settings = new SettingService(new SettingRepository($pdo));
+        $settings->register(
+            MailSandboxService::SETTING_ARMED,
+            '1',
+            'boolean',
+            'Interrupteur',
+            'Réglage de test.',
+            MailSandboxService::MODULE_ID,
+            null,
+            null,
+            false
+        );
+
+        $this->assertSame(
+            SandboxLossState::REASON_MODULE_UNLOADED,
+            SandboxLoss::mailLossReason($this->local(), ['local_installation'], new ModuleRegistryRepository($pdo), $settings, self::modulesDir())
+        );
+    }
+
+    /** The profile first: a lost profile is also what unloads the module. */
+    public function testTheProfileIsReportedBeforeTheModule(): void
+    {
+        $this->armMail();
+        $this->registry->setEnabled(MailSandboxService::MODULE_ID, false);
+
+        $this->assertSame(SandboxLossState::REASON_PROFILE_MISSING, $this->mailReason(new InstallationProfile(), []));
+    }
+
+    public function testTelephonyFollowsTheSameRuleOnItsOwnSwitch(): void
+    {
+        $this->armTelephony();
+
+        $this->assertNull($this->mailReason(new InstallationProfile(), []), 'The mail switch is not armed.');
+        $this->assertSame(
+            SandboxLossState::REASON_HOST_MISMATCH,
+            SandboxLoss::telephonyLossReason(
+                new InstallationProfile(),
+                ['reference_installation'],
+                $this->registry,
+                $this->settings,
+                self::modulesDir()
+            )
+        );
+        $this->assertNull(
+            SandboxLoss::telephonyLossReason($this->local(), ['local_installation'], $this->registry, $this->settings, self::modulesDir())
+        );
+    }
+
+    /**
+     * The registry row stays enabled while module.json is gone or invalid
+     * (review of #1549): ModuleManager skips the module, so
+     * `$isEnabled('test_tools')` reads false and the simulated line is not
+     * handed over. That is a lost sandbox too, or the real operator is
+     * driven while the switch is armed.
+     */
+    public function testAnEnabledRowWhoseManifestIsMissingOrInvalidIsAnUnloadedModule(): void
+    {
+        $this->armMail();
+        $this->armTelephony();
+        $real = (string) file_get_contents(self::modulesDir() . '/test_tools/module.json');
+
+        foreach (
+            [
+                'missing' => null,
+                'not JSON' => '{ not json',
+                'another id' => str_replace('"id": "test_tools"', '"id": "other_tools"', $real),
+            ] as $case => $manifest
+        ) {
+            $dir = $this->modulesDirWith($manifest);
+            $this->assertSame(
+                SandboxLossState::REASON_MODULE_UNLOADED,
+                SandboxLoss::mailLossReason($this->local(), ['local_installation'], $this->registry, $this->settings, $dir),
+                "Manifest {$case}: mail."
+            );
+            $this->assertSame(
+                SandboxLossState::REASON_MODULE_UNLOADED,
+                SandboxLoss::telephonyLossReason(
+                    $this->local(),
+                    ['local_installation'],
+                    $this->registry,
+                    $this->settings,
+                    $dir
+                ),
+                "Manifest {$case}: telephony."
+            );
+        }
+
+        $this->assertNull(
+            SandboxLoss::mailLossReason(
+                $this->local(),
+                ['local_installation'],
+                $this->registry,
+                $this->settings,
+                $this->modulesDirWith($real)
+            ),
+            'The same manifest, intact: the module loads, nothing is lost.'
+        );
+    }
+}

@@ -10,11 +10,13 @@ use Core\Config\SettingService;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Module\InstallationProfile;
+use Core\Security\SandboxLossState;
 use Modules\SosStaff\Api\PhoneProviderInterface;
 use Modules\SosStaff\Api\ProviderException;
 use Modules\TestTools\Service\MailSandboxService;
 use Modules\TestTools\Telephony\SimulatedPhoneProvider;
 use Modules\TestTools\Telephony\SimulatedTelephony;
+use Modules\TestTools\Telephony\SuspendedPhoneProvider;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
@@ -28,6 +30,7 @@ class SimulatedTelephonyTest extends TestCase
 {
     private SettingService $settingService;
     private SimulatedTelephony $telephony;
+    private JournalService $journal;
 
     protected function setUp(): void
     {
@@ -49,7 +52,8 @@ class SimulatedTelephonyTest extends TestCase
                 false
             );
         }
-        $this->telephony = new SimulatedTelephony($this->settingService, new JournalService(new JournalRepository($pdo)));
+        $this->journal = new JournalService(new JournalRepository($pdo));
+        $this->telephony = new SimulatedTelephony($this->settingService, $this->journal);
     }
 
     public function testNothingIsSimulatedUntilTheSwitchIsArmed(): void
@@ -107,5 +111,70 @@ class SimulatedTelephonyTest extends TestCase
         $lines = $provider->listLines();
         $this->assertCount(1, $lines);
         $this->assertSame(SimulatedPhoneProvider::LINE_NUMBER, $lines[0]->number);
+    }
+
+    /** Armed and no longer acting (issue #1469): the stand-in refuses every call. */
+    public function testTheSuspendedLineRefusesEverythingAsAProviderFailure(): void
+    {
+        $line = new SuspendedPhoneProvider();
+        $calls = [
+            static fn () => $line->readForwardingState(),
+            static fn () => $line->setForwarding('+32470111111'),
+            static fn () => $line->testConnection(),
+            static fn () => $line->listLines(),
+        ];
+
+        foreach ($calls as $index => $call) {
+            try {
+                $call();
+                $this->fail("Call #{$index} reached something.");
+            } catch (ProviderException $e) {
+                $this->assertSame(SuspendedPhoneProvider::MESSAGE, $e->getMessage());
+            }
+        }
+    }
+
+    public function testProviderForPrefersTheSuspendedLineOverTheSimulatedOne(): void
+    {
+        $local = new InstallationProfile([InstallationProfile::FLAG_LOCAL_INSTALLATION]);
+        SandboxLossState::register($this->settingService);
+        $state = new SandboxLossState($this->settingService);
+        $this->telephony->setArmed(true);
+
+        $this->assertInstanceOf(
+            SimulatedPhoneProvider::class,
+            SimulatedTelephony::providerFor(true, $local, $this->settingService, $state)
+        );
+        // Armed, nothing recorded, and yet the module did not load (review of
+        // #1549): the recorded state and ModuleManager disagree. Refused,
+        // never handed back to the configured operator.
+        $this->assertInstanceOf(
+            SuspendedPhoneProvider::class,
+            SimulatedTelephony::providerFor(false, $local, $this->settingService, $state)
+        );
+
+        $state->record(SandboxLossState::CHANNEL_TELEPHONY, SandboxLossState::REASON_MODULE_UNLOADED, $this->journal);
+        $this->assertInstanceOf(
+            SuspendedPhoneProvider::class,
+            SimulatedTelephony::providerFor(false, $local, $this->settingService, $state)
+        );
+
+        // Released by a superadmin: the configured operator, as decided.
+        $this->assertTrue($state->release(SandboxLossState::CHANNEL_TELEPHONY, 1, $this->journal));
+        $this->assertNull(SimulatedTelephony::providerFor(false, $local, $this->settingService, $state));
+    }
+
+    public function testProviderForLeavesTheConfiguredOperatorAloneWhileUnarmed(): void
+    {
+        SandboxLossState::register($this->settingService);
+        $state = new SandboxLossState($this->settingService);
+
+        $this->assertNull(SimulatedTelephony::providerFor(
+            false,
+            new InstallationProfile([InstallationProfile::FLAG_LOCAL_INSTALLATION]),
+            $this->settingService,
+            $state
+        ));
+        $this->assertNull(SimulatedTelephony::providerFor(true, new InstallationProfile(), $this->settingService, $state));
     }
 }

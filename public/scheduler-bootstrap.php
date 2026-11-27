@@ -100,7 +100,14 @@ function scoutmagicBootstrapScheduler(
      * is how one of them silently stops.
      */
     ?\Core\Mail\Feedback\Seed\SeedMailboxes $seedMailboxes = null,
-    ?\Core\Module\InstallationProfile $installationProfile = null
+    ?\Core\Module\InstallationProfile $installationProfile = null,
+    /**
+     * Whether a test sandbox armed but no longer acting holds real sending
+     * shut — recorded by the entry point that built its MailService on
+     * this very request (Core\Security\SandboxLossState, issue #1469).
+     * Null for a caller that records nothing: a test harness.
+     */
+    ?\Core\Security\SandboxLossState $sandboxLossState = null
 ): \Core\Scheduler\TaskContext {
     $pdo = $connection->getPdo();
 
@@ -274,7 +281,18 @@ function scoutmagicBootstrapScheduler(
     // Exactly the server-declared profile used for module discovery. A
     // caller without a declaration receives no test capabilities.
     $installationProfile ??= new \Core\Module\InstallationProfile();
-    if (\Modules\TestTools\Telephony\SimulatedTelephony::isAllowed($installationProfile, $settingService)) {
+    if ($sandboxLossState?->isBlocked(\Core\Security\SandboxLossState::CHANNEL_TELEPHONY) === true) {
+        // Armed but no longer acting (issue #1469): the scheduled redirect
+        // must not drive the real line either. Registered under sos_staff,
+        // the consumer itself, because test_tools is typically the module
+        // that is no longer loaded — under it, TaskCapabilities would
+        // answer null and the handler would fall back to the real operator.
+        $capabilities->register(
+            \Modules\SosStaff\Api\PhoneProviderInterface::class,
+            'sos_staff',
+            static fn (): object => new \Modules\TestTools\Telephony\SuspendedPhoneProvider()
+        );
+    } elseif (\Modules\TestTools\Telephony\SimulatedTelephony::isAllowed($installationProfile, $settingService)) {
         $capabilities->register(
             \Modules\SosStaff\Api\PhoneProviderInterface::class,
             'test_tools',

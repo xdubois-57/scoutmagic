@@ -8,8 +8,15 @@ use Core\Config\SettingRepository;
 use Core\Config\SettingService;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
+use Core\Mail\DkimManager;
+use Core\Mail\MailException;
 use Core\Mail\MailPurpose;
+use Core\Mail\MailService;
+use Core\Mail\MailSendingSuspendedException;
+use Core\Mail\SuspendedMailTransport;
 use Core\Mail\MailTransportInterface;
+use Core\Mail\Transport\DeferredMailQueue;
+use Core\Mail\Transport\DeferredMailRepository;
 use Core\Mail\Transport\DomainPreferences;
 use Core\Mail\Transport\LaneChainRepository;
 use Core\Mail\Transport\MailLane;
@@ -24,6 +31,7 @@ use Core\Mail\Transport\MailTransportChain;
 use Core\Mail\Transport\ProviderConnections;
 use Core\Mail\Transport\SendCounterRepository;
 use Core\Mail\Transport\TransportConfigurator;
+use Core\Security\EncryptionService;
 use PHPMailer\PHPMailer\PHPMailer;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
@@ -609,6 +617,115 @@ class MailTransportChainTest extends TestCase
         foreach ($providerIds as $providerId) {
             $this->chains->append($lane, $providerId, true);
         }
+    }
+
+    /**
+     * A send the site itself suspended (a mail capture armed and no longer
+     * acting, issue #1469) is nobody's refusal: the chain lets it out at
+     * once, tries no other relay, and charges no breaker — otherwise every
+     * working relay of the installation would read as failing.
+     */
+    public function testASuspendedSendIsNotARelayFailure(): void
+    {
+        $first = $this->addRelay('Premier', 'smtp.premier.test');
+        $second = $this->addRelay('Second', 'smtp.second.test');
+        $this->enable(MailLane::Transactional, [$first, $second]);
+        $health = new ProviderHealthRepository($this->pdo);
+
+        $suspended = new class implements MailTransportInterface {
+            public int $calls = 0;
+
+            public function deliver(PHPMailer $mail, MailPurpose $purpose): void
+            {
+                $this->calls++;
+                (new SuspendedMailTransport())->deliver($mail, $purpose);
+            }
+        };
+
+        try {
+            $this->chain($suspended, $health)->deliver($this->message(), MailPurpose::Ordinary);
+            $this->fail('A suspended send must not be reported as delivered.');
+        } catch (MailSendingSuspendedException) {
+            // expected: the very exception, not a LaneExhaustedException
+        }
+
+        $this->assertSame(1, $suspended->calls, 'No second relay is tried for a send nobody refused.');
+        $this->assertSame(0, $health->forProvider($first)->consecutiveFailures, 'No breaker is charged.');
+        $this->assertSame(0, $health->forProvider($second)->consecutiveFailures);
+    }
+
+    /**
+     * A suspended send is refused before the lane is read (issue #1469,
+     * review of #1549). A lane with nothing usable ends in a
+     * LaneExhaustedException, which `MailService` answers by queueing the
+     * message; the queue's retry could then run after the block was lifted
+     * and deliver for real a message refused while the capture was lost.
+     */
+    public function testASuspendedSendThroughAnUnusableLaneIsRefusedRatherThanDeferred(): void
+    {
+        $relay = $this->addRelay('Désactivé partout', 'smtp.off.test');
+        $this->chains->append(MailLane::Transactional, $relay, false);
+        $this->chains->append(MailLane::Transactional, MailProvider::LOCAL_ID, false);
+
+        $this->settings->register(
+            DeferredMailQueue::SETTING_LIFETIME_HOURS,
+            (string) DeferredMailQueue::DEFAULT_LIFETIME_HOURS,
+            'number',
+            'Durée de vie',
+            'Test',
+            null,
+            '^[1-9][0-9]*$'
+        );
+        $deferred = new DeferredMailRepository(
+            $this->pdo,
+            new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))
+        );
+        $dkimDir = sys_get_temp_dir() . '/chain_suspended_' . bin2hex(random_bytes(4));
+        $service = new MailService(
+            mode: 'local',
+            fromAddress: 'noreply@exemple.test',
+            fromName: 'Unité Exemple',
+            shortName: '25SV',
+            dkimManager: new DkimManager($dkimDir),
+            dkimSelector: 'mail',
+            transport: $this->chain(new SuspendedMailTransport()),
+            deferred: new DeferredMailQueue($deferred, $this->settings)
+        );
+
+        try {
+            $service->send('parent@exemple.test', 'Reçu de paiement', '<p>Bonjour</p>', 'Bonjour');
+            $this->fail('A suspended send must neither leave nor be reported as queued.');
+        } catch (MailException $e) {
+            $this->assertStringContainsString('suspendu', $e->getMessage());
+            // Passed on as itself, so a screen can show the person what to do
+            // (review of #1549) rather than a generic failure.
+            $this->assertInstanceOf(MailSendingSuspendedException::class, $e);
+            $this->assertStringContainsString(
+                'Configuration › Capture suspendue',
+                \Core\Exception\UserFacingMessage::from($e, 'Échec générique.')
+            );
+        } finally {
+            @rmdir($dkimDir);
+        }
+
+        $this->assertSame([], $deferred->pendingCountByLane(), 'Nothing waits to be sent later.');
+
+        // The chain itself throws the suspension, not the lane's exhaustion.
+        $this->expectException(MailSendingSuspendedException::class);
+        $this->chain(new SuspendedMailTransport())->deliver($this->message(), MailPurpose::Ordinary);
+    }
+
+    /**
+     * The sign-in link the capture was letting through is not refused up
+     * front: with its lane unusable it is the lane's ordinary error.
+     */
+    public function testAnExemptSignInLinkStillMeetsItsLaneAsUsual(): void
+    {
+        $this->chains->append(MailLane::Authentication, MailProvider::LOCAL_ID, false);
+        $delivery = $this->recordingTransport();
+
+        $this->expectException(LaneExhaustedException::class);
+        $this->chain(new SuspendedMailTransport($delivery))->deliver($this->message(), MailPurpose::MagicLink);
     }
 
     // ── the circuit breaker (D15) ─────────────────────────────────────

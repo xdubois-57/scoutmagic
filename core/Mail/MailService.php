@@ -550,6 +550,15 @@ class MailService
                 MailErrorRedaction::withoutAddresses($e->getMessage()),
                 attemptFailures: $e->attemptFailures
             );
+        } catch (MailSendingSuspendedException $e) {
+            // The site's own refusal (issue #1469), passed on as itself: a
+            // plain MailException would drop its UserFacingException
+            // marker, and the person who tried to send would read a
+            // generic failure instead of the page where the decision is
+            // taken (review of #1549). Its message holds no address.
+            $this->journalFailure($e->getMessage());
+
+            throw $e;
         } catch (\Exception $e) {
             $reason = $mail->ErrorInfo ?: $e->getMessage();
             $this->journalFailure($reason);

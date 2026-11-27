@@ -320,10 +320,25 @@ class CaptureWiringTest extends TestCase
         $source = (string) file_get_contents(dirname(__DIR__, 3) . '/public/' . $file);
 
         $this->assertStringContainsString(
-            'CaptureTransportFactory::forInstallation(',
+            'CaptureTransportFactory::transportFor(',
             $source,
             $file . ' builds a MailService without asking whether this installation captures mail: '
             . 'everything it sends would go out even with the sandbox armed'
+        );
+        // And a capture armed but no longer acting is recorded first, so
+        // that the factory blocks instead of answering null (issue #1469).
+        foreach (['SandboxLoss::mailLossReason(', 'SandboxLoss::telephonyLossReason(', '$sandboxLossState->record('] as $call) {
+            $this->assertStringContainsString(
+                $call,
+                $source,
+                $file . ' does not record the sandbox loss: a lost capture would send for real again'
+            );
+        }
+        $this->assertStringContainsString(
+            'sandboxLossState: $sandboxLossState',
+            $source,
+            $file . ' does not hand the scheduler the loss it recorded: a scheduled redirect would drive the '
+            . 'real SOS line'
         );
         $this->assertDoesNotMatchRegularExpression(
             '/MailServiceFactory::create\([^;]*,\s*null\s*,/s',
