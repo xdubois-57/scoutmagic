@@ -8,11 +8,13 @@ declare(strict_types=1);
 
 namespace Tests\Core\Archive;
 
+use Core\Archive\ArchiveDamagedException;
 use Core\Archive\ArchiveLimits;
 use Core\Archive\ArchiveRejectedException;
 use Core\Archive\BoundedZipReader;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
+use Tests\Support\ZipDamage;
 
 /**
  * The reader every archive a stranger built goes through: names that
@@ -202,6 +204,154 @@ final class BoundedZipReaderTest extends TestCase
     {
         $this->assertSame('a?b', BoundedZipReader::shown("a\x01b"));
         $this->assertSame(78, mb_strlen(BoundedZipReader::shown(str_repeat('x', 200))));
+    }
+
+    /**
+     * The total counts each member once (#1238): an importer that reads a
+     * member again — to inspect it, then to write it — does not spend the
+     * archive's budget twice, so an archive accepted once is not stopped
+     * half read.
+     */
+    public function testAMemberReadAgainIsCountedOnce(): void
+    {
+        $archive = $this->reader()->open($this->zip(['photo.json' => str_repeat('a', 1000)]));
+
+        for ($i = 0; $i < 10; $i++) {
+            $archive->read('photo.json');
+            iterator_to_array($archive->lines('photo.json'));
+        }
+
+        $this->assertSame(1000, $archive->measuredTotal());
+        $archive->close();
+    }
+
+    /** Distinct members still add up, and the total still stops them. */
+    public function testDistinctMembersStillAddUpToTheTotalCeiling(): void
+    {
+        // 3000 bytes already read by earlier requests: the second distinct
+        // member, and not a second read of the first, crosses the 4096.
+        $archive = $this->reader()->open(
+            $this->zip(['un.json' => str_repeat('a', 1000), 'deux.json' => str_repeat('b', 1000)]),
+            3000
+        );
+        $archive->read('un.json');
+        $archive->read('un.json');
+        $this->assertSame(4000, $archive->measuredTotal());
+
+        $this->expectException(ArchiveRejectedException::class);
+        $this->expectExceptionMessage('contenu décompressé');
+        try {
+            $archive->read('deux.json');
+        } finally {
+            $archive->close();
+        }
+    }
+
+    /**
+     * A damaged member is said to be damaged (#1238). libzip does not check
+     * the CRC: a stored member came back as long but wrong, a deflated one
+     * shorter, and a line file simply had fewer lines.
+     */
+    #[DataProvider('compressionMethods')]
+    public function testADamagedMemberIsRefusedOnceReadToItsEnd(int $method): void
+    {
+        $archive = $this->reader()->open($this->damaged($method));
+
+        $this->expectException(ArchiveRejectedException::class);
+        $this->expectExceptionMessageMatches('/abîmé|illisible/');
+        try {
+            $archive->read('lignes.jsonl');
+        } finally {
+            $archive->close();
+        }
+    }
+
+    #[DataProvider('compressionMethods')]
+    public function testADamagedLineFileIsRefusedBeforeItsLastLine(int $method): void
+    {
+        $archive = $this->reader()->open($this->damaged($method));
+
+        $this->expectException(ArchiveRejectedException::class);
+        $this->expectExceptionMessageMatches('/abîmé|illisible/');
+        try {
+            iterator_to_array($archive->lines('lignes.jsonl'));
+        } finally {
+            $archive->close();
+        }
+    }
+
+    /** A stored member comes out whole but wrong: only its CRC says so, as a damaged archive. */
+    public function testAStoredMemberThatDoesNotMatchItsCrcIsDamaged(): void
+    {
+        $archive = $this->reader()->open($this->damaged(\ZipArchive::CM_STORE));
+
+        $this->expectException(ArchiveDamagedException::class);
+        $this->expectExceptionMessage('L\'élément « lignes.jsonl » de l\'archive est abîmé');
+        try {
+            $archive->digest('lignes.jsonl');
+        } finally {
+            $archive->close();
+        }
+    }
+
+    /**
+     * A read refused at a lowered ceiling does not spend the archive's
+     * budget on the chunk that crossed it.
+     */
+    public function testAReadRefusedAtItsCeilingIsNotCounted(): void
+    {
+        $archive = $this->reader()->open($this->zip(['image.json' => str_repeat('a', 1000)]));
+
+        try {
+            $archive->read('image.json', 500);
+            $this->fail('The lowered ceiling should have refused the member.');
+        } catch (ArchiveRejectedException) {
+        }
+
+        $this->assertSame(0, $archive->measuredTotal());
+        $archive->close();
+    }
+
+    /** A read stopped early checks nothing: it has not read what it would check. */
+    public function testALineFileReadOnlyInPartChecksNothing(): void
+    {
+        $archive = $this->reader()->open($this->damaged(\ZipArchive::CM_STORE));
+
+        $first = null;
+        foreach ($archive->lines('lignes.jsonl') as $line) {
+            $first = $line;
+            break;
+        }
+        $archive->close();
+
+        $this->assertNotNull($first);
+        $this->assertStringStartsWith('{"n":0,', $first);
+    }
+
+    /**
+     * @return array<string, array{int}>
+     */
+    public static function compressionMethods(): array
+    {
+        return ['stored' => [\ZipArchive::CM_STORE], 'deflated' => [\ZipArchive::CM_DEFLATE]];
+    }
+
+    /** An archive whose line file has one byte flipped in the middle of its data. */
+    private function damaged(int $method): string
+    {
+        $content = '';
+        // Hex that does not compress away, so the flipped byte lands in
+        // the member's data whatever the method.
+        for ($n = 0; $n < 25; $n++) {
+            $content .= '{"n":' . $n . ',"v":"' . substr(md5((string) $n), 0, 16) . "\"}\n";
+        }
+        $path = $this->zip(['lignes.jsonl' => $content], static function (\ZipArchive $zip) use ($method): void {
+            $zip->setCompressionName('lignes.jsonl', $method);
+        });
+
+        ZipDamage::flipByteInMember($path, 'lignes.jsonl');
+
+        return $path;
     }
 
     private function reader(): BoundedZipReader

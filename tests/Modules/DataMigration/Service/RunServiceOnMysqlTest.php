@@ -30,6 +30,7 @@ use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 use Tests\Modules\DataMigration\Support\TestArchive;
 use Tests\Modules\DataMigration\Support\TestImporter;
+use Tests\Support\ZipDamage;
 use Tests\UsesProductionEngine;
 
 /**
@@ -619,13 +620,51 @@ final class RunServiceOnMysqlTest extends TestCase
     }
 
     /**
-     * The archive's budget is measured per slice, and counts what the
-     * importer itself reads while writing. Three items that each read the
-     * same 1.5 MB member exhaust a 4 MB budget the verification, which read
-     * that member once, did not: once the item list is read past it, the
-     * run stops. The two items written before stay, the third rolls back.
+     * An archive damaged after its verification — changed on the server
+     * since — stops the execution once the damaged member is read to its
+     * end (#1238): it used to end « done », short of lines, without a word.
+     * The run is abandoned with the reason, what was written stays, and the
+     * file is not kept. (The verification, which digests every member, is
+     * what keeps a damaged archive from being imported at all.)
      */
-    public function testAnArchiveBudgetExhaustedDuringTheExecutionStopsTheRunAndKeepsWhatWasImported(): void
+    public function testAnArchiveDamagedAfterItsVerificationStopsTheRunAndKeepsWhatWasImported(): void
+    {
+        $items = [];
+        for ($i = 1; $i <= 40; $i++) {
+            $items[] = ['id' => (string) $i, 'name' => 'Élément ' . $i . ' ' . md5((string) $i)];
+        }
+        $run = $this->deposit(TestArchive::items($items));
+        for ($i = 0; $i < 200 && $run->state === Run::UPLOADED; $i++) {
+            $run = $this->service->advance($this->importer, $run);
+        }
+        $this->assertSame(Run::ANALYSED, $run->state, (string) $run->rejectionReason);
+        ZipDamage::flipByteInMember($this->uploads->absolute((string) $run->filePath), 'items.jsonl');
+
+        $run = $this->service->confirm($run, []) ?? $this->fail('Not confirmed.');
+        for ($i = 0; $i < 200 && in_array($run->state, [Run::CONFIRMED, Run::RUNNING], true); $i++) {
+            $run = $this->service->advance($this->importer, $run);
+        }
+
+        $this->assertSame(Run::ABANDONED, $run->state);
+        $this->assertMatchesRegularExpression('/« items\.jsonl » de l\'archive est (abîmé|illisible)/', (string) $run->rejectionReason);
+        $this->assertSame($run->report['imported'], $this->writtenCount());
+        $this->assertSame($run->report['imported'], $this->mappingCount());
+        $this->assertNull($run->filePath);
+        $this->assertSame(
+            'import_stopped',
+            $this->pdo->query(
+                "SELECT event_type FROM event_log WHERE category = 'data_migration' ORDER BY id DESC LIMIT 1"
+            )->fetchColumn()
+        );
+    }
+
+    /**
+     * The archive's budget counts each member once (#1238): three items that
+     * each read the same 1.5 MB member while writing do not spend a 4 MB
+     * budget three times. It used to: an archive the verification accepted
+     * was stopped half imported.
+     */
+    public function testAMemberReadAgainWhileWritingDoesNotSpendTheBudgetTwice(): void
     {
         $importer = new TestImporter(
             $this->pdo,
@@ -650,21 +689,10 @@ final class RunServiceOnMysqlTest extends TestCase
 
         $run = $service->advance($importer, $service->confirm($run, []) ?? $this->fail('Not confirmed.'));
 
-        $this->assertSame(Run::ABANDONED, $run->state);
-        $this->assertSame(
-            'Le contenu décompressé de l\'archive dépasse la taille acceptée pour ce format.',
-            $run->rejectionReason
-        );
-        $this->assertSame(2, $run->report['imported']);
-        $this->assertSame(2, $this->writtenCount());
-        $this->assertSame(2, $this->mappingCount());
-        $this->assertNull($run->filePath);
-        $this->assertSame(
-            'import_stopped',
-            $this->pdo->query(
-                "SELECT event_type FROM event_log WHERE category = 'data_migration' ORDER BY id DESC LIMIT 1"
-            )->fetchColumn()
-        );
+        $this->assertSame(Run::DONE, $run->state, (string) $run->rejectionReason);
+        $this->assertSame(3, $run->report['imported']);
+        $this->assertSame(3, $this->writtenCount());
+        $this->assertSame(3, $this->mappingCount());
     }
 
     /** The service of setUp(), with slices of $seconds instead of one step each. */
