@@ -96,6 +96,20 @@ class RentalPricingRepository
         ]);
     }
 
+    /**
+     * Runs $work holding `$assetId`'s row (`AssetLock`), so two managers
+     * adding periods to one asset at the same moment cannot both pass the
+     * overlap check (issue #1355, D9).
+     *
+     * @template T
+     * @param callable(): T $work
+     * @return T
+     */
+    public function withAssetLocked(int $assetId, callable $work): mixed
+    {
+        return AssetLock::run($this->pdo, $assetId, $work);
+    }
+
     // ── Periods ─────────────────────────────────────────────────────────
 
     /**
