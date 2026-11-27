@@ -14,8 +14,9 @@ related: pages-d-un-groupe, nouveau-et-reponses-groupe, signalements-groupe, ani
 Les groupes sont les espaces de discussion privés de l'unité : un
 groupe par section, plus des groupes sur invitation. Vous ne voyez que
 les vôtres ; un groupe dont vous ne faites pas partie n'existe tout
-simplement pas pour vous. L'onglet « Archives » garde les groupes des
-années passées, en lecture seule.
+simplement pas pour vous. L'onglet « Archives » garde les groupes
+archivés (année terminée, inactivité ou choix d'un modérateur), en
+lecture seule.
 
 ## Publier un message
 

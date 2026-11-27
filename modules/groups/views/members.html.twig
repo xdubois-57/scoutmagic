@@ -7,7 +7,7 @@
       `only`, and exactly the variables the header needs here: this page's
       own context carries `can_moderate` (it gates the invite and removal
       controls below), and letting it leak into the partial used to render
-      the Clôturer/Rouvrir buttons on the members page — plus, `can_reopen`
+      the Archiver/Rouvrir buttons on the members page — plus, `can_reopen`
       never being passed, the "il ne peut plus être rouvert" line on ANY
       closed group, current year included. Those belong to the group's own
       page (GroupController::show()), the only caller that resolves them.

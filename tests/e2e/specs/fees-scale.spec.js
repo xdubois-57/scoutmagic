@@ -91,6 +91,10 @@ test('the scale keeps edits, applies a partial proposal explicitly and saves all
     await page.getByRole('button', { name: 'Reprendre les montants et la période', exact: true }).click();
     await expect(page.getByLabel('Au (jour/mois), inclus', { exact: true })).toHaveValue('14/09');
     await page.getByRole('button', { name: 'Enregistrer le barème' }).click();
+    // The save is a POST and its redirect: reloading before they land
+    // reloads a page that is being replaced (« Not attached to an active
+    // page »), or the one from before the save.
+    await expect(page.getByRole('alert').filter({ hasText: 'Barème enregistré.' })).toBeVisible();
     await page.reload({ waitUntil: 'load' });
     await openScale(page);
     await expect(amount('Normale')).toHaveValue('58,12');

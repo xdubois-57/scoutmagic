@@ -802,8 +802,10 @@ chaque consultation, de sorte qu'un membre quittant une section perd immédiatem
 ne soit nécessaire ; (c) que les photos et vidéos d'un groupe ne sont accessibles qu'à ses membres et jamais depuis la
 galerie générale ; (d) qu'un signalement n'est jamais révélé à personne, pas même dans le journal d'audit ; (e) que le
 masquage automatique après plusieurs signalements est la seule conséquence automatique et que rien n'est jamais
-supprimé sans décision humaine ; (f) les trois durées de conservation (clôture pour inactivité, suppression d'un
-message après sa dernière activité avec l'exemption des messages épinglés, suppression intégrale d'un groupe clôturé),
+supprimé sans décision humaine ; (f) les trois durées de conservation (archivage pour inactivité — un groupe est
+aussi archivé à la fin de son année scoute ou par un modérateur —, suppression d'un message après sa dernière activité
+avec l'exemption des messages épinglés, suppression intégrale d'un groupe archivé, comptée depuis la date
+d'archivage quelle qu'en soit la cause),
 le fait qu'elles soient configurables par l'administrateur mais jamais groupe par groupe, et le fait que la
 suppression efface les fichiers eux-mêmes et pas seulement les données ; (g) qu'aucun email n'est envoyé pour les
 notifications de ce module. **Vérification IA** : si "llm_connector" est également actif, conserve le paragraphe sur

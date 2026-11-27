@@ -1246,9 +1246,31 @@ class GroupControllerTest extends TestCase
             ->show(new Request('GET', '/groups/' . $groupId, [], [], [], []), ['id' => (string) $groupId])->getBody();
 
         $this->assertStringContainsString('Archivé', $body);
-        $this->assertStringNotContainsString('/groups/' . $groupId . '/close', $body);
+        $this->assertStringNotContainsString('/groups/' . $groupId . '/archive', $body);
         $this->assertStringNotContainsString('/groups/' . $groupId . '/reopen', $body);
         $this->assertStringContainsString('ne peut plus être rouvert', $body);
+    }
+
+    /**
+     * An active group offers its moderator « Archiver », the one word for
+     * the one state (#1350): « Clôturer » is gone from the page, its
+     * confirmation included.
+     */
+    public function testAnActiveGroupOffersArchiverAndNeverClôturer(): void
+    {
+        $creator = GroupsTestHelper::createMember($this->pdo, 'C4R');
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator, 1);
+        $admin = GroupsTestHelper::createMember($this->pdo, 'ADM4R');
+
+        $body = $this->controller([$admin], 'admin')
+            ->show(new Request('GET', '/groups/' . $groupId, [], [], [], []), ['id' => (string) $groupId])->getBody();
+
+        $this->assertStringContainsString('action="/groups/' . $groupId . '/archive"', $body);
+        $this->assertStringContainsString('Archiver ce groupe ?', $body);
+        $this->assertMatchesRegularExpression('/<\/i>\s*Archiver\s*<\/button>/', $body);
+        // A destructive trigger (design.md): it stops everybody's participation.
+        $this->assertMatchesRegularExpression('/class="btn btn-outline-danger[^"]*">\s*<i class="bi bi-archive/', $body);
+        $this->assertDoesNotMatchRegularExpression('/cl[ôo]tur/iu', $body);
     }
 
     /** A current-year group archived by hand is reopenable from its page. */
@@ -1263,7 +1285,7 @@ class GroupControllerTest extends TestCase
             ->show(new Request('GET', '/groups/' . $groupId, [], [], [], []), ['id' => (string) $groupId])->getBody();
 
         $this->assertStringContainsString('/groups/' . $groupId . '/reopen', $body);
-        $this->assertStringNotContainsString('/groups/' . $groupId . '/close', $body);
+        $this->assertStringNotContainsString('/groups/' . $groupId . '/archive', $body);
         $this->assertStringNotContainsString('ne peut plus être rouvert', $body);
     }
 

@@ -65,7 +65,7 @@ class MemberDiscussionGroupServiceTest extends TestCase
         $this->assertSame('Staff d\'unité', $groups[0]->name);
         $this->assertSame('/groups/' . $groupId, $groups[0]->path);
         $this->assertFalse($groups[0]->isModerator);
-        $this->assertFalse($groups[0]->isClosed);
+        $this->assertFalse($groups[0]->isArchived);
     }
 
     public function testRunningAGroupIsDistinguishedFromMerelyBeingInIt(): void
@@ -91,7 +91,7 @@ class MemberDiscussionGroupServiceTest extends TestCase
         $groups = $this->service->getDiscussionGroups($this->memberId);
 
         $this->assertCount(1, $groups);
-        $this->assertTrue($groups[0]->isClosed);
+        $this->assertTrue($groups[0]->isArchived);
     }
 
     public function testActiveGroupsComeBeforeArchivedOnes(): void
@@ -127,8 +127,8 @@ class MemberDiscussionGroupServiceTest extends TestCase
         $groups = $this->service->getDiscussionGroups($this->memberId);
 
         $this->assertSame(['Camp 2027', 'Camp 2025'], array_map(fn($g) => $g->name, $groups));
-        $this->assertFalse($groups[0]->isClosed);
-        $this->assertTrue($groups[1]->isClosed);
+        $this->assertFalse($groups[0]->isArchived);
+        $this->assertTrue($groups[1]->isArchived);
     }
 
     public function testOneMembersGroupsNeverLeakIntoAnothers(): void
@@ -158,6 +158,6 @@ class MemberDiscussionGroupServiceTest extends TestCase
         $properties = array_keys(get_object_vars($this->service->getDiscussionGroups($this->memberId)[0]));
         sort($properties);
 
-        $this->assertSame(['isClosed', 'isModerator', 'name', 'path'], $properties);
+        $this->assertSame(['isArchived', 'isModerator', 'name', 'path'], $properties);
     }
 }

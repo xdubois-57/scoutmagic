@@ -40,7 +40,7 @@ class GroupLifecycleActionsTest extends GroupsControllerTestCase
     {
         $_POST = [];
 
-        $response = $this->groupController([$this->moderatorMemberId], self::OTHER_ACCOUNT)->close($this->request(), $this->params());
+        $response = $this->groupController([$this->moderatorMemberId], self::OTHER_ACCOUNT)->archive($this->request(), $this->params());
 
         $this->assertSame(302, $response->getStatusCode());
         $this->assertSame(
@@ -54,7 +54,7 @@ class GroupLifecycleActionsTest extends GroupsControllerTestCase
     {
         $this->withCsrf([]);
 
-        $response = $this->groupController([$this->moderatorMemberId], self::OTHER_ACCOUNT)->close($this->request(), $this->params());
+        $response = $this->groupController([$this->moderatorMemberId], self::OTHER_ACCOUNT)->archive($this->request(), $this->params());
 
         $this->assertSame(302, $response->getStatusCode());
         $this->assertNotNull($this->group()->archivedAt);
@@ -68,7 +68,7 @@ class GroupLifecycleActionsTest extends GroupsControllerTestCase
     {
         $this->withCsrf([]);
 
-        $response = $this->groupController([$this->memberId])->close($this->request(), $this->params());
+        $response = $this->groupController([$this->memberId])->archive($this->request(), $this->params());
 
         $this->assertSame(403, $response->getStatusCode());
         $this->assertNull($this->group()->archivedAt);
@@ -79,7 +79,7 @@ class GroupLifecycleActionsTest extends GroupsControllerTestCase
         $this->withCsrf([]);
         $stranger = GroupsTestHelper::createMember($this->pdo, 'STRANGER');
 
-        $response = $this->groupController([$stranger], self::OTHER_ACCOUNT)->close($this->request(), $this->params());
+        $response = $this->groupController([$stranger], self::OTHER_ACCOUNT)->archive($this->request(), $this->params());
 
         $this->assertSame(404, $response->getStatusCode());
     }

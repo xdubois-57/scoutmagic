@@ -1052,10 +1052,10 @@ Six types, all optional per member except one: a new post in one of my groups, a
 | Épingler un message | Moderator | One pinned message per group, for a chosen length of time — see §20.2. |
 | Modifier les membres | Moderator | Invite a member or a whole section; grant or revoke the moderator flag; remove an invited member. |
 | Quitter le groupe | Any invited member | Deletes their invitation; access is lost immediately and coming back needs a new invitation. A membership that comes from a **linked section cannot be left** — it follows the Desk import. The **last moderator** may not leave until another one is appointed; site admins do not count. Their existing posts and replies stay in the group. |
-| Clôturer | Moderator | Read-only from then on, still fully visible. |
-| Rouvrir | Moderator or site admin | Only while the group's scout year is still the current one — a past-year group stays a read-only archive. Reopening restarts the inactivity and purge clocks, so the nightly task does not close it straight back. Content already deleted by the retention purge does not come back. |
+| Archiver | Moderator | Moves the group to « Archives » at once, whatever its year (or none): read-only from then on, still fully visible to its members. |
+| Rouvrir | Moderator or site admin | For a group of the current scout year, of a future one, or of no year — a past-year group stays archived, whatever year the session previews. Reopening puts it back in the current list and restarts the inactivity clock, so the nightly task does not archive it straight back; archiving it again later starts a new archive date. Content already deleted by the retention purge does not come back. |
 
-An administrator caps how many **open, non-section** groups one person may have created (5 by default). Section groups are created automatically and never count; a closed group stops counting. The cap applies to administrators too.
+An administrator caps how many **open, non-section** groups one person may have created (5 by default). Section groups are created automatically and never count; an archived group stops counting. The cap applies to administrators too.
 
 ### 20.5 Lifecycle and retention
 
@@ -1064,9 +1064,9 @@ Four nightly tasks, each with its own admin-configurable duration and none of th
 | Task | Rule |
 |---|---|
 | Create section groups | One group per visible, active section per scout year, Staff d'U included. Idempotent, and also run whenever the group list is opened, so a missing group heals itself. Next year's groups appear as soon as that year is imported, ready for chiefs through the staff-year mechanism (§16). |
-| Close inactive groups | A group with no post, reply or reaction for `groups_inactivity_close_months` (12 by default) is closed: read-only, still fully visible to its members. A group that never held anything is counted from its creation. A moderator may also close a group by hand. |
+| Archive inactive groups and ended years | A group with no post, reply or reaction for `groups_inactivity_close_months` (12 by default) is archived: read-only, still fully visible to its members. A group that never held anything is counted from its creation. The same task archives the groups of a scout year that has ended, judged against the public year, never the year a session previews; a group of no year or of a future year is never archived for its year. A moderator may also archive a group by hand. All three give the same state, « Archivé », and an archive date the task never rewrites. |
 | Purge posts | A post is deleted `groups_post_retention_months` (24 by default) after its last activity, with its replies, reactions, reports, media and cached link image — the files themselves, not only the rows. A pinned post is never purged, at any age; a pin whose deadline has passed is not one any more (§20.2). |
-| Purge closed groups | A closed group is deleted `groups_closed_purge_months` (12 by default) after its closure, gallery album included. A group of the current or a future scout year is never purged. |
+| Purge archived groups | An archived group is deleted `groups_closed_purge_months` (12 by default) after its archive date, whatever archived it, gallery album included. A group of the current or a future scout year is never purged. The task and setting keys keep their historical names: installed sites have tasks scheduled under them. |
 
 
 ## 21. Usage statistics, support package and support dashboard (core + module support_dashboard)

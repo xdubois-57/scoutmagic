@@ -109,7 +109,7 @@ async function submitAndReload(page, control, route) {
     await page.waitForLoadState('domcontentloaded');
 }
 
-test('a moderator opens a group, invites somebody, promotes, closes, reopens and removes them', async ({ page, browser }) => {
+test('a moderator opens a group, invites somebody, promotes, archives, reopens and removes them', async ({ page, browser }) => {
     /** @type {string[]} */
     const pageErrors = [];
     page.on('pageerror', (error) => pageErrors.push(error.message));
@@ -306,12 +306,11 @@ test('a moderator opens a group, invites somebody, promotes, closes, reopens and
 
         // ---------------------------------------------------------------
         // Archiving: still readable, no longer writable — and the site says
-        // exactly that rather than silently removing the composer. (The
-        // button keeps its historical label until the interface's own
-        // wording change, issue #1350 lot B.)
+        // exactly that rather than silently removing the composer. One
+        // word for the one state, on the button too (issue #1350).
         // ---------------------------------------------------------------
         await page.goto(groupUrl, { waitUntil: 'domcontentloaded' });
-        await submitAndReload(page, page.getByRole('button', { name: 'Clôturer' }), '/close');
+        await submitAndReload(page, page.getByRole('button', { name: 'Archiver' }), '/archive');
         // exact: the flash message and the "you can still read it" notice
         // both contain the word too.
         await expect(page.getByText('Archivé', { exact: true })).toBeVisible();
