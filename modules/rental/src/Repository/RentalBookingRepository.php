@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\Rental\Repository;
 
+use Core\Database\AdvisoryLock;
 use Core\Security\CapabilityToken;
 use Core\Security\EncryptionService;
 use Core\Security\RateLimitAddress;
@@ -119,6 +120,7 @@ class RentalBookingRepository
 
     /** The source of a public request, for the cap on holds only (#1263). */
     public const SOURCE_BLIND_INDEX_PURPOSE = 'rental_request_source';
+    private const SOURCE_LOCK_PREFIX = 'rental_source_holds:';
 
     public function __construct(
         private \PDO $pdo,
@@ -175,6 +177,43 @@ class RentalBookingRepository
         return $sourceAddress === ''
             ? null
             : $this->encryption->blindIndex(RateLimitAddress::key($sourceAddress), self::SOURCE_BLIND_INDEX_PURPOSE);
+    }
+
+    /**
+     * Takes the named lock of one anonymous source, so that the count of its
+     * running holds and the write of the next one are made by one request
+     * at a time (issue #1399).
+     *
+     * The asset's lock cannot do it: it is the asset's own, and two
+     * requests of one source for two different assets did not see each
+     * other. This one is taken BEFORE the asset's and never waited for —
+     * `AdvisoryLock` gives up at once — so no request ever holds a source's
+     * lock while waiting for another request's, and the order of the two
+     * locks cannot make a cycle. A request that does not get it is recorded
+     * without a hold by the caller, as a request over a ceiling always is.
+     *
+     * The name is the source's blind index, never the address, and is
+     * scoped to this database by `AdvisoryLock`. A source that is not known
+     * has no ceiling to count and takes no lock: it must not become one
+     * lock shared by every unknown source.
+     *
+     * True when the caller may go on: the lock is held, or there is none to
+     * take. False when another request of the same source holds it.
+     */
+    public function lockSource(string $sourceAddress): bool
+    {
+        $source = $this->sourceIndex($sourceAddress);
+
+        return $source === null || AdvisoryLock::acquire($this->pdo, self::SOURCE_LOCK_PREFIX . $source);
+    }
+
+    /** Lets go of {@see lockSource()}'s lock; the server also drops it when the connection closes. */
+    public function unlockSource(string $sourceAddress): void
+    {
+        $source = $this->sourceIndex($sourceAddress);
+        if ($source !== null) {
+            AdvisoryLock::release($this->pdo, self::SOURCE_LOCK_PREFIX . $source);
+        }
     }
 
     /**
