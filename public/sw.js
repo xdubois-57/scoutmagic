@@ -1960,7 +1960,7 @@ self.addEventListener('push', function (event) {
  * @returns {string|null}
  */
 function internalNotificationPath(url) {
-    if (typeof url !== 'string' || url === '' || url[0] !== '/') {
+    if (typeof url !== 'string' || !url.startsWith('/')) {
         return null;
     }
     if (url.startsWith('//') || url.startsWith('/\\')) {
