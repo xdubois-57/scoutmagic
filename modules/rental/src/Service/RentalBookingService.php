@@ -261,6 +261,21 @@ class RentalBookingService implements OccupancyProvider
             $sourceAddress
         );
 
+        // The source's own lock, before the asset's and never waited for
+        // (issue #1399): the source's ceiling crosses the assets, which the
+        // asset's lock does not. A request of the same source being recorded
+        // at this very moment holds it, and this one is then recorded
+        // without a hold — the very thing a request over a ceiling is — so
+        // two requests cannot be given the last place together.
+        $lockedSource = null;
+        if ($hold['until'] !== null && $requesterAccountId === null && $sourceAddress !== null) {
+            if ($this->bookingRepository->lockSource($sourceAddress)) {
+                $lockedSource = $sourceAddress;
+            } else {
+                $hold['until'] = null;
+            }
+        }
+
         // Checked and written as one: no other request, option or
         // confirmation of this asset can land between the two. The lock
         // itself failing is the driver's business, never the visitor's —
@@ -284,9 +299,9 @@ class RentalBookingService implements OccupancyProvider
 
                     // The anonymous ceilings, counted again with the asset
                     // held: the request is then recorded without a hold,
-                    // never refused. The asset's own ceiling is exact here;
-                    // the source's is not exact under simultaneous requests,
-                    // which is followed up with the maintainer privately.
+                    // never refused. Both are exact here: the asset's by the
+                    // asset's lock, the source's by the source's own, held
+                    // since before this one was taken (issue #1399).
                     if ($hold['until'] !== null
                         && $requesterAccountId === null
                         && $this->anonymousCeilingReached($assetId, $sourceAddress, $now)
@@ -299,6 +314,10 @@ class RentalBookingService implements OccupancyProvider
             );
         } catch (\PDOException $e) {
             throw new RentalException(self::SUBMISSION_FAILED, 0, $e);
+        } finally {
+            if ($lockedSource !== null) {
+                $this->bookingRepository->unlockSource($lockedSource);
+            }
         }
 
         $booking = $this->bookingRepository->findById($created['id']);
