@@ -133,6 +133,30 @@ class ReenrollmentFormService
     }
 
     /**
+     * The sections the card offered for `$memberId` in « Section
+     * souhaitée » — the only ids a saved preference may name (#1274,
+     * SECURITY.md § 3). Read off the same `arrivalSectionsForMember()` call
+     * as the card, with the same rule: no question, and so no choice, when
+     * fewer than two sections are offered.
+     *
+     * @return list<int>
+     */
+    public function offeredSectionIdsFor(int $memberId, int $publicYearId, string $publicYearLabel): array
+    {
+        $ids = array_map(
+            static fn(array $section): int => (int) $section['id'],
+            $this->passageService->arrivalSectionsForMember(
+                $memberId,
+                $publicYearId,
+                $publicYearLabel,
+                includeHidden: false
+            )
+        );
+
+        return count($ids) > 1 ? array_values($ids) : [];
+    }
+
+    /**
      * Whether `$email`'s account may answer for `$memberId` — the one
      * check every save goes through, whatever the request looked like.
      */

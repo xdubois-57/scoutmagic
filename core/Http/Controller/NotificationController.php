@@ -10,6 +10,7 @@ namespace Core\Http\Controller;
 
 use Core\Http\Request;
 use Core\Http\Response;
+use Core\Http\SafeRedirect;
 use Core\Notification\NotificationRecord;
 use Core\Notification\NotificationRepository;
 use Core\Security\AuthSession;
@@ -95,7 +96,10 @@ class NotificationController extends AbstractController
 
         $this->notificationRepository->markRead($id);
 
-        return $this->redirect($record->url ?? '/notifications');
+        // Through SafeRedirect (#1274): the stored address is the site's
+        // own today, and this route must stay no open redirect the day one
+        // is not.
+        return $this->redirect(SafeRedirect::internalPath($record->url ?? '', '/notifications'));
     }
 
     /**

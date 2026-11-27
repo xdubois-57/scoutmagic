@@ -10,6 +10,7 @@ namespace Core\Notification;
 
 use Core\Config\ScoutYearService;
 use Core\Config\SettingService;
+use Core\Http\SafeRedirect;
 use Core\Journal\JournalService;
 use Core\Scheduler\SchedulerService;
 use Core\Security\DecryptionException;
@@ -261,7 +262,7 @@ class NotificationService
 
         $title = (string) $payload['title'];
         $body = (string) $payload['body'];
-        $url = isset($payload['url']) ? (string) $payload['url'] : null;
+        $url = self::internalUrl(isset($payload['url']) ? (string) $payload['url'] : null);
 
         $authorizationYears = $this->authorizationYears();
 
@@ -528,6 +529,7 @@ class NotificationService
      */
     public function notify(int $userAccountId, string $title, string $body, ?string $url = null): void
     {
+        $url = self::internalUrl($url);
         $notificationId = $this->notificationRepository->create(
             $userAccountId,
             null,
@@ -1222,5 +1224,24 @@ class NotificationService
                 );
             }
         }
+    }
+
+    /**
+     * A notification's address, as stored and as every reader of it follows
+     * it — the centre's « open », the e-mail, the push payload (#1274). Only
+     * a path of this site is kept: today every module gives one, and an
+     * address that came one day from a person (a shared link, an imported
+     * one) would otherwise make « open the notification » an open redirect
+     * on the unit's domain. Anything else is no address at all, and the
+     * notification opens the centre instead.
+     */
+    private static function internalUrl(?string $url): ?string
+    {
+        if ($url === null) {
+            return null;
+        }
+        $internal = SafeRedirect::internalPath($url, '');
+
+        return $internal === '' ? null : $internal;
     }
 }

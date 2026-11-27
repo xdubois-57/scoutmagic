@@ -129,7 +129,21 @@ class ReenrollmentController extends AbstractController
         }
 
         $decision = (string) $request->getBody('decision', '');
+        // Only a section the card offered this child is kept (#1274): a
+        // forged id — a section that does not exist, or one not offered
+        // here — is no preference, as « Peu importe » is, rather than a
+        // skewed passage proposal or a constraint error.
         $preferred = (int) $request->getBody('preferred_section_id', 0);
+        if (
+            $preferred > 0
+            && !in_array($preferred, $this->formService->offeredSectionIdsFor(
+                $memberId,
+                (int) $publicYear['id'],
+                (string) $publicYear['label']
+            ), true)
+        ) {
+            $preferred = 0;
+        }
 
         /** @var array<int, string> $friends */
         $friends = [];
