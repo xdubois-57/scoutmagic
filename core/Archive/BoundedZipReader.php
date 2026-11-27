@@ -73,8 +73,13 @@ final class BoundedZipReader
             );
         }
 
+        // A file that is not there is not a damaged archive (#1238): the
+        // person would look for a fault in a file the server lost.
+        if (!is_file($path)) {
+            throw new ArchiveRejectedException('Le fichier est introuvable sur le serveur.');
+        }
         $zip = new \ZipArchive();
-        if (!is_file($path) || @$zip->open($path, \ZipArchive::RDONLY) !== true) {
+        if (@$zip->open($path, \ZipArchive::RDONLY) !== true) {
             throw new ArchiveRejectedException('Le fichier n\'est pas une archive ZIP lisible.');
         }
 

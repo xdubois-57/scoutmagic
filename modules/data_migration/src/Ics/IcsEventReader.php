@@ -81,6 +81,9 @@ final class IcsEventReader
      */
     public function convert(string $icsPath, string $jsonlPath): int
     {
+        // Renamed zones, under the same names on every host (#1238).
+        ExchangeZoneGuesser::register();
+
         $in = @fopen($icsPath, 'rb');
         if ($in === false) {
             throw new IcsUnreadableException('Cannot open the calendar file.');
@@ -127,6 +130,9 @@ final class IcsEventReader
      */
     public function read(string $eventText, array $timeZones = []): array
     {
+        // Renamed zones, under the same names on every host (#1238).
+        ExchangeZoneGuesser::register();
+
         // On the raw lines first, so that even an event vobject could not
         // parse is excluded as recurring when it says it is one.
         if (preg_match('/^(?:RRULE|RDATE|EXDATE|RECURRENCE-ID)[;:]/mi', $eventText) === 1) {
