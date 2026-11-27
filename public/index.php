@@ -10586,7 +10586,8 @@ if ($isEnabled('groups')) {
             $groupsNotificationService,
             $groupsRecipientResolver,
             $groupsFeedService,
-            $groupsPostService
+            $groupsPostService,
+            $groupsArchiveRule
         )
     );
     $frontController->registerController(

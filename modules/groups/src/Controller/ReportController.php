@@ -78,7 +78,10 @@ class ReportController extends AbstractController
         private ?GroupFeedService $feedService = null,
         // Same posture again, for one line of the page: which message a
         // pin would replace (Service\PostService::pinnedLabel()).
-        private ?PostService $postService = null
+        private ?PostService $postService = null,
+        // The header's « Archivé » badge (issue #1350): the one rule the
+        // rest of the module asks. Without it the page shows none.
+        private ?\Modules\Groups\Service\GroupArchiveRule $archiveRule = null
     ) {
     }
 
@@ -253,7 +256,7 @@ class ReportController extends AbstractController
             'badges' => [
                 'is_invitation' => $group->sectionId === null,
                 'section_names' => [],
-                'is_archived' => false,
+                'is_archived' => $this->archiveRule?->isArchived($group) ?? false,
                 'is_moderator' => true,
             ],
             'rows' => $this->feedService?->rowsForPostIds($group, $context, $reported['post_ids']) ?? [],

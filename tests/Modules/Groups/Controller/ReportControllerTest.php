@@ -556,7 +556,9 @@ class ReportControllerTest extends GroupsControllerTestCase
             new GroupSessionContextFactory($memberService, $accountRepo, $this->scoutYearResolverMock()),
             null,
             null,
-            $this->feedService()
+            $this->feedService(),
+            null,
+            GroupsTestHelper::archiveRule($this->pdo)
         );
     }
 
@@ -578,6 +580,23 @@ class ReportControllerTest extends GroupsControllerTestCase
         $this->assertSame(200, $response->getStatusCode());
         $this->assertStringContainsString('Le message', $response->getBody());
         $this->assertStringContainsString('signalement', $response->getBody());
+    }
+
+    /**
+     * The page's header carries the group's « Archivé » badge like every
+     * other page of the group (#1470 review): it read a hard-coded false.
+     */
+    public function testTheReportsPageOfAnArchivedGroupSaysSo(): void
+    {
+        $page = fn(): string => (string) $this->controller([$this->moderatorMemberId], self::OTHER_ACCOUNT)
+            ->index(new Request('GET', '/groups/' . $this->groupId . '/reports', [], [], [], []), $this->params())
+            ->getBody();
+
+        $this->assertStringNotContainsString('>Archivé</span>', $page());
+
+        $this->groupRepo->setArchived($this->groupId, '2026-01-02 10:00:00');
+
+        $this->assertStringContainsString('>Archivé</span>', $page());
     }
 
     /**
