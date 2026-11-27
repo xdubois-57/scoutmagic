@@ -84,7 +84,7 @@
 
     function isStandalone() {
         var mode = /** @type {any} */ (win).ScoutMagicDisplayMode;
-        if (mode && typeof mode.isStandalone === 'function') {
+        if (typeof mode?.isStandalone === 'function') {
             return mode.isStandalone();
         }
         return (typeof win.matchMedia === 'function' && win.matchMedia('(display-mode: standalone)').matches)
@@ -103,7 +103,7 @@
         if (!content) {
             return null;
         }
-        var title = content.getAttribute('data-document-reader-title') || '';
+        var title = /** @type {HTMLElement} */ (content).dataset.documentReaderTitle || '';
 
         content.querySelectorAll(REMOVED_ELEMENTS).forEach(function (el) { el.remove(); });
         content.querySelectorAll('*').forEach(function (el) {
@@ -163,7 +163,7 @@
         var retry = doc.createElement('button');
         retry.type = 'button';
         retry.className = 'btn btn-primary';
-        retry.setAttribute('data-document-reader-retry', '');
+        retry.dataset.documentReaderRetry = '';
         retry.textContent = 'Réessayer';
         retry.addEventListener('click', function () { void load(link); });
         actions.appendChild(retry);
@@ -217,13 +217,13 @@
             if (result.title) {
                 titleEl.textContent = result.title;
             }
-            body.replaceChildren.apply(body, result.nodes);
+            body.replaceChildren(...result.nodes);
             var scroller = body.closest('.modal-body');
             if (scroller) {
                 scroller.scrollTop = 0;
             }
         }).catch(function (error) {
-            if (pending !== controller || (error && error.name === 'AbortError')) {
+            if (pending !== controller || error?.name === 'AbortError') {
                 return;
             }
             showError(body, link);
@@ -239,7 +239,7 @@
     function open(link) {
         var el = dialog();
         var titleEl = el.querySelector('.modal-title');
-        titleEl.textContent = link.getAttribute('data-document-reader') || link.textContent.trim();
+        titleEl.textContent = link.dataset.documentReader || link.textContent.trim();
         openedFrom = link;
         bootstrap.Modal.getOrCreateInstance(el).show();
         return load(link);
@@ -299,7 +299,7 @@
             return;
         }
         var target = /** @type {Element|null} */ (event.target);
-        if (!target || !target.closest) {
+        if (!target?.closest) {
             return;
         }
         var link = /** @type {HTMLAnchorElement|null} */ (target.closest('a[href]'));
@@ -320,7 +320,7 @@
         // to a window of its own, the way installed-app-links.js sends
         // another site to the browser.
         var el = dialog();
-        if (el && el.contains(link)) {
+        if (el?.contains(link)) {
             event.preventDefault();
             event.stopPropagation();
             win.open(url.href, '_blank', 'noopener');
