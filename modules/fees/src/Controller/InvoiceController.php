@@ -176,7 +176,8 @@ class InvoiceController extends AbstractController
             'success',
             'Facture ' . $outcome->documentNumber . ' importée.'
                 . ($outcome->yearUnchecked
-                    ? " Sa date d'émission n'a pas pu être lue : l'année scoute dans laquelle elle est rangée n'a pas été vérifiée."
+                    ? " Sa date d'émission n'a pas pu être lue : "
+                        . "l'année scoute dans laquelle elle est rangée n'a pas été vérifiée."
                     : '')
         );
 
