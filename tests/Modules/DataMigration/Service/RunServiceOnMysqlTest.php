@@ -619,13 +619,12 @@ final class RunServiceOnMysqlTest extends TestCase
     }
 
     /**
-     * The archive's budget is measured per slice, and counts what the
-     * importer itself reads while writing. Three items that each read the
-     * same 1.5 MB member exhaust a 4 MB budget the verification, which read
-     * that member once, did not: once the item list is read past it, the
-     * run stops. The two items written before stay, the third rolls back.
+     * The archive's budget counts each member once (#1238): three items that
+     * each read the same 1.5 MB member while writing do not spend a 4 MB
+     * budget three times. It used to: an archive the verification accepted
+     * was stopped half imported.
      */
-    public function testAnArchiveBudgetExhaustedDuringTheExecutionStopsTheRunAndKeepsWhatWasImported(): void
+    public function testAMemberReadAgainWhileWritingDoesNotSpendTheBudgetTwice(): void
     {
         $importer = new TestImporter(
             $this->pdo,
@@ -650,21 +649,10 @@ final class RunServiceOnMysqlTest extends TestCase
 
         $run = $service->advance($importer, $service->confirm($run, []) ?? $this->fail('Not confirmed.'));
 
-        $this->assertSame(Run::ABANDONED, $run->state);
-        $this->assertSame(
-            'Le contenu décompressé de l\'archive dépasse la taille acceptée pour ce format.',
-            $run->rejectionReason
-        );
-        $this->assertSame(2, $run->report['imported']);
-        $this->assertSame(2, $this->writtenCount());
-        $this->assertSame(2, $this->mappingCount());
-        $this->assertNull($run->filePath);
-        $this->assertSame(
-            'import_stopped',
-            $this->pdo->query(
-                "SELECT event_type FROM event_log WHERE category = 'data_migration' ORDER BY id DESC LIMIT 1"
-            )->fetchColumn()
-        );
+        $this->assertSame(Run::DONE, $run->state, (string) $run->rejectionReason);
+        $this->assertSame(3, $run->report['imported']);
+        $this->assertSame(3, $this->writtenCount());
+        $this->assertSame(3, $this->mappingCount());
     }
 
     /** The service of setUp(), with slices of $seconds instead of one step each. */
