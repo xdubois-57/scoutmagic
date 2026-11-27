@@ -45,4 +45,17 @@ final class SuspendedMailTransport implements MailTransportInterface
 
         throw MailSendingSuspendedException::captureLost();
     }
+
+    /**
+     * Whether a message of this purpose is refused outright. Asked by
+     * `Transport\MailTransportChain` BEFORE it looks at its lane: a lane
+     * with nothing usable would otherwise end in a LaneExhaustedException,
+     * which `MailService` queues for a later retry — and the retry may run
+     * once the block is lifted, delivering for real a message the site
+     * refused while it was suspended.
+     */
+    public function refuses(MailPurpose $purpose): bool
+    {
+        return $purpose !== MailPurpose::MagicLink || $this->magicLinkDelivery === null;
+    }
 }

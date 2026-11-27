@@ -13,6 +13,7 @@ use Core\Mail\MailErrorRedaction;
 use Core\Mail\MailPurpose;
 use Core\Mail\MailSendingSuspendedException;
 use Core\Mail\MailTransportInterface;
+use Core\Mail\SuspendedMailTransport;
 use PHPMailer\PHPMailer\PHPMailer;
 
 /**
@@ -90,6 +91,16 @@ final class MailTransportChain implements MailTransportInterface
 
     public function deliver(PHPMailer $mail, MailPurpose $purpose): void
     {
+        // Suspension first, before the lane is even read (issue #1469). A
+        // lane with nothing usable ends in a LaneExhaustedException, which
+        // `MailService` answers by queueing the message for a retry — and
+        // that retry may run after a superadmin reopened real sending, so
+        // a message refused while the capture was lost would reach its
+        // real recipient after all. A refusal of the site's own is final.
+        if ($this->delivery instanceof SuspendedMailTransport && $this->delivery->refuses($purpose)) {
+            throw MailSendingSuspendedException::captureLost();
+        }
+
         $lane = MailLane::fromPurpose($purpose);
         $candidates = $this->candidates($lane);
 
