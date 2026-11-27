@@ -9,6 +9,8 @@ use Core\Config\SettingService;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Mail\MailPurpose;
+use Core\Mail\MailSendingSuspendedException;
+use Core\Mail\SuspendedMailTransport;
 use Core\Mail\MailTransportInterface;
 use Core\Mail\Transport\DomainPreferences;
 use Core\Mail\Transport\LaneChainRepository;
@@ -609,6 +611,41 @@ class MailTransportChainTest extends TestCase
         foreach ($providerIds as $providerId) {
             $this->chains->append($lane, $providerId, true);
         }
+    }
+
+    /**
+     * A send the site itself suspended (a mail capture armed and no longer
+     * acting, issue #1469) is nobody's refusal: the chain lets it out at
+     * once, tries no other relay, and charges no breaker — otherwise every
+     * working relay of the installation would read as failing.
+     */
+    public function testASuspendedSendIsNotARelayFailure(): void
+    {
+        $first = $this->addRelay('Premier', 'smtp.premier.test');
+        $second = $this->addRelay('Second', 'smtp.second.test');
+        $this->enable(MailLane::Transactional, [$first, $second]);
+        $health = new ProviderHealthRepository($this->pdo);
+
+        $suspended = new class implements MailTransportInterface {
+            public int $calls = 0;
+
+            public function deliver(PHPMailer $mail, MailPurpose $purpose): void
+            {
+                $this->calls++;
+                (new SuspendedMailTransport())->deliver($mail, $purpose);
+            }
+        };
+
+        try {
+            $this->chain($suspended, $health)->deliver($this->message(), MailPurpose::Ordinary);
+            $this->fail('A suspended send must not be reported as delivered.');
+        } catch (MailSendingSuspendedException) {
+            // expected: the very exception, not a LaneExhaustedException
+        }
+
+        $this->assertSame(1, $suspended->calls, 'No second relay is tried for a send nobody refused.');
+        $this->assertSame(0, $health->forProvider($first)->consecutiveFailures, 'No breaker is charged.');
+        $this->assertSame(0, $health->forProvider($second)->consecutiveFailures);
     }
 
     // ── the circuit breaker (D15) ─────────────────────────────────────

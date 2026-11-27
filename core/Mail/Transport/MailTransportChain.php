@@ -11,6 +11,7 @@ namespace Core\Mail\Transport;
 use Core\Journal\JournalService;
 use Core\Mail\MailErrorRedaction;
 use Core\Mail\MailPurpose;
+use Core\Mail\MailSendingSuspendedException;
 use Core\Mail\MailTransportInterface;
 use PHPMailer\PHPMailer\PHPMailer;
 
@@ -119,6 +120,12 @@ final class MailTransportChain implements MailTransportInterface
 
             try {
                 $this->delivery->deliver($mail, $purpose);
+            } catch (MailSendingSuspendedException $e) {
+                // Nobody refused this message: the site itself declined to
+                // send it (a mail capture armed and no longer acting,
+                // issue #1469). Not a relay's failure, so it neither steps
+                // to the next relay nor counts against this one's breaker.
+                throw $e;
             } catch (\Throwable $e) {
                 $lastReason = MailErrorRedaction::withoutAddresses($mail->ErrorInfo ?: $e->getMessage());
                 $attemptFailures[] = $lastReason;

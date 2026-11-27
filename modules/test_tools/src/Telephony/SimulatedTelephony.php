@@ -11,6 +11,8 @@ namespace Modules\TestTools\Telephony;
 use Core\Config\SettingService;
 use Core\Journal\JournalService;
 use Core\Module\InstallationProfile;
+use Core\Security\SandboxLossState;
+use Modules\SosStaff\Api\PhoneProviderInterface;
 use Modules\TestTools\Service\MailSandboxService;
 
 /**
@@ -56,6 +58,30 @@ final class SimulatedTelephony
     public static function isAllowed(InstallationProfile $profile, SettingService $settingService): bool
     {
         return $profile->hasAny(self::ALLOWED_FLAGS) && self::isArmed($settingService);
+    }
+
+    /**
+     * The stand-in line public/index.php hands `sos_staff`, or null for the
+     * configured operator: the refusing line while simulated telephony is
+     * armed and no longer acting (issue #1469), the simulated one where
+     * all three conditions hold, nothing otherwise.
+     *
+     * The loss reason has already been recorded on $lossState by the
+     * composition root (Modules\TestTools\Sandbox\SandboxLoss).
+     */
+    public static function providerFor(
+        bool $moduleEnabled,
+        InstallationProfile $profile,
+        SettingService $settingService,
+        SandboxLossState $lossState
+    ): ?PhoneProviderInterface {
+        if ($lossState->isBlocked(SandboxLossState::CHANNEL_TELEPHONY)) {
+            return new SuspendedPhoneProvider();
+        }
+
+        return $moduleEnabled && self::isAllowed($profile, $settingService)
+            ? new SimulatedPhoneProvider($settingService)
+            : null;
     }
 
     public static function isArmed(SettingService $settingService): bool

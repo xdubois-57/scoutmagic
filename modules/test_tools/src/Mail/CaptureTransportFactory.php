@@ -13,10 +13,13 @@ use Core\File\EncryptedFileStorageService;
 use Core\File\FileRepository;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
+use Core\Mail\MailTransportInterface;
 use Core\Mail\PhpMailerTransport;
+use Core\Mail\SuspendedMailTransport;
 use Core\Module\InstallationProfile;
 use Core\Module\ModuleRegistryRepository;
 use Core\Security\EncryptionService;
+use Core\Security\SandboxLossState;
 use Modules\TestTools\Repository\CapturedEmailRepository;
 use Modules\TestTools\Service\MailSandboxService;
 
@@ -76,6 +79,36 @@ final class CaptureTransportFactory
         }
 
         return MailSandboxService::isArmed($settingService);
+    }
+
+    /**
+     * What the composition roots hand MailTransportFactory::build(): the
+     * blocking transport while the capture is armed and no longer acting
+     * (issue #1469), otherwise forInstallation()'s answer unchanged.
+     *
+     * The caller has already recorded this request's loss reason on
+     * $lossState (Modules\TestTools\Sandbox\SandboxLoss); this only reads
+     * the outcome, so that a lost capture blocks rather than falling
+     * through to null — which is « send for real ». While blocked the
+     * sign-in link still leaves only if the capture was letting it leave
+     * (Core\Mail\SuspendedMailTransport).
+     */
+    public static function transportFor(
+        InstallationProfile $profile,
+        ModuleRegistryRepository $registryRepo,
+        SettingService $settingService,
+        SandboxLossState $lossState,
+        \PDO $pdo,
+        EncryptionService $encryption,
+        string $storagePath
+    ): ?MailTransportInterface {
+        if ($lossState->isBlocked(SandboxLossState::CHANNEL_MAIL)) {
+            return new SuspendedMailTransport(
+                MailSandboxService::deliversMagicLinks($settingService) ? new PhpMailerTransport() : null
+            );
+        }
+
+        return self::forInstallation($profile, $registryRepo, $settingService, $pdo, $encryption, $storagePath);
     }
 
     /**
