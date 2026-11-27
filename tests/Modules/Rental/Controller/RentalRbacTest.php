@@ -1180,6 +1180,8 @@ class RentalRbacTest extends TestCase
             '#bailleur-edit',
             // What the contract says of the asset itself (issue #977).
             '#contrat-edit',
+            // The reminders' fields, behind their summary (issue #1355, D15).
+            '#rappels-edit',
         ] as $target) {
             $this->assertStringContainsString('data-bs-target="' . $target . '"', $body, $target);
         }
@@ -1195,13 +1197,14 @@ class RentalRbacTest extends TestCase
             'reglages/frais' => 'fee-form',
             'reglages/bailleur' => 'landlord-form',
             'reglages/contrat' => 'contract-details-form',
+            'reglages/rappels' => 'reminders-form',
         ] as $action => $formId) {
             $this->assertStringContainsString('action="/mes-locations/local/' . $action . '" id="' . $formId . '"', $body, $action);
             $this->assertStringContainsString('form="' . $formId . '"', $body, $formId);
         }
 
         // And every dialog is one section-editor.js knows about.
-        $this->assertSame(8, substr_count($body, 'data-section-editor'), $body);
+        $this->assertSame(9, substr_count($body, 'data-section-editor'), $body);
     }
 
     public function testTheSettingsPageShowsNoPrimaryOfItsOwn(): void

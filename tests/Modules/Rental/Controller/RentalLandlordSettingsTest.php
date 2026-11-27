@@ -215,7 +215,52 @@ final class RentalLandlordSettingsTest extends TestCase
         $this->assertNull($asset->landlordName);
         $this->assertNull($asset->landlordAddress);
         $this->assertNull($asset->landlordEnterpriseNumber);
-        $this->assertStringContainsString('bailleur des réglages du module', (string) (FlashMessage::get()['message'] ?? ''));
+        $this->assertStringContainsString('le bailleur par défaut', (string) (FlashMessage::get()['message'] ?? ''));
+    }
+
+    /**
+     * « Utiliser le bailleur par défaut » (issue #1355, D14) empties the
+     * asset's own fields, whatever the hidden fields still post.
+     */
+    public function testChoosingTheDefaultLandlordEmptiesTheAssetsOwn(): void
+    {
+        $this->assetRepository->saveLandlord($this->assetId, 'ASBL', 'Rue 1', '0123456789');
+
+        $this->save([
+            'landlord_mode' => 'default',
+            'landlord_name' => 'ASBL',
+            'landlord_address' => 'Rue 1',
+            'landlord_enterprise_number' => '0123456789',
+        ]);
+
+        $asset = $this->asset();
+        $this->assertNull($asset->landlordName);
+        $this->assertNull($asset->landlordAddress);
+        $this->assertNull($asset->landlordEnterpriseNumber);
+    }
+
+    /** « Bailleur spécifique » with nobody named is refused, and nothing changes. */
+    public function testASpecificLandlordMustNameSomebody(): void
+    {
+        $this->save(['landlord_mode' => 'specific', 'landlord_name' => ' ', 'landlord_address' => '']);
+
+        $this->assertNull($this->asset()->landlordName);
+        $this->assertStringContainsString(
+            "Indiquez le nom ou l'adresse du bailleur spécifique",
+            (string) (FlashMessage::get()['message'] ?? '')
+        );
+    }
+
+    public function testASpecificLandlordIsStored(): void
+    {
+        $this->save([
+            'landlord_mode' => 'specific',
+            'landlord_name' => 'ASBL Les Amis du Local',
+            'landlord_address' => 'Place du Parc 3',
+            'landlord_enterprise_number' => '',
+        ]);
+
+        $this->assertSame('ASBL Les Amis du Local', $this->asset()->landlordName);
     }
 
     public function testAMalformedEnterpriseNumberIsRefusedAndNothingIsStored(): void

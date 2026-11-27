@@ -427,7 +427,7 @@ class RentalPricingController extends AbstractController
      * about its reminders (§6.29).
      *
      * **An empty delay means "take the unit's default", never "never".**
-     * Twelve fields on every asset are twelve fields nobody fills in, so a
+     * Thirteen fields on every asset are thirteen fields nobody fills in, so a
      * blank one has to keep working; switching a reminder off is the
      * checkbox's job. Folding the two into one number field is how 0 — the
      * day itself — and "never" end up one typo apart.
@@ -445,7 +445,7 @@ class RentalPricingController extends AbstractController
                 throw new RentalException('Les rappels ne sont pas disponibles.');
             }
 
-            // **Read all twelve before writing any of them.** `save()`
+            // **Read all thirteen before writing any of them.** `save()`
             // commits one row at a time and nothing here opens a
             // transaction, so validating inside the write loop means a
             // refusal on the twelfth field leaves the first eleven already
@@ -492,9 +492,27 @@ class RentalPricingController extends AbstractController
     public function saveLandlord(Request $request, array $params): Response
     {
         return $this->guarded($request, $params, 'bailleur', function (RentalAsset $asset) use ($request): string {
+            // Two explicit choices (issue #1355, D14). « Par défaut » empties
+            // the asset's own fields whatever they still hold, hidden or not;
+            // « spécifique » must name somebody. A form that posts no choice
+            // keeps the earlier reading: empty fields mean the default.
+            $mode = (string) $request->getBody('landlord_mode', '');
+            if ($mode === 'default') {
+                $this->assetRepository->saveLandlord($asset->id, null, null, null);
+
+                return 'Ce bien utilise désormais le bailleur par défaut.';
+            }
+
             $name = self::optionalText($request->getBody('landlord_name'));
             $address = self::optionalText($request->getBody('landlord_address'));
             $number = self::optionalText($request->getBody('landlord_enterprise_number'));
+
+            if ($mode === 'specific' && $name === null && $address === null) {
+                throw new RentalException(
+                    'Indiquez le nom ou l\'adresse du bailleur spécifique à ce bien, '
+                        . 'ou choisissez le bailleur par défaut.'
+                );
+            }
 
             if ($number !== null && !Landlord::isValidEnterpriseNumber($number)) {
                 throw new RentalException(
@@ -511,7 +529,7 @@ class RentalPricingController extends AbstractController
             $this->assetRepository->saveLandlord($asset->id, $name, $address, $number);
 
             return $name === null && $address === null
-                ? 'Ce bien reprend désormais le bailleur des réglages du module.'
+                ? 'Ce bien utilise désormais le bailleur par défaut.'
                 : 'Le bailleur de ce bien a été enregistré.';
         });
     }
@@ -694,9 +712,9 @@ class RentalPricingController extends AbstractController
      * besides, both of which `is_numeric` and a cast between them would
      * have turned into some number the visitor never typed.
      *
-     * The reminder is named in the refusal because twelve fields are saved
+     * The reminder is named in the refusal because thirteen fields are saved
      * in one post: « ce nombre n'est pas valide » about an unnamed one of
-     * twelve is not an answer anybody can act on.
+     * thirteen is not an answer anybody can act on.
      */
     private static function reminderDays(mixed $value, ReminderKind $kind): ?int
     {

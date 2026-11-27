@@ -2,13 +2,15 @@
   « Bailleur » — who the contract and the invoice name as landlord for this
   asset (issue #497).
 
-  The card shows the landlord IN FORCE and where it comes from, not only
-  what this asset overrides: a manager reading « l'unité » under a hall the
-  ASBL owns is the one who can fix it, and an empty form would not tell
-  them there was anything to fix.
+  The card shows the landlord IN FORCE, and whether it is the default one
+  or this asset's own: a manager reading the unit's name under a hall the
+  ASBL owns is the one who can fix it. The dialog offers two explicit
+  choices (issue #1355, D14) — the default landlord, named, or one of this
+  asset's own — rather than an empty form whose emptiness meant something.
 
-  Requires `asset`; `landlord` is the resolved Document\Landlord, or null
-  when the documents are not available.
+  Requires `asset`; `landlord` is the resolved Document\Landlord and
+  `default_landlord` the one an asset with none of its own gets (never
+  this asset's), both null when the documents are not available.
 #}
 <div class="card mb-4" id="bailleur">
     <div class="card-body">
@@ -21,12 +23,18 @@
             </button>
         </div>
         <p class="text-body-secondary small mb-3">
-            La partie nommée comme bailleur en tête du contrat et de la facture. Renseignez-la ici
-            seulement si ce bien appartient à quelqu'un d'autre que le bailleur habituel, par exemple
-            une ASBL propriétaire des locaux.
+            La partie nommée comme bailleur en tête du contrat et de la facture.
         </p>
 
         {% if landlord %}
+            {% set specific = landlord.source == 'asset' %}
+            <p class="small mb-2">
+                {% if specific %}
+                    <span class="badge text-bg-info">Spécifique à ce bien</span>
+                {% else %}
+                    <span class="badge bg-body-tertiary border text-body-secondary">Bailleur par défaut</span>
+                {% endif %}
+            </p>
             <dl class="row mb-0">
                 <dt class="col-sm-5 col-lg-4">Nom</dt>
                 <dd class="col-sm-7 col-lg-8">{{ landlord.name }}</dd>
@@ -35,26 +43,23 @@
                 <dd class="col-sm-7 col-lg-8">
                     {% if landlord.address %}
                         {{ landlord.address|nl2br }}
+                    {% elseif specific %}
+                        <span class="text-danger">Aucune adresse : les documents impriment « — ».
+                            Complétez le bailleur de ce bien.</span>
                     {% else %}
-                        <span class="text-danger">Aucune : les documents impriment « — ».</span>
+                        <span class="text-danger">Aucune adresse : les documents impriment « — ».
+                            Elle se règle dans Configuration › Réglages › Locations.</span>
                     {% endif %}
                 </dd>
 
                 <dt class="col-sm-5 col-lg-4">Numéro d'entreprise</dt>
                 <dd class="col-sm-7 col-lg-8">{{ landlord.enterpriseNumber ?? '—' }}</dd>
-
-                <dt class="col-sm-5 col-lg-4">Origine</dt>
-                <dd class="col-sm-7 col-lg-8">
-                    {% if landlord.source == 'asset' %}
-                        Le bailleur propre à ce bien.
-                    {% elseif landlord.source == 'module' %}
-                        Le bailleur des réglages du module Locations.
-                    {% else %}
-                        L'unité elle-même : son nom et son adresse postale, réglés dans les
-                        paramètres du site.
-                    {% endif %}
-                </dd>
             </dl>
+            {% if specific and default_landlord|default(null) %}
+                <p class="form-text mb-0">
+                    Bailleur par défaut, non utilisé ici : {{ default_landlord.name }}{% if default_landlord.address %}, {{ default_landlord.address|replace({"\r\n": ', ', "\n": ', '}) }}{% endif %}.
+                </p>
+            {% endif %}
         {% endif %}
     </div>
 </div>
@@ -65,33 +70,66 @@
     title: 'Bailleur de ce bien',
     section_editor: true,
     asset: asset,
+    default_landlord: default_landlord|default(null),
 } only %}
     {% block body %}
-        <form method="post" action="/mes-locations/{{ asset.slug }}/reglages/bailleur" id="landlord-form">
+        {% set specific = asset.landlordName is not null or asset.landlordAddress is not null %}
+        <form method="post" action="/mes-locations/{{ asset.slug }}/reglages/bailleur" id="landlord-form"
+              data-landlord-choice>
             {{ csrf_field()|raw }}
 
-            <p class="text-body-secondary small">
-                Laissez tout vide pour reprendre le bailleur des réglages du module, ou à défaut
-                l'unité.
-            </p>
+            <fieldset class="mb-3">
+                <legend class="visually-hidden">Bailleur à utiliser</legend>
+                <div class="form-check">
+                    <input class="form-check-input" type="radio" name="landlord_mode" id="landlord-mode-default"
+                           value="default" {{ not specific ? 'checked' : '' }}>
+                    <label class="form-check-label" for="landlord-mode-default">
+                        {% if default_landlord %}
+                            <strong>Utiliser le bailleur par défaut :</strong>
+                            {{ default_landlord.name }}{% if default_landlord.address %}, {{ default_landlord.address|replace({"\r\n": ', ', "\n": ', '}) }}{% endif %}
+                        {% else %}
+                            <strong>Utiliser le bailleur par défaut</strong>
+                        {% endif %}
+                    </label>
+                    {% if default_landlord and not default_landlord.address %}
+                        <div class="form-text">
+                            Ce bailleur n'a pas d'adresse : les documents impriment « — ». Elle se règle dans
+                            Configuration › Réglages › Locations.
+                        </div>
+                    {% endif %}
+                </div>
+                <div class="form-check">
+                    <input class="form-check-input" type="radio" name="landlord_mode" id="landlord-mode-specific"
+                           value="specific" {{ specific ? 'checked' : '' }}>
+                    <label class="form-check-label" for="landlord-mode-specific">
+                        <strong>Bailleur spécifique à ce bien</strong>
+                    </label>
+                    <div class="form-text">Par exemple une ASBL propriétaire des locaux.</div>
+                </div>
+            </fieldset>
 
-            {% include 'partials/form_field.html.twig' with {
-                field_id: 'landlord-name', field_name: 'landlord_name',
-                label: 'Nom', maxlength: 255,
-                help: 'Vide avec une adresse : l\'unité, à cette adresse.',
-                value: asset.landlordName ?? '',
-            } only %}
-            {% include 'partials/form_field.html.twig' with {
-                field_id: 'landlord-address', field_name: 'landlord_address', type: 'textarea', rows: 3,
-                label: 'Adresse', maxlength: 500,
-                value: asset.landlordAddress ?? '',
-            } only %}
-            {% include 'partials/form_field.html.twig' with {
-                field_id: 'landlord-enterprise-number', field_name: 'landlord_enterprise_number',
-                label: 'Numéro d\'entreprise (BCE)', maxlength: 20,
-                help: 'Facultatif, par exemple 0123.456.789.',
-                value: asset.landlordEnterpriseNumber ?? '',
-            } only %}
+            {#- Shown for « spécifique » only (rental-landlord-choice.js); without
+                the script they stay visible, and « par défaut » empties them on
+                the server whatever they hold. #}
+            <div data-landlord-specific>
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'landlord-name', field_name: 'landlord_name',
+                    label: 'Nom', maxlength: 255,
+                    help: 'Vide avec une adresse : l\'unité, à cette adresse.',
+                    value: asset.landlordName ?? '',
+                } only %}
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'landlord-address', field_name: 'landlord_address', type: 'textarea', rows: 3,
+                    label: 'Adresse', maxlength: 500,
+                    value: asset.landlordAddress ?? '',
+                } only %}
+                {% include 'partials/form_field.html.twig' with {
+                    field_id: 'landlord-enterprise-number', field_name: 'landlord_enterprise_number',
+                    label: 'Numéro d\'entreprise (BCE)', maxlength: 20,
+                    help: 'Facultatif, par exemple 0123.456.789.',
+                    value: asset.landlordEnterpriseNumber ?? '',
+                } only %}
+            </div>
         </form>
     {% endblock %}
     {% block footer %}
