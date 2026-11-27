@@ -145,9 +145,12 @@ class SimulatedTelephonyTest extends TestCase
             SimulatedPhoneProvider::class,
             SimulatedTelephony::providerFor(true, $local, $this->settingService, $state)
         );
-        $this->assertNull(
-            SimulatedTelephony::providerFor(false, $local, $this->settingService, $state),
-            'The module off and nothing recorded: the configured operator, as before.'
+        // Armed, nothing recorded, and yet the module did not load (review of
+        // #1549): the recorded state and ModuleManager disagree. Refused,
+        // never handed back to the configured operator.
+        $this->assertInstanceOf(
+            SuspendedPhoneProvider::class,
+            SimulatedTelephony::providerFor(false, $local, $this->settingService, $state)
         );
 
         $state->record(SandboxLossState::CHANNEL_TELEPHONY, SandboxLossState::REASON_MODULE_UNLOADED, $this->journal);
@@ -155,5 +158,23 @@ class SimulatedTelephonyTest extends TestCase
             SuspendedPhoneProvider::class,
             SimulatedTelephony::providerFor(false, $local, $this->settingService, $state)
         );
+
+        // Released by a superadmin: the configured operator, as decided.
+        $this->assertTrue($state->release(SandboxLossState::CHANNEL_TELEPHONY, 1, $this->journal));
+        $this->assertNull(SimulatedTelephony::providerFor(false, $local, $this->settingService, $state));
+    }
+
+    public function testProviderForLeavesTheConfiguredOperatorAloneWhileUnarmed(): void
+    {
+        SandboxLossState::register($this->settingService);
+        $state = new SandboxLossState($this->settingService);
+
+        $this->assertNull(SimulatedTelephony::providerFor(
+            false,
+            new InstallationProfile([InstallationProfile::FLAG_LOCAL_INSTALLATION]),
+            $this->settingService,
+            $state
+        ));
+        $this->assertNull(SimulatedTelephony::providerFor(true, new InstallationProfile(), $this->settingService, $state));
     }
 }

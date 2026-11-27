@@ -115,20 +115,21 @@ final class LostSandboxTest extends TestCase
      *
      * @return array{state: SandboxLossState, settings: SettingService, profile: InstallationProfile}
      */
-    private function request(mixed $declaredFlags): array
+    private function request(mixed $declaredFlags, ?string $modulesDir = null): array
     {
+        $modulesDir ??= dirname(__DIR__, 3) . '/modules';
         $settings = $this->settings();
         $profile = InstallationProfile::resolve(self::REFERENCE_URL, '', $declaredFlags);
         $registry = new ModuleRegistryRepository($this->pdo);
         $state = new SandboxLossState($settings);
         $state->record(
             SandboxLossState::CHANNEL_MAIL,
-            SandboxLoss::mailLossReason($profile, $declaredFlags, $registry, $settings),
+            SandboxLoss::mailLossReason($profile, $declaredFlags, $registry, $settings, $modulesDir),
             $this->journal
         );
         $state->record(
             SandboxLossState::CHANNEL_TELEPHONY,
-            SandboxLoss::telephonyLossReason($profile, $declaredFlags, $registry, $settings),
+            SandboxLoss::telephonyLossReason($profile, $declaredFlags, $registry, $settings, $modulesDir),
             $this->journal
         );
 
@@ -139,8 +140,6 @@ final class LostSandboxTest extends TestCase
     private function mailTransport(array $request): ?\Core\Mail\MailTransportInterface
     {
         return CaptureTransportFactory::transportFor(
-            $request['profile'],
-            new ModuleRegistryRepository($this->pdo),
             $request['settings'],
             $request['state'],
             $this->pdo,
@@ -298,5 +297,46 @@ final class LostSandboxTest extends TestCase
         $points = (new SandboxLossAttentionProvider($lost['state']))->collect(1);
         $this->assertCount(1, $points);
         $this->assertStringContainsString('téléphonie simulée', $points[0]->title);
+    }
+
+    /**
+     * module.json gone while the registry row stays enabled (review of
+     * #1549): ModuleManager skips test_tools, so the composition root hands
+     * providerFor() `$isEnabled('test_tools') === false`. Before, nothing
+     * was recorded and the configured operator was the line again.
+     */
+    public function testAModuleSkippedForItsManifestNeverDrivesTheRealLine(): void
+    {
+        $this->arm(SimulatedTelephony::SETTING_ARMED);
+        $this->arm(MailSandboxService::SETTING_ARMED);
+        $broken = $this->tempDir . '/modules';
+        mkdir($broken . '/test_tools', 0700, true);
+
+        $lost = $this->request(['reference_installation'], $broken);
+
+        $this->assertSame(SandboxLossState::REASON_MODULE_UNLOADED, $lost['state']->reason(SandboxLossState::CHANNEL_TELEPHONY));
+        $this->assertInstanceOf(
+            SuspendedPhoneProvider::class,
+            SimulatedTelephony::providerFor(false, $lost['profile'], $lost['settings'], $lost['state'])
+        );
+        $this->assertInstanceOf(SuspendedMailTransport::class, $this->mailTransport($lost));
+        $this->assertSame(1, $this->countJournal('telephony_simulation_lost'));
+    }
+
+    /**
+     * The capture's decision is the one recorded answer, never a second
+     * read of the registry (review of #1549): a module switched off between
+     * the record and the factory must not land on null, which is real
+     * delivery. This request still captures; the next one records the loss.
+     */
+    public function testAModuleSwitchedOffAfterTheRecordStillCapturesThisRequest(): void
+    {
+        $this->arm(MailSandboxService::SETTING_ARMED);
+        $holding = $this->request(['reference_installation']);
+
+        (new ModuleRegistryRepository($this->pdo))->setEnabled(MailSandboxService::MODULE_ID, false);
+
+        $this->assertInstanceOf(CaptureTransport::class, $this->mailTransport($holding));
+        $this->assertInstanceOf(SuspendedMailTransport::class, $this->mailTransport($this->request(['reference_installation'])));
     }
 }

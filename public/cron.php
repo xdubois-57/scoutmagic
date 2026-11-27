@@ -269,7 +269,8 @@ $sandboxLossState->record(
         $installationProfile,
         $declaredProfiles,
         $sandboxRegistryRepo,
-        $settingService
+        $settingService,
+        __DIR__ . '/../modules'
     ),
     $journalService
 );
@@ -279,7 +280,8 @@ $sandboxLossState->record(
         $installationProfile,
         $declaredProfiles,
         $sandboxRegistryRepo,
-        $settingService
+        $settingService,
+        __DIR__ . '/../modules'
     ),
     $journalService
 );
@@ -303,8 +305,6 @@ $mailTransport = \Core\Mail\Transport\MailTransportFactory::build(
     $settingService,
     $encryptionService,
     \Modules\TestTools\Mail\CaptureTransportFactory::transportFor(
-        $installationProfile,
-        $sandboxRegistryRepo,
         $settingService,
         $sandboxLossState,
         $pdo,

@@ -67,7 +67,11 @@ final class SimulatedTelephony
      * all three conditions hold, nothing otherwise.
      *
      * The loss reason has already been recorded on $lossState by the
-     * composition root (Modules\TestTools\Sandbox\SandboxLoss).
+     * composition root (Modules\TestTools\Sandbox\SandboxLoss), from the
+     * same conditions ModuleManager loads the module on — so with the
+     * switch armed and no loss recorded, $moduleEnabled is true. Should
+     * the two ever disagree, the line is refused rather than handed back
+     * to the real operator: null is reached only unarmed or released.
      */
     public static function providerFor(
         bool $moduleEnabled,
@@ -79,9 +83,14 @@ final class SimulatedTelephony
             return new SuspendedPhoneProvider();
         }
 
+        if ($lossState->reason(SandboxLossState::CHANNEL_TELEPHONY) !== null || !self::isArmed($settingService)) {
+            // Released by a superadmin, or simply not armed: the configured operator.
+            return null;
+        }
+
         return $moduleEnabled && self::isAllowed($profile, $settingService)
             ? new SimulatedPhoneProvider($settingService)
-            : null;
+            : new SuspendedPhoneProvider();
     }
 
     public static function isArmed(SettingService $settingService): bool

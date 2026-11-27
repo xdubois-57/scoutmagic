@@ -92,10 +92,16 @@ final class CaptureTransportFactory
      * through to null — which is « send for real ». While blocked the
      * sign-in link still leaves only if the capture was letting it leave
      * (Core\Mail\SuspendedMailTransport).
+     *
+     * **That one recorded answer is the whole decision**: the profile and
+     * the module are not read a second time. Asking shouldCapture() again
+     * here would read the registry row again, and a module switched off
+     * between the two reads would find neither a loss (the first read saw
+     * it on) nor a capture (the second saw it off) — null, real delivery.
+     * With no loss recorded, an armed switch therefore means the capture
+     * holds, and the capture is built.
      */
     public static function transportFor(
-        InstallationProfile $profile,
-        ModuleRegistryRepository $registryRepo,
         SettingService $settingService,
         SandboxLossState $lossState,
         \PDO $pdo,
@@ -108,7 +114,16 @@ final class CaptureTransportFactory
             );
         }
 
-        return self::forInstallation($profile, $registryRepo, $settingService, $pdo, $encryption, $storagePath);
+        if ($lossState->reason(SandboxLossState::CHANNEL_MAIL) !== null) {
+            // Lost and released: a superadmin reopened real sending.
+            return null;
+        }
+
+        if (!MailSandboxService::isArmed($settingService)) {
+            return null;
+        }
+
+        return self::captureTransport($settingService, $pdo, $encryption, $storagePath);
     }
 
     /**
@@ -127,6 +142,15 @@ final class CaptureTransportFactory
             return null;
         }
 
+        return self::captureTransport($settingService, $pdo, $encryption, $storagePath);
+    }
+
+    private static function captureTransport(
+        SettingService $settingService,
+        \PDO $pdo,
+        EncryptionService $encryption,
+        string $storagePath
+    ): CaptureTransport {
         return new CaptureTransport(
             new CapturedEmailRepository($pdo, $encryption),
             new EncryptedFileStorageService(new FileRepository($pdo), $encryption, $storagePath),

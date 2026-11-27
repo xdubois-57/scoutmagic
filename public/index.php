@@ -2379,7 +2379,8 @@ $sandboxLossState->record(
         $installationProfile,
         $config->get('installation_profile', []),
         $sandboxRegistryRepo,
-        $settingService
+        $settingService,
+        __DIR__ . '/../modules'
     ),
     $journalService
 );
@@ -2389,13 +2390,12 @@ $sandboxLossState->record(
         $installationProfile,
         $config->get('installation_profile', []),
         $sandboxRegistryRepo,
-        $settingService
+        $settingService,
+        __DIR__ . '/../modules'
     ),
     $journalService
 );
 $mailCaptureTransport = \Modules\TestTools\Mail\CaptureTransportFactory::transportFor(
-    $installationProfile,
-    $sandboxRegistryRepo,
     $settingService,
     $sandboxLossState,
     $pdo,

@@ -10,6 +10,8 @@ namespace Modules\TestTools\Sandbox;
 
 use Core\Config\SettingService;
 use Core\Module\InstallationProfile;
+use Core\Module\ModuleException;
+use Core\Module\ModuleManifest;
 use Core\Module\ModuleRegistryRepository;
 use Core\Security\SandboxLossState;
 use Modules\TestTools\Service\MailSandboxService;
@@ -31,6 +33,14 @@ use Modules\TestTools\Telephony\SimulatedTelephony;
  * also what unloads the module (`visible_when`, §8.49): reporting
  * « module not loaded » there would send the superadmin to the Modules
  * page, where the module is not even listed.
+ *
+ * **« The module » is whether ModuleManager would load it, not its
+ * registry row.** The row can stay enabled while `module.json` is gone or
+ * invalid, and then ModuleManager skips the module: `$isEnabled('test_tools')`
+ * reads false, the simulated line is not handed over and `sos_staff`
+ * falls back to the real operator. So the same conditions are read here,
+ * from disk, before the first decision of the request is taken — the
+ * composition roots record this answer before building any transport.
  */
 final class SandboxLoss
 {
@@ -48,13 +58,14 @@ final class SandboxLoss
         InstallationProfile $profile,
         mixed $declaredFlags,
         ModuleRegistryRepository $registry,
-        SettingService $settings
+        SettingService $settings,
+        string $modulesDir
     ): ?string {
         if (!MailSandboxService::isArmed($settings)) {
             return null;
         }
 
-        return self::lossReason($profile, $declaredFlags, $registry);
+        return self::lossReason($profile, $declaredFlags, $registry, $modulesDir);
     }
 
     /** @param mixed $declaredFlags see {@see self::mailLossReason()} */
@@ -62,19 +73,21 @@ final class SandboxLoss
         InstallationProfile $profile,
         mixed $declaredFlags,
         ModuleRegistryRepository $registry,
-        SettingService $settings
+        SettingService $settings,
+        string $modulesDir
     ): ?string {
         if (!SimulatedTelephony::isArmed($settings)) {
             return null;
         }
 
-        return self::lossReason($profile, $declaredFlags, $registry);
+        return self::lossReason($profile, $declaredFlags, $registry, $modulesDir);
     }
 
     private static function lossReason(
         InstallationProfile $profile,
         mixed $declaredFlags,
-        ModuleRegistryRepository $registry
+        ModuleRegistryRepository $registry,
+        string $modulesDir
     ): ?string {
         if (!$profile->hasAny(self::CAPTURE_FLAGS)) {
             return self::declaresACaptureFlag($declaredFlags)
@@ -82,12 +95,56 @@ final class SandboxLoss
                 : SandboxLossState::REASON_PROFILE_MISSING;
         }
 
-        $row = $registry->findByModuleId(MailSandboxService::MODULE_ID);
-        if ($row === null || !$row['enabled']) {
+        if (!self::moduleLoads($profile, $registry, $modulesDir)) {
             return SandboxLossState::REASON_MODULE_UNLOADED;
         }
 
         return null;
+    }
+
+    /**
+     * Whether ModuleManager::loadEnabledModules() would load `test_tools`
+     * on this request: its registry row enabled, its `module.json` present
+     * and valid under its own directory name, its `visible_when` held by
+     * the profile, and every module it requires enabled. Mirrors
+     * ModuleManager::discoverModules() rather than calling it because the
+     * answer is needed before ModuleManager exists — MailService is built
+     * first. Read only while a switch is armed, so an ordinary
+     * installation never pays for it.
+     */
+    private static function moduleLoads(
+        InstallationProfile $profile,
+        ModuleRegistryRepository $registry,
+        string $modulesDir
+    ): bool {
+        $row = $registry->findByModuleId(MailSandboxService::MODULE_ID);
+        if ($row === null || !$row['enabled']) {
+            return false;
+        }
+
+        try {
+            $manifest = ModuleManifest::fromFile(
+                rtrim($modulesDir, '/') . '/' . MailSandboxService::MODULE_ID . '/module.json'
+            );
+        } catch (ModuleException) {
+            return false;
+        }
+
+        if ($manifest->id !== MailSandboxService::MODULE_ID) {
+            return false;
+        }
+        if ($manifest->visibleWhen !== [] && !$profile->hasAny($manifest->visibleWhen)) {
+            return false;
+        }
+
+        foreach ($manifest->requires as $required) {
+            $requiredRow = $registry->findByModuleId($required);
+            if ($requiredRow === null || !$requiredRow['enabled']) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**
