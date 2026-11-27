@@ -135,7 +135,10 @@ jobs:
           # A `run:` step is `bash -e`, and `set` never turns errexit off:
           # exit 1 is a finding, so it is caught here rather than aborting.
           status=0
-          php scripts/check-external-sources.php > "${report}" || status=$?
+          # A source that did not answer AT ALL is asked a second time, as the
+          # release gate does (issues #760, #1405): one silent request filed an
+          # issue for an address that was right. A status is never retried.
+          php scripts/check-external-sources.php --retry-unreachable > "${report}" || status=$?
           cat "${report}"
           if [ "${status}" -ne 0 ] && [ "${status}" -ne 1 ]; then
             echo "::error title=External sources check did not run::scripts/check-external-sources.php exited ${status}."
@@ -199,7 +202,11 @@ jobs:
               /^$/ { inside = 0 }
               inside { print }
             ' "${report}")"
-            fingerprint="$(printf '%s' "${section}" | grep '✗' | sha256sum | cut -c1-16)"
+            # « after 2 attempts » says how a silent source was asked (the retry,
+            # issue #1405), not what is wrong with it: left in, the first run
+            # after the retry went in would tell every issue already open for
+            # a silent source that its divergence had changed.
+            fingerprint="$(printf '%s' "${section}" | grep '✗' | sed -E 's/ after [0-9]+ attempts//' | sha256sum | cut -c1-16)"
             # Only this step writes a marker: an HTML comment opened in the
             # agent's text or in the report (which quotes fetched pages)
             # could otherwise pass for another source's marker next week.

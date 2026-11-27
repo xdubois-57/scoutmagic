@@ -723,11 +723,14 @@ refuses the `steps` context outside a step in every workflow here.
 this site that it depends on (issue #355). Every Monday at 05:41 UTC it
 checks the repository out and runs `scripts/check-external-sources.php` —
 the script the sixth release gate runs, over the register
-`Core\ExternalSource\ExternalSources`. The weekly run asks each source once;
-the release gate passes `--retry-unreachable`, which asks a second time a
-source that did not answer at all (issue #760: a host answering one request
-in three made the gate a coin toss) — never one that answered with a
-status. When every source conforms the job
+`Core\ExternalSource\ExternalSources`. Both the weekly run and the release
+gate pass `--retry-unreachable`, which asks a second time a source that did
+not answer at all (issue #760: a host answering one request in three made
+the gate a coin toss; issue #1405: the same silence made the weekly run
+file an issue for an address that was right, `scaleway-privacy` among them)
+— never one that answered with a status, which a 404, a 410 or a 500 still
+is. `Tests\Architecture\ExternalSourcesWeeklyRetryTest` pins the option in
+the workflow, so taking it out is seen. When every source conforms the job
 ends there, green, having opened nothing. On a divergence, Claude reads the
 changed pages by `.claude/skills/external-sources/SKILL.md` — what moved,
 the new address, the new fees amounts — and returns one title and body per
