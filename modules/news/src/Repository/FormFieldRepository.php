@@ -174,6 +174,34 @@ class FormFieldRepository
     }
 
     /**
+     * $work inside one transaction — the caller's if it already has one,
+     * else one of its own, committed when $work returns and rolled back if
+     * it throws. What lets the editor write a field's new cap and its
+     * recomputed total as one change (#1546 review).
+     *
+     * @template T
+     * @param callable(): T $work
+     * @return T
+     */
+    public function transactional(callable $work): mixed
+    {
+        if ($this->pdo->inTransaction()) {
+            return $work();
+        }
+
+        $this->pdo->beginTransaction();
+        try {
+            $result = $work();
+            $this->pdo->commit();
+
+            return $result;
+        } catch (\Throwable $e) {
+            $this->pdo->rollBack();
+            throw $e;
+        }
+    }
+
+    /**
      * Recomputes the running total of ONE field from its answers, and
      * returns it — what the editor does each time a field's cap is set or
      * changed (issue #1465): the counter is only kept while a cap exists,

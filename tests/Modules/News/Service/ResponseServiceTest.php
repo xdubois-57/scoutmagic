@@ -787,13 +787,39 @@ class ResponseServiceTest extends TestCase
         $this->assertSame([], $formService->recomputedCapacities());
     }
 
+    /**
+     * The cap and its recomputed total are one change (#1546 review): a
+     * recompute that fails leaves the former cap in place, so no
+     * submission ever reads a new cap against a stale total.
+     */
+    public function testACapIsNotKeptWhenItsRecomputeFails(): void
+    {
+        $fieldId = $this->fieldRepository->create($this->formId, 0, FormField::TYPE_NUMBER, 'Places', false, null, null, null, null, null);
+        $this->submitPlaces($fieldId, '30', 'a');
+        $failing = new class ($this->pdo, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))) extends FormResponseRepository {
+            public function sumFieldValues(int $fieldId, ?int $excludeResponseId = null, bool $lockForUpdate = false): float
+            {
+                throw new \PDOException('deliberate failure while counting');
+            }
+        };
+
+        try {
+            $this->saveCap($this->formService($failing), $fieldId, 50);
+            $this->fail('The failed recompute should reach the caller.');
+        } catch (\PDOException) {
+        }
+
+        $this->assertNull($this->fieldRepository->findById($fieldId)?->capacityMax);
+        $this->assertFalse($this->pdo->inTransaction());
+    }
+
     private function submitPlaces(int $fieldId, string $places, string $who): void
     {
         $this->service()->submit($this->article, $this->form(), [$this->fieldRepository->findById($fieldId)],
             null, null, 1, $who . '@test.com', [$fieldId => $places], null);
     }
 
-    private function formService(): \Modules\News\Service\FormService
+    private function formService(?FormResponseRepository $responses = null): \Modules\News\Service\FormService
     {
         $formRepository = $this->formRepository;
         $articleService = new \Modules\News\Service\ArticleService(
@@ -804,7 +830,7 @@ class ResponseServiceTest extends TestCase
             new \Core\File\FileRepository($this->pdo)
         );
 
-        return new \Modules\News\Service\FormService($formRepository, $this->fieldRepository, $articleService, $this->responseRepository);
+        return new \Modules\News\Service\FormService($formRepository, $this->fieldRepository, $articleService, $responses ?? $this->responseRepository);
     }
 
     /** What the editor posts for this one field, with $cap as its capacity. */
