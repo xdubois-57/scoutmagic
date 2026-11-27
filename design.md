@@ -958,7 +958,11 @@ template marks `data-document-reader-content` (with
 rental conditions are the exact archived version the form holds. It is
 parsed by DOMParser and stripped of scripts, forms, embeds, styles, ids
 and event handlers before it enters the page; a failure is said in the
-dialog with « Réessayer » and « Ouvrir à part », never a navigation.
+dialog with « Réessayer » and « Ouvrir à part », never a navigation. A
+link to this site inside the dialog — the notice's own « page de
+préférences cookies », « Ouvrir à part » — goes to `window.open()`, as
+`installed-app-links.js` does for other sites: followed in place it would
+replace the form behind the dialog.
 Reading is not agreeing: the click is cancelled before the `<label>` it
 sits in can tick its box. The marked links are exactly the ticket's —
 the booking request, the three sign-in modes, the public registration

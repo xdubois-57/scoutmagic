@@ -207,6 +207,53 @@ describe('document-reader', () => {
         expect(readerBody().textContent).toContain('Revenu');
     });
 
+    it('sends a same-site link inside the document to a window of its own, never this one', async () => {
+        // The notice's « page de préférences cookies »: target="_blank" is
+        // ignored by the installed window for this site's own pages, so a
+        // plain click would replace the form behind the dialog.
+        pretendStandalone(true);
+        window.open = vi.fn();
+        respond(page('<div data-document-reader-content><p>Voir la <a href="/cookies">page de préférences cookies</a>.</p></div>'));
+
+        click('conditions');
+        await settle();
+        const inner = /** @type {HTMLAnchorElement} */ (readerBody().querySelector('a[href="/cookies"]'));
+        const event = new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 });
+        inner.dispatchEvent(event);
+
+        expect(event.defaultPrevented).toBe(true);
+        expect(window.open).toHaveBeenCalledWith('http://localhost:3000/cookies', '_blank', 'noopener');
+    });
+
+    it('opens « Ouvrir à part » in a window of its own too', async () => {
+        pretendStandalone(true);
+        window.open = vi.fn();
+        window.fetch = vi.fn(() => Promise.reject(new TypeError('offline')));
+
+        click('conditions');
+        await settle();
+        const separate = /** @type {HTMLAnchorElement} */ (readerBody().querySelector('a'));
+        const event = new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 });
+        separate.dispatchEvent(event);
+
+        expect(event.defaultPrevented).toBe(true);
+        expect(window.open).toHaveBeenCalledWith('http://localhost:3000/locations/chalet/conditions/v2', '_blank', 'noopener');
+    });
+
+    it('leaves a link to another site in the document to installed-app-links.js', async () => {
+        pretendStandalone(true);
+        window.open = vi.fn();
+        respond(page('<div data-document-reader-content><a href="https://www.lesscouts.be/fr">Les Scouts</a></div>'));
+
+        click('conditions');
+        await settle();
+        const event = new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 });
+        readerBody().querySelector('a').dispatchEvent(event);
+
+        expect(event.defaultPrevented).toBe(false);
+        expect(window.open).not.toHaveBeenCalled();
+    });
+
     it('treats an error page or a page without marked content as a failure', async () => {
         pretendStandalone(true);
         respond(page('<p>Introuvable</p>'), false, 404);

@@ -68,6 +68,16 @@ test.describe('Document reader', () => {
         await expect(dialog.getByRole('textbox')).toHaveCount(0);
         await expect(page).toHaveURL(/\/login$/);
 
+        // A link the notice itself carries, to another page of this site:
+        // a window of its own, never this one, which holds the form.
+        const [cookies] = await Promise.all([
+            page.context().waitForEvent('page'),
+            dialog.getByRole('link', { name: 'page de préférences cookies' }).click(),
+        ]);
+        await expect(cookies).toHaveURL(/\/cookies$/);
+        await cookies.close();
+        await expect(page).toHaveURL(/\/login$/);
+
         await closeModal(page, 'document-reader', () =>
             dialog.getByRole('button', { name: 'Fermer et revenir' }).click());
 

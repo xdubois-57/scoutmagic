@@ -88,8 +88,10 @@
             });
             if (el.tagName === 'A' && el.hasAttribute('href')) {
                 // A link in the document is the reader's choice to go
-                // somewhere else; it does not replace the form behind
-                // the dialog in a browser tab.
+                // somewhere else. The attribute is only a declaration:
+                // the installed window ignores it for this site's own
+                // pages, so the click handler below is what keeps such a
+                // link from replacing the form (#1444 review).
                 el.setAttribute('target', '_blank');
                 el.setAttribute('rel', 'noopener');
             }
@@ -236,26 +238,63 @@
         }
     });
 
+    /**
+     * The link's address when it stays on this site over http(s), else null.
+     *
+     * @param {HTMLAnchorElement} link
+     * @returns {URL|null}
+     */
+    function sameOrigin(link) {
+        var url;
+        try {
+            url = new URL(link.href, doc.location.href);
+        } catch (e) {
+            return null;
+        }
+        if ((url.protocol !== 'http:' && url.protocol !== 'https:') || url.origin !== doc.location.origin) {
+            return null;
+        }
+        return url;
+    }
+
     // Capture phase: before a <label> or another listener on the page can
     // act on the click. offline-nav.js, also capturing and registered
     // earlier, may already have answered it — then it is left alone.
     doc.addEventListener('click', function (event) {
         if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey
-            || event.shiftKey || event.altKey) {
+            || event.shiftKey || event.altKey || !isStandalone()) {
             return;
         }
         var target = /** @type {Element|null} */ (event.target);
-        var link = /** @type {HTMLAnchorElement|null} */ (target && target.closest ? target.closest('a[href][data-document-reader]') : null);
-        if (!link || !isStandalone() || !canOpen()) {
+        if (!target || !target.closest) {
             return;
         }
-        var url;
-        try {
-            url = new URL(link.href, doc.location.href);
-        } catch (e) {
+        var link = /** @type {HTMLAnchorElement|null} */ (target.closest('a[href]'));
+        if (!link) {
             return;
         }
-        if (url.origin !== doc.location.origin) {
+        var url = sameOrigin(link);
+        if (!url) {
+            // Another site: installed-app-links.js hands it to the
+            // phone's browser, from here as from anywhere else.
+            return;
+        }
+
+        // A link INSIDE the open dialog — one the document itself carries,
+        // like the notice's « page de préférences cookies », or « Ouvrir à
+        // part » after a failure. Followed here it would replace the form
+        // behind the dialog, `target="_blank"` notwithstanding, so it goes
+        // to a window of its own, the way installed-app-links.js sends
+        // another site to the browser.
+        var el = dialog();
+        if (el && el.contains(link)) {
+            event.preventDefault();
+            event.stopPropagation();
+            win.open(url.href, '_blank', 'noopener');
+            return;
+        }
+
+        if (!link.hasAttribute('data-document-reader') || !canOpen()) {
             return;
         }
         event.preventDefault();
