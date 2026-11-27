@@ -32,6 +32,9 @@ En haut de la page, touchez la pastille d'une section pour n'afficher
 que celle-là, ou « Toutes » pour les voir l'une sous l'autre. La pastille
 de la section correspondant à votre fonction est sélectionnée d'office.
 
+Le responsable de chaque section ouvre ses animateurs, ici et sur la
+feuille d'appel ; l'export Excel reste alphabétique.
+
 ## Lire les mouvements
 
 Certaines lignes portent une étiquette de couleur : elle signale un
@@ -65,8 +68,7 @@ Le bouton « Feuille d'appel PDF » produit un document à tenir en main
 pendant une cérémonie de passage ou un jour de rentrée : une feuille par
 section, qui se poursuit sur plusieurs pages quand la section est
 nombreuse, les animateurs puis les animés, une case à cocher devant
-chaque nom et les étiquettes de mouvement en couleur. Le compte figure en
-haut de chaque page.
+chaque nom et les étiquettes de mouvement en couleur.
 
 Il suit la section choisie, comme l'export Excel : une section donne une
 feuille, « Toutes » en donne autant que de sections. Chaque feuille peut

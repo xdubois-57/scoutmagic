@@ -42,6 +42,7 @@ class SectionRosterControllerTest extends TestCase
     private SectionRosterController $controller;
     private SectionService $sectionService;
     private int $scoutYearId;
+    private \Core\Module\HookRegistry $hooks;
 
     protected function setUp(): void
     {
@@ -67,7 +68,9 @@ class SectionRosterControllerTest extends TestCase
             $rosterRepository,
             $memberEmailRepository,
             $movementClassifier,
-            new \Core\Member\Repository\MemberSectionTotemRepository($this->pdo, $this->encryption)
+            new \Core\Member\Repository\MemberSectionTotemRepository($this->pdo, $this->encryption),
+            // Empty until a test registers a responsable (issue #1336).
+            $this->hooks = new \Core\Module\HookRegistry()
         );
         $exportRowBuilder = new MemberExportRowBuilder($rosterRepository, $this->sectionService, $scoutYearService, $memberEmailRepository, $movementClassifier);
         $exportService = new MemberExportService();
@@ -375,6 +378,120 @@ class SectionRosterControllerTest extends TestCase
         $this->assertContains('Alice', $names);
         $this->assertNotContains('Bob', $names);
         unlink($path);
+    }
+
+    // --- the responsable first (issue #1336) ----------------------------
+
+    public function testThePageOpensEachSectionsAnimateursOnItsResponsable(): void
+    {
+        $branchId = $this->createBranch('LOU', 'Louveteaux', 20);
+        $section = $this->createSection('LOU01', $branchId, 'Section Un');
+        $this->createMemberInSection($section, 'Anouk', 'chief');
+        $this->createMemberInSection($section, 'Benoît', 'chief');
+        $zacharie = $this->createMemberInSection($section, 'Zacharie', 'chief');
+        $this->answerResponsables([$section => $zacharie]);
+
+        $this->assertShownInOrder(['Zacharie', 'Anouk', 'Benoît'], $this->page($section));
+    }
+
+    /**
+     * The spreadsheet does not follow (issue #1336, point 9). It has no
+     * « Animateurs » list: each section is one alphabetical run of every
+     * member, animés included, with a function column to filter on — the
+     * order a mail merge or a sort relies on. Moving one row to the top of
+     * that would put the responsable before the section's animés, which is
+     * not what the screen or the sheet shows either.
+     */
+    public function testTheSpreadsheetKeepsItsAlphabeticalOrder(): void
+    {
+        $branchId = $this->createBranch('LOU', 'Louveteaux', 20);
+        $section = $this->createSection('LOU01', $branchId, 'Section Un');
+        $this->createMemberInSection($section, 'Anouk', 'chief');
+        $zacharie = $this->createMemberInSection($section, 'Zacharie', 'chief');
+        $this->createMemberInSection($section, 'Martin', 'identified');
+        $this->answerResponsables([$section => $zacharie]);
+
+        $response = $this->controller->export(new Request('GET', '/chefs/membres/export', ['section' => (string) $section], [], [], []), []);
+        $path = sys_get_temp_dir() . '/section-roster-export-test-' . uniqid() . '.xlsx';
+        file_put_contents($path, $response->getBody());
+        $sheet = \PhpOffice\PhpSpreadsheet\IOFactory::load($path)->getActiveSheet();
+        $names = [];
+        for ($row = 2; $row <= $sheet->getHighestRow(); $row++) {
+            $names[] = $sheet->getCell([3, $row])->getValue();
+        }
+        unlink($path);
+
+        $this->assertSame(['Anouk', 'Martin', 'Zacharie'], $names);
+    }
+
+    /**
+     * Registers a SectionResponsableProvider answering $responsableBySection
+     * (section id => member year id).
+     *
+     * @param array<int, int> $responsableBySection
+     */
+    private function answerResponsables(array $responsableBySection): void
+    {
+        $profiles = [];
+        foreach ($responsableBySection as $sectionId => $memberYearId) {
+            $stmt = $this->pdo->prepare('SELECT member_id FROM member_years WHERE id = ?');
+            $stmt->execute([$memberYearId]);
+            $profiles[$sectionId] = new \Core\Member\MemberProfile(
+                memberYearId: $memberYearId,
+                memberId: (int) $stmt->fetchColumn(),
+                deskId: 'x',
+                firstName: 'x',
+                lastName: 'x',
+                totem: null,
+                quali: null,
+                gender: null,
+                birthDate: null,
+                phone: null,
+                mobile: null,
+                email: null,
+                patrol: null,
+                formationLevel: null,
+                federationMailConsent: false,
+                unitMailConsent: false,
+                addresses: [],
+                functions: [],
+                scoutYearLabel: ''
+            );
+        }
+        $this->hooks->register(\Core\Module\SectionResponsableProvider::class, new class ($profiles) implements \Core\Module\SectionResponsableProvider {
+            /** @param array<int, \Core\Member\MemberProfile> $profiles */
+            public function __construct(private readonly array $profiles)
+            {
+            }
+
+            public function getResponsable(int $sectionId, int $scoutYearId): ?\Core\Member\MemberProfile
+            {
+                return $this->profiles[$sectionId] ?? null;
+            }
+
+            public function getResponsables(array $sectionIds, int $scoutYearId): array
+            {
+                $answer = [];
+                foreach ($sectionIds as $sectionId) {
+                    $answer[$sectionId] = $this->profiles[$sectionId] ?? null;
+                }
+
+                return $answer;
+            }
+        });
+    }
+
+    /** @param list<string> $names */
+    private function assertShownInOrder(array $names, string $body): void
+    {
+        $positions = [];
+        foreach ($names as $name) {
+            $position = strpos($body, $name);
+            $this->assertNotFalse($position, $name . ' must be on the page');
+            $positions[$name] = $position;
+        }
+        asort($positions);
+        $this->assertSame($names, array_keys($positions), 'order on the page');
     }
 
     // --- whose contacts (issue #1116) ----------------------------------

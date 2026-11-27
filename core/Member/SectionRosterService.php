@@ -12,6 +12,8 @@ use Core\Member\Movement\MemberMovementClassifierService;
 use Core\Member\Movement\MemberMovementResult;
 use Core\Member\Movement\MemberMovementStatus;
 use Core\Member\Repository\MemberSectionTotemRepository;
+use Core\Module\HookRegistry;
+use Core\Module\SectionResponsableProvider;
 use Core\Service\TextNormalizerService;
 
 /**
@@ -20,6 +22,14 @@ use Core\Service\TextNormalizerService;
  * intendants, animés), with every known contact and a year-over-year
  * movement classification — all built from a small, fixed number of
  * batched queries, never one query per member (ARCHITECTURE.md's N+1 rule).
+ *
+ * Every bucket is alphabetical, except that each section's « Animateurs »
+ * open on its responsable (issue #1336), the rule « Staffs et badges »
+ * already follows (#1324): the screen and the PDF roll call both read this
+ * order. The responsable comes from the optional
+ * Core\Module\SectionResponsableProvider hook, asked once for every
+ * section shown; without the hook, or without a responsable, the order
+ * stays alphabetical.
  */
 final class SectionRosterService
 {
@@ -27,7 +37,8 @@ final class SectionRosterService
         private SectionRosterRepository $repository,
         private MemberEmailRepository $memberEmailRepository,
         private MemberMovementClassifierService $movementClassifier,
-        private MemberSectionTotemRepository $sectionTotems
+        private MemberSectionTotemRepository $sectionTotems,
+        private ?HookRegistry $hooks = null
     ) {
     }
 
@@ -102,7 +113,50 @@ final class SectionRosterService
             }
         }
 
-        return $this->mapBuckets($bySection);
+        return $this->mapBuckets($this->responsablesFirst($bySection, $scoutYearId));
+    }
+
+    /**
+     * Moves each section's responsable to the top of its animateurs, the
+     * others keeping their alphabetical order (issue #1336).
+     *
+     * Only the order changes. A responsable who is not among the section's
+     * animateurs — an intendant, someone of another section, nobody in
+     * this year's import — is not added: the list is the section's, and
+     * the provider only says who leads it. One call for every section that
+     * has something to reorder, never one per section.
+     *
+     * @param array<int, array<string, MemberRosterRow[]>> $bySection
+     * @return array<int, array<string, MemberRosterRow[]>>
+     */
+    private function responsablesFirst(array $bySection, int $scoutYearId): array
+    {
+        $sectionIds = [];
+        foreach ($bySection as $sectionId => $buckets) {
+            if (count($buckets[SectionRosterEntry::BUCKET_ANIMATEUR] ?? []) > 1) {
+                $sectionIds[] = (int) $sectionId;
+            }
+        }
+        $provider = $this->hooks?->getOptional(SectionResponsableProvider::class);
+        if ($sectionIds === [] || $provider === null) {
+            return $bySection;
+        }
+
+        foreach ($provider->getResponsables($sectionIds, $scoutYearId) as $sectionId => $responsable) {
+            if ($responsable === null || !isset($bySection[$sectionId])) {
+                continue;
+            }
+            $animateurs = $bySection[$sectionId][SectionRosterEntry::BUCKET_ANIMATEUR];
+            foreach ($animateurs as $position => $row) {
+                if ($row->memberId === $responsable->memberId) {
+                    unset($animateurs[$position]);
+                    $bySection[$sectionId][SectionRosterEntry::BUCKET_ANIMATEUR] = [$row, ...array_values($animateurs)];
+                    break;
+                }
+            }
+        }
+
+        return $bySection;
     }
 
     /**
