@@ -13,6 +13,7 @@ use Modules\Registration\Repository\RegistrationRequestRepository;
 use Modules\Registration\Repository\RegistrationSecondaryEmailRepository;
 use Modules\Registration\Service\MigrationService;
 use Modules\Registration\Service\ReconciliationService;
+use Modules\Registration\Service\RegistrationException;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Registration\RegistrationTestHelper;
@@ -266,6 +267,95 @@ class ReconciliationServiceTest extends TestCase
         $this->assertSame(
             ['request_id' => $requestId, 'linked_request_id' => $competingId, 'member_id' => $memberId],
             json_decode((string) $context, true)
+        );
+    }
+
+    /**
+     * The other window (review of #1552): the competing request links the
+     * member after this loop's check but before migrate()'s own, which then
+     * refuses with its RegistrationException. Same treatment.
+     */
+    public function testALinkWonBeforeTheMigrationsOwnCheckIsJournaledToo(): void
+    {
+        $competingId = $this->createAcceptedRequest('Autre', 'Demande', '2017-03-03');
+        $requestId = $this->createAcceptedRequest('Dupont', 'Léa', '2019-01-01');
+        $memberId = $this->insertImportedMember('D12', 'Dupont', 'Léa', '2019-01-01');
+
+        $this->serviceWhoseMigration(function (int $requestIdArg, int $memberIdArg) use ($competingId): never {
+            $this->requestRepository->linkToMemberAndEncode($competingId, $memberIdArg, new \DateTimeImmutable());
+            throw new RegistrationException('Ce membre est déjà lié à une autre demande d\'inscription.');
+        })->reconcileForYear($this->scoutYearId);
+
+        $this->assertSame('accepted', $this->requestRepository->findById($requestId)->status);
+        $this->assertSame(1, (int) $this->pdo->query(
+            "SELECT COUNT(*) FROM event_log WHERE event_type = 'registration_reconciliation_already_linked'"
+        )->fetchColumn());
+    }
+
+    /**
+     * Anything that is not a lost race goes up: a refusal with no competing
+     * link, or a database error other than the duplicate key.
+     *
+     * @return iterable<string, array{\Throwable}>
+     */
+    public static function failuresThatAreNotARace(): iterable
+    {
+        yield 'a refusal with nobody else linked' => [new RegistrationException('Demande introuvable.')];
+        $other = new \PDOException('SQLSTATE[HY000]: General error: 2006 MySQL server has gone away');
+        $other->errorInfo = ['HY000', 2006, 'MySQL server has gone away'];
+        yield 'another database error' => [$other];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('failuresThatAreNotARace')]
+    public function testAFailureThatIsNotARaceGoesUp(\Throwable $failure): void
+    {
+        $this->createAcceptedRequest('Dupont', 'Léa', '2019-01-01');
+        $this->insertImportedMember('D13', 'Dupont', 'Léa', '2019-01-01');
+
+        $this->expectExceptionObject($failure);
+        $this->serviceWhoseMigration(static function () use ($failure): never {
+            throw $failure;
+        })->reconcileForYear($this->scoutYearId);
+    }
+
+    /** @param callable(int, int): never $migrate */
+    private function serviceWhoseMigration(callable $migrate): ReconciliationService
+    {
+        $journalService = new JournalService($this->journalRepository);
+        $migration = new class (
+            $this->pdo,
+            $this->requestRepository,
+            new RegistrationSecondaryEmailRepository($this->pdo, $this->encryption),
+            new MemberEmailRepository($this->pdo, $this->encryption),
+            $journalService,
+            $migrate
+        ) extends MigrationService {
+            /** @var callable(int, int): never */
+            private $migrate;
+
+            public function __construct(
+                \PDO $pdo,
+                RegistrationRequestRepository $requests,
+                RegistrationSecondaryEmailRepository $secondary,
+                MemberEmailRepository $memberEmails,
+                JournalService $journal,
+                callable $migrate
+            ) {
+                parent::__construct($pdo, $requests, $secondary, $memberEmails, $journal);
+                $this->migrate = $migrate;
+            }
+
+            public function migrate(int $requestId, int $memberId): void
+            {
+                ($this->migrate)($requestId, $memberId);
+            }
+        };
+
+        return new ReconciliationService(
+            new ImportedMemberRepository($this->pdo, $this->encryption),
+            $this->requestRepository,
+            $migration,
+            $journalService
         );
     }
 
