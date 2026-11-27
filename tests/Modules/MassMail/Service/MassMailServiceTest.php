@@ -612,6 +612,35 @@ class MassMailServiceTest extends TestCase
         $this->assertSame(Email::STATUS_SENDING, $this->service->findById($sending->id)->status);
     }
 
+    /**
+     * Issue #1437: « Renvoyer » to an address that unsubscribed since is
+     * refused, says why, and puts nothing back in the queue. Reactivated
+     * (#1032), the same message can be resent.
+     */
+    public function testResendToAnUnsubscribedAddressIsRefusedUntilItIsReactivated(): void
+    {
+        $this->createMemberWithEmail('gone@test.be');
+        $email = $this->createDraft();
+        $this->service->moveToTest($email->id, null);
+        $sending = $this->service->startSending($email->id, null);
+        $delivery = $this->deliveryRepository->findByEmailId($sending->id)[0];
+        $this->deliveryRepository->recordSendSuccess($delivery->id);
+        $this->suppressedAddressRepository->suppress('gone@test.be');
+
+        try {
+            $this->service->resendDelivery($delivery->id, null);
+            $this->fail('a resend to an unsubscribed address must be refused');
+        } catch (MassMailException $e) {
+            $this->assertStringContainsString('désinscrite', $e->getMessage());
+        }
+        $this->assertSame(Delivery::STATUS_SENT, $this->deliveryRepository->findById($delivery->id)?->status);
+        $this->assertSame([], $this->journalEntries('delivery_resent'));
+
+        $this->suppressedAddressRepository->reactivate('gone@test.be');
+        $this->service->resendDelivery($delivery->id, null);
+        $this->assertSame(Delivery::STATUS_PENDING, $this->deliveryRepository->findById($delivery->id)?->status);
+    }
+
     // --- Mail merge (Excel audience — ARCHITECTURE.md §8.61) ---
 
     /**

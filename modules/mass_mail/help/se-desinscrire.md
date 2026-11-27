@@ -27,7 +27,9 @@ Les envois groupés : les nouvelles de l'unité, les rappels, les
 publipostages. Votre adresse est mise de côté pour toute l'unité — dans
 toutes ses listes, que vous y figuriez comme membre ou comme contact
 extérieur — et les prochains envois la sautent, sans que personne ait à
-y penser. Votre connexion au site et votre session restent inchangées.
+y penser. Cela vaut aussi pour un envoi déjà lancé dont votre message
+n'est pas encore parti, et un animateur ne peut pas vous le renvoyer.
+Votre connexion au site et votre session restent inchangées.
 
 > Les messages qui vous concernent personnellement continuent d'arriver :
 > la décision sur une inscription, la confirmation d'une réservation, un

@@ -406,6 +406,63 @@ class SendBatchHandlerTest extends TestCase
         $this->assertSame('Courriel importé, jamais envoyé', $stmt->fetchColumn());
     }
 
+    /**
+     * Issue #1437: the freeze read the suppression list once. A recipient
+     * who unsubscribes between the freeze and their batch is not written
+     * to: the message is not sent, its line carries the freeze's own
+     * reason, and the journal says so — with no address.
+     */
+    public function testAnAddressUnsubscribedAfterTheFreezeIsNotSent(): void
+    {
+        (new \Modules\MassMail\Repository\SuppressedAddressRepository($this->pdo))->suppress('member0@test.be');
+
+        $sentTo = [];
+        $mailService = $this->mailServiceDouble();
+        $mailService->method('send')->willReturnCallback(function (string $to) use (&$sentTo): void {
+            $sentTo[] = $to;
+        });
+        (new SendBatchHandler())->handle([], $this->buildContext($mailService));
+
+        $this->assertNotContains('member0@test.be', $sentTo);
+        $skipped = array_values(array_filter(
+            $this->deliveryRepository->findByEmailId($this->emailId),
+            fn(Delivery $d) => $d->emailAddress === 'member0@test.be'
+        ));
+        $this->assertSame(Delivery::STATUS_ERROR, $skipped[0]->status);
+        $this->assertSame('Adresse désinscrite des emails groupés', $skipped[0]->errorMessage);
+
+        $rows = $this->pdo->query(
+            "SELECT level, context, description FROM event_log
+             WHERE category = 'mass_mail' AND event_type = 'delivery_skipped_unsubscribed'"
+        )->fetchAll(\PDO::FETCH_ASSOC);
+        $this->assertCount(1, $rows);
+        $this->assertSame('info', $rows[0]['level']);
+        $context = json_decode((string) $rows[0]['context'], true);
+        ksort($context);
+        $this->assertSame(['delivery_id' => $skipped[0]->id, 'email_id' => $this->emailId], $context);
+        $this->assertStringNotContainsString('@', (string) json_encode($rows));
+    }
+
+    /**
+     * Issue #1437, with #1032: an address reactivated after unsubscribing
+     * is off the list again, and its queued message leaves as usual.
+     */
+    public function testAReactivatedAddressIsSentAgain(): void
+    {
+        $suppressed = new \Modules\MassMail\Repository\SuppressedAddressRepository($this->pdo);
+        $suppressed->suppress('member0@test.be');
+        $suppressed->reactivate('member0@test.be');
+
+        $sentTo = [];
+        $mailService = $this->mailServiceDouble();
+        $mailService->method('send')->willReturnCallback(function (string $to) use (&$sentTo): void {
+            $sentTo[] = $to;
+        });
+        (new SendBatchHandler())->handle([], $this->buildContext($mailService));
+
+        $this->assertContains('member0@test.be', $sentTo);
+    }
+
     public function testDoesNotRescheduleWhenNoPendingRemain(): void
     {
         // Shrink to 1 recipient so a single batch (size 2) drains everything.

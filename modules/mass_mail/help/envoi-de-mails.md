@@ -65,8 +65,8 @@ L'onglet « Suivi » montre une ligne par message : son adresse, les
 animés qu'il concerne, son état — envoyé, en attente, ou en erreur avec
 le motif. Un animé ciblé sans adresse valide y figure « Non envoyée ».
 « Renvoyer » relance ce message vers son adresse, sans nouvelle
-notification. Chaque animé retrouve l'e-mail sur sa page, une seule
-fois.
+notification, sauf si cette adresse s'est désinscrite entre-temps.
+Chaque animé retrouve l'e-mail sur sa page, une seule fois.
 
 Le « Journal » garde une ligne par message, parti ou non, avec le
 numéro de l'e-mail — celui de son adresse de page — et le motif de ce
@@ -75,6 +75,9 @@ qui a échoué.
 ## La désinscription
 
 Chaque message porte un lien de désinscription. L'adresse ne reçoit
-plus d'envoi groupé, pour tous les animés qui la partagent. Pour
+plus d'envoi groupé, pour tous les animés qui la partagent, ni les
+messages d'un envoi déjà lancé qui ne lui sont pas encore partis : ils
+passent en erreur avec le motif « Adresse désinscrite des emails
+groupés ». Pour
 revenir : « Réactiver » sur la page de l'animé ; un contact s'adresse à
 l'unité.

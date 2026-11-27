@@ -43,6 +43,13 @@ use Modules\MassMail\Repository\TargetRepository;
  */
 class MassMailService
 {
+    /**
+     * Why a message to an address on the suppression list is not sent —
+     * the same words at the freeze, before each send and on « Renvoyer »
+     * (issue #1437).
+     */
+    public const REASON_UNSUBSCRIBED = 'Adresse désinscrite des emails groupés';
+
     private const SCHEDULER_TASK_KEY = 'send_batch';
     private const SCHEDULER_MODULE_ID = 'mass_mail';
 
@@ -1274,7 +1281,7 @@ class MassMailService
             return 'Adresse invalide';
         }
         if ($this->suppressedAddressRepository->isSuppressed($address)) {
-            return 'Adresse désinscrite des emails groupés';
+            return self::REASON_UNSUBSCRIBED;
         }
         if ($this->bounces?->isBlocked($address) === true) {
             return 'Adresse suspendue après des refus répétés';
@@ -1319,7 +1326,7 @@ class MassMailService
         $hasInactiveAddress = false;
         foreach ($this->memberEmailService->listForMember($memberId, $deskEmail) as $row) {
             if ($this->suppressedAddressRepository->isSuppressed($row->email)) {
-                return 'Adresse désinscrite des emails groupés';
+                return self::REASON_UNSUBSCRIBED;
             }
             $hasInactiveAddress = $hasInactiveAddress || $row->isInactive();
         }
@@ -1524,6 +1531,16 @@ class MassMailService
         }
         if ($delivery->status === Delivery::STATUS_UNKNOWN) {
             throw new MassMailException('Ce message ne peut pas être renvoyé.');
+        }
+        // Somebody who unsubscribed is not written to again by hand
+        // either (issue #1437): « Renvoyer » used to put their message
+        // back in the queue, weeks later, with no check at all. The batch
+        // would now refuse it anyway; refusing here says so to the person
+        // who clicked, instead of a line that silently turns to error.
+        if ($this->suppressedAddressRepository->isSuppressed($delivery->emailAddress)) {
+            throw new MassMailException(
+                'Cette adresse s\'est désinscrite des emails groupés : le message ne peut pas être renvoyé.'
+            );
         }
 
         $this->deliveryRepository->resend($deliveryId);

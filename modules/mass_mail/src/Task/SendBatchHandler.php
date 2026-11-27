@@ -73,6 +73,7 @@ class SendBatchHandler implements TaskHandlerInterface
         $audienceRepository = new AudienceRepository($pdo, $context->encryption);
         $mergeRenderer = new MergeRenderer();
         $massMailService = $this->buildMassMailService($context);
+        $suppressedAddresses = new SuppressedAddressRepository($pdo);
 
         $cadence = $this->cadence($context);
         $batchSize = $cadence['batch_size'];
@@ -117,6 +118,29 @@ class SendBatchHandler implements TaskHandlerInterface
                     $delivery->id,
                     $memberIds,
                     'Courriel importé, jamais envoyé'
+                );
+                $errorCount++;
+                continue;
+            }
+
+            // **Unsubscribed since the freeze** (issue #1437). The freeze
+            // reads the suppression list once, and a mailing drains over a
+            // cadence that spans hours: a recipient who clicked « Se
+            // désinscrire » in an earlier mailing — or in an earlier batch
+            // of this one — kept receiving every message already queued
+            // for them, and « Renvoyer » re-queued a message to them weeks
+            // later. Read again for THIS message, right before it would
+            // leave, with the reason the freeze gives. A reactivated
+            // address (#1032) is off the list and goes out as usual.
+            if ($suppressedAddresses->isSuppressed($delivery->emailAddress)) {
+                $deliveryRepository->recordSendFailure($delivery->id, MassMailService::REASON_UNSUBSCRIBED);
+                $context->journal->log(
+                    'mass_mail',
+                    'delivery_skipped_unsubscribed',
+                    'info',
+                    'Message non envoyé : l\'adresse s\'est désinscrite des emails groupés',
+                    ['email_id' => $email->id, 'delivery_id' => $delivery->id],
+                    null
                 );
                 $errorCount++;
                 continue;
