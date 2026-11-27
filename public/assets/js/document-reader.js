@@ -71,7 +71,7 @@
         } catch (e) {
             return false;
         }
-        if (SAFE_LINK_SCHEMES.indexOf(url.protocol) !== -1) {
+        if (SAFE_LINK_SCHEMES.includes(url.protocol)) {
             return true;
         }
         // An image may be inline; an img never runs what it shows.
@@ -115,11 +115,11 @@
                 // the like); and ids: the page this lands on has its own,
                 // and a second #rgpd-last-updated would answer its
                 // getElementById() calls in its place.
-                if (name.indexOf('on') === 0 || name.indexOf(':') !== -1 || REMOVED_ATTRIBUTES.indexOf(name) !== -1) {
+                var isUrl = name === 'href' || name === 'src';
+                if (name.startsWith('on') || name.includes(':') || REMOVED_ATTRIBUTES.includes(name)
+                    || (isUrl && !isSafeUrl(name, attr.value, base))) {
                     el.removeAttribute(attr.name);
-                } else if ((name === 'href' || name === 'src') && !isSafeUrl(name, attr.value, base)) {
-                    el.removeAttribute(attr.name);
-                } else if ((name === 'href' || name === 'src') && !/^([a-z][a-z0-9+.-]*:|\/|#)/i.test(attr.value.trim())) {
+                } else if (isUrl && !/^([a-z][a-z0-9+.-]*:|\/|#)/i.test(attr.value.trim())) {
                     // A path relative to the document (« scan.png ») is
                     // relative to ITS page; once in this one it would point
                     // under the form's address instead (#1444 review). A
@@ -276,7 +276,7 @@
         }
         var link = openedFrom;
         openedFrom = null;
-        if (link && link.isConnected) {
+        if (link?.isConnected) {
             link.focus();
         }
     });
@@ -337,7 +337,7 @@
             return;
         }
 
-        if (!link.hasAttribute('data-document-reader') || !canOpen()) {
+        if (!('documentReader' in link.dataset) || !canOpen()) {
             return;
         }
         event.preventDefault();
