@@ -314,6 +314,71 @@ describe('document-reader', () => {
         expect(window.open).not.toHaveBeenCalled();
     });
 
+    it('reads the offline copy when the network does not answer', async () => {
+        // A fetch() is never a navigation, so the service worker does not
+        // fall back for it: the reader asks the caches itself (#1444 review).
+        pretendStandalone(true);
+        window.fetch = vi.fn(() => Promise.reject(new TypeError('offline')));
+        const match = vi.fn(() => Promise.resolve({ text: () => Promise.resolve(page('<div data-document-reader-content>Hors ligne</div>')) }));
+        /** @type {any} */ (window).caches = { match };
+
+        click('conditions');
+        await settle();
+
+        expect(match).toHaveBeenCalledWith('http://localhost:3000/locations/chalet/conditions/v2');
+        expect(readerBody().textContent).toContain('Hors ligne');
+        delete /** @type {any} */ (window).caches;
+    });
+
+    it('does not read an offline copy over an answer the server gave', async () => {
+        pretendStandalone(true);
+        respond(page('<p>Introuvable</p>'), false, 404);
+        const match = vi.fn();
+        /** @type {any} */ (window).caches = { match };
+
+        click('conditions');
+        await settle();
+
+        expect(match).not.toHaveBeenCalled();
+        expect(readerBody().querySelector('[role="alert"]')).not.toBeNull();
+        delete /** @type {any} */ (window).caches;
+    });
+
+    it('gives up on a stalled connection instead of loading for ever', async () => {
+        vi.useFakeTimers();
+        pretendStandalone(true);
+        window.fetch = vi.fn((_url, init) => new Promise((_resolve, reject) => {
+            init.signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+        }));
+
+        click('conditions');
+        await vi.advanceTimersByTimeAsync(8000);
+        vi.useRealTimers();
+        await settle();
+
+        expect(readerBody().querySelector('[role="alert"]')).not.toBeNull();
+        expect(readerBody().textContent).not.toContain('Chargement');
+    });
+
+    it('hands a link of this site to Safari on an iPhone, where window.open() would keep it in the app', async () => {
+        pretendStandalone(true);
+        const userAgent = Object.getOwnPropertyDescriptor(window.navigator, 'userAgent');
+        Object.defineProperty(window.navigator, 'userAgent', { value: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)', configurable: true });
+        window.open = vi.fn();
+        respond(page('<div data-document-reader-content><a href="/cookies">cookies</a></div>'));
+
+        click('conditions');
+        await settle();
+        readerBody().querySelector('a').dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }));
+
+        expect(window.open).toHaveBeenCalledWith('x-safari-http://localhost:3000/cookies', '_blank', 'noopener');
+        if (userAgent) {
+            Object.defineProperty(window.navigator, 'userAgent', userAgent);
+        } else {
+            delete /** @type {any} */ (window.navigator).userAgent;
+        }
+    });
+
     it('treats an error page or a page without marked content as a failure', async () => {
         pretendStandalone(true);
         respond(page('<p>Introuvable</p>'), false, 404);

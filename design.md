@@ -964,9 +964,14 @@ image), judged after the URL parser — the rule `Core\Security\HtmlSanitizer`
 follows; a failure is said in the
 dialog with « Réessayer » and « Ouvrir à part », never a navigation. A
 link to this site inside the dialog — the notice's own « page de
-préférences cookies », « Ouvrir à part » — goes to `window.open()`, as
-`installed-app-links.js` does for other sites: followed in place it would
-replace the form behind the dialog.
+préférences cookies », « Ouvrir à part » — goes to `window.open()` — through
+`x-safari-` on an iPhone or iPad, where the installed application would
+otherwise keep its own page in its one window (`document-viewer.js`'s
+`browserAddress()` rule): followed in place it would replace the form
+behind the dialog. The document is fetched with a timeout, and when the
+network does not answer the reader reads the copy the service worker keeps
+for offline reading — a `fetch()` is never a navigation, so the worker's
+own offline fallback does not apply to it.
 Reading is not agreeing: the click is cancelled before the `<label>` it
 sits in can tick its box. The marked links are exactly the ticket's —
 the booking request, the three sign-in modes, the public registration

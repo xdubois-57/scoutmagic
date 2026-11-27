@@ -39,6 +39,7 @@
     var doc = document;
 
     var DIALOG_ID = 'document-reader';
+    var FETCH_TIMEOUT_MS = 8000;
     var CONTENT_ATTRIBUTE = 'data-document-reader-content';
     // What a document to read never needs, and what could act on the page
     // if it came along: anything that runs, loads, submits or restyles.
@@ -190,6 +191,25 @@
         body.appendChild(actions);
     }
 
+    /**
+     * The page as the service worker cached it for offline reading.
+     *
+     * @param {string} address
+     * @returns {Promise<{html: string, base: string}>}
+     */
+    function fromCache(address) {
+        var store = /** @type {any} */ (win).caches;
+        if (!store || typeof store.match !== 'function') {
+            return Promise.reject(new Error('no cache'));
+        }
+        return store.match(address).then(function (/** @type {Response|undefined} */ cached) {
+            if (!cached) {
+                throw new Error('not cached');
+            }
+            return cached.text().then(function (html) { return { html: html, base: address }; });
+        });
+    }
+
     /** @param {HTMLAnchorElement} link */
     function load(link) {
         var el = dialog();
@@ -209,16 +229,38 @@
         loading.textContent = 'Chargement…';
         body.appendChild(loading);
 
+        // A connection that stalls must not leave « Chargement… » for
+        // ever: past FETCH_TIMEOUT_MS the request is dropped and the
+        // offline copy, if any, is read instead (#1444 review).
+        var timedOut = false;
+        var timer = controller ? win.setTimeout(function () {
+            timedOut = true;
+            controller.abort();
+        }, FETCH_TIMEOUT_MS) : null;
+
         return win.fetch(link.href, {
             credentials: 'same-origin',
             headers: { Accept: 'text/html' },
             signal: controller ? controller.signal : undefined,
         }).then(function (response) {
             if (!response.ok) {
-                throw new Error('HTTP ' + response.status);
+                var refused = new Error('HTTP ' + response.status);
+                refused.name = 'HttpError';
+                throw refused;
             }
             var base = response.url || link.href;
             return response.text().then(function (html) { return { html: html, base: base }; });
+        }, function (error) {
+            // No answer at all — offline, or too slow: the copy the
+            // service worker keeps for an offline navigation
+            // (core/Offline/OfflineWhitelist.php, /rgpd among them). A
+            // fetch() is never a navigation, so the worker itself does not
+            // fall back for it; the reader asks the caches directly. A
+            // dialog closed meanwhile wants nothing.
+            if (error?.name === 'AbortError' && !timedOut) {
+                throw error;
+            }
+            return fromCache(link.href);
         }).then(function (page) {
             if (pending !== controller) {
                 return;
@@ -241,6 +283,9 @@
             }
             showError(body, link);
         }).finally(function () {
+            if (timer !== null) {
+                win.clearTimeout(timer);
+            }
             if (pending === controller) {
                 body.removeAttribute('aria-busy');
                 pending = null;
@@ -283,6 +328,32 @@
             link.focus();
         }
     });
+
+    /**
+     * Whether this is an iPhone or an iPad, iPadOS reporting itself as a Mac.
+     *
+     * @returns {boolean}
+     */
+    function isAppleMobile() {
+        var nav = /** @type {any} */ (win.navigator);
+        return /iPad|iPhone|iPod/.test(nav.userAgent || '')
+            || (nav.platform === 'MacIntel' && Number(nav.maxTouchPoints) > 1);
+    }
+
+    /**
+     * The address a link of this site inside the dialog is handed to
+     * window.open() with (#1444 review). On an iPhone or iPad the
+     * installed application keeps its own pages in its one window even
+     * through window.open(): `x-safari-` hands it to Safari instead, the
+     * rule document-viewer.js's browserAddress() follows for the same
+     * reason. Everywhere else window.open() opens a window of its own.
+     *
+     * @param {URL} url an address of this site, over http(s)
+     * @returns {string}
+     */
+    function browserAddress(url) {
+        return isAppleMobile() ? 'x-safari-' + url.href : url.href;
+    }
 
     /**
      * The link's address when it stays on this site over http(s), else null.
@@ -336,7 +407,7 @@
         if (el?.contains(link)) {
             event.preventDefault();
             event.stopPropagation();
-            win.open(url.href, '_blank', 'noopener');
+            win.open(browserAddress(url), '_blank', 'noopener');
             return;
         }
 
