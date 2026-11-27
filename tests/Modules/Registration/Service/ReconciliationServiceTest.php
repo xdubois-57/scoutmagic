@@ -197,6 +197,78 @@ class ReconciliationServiceTest extends TestCase
         $this->assertSame('accepted', $this->requestRepository->findById($againId)->status);
     }
 
+    /**
+     * The race inside migrate() (review of #1552): another request links the
+     * member between migrate()'s own check and its UPDATE, which the UNIQUE
+     * index refuses with a duplicate key. Same treatment: journaled, and the
+     * next request is still reconciled.
+     */
+    public function testALinkWonByAConcurrentRequestInsideTheMigrationIsJournaledAndTheLoopGoesOn(): void
+    {
+        $competingId = $this->createAcceptedRequest('Autre', 'Demande', '2017-03-03');
+        $requestId = $this->createAcceptedRequest('Dupont', 'Léa', '2019-01-01');
+        $memberId = $this->insertImportedMember('D10', 'Dupont', 'Léa', '2019-01-01');
+        $otherId = $this->createAcceptedRequest('Martin', 'Noé', '2018-05-05');
+        $otherMemberId = $this->insertImportedMember('D11', 'Martin', 'Noé', '2018-05-05');
+
+        $journalService = new JournalService($this->journalRepository);
+        $requests = $this->requestRepository;
+        $racing = new class (
+            $this->pdo,
+            $requests,
+            new RegistrationSecondaryEmailRepository($this->pdo, $this->encryption),
+            new MemberEmailRepository($this->pdo, $this->encryption),
+            $journalService,
+            $memberId,
+            $competingId
+        ) extends MigrationService {
+            public function __construct(
+                \PDO $pdo,
+                private RegistrationRequestRepository $requests,
+                RegistrationSecondaryEmailRepository $secondary,
+                MemberEmailRepository $memberEmails,
+                JournalService $journal,
+                private int $contestedMemberId,
+                private int $competingRequestId
+            ) {
+                parent::__construct($pdo, $requests, $secondary, $memberEmails, $journal);
+            }
+
+            public function migrate(int $requestId, int $memberId): void
+            {
+                if ($memberId !== $this->contestedMemberId) {
+                    parent::migrate($requestId, $memberId);
+
+                    return;
+                }
+                // The competing request commits its link first; this write
+                // then meets the unique index.
+                $this->requests->linkToMemberAndEncode($this->competingRequestId, $memberId, new \DateTimeImmutable());
+                $e = new \PDOException('SQLSTATE[23000]: Integrity constraint violation: 1062 Duplicate entry');
+                $e->errorInfo = ['23000', 1062, "Duplicate entry for key 'idx_rr_linked_member'"];
+                throw $e;
+            }
+        };
+        $service = new ReconciliationService(
+            new ImportedMemberRepository($this->pdo, $this->encryption),
+            $this->requestRepository,
+            $racing,
+            $journalService
+        );
+
+        $service->reconcileForYear($this->scoutYearId);
+
+        $this->assertSame('accepted', $this->requestRepository->findById($requestId)->status);
+        $this->assertSame($otherMemberId, $this->requestRepository->findById($otherId)->linkedMemberId);
+        $context = $this->pdo->query(
+            "SELECT context FROM event_log WHERE event_type = 'registration_reconciliation_already_linked'"
+        )->fetchColumn();
+        $this->assertSame(
+            ['request_id' => $requestId, 'linked_request_id' => $competingId, 'member_id' => $memberId],
+            json_decode((string) $context, true)
+        );
+    }
+
     public function testEmptyYearIsANoOp(): void
     {
         $this->service->reconcileForYear($this->scoutYearId);

@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\Registration\Service;
 
+use Core\Database\ConstraintViolation;
 use Core\Journal\JournalService;
 use Modules\Registration\Api\ReconciliationTrigger;
 use Modules\Registration\Repository\ImportedMemberRepository;
@@ -98,9 +99,16 @@ class ReconciliationService implements ReconciliationTrigger
 
             try {
                 $this->migrationService->migrate($requestIds[0], $memberIds[0]);
-            } catch (RegistrationException $e) {
-                // Linked by a concurrent request between the check above
-                // and the migration: the same case, the same treatment.
+            } catch (RegistrationException | \PDOException $e) {
+                // Linked by a concurrent request after the check above: the
+                // same case, the same treatment. Before migrate()'s own
+                // check it is its RegistrationException; between that check
+                // and its UPDATE, the UNIQUE idx_rr_linked_member refuses
+                // the write with a duplicate key (review of #1552). Any
+                // other database error is not this case and goes up.
+                if ($e instanceof \PDOException && !ConstraintViolation::isDuplicateKey($e)) {
+                    throw $e;
+                }
                 $raced = $this->requestRepository->findByLinkedMemberId($memberIds[0]);
                 if ($raced === null || $raced->id === $requestIds[0]) {
                     throw $e;
