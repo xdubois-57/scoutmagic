@@ -46,7 +46,9 @@ class SectionMembershipService
         $closedByRollover = 0;
         foreach ($this->repository->findOpenPeriodsForMemberInEarlierYears($memberId, $scoutYearId) as $period) {
             $year = $this->scoutYearService->findById($period->scoutYearId);
-            $this->repository->close($period->id, $year['end_date'] ?? $today);
+            // Never before the period's own start: an ended year imported
+            // again in configuration mode opens one after its end.
+            $this->repository->close($period->id, max($year['end_date'] ?? $today, $period->startDate));
             $closedByRollover++;
         }
 

@@ -319,6 +319,23 @@ class SectionMembershipServiceTest extends TestCase
     }
 
     /**
+     * The same late period, left open, is closed by the next year's
+     * import on the day it started — never at its year's end, before it.
+     */
+    public function testTheSafetyNetNeverClosesALatePeriodBeforeItStarts(): void
+    {
+        $this->setFunctionSection($this->memberYearId, $this->sectionA);
+        $this->sync($this->memberYearId, $this->scoutYearId, '2026-09-20');
+
+        $nextYearId = $this->createNextYear();
+        $nextMemberYearId = $this->ensureMemberYear($nextYearId);
+        $this->setFunctionSection($nextMemberYearId, $this->sectionA);
+        $this->sync($nextMemberYearId, $nextYearId, '2026-09-25');
+
+        $this->assertSame([[$this->sectionA, '2026-09-20', '2026-09-20']], $this->periodsOf($this->scoutYearId));
+    }
+
+    /**
      * What the old safety net left on an install: the later year's period
      * closed at its own end, a duplicate opened next to it, and the old
      * section of a member who moved still valid all year. The next import
