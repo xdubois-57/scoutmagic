@@ -233,6 +233,70 @@ final class HostSecurityServiceTest extends TestCase
         $this->assertCount(20, $again->find('php_web')?->highAdvisoryIds ?? []);
     }
 
+    /**
+     * An unscored advisory sorts last and is the first the detail cap
+     * drops; it must still keep the verdict open, from the fetch and from
+     * the cache (review of #1415).
+     */
+    public function testAnUnscoredAdvisoryPastTheDetailCapStillKeepsTheVerdictOpen(): void
+    {
+        $many = [];
+        for ($i = 1; $i <= HostSecurityService::KEPT_ADVISORIES; $i++) {
+            $many[] = new Advisory(sprintf('CVE-2026-%04d', $i), 5.0, '3.1', null, 'u');
+        }
+        $many[] = new Advisory('CVE-2026-9999', null, null, null, 'u');
+        $source = $this->source(['cpe:2.3:a:php:php:8.4.28:*:*:*:*:*:*:*' => $many]);
+        $component = [$this->php('php_web', '8.4.28')];
+
+        $fetched = $this->service($source)->refresh($component, self::NOW)->find('php_web');
+        $cached = $this->service($source)->refresh($component, self::NOW + 60)->find('php_web');
+
+        foreach ([$fetched, $cached] as $assessment) {
+            $this->assertNotContains('CVE-2026-9999', array_map(static fn(Advisory $a): string => $a->id, $assessment?->advisories ?? []));
+            $this->assertSame(ComponentAssessment::STATE_UNVERIFIABLE, $assessment?->state);
+        }
+        $this->assertCount(1, $source->nvdRequests(), 'the second verdict came from the cache');
+    }
+
+    /**
+     * A snapshot too large for its row is trimmed, and the trimmed one —
+     * the one the page will read — is what the alerts are run on (review
+     * of #1415). One that cannot fit at all is a failure, never a silent skip.
+     */
+    public function testASnapshotTooLargeForItsRowIsTrimmedAndThatIsTheOneReturned(): void
+    {
+        $many = [];
+        for ($i = 1; $i <= 10; $i++) {
+            $many[] = new Advisory(sprintf('CVE-2026-%04d', $i), 9.0, '3.1', 'nvd@nist.gov', 'https://nvd.nist.gov/vuln/detail/CVE-2026-' . $i);
+        }
+        $component = [$this->php('php_web', '8.4.1')];
+        $full = $this->service($this->source([self::PHP_CPE => $many]))->refresh($component, self::NOW);
+        $fullBytes = strlen((string) json_encode($full->toArray(), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+        $trimmedBytes = strlen((string) json_encode($full->trimmed(3, null)->toArray(), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+        $this->assertLessThan($fullBytes, $trimmedBytes + 50);
+
+        $settings = new SettingService(new SettingRepository(DatabaseTestHelper::createTestDatabase()));
+        $small = new HostSecurityStore($settings, $trimmedBytes + 50);
+        $small->register();
+        $returned = (new HostSecurityService($small, $this->source([self::PHP_CPE => $many])))->refresh($component, self::NOW);
+
+        $this->assertCount(3, $returned->find('php_web')?->advisories ?? []);
+        $this->assertCount(10, $returned->find('php_web')?->highAdvisoryIds ?? [], 'the notified set is kept whole');
+        $this->assertEquals($returned, $small->latest(), 'what the alerts read is what the page reads');
+
+        $tiny = new HostSecurityStore($settings, 100);
+        $thrown = null;
+        try {
+            (new HostSecurityService($tiny, $this->source([self::PHP_CPE => $many])))->refresh($component, self::NOW + 60);
+        } catch (\RuntimeException $e) {
+            $thrown = $e;
+        }
+        // A PHPUnit failure is itself a RuntimeException: the verdict is read
+        // after the catch, never inside the try.
+        $this->assertSame('The host security snapshot does not fit its settings row.', $thrown?->getMessage());
+        $this->assertSame(self::NOW, $small->latest()?->checkedAt, 'the previous one is left as it was');
+    }
+
     /** A version the host left is not kept in the cache. */
     public function testOnlyWhatTheInventoryNeedsIsCached(): void
     {

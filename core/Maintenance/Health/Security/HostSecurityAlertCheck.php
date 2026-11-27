@@ -135,6 +135,11 @@ final class HostSecurityAlertCheck implements OperationalCheck
             static fn(Advisory $advisory): string => $advisory->id . ' (' . $advisory->severityLabel() . ')',
             array_slice($high, 0, 5)
         );
+        if ($named === []) {
+            // A snapshot trimmed to fit its row lists no detail: name the
+            // identifiers themselves rather than an empty « Avis : ».
+            $named = array_slice($assessment->highAdvisoryIds, 0, 5);
+        }
         $others = count($assessment->highAdvisoryIds) - count($named);
 
         $text = 'Avis : ' . implode(', ', $named) . ($others > 0 ? ' et ' . $others . ' autre(s)' : '') . '.';

@@ -85,9 +85,10 @@ final class HostSecurityStore
         return HostSecuritySnapshot::fromArray($this->decode(self::SNAPSHOT_SETTING));
     }
 
-    public function save(HostSecuritySnapshot $snapshot): void
+    /** @return bool false when the snapshot is too large to be written — the caller trims and retries */
+    public function save(HostSecuritySnapshot $snapshot): bool
     {
-        $this->write(self::SNAPSHOT_SETTING, $snapshot->toArray());
+        return $this->write(self::SNAPSHOT_SETTING, $snapshot->toArray());
     }
 
     /** @return array<string, mixed> */

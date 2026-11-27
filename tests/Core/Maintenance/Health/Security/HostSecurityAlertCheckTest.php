@@ -59,6 +59,14 @@ final class HostSecurityAlertCheckTest extends TestCase
         );
     }
 
+    /** A trimmed snapshot lists no detail: the notification names the identifiers instead. */
+    public function testATrimmedSnapshotStillNamesTheAdvisories(): void
+    {
+        $this->evaluateAlerts($this->snapshot('8.4.1', ['CVE-2026-0001' => 9.8])->trimmed(0, 50));
+
+        $this->assertStringContainsString('Avis : CVE-2026-0001.', $this->sent[0]['payload']['body'] ?? '');
+    }
+
     public function testADelayWithoutAHighAdvisoryNeverNotifies(): void
     {
         $this->evaluateAlerts($this->snapshot('8.4.1', ['CVE-2026-0001' => 6.9]));

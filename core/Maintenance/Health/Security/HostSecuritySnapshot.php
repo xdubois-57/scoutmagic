@@ -88,6 +88,23 @@ final class HostSecuritySnapshot
             : (new \DateTimeImmutable('@' . $timestamp))->setTimezone(AppClock::zone());
     }
 
+    /**
+     * The same verdicts with less detail, for a snapshot that would not fit
+     * its settings row: at most $advisories listed per line and, when given,
+     * $highIds identifiers at CVSS ≥ 7. States, counts and actions are kept.
+     */
+    public function trimmed(int $advisories, ?int $highIds): self
+    {
+        return new self(
+            $this->checkedAt,
+            array_map(
+                static fn(ComponentAssessment $a): ComponentAssessment => $a->trimmed($advisories, $highIds),
+                $this->assessments
+            ),
+            $this->complete
+        );
+    }
+
     public function find(string $subject): ?ComponentAssessment
     {
         foreach ($this->assessments as $assessment) {

@@ -140,7 +140,10 @@ final class HostSecurityEvaluator
             ),
             $found->hasData() ? $found->highIds : []
         )));
-        $unknownScore = array_filter($applicable, static fn(Advisory $a): bool => $a->score === null) !== [];
+        // Decided on the whole answer, not on the detail kept: the unscored
+        // sort last, and are exactly what a cap would drop.
+        $unknownScore = array_filter($applicable, static fn(Advisory $a): bool => $a->score === null) !== []
+            || ($found->hasData() && $found->hasUnscored);
         if ($found->status === AdvisoryLookup::PENDING) {
             $notes[] = 'Les avis de sécurité seront consultés au prochain passage (limite de requêtes de la NVD).';
         } elseif (!$found->hasData()) {

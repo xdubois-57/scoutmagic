@@ -56,6 +56,13 @@ final class HostSecurityService
      */
     public const KEPT_HIGH_IDS = 200;
 
+    /**
+     * The successive trims a snapshot too large for its row goes through:
+     * [advisories listed per line, CVSS ≥ 7 identifiers kept per line],
+     * null for « as evaluated ».
+     */
+    private const SNAPSHOT_TRIMS = [[null, null], [3, null], [0, 50]];
+
     /** When the full cache does not fit, how many detailed advisories each CPE keeps. */
     private const TRIMMED_ADVISORIES = 5;
 
@@ -115,12 +122,14 @@ final class HostSecurityService
                 $found = Advisory::sorted(Advisory::deduplicated($this->source->advisories($cpe)));
                 $kept = array_slice($found, 0, self::KEPT_ADVISORIES);
                 $highIds = array_slice(self::highIds($found), 0, self::KEPT_HIGH_IDS);
-                $advisories[$cpe] = new AdvisoryLookup(AdvisoryLookup::OK, $kept, count($found), $now, $highIds);
+                $unscored = self::hasUnscored($found);
+                $advisories[$cpe] = new AdvisoryLookup(AdvisoryLookup::OK, $kept, count($found), $now, $highIds, $unscored);
                 $cachedAdvisories[$cpe] = [
                     'fetched_at' => $now,
                     'total' => count($found),
                     'items' => array_map(static fn(Advisory $a): array => $a->toArray(), $kept),
                     'high_ids' => $highIds,
+                    'has_unscored' => $unscored,
                 ];
                 unset($failedAt[$cpe]);
             } catch (ReferenceSourceUnavailable) {
@@ -158,9 +167,20 @@ final class HostSecurityService
             $this->evaluator->evaluate($components, $branches, $advisories, $now),
             $complete
         );
-        $this->store->save($snapshot);
+        // The snapshot the page reads must be the one the alerts are run
+        // on (review of #1415): when it does not fit its settings row, the
+        // detail is trimmed — the advisories listed, then the identifiers
+        // kept per line — and the trimmed snapshot is what is returned.
+        // One that still does not fit is a failure, not a silent skip: the
+        // handler then runs no alert from a snapshot nobody can read.
+        foreach (self::SNAPSHOT_TRIMS as [$advisoryDetail, $highIds]) {
+            $stored = $advisoryDetail === null ? $snapshot : $snapshot->trimmed($advisoryDetail, $highIds);
+            if ($this->store->save($stored)) {
+                return $stored;
+            }
+        }
 
-        return $snapshot;
+        throw new \RuntimeException('The host security snapshot does not fit its settings row.');
     }
 
     /**
@@ -241,7 +261,7 @@ final class HostSecurityService
     private static function afterFailure(?AdvisoryLookup $cached, int $now): AdvisoryLookup
     {
         return $cached !== null && $now - (int) $cached->fetchedAt <= self::MAX_STALE_SECONDS
-            ? new AdvisoryLookup(AdvisoryLookup::STALE, $cached->advisories, $cached->total, $cached->fetchedAt, $cached->highIds)
+            ? new AdvisoryLookup(AdvisoryLookup::STALE, $cached->advisories, $cached->total, $cached->fetchedAt, $cached->highIds, $cached->hasUnscored)
             : new AdvisoryLookup(AdvisoryLookup::UNAVAILABLE);
     }
 
@@ -261,8 +281,15 @@ final class HostSecurityService
             $items,
             is_int($entry['total'] ?? null) ? $entry['total'] : count($items),
             $entry['fetched_at'],
-            $highIds
+            $highIds,
+            is_bool($entry['has_unscored'] ?? null) ? $entry['has_unscored'] : self::hasUnscored($items)
         );
+    }
+
+    /** @param list<Advisory> $advisories */
+    private static function hasUnscored(array $advisories): bool
+    {
+        return array_filter($advisories, static fn(Advisory $a): bool => $a->score === null) !== [];
     }
 
     /**

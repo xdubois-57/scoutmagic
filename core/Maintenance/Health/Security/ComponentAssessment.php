@@ -70,6 +70,18 @@ final class ComponentAssessment
     ) {
     }
 
+    /** {@see HostSecuritySnapshot::trimmed()} for one line. */
+    public function trimmed(int $advisories, ?int $highIds): self
+    {
+        $data = $this->toArray();
+        $data['advisories'] = array_slice($data['advisories'], 0, $advisories);
+        if ($highIds !== null) {
+            $data['high_advisory_ids'] = array_slice($data['high_advisory_ids'], 0, $highIds);
+        }
+
+        return self::fromArray($data) ?? $this;
+    }
+
     /** Counted in « N points à régler chez l'hébergeur » (issue #1358). */
     public function isProblem(): bool
     {

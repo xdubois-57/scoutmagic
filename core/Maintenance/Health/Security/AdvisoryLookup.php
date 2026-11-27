@@ -37,6 +37,12 @@ final class AdvisoryLookup
         public readonly int $total = 0,
         public readonly ?int $fetchedAt = null,
         public readonly array $highIds = [],
+        /**
+         * Whether ANY advisory the source reported has no readable score —
+         * decided on the whole answer, because the unscored sort last and
+         * are the first the detail cap drops (review of #1415).
+         */
+        public readonly bool $hasUnscored = false,
     ) {
     }
 
