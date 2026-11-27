@@ -136,44 +136,64 @@ final class IcsEventReaderTest extends TestCase
     }
 
     /**
-     * Exchange names a zone by a number (X-MICROSOFT-CDO-TZID) that vobject
-     * maps to an old zone name; a PHP reading the system time zone data
-     * without its legacy links refuses that name with an exception. The
-     * event is then a zone the import cannot place, said as such, and PHP's
-     * default zone is left as it was.
+     * Exchange names a zone by a number (X-MICROSOFT-CDO-TZID). vobject
+     * maps 23, 60 and 61 to names a PHP without the time zone database's
+     * legacy links refuses (#1238): they are read under their current
+     * names, so the same calendar imports the same events on every host.
      */
-    public function testAnExchangeZoneThisRuntimeCannotNameIsAnUnknownZone(): void
+    #[\PHPUnit\Framework\Attributes\DataProvider('renamedExchangeZones')]
+    public function testAnExchangeZoneVobjectCallsByAnOldNameIsPlaced(int $cdoId, string $zone, string $offset): void
     {
-        $refused = null;
-        foreach ([23, 60, 61] as $cdoId) {
-            try {
-                new \DateTimeZone(\Sabre\VObject\TimezoneGuesser\GuessFromMsTzId::$microsoftExchangeMap[$cdoId]);
-            } catch (\Exception) {
-                $refused = $cdoId;
-                break;
-            }
-        }
-        if ($refused === null) {
-            $this->markTestSkipped('This runtime knows every legacy zone name vobject maps Exchange numbers to.');
-        }
         $default = date_default_timezone_get();
 
         $events = $this->convertText(
             "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Test//FR\r\n"
-            . "BEGIN:VTIMEZONE\r\nTZID:Zone Exchange\r\nX-MICROSOFT-CDO-TZID:{$refused}\r\n"
-            . "BEGIN:STANDARD\r\nDTSTART:16010101T000000\r\nTZOFFSETFROM:+0530\r\nTZOFFSETTO:+0530\r\n"
+            . "BEGIN:VTIMEZONE\r\nTZID:Zone Exchange\r\nX-MICROSOFT-CDO-TZID:{$cdoId}\r\n"
+            . "BEGIN:STANDARD\r\nDTSTART:16010101T000000\r\nTZOFFSETFROM:{$offset}\r\nTZOFFSETTO:{$offset}\r\n"
             . "END:STANDARD\r\nEND:VTIMEZONE\r\n"
             . "BEGIN:VEVENT\r\nUID:exchange-1\r\nSUMMARY:Jamboree\r\n"
             . "DTSTART;TZID=Zone Exchange:20250310T090000\r\nEND:VEVENT\r\n"
             . "END:VCALENDAR\r\n"
         );
 
+        $expected = (new \DateTimeImmutable('2025-03-10 09:00:00', new \DateTimeZone($zone)))
+            ->setTimezone(new \DateTimeZone(IcsEventReader::TIME_ZONE));
         $this->assertCount(1, $events);
+        $this->assertSame(IcsEventReader::STATE_EVENT, $events[0]['state'], (string) ($events[0]['reason'] ?? ''));
         $this->assertSame(
-            ['unreadable', 'fuseau horaire inconnu', 'exchange-1'],
-            [$events[0]['state'], $events[0]['reason'] ?? null, $events[0]['uid']]
+            [$expected->format('Y-m-d'), $expected->format('H:i')],
+            [$events[0]['start_date'], $events[0]['start_time']]
         );
         $this->assertSame($default, date_default_timezone_get());
+    }
+
+    /**
+     * @return array<string, array{int, string, string}>
+     */
+    public static function renamedExchangeZones(): array
+    {
+        return [
+            'India (23)' => [23, 'Asia/Kolkata', '+0530'],
+            'Greenland (60)' => [60, 'America/Nuuk', '-0200'],
+            'Myanmar (61)' => [61, 'Asia/Yangon', '+0630'],
+        ];
+    }
+
+    /** The other numbers stay vobject's answer: 3 is Paris, an hour after UTC in March. */
+    public function testAnExchangeZoneVobjectNamesRightIsLeftToIt(): void
+    {
+        $events = $this->convertText(
+            "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Test//FR\r\n"
+            . "BEGIN:VTIMEZONE\r\nTZID:Zone Exchange\r\nX-MICROSOFT-CDO-TZID:3\r\n"
+            . "BEGIN:STANDARD\r\nDTSTART:16010101T000000\r\nTZOFFSETFROM:+0100\r\nTZOFFSETTO:+0100\r\n"
+            . "END:STANDARD\r\nEND:VTIMEZONE\r\n"
+            . "BEGIN:VEVENT\r\nUID:exchange-3\r\nSUMMARY:Réunion\r\n"
+            . "DTSTART;TZID=Zone Exchange:20250310T090000\r\nEND:VEVENT\r\n"
+            . "END:VCALENDAR\r\n"
+        );
+
+        $this->assertSame(IcsEventReader::STATE_EVENT, $events[0]['state']);
+        $this->assertSame('09:00', $events[0]['start_time']);
     }
 
     public function testAFileThatIsNotACalendarIsRefusedAsAWhole(): void

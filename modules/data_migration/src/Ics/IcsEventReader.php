@@ -81,6 +81,9 @@ final class IcsEventReader
      */
     public function convert(string $icsPath, string $jsonlPath): int
     {
+        // Exchange's numbered zones, named the same on every host (#1238).
+        ExchangeZoneGuesser::register();
+
         $in = @fopen($icsPath, 'rb');
         if ($in === false) {
             throw new IcsUnreadableException('Cannot open the calendar file.');
