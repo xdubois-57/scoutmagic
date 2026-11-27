@@ -18,6 +18,7 @@ use Modules\InboundMail\Api\MessageCandidate;
 use Modules\InboundMail\Api\LinkOrigin;
 use Modules\InboundMail\Api\InboundMessage;
 use Modules\InboundMail\Api\MessageConsumerInterface;
+use Modules\InboundMail\Api\MessageDirection;
 use Modules\InboundMail\Client\FakeMailboxClient;
 use Modules\InboundMail\Client\FetchedMessage;
 use Modules\InboundMail\Mime\MimeMessageParser;
@@ -499,11 +500,13 @@ class MailboxSyncServiceTest extends TestCase
                 array $toEmails = [],
                 bool $isBulk = false,
                 ?string $rawHeaders = null,
-                \Modules\InboundMail\Api\MessageDirection $direction = \Modules\InboundMail\Api\MessageDirection::RECEIVED,
+                MessageDirection $direction = MessageDirection::RECEIVED,
                 bool $senderVerified = false
             ): int {
                 if ($messageId === 'refuse@example.be') {
-                    throw new \PDOException('SQLSTATE[22001]: Data too long for column body_html_encrypted, from Jeanne');
+                    throw new \PDOException(
+                        'SQLSTATE[22001]: Data too long for column body_html_encrypted, from Jeanne'
+                    );
                 }
 
                 return parent::create(
@@ -529,11 +532,15 @@ class MailboxSyncServiceTest extends TestCase
         )->fetch(\PDO::FETCH_ASSOC);
         $this->assertIsArray($row, 'the failure is journalled');
         $this->assertSame('warning', $row['level']);
-        $context = json_decode((string) $row['context'], true);
-        $this->assertSame(
-            ['mailbox_id' => $this->mailboxId, 'folder' => 'INBOX', 'uid' => 10, 'error_class' => \PDOException::class],
-            $context
-        );
+        // Compared without regard to key order: MySQL 8 stores a JSON
+        // column with its keys reordered.
+        $context = (array) json_decode((string) $row['context'], true);
+        $expected = [
+            'mailbox_id' => $this->mailboxId, 'folder' => 'INBOX', 'uid' => 10, 'error_class' => \PDOException::class,
+        ];
+        ksort($context);
+        ksort($expected);
+        $this->assertSame($expected, $context);
         $journalled = $row['description'] . $row['context'];
         foreach (['Un secret', 'jeanne', 'Jeanne', 'Data too long'] as $leak) {
             $this->assertStringNotContainsString($leak, $journalled);
@@ -577,7 +584,7 @@ class MailboxSyncServiceTest extends TestCase
                 array $toEmails = [],
                 bool $isBulk = false,
                 ?string $rawHeaders = null,
-                \Modules\InboundMail\Api\MessageDirection $direction = \Modules\InboundMail\Api\MessageDirection::RECEIVED,
+                MessageDirection $direction = MessageDirection::RECEIVED,
                 bool $senderVerified = false
             ): int {
                 if ($this->busy) {
