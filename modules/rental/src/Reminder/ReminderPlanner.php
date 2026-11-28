@@ -13,6 +13,7 @@ use Modules\Rental\Booking\BookingMilestones;
 use Modules\Rental\Booking\BookingStatus;
 use Modules\Rental\Booking\RentalBooking;
 use Modules\Rental\Compliance\ComplianceItem;
+use Modules\Rental\Payment\SecurityDepositStatus;
 use Modules\Rental\Repository\RentalAsset;
 
 /**
@@ -331,11 +332,18 @@ class ReminderPlanner
 
         // A security deposit still held some time after the stay. The
         // renter is owed their money back, and nobody but the unit knows
-        // it is sitting there.
+        // it is sitting there. Its end is read from the status first: for a
+        // booking Finance follows, « Restituée » or « Totalement retenue »
+        // is derived from the account, and no return date is ever typed
+        // (§8.54, #1473). The date still counts for a manual return or a
+        // step ticked by hand.
+        $securityStatus = $security['status'] ?? null;
+        $securitySettled = ($securityStatus instanceof SecurityDepositStatus && $securityStatus->isSettled())
+            || ($security['returned_at'] ?? null) !== null;
         $departure = DateInput::requireFromStorage($booking->departureDate, 'rental_bookings.departure_date');
         if ($securityReceived > 0
             && $schedule->isActive(ReminderKind::SECURITY_DEPOSIT_TO_RETURN)
-            && ($security['returned_at'] ?? null) === null
+            && !$securitySettled
             && $midnight >= $departure->modify(
                 '+' . $schedule->daysFor(ReminderKind::SECURITY_DEPOSIT_TO_RETURN) . ' days'
             )
