@@ -1012,6 +1012,10 @@ class MailService
     private function journalFailure(string $reason): void
     {
         try {
+            // Read before the 400-character cap (#1571 review): PHPMailer
+            // appends the enhanced code at the very end of a long message.
+            // Only closed values leave this text, never the text itself.
+            $unbounded = MailErrorRedaction::addressesRemoved($reason);
             $reason = MailErrorRedaction::withoutAddresses($reason);
 
             $this->journal?->log(
@@ -1036,8 +1040,8 @@ class MailService
                     // read from, null when the relay gave none. Neither
                     // is the server's text: an enum case name and
                     // `class.subject.detail`.
-                    'classification' => Transport\MailFailure::classify($reason)->name,
-                    'enhanced_code' => Transport\MailFailure::enhancedCode($reason),
+                    'classification' => Transport\MailFailure::classify($unbounded)->name,
+                    'enhanced_code' => Transport\MailFailure::enhancedCode($unbounded),
                 ]
             );
         } catch (\Throwable) {

@@ -258,9 +258,11 @@ enum MailFailure
      * are read the same.
      *
      * Bounded on both sides so that a dotted number is not mistaken for
-     * one: no digit or dot may come before the class, and no digit — nor
-     * a dot followed by one — after the detail. « 10.5.1.2 » (an
-     * address), « 5.1.1.4 » and « 192.168.5.1 » therefore yield nothing,
+     * one: no letter, digit, underscore or dot may come before the class
+     * (#1571 review: « server=v4.97.1 » is a version, not a code), and no
+     * digit — nor a dot followed by one — after the detail. « 10.5.1.2 »
+     * (an address), « 5.1.1.4 », « 192.168.5.1 » and « v4.97.1 » therefore
+     * yield nothing,
      * and « 5.1.1. » at the end of a sentence still yields 5.1.1. Class 2
      * is success and is never a reason, so it is not read.
      *
@@ -268,7 +270,7 @@ enum MailFailure
      */
     private static function enhancedCodesIn(string $reason): array
     {
-        $pattern = '/(?<![\d.])([45])\.(\d{1,3})\.(\d{1,3})(?!\.?\d)/';
+        $pattern = '/(?<![\w.])([45])\.(\d{1,3})\.(\d{1,3})(?!\.?\d)/';
         if (preg_match_all($pattern, $reason, $matches, PREG_SET_ORDER) < 1) {
             return [];
         }

@@ -217,6 +217,35 @@ class MailFailureJournalTest extends TestCase
     }
 
     /**
+     * PHPMailer appends the enhanced code at the very end of its message:
+     * a long refusal must still be read from its code, not from the
+     * 400 characters the stored reason keeps (#1571 review).
+     */
+    public function testTheCodeIsReadPastTheStoredReasonsLength(): void
+    {
+        $service = $this->service(
+            $this->refusingTransport(
+                'SMTP Error: The following recipients failed: jean.dupont@exemple.be: '
+                    . str_repeat('Daily user sending limit exceeded. ', 20)
+                    . 'SMTP code: 550 Additional SMTP info: 5.4.5'
+            ),
+            null
+        );
+
+        try {
+            $service->send('jean.dupont@exemple.be', 'Bonjour', '<p>Bonjour</p>', 'Bonjour');
+        } catch (MailException) {
+            // Asserted below.
+        }
+
+        $context = json_decode((string) $this->entries()[0]['context'], true);
+        $this->assertLessThanOrEqual(400, mb_strlen((string) $context['reason']));
+        $this->assertStringNotContainsString('5.4.5', (string) $context['reason']);
+        $this->assertSame('Provider', $context['classification']);
+        $this->assertSame('5.4.5', $context['enhanced_code']);
+    }
+
+    /**
      * A refused address reads as the recipient's, and a reason without an
      * enhanced code says so with a null rather than a guess.
      */

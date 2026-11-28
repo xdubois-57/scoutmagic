@@ -112,6 +112,10 @@ class MailFailureTest extends TestCase
             // A dotted address is not a code: the old literal « 5.1.1 »
             // read this as a bad recipient.
             'an IP address that contains 5.1.1' => ['SMTP connect() failed to 10.5.1.1', MailFailure::Provider],
+            'a recipient refusal next to a version number' => [
+                '550 5.1.1 Recipient unknown; server=v4.97.1',
+                MailFailure::Recipient,
+            ],
             // ── the policy family, read first and unchanged ──
             'Gmail relay limit for the customer, under 5.7.1' => [
                 '550 5.7.1 Daily SMTP relay sending limit exceeded for this customer.',
@@ -148,6 +152,7 @@ class MailFailureTest extends TestCase
             'four dotted numbers starting with a class' => ['host 5.1.1.4 refused', null],
             'a success code' => ['250 2.1.0 Ok', null],
             'a version number' => ['PHPMailer 6.9.1', null],
+            'a version number with a letter before it' => ['server=v4.97.1', null],
             'a bare basic code' => ['550 Requested action not taken', null],
             'nothing' => ['', null],
         ];
