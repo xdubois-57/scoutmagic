@@ -29,7 +29,15 @@ final class MergePreview
         public readonly int $files = 0,
         public readonly int $emailAddresses = 0,
         public readonly int $notifications = 0,
-        public readonly int $rosterSnapshotRows = 0
+        public readonly int $rosterSnapshotRows = 0,
+        public readonly int $notes = 0,
+        /**
+         * What the enabled modules would bring along (issue #1462), their
+         * own French label => count.
+         *
+         * @var array<string, int>
+         */
+        public readonly array $moduleItems = []
     ) {
     }
 
@@ -37,6 +45,7 @@ final class MergePreview
     {
         return $this->scoutYears + $this->photos + $this->badges + $this->documents
             + $this->sectionPeriods + $this->files + $this->emailAddresses
-            + $this->notifications + $this->rosterSnapshotRows;
+            + $this->notifications + $this->rosterSnapshotRows + $this->notes
+            + array_sum($this->moduleItems);
     }
 }

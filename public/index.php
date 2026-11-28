@@ -3027,11 +3027,54 @@ $duplicateMemberRepository = new \Core\Member\Duplicate\DuplicateMemberRepositor
 $duplicateMemberDetector = new \Core\Member\Duplicate\DuplicateMemberDetector(
     $duplicateMemberRepository
 );
+// Member-merge listeners (Core\Member\Duplicate\MemberMergeListener,
+// ARCHITECTURE.md §8.80, issue #1462) — a module bringing its own rows
+// along when two identities are merged. Built empty here, filled by each
+// module's enabled block below, read when a merge runs: the same shape as
+// $deskImportListeners.
+$memberMergeListeners = new \Core\Member\Duplicate\MemberMergeListenerRegistry();
+$memberMergeRepository = new \Core\Member\Duplicate\MemberMergeRepository(
+    $pdo,
+    $duplicateMemberRepository,
+    $memberMergeListeners
+);
 $memberMergeService = new \Core\Member\Duplicate\MemberMergeService(
-    new \Core\Member\Duplicate\MemberMergeRepository($pdo, $duplicateMemberRepository),
+    $memberMergeRepository,
     $duplicateMemberRepository,
     $journalService
 );
+// One-time repair (issue #1462): the chef d'unité's notes were not part
+// of a merge until now, so a note written on an identity merged before
+// stayed on it, read by nobody. Same shape as
+// member_section_periods_backfilled.
+if ($settingService->get('merged_member_notes_repointed') !== '1') {
+    $settingService->register(
+        'merged_member_notes_repointed',
+        '0',
+        'boolean',
+        'Notes des fiches fusionnées rattachées',
+        'Indique si les notes restées sur des fiches déjà fusionnées ont été rattachées à la fiche conservée.',
+        null,
+        null,
+        null,
+        false,
+        999
+    );
+
+    $repointedNotes = $memberMergeRepository->repointNotesOfMergedMembers();
+    if ($repointedNotes > 0) {
+        $journalService->log(
+            'core',
+            'merged_member_notes_repointed',
+            'info',
+            'Notes de fiches déjà fusionnées rattachées à la fiche conservée : ' . $repointedNotes,
+            ['count' => $repointedNotes]
+        );
+    }
+
+    $settingRepo->updateValue(null, 'merged_member_notes_repointed', '1');
+    $settingService->clearCache();
+}
 $rosterReplacementGuard = new \Core\Import\RosterReplacementGuard(
     new \Core\Import\RosterComparisonRepository($pdo),
     $scoutYearResolver

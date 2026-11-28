@@ -48,12 +48,43 @@ class MemberMergeRepository
         'notifications' => 'member_id',
         'fees_roster_snapshot_members' => 'member_id',
         'files' => 'owner_member_id',
+        // The chef d'unité's notes (issue #1462): a vigilance note written
+        // on the absorbed identity used to vanish from the kept one.
+        'member_notes' => 'member_id',
+    ];
+
+    /**
+     * Core tables carrying a `members.id` that a merge deliberately does
+     * NOT repoint the generic way, and why — what
+     * Tests\Architecture\MergeRepointsEveryCoreMemberReferenceTest checks
+     * the schema against, so the next core table holding a member is
+     * either here or in MEMBER_REFERENCES, never forgotten.
+     *
+     * @var array<string, string> "table.column" => reason
+     */
+    public const NOT_REPOINTED = [
+        'members.merged_into_member_id' => 'the merge itself, written by mergeInto()',
+        'member_desk_id_aliases.member_id' => 'moved by mergeInto() with the alias it adds',
+        'member_duplicate_candidates.kept_member_id' => 'the decision record of a pair',
+        'member_duplicate_candidates.duplicate_member_id' => 'the decision record of a pair',
     ];
 
     public function __construct(
         private \PDO $pdo,
-        private DuplicateMemberRepository $candidates
+        private DuplicateMemberRepository $candidates,
+        private ?MemberMergeListenerRegistry $listeners = null
     ) {
+    }
+
+    /**
+     * MEMBER_REFERENCES, for the architecture test that holds it against
+     * the schema.
+     *
+     * @return array<string, string>
+     */
+    public static function memberReferences(): array
+    {
+        return self::MEMBER_REFERENCES;
     }
 
     /**
@@ -70,8 +101,30 @@ class MemberMergeRepository
             files: $this->count('files', 'owner_member_id', $duplicateMemberId),
             emailAddresses: $this->count('member_emails', 'member_id', $duplicateMemberId),
             notifications: $this->count('notifications', 'member_id', $duplicateMemberId),
-            rosterSnapshotRows: $this->count('fees_roster_snapshot_members', 'member_id', $duplicateMemberId)
+            rosterSnapshotRows: $this->count('fees_roster_snapshot_members', 'member_id', $duplicateMemberId),
+            notes: $this->count('member_notes', 'member_id', $duplicateMemberId),
+            moduleItems: $this->moduleItems($duplicateMemberId)
         );
+    }
+
+    /**
+     * What the enabled modules' listeners would bring along, label =>
+     * count, the empty ones left out.
+     *
+     * @return array<string, int>
+     */
+    private function moduleItems(int $duplicateMemberId): array
+    {
+        $items = [];
+        foreach ($this->listeners?->all() ?? [] as $listener) {
+            foreach ($listener->mergePreview($duplicateMemberId) as $label => $count) {
+                if ($count > 0) {
+                    $items[$label] = ($items[$label] ?? 0) + $count;
+                }
+            }
+        }
+
+        return $items;
     }
 
     /**
@@ -125,6 +178,12 @@ class MemberMergeRepository
      * The alias is the part without which the merge is pointless: the
      * abandoned `desk_id` stays in the federation's exports, and the next
      * CSV carrying it would create a brand-new `members` row.
+     *
+     * The enabled modules' listeners run inside the same transaction, after
+     * core's own tables (issue #1462). Returns what each moved, module id =>
+     * rows, for the journal.
+     *
+     * @return array<string, int>
      */
     public function mergeInto(
         int $keptMemberId,
@@ -132,11 +191,17 @@ class MemberMergeRepository
         string $duplicateDeskId,
         ?int $userAccountId,
         ?int $candidateId
-    ): void {
+    ): array {
         $this->pdo->beginTransaction();
         try {
             foreach (self::MEMBER_REFERENCES as $table => $column) {
                 $this->repoint($table, $column, $duplicateMemberId, $keptMemberId);
+            }
+
+            $moduleRowsMoved = [];
+            foreach ($this->listeners?->all() ?? [] as $listener) {
+                $moved = $listener->onMembersMerged($keptMemberId, $duplicateMemberId);
+                $moduleRowsMoved[$listener->moduleId()] = ($moduleRowsMoved[$listener->moduleId()] ?? 0) + $moved;
             }
 
             // The photos just moved to the kept member; their files' owner
@@ -189,6 +254,26 @@ class MemberMergeRepository
             $this->pdo->rollBack();
             throw $e;
         }
+
+        return $moduleRowsMoved;
+    }
+
+    /**
+     * Repoints the notes still held by identities merged before notes were
+     * part of a merge (issue #1462) onto the identity each was merged into
+     * — one hop, as mergeInto() keeps every chain. Idempotent: a second run
+     * finds nothing. Returns how many notes moved.
+     */
+    public function repointNotesOfMergedMembers(): int
+    {
+        $stmt = $this->pdo->prepare(
+            'UPDATE member_notes
+             SET member_id = (SELECT m.merged_into_member_id FROM members m WHERE m.id = member_notes.member_id)
+             WHERE member_id IN (SELECT id FROM members WHERE merged_into_member_id IS NOT NULL)'
+        );
+        $stmt->execute();
+
+        return $stmt->rowCount();
     }
 
     /**
