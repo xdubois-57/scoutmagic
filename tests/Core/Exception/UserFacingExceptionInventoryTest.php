@@ -98,6 +98,7 @@ final class UserFacingExceptionInventoryTest extends TestCase
         \Modules\MassMail\Service\ContactGroupImportException::class,
         \Modules\MassMail\Service\MailingListException::class,
         \Modules\MassMail\Api\MassMailException::class,
+        \Modules\News\Service\FieldAnswerException::class,
         \Modules\News\Service\NewsException::class,
         \Modules\OfficialDocuments\Api\OfficialDocumentsException::class,
         \Modules\Registration\Service\RegistrationException::class,

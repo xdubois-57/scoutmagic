@@ -29,6 +29,7 @@ use Modules\News\Repository\FormField;
 use Modules\News\Repository\FormResponse;
 use Modules\News\Repository\NewsForm;
 use Modules\News\Service\ArticleService;
+use Modules\News\Service\FieldAnswerException;
 use Modules\News\Service\FormService;
 use Modules\News\Service\NewsException;
 use Modules\News\Service\ResponseColumn;
@@ -247,7 +248,8 @@ class FormController extends AbstractController
                 $fields,
                 $email,
                 $scoutYearId,
-                $e->getMessage()
+                $e->getMessage(),
+                self::fieldErrors($e)
             );
         }
 
@@ -913,10 +915,16 @@ class FormController extends AbstractController
                 'article' => $article,
                 'form' => $form,
                 'response' => $response,
+                // The stored answers still decide which members stay
+                // offered; the VALUES shown are what was just posted, so a
+                // refused edit costs nothing to retype (issue #1486) — the
+                // same contract as rerenderFormWithError().
                 'fields' => $this->fieldsForTemplate($fields, $memberOptions, $response->id, $existingAnswers),
-                'existing_answers' => $this->responseService->formValues($fields, $existingAnswers, $memberOptions),
+                'existing_answers' => $this->extractAnswers($request, $fields),
+                'contact_email_value' => (string) $request->getBody('contact_email', ''),
                 'member_options' => $memberOptions,
                 'submit_error' => $e->getMessage(),
+                'field_errors' => self::fieldErrors($e),
                 'csrf_token' => CsrfGuard::generateToken(),
             ])->setStatusCode(422);
         }
@@ -1000,6 +1008,7 @@ class FormController extends AbstractController
      * value-injection contract as response_edit.html.twig.
      *
      * @param FormField[] $fields
+     * @param array<int, string> $fieldErrors field id => the sentence shown next to it
      */
     private function rerenderFormWithError(
         Request $request,
@@ -1008,7 +1017,8 @@ class FormController extends AbstractController
         array $fields,
         ?string $email,
         int $scoutYearId,
-        string $errorMessage
+        string $errorMessage,
+        array $fieldErrors = []
     ): Response
     {
         $memberOptions = $form->access === NewsForm::ACCESS_IDENTIFIED
@@ -1033,11 +1043,24 @@ class FormController extends AbstractController
             'member_year_id_selected' => (string) $request->getBody('member_year_id', ''),
             'member_options' => $memberOptions,
             'submit_error' => $errorMessage,
+            'field_errors' => $fieldErrors,
             'csrf_token' => CsrfGuard::generateToken(),
             'human_check' => $this->humanCheck !== null && !AuthSession::isAuthenticated()
                 ? $this->humanCheck->generateChallenge(self::HUMAN_CHECK_FORM_KEY)
                 : null,
         ])->setStatusCode(422);
+    }
+
+    /**
+     * The refusal's sentence keyed by the field it is about, when it is
+     * about one — what puts it next to that field (issue #1486). Empty for a
+     * refusal of the whole form, which is shown above it only.
+     *
+     * @return array<int, string>
+     */
+    private static function fieldErrors(NewsException $e): array
+    {
+        return $e instanceof FieldAnswerException ? [$e->fieldId => $e->getMessage()] : [];
     }
 
     /**

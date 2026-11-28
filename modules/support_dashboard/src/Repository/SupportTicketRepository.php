@@ -107,7 +107,8 @@ class SupportTicketRepository
             (new \DateTimeImmutable())->format('Y-m-d H:i:s'),
             // Frozen on purpose: the installation row beside it keeps only
             // the latest report, and a ticket read three weeks later must
-            // still say what was running when it was written.
+            // still say what was running when it was written. Bounded by
+            // the caller, through encodeStatisticsSnapshot().
             $statisticsSnapshot !== null && trim($statisticsSnapshot) !== ''
                 ? $this->encryption->encrypt($statisticsSnapshot, 'support_tickets.statistics_snapshot')
                 : null,
@@ -115,6 +116,144 @@ class SupportTicketRepository
         ]);
 
         return $reference;
+    }
+
+    /**
+     * How much usage-report JSON may be encrypted into
+     * `statistics_snapshot_encrypted` (issue #1486).
+     *
+     * The column is a `BLOB` of 65 535 bytes and the ticket body the report
+     * arrives in may weigh TicketIntakeService::MAX_BODY_BYTES, 65 536 —
+     * so a report alone can already fill it, and encryption adds a 12-byte
+     * nonce and a 16-byte tag. It used to be re-encoded with PHP's
+     * defaults on top of that, every accented letter growing from two bytes
+     * to six (`\u00e9`) and every slash to two: a ticket at the accepted
+     * ceiling was refused by the engine, and the report it carried lost
+     * with it. The same half-column as the DNS snapshot below, for the same
+     * reasons; a real report is a few kilobytes.
+     */
+    public const MAX_STATISTICS_SNAPSHOT_BYTES = 32768;
+
+    /**
+     * The key a bounded snapshot names what it lost under: the size the
+     * report had, and the top-level sections dropped to make it fit.
+     */
+    public const STATISTICS_TRUNCATION_KEY = 'snapshot_truncated';
+
+    /**
+     * The sections ReportedFacts reads — what the ticket page compares
+     * with the latest report. Dropped last, so a report that has to lose
+     * something loses what nobody reads first.
+     */
+    private const STATISTICS_SECTIONS_KEPT_LONGEST = [
+        'scoutmagic', 'runtime', 'database', 'usage', 'installation', 'updates',
+    ];
+
+    /** How many dropped names the marker lists, and how long each may be. */
+    private const MAX_DROPPED_NAMES_LISTED = 10;
+    private const MAX_DROPPED_NAME_BYTES = 64;
+
+    private const STATISTICS_JSON_FLAGS = JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR;
+
+    /**
+     * The usage report as the JSON create() freezes onto the ticket,
+     * bounded to MAX_STATISTICS_SNAPSHOT_BYTES — and, when it had to be
+     * cut, the size it had, so the caller can journal it.
+     *
+     * Written as it arrived, accents and slashes as they are, which alone
+     * keeps a report from outgrowing the body it came in.
+     *
+     * **Truncation is stated, never silent** — the DNS snapshot's rule
+     * (encodeSnapshot()). Whole top-level sections are dropped, the
+     * largest first — it is the one that overflowed, and dropping it keeps
+     * the most of the rest — and those nobody compares before the ones the
+     * ticket page does. The ones that went are named under
+     * STATISTICS_TRUNCATION_KEY, so a section missing from the ticket reads
+     * as cut rather than as never reported. The cost is linear: each
+     * section is measured once, never the whole report re-encoded per
+     * section dropped.
+     *
+     * @param array<mixed> $statistics
+     * @return array{json: string, original_bytes: int|null} original_bytes
+     *         is null when the report was kept whole
+     */
+    public static function encodeStatisticsSnapshot(array $statistics): array
+    {
+        $encoded = json_encode($statistics, self::STATISTICS_JSON_FLAGS);
+        if (strlen($encoded) <= self::MAX_STATISTICS_SNAPSHOT_BYTES) {
+            return ['json' => $encoded, 'original_bytes' => null];
+        }
+        $originalBytes = strlen($encoded);
+
+        // Once marked the snapshot is an object, whatever it was: each
+        // entry weighs `"key":value` and a comma.
+        $sizes = [];
+        foreach ($statistics as $key => $value) {
+            $sizes[$key] = strlen(json_encode((string) $key, self::STATISTICS_JSON_FLAGS))
+                + 1 + strlen(json_encode($value, self::STATISTICS_JSON_FLAGS)) + 1;
+        }
+        unset($sizes[self::STATISTICS_TRUNCATION_KEY], $statistics[self::STATISTICS_TRUNCATION_KEY]);
+
+        $keys = array_keys($sizes);
+        $kept = array_values(array_filter(
+            $keys,
+            static fn (int|string $key): bool => in_array($key, self::STATISTICS_SECTIONS_KEPT_LONGEST, true)
+        ));
+        $bySizeDescending = static function (array $tier) use ($sizes): array {
+            usort($tier, static fn (int|string $a, int|string $b): int => $sizes[$b] <=> $sizes[$a]);
+
+            return $tier;
+        };
+        $order = array_merge($bySizeDescending(array_values(array_diff($keys, $kept))), $bySizeDescending($kept));
+
+        // The braces, and the marker's own entry measured as it would be.
+        $remaining = 2 + array_sum($sizes);
+        $dropped = [];
+        $marker = self::truncationMarker($originalBytes, $dropped);
+        foreach ($order as $key) {
+            if ($remaining + $marker <= self::MAX_STATISTICS_SNAPSHOT_BYTES) {
+                break;
+            }
+            $remaining -= $sizes[$key];
+            unset($statistics[$key]);
+            $dropped[] = (string) $key;
+            $marker = self::truncationMarker($originalBytes, $dropped);
+        }
+
+        $statistics[self::STATISTICS_TRUNCATION_KEY] = self::truncationMarkerValue($originalBytes, $dropped);
+
+        return ['json' => json_encode($statistics, self::STATISTICS_JSON_FLAGS), 'original_bytes' => $originalBytes];
+    }
+
+    /**
+     * The bytes the marker's entry adds to the snapshot.
+     *
+     * @param list<string> $dropped
+     */
+    private static function truncationMarker(int $originalBytes, array $dropped): int
+    {
+        return strlen(json_encode(self::STATISTICS_TRUNCATION_KEY, self::STATISTICS_JSON_FLAGS)) + 1
+            + strlen(json_encode(self::truncationMarkerValue($originalBytes, $dropped), self::STATISTICS_JSON_FLAGS));
+    }
+
+    /**
+     * What the snapshot says about its own cut: bounded itself, so that a
+     * report of ten thousand tiny sections cannot make the marker the
+     * thing that overflows.
+     *
+     * @param list<string> $dropped
+     * @return array{original_bytes: int, dropped: list<string>, dropped_count: int}
+     */
+    private static function truncationMarkerValue(int $originalBytes, array $dropped): array
+    {
+        return [
+            'original_bytes' => $originalBytes,
+            'dropped' => array_map(
+                static fn (string $name): string => mb_strcut($name, 0, self::MAX_DROPPED_NAME_BYTES, 'UTF-8'),
+                array_slice($dropped, 0, self::MAX_DROPPED_NAMES_LISTED)
+            ),
+            'dropped_count' => count($dropped),
+        ];
     }
 
     /**
