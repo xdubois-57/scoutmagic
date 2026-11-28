@@ -3043,26 +3043,36 @@ $memberMergeService = new \Core\Member\Duplicate\MemberMergeService(
     $duplicateMemberRepository,
     $journalService
 );
-// How a module block registers its listener: into the registry, and — the
-// first time this installation sees it — over every merge already done,
-// so what the module wrote under identities merged before it could follow
-// a merge reaches the kept identity too (issue #1462). Gated per module by
-// a setting of the member_section_periods_backfilled shape.
+// How a module block registers its listener: into the registry, and over
+// every merge already done whenever there is one it has not seen — made
+// before the module could follow a merge, while it was disabled, or
+// during its last catch-up (issue #1462). The setting holds the merges'
+// signature as of the module's last catch-up; replaying a merge the module
+// already followed finds nothing to move, so a re-run is harmless.
+$memberMergeSignature = null;
 $registerMemberMergeListener = static function (
     \Core\Member\Duplicate\MemberMergeListener $listener
-) use ($memberMergeListeners, $memberMergeRepository, $settingService, $settingRepo, $journalService): void {
+) use (
+    $memberMergeListeners,
+    $memberMergeRepository,
+    $settingService,
+    $settingRepo,
+    $journalService,
+    &$memberMergeSignature
+): void {
     $memberMergeListeners->register($listener);
 
+    $memberMergeSignature ??= $memberMergeRepository->mergeSignature();
     $key = 'member_merge_caught_up_' . $listener->moduleId();
-    if ($settingService->get($key) === '1') {
+    if ($settingService->get($key) === $memberMergeSignature) {
         return;
     }
     $settingService->register(
         $key,
-        '0',
-        'boolean',
+        '',
+        'text',
         'Fusions passées rattrapées',
-        'Indique si les fusions de fiches faites avant ce module ont été appliquées à ses données.',
+        'État des fusions de fiches déjà appliquées aux données de ce module.',
         null,
         null,
         null,
@@ -3079,7 +3089,7 @@ $registerMemberMergeListener = static function (
             ['rows' => $handled]
         );
     }
-    $settingRepo->updateValue(null, $key, '1');
+    $settingRepo->updateValue(null, $key, $memberMergeSignature);
     $settingService->clearCache();
 };
 // One-time repair (issue #1462): the chef d'unité's notes were not part

@@ -275,6 +275,8 @@ class MemberEmailServiceTest extends TestCase
             // The address itself must never end up in the journal.
             $this->assertStringNotContainsString('someone@example.com', $context['error']);
             $this->assertSame(7, (int) $rows[0]['user_account_id']);
+            // Nothing resends the confirmation: `error` (issue #1450).
+            $this->assertSame('error', $rows[0]['level']);
         }
     }
 

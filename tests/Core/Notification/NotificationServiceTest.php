@@ -1016,8 +1016,10 @@ class NotificationServiceTest extends TestCase
             'The claim stays: a failed send is never re-attempted.'
         );
 
-        $entries = $this->pdo->query("SELECT event_type FROM event_log WHERE event_type = 'notification_email_failed'")->fetchAll();
+        $entries = $this->pdo->query("SELECT event_type, level FROM event_log WHERE event_type = 'notification_email_failed'")->fetchAll();
         $this->assertCount(1, $entries);
+        // Never re-attempted, as asserted above: `error` (issue #1450).
+        $this->assertSame('error', $entries[0]['level']);
     }
 
     /**

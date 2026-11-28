@@ -659,7 +659,7 @@ class NotificationService
                 $this->journalService->log(
                     'core',
                     'notification_email_failed',
-                    'info',
+                    'error',
                     "Échec de l'envoi d'une notification par email",
                     ['notification_id' => $notificationId, 'type_id' => $record->typeId],
                     null

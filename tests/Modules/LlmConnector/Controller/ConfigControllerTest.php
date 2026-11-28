@@ -555,6 +555,13 @@ class ConfigControllerTest extends TestCase
         $this->assertStringNotContainsString('Unknown driver', $decoded['error']);
         $this->assertStringNotContainsString('bogus', $decoded['error']);
         $this->assertStringContainsString("clé d'API", $decoded['error']);
+        // The provider's configuration is wrong until somebody corrects it:
+        // `error`, never `info` (issue #1450).
+        $this->assertSame(
+            ['error'],
+            $this->pdo->query("SELECT level FROM event_log WHERE event_type = 'test_connection_failed'")
+                ->fetchAll(\PDO::FETCH_COLUMN)
+        );
     }
 
     // --------------------------------------------------- ProviderRepository

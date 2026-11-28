@@ -182,6 +182,8 @@ class AutoCloseHandlerTest extends TestCase
         }
         $this->assertNotNull($failure, 'a failed close notification must leave a journal trace');
         $this->assertStringContainsString('SMTP down', (string) $failure['context']);
+        // Nothing resends the digest: `error`, never `info` (issue #1450).
+        $this->assertSame('error', $failure['level']);
     }
 
     /**
@@ -235,9 +237,11 @@ class AutoCloseHandlerTest extends TestCase
         $this->assertSame('closed', $board->status);
         $this->assertNull($board->aiSummary);
         $failure = $this->pdo->query(
-            "SELECT description, context FROM event_log WHERE event_type = 'board_summary_failed'"
+            "SELECT description, context, level FROM event_log WHERE event_type = 'board_summary_failed'"
         )->fetch();
         $this->assertIsArray($failure);
+        // The board closes all the same, without its AI summary: `warning`.
+        $this->assertSame('warning', $failure['level']);
         $this->assertSame('Échec de la synthèse IA', $failure['description']);
         $this->assertSame(
             [

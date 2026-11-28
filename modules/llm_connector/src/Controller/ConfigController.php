@@ -279,7 +279,7 @@ class ConfigController extends AbstractController
             $this->journalService->log(
                 'llm_connector',
                 'test_connection_failed',
-                'info',
+                'error',
                 'Échec du test de connexion au fournisseur IA',
                 [
                     'provider_id' => $provider['id'],

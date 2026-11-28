@@ -325,7 +325,7 @@ class RegistrationServiceTest extends TestCase
         $this->assertSame(['marie.dupont@example.com', 'unite@example.com'], $recipients);
         $this->assertSame(
             [
-                'info',
+                'error',
                 "Échec de l'envoi de l'accusé de réception",
                 ['error' => 'Transport refusé (envoi 1)'],
             ],
@@ -333,7 +333,7 @@ class RegistrationServiceTest extends TestCase
         );
         $this->assertSame(
             [
-                'info',
+                'error',
                 "Échec de l'envoi de l'alerte à l'unité",
                 ['error' => 'Transport refusé (envoi 2)'],
             ],

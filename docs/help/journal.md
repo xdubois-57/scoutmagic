@@ -22,13 +22,19 @@ La barre du haut combine plusieurs filtres :
 
 - **Catégorie** : le domaine concerné (le cœur du site ou l'une de ses
   fonctions).
-- **Niveau** : « Info » pour le tout-venant, « Sécurité » pour les
-  actions touchant aux droits et aux accès — filtrer sur ce niveau
-  donne l'historique des changements sensibles — et « Erreur » pour
-  les erreurs techniques du site : filtrer sur ce niveau donne la
-  liste des pages qui ont planté, avec le détail technique à
-  déplier. C'est le premier endroit à regarder quand quelqu'un
-  signale « ça a affiché une erreur ».
+- **Type** : la clé de l'évènement, par exemple `auto_backup_failed` ;
+  elle isole une seule sorte d'évènement.
+- **Niveau**, quatre valeurs :
+  - « Info » : le tout-venant, ce qui s'est passé comme prévu ;
+  - « Avertissement » : un échec qui se rattrape seul — un envoi qui
+    sera repris, une vérification refaite le lendemain ;
+  - « Erreur » : un échec qui attend une action de quelqu'un — une
+    sauvegarde ou une mise à jour ratée, une tâche planifiée en échec,
+    un e-mail parti nulle part, une page qui a planté. C'est le premier
+    filtre à essayer quand une chose attendue ne s'est pas faite, ou
+    quand quelqu'un signale « ça a affiché une erreur » ;
+  - « Sécurité » : les actions touchant aux droits et aux accès, soit
+    l'historique des changements sensibles.
 - **Recherche** : un mot du descriptif de l'action.
 - **Email** : l'adresse exacte du compte qui a agi. Le filtre porte
   sur l'auteur de l'action, pas sur la personne concernée par elle.
@@ -36,11 +42,12 @@ La barre du haut combine plusieurs filtres :
 
 ## Lire une entrée
 
-Chaque ligne donne la date, le niveau, la catégorie, l'auteur (un
-tiret pour une action automatique du site), l'adresse et le
+Chaque ligne donne la date, le niveau, la catégorie, le type, l'auteur
+(un tiret pour une action automatique du site), l'adresse et le
 descriptif. Touchez la ligne pour déplier le détail technique quand il
 existe. Les entrées vont de la plus récente à la plus ancienne,
-cinquante par page.
+cinquante par page, et les filtres restent appliqués d'une page à
+l'autre.
 
 ## Ce qu'on y trouve — et ce qu'on n'y trouve pas
 

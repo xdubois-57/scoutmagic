@@ -110,5 +110,7 @@ class ResetSettingsHandlerTest extends TestCase
 
         $rows = $this->pdo->query("SELECT * FROM event_log WHERE event_type = 'settings_reset_failed'")->fetchAll(\PDO::FETCH_ASSOC);
         $this->assertCount(1, $rows);
+        // Nothing resets them again: `error` (issue #1450).
+        $this->assertSame('error', $rows[0]['level']);
     }
 }

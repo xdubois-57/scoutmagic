@@ -2593,6 +2593,11 @@ class SetupControllerTest extends TestCase
         $context = $pdo->query("SELECT context FROM event_log WHERE event_type = 'setup_dkim_generation_failed'")
             ->fetchColumn();
         $this->assertStringContainsString('Cannot create the DKIM key directory', (string) $context);
+        // No key until somebody fixes the directory: `error` (issue #1450).
+        $this->assertSame(
+            'error',
+            $pdo->query("SELECT level FROM event_log WHERE event_type = 'setup_dkim_generation_failed'")->fetchColumn()
+        );
     }
 
     /**

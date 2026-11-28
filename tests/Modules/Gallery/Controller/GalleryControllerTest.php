@@ -903,6 +903,23 @@ class GalleryControllerTest extends TestCase
         $this->assertStringContainsString('Camp', $response->getBody());
     }
 
+    /**
+     * Issue #1449: the failed tile carries the reason in its label, not only
+     * a bare « Échec du traitement ».
+     */
+    public function testShowLabelsAFailedTileWithItsReason(): void
+    {
+        $id = $this->createLocalAlbum(null);
+        $mediaId = $this->createDoneMedia($id);
+        $this->mediaRepository->markFailed($mediaId, 'Cette photo est trop lourde.');
+
+        $html = $this->controller->show(new Request('GET', '/gallery/' . $id, [], [], [], []), ['id' => (string) $id])
+            ->getBody();
+
+        $this->assertStringContainsString('title="Échec du traitement : Cette photo est trop lourde."', $html);
+        $this->assertStringContainsString('<span class="visually-hidden">Échec du traitement : Cette photo est trop lourde.</span>', $html);
+    }
+
     public function testShowRedirectsToExternalUrlForExternalAlbum(): void
     {
         $id = $this->albumRepository->create(Album::TYPE_EXTERNAL, 'Album externe', null, '2026-01-01', null, $this->scoutYearId, 'https://example.com/album', null, $this->authorId);

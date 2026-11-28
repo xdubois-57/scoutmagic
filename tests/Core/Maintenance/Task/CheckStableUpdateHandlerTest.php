@@ -196,6 +196,8 @@ class CheckStableUpdateHandlerTest extends TestCase
 
         $rows = $this->pdo->query("SELECT * FROM event_log WHERE event_type = 'auto_update_check_failed'")->fetchAll(\PDO::FETCH_ASSOC);
         $this->assertCount(1, $rows);
+        // Checked again tomorrow by itself: `warning` (issue #1450).
+        $this->assertSame('warning', $rows[0]['level']);
     }
 
     public function testHandleAlwaysSelfReschedulesForTheNextDay(): void

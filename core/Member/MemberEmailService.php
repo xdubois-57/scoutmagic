@@ -661,7 +661,7 @@ class MemberEmailService
             $this->journalService->log(
                 'core',
                 'member_email_confirmation_send_failed',
-                'info',
+                'error',
                 "Échec de l'envoi de l'email de confirmation d'une adresse email secondaire",
                 ['member_id' => $memberId, 'member_email_id' => $emailId, 'error' => $reason],
                 $actorId

@@ -122,7 +122,7 @@ class ResetSettingsHandler implements TaskHandlerInterface
             $context->journal->log(
                 'core',
                 'settings_reset_failed',
-                'info',
+                'error',
                 'Échec de la réinitialisation des paramètres',
                 ['error' => $e->getMessage()],
                 $requestedBy

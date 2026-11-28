@@ -146,10 +146,13 @@ class LlmConnectorService implements LlmConnectorInterface
             if ($driverInstance instanceof ScalewayProvider && ScalewayProvider::isUnsupportedRoute($e)) {
                 $this->recordUnsupportedModel($provider['id'], $driverInstance->probeScope(), $model['model_id']);
             }
+            // `warning` for what the next call may not meet — a timeout, a
+            // rate limit, a 5xx — and `error` for a refused key, which every
+            // later call meets too until somebody changes it (#1450).
             $this->journalService->log(
                 'llm_connector',
                 'llm_request_failed',
-                'info',
+                $e->isCredentialRefusal() ? 'error' : 'warning',
                 'LLM request failed',
                 [
                     'provider' => $provider['name'],
@@ -244,21 +247,6 @@ class LlmConnectorService implements LlmConnectorInterface
     }
 
     /**
-     * A request refused before it ever reached a provider, in the journal.
-     *
-     * These two refusals — no active provider, no model on the requested
-     * tier — used to be the only failures this service left no trace of:
-     * a driver error journals `llm_request_failed`, but a configuration
-     * gap threw straight back to the caller. An administrator looking for
-     * why a feature did nothing found an empty journal and concluded the
-     * feature had never run, which was true and told them nothing.
-     *
-     * Same action key as a driver failure on purpose: "the request did not
-     * happen" is one thing to filter on, and `error_code` says which kind.
-     * `info`, like its sibling — a missing model is a setting nobody made
-     * yet, not an incident.
-     */
-    /**
      * The stored-value check rather than the save-time one: a host the
      * resolver cannot answer for right now is not a refusal, because the
      * call about to be made cannot reach anything either — an address
@@ -272,6 +260,27 @@ class LlmConnectorService implements LlmConnectorInterface
         return $check($endpoint);
     }
 
+    /**
+     * A request refused before it ever reached a provider, in the journal.
+     *
+     * These two refusals — no active provider, no model on the requested
+     * tier — used to be the only failures this service left no trace of:
+     * a driver error journals `llm_request_failed`, but a configuration
+     * gap threw straight back to the caller. An administrator looking for
+     * why a feature did nothing found an empty journal and concluded the
+     * feature had never run, which was true and told them nothing.
+     *
+     * Same action key as a driver failure on purpose: "the request did not
+     * happen" is one thing to filter on, and `error_code` says which kind.
+     * The level is where the two part company (issue #1450): every refusal
+     * here — no provider, no model, an address that no longer leads to a
+     * public https host — is a configuration gap that fails every call
+     * until somebody fills it, so it is `error`. A driver failure in
+     * complete() is `error` only when the provider refused the credential
+     * (HTTP 401/403, LlmException::isCredentialRefusal()), which persists
+     * the same way, and `warning` otherwise — a timeout, a rate limit, a
+     * 5xx the next call may not meet.
+     */
     private function journalRefusal(
         LlmException $exception,
         LlmTier $tier,
@@ -281,7 +290,7 @@ class LlmConnectorService implements LlmConnectorInterface
         $this->journalService->log(
             'llm_connector',
             'llm_request_failed',
-            'info',
+            'error',
             'LLM request failed',
             [
                 'provider' => $providerName ?? '(aucun)',

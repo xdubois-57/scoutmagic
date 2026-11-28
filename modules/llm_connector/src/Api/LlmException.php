@@ -47,14 +47,34 @@ class LlmException extends \RuntimeException implements UserFacingException
      */
     public readonly ?string $detail;
 
+    /**
+     * The HTTP status the provider answered with, when it answered one —
+     * for telling a refused credential (401/403), which stays refused until
+     * somebody changes the key, from a failure the next call may not meet
+     * (issue #1450). Null for anything that was not an HTTP refusal.
+     */
+    public readonly ?int $httpStatus;
+
     public function __construct(
         string $message,
         int $code = 0,
         ?\Throwable $previous = null,
-        ?string $detail = null
+        ?string $detail = null,
+        ?int $httpStatus = null
     ) {
         parent::__construct($message, $code, $previous);
         $this->detail = $detail;
+        $this->httpStatus = $httpStatus;
+    }
+
+    /**
+     * The provider refused the credential itself (HTTP 401 or 403): no retry
+     * succeeds until the key or the account is changed, so somebody has to
+     * act.
+     */
+    public function isCredentialRefusal(): bool
+    {
+        return $this->httpStatus === 401 || $this->httpStatus === 403;
     }
 
     public static function noProvider(): self
@@ -102,7 +122,7 @@ class LlmException extends \RuntimeException implements UserFacingException
                 . "fournisseur, puis réessayez."
             : 'Le fournisseur IA a renvoyé une réponse inattendue — réessayez dans quelques instants.';
 
-        return new self($message, self::API_ERROR, null, $detail !== '' ? $detail : null);
+        return new self($message, self::API_ERROR, null, $detail !== '' ? $detail : null, $httpStatus);
     }
 
     /**

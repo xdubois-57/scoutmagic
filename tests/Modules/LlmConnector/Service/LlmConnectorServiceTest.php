@@ -198,6 +198,46 @@ class LlmConnectorServiceTest extends TestCase
         $this->assertStringNotContainsString('Voyons ce terrain', $response->content);
     }
 
+    /**
+     * The level of a provider's refusal says who acts (issue #1450, #1559
+     * review): a refused key (401/403) is refused again on every later
+     * call until somebody changes it — `error`; a 5xx or a rate limit may
+     * not come back on the next one — `warning`.
+     *
+     * @return array<string, array{int, string}>
+     */
+    public static function providerRefusalsAndTheirLevel(): array
+    {
+        return [
+            'a refused key' => [401, 'error'],
+            'a forbidden account' => [403, 'error'],
+            'a provider that is down' => [503, 'warning'],
+            'a rate limit' => [429, 'warning'],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('providerRefusalsAndTheirLevel')]
+    public function testAProviderRefusalIsJournaledAtTheLevelItsCauseCallsFor(int $status, string $level): void
+    {
+        $this->server = StubHttpServer::start([
+            ['status' => $status, 'body' => '{"error":{"message":"refused"}}'],
+        ]);
+        $providerId = $this->providerRepo->create('Scaleway', 'scaleway', $this->server->baseUrl(), 'key', true);
+        $this->modelRepo->upsert($providerId, 'glm-5.2', 'GLM 5.2');
+        $this->modelRepo->assignTier($this->modelRepo->findByProvider($providerId)[0]['id'], LlmTier::CHEAP);
+
+        $this->journalService->expects($this->once())
+            ->method('log')
+            ->with('llm_connector', 'llm_request_failed', $level, 'LLM request failed', $this->anything(), null);
+
+        try {
+            $this->service->complete(new LlmRequest(LlmTier::CHEAP, 'Bonjour'));
+            $this->fail('Expected an LlmException.');
+        } catch (LlmException $e) {
+            $this->assertSame($level === 'error', $e->isCredentialRefusal());
+        }
+    }
+
     public function testIsAvailableIgnoresInactiveProviders(): void
     {
         $providerId = $this->providerRepo->create('Inactive', 'anthropic', 'https://api.anthropic.com', 'sk-test', false);
@@ -242,7 +282,7 @@ class LlmConnectorServiceTest extends TestCase
             ->with(
                 'llm_connector',
                 'llm_request_failed',
-                'info',
+                'error',
                 'LLM request failed',
                 $this->callback(static fn (array $context): bool => $context['error_code'] === LlmException::API_ERROR),
                 null

@@ -386,7 +386,15 @@ class RequestEmailService
         }
 
         try {
-            $this->send($request, $rendered, $email['template']);
+            $this->send(
+                $request,
+                $rendered,
+                $email['template'],
+                // Only an automatic attempt with a retry still to come is
+                // picked back up by DecisionEmailRecoveryService; a send by
+                // hand, or the last automatic one, waits for a person.
+                $automatic && $attempt->automaticRetryCount < count(DecisionEmailRetryPolicy::DELAYS_HOURS)
+            );
         } catch (RegistrationException $e) {
             // Gated here, at the write: the row keeps a sentence a chief
             // may read, never the transport's own text (send() journals
@@ -473,8 +481,12 @@ class RequestEmailService
      *         records the attempt as failed, and retrying is always
      *         available).
      */
-    private function send(RegistrationRequest $request, RenderedEmail $email, string $templateId): void
-    {
+    private function send(
+        RegistrationRequest $request,
+        RenderedEmail $email,
+        string $templateId,
+        bool $retriedAutomatically = false
+    ): void {
         try {
             $this->mailService->send(
                 to: $request->email,
@@ -489,10 +501,16 @@ class RequestEmailService
             // a journal entry all the same — a flash message disappears with
             // the page, and a unit whose SMTP is broken has otherwise no
             // trace that a parent was never told anything.
+            //
+            // `warning` for a temporary refusal the poller will retry by
+            // itself; `error` for the rest — a permanent refusal, a send by
+            // hand, the last automatic attempt — which a person has to
+            // look at (issue #1450).
+            $temporary = $retriedAutomatically && DecisionEmailRetryPolicy::isTemporary($e);
             $this->journalService->log(
                 'registration',
                 'registration_status_email_failed',
-                'info',
+                $temporary ? 'warning' : 'error',
                 "Échec de l'envoi d'un email de décision — lien de suivi inchangé, réessai possible",
                 [
                     'request_id' => $request->id,

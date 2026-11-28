@@ -27,10 +27,20 @@ class JournalService
      *
      * @param string      $category    'core' or module_id
      * @param string      $type        e.g. 'login_success', 'import_desk'
-     * @param string      $level       'info', 'security' or 'error' —
-     *                                 the values of event_log.level.
-     *                                 'error' is what Core\Http\ErrorHandler
-     *                                 writes for an uncaught throwable.
+     * @param string      $level       One of the four values of
+     *                                 event_log.level (schema/core.sql):
+     *                                 'info' — something happened as
+     *                                 intended; 'warning' — something went
+     *                                 wrong and recovers by itself (a retry,
+     *                                 a fallback, the next run); 'error' —
+     *                                 something went wrong and somebody has
+     *                                 to act, which is also what
+     *                                 Core\Http\ErrorHandler writes for an
+     *                                 uncaught throwable; 'security' — an
+     *                                 act on rights or access an audit reads.
+     *                                 A failure is never 'info': the reader
+     *                                 who filters /admin/journal on
+     *                                 « Erreur » would not see it (#1450).
      * @param string      $description Human-readable short description (no personal data!).
      *                                 Stored in a VARCHAR(500): this method cuts
      *                                 it to fit, by characters (issue #1438).

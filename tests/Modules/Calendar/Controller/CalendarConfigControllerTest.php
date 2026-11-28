@@ -310,6 +310,14 @@ class CalendarConfigControllerTest extends TestCase
         if (!$failure instanceof \Core\Exception\UserFacingException) {
             $this->assertStringNotContainsString('not editable', $decoded['error']);
         }
+
+        // A default that was not saved stays unsaved until somebody tries
+        // again: `error`, never `info` (issue #1450).
+        $this->assertSame(
+            ['error'],
+            $this->pdo->query("SELECT level FROM event_log WHERE event_type = 'defaults_update_failed'")
+                ->fetchAll(\PDO::FETCH_COLUMN)
+        );
     }
 
     public function testUpdateDefaultsValidatesCsrf(): void

@@ -139,6 +139,11 @@ CREATE TABLE IF NOT EXISTS gallery_media (
     -- Video only, and only when gallery_keep_original_video is enabled.
     original_path VARCHAR(255) NULL,
     processing_status ENUM('pending', 'processing', 'done', 'failed') NOT NULL DEFAULT 'pending',
+    -- Why processing failed, a French sentence for the animateur (shown on
+    -- the failed tile). Written only through Core\Exception\UserFacingMessage
+    -- by Task\ProcessPhotoHandler, cleared when processing starts again.
+    -- No file name, no path: the tile is visible to whoever sees the album.
+    processing_error VARCHAR(255) NULL,
     width INT UNSIGNED NULL,
     height INT UNSIGNED NULL,
     duration_seconds INT UNSIGNED NULL,

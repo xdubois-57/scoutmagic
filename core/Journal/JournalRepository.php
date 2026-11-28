@@ -49,6 +49,11 @@ class JournalRepository
     }
 
     /**
+     * One page of the journal, newest first.
+     *
+     * `$eventType` comes last so that the positional calls written before
+     * it existed keep their meaning (issue #1450).
+     *
      * @return array<int, array<string, mixed>>
      */
     public function search(
@@ -60,15 +65,32 @@ class JournalRepository
         ?string $ip = null,
         ?int $userAccountId = null,
         int $limit = 50,
-        int $offset = 0
+        int $offset = 0,
+        ?string $eventType = null
     ): array {
         $where = [];
         $params = [];
-        $this->buildFilters($category, $level, $search, $dateFrom, $dateTo, $ip, $userAccountId, $where, $params);
+        $this->buildFilters(
+            $category,
+            $level,
+            $search,
+            $dateFrom,
+            $dateTo,
+            $ip,
+            $userAccountId,
+            $eventType,
+            $where,
+            $params
+        );
 
+        // `id` breaks the tie: `logged_at` has one-second precision, and a
+        // pass that writes several lines in the same second would otherwise
+        // come back in whatever order the engine likes — differently from
+        // one page to the next, so that a line could appear on two pages
+        // and another on none (issue #1450).
         $sql = 'SELECT * FROM event_log'
             . ($where ? ' WHERE ' . implode(' AND ', $where) : '')
-            . ' ORDER BY logged_at DESC LIMIT ? OFFSET ?';
+            . ' ORDER BY logged_at DESC, id DESC LIMIT ? OFFSET ?';
         $params[] = $limit;
         $params[] = $offset;
 
@@ -84,11 +106,23 @@ class JournalRepository
         ?string $dateFrom = null,
         ?string $dateTo = null,
         ?string $ip = null,
-        ?int $userAccountId = null
+        ?int $userAccountId = null,
+        ?string $eventType = null
     ): int {
         $where = [];
         $params = [];
-        $this->buildFilters($category, $level, $search, $dateFrom, $dateTo, $ip, $userAccountId, $where, $params);
+        $this->buildFilters(
+            $category,
+            $level,
+            $search,
+            $dateFrom,
+            $dateTo,
+            $ip,
+            $userAccountId,
+            $eventType,
+            $where,
+            $params
+        );
 
         $sql = 'SELECT COUNT(*) FROM event_log'
             . ($where ? ' WHERE ' . implode(' AND ', $where) : '');
@@ -161,6 +195,20 @@ class JournalRepository
     }
 
     /**
+     * Every event key the journal holds, for the page's « Type » filter —
+     * the same shape as getDistinctCategories(). `event_type` is the stable
+     * identifier of what happened (see countEventsSince()), so it is what
+     * isolates one kind of failure from everything else the site did.
+     *
+     * @return array<int, string>
+     */
+    public function getDistinctEventTypes(): array
+    {
+        $stmt = $this->pdo->query('SELECT DISTINCT event_type FROM event_log ORDER BY event_type');
+        return $stmt->fetchAll(\PDO::FETCH_COLUMN) ?: [];
+    }
+
+    /**
      * @param array<int, string> $where
      * @param array<int, mixed> $params
      */
@@ -172,12 +220,17 @@ class JournalRepository
         ?string $dateTo,
         ?string $ip,
         ?int $userAccountId,
+        ?string $eventType,
         array &$where,
         array &$params
     ): void {
         if ($category !== null && $category !== '') {
             $where[] = 'category = ?';
             $params[] = $category;
+        }
+        if ($eventType !== null && $eventType !== '') {
+            $where[] = 'event_type = ?';
+            $params[] = $eventType;
         }
         if ($level !== null && $level !== '') {
             $where[] = 'level = ?';

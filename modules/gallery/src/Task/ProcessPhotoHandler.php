@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\Gallery\Task;
 
+use Core\Exception\UserFacingMessage;
 use Core\File\FileRepository;
 use Core\Scheduler\TaskContext;
 use Core\Scheduler\TaskHandlerInterface;
@@ -16,6 +17,7 @@ use Modules\Gallery\Repository\AlbumRepository;
 use Modules\Gallery\Repository\MediaRepository;
 use Modules\Gallery\Service\GalleryStorageWiring;
 use Modules\Gallery\Service\ImageProcessingService;
+use Modules\Gallery\Service\PhotoMemoryRefusedException;
 
 /**
  * Background photo resize (module spec) — scheduled by Service\
@@ -24,6 +26,17 @@ use Modules\Gallery\Service\ImageProcessingService;
  */
 class ProcessPhotoHandler implements TaskHandlerInterface
 {
+    /** Shown on the failed tile when the cause has no sentence of its own. */
+    public const GENERIC_FAILURE_MESSAGE = 'Le traitement de cette photo a échoué.';
+
+    /**
+     * The scheduler builds handlers with `new $class()`, so production gets
+     * the default service; a test hands one built on a simulated memory limit.
+     */
+    public function __construct(private readonly ?ImageProcessingService $imageProcessing = null)
+    {
+    }
+
     /**
      * @param array<string, mixed> $payload
      */
@@ -57,11 +70,14 @@ class ProcessPhotoHandler implements TaskHandlerInterface
             )) {
                 return;
             }
-            $mediaRepository->markFailed($mediaId);
+            $mediaRepository->markFailed(
+                $mediaId,
+                'Le traitement de cette photo a échoué pendant le déplacement de l\'album vers un autre stockage.'
+            );
             $context->journal->log(
                 'gallery',
                 'photo_processing_failed',
-                'info',
+                'error',
                 'Échec du traitement d\'une photo',
                 ['media_id' => $mediaId, 'album_id' => $media->albumId, 'error' => 'Migration de stockage toujours en '
                     . 'cours.']
@@ -84,7 +100,8 @@ class ProcessPhotoHandler implements TaskHandlerInterface
             }
 
             $maxDimension = (int) $context->settings->get('gallery_photo_max_dimension', 'gallery', 3000);
-            $result = (new ImageProcessingService())->process($contents, $file->mimeType, $maxDimension);
+            $result = ($this->imageProcessing ?? new ImageProcessingService())
+                ->process($contents, $file->mimeType, $maxDimension);
 
             if ($album === null) {
                 throw new GalleryException('Album introuvable pour ce média.');
@@ -121,12 +138,35 @@ class ProcessPhotoHandler implements TaskHandlerInterface
             // row for the original stays until the media itself is deleted
             // (Service\StoredFileCleaner), only its bytes go now.
             @unlink($sourcePath);
+        } catch (PhotoMemoryRefusedException $e) {
+            // Refused BEFORE decoding (issue #1449): the decode would have
+            // exhausted memory_limit, a fatal no catch below survives, leaving
+            // the media « en traitement » for good and the cron pass dead. The
+            // original is kept, as on every other failure. No file name in
+            // the context — only the figures an administrator needs to size
+            // memory_limit.
+            $mediaRepository->markFailed($mediaId, $e->getMessage());
+            $context->journal->log(
+                'gallery',
+                'photo_processing_refused_memory',
+                'warning',
+                'Photo refusée : mémoire insuffisante pour la traiter',
+                [
+                    'media_id' => $mediaId,
+                    'album_id' => $media->albumId,
+                    'megapixels' => $e->megapixels(),
+                    'required_bytes' => $e->requiredBytes,
+                    'available_bytes' => $e->availableBytes,
+                ]
+            );
         } catch (\Throwable $e) {
-            $mediaRepository->markFailed($mediaId);
+            // The tile shows this text, so it is gated here, at the write
+            // site: only a UserFacingException's sentence survives.
+            $mediaRepository->markFailed($mediaId, UserFacingMessage::from($e, self::GENERIC_FAILURE_MESSAGE));
             $context->journal->log(
                 'gallery',
                 'photo_processing_failed',
-                'info',
+                'error',
                 'Échec du traitement d\'une photo',
                 ['media_id' => $mediaId, 'album_id' => $media->albumId, 'error' => $e->getMessage()]
             );
