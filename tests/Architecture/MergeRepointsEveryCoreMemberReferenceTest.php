@@ -23,7 +23,7 @@ final class MergeRepointsEveryCoreMemberReferenceTest extends TestCase
 
         $found = [];
         foreach ($tables as [, $table, $body]) {
-            preg_match_all('/FOREIGN KEY \((\w+)\) REFERENCES members\(id\)/', $body, $keys);
+            preg_match_all('/FOREIGN KEY \((\w+)\)\s+REFERENCES\s+members\s*\(id\)/', $body, $keys);
             foreach ($keys[1] as $column) {
                 $found[] = $table . '.' . $column;
             }
