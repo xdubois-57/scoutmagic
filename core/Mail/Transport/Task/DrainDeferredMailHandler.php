@@ -333,8 +333,19 @@ class DrainDeferredMailHandler implements TaskHandlerInterface
         }
 
         try {
-            return $context->getOptional(DeferredMailOutcomeListener::class)
-                ?->deferredMailWithdrawn($message->origin, $context);
+            $listener = $context->getOptional(DeferredMailOutcomeListener::class);
+            // A message that names its sender is that sender's to vouch for
+            // (#1561 review): with nobody listening — the module disabled
+            // since the message was queued — there is nobody to say the
+            // recipient has not unsubscribed in the meantime, so it is kept
+            // unsent rather than sent blind. Its time to live still runs:
+            // a sender that never comes back has it abandoned like any
+            // other.
+            if ($listener === null) {
+                return false;
+            }
+
+            return $listener->deferredMailWithdrawn($message->origin, $context);
         } catch (\Throwable $e) {
             try {
                 $context->journal->log(

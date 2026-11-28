@@ -185,4 +185,23 @@ final class DeferredDeliveriesOnMysqlTest extends TestCase
 
         $this->assertFalse($this->deliveries->resend(999999), 'a message that does not exist');
     }
+
+    /**
+     * Two « Renvoyer » that read the same lost outcome (#1561 review): the
+     * first puts the message back and moves `attempts`; a batch defers it
+     * again; the second, written against the row it read, matches nothing
+     * and cannot put a message the queue holds back to 'pending'.
+     */
+    public function testASecondResendOfTheSameLostOutcomeIsRefusedByTheWrite(): void
+    {
+        $id = $this->deliveries->create($this->emailId, 'a@test.be');
+        $this->deliveries->recordDeferred($id);
+        $read = (int) $this->deliveries->findById($id)?->attempts;
+
+        $this->assertTrue($this->deliveries->resend($id, lostDeferred: true, expectedAttempts: $read));
+        $this->deliveries->recordDeferred($id);
+
+        $this->assertFalse($this->deliveries->resend($id, lostDeferred: true, expectedAttempts: $read));
+        $this->assertSame(Delivery::STATUS_DEFERRED, $this->deliveries->findById($id)?->status);
+    }
 }

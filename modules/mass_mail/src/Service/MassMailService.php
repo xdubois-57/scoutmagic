@@ -1634,7 +1634,7 @@ class MassMailService
         // deferred this very message since it was read; the UPDATE refuses
         // a 'deferred' row itself, and nothing else — the mailing's status,
         // the batch chain, the journal — moves unless it did.
-        if (!$this->deliveryRepository->resend($deliveryId, $lostDeferred)) {
+        if (!$this->deliveryRepository->resend($deliveryId, $lostDeferred, $delivery->attempts)) {
             throw new MassMailException(self::RESEND_REFUSED_DEFERRED);
         }
 

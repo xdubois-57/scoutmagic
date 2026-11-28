@@ -322,16 +322,25 @@ class DeliveryRepository
      * message left for it, its outcome lost on the way back
      * (Service\MassMailService::resendDelivery()).
      *
+     * $expectedAttempts, when given, ties the write to the row the caller
+     * read (#1561 review): two « Renvoyer » that both saw the same lost
+     * outcome would otherwise both go through — the first puts it back,
+     * a batch defers it again, and the second, its guard lifted, puts a
+     * message the queue now holds back to 'pending' for a second copy.
+     * Every resend moves `attempts`, so only the first of them matches.
+     *
      * @return bool whether the message was put back — false when it was
-     *         'deferred' (or is gone) at the moment of the write
+     *         'deferred' (or is gone, or moved since it was read) at the
+     *         moment of the write
      */
-    public function resend(int $id, bool $lostDeferred = false): bool
+    public function resend(int $id, bool $lostDeferred = false, ?int $expectedAttempts = null): bool
     {
         $stmt = $this->pdo->prepare(
             "UPDATE mass_mail_deliveries SET status = 'pending', error_message = NULL, attempts = attempts + 1 "
                 . 'WHERE id = ?' . ($lostDeferred ? '' : " AND status <> 'deferred'")
+                . ($expectedAttempts !== null ? ' AND attempts = ?' : '')
         );
-        $stmt->execute([$id]);
+        $stmt->execute($expectedAttempts !== null ? [$id, $expectedAttempts] : [$id]);
 
         // `attempts + 1` changes every matched row, so MySQL's « rows
         // changed » count is the matched count here, as on SQLite

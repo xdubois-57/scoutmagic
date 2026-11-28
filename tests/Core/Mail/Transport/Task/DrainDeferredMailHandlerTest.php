@@ -560,17 +560,27 @@ class DrainDeferredMailHandlerTest extends TestCase
         $this->assertSame([], $this->listener->told);
     }
 
-    /** With the listening module disabled the message still leaves, untold. */
-    public function testADisabledListenerIsNotTold(): void
+    /**
+     * With the listening module disabled, a message that names its sender
+     * is kept unsent (#1561 review): nobody can say its recipient has not
+     * unsubscribed since. A message that names nobody still leaves.
+     */
+    public function testAMessageWhoseSenderIsDisabledIsKeptUnsent(): void
     {
         $this->listener = $this->recordingListener();
         $this->listenerModuleEnabled = false;
         $this->queue(MailLane::Bulk, nextAttemptAt: $this->minutesAgo(5), origin: 'mass_mail.delivery:7');
+        $this->queue(MailLane::Bulk, nextAttemptAt: $this->minutesAgo(4));
 
         $this->drain();
 
-        $this->assertCount(1, $this->sent);
+        $this->assertCount(1, $this->sent, 'only the message that names no sender leaves');
         $this->assertSame([], $this->listener->told);
+        $this->assertSame(
+            1,
+            (int) $this->pdo->query('SELECT COUNT(*) FROM mail_deferred_messages')->fetchColumn(),
+            'the one its sender cannot vouch for waits in the queue'
+        );
     }
 
     /**
