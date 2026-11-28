@@ -6693,7 +6693,8 @@ if ($isEnabled('registration')) {
     // rest of the module's rows along (issue #1462).
     $registerMemberMergeListener(new \Modules\Registration\Service\RegistrationMergeListener(
         new \Core\Member\Duplicate\MergeRowRepository($pdo),
-        $journalService
+        $journalService,
+        new \Modules\Registration\Repository\PassageNoteRepository($pdo, $encryptionService)
     ));
     $householdRegistrationCountForOthers = new \Modules\Registration\Service\HouseholdRegistrationCountService(
         new \Modules\Registration\Repository\RegistrationRequestRepository(

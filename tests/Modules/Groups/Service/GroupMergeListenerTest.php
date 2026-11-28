@@ -133,4 +133,34 @@ final class GroupMergeListenerTest extends TestCase
             $context
         );
     }
+
+    /**
+     * A revocation aimed at the absorbed identity — the page was opened
+     * before the merge — follows the member to the kept identity, whose
+     * row now carries the grant: it does not report success and leave the
+     * account moderating.
+     */
+    public function testARevocationAimedAtTheAbsorbedIdentityFollowsTheMerge(): void
+    {
+        $this->pdo->exec("INSERT INTO members (id, desk_id) VALUES (10, 'K'), (20, 'D'), (30, 'O')");
+        $this->pdo->exec(
+            'INSERT INTO discussion_group_members (group_id, member_id, is_moderator, moderator_user_account_id)
+             VALUES (1, 10, 1, NULL), (1, 20, 1, 7), (1, 30, 1, 8)'
+        );
+        $this->listener->onMembersMerged(10, 20);
+        $this->pdo->exec('UPDATE members SET merged_into_member_id = 10 WHERE id = 20');
+
+        $this->assertTrue((new GroupMemberRepository($this->pdo))->demoteUnlessLastModerator(1, 20));
+
+        $this->assertSame(
+            [0, null],
+            array_map(
+                static fn(mixed $value): ?int => $value === null ? null : (int) $value,
+                $this->pdo->query(
+                    'SELECT is_moderator, moderator_user_account_id FROM discussion_group_members
+                     WHERE group_id = 1 AND member_id = 10'
+                )->fetch(\PDO::FETCH_NUM)
+            )
+        );
+    }
 }

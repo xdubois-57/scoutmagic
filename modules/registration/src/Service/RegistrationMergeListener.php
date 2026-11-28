@@ -11,6 +11,7 @@ namespace Modules\Registration\Service;
 use Core\Journal\JournalService;
 use Core\Member\Duplicate\MemberMergeListener;
 use Core\Member\Duplicate\MergeRowRepository;
+use Modules\Registration\Repository\PassageNoteRepository;
 
 /**
  * Brings the registration module's rows along when two identities of a
@@ -27,7 +28,9 @@ use Core\Member\Duplicate\MergeRowRepository;
  * - a registration request linked to each identity keeps both requests —
  *   a request is never deleted — and the absorbed identity's link stays as
  *   it is, read through `merged_into_member_id` like any reference to it;
- * - a friend wish matched to the absorbed identity now names the kept one.
+ * - a friend wish matched to the absorbed identity now names the kept one,
+ *   and so does a friend an AI reading found in another child's passage
+ *   comment (`ai_friend_member_ids`, once in the list).
  *
  * Collisions are journalled, table by table, as counts
  * (`registration_merge_collisions`), never a name or a comment.
@@ -61,7 +64,8 @@ final class RegistrationMergeListener implements MemberMergeListener
 
     public function __construct(
         private MergeRowRepository $rows,
-        private JournalService $journal
+        private JournalService $journal,
+        private PassageNoteRepository $passageNotes
     ) {
     }
 
@@ -131,6 +135,8 @@ final class RegistrationMergeListener implements MemberMergeListener
         foreach (self::PLAIN as $table => [$column]) {
             $handled += $this->rows->repoint($table, $column, $keptMemberId, $duplicateMemberId);
         }
+        // The friends an AI reading found, on other children's notes.
+        $handled += $this->passageNotes->repointAiFriend($keptMemberId, $duplicateMemberId);
 
         if ($collisions !== []) {
             $this->journal->log(
