@@ -11,13 +11,16 @@ use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Mail\MailPurpose;
 use Core\Mail\MailService;
+use Core\Mail\Transport\DeferredMailAbandonment;
 use Core\Mail\Transport\DeferredMailQueue;
 use Core\Mail\Transport\DeferredMailRepository;
 use Core\Mail\Transport\DeferredMessage;
 use Core\Mail\Transport\MailLane;
 use Core\Mail\Transport\Task\DrainDeferredMailHandler;
+use Core\Module\DeferredMailOutcomeListener;
 use Core\Scheduler\SchedulerRepository;
 use Core\Scheduler\SchedulerService;
+use Core\Scheduler\TaskCapabilities;
 use Core\Scheduler\TaskContext;
 use Core\Security\EncryptionService;
 use Core\Security\UserAccountRepository;
@@ -470,6 +473,135 @@ class DrainDeferredMailHandlerTest extends TestCase
         $this->assertStringContainsString('"sent":1', $context);
     }
 
+    // ── Telling the sender (issue #1454) ──────────────────────────────
+
+    /**
+     * **A message that leaves says so to whoever sent it.** Before this the
+     * drain deleted the row and counted it, and a mailing whose message it
+     * was went on reading whatever it had written at deferral time.
+     */
+    public function testAMessageThatLeavesIsReportedToItsSender(): void
+    {
+        $this->listener = $this->recordingListener();
+        $this->queue(MailLane::Bulk, nextAttemptAt: $this->minutesAgo(5), origin: 'mass_mail.delivery:7');
+
+        $this->drain();
+
+        $this->assertSame(['sent mass_mail.delivery:7'], $this->listener->told);
+    }
+
+    /**
+     * Each way of giving up reaches the sender with its own reason — the
+     * deadline, the recipient's refusal, the suspended address — and a
+     * message that is only rescheduled reaches nobody, since nothing has
+     * been decided about it yet.
+     */
+    public function testEachAbandonmentReachesTheSenderWithItsReason(): void
+    {
+        $this->listener = $this->recordingListener();
+        $this->queue(
+            MailLane::Bulk,
+            nextAttemptAt: $this->minutesAgo(5),
+            expiresAt: $this->minutesAgo(1),
+            origin: 'mass_mail.delivery:1'
+        );
+        $this->drain();
+
+        $this->refuse = ['parent@exemple.test'];
+        $this->queue(MailLane::Bulk, nextAttemptAt: $this->minutesAgo(5), origin: 'mass_mail.delivery:2');
+        $this->drain();
+
+        $this->refusalReason = 'SMTP Error: 550 5.1.1 Recipient address rejected';
+        $this->queue(MailLane::Bulk, nextAttemptAt: $this->minutesAgo(5), origin: 'mass_mail.delivery:3');
+        $this->drain();
+
+        $this->refuse = [];
+        $this->suppress = ['parent@exemple.test'];
+        $this->queue(
+            MailLane::Bulk,
+            nextAttemptAt: $this->minutesAgo(5),
+            vouchesForRecipient: true,
+            origin: 'mass_mail.delivery:4'
+        );
+        $this->drain();
+
+        $this->assertSame([
+            'abandoned mass_mail.delivery:1 expired',
+            'abandoned mass_mail.delivery:3 refused',
+            'abandoned mass_mail.delivery:4 suppressed',
+        ], $this->listener->told, 'delivery 2 was only rescheduled');
+    }
+
+    /**
+     * A row that can no longer be read is abandoned by the repository, and
+     * its origin — a plain column — still reaches the sender.
+     */
+    public function testAnUnreadableMessageIsReportedAsAbandoned(): void
+    {
+        $this->listener = $this->recordingListener();
+        $id = $this->queue(MailLane::Bulk, nextAttemptAt: $this->minutesAgo(5), origin: 'mass_mail.delivery:9');
+        $this->pdo->prepare('UPDATE mail_deferred_messages SET payload_encrypted = ? WHERE id = ?')
+            ->execute(['not a ciphertext', $id]);
+
+        $this->drain();
+
+        $this->assertSame(['abandoned mass_mail.delivery:9 unreadable'], $this->listener->told);
+    }
+
+    /** Nobody is told about a message whose sender did not name it. */
+    public function testAMessageWithoutAnOriginReachesNoListener(): void
+    {
+        $this->listener = $this->recordingListener();
+        $this->queue(MailLane::Transactional, nextAttemptAt: $this->minutesAgo(5));
+
+        $this->drain();
+
+        $this->assertCount(1, $this->sent);
+        $this->assertSame([], $this->listener->told);
+    }
+
+    /** With the listening module disabled the message still leaves, untold. */
+    public function testADisabledListenerIsNotTold(): void
+    {
+        $this->listener = $this->recordingListener();
+        $this->listenerModuleEnabled = false;
+        $this->queue(MailLane::Bulk, nextAttemptAt: $this->minutesAgo(5), origin: 'mass_mail.delivery:7');
+
+        $this->drain();
+
+        $this->assertCount(1, $this->sent);
+        $this->assertSame([], $this->listener->told);
+    }
+
+    /**
+     * **A listener in trouble cannot unsend a message.** It has left and
+     * its row is gone; the failure to report it is journaled and the pass
+     * goes on to the next message.
+     */
+    public function testAListenerThatThrowsDoesNotStopThePass(): void
+    {
+        $listener = $this->recordingListener();
+        $listener->fails = true;
+        $this->listener = $listener;
+        $this->queue(MailLane::Bulk, nextAttemptAt: $this->minutesAgo(6), origin: 'mass_mail.delivery:7');
+        $this->queue(MailLane::Bulk, nextAttemptAt: $this->minutesAgo(5), origin: 'mass_mail.delivery:8');
+
+        $this->drain();
+
+        $this->assertCount(2, $this->sent);
+        $this->assertSame(['sent mass_mail.delivery:7', 'sent mass_mail.delivery:8'], $listener->told);
+        $this->assertSame(
+            '0',
+            (string) $this->pdo->query('SELECT COUNT(*) FROM mail_deferred_messages')->fetchColumn()
+        );
+        $this->assertSame(
+            '2',
+            (string) $this->pdo->query(
+                "SELECT COUNT(*) FROM event_log WHERE event_type = 'mail_deferred_outcome_unreported'"
+            )->fetchColumn()
+        );
+    }
+
     // ── helpers ───────────────────────────────────────────────────────
 
     private function drain(): void
@@ -477,9 +609,28 @@ class DrainDeferredMailHandlerTest extends TestCase
         (new DrainDeferredMailHandler())->handle([], $this->context());
     }
 
+    /**
+     * The listener a module registers to hear what became of its deferred
+     * messages (issue #1454), wired the way public/scheduler-bootstrap.php
+     * wires it — under the providing module's live enabled state — and
+     * null when a test does not install one.
+     */
+    private ?DeferredMailOutcomeListener $listener = null;
+
+    private bool $listenerModuleEnabled = true;
+
     private function context(): TaskContext
     {
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+
+        $capabilities = null;
+        if ($this->listener !== null) {
+            $modules = $this->createStub(\Core\Module\ModuleManager::class);
+            $modules->method('getEnabledModuleIds')->willReturn($this->listenerModuleEnabled ? ['mass_mail'] : []);
+            $capabilities = new TaskCapabilities($modules);
+            $listener = $this->listener;
+            $capabilities->register(DeferredMailOutcomeListener::class, 'mass_mail', static fn (): object => $listener);
+        }
 
         return new TaskContext(
             Connection::withPdo($this->pdo),
@@ -488,8 +639,41 @@ class DrainDeferredMailHandlerTest extends TestCase
             new JournalService(new JournalRepository($this->pdo)),
             $this->settings,
             new UserAccountRepository($this->pdo, $encryption),
-            sys_get_temp_dir()
+            sys_get_temp_dir(),
+            null,
+            $capabilities
         );
+    }
+
+    /**
+     * A listener that writes down what it was told, and can be made to
+     * throw.
+     *
+     * @return DeferredMailOutcomeListener&object{told: list<string>, fails: bool}
+     */
+    private function recordingListener(): DeferredMailOutcomeListener
+    {
+        return new class implements DeferredMailOutcomeListener {
+            /** @var list<string> */
+            public array $told = [];
+            public bool $fails = false;
+
+            public function deferredMailSent(string $origin, TaskContext $context): void
+            {
+                $this->told[] = 'sent ' . $origin;
+                if ($this->fails) {
+                    throw new \RuntimeException('listener down');
+                }
+            }
+
+            public function deferredMailAbandoned(
+                string $origin,
+                DeferredMailAbandonment $reason,
+                TaskContext $context
+            ): void {
+                $this->told[] = 'abandoned ' . $origin . ' ' . $reason->value;
+            }
+        };
     }
 
     /**
@@ -568,7 +752,8 @@ class DrainDeferredMailHandlerTest extends TestCase
         ?string $expiresAt = null,
         array $attachments = [],
         ?bool $vouchesForRecipient = null,
-        ?array $cc = null
+        ?array $cc = null,
+        ?string $origin = null
     ): int {
         return $this->repository->add(
             $lane,
@@ -591,7 +776,8 @@ class DrainDeferredMailHandlerTest extends TestCase
             ],
             'quota épuisé',
             $nextAttemptAt,
-            $expiresAt ?? date('Y-m-d H:i:s', time() + 3600)
+            $expiresAt ?? date('Y-m-d H:i:s', time() + 3600),
+            $origin
         );
     }
 

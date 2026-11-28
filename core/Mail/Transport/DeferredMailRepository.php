@@ -61,12 +61,13 @@ final class DeferredMailRepository
         array $payload,
         string $reason,
         string $nextAttemptAt,
-        string $expiresAt
+        string $expiresAt,
+        ?string $origin = null
     ): int {
         $statement = $this->pdo->prepare(
             'INSERT INTO mail_deferred_messages
-                 (lane, purpose, payload_encrypted, status, attempts, last_reason, next_attempt_at, expires_at)
-             VALUES (?, ?, ?, ?, 0, ?, ?, ?)'
+                 (lane, purpose, payload_encrypted, status, attempts, last_reason, next_attempt_at, expires_at, origin)
+             VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?)'
         );
         $statement->execute([
             $lane->value,
@@ -76,6 +77,7 @@ final class DeferredMailRepository
             mb_substr($reason, 0, 255),
             $nextAttemptAt,
             $expiresAt,
+            $origin,
         ]);
 
         return (int) $this->pdo->lastInsertId();
@@ -84,9 +86,14 @@ final class DeferredMailRepository
     /**
      * The messages whose next attempt is due, oldest first.
      *
+     * @param (callable(?string): void)|null $onUnreadable Told the origin of
+     *        each row this call abandons as unreadable (see below), so the
+     *        drain can report it to the sender like any other abandonment
+     *        (issue #1454). The origin is a plain column: reading it never
+     *        needs the payload that could not be decrypted.
      * @return array<int, DeferredMessage>
      */
-    public function due(int $limit, ?string $now = null): array
+    public function due(int $limit, ?string $now = null, ?callable $onUnreadable = null): array
     {
         // The limit is bound rather than written into the statement.
         // `int` makes concatenation safe here today, and that is exactly
@@ -123,6 +130,9 @@ final class DeferredMailRepository
                 // other abandoned message, so somebody who notices has the
                 // window to ask why.
                 $this->abandon((int) $row['id'], (int) $row['attempts'], 'contenu illisible');
+                if ($onUnreadable !== null) {
+                    $onUnreadable(isset($row['origin']) ? (string) $row['origin'] : null);
+                }
             }
         }
 
@@ -390,7 +400,8 @@ final class DeferredMailRepository
             (string) $row['next_attempt_at'],
             (string) $row['expires_at'],
             (string) $row['created_at'],
-            $row['settled_at'] === null ? null : (string) $row['settled_at']
+            $row['settled_at'] === null ? null : (string) $row['settled_at'],
+            isset($row['origin']) ? (string) $row['origin'] : null
         );
     }
 }

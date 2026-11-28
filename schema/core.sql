@@ -2015,6 +2015,12 @@ CREATE TABLE IF NOT EXISTS mail_deferred_messages (
     expires_at DATETIME NOT NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     settled_at DATETIME NULL,
+    -- The sender's own reference for the message (Core\Mail\SendTracking,
+    -- issue #1454) — `mass_mail.delivery:42` — so the drain can tell it
+    -- what became of the message once it leaves or is abandoned. NULL for
+    -- every sender that does not ask. Plain text on purpose, and never
+    -- personal data: SendTracking accepts [a-z0-9_.:-] only.
+    origin VARCHAR(64) NULL,
     INDEX idx_mail_deferred_due (status, next_attempt_at),
     INDEX idx_mail_deferred_lane (lane, status),
     INDEX idx_mail_deferred_settled (status, settled_at)

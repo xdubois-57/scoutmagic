@@ -131,7 +131,7 @@ class DeliveryRepositoryTest extends TestCase
         $this->assertSame(Delivery::STATUS_SENT, $delivery?->status);
         $this->assertSame(1, $delivery->attempts);
         $this->assertNotNull($delivery->sentAt);
-        $this->assertFalse($this->repository->hasPending($this->emailId));
+        $this->assertFalse($this->repository->hasUnsettled($this->emailId));
     }
 
     public function testRecordSendFailureMarksErrorWithMessageAndIncrementsAttempts(): void
@@ -156,7 +156,7 @@ class DeliveryRepositoryTest extends TestCase
         $this->assertSame(Delivery::STATUS_PENDING, $delivery?->status);
         $this->assertNull($delivery->errorMessage);
         $this->assertSame(1, $delivery->attempts);
-        $this->assertTrue($this->repository->hasPending($this->emailId));
+        $this->assertTrue($this->repository->hasUnsettled($this->emailId));
     }
 
     public function testCountGroupedByStatusCountsMessages(): void
@@ -167,7 +167,7 @@ class DeliveryRepositoryTest extends TestCase
 
         $counts = $this->repository->countGroupedByStatus($this->emailId);
 
-        $this->assertSame(['pending' => 1, 'sent' => 1, 'error' => 1, 'unknown' => 0, 'total' => 3], $counts);
+        $this->assertSame(['pending' => 1, 'sent' => 1, 'error' => 1, 'unknown' => 0, 'deferred' => 0, 'total' => 3], $counts);
         $this->assertCount(3, $this->repository->findByEmailId($this->emailId));
     }
 }

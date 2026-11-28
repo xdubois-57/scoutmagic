@@ -9,26 +9,22 @@ declare(strict_types=1);
 namespace Modules\MassMail\Task;
 
 use Core\Exception\UserFacingMessage;
-use Core\Import\MemberYearRepository;
 use Core\Mail\MailException;
+use Core\Mail\SendTracking;
 use Core\Scheduler\SchedulerService;
 use Core\Scheduler\TaskContext;
 use Core\Scheduler\TaskHandlerInterface;
 use Core\Security\CapabilityToken;
-use Core\Member\MemberService;
 use Modules\MassMail\Repository\AudienceRepository;
-use Modules\MassMail\Repository\Delivery;
 use Modules\MassMail\Repository\DeliveryRepository;
 use Modules\MassMail\Repository\Email;
 use Modules\MassMail\Repository\EmailAttachmentRepository;
 use Modules\MassMail\Repository\EmailRepository;
-use Modules\MassMail\Repository\NotifiedAccountRepository;
 use Modules\MassMail\Repository\SuppressedAddressRepository;
 use Modules\MassMail\Repository\Target;
 use Modules\MassMail\Repository\TargetRepository;
 use Modules\MassMail\Service\MassMailService;
 use Modules\MassMail\Service\MergeRenderer;
-use Modules\MassMail\Service\TargetEmailLink;
 
 /**
  * The one and only task type mass_mail ever schedules (module spec —
@@ -37,7 +33,8 @@ use Modules\MassMail\Service\TargetEmailLink;
  * Repository\DeliveryRepository::findOldestPending()) — one address each
  * (issue #999) — sends each via Core\Mail\MailService exactly as before,
  * and — as long as any 'pending' message remains anywhere — reschedules
- * itself. An email is 'sent' once none of its messages is pending.
+ * itself. An email is 'sent' once none of its messages is pending or
+ * deferred (issue #1454).
  *
  * **How big a lot is, and how long to wait after it, is no longer this
  * module's to decide.** Those were two of its own settings; they are now
@@ -100,6 +97,13 @@ class SendBatchHandler implements TaskHandlerInterface
     private const FAILURES_KEY = 'consecutive_failures';
 
     /**
+     * The payload key saying the previous batch found the mailing lane
+     * without room (issue #1454) — so the suspension is journaled once,
+     * when it starts, and not at every link of the chain.
+     */
+    private const SUSPENDED_KEY = 'lane_suspended';
+
+    /**
      * One batch, then the chain's next link — **in a `finally`**, so that
      * whatever the batch threw, the remaining recipients still have a
      * successor to send them (issue #1443). Only `MailException` is caught
@@ -116,14 +120,15 @@ class SendBatchHandler implements TaskHandlerInterface
     public function handle(array $payload, TaskContext $context): void
     {
         $failure = null;
+        $suspended = false;
         try {
-            $this->sendBatch($context);
+            $suspended = $this->sendBatch($context, ($payload[self::SUSPENDED_KEY] ?? false) === true);
         } catch (\Throwable $e) {
             $failure = $e;
             throw $e;
         } finally {
             if ($failure === null) {
-                $this->rearmAfterSuccess($context);
+                $this->rearmAfterSuccess($context, $suspended ? [self::SUSPENDED_KEY => true] : []);
             } else {
                 $this->afterFailedBatch($payload, $context, $failure);
             }
@@ -274,11 +279,14 @@ class SendBatchHandler implements TaskHandlerInterface
      * chain for {@see HALT_HOURS} although the batch succeeded. Left as a
      * `done` row, the chain is simply queued again by {@see bootstrap()}
      * on the next request or cron pass, from a count of zero.
+     *
+     * @param array<string, mixed> $payload what the next link carries —
+     *        whether this one found the lane without room (issue #1454)
      */
-    private function rearmAfterSuccess(TaskContext $context): void
+    private function rearmAfterSuccess(TaskContext $context, array $payload): void
     {
         try {
-            $this->rearmIfPendingRemain($context, []);
+            $this->rearmIfPendingRemain($context, $payload);
         } catch (\Throwable) {
             // bootstrap() picks the chain up.
         }
@@ -336,7 +344,12 @@ class SendBatchHandler implements TaskHandlerInterface
         }
     }
 
-    private function sendBatch(TaskContext $context): void
+    /**
+     * One lot of messages. Returns whether the mailing lane had no room —
+     * checked before the lot, or learnt from a message the core deferred
+     * inside it — so the chain's next link knows it is a suspension.
+     */
+    private function sendBatch(TaskContext $context, bool $alreadySuspended): bool
     {
         $pdo = $context->connection->getPdo();
 
@@ -353,10 +366,30 @@ class SendBatchHandler implements TaskHandlerInterface
         $cadence = $this->cadence($context);
         $batchSize = $cadence['batch_size'];
 
+        // **A lane with no room suspends the mailing** (issue #1454): the
+        // chain would only defer every message of this lot, one by one,
+        // into a queue that replays them for a day. Asked before anything
+        // is read, so a suspended pass costs the three lookups of the
+        // question; the chain re-arms at the lane's own cadence and asks
+        // again. Without a cadence to ask (a narrow test double) the batch
+        // goes ahead, and a deferral inside it stops it all the same.
+        if ($context->bulkCadence !== null && !$context->bulkCadence->hasRoomLeft()) {
+            if ($deliveryRepository->hasAnyPending()) {
+                $this->journalSuspension($context, $alreadySuspended, $deliveryRepository);
+
+                return true;
+            }
+
+            return false;
+        }
+
         $batch = $deliveryRepository->findOldestPending($batchSize);
+        $followUp = new SentMessageFollowUp();
 
         $sentCount = 0;
         $errorCount = 0;
+        $deferredCount = 0;
+        $laneShut = false;
         $touchedEmailIds = [];
         $senderIdentityBySection = [];
 
@@ -513,6 +546,7 @@ class SendBatchHandler implements TaskHandlerInterface
                 . "\n\n---\nVous recevez cet email en tant que membre de l'unité.\nSe désinscrire des emails groupés : "
                 . $unsubscribeUrl;
 
+            $tracking = new SendTracking(DeferredDeliveryListener::originFor($delivery->id));
             try {
                 $context->mailService->send(
                     $delivery->emailAddress,
@@ -634,98 +668,58 @@ class SendBatchHandler implements TaskHandlerInterface
                         // through the one line every mailbox shows in
                         // its list.
                         $seedSubject
-                    )
+                    ),
+                    // **What this module calls this one message**, so that a
+                    // send the core could only keep for later says so, and
+                    // the queue knows whom to tell when it finally leaves or
+                    // is given up on (issue #1454). An id, never an address.
+                    tracking: $tracking
                 );
-                $deliveryRepository->recordSendSuccess($delivery->id);
-                // **The module vouches for its own contacts**
-                // (roadmap IT-05). `Core\Mail\MailService::send()` stamps
-                // a bounce receipt by itself, but only for an address the
-                // CORE already holds — a confirmed `member_emails` row or
-                // a `user_accounts` row — because an address the site was
-                // merely handed must not vouch for itself.
-                //
-                // A contact of a custom list's contact group is neither,
-                // and it lives in a table this module owns, which core
-                // cannot read (§7.5). It is also not something a visitor
-                // typed: a staff member's file brought it. So the module says so here,
-                // for its own recipients, and nothing else has to know
-                // the rule.
-                //
-                // Harmless for a member recipient, whose receipt core
-                // stamped a moment ago: one address is one receipt, and
-                // the settling clock is set by the first send after a
-                // bounce and left alone by the rest.
-                //
-                // **Guarded exactly like its twin** in
-                // `Core\Mail\MailService::send()`, and here it matters
-                // more. The copy has already left and
-                // `recordSendSuccess()` is committed; the only handler
-                // around this loop catches `MailException`, so anything
-                // else — a `DecryptionException` on a row encrypted under
-                // a rotated key, a `\ValueError` from a stored category
-                // that is no longer a case, a `\PDOException` — would
-                // end the batch here, with the rest of its recipients
-                // unsent until the next one. handle() re-arms the chain
-                // in its `finally` whatever escapes (issue #1443), so the
-                // mailing is delayed rather than stranded; still, a
-                // receipt is not worth even that.
-                try {
-                    (new \Core\Mail\Feedback\Bounce\BounceStateRepository($pdo, $context->encryption))
-                        ->recordSend($delivery->emailAddress, new \DateTimeImmutable(), true);
-                } catch (\Throwable) {
-                    // Deliberately silent, for the same reason the twin
-                    // gives: there is nobody to tell who could act on it,
-                    // and the journal is reached through the same database
-                    // that just refused.
-                }
-                // One line per copy that actually left — see
-                // Service\MassMailService::journalRecipientSent(). The
-                // batch summary below stays, but it answers a different
-                // question ("did the scheduler run, and how big was the
-                // lot?") and answers nothing about any one recipient.
-                // Best-effort too (#1557 review): the copy has left and its
-                // row says so. A journal that throws here would end the
-                // batch before the completion check below, and a mailing
-                // whose last copy this was would stay « Envoi en cours »
-                // for good — no later batch selects it again.
-                try {
-                    $massMailService->journalDeliverySent($email->id, $delivery->id, $memberIds);
-                } catch (\Throwable) {
-                    // Nobody to tell: the journal is the one that refused.
-                }
-                $sentCount++;
-                // Best-effort, like the receipt above: the copy has left
-                // and its row says so. A notification that throws — a
-                // \PDOException from the claim, an error from dispatch(),
-                // or a MailException, which the handler below would turn
-                // into an `error` on a message that was in fact sent —
-                // must not cost the rest of the mailing. Journaled without
-                // the address or any text of the message.
-                try {
-                    $this->notifyOnce(
-                        $context,
-                        $delivery,
-                        $targets,
-                        $email,
-                        $subject,
-                        $email->listType === Email::LIST_TYPE_MAIL_MERGE
-                            && $mergeRenderer->containsToken($email->subject)
-                    );
-                } catch (\Throwable $e) {
+                if ($tracking->wasDeferred()) {
+                    // **Nothing left.** The lane had no provider with room,
+                    // and the core kept the message in its deferred queue
+                    // (D9) — which returns normally, and used to be
+                    // recorded here as « Envoyé », journaled as sent, and
+                    // notified (issue #1454). The row says what happened
+                    // instead; the drain settles it through the origin it
+                    // carries (Task\DeferredDeliveryListener).
+                    $deliveryRepository->recordDeferred($delivery->id);
                     try {
-                        $context->journal->log(
-                            'mass_mail',
-                            'notification_failed',
-                            'error',
-                            'Notification non envoyée pour un message de l\'envoi groupé',
-                            ['email_id' => $email->id, 'delivery_id' => $delivery->id, 'exception' => $e::class],
-                            null
+                        $massMailService->journalDeliveryDeferred(
+                            $email->id,
+                            $delivery->id,
+                            ($tracking->deferredLane() ?? \Core\Mail\Transport\MailLane::Bulk)->value
                         );
                     } catch (\Throwable) {
-                        // Nobody left to tell: the journal goes through the
-                        // same database that may just have refused.
+                        // Nobody to tell: the journal is the one that refused.
                     }
+                    $deferredCount++;
+                    // **And the rest of the lot waits for the lane** rather
+                    // than following this one into the queue: a lane that
+                    // just ran out will refuse the next message the same
+                    // way, and a mailing of eight hundred on a quota of
+                    // three hundred would otherwise be five hundred
+                    // deferred messages, every one replayed by the drain.
+                    // The remaining messages stay 'pending'; handle()
+                    // re-arms the chain, and the next batch asks the lane
+                    // first.
+                    $laneShut = true;
+                    break;
                 }
+
+                $deliveryRepository->recordSendSuccess($delivery->id);
+                $followUp->record(
+                    $context,
+                    $massMailService,
+                    $delivery,
+                    $email,
+                    $targets,
+                    $memberIds,
+                    $subject,
+                    $email->listType === Email::LIST_TYPE_MAIL_MERGE
+                        && $mergeRenderer->containsToken($email->subject)
+                );
+                $sentCount++;
             } catch (\Core\Mail\SuppressedRecipientException) {
                 // Caught ahead of the general case so the tracking page
                 // keeps one vocabulary: the freeze writes this same
@@ -778,148 +772,53 @@ class SendBatchHandler implements TaskHandlerInterface
                 'batch_sent',
                 'info',
                 'Lot d\'emails de masse envoyé',
-                ['sent' => $sentCount, 'errors' => $errorCount, 'batch_size' => $batchSize],
+                [
+                    'sent' => $sentCount,
+                    'errors' => $errorCount,
+                    'deferred' => $deferredCount,
+                    'batch_size' => $batchSize,
+                ],
                 null
             );
         }
 
+        if ($laneShut && $deliveryRepository->hasAnyPending()) {
+            $this->journalSuspension($context, $alreadySuspended, $deliveryRepository);
+        }
+
+        return $laneShut;
     }
 
     /**
-     * Notification centre + push (module.json's "mass_mail.email_received"
-     * — push default-on, email channel forced off since a redundant "you
-     * got an email" email would defeat the point), **at most once per
-     * account and per communication** (a classic list) **or per file row**
-     * (a mail merge) — issue #999, §2.6.
-     *
-     * The account concerned is the one whose login is this message's
-     * address, and only when the message concerns at least one target: a
-     * contact's message, or a file row without a Tiers, notifies nobody,
-     * whoever the address belongs to. A second message of the same
-     * communication (or row) to another address of the same account, and
-     * every « Renvoyer », find the account already in
-     * mass_mail_notified_accounts and notify nobody — the row and the
-     * notification are written in ONE transaction, so neither exists
-     * without the other.
-     *
-     * The deep link is the entry (TargetEmailLink) of a target this message
-     * concerns that the account may see (`MemberService::canAccess()`) —
-     * the first by name; the others are reached from that entry's
-     * « concerne aussi ». A target with no member_years row for its year
-     * has no entry to link to.
-     *
-     * $body is the subject that was actually sent, personalised or not, and
-     * $personalised says which — a merge whose SUBJECT carried a variable,
-     * the only case where this row ends up holding a value that has to stop
-     * existing one day. `notifications.body` is written once, at dispatch,
-     * and the core retention purge only ever deletes rows somebody has
-     * READ; Task\PurgeMergeAudiencesHandler rebuilds this same `$url` for
-     * every target of an audience it erases and deletes the matching rows,
-     * read or not (issue #292). **Which is exactly why a personalised
-     * subject is not written when there is no url**: the url IS the
-     * correlation key, and a value nothing can erase is the situation that
-     * purge exists to end. The neutral sentence is what the reader gets
-     * instead, and they lose nothing they could have opened.
-     *
-     * @param Target[] $targets the targets this message concerns
+     * One line when a mailing stops for want of room on its lane
+     * (issue #1454) — `info`, since nothing has failed and the chain takes
+     * it up again by itself — and only when the suspension STARTS: the
+     * chain asks again at every interval, and a quota spent at noon would
+     * otherwise write a line every five minutes until midnight. Whether
+     * the previous run was already suspended rides in the payload, like
+     * the failure count does.
      */
-    private function notifyOnce(
+    private function journalSuspension(
         TaskContext $context,
-        Delivery $delivery,
-        array $targets,
-        Email $email,
-        string $body,
-        bool $personalised
+        bool $alreadySuspended,
+        DeliveryRepository $deliveryRepository
     ): void {
-        if ($context->notifications === null || $targets === []) {
+        if ($alreadySuspended) {
             return;
         }
 
-        $account = $context->userAccounts->findByEmail($delivery->emailAddress);
-        if ($account === null) {
-            return;
-        }
-
-        $pdo = $context->connection->getPdo();
-        $link = $this->linkFor($context, $delivery->emailAddress, $targets);
-        $url = $link !== null ? TargetEmailLink::url($link['member_year_id'], $link['target_id']) : null;
-        $memberId = $link['member_id'] ?? $targets[0]->memberId;
-
-        $pdo->beginTransaction();
         try {
-            if (!(new NotifiedAccountRepository($pdo))->claim($email->id, $delivery->audienceRowId, $account->id)) {
-                $pdo->commit();
-                return;
-            }
-
-            $context->notifications->dispatch('mass_mail.email_received', [
-                ['userAccountId' => $account->id, 'memberId' => $memberId],
-            ], [
-                'title' => 'Nouvel email',
-                'body' => $url === null && $personalised ? 'Un email personnalisé vous a été envoyé.' : $body,
-                'url' => $url,
-            ], $email->createdBy);
-
-            $pdo->commit();
-        } catch (\Throwable $e) {
-            $pdo->rollBack();
-            throw $e;
+            $context->journal->log(
+                'mass_mail',
+                'batch_suspended',
+                'info',
+                'Envoi groupé suspendu : le fournisseur d\'envoi ne prend plus de message pour aujourd\'hui',
+                ['pending' => $deliveryRepository->countAllPending()],
+                null
+            );
+        } catch (\Throwable) {
+            // Nobody to tell: the journal is the one that refused.
         }
-    }
-
-    /**
-     * The entry a notification about these targets leads to: among those
-     * with a member_years row for their year that the account may see, the
-     * first by display name.
-     *
-     * @param Target[] $targets
-     * @return array{member_year_id: int, target_id: int, member_id: int}|null
-     */
-    private function linkFor(TaskContext $context, string $accountEmail, array $targets): ?array
-    {
-        $pdo = $context->connection->getPdo();
-        $memberYears = new MemberYearRepository($pdo);
-        // With the member e-mail repository, canAccess() also answers for an
-        // account on a member's confirmed secondary address — the very
-        // addresses this module now sends to — and not only the Desk one.
-        $memberService = new MemberService(
-            $memberYears,
-            new \Core\Member\Repository\MemberProfileRepository($context->connection, $context->encryption),
-            null,
-            new \Core\Member\MemberEmailRepository($pdo, $context->encryption)
-        );
-
-        $candidates = [];
-        foreach ($targets as $target) {
-            if ($target->scoutYearId === null) {
-                continue;
-            }
-            $row = $memberYears->findByMemberAndYear($target->memberId, $target->scoutYearId);
-            if ($row === null || !$memberService->canAccess($accountEmail, (int) $row['id'], 'identified')) {
-                continue;
-            }
-            $names = $memberService->findDisplayNamesByMemberIds([$target->memberId], $target->scoutYearId);
-            $candidates[] = [
-                'name' => mb_strtolower($names[$target->memberId] ?? ''),
-                'member_year_id' => (int) $row['id'],
-                'target_id' => $target->id,
-                'member_id' => $target->memberId,
-            ];
-        }
-        if ($candidates === []) {
-            return null;
-        }
-
-        usort(
-            $candidates,
-            static fn(array $a, array $b): int => [$a['name'], $a['target_id']] <=> [$b['name'], $b['target_id']]
-        );
-
-        return [
-            'member_year_id' => $candidates[0]['member_year_id'],
-            'target_id' => $candidates[0]['target_id'],
-            'member_id' => $candidates[0]['member_id'],
-        ];
     }
 
     /**
@@ -978,7 +877,12 @@ class SendBatchHandler implements TaskHandlerInterface
         );
     }
 
-    private function buildMassMailService(TaskContext $context): MassMailService
+    /**
+     * The service this module's tasks journal and settle through, built
+     * from a task context — public for Task\DeferredDeliveryListener, which
+     * runs in the core's drain with nothing else to build it from.
+     */
+    public static function buildMassMailService(TaskContext $context): MassMailService
     {
         $pdo = $context->connection->getPdo();
         $sectionService = new \Core\Member\SectionService(

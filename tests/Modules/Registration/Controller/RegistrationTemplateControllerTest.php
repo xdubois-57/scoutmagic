@@ -120,7 +120,8 @@ class RegistrationTemplateControllerTest extends TestCase
                 bool $vouchesForRecipient = false,
                 ?string $bulkRunReference = null,
                 ?\Core\Mail\Feedback\Seed\SeedCopyContent $bulkCopy = null,
-                string|array|null $cc = null
+                string|array|null $cc = null,
+                ?\Core\Mail\SendTracking $tracking = null
             ): void {
                 $this->sent[] = ['to' => $to, 'subject' => $subject, 'html' => $bodyHtml, 'text' => $bodyText];
             }

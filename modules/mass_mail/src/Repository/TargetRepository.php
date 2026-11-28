@@ -46,7 +46,7 @@ class TargetRepository
                     WHERE dt.target_id = t.id AND d.status = 'sent') AS sent_count,
                 (SELECT COUNT(*) FROM mass_mail_delivery_targets dt
                     JOIN mass_mail_deliveries d ON d.id = dt.delivery_id
-                    WHERE dt.target_id = t.id AND d.status = 'pending') AS pending_count,
+                    WHERE dt.target_id = t.id AND d.status IN ('pending', 'deferred')) AS pending_count,
                 (SELECT COUNT(*) FROM mass_mail_delivery_targets dt
                     JOIN mass_mail_deliveries d ON d.id = dt.delivery_id
                     WHERE dt.target_id = t.id AND d.status = 'error') AS error_count,
@@ -186,7 +186,7 @@ class TargetRepository
                              WHERE dt.target_id = t.id AND d.status = 'sent')
                     OR NOT EXISTS (SELECT 1 FROM mass_mail_delivery_targets dt
                               JOIN mass_mail_deliveries d ON d.id = dt.delivery_id
-                             WHERE dt.target_id = t.id AND d.status = 'pending'))
+                             WHERE dt.target_id = t.id AND d.status IN ('pending', 'deferred')))
              ORDER BY t.id ASC"
         );
         $stmt->execute([$emailId, $exceptTargetId]);

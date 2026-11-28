@@ -34,8 +34,72 @@ final class BulkCadence
     public function __construct(
         private MailProviderDirectory $directory,
         private LaneChainRepository $chains,
-        private SendCounterRepository $counters
+        private SendCounterRepository $counters,
+        /**
+         * The share of each quota the mailing lane leaves to the other two
+         * (D8) — what {@see hasRoomLeft()} takes off, as the chain does.
+         * Null reads every quota whole, which is what a narrow test wants.
+         */
+        private ?MailReserve $reserve = null
     ) {
+    }
+
+    /**
+     * Whether the mailing lane could hand its next message to a relay right
+     * now, quota-wise (issue #1454) — the question a mailing asks before a
+     * batch, so that a lane with nothing left SUSPENDS the mailing instead
+     * of pouring the rest of it into the deferred queue.
+     *
+     * **The chain's own reading, not a second opinion.** Same entries, same
+     * counters, and on this lane the same reserve off the top
+     * (`MailTransportChain::hasSpentItsQuota()`): a lane this calls full is
+     * one the chain would answer with `LaneExhaustedException`. A provider
+     * with no known quota always has room, and so does a lane with no chain
+     * laid down — the chain sends that through the configured relay.
+     *
+     * **True whenever the answer cannot be read**, which is the posture of
+     * every reading in this namespace: a cadence that cannot tell must not
+     * be the reason a mailing stops. The worst that costs is one message
+     * deferred, after which the mailing stops on that signal instead.
+     */
+    public function hasRoomLeft(): bool
+    {
+        try {
+            $entries = $this->chains->forLane(MailLane::Bulk);
+            $providers = $this->directory->all();
+            $usedToday = $this->counters->totalsForDay();
+        } catch (\Throwable) {
+            return true;
+        }
+
+        if ($entries === []) {
+            return true;
+        }
+
+        foreach ($entries as $entry) {
+            $provider = $entry->enabled ? ($providers[$entry->providerId] ?? null) : null;
+            if ($provider === null || !$provider->isUsable()) {
+                continue;
+            }
+
+            if ($provider->dailyQuota === null) {
+                return true;
+            }
+
+            try {
+                $ceiling = $provider->dailyQuota - ($this->reserve?->forProvider($provider)->messages ?? 0);
+            } catch (\Throwable) {
+                // The chain's posture: a reserve that cannot be computed
+                // is not a reason to stop sending.
+                $ceiling = $provider->dailyQuota;
+            }
+
+            if (($usedToday[$provider->id] ?? 0) < max(0, $ceiling)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

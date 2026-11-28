@@ -237,7 +237,7 @@ final class ImportedEmailLockTest extends TestCase
     public function testTheCountsNameTheMessagesOfUnknownFate(): void
     {
         $this->assertSame(
-            ['pending' => 0, 'sent' => 1, 'error' => 1, 'unknown' => 1, 'total' => 3],
+            ['pending' => 0, 'sent' => 1, 'error' => 1, 'unknown' => 1, 'deferred' => 0, 'total' => 3],
             $this->service->getStatusCounts($this->emailId)
         );
     }

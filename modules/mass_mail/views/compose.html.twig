@@ -398,9 +398,11 @@
                 <div class="progress-bar bg-success" style="width:{{ (counts.sent / total * 100)|round(1) }}%"></div>
                 <div class="progress-bar bg-danger" style="width:{{ (counts.error / total * 100)|round(1) }}%"></div>
                 <div class="progress-bar bg-secondary" style="width:{{ (counts.pending / total * 100)|round(1) }}%"></div>
+                <div class="progress-bar bg-warning" style="width:{{ (counts.deferred / total * 100)|round(1) }}%"></div>
             </div>
             <p class="small text-body-secondary mb-0">
-                {{ counts.sent }} envoyés · {{ counts.error }} erreurs · {{ counts.pending }} en attente — {{ counts.total }} au total
+                {{ counts.sent }} envoyés · {{ counts.error }} erreurs · {{ counts.pending }} en attente
+                {%- if counts.deferred > 0 %} · {{ counts.deferred }} en attente chez le fournisseur{% endif %} — {{ counts.total }} au total
             </p>
         </output>
     {% endif %}

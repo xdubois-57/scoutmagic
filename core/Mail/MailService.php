@@ -266,7 +266,18 @@ class MailService
          * covers the header (PHPMailer signs `Cc` by default) and the
          * deferred queue carries it with the rest of the call.
          */
-        string|array|null $cc = null
+        string|array|null $cc = null,
+        /**
+         * Where this call says whether the message LEFT or was only kept
+         * for later (D9, issue #1454) — and, through its origin, how the
+         * queue finds its way back to the caller once the message is sent
+         * or abandoned. {@see SendTracking}.
+         *
+         * **Last, and passed by name**, for the reason `$cc` is. Null is
+         * what every other caller passes, and it changes nothing: a
+         * deferral still returns normally, as D9 decided.
+         */
+        ?SendTracking $tracking = null
     ): void {
         // Before the suppression gate and before PHPMailer exists: an
         // address that cannot be copied stops the message here, whole.
@@ -538,8 +549,15 @@ class MailService
                 $copyAddresses
             );
 
-            if ($payload !== null && $this->deferred?->defer($e->lane, $purpose, $payload, $reason) === true) {
+            if (
+                $payload !== null
+                && $this->deferred?->defer($e->lane, $purpose, $payload, $reason, $tracking?->origin) === true
+            ) {
                 $this->journalDeferral($e->lane, $reason);
+                // Only once the queue has the message: a deferral it
+                // refused falls through to the failure below, and must not
+                // be reported as one.
+                $tracking?->markDeferred($e->lane);
 
                 return;
             }

@@ -273,6 +273,47 @@ class MassMailService
     }
 
     /**
+     * One journal entry for a message that did NOT leave: the mailing lane
+     * had nothing left, and the core kept it in its deferred queue
+     * (issue #1454). `info`, like the core's own `mail_deferred` — nothing
+     * has gone wrong for the recipient yet — and never `delivery_sent`,
+     * which is what this used to be filed as. The ids and the lane, no
+     * address.
+     */
+    public function journalDeliveryDeferred(int $emailId, int $deliveryId, string $lane): void
+    {
+        $this->journalService->log(
+            'mass_mail',
+            'delivery_deferred',
+            'info',
+            self::emailPrefix($emailId) . ' : message #' . $deliveryId
+                . ' mis en attente, le fournisseur d\'envoi ne prend plus de message',
+            ['email_id' => $emailId, 'delivery_id' => $deliveryId, 'lane' => $lane],
+            null
+        );
+    }
+
+    /**
+     * One journal entry for a deferred message the drain gave up on
+     * (issue #1454) — `warning`, the line that used to exist nowhere: the
+     * core counted it in `mail_deferred_drained` and the mailing kept
+     * reading « Envoyé ». $reason is the French sentence the tracking page
+     * shows (Core\Mail\Transport\DeferredMailAbandonment::label()), never
+     * the relay's words.
+     */
+    public function journalDeliveryAbandoned(int $emailId, int $deliveryId, string $reason): void
+    {
+        $this->journalService->log(
+            'mass_mail',
+            'delivery_abandoned',
+            'warning',
+            self::emailPrefix($emailId) . ' : message #' . $deliveryId . ' abandonné après sa mise en attente',
+            ['email_id' => $emailId, 'delivery_id' => $deliveryId, 'reason' => $reason],
+            null
+        );
+    }
+
+    /**
      * One journal entry for a message the transport REFUSED — it was
      * attempted, and it bounced back. `error`, like the message's own
      * status and like the red on the tracking page: a journal filing the
@@ -486,7 +527,7 @@ class MassMailService
     /**
      * Messages by status — one per address, never people.
      *
-     * @return array{pending: int, sent: int, error: int, unknown: int, total: int}
+     * @return array{pending: int, sent: int, error: int, unknown: int, deferred: int, total: int}
      */
     public function getStatusCounts(int $emailId): array
     {
@@ -1498,8 +1539,11 @@ class MassMailService
 
     /**
      * Called once per email actually touched by a processed batch (Task\
-     * SendBatchHandler) — flips 'sending' → 'sent' the moment no message
-     * of it is 'pending' any more.
+     * SendBatchHandler), and after the drain settled one of its deferred
+     * messages (Task\DeferredDeliveryListener) — flips 'sending' → 'sent'
+     * the moment no message of it is 'pending' or 'deferred' any more. A
+     * message only kept in the core's queue has not left, and a mailing
+     * reading « Envoyé » while it waits would say otherwise (issue #1454).
      */
     public function checkAndMarkSentIfComplete(int $emailId, ?int $actorId = null): void
     {
@@ -1507,7 +1551,7 @@ class MassMailService
         if ($email === null || $email->status !== Email::STATUS_SENDING) {
             return;
         }
-        if ($this->deliveryRepository->hasPending($emailId)) {
+        if ($this->deliveryRepository->hasUnsettled($emailId)) {
             return;
         }
 
@@ -1550,6 +1594,14 @@ class MassMailService
         if ($delivery->status === Delivery::STATUS_UNKNOWN) {
             throw new MassMailException('Ce message ne peut pas être renvoyé.');
         }
+        // Waiting in the core's deferred queue, which will send it once
+        // the provider takes mail again (issue #1454): a « Renvoyer » now
+        // would put a second copy in the batch queue.
+        if ($delivery->status === Delivery::STATUS_DEFERRED) {
+            throw new MassMailException(
+                'Ce message est en attente chez le fournisseur : il partira dès que l\'envoi reprendra.'
+            );
+        }
         // Somebody who unsubscribed is not written to again by hand
         // either (issue #1437): « Renvoyer » used to put their message
         // back in the queue, weeks later, with no check at all. The batch
@@ -1590,7 +1642,7 @@ class MassMailService
      *
      * @return array{
      *     email: Email,
-     *     counts: array{pending: int, sent: int, error: int, unknown: int, total: int},
+     *     counts: array{pending: int, sent: int, error: int, unknown: int, deferred: int, total: int},
      *     target_count: int,
      *     targets_without_message: int,
      *     messages: list<array{delivery: Delivery, members: string, row_index: ?int}>,

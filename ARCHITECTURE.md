@@ -4615,6 +4615,20 @@ Every mailing's messages are drained by ONE `send_batch` chain, site-wide (modul
 
 **Surfaced, not only journalled.** `Service\MassMailAttentionProvider` (« Envoi de mails », §8.79) gives one urgent point per email still `sending` with messages waiting while no row of the task is queued or running — in practice the hour of a halt. It reads two aggregate queries and links to the mailing's page.
 
+### 8.96ter A message the provider could not take is « en attente chez le fournisseur », not « Envoyé » (issue #1454)
+
+D9 (§8.106) has `MailService::send()` keep a message in the deferred queue when the whole lane is spent, and return normally. The mailing read that as « parti »: `recordSendSuccess()`, a `delivery_sent` line, a notification to the account — and when the drain abandoned the message a day later, nothing on the mailing said so. A mailing of 800 on a quota of 300 read « Envoyé : 800 ».
+
+**The caller is told, and only the callers that ask.** `send()` takes a last, named `?Core\Mail\SendTracking $tracking`; once the queue has accepted the message it is marked deferred, with its lane. An argument rather than a return type, because ninety-odd call sites and some two hundred test doubles answer `send()` with a `: void` closure, and every one of them keeps working unchanged — D9 stands for them. The two `MailService` subclasses in the tests repeat the parameter, as PHP requires of an override.
+
+**The way back crosses the core/module boundary through a core hook (§7.4).** `SendTracking` carries an origin — `mass_mail.delivery:42`, `[a-z0-9_.:-]` only, so it can never hold an address — which the queue stores in plain text in `mail_deferred_messages.origin`. `Task\DrainDeferredMailHandler`, the one place a deferred message is settled, resolves `Core\Module\DeferredMailOutcomeListener` through `TaskContext::getOptional()` and tells it each origin that left or was abandoned, the latter with a `Core\Mail\Transport\DeferredMailAbandonment` (expired, refused by the recipient's server, address suspended, unreadable) whose `label()` is a French sentence the sender may show — never the relay's transcript, which stays on the queue row for the Relance screen. `mass_mail` registers `Task\DeferredDeliveryListener` for it in `public/scheduler-bootstrap.php`, under its live enabled state; core names no module. A listener that throws is journaled (`mail_deferred_outcome_unreported`, `warning`) and never unsettles the queue row. One implementation per hook: the day a second sender needs it, it becomes a registry.
+
+**On the mailing**, `mass_mail_deliveries.status` gains `deferred` (an ENUM widened in `schema.sql`, which the migration converges with a `MODIFY COLUMN`; `Repository\DeferredDeliveriesOnMysqlTest` pins it on the production engine). It is « En attente chez le fournisseur » on the tracking page, counted apart and never in `sent`, and it keeps the mailing at « Envoi en cours » (`DeliveryRepository::hasUnsettled()`). « Renvoyer » refuses it: the core still holds the message. Settled by the listener, it becomes `sent` — and only then do the contact's bounce receipt, `delivery_sent` and the notification follow (`Task\SentMessageFollowUp`, shared with the batch) — or `error` with the abandonment's label. The journal says it in the mailing's own category: `delivery_deferred` (`info`; `email_id`, `delivery_id`, `lane`) and `delivery_abandoned` (`warning`; `email_id`, `delivery_id`, `reason`); no address in either.
+
+**The batch suspends instead of pouring the mailing into the queue.** Before a lot, `Core\Mail\Transport\BulkCadence::hasRoomLeft()` asks the chain's own question — same entries, same counters, the reserve off the mailing lane's quota (D8) — and a lane without room sends nothing; and a message deferred inside a lot stops the lot, since the next one would be refused the same way (an outage rather than a quota, which the cadence cannot see, costs one deferred message per interval). Either way the remaining messages stay `pending` and the chain re-arms as §8.96bis describes, carrying `lane_suspended` in its payload so `batch_suspended` (`info`) is written when the suspension starts rather than at every link.
+
+**Test sends say it too.** « M'envoyer un test » (`EmailTemplateController::sendTest()`) answers « Test mis en attente, le relais ne répond pas : rien n'est parti pour l'instant » when the message was only deferred. The registration decision e-mail's « est parti » (`RequestDecisionEmailController`) has the same shape and is not changed here: its attempt record would need a deferred state of its own.
+
 ### 8.97 The publipostage test screen shows the e-mail once (`GET /mass-mail/{id}`, status `test`)
 
 In test mode a publipostage renders its **final, variable-resolved email** on this page, under « Envoyer un email de test ». It also rendered the composition above it — the same email a second time, unresolved, `{{Prenom}}` and all — and nothing on screen said which of the two was the real one. Nothing up there was editable either: `editable` is false the moment a draft leaves `brouillon`, so what the top of the page offered was a locked copy of something already shown properly, ten centimetres lower.
@@ -5084,7 +5098,9 @@ Retries are five minutes, then fifteen, forty-five, two hours, four;
 **the deadline is fixed when the message is queued**, so lengthening the
 setting later never resurrects something already given up on. A message
 too heavy to carry (2 MiB of attachments) is not queued at all — failing
-loudly beats draining tomorrow without the attachment.
+loudly beats draining tomorrow without the attachment. A sender that has to
+know can ask (`Core\Mail\SendTracking`) and hear later what became of
+the message (`Core\Module\DeferredMailOutcomeListener`) — §8.96ter.
 
 **The authentication lane never defers**, and it is the decision D9 is
 most emphatic about: a magic link delivered tomorrow is not a magic link,

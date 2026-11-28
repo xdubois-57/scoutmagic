@@ -27,9 +27,9 @@ si le module Inscriptions est actif, la liste des inscriptions
 encodées de l'année. Un animateur envoie depuis sa propre section, à
 sa section ou aux animateurs ; le Staff d'Unité n'a pas cette limite.
 
-Un message part toujours à une seule adresse, et une seule fois par
-adresse : deux animés qui partagent l'adresse familiale n'y reçoivent
-qu'un exemplaire, un animé qui a trois adresses en reçoit un à chacune.
+Un message part à une seule adresse, une seule fois : deux animés
+qui partagent l'adresse familiale n'y reçoivent qu'un exemplaire, un
+animé qui a trois adresses en reçoit un à chacune.
 Chaque animé désigné garde l'e-mail sur sa page, même partagé ; cocher
 plusieurs années n'en fait pas des doublons. Les pièces jointes
 s'ajoutent une fois le brouillon créé.
@@ -39,16 +39,14 @@ de membres : ses groupes de contacts reçoivent l'e-mail quelle que soit
 l'année cochée. Une phrase sous les années le rappelle dès que la liste
 choisie contient des contacts.
 
-Chaque envoi a sa propre page : elle se met en favori, son lien
-s'envoie à un collègue pour relecture, et on y revient le lendemain
-pour finir le message.
+Chaque envoi a sa propre page : son lien se met en favori ou
+s'envoie à un collègue pour relecture.
 
 ## Tester avant d'envoyer
 
 « Passer en mode test » fige le contenu et propose « Envoyer le test »
-vers l'adresse de votre choix : vérifiez le rendu dans une vraie boîte
-avant d'appuyer sur le grand bouton. « Repasser en brouillon » rouvre
-la modification. Jusqu'au lancement, la corbeille de la liste supprime
+vers l'adresse de votre choix : vérifiez le rendu dans une vraie
+boîte. « Repasser en brouillon » rouvre la modification. Jusqu'au lancement, la corbeille de la liste supprime
 l'e-mail, après confirmation.
 
 > « Lancer l'envoi » est définitif : l'e-mail part par lots, en
@@ -64,18 +62,18 @@ d'animés ciblés que la liste donne à cet instant pour toutes les autres.
 L'onglet « Suivi » montre une ligne par message : son adresse, les
 animés qu'il concerne, son état — envoyé, en attente, ou en erreur avec
 le motif. Un animé ciblé sans adresse valide y figure « Non envoyée ».
+Quand le fournisseur d'envoi n'accepte plus rien, l'envoi se
+suspend puis reprend seul ; un message mis de côté figure « En attente
+chez le fournisseur » jusqu'à son départ ou son abandon.
 « Renvoyer » relance ce message vers son adresse, sans nouvelle
 notification, sauf vers une adresse désinscrite.
-Chaque animé retrouve l'e-mail sur sa page, une seule fois.
 
 Le « Journal » garde une ligne par message, parti ou non, avec le
-numéro de l'e-mail — celui de son adresse de page — et le motif de ce
-qui a échoué.
+numéro de l'e-mail et le motif d'un échec.
 
 ## La désinscription
 
 Chaque message porte un lien de désinscription. L'adresse ne reçoit
 plus d'envoi groupé, même lancé, pour tous les animés qui la
-partagent. Pour
-revenir : « Réactiver » sur la page de l'animé ; un contact s'adresse à
+partagent. Pour revenir : « Réactiver » sur la page de l'animé ; un contact s'adresse à
 l'unité.

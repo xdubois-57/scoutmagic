@@ -253,6 +253,49 @@ class DeliveryRepository
     }
 
     /**
+     * The message went to the core's deferred queue instead of a relay
+     * (issue #1454): nothing has left, so no `sent_at`, and the attempt is
+     * counted like any other.
+     */
+    public function recordDeferred(int $id): void
+    {
+        $stmt = $this->pdo->prepare(
+            "UPDATE mass_mail_deliveries SET status = 'deferred', error_message = NULL, attempts = attempts + 1 "
+                . 'WHERE id = ?'
+        );
+        $stmt->execute([$id]);
+    }
+
+    /**
+     * A deferred message the drain has now sent. Only from 'deferred' — or
+     * 'error', for one a superadmin relaunched after it was abandoned: a
+     * message « Renvoyer » put back in the queue meanwhile is the batch's
+     * again, and a 'sent' one is not touched.
+     */
+    public function settleDeferredAsSent(int $id): void
+    {
+        $stmt = $this->pdo->prepare(
+            "UPDATE mass_mail_deliveries SET status = 'sent', sent_at = CURRENT_TIMESTAMP, error_message = NULL "
+                . "WHERE id = ? AND status IN ('deferred', 'error')"
+        );
+        $stmt->execute([$id]);
+    }
+
+    /**
+     * A deferred message the drain gave up on, with a French reason that
+     * names no address (Core\Mail\Transport\DeferredMailAbandonment). Same
+     * statuses as {@see settleDeferredAsSent()}.
+     */
+    public function settleDeferredAsAbandoned(int $id, string $errorMessage): void
+    {
+        $stmt = $this->pdo->prepare(
+            "UPDATE mass_mail_deliveries SET status = 'error', error_message = ? "
+                . "WHERE id = ? AND status IN ('deferred', 'error')"
+        );
+        $stmt->execute([$errorMessage, $id]);
+    }
+
+    /**
      * $errorMessage must never contain the address or any other personal
      * data — Task\SendBatchHandler only ever passes a fixed French reason.
      */
@@ -281,9 +324,11 @@ class DeliveryRepository
 
     /**
      * Counts MESSAGES — one per address — never people. `unknown` is only
-     * ever non-zero for an email imported from a former site.
+     * ever non-zero for an email imported from a former site; `deferred`
+     * is what waits in the core's queue and is never part of `sent`
+     * (issue #1454).
      *
-     * @return array{pending: int, sent: int, error: int, unknown: int, total: int}
+     * @return array{pending: int, sent: int, error: int, unknown: int, deferred: int, total: int}
      */
     public function countGroupedByStatus(int $emailId): array
     {
@@ -292,7 +337,7 @@ class DeliveryRepository
         );
         $stmt->execute([$emailId]);
 
-        $counts = ['pending' => 0, 'sent' => 0, 'error' => 0, 'unknown' => 0];
+        $counts = ['pending' => 0, 'sent' => 0, 'error' => 0, 'unknown' => 0, 'deferred' => 0];
         foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
             $counts[(string) $row['status']] = (int) $row['c'];
         }
@@ -302,7 +347,9 @@ class DeliveryRepository
             'sent' => $counts['sent'],
             'error' => $counts['error'],
             'unknown' => $counts['unknown'],
-            'total' => $counts['pending'] + $counts['sent'] + $counts['error'] + $counts['unknown'],
+            'deferred' => $counts['deferred'],
+            'total' => $counts['pending'] + $counts['sent'] + $counts['error'] + $counts['unknown']
+                + $counts['deferred'],
         ];
     }
 
@@ -329,10 +376,16 @@ class DeliveryRepository
         return (int) $stmt->fetchColumn();
     }
 
-    public function hasPending(int $emailId): bool
+    /**
+     * Whether any message of this email is not settled yet — waiting for a
+     * batch ('pending') or in the core's deferred queue ('deferred'). What
+     * keeps a mailing at « Envoi en cours » rather than « Envoyé » while
+     * part of it has not left (issue #1454).
+     */
+    public function hasUnsettled(int $emailId): bool
     {
         $stmt = $this->pdo->prepare(
-            "SELECT 1 FROM mass_mail_deliveries WHERE email_id = ? AND status = 'pending' LIMIT 1"
+            "SELECT 1 FROM mass_mail_deliveries WHERE email_id = ? AND status IN ('pending', 'deferred') LIMIT 1"
         );
         $stmt->execute([$emailId]);
 
