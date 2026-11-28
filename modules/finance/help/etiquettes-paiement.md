@@ -11,11 +11,11 @@ paths: /finance/campaigns/*
 related: campagnes, rappels, rapprochement, mes-paiements
 ---
 
-Le bouton « Étiquettes », sur l'écran d'une campagne, produit une feuille
-A4 de **27 étiquettes par page**, à découper le long des traits : trois
-colonnes sur neuf rangées. Chaque étiquette porte le nom du membre, le
-montant, l'IBAN, la communication structurée et un **code QR** que
-l'application bancaire d'un parent scanne directement.
+Le bouton « Étiquettes », sur l'écran d'une campagne ouverte, produit
+une feuille A4 de **27 étiquettes par page**, à découper le long des
+traits : trois colonnes sur neuf rangées. Chaque étiquette porte le nom
+du membre, le montant, l'IBAN, la communication structurée et un **code
+QR** que l'application bancaire d'un parent scanne directement.
 
 C'est fait pour la réunion d'unité. La feuille se distribue à la porte en
 deux minutes, l'étiquette part dans une poche et le virement se fait le

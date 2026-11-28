@@ -153,8 +153,24 @@
         {% endfor %}
     </div>
 
+    {% if not campaign.isOpen %}
+        {# What closing does, said where its effect is visible (issue #1436):
+           the three gestures that ask for money are gone from the row below
+           and refused by the server, and the families no longer see these
+           receivables. What it does NOT do matters as much: a payment that
+           still arrives is matched (ReceivableAllocationService knows
+           nothing of campaigns), and the note and the abandon stay. #}
+        <output class="alert alert-secondary d-block">
+            <i class="bi bi-lock" aria-hidden="true"></i>
+            <strong>Campagne clôturée.</strong>
+            Plus de rappel, de notification ni d'étiquettes, et ses créances impayées n'apparaissent plus
+            aux familles. Un paiement qui arrive encore est rattaché comme d'habitude ; la note et l'abandon
+            d'une créance restent possibles. Rouvrez la campagne pour reprendre les rappels.
+        </output>
+    {% endif %}
+
     <div class="d-flex flex-wrap gap-2 mb-3">
-        {% if reminder_available|default(false) %}
+        {% if campaign.isOpen and reminder_available|default(false) %}
             <form method="post" action="/finance/campaigns/{{ campaign.id }}/reminder" class="d-inline">
                 {{ csrf_field()|raw }}
                 <button type="submit" class="btn btn-primary btn-sm tap-target">
@@ -162,7 +178,7 @@
                 </button>
             </form>
         {% endif %}
-        {% if not campaign.isNotified %}
+        {% if campaign.isOpen and not campaign.isNotified %}
             {# Asks first (#485), and the message says what actually leaves.
                An earlier draft of it promised « un e-mail part à chacune » and
                was wrong twice, which a reviewer caught: `notifyFamilies()`
@@ -199,14 +215,16 @@
            produced by a receivable that still asks for something, so the
            count beside it is the unpaid tile above and never rows|length.
            See Controller\CampaignController::labels(). #}
-        <a class="btn btn-outline-secondary btn-sm tap-target"
-           href="/finance/campaigns/{{ campaign.id }}/labels">
-            <i class="bi bi-tags" aria-hidden="true"></i> Étiquettes ({{ totals.unpaid_count }})
-        </a>
+        {% if campaign.isOpen %}
+            <a class="btn btn-outline-secondary btn-sm tap-target"
+               href="/finance/campaigns/{{ campaign.id }}/labels">
+                <i class="bi bi-tags" aria-hidden="true"></i> Étiquettes ({{ totals.unpaid_count }})
+            </a>
+        {% endif %}
         <form method="post" action="/finance/campaigns/{{ campaign.id }}/status" class="d-inline"
               data-confirm="{{ campaign.isOpen
-                  ? 'Clôturer la campagne ? Les rappels s\'arrêtent et la campagne est figée — elle reste consultable.'
-                  : 'Rouvrir la campagne ?' }}">
+                  ? 'Clôturer la campagne ? Plus de rappel, de notification ni d\'étiquettes, et les familles ne voient plus ce qui reste dû. Un paiement qui arrive encore est rattaché. Elle reste consultable et peut être rouverte.'
+                  : 'Rouvrir la campagne ? Ses créances impayées réapparaissent aux familles, et le rappel, la notification et les étiquettes redeviennent disponibles.' }}">
             {{ csrf_field()|raw }}
             <input type="hidden" name="status" value="{{ campaign.isOpen ? 'closed' : 'open' }}">
             <button type="submit" class="btn btn-outline-secondary btn-sm tap-target">
@@ -228,7 +246,7 @@
         {% endfor %}
     </div>
 
-    {% if reminder_available|default(false) %}
+    {% if campaign.isOpen and reminder_available|default(false) %}
         <div class="alert alert-info" role="alert">
             <i class="bi bi-envelope" aria-hidden="true"></i>
             Le brouillon est préparé avec les destinataires, leur montant, leur communication et leur QR —

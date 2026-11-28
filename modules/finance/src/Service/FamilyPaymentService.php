@@ -19,8 +19,7 @@ use Core\Security\AuthSession;
 use Core\Security\Role;
 use Core\Service\DateInput;
 use Modules\Finance\Repository\AccountRepository;
-use Modules\Finance\Repository\CampaignRepository;
-use Modules\Finance\Repository\CampaignRowRepository;
+use Modules\Finance\Repository\Campaign;
 use Modules\Finance\Repository\ExpectedReceivable;
 use Modules\Finance\Repository\ExpectedReceivableRepository;
 use Modules\Finance\Repository\StatementImportRepository;
@@ -69,8 +68,7 @@ class FamilyPaymentService implements MemberPaymentProvider, HomePaymentDueProvi
         private ExpectedReceivableRepository $receivables,
         private ReceivableAllocationService $allocations,
         private AccountRepository $accounts,
-        private CampaignRowRepository $campaignRows,
-        private CampaignRepository $campaigns,
+        private ReceivableCampaigns $receivableCampaigns,
         private StatementImportRepository $statementImports,
         private ReceivableQrTokenService $qrTokens,
         private MemberService $members,
@@ -84,7 +82,25 @@ class FamilyPaymentService implements MemberPaymentProvider, HomePaymentDueProvi
      */
     public function getOpenPayments(int $memberId): array
     {
-        $open = $this->openReceivablesFor([$memberId], refresh: true);
+        return $this->viewsOf($this->openReceivablesFor([$memberId], refresh: true));
+    }
+
+    /**
+     * @return list<MemberPaymentView>
+     */
+    public function getOutstandingPayments(int $memberId): array
+    {
+        return $this->viewsOf(
+            $this->openReceivablesFor([$memberId], refresh: true, includeClosedCampaigns: true)
+        );
+    }
+
+    /**
+     * @param list<array{receivable: ExpectedReceivable, remaining_cents: int, received_cents: int}> $open
+     * @return list<MemberPaymentView>
+     */
+    private function viewsOf(array $open): array
+    {
         if ($open === []) {
             return [];
         }
@@ -324,9 +340,24 @@ class FamilyPaymentService implements MemberPaymentProvider, HomePaymentDueProvi
      * @param int[] $memberIds
      * @return list<array{receivable: ExpectedReceivable, remaining_cents: int, received_cents: int}>
      */
-    private function openReceivablesFor(array $memberIds, bool $refresh): array
-    {
+    private function openReceivablesFor(
+        array $memberIds,
+        bool $refresh,
+        bool $includeClosedCampaigns = false
+    ): array {
+        // A closed campaign stops asking (issue #1436): its unpaid
+        // receivables leave the member page and the home band, BEFORE the
+        // refresh, so closing also spares those rows the re-allocation
+        // pass. Nothing is written — reopening brings them straight back.
+        // A payment that still arrives is matched all the same
+        // (ReceivableAllocationService knows nothing of campaigns); it
+        // simply is no longer asked for here.
+        // The staff's own view of the member keeps them
+        // (getOutstandingPayments(), #1555 review).
         $receivables = $this->receivables->findByMemberIds($memberIds);
+        if (!$includeClosedCampaigns) {
+            $receivables = $this->receivableCampaigns->withoutClosedCampaigns($receivables);
+        }
         if ($receivables === []) {
             return [];
         }
@@ -362,41 +393,10 @@ class FamilyPaymentService implements MemberPaymentProvider, HomePaymentDueProvi
      */
     private function labelsFor(array $receivables): array
     {
-        $rowIds = [];
-        foreach ($receivables as $receivable) {
-            if ($receivable->sourceModule === CampaignService::SOURCE_MODULE) {
-                $rowIds[] = $receivable->sourceReferenceId;
-            }
-        }
-        if ($rowIds === []) {
-            return [];
-        }
-
-        $campaignIdByRowId = [];
-        foreach ($this->campaignRows->findByIds($rowIds) as $row) {
-            $campaignIdByRowId[$row->id] = $row->campaignId;
-        }
-
-        $labelByCampaignId = [];
-        foreach (array_unique(array_values($campaignIdByRowId)) as $campaignId) {
-            $campaign = $this->campaigns->findById($campaignId);
-            if ($campaign !== null) {
-                $labelByCampaignId[$campaignId] = $campaign->label;
-            }
-        }
-
-        $labels = [];
-        foreach ($receivables as $receivable) {
-            if ($receivable->sourceModule !== CampaignService::SOURCE_MODULE) {
-                continue;
-            }
-            $campaignId = $campaignIdByRowId[$receivable->sourceReferenceId] ?? null;
-            if ($campaignId !== null && isset($labelByCampaignId[$campaignId])) {
-                $labels[$receivable->id] = $labelByCampaignId[$campaignId];
-            }
-        }
-
-        return $labels;
+        return array_map(
+            static fn(Campaign $campaign): string => $campaign->label,
+            $this->receivableCampaigns->campaignsOf($receivables)
+        );
     }
 
     /**

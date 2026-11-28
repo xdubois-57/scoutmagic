@@ -11,9 +11,10 @@ paths: /finance/campaigns/*
 related: campagnes, rapprochement, mes-paiements, publipostage
 ---
 
-Le bouton « Brouillon de rappel », sur l'écran d'une campagne, prépare un
-publipostage pour chaque enfant dont la famille doit encore quelque
-chose : son montant, sa communication et son code QR.
+Le bouton « Brouillon de rappel », sur l'écran d'une campagne ouverte,
+prépare un publipostage pour chaque enfant dont la famille doit encore
+quelque chose : son montant, sa communication et son code QR. Une
+campagne clôturée ne le propose plus, ni la notification.
 
 ## Il n'envoie rien
 

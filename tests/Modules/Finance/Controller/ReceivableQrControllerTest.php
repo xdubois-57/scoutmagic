@@ -9,8 +9,12 @@ use Core\Security\EncryptionService;
 use Modules\Finance\Controller\ReceivableQrController;
 use Modules\Finance\Repository\Account;
 use Modules\Finance\Repository\AccountRepository;
+use Modules\Finance\Repository\Campaign;
+use Modules\Finance\Repository\CampaignRepository;
+use Modules\Finance\Repository\CampaignRowRepository;
 use Modules\Finance\Repository\ExpectedReceivableRepository;
 use Modules\Finance\Repository\TransactionRepository;
+use Modules\Finance\Service\ReceivableCampaigns;
 use Modules\Finance\Service\ReceivableQrTokenService;
 use Modules\Finance\Service\SepaQrCodeService;
 use PHPUnit\Framework\TestCase;
@@ -31,6 +35,8 @@ class ReceivableQrControllerTest extends TestCase
     private ReceivableQrTokenService $tokens;
     private ExpectedReceivableRepository $receivables;
     private TransactionRepository $transactions;
+    private CampaignRepository $campaigns;
+    private CampaignRowRepository $campaignRows;
     private int $accountId;
     private int $scoutYearId;
     private int $receivableId;
@@ -44,6 +50,8 @@ class ReceivableQrControllerTest extends TestCase
         $this->tokens = new ReceivableQrTokenService($this->encryption);
         $this->receivables = new ExpectedReceivableRepository($this->pdo, $this->encryption);
         $this->transactions = new TransactionRepository($this->pdo, $this->encryption);
+        $this->campaigns = new CampaignRepository($this->pdo);
+        $this->campaignRows = new CampaignRowRepository($this->pdo, $this->encryption);
 
         $accounts = new AccountRepository($this->pdo, $this->encryption);
         $this->accountId = $accounts->create('Compte Unité', Account::TYPE_BANK, null, 'BE71096123456769', 'Unité SV025', 'intendant');
@@ -56,6 +64,7 @@ class ReceivableQrControllerTest extends TestCase
             $accounts,
             FinanceTestHelper::allocationService($this->pdo, $this->encryption, $this->receivables),
             $this->tokens,
+            new ReceivableCampaigns($this->campaignRows, $this->campaigns),
             new SepaQrCodeService()
         );
 
@@ -140,6 +149,31 @@ class ReceivableQrControllerTest extends TestCase
         $this->pdo->exec("UPDATE finance_accounts SET iban = NULL WHERE id = {$this->accountId}");
 
         $this->assertSame(404, $this->fetch($this->receivableId, $this->tokens->tokenFor($this->receivableId))->getStatusCode());
+    }
+
+    /**
+     * Issue #1436: the member page drops a closed campaign's demand, and
+     * this is the code that page shows — so the image goes too, answering
+     * like a settled receivable. Reopening brings it back.
+     */
+    public function testAClosedCampaignsReceivableHasNoImageUntilItReopens(): void
+    {
+        $campaignId = $this->campaigns->create('Camp', $this->scoutYearId, $this->accountId, null, 'camp.xlsx', [], 7);
+        $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('D-1')");
+        $memberId = (int) $this->pdo->lastInsertId();
+        $rowId = $this->campaignRows->create($campaignId, $memberId, 6000, 1, []);
+        $receivableId = $this->receivables->create('finance', $rowId, $this->accountId, 6000, '+++111/2222/33344+++', null, $memberId);
+        $token = $this->tokens->tokenFor($receivableId);
+
+        $this->assertSame(200, $this->fetch($receivableId, $token)->getStatusCode());
+
+        $this->campaigns->setStatus($campaignId, Campaign::STATUS_CLOSED, '2026-03-01 10:00:00');
+        $closed = $this->fetch($receivableId, $token);
+        $this->assertSame(404, $closed->getStatusCode());
+        $this->assertSame($this->fetch(9999, $this->tokens->tokenFor(9999))->getBody(), $closed->getBody());
+
+        $this->campaigns->setStatus($campaignId, Campaign::STATUS_OPEN, null);
+        $this->assertSame(200, $this->fetch($receivableId, $token)->getStatusCode());
     }
 
     /**

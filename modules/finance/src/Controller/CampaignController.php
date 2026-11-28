@@ -249,6 +249,15 @@ class CampaignController extends AbstractController
         }
 
         try {
+            // A closed campaign hands out no more labels (issue #1436). The
+            // campaign was resolved above so an unknown one stays a 404;
+            // a closed one is a refusal shown on its own page.
+            $this->campaignService->requireOpenCampaign(
+                $campaign->id,
+                Role::fromString(AuthSession::getRole()),
+                CampaignService::ACTION_LABELS,
+                AuthSession::getUserAccountId()
+            );
             $pdf = $this->paymentLabelService->renderPdf($campaign);
         } catch (FinanceException $e) {
             // A campaign with nothing left to claim, or an account with no
@@ -340,6 +349,14 @@ class CampaignController extends AbstractController
      * confusing the two would inflate every incoming total the treasurer
      * reads.
      *
+     * **Still allowed on a closed campaign**, like the note (issue #1436):
+     * closing stops the campaign ASKING families for money, and neither of
+     * these asks anybody for anything. Settling the leftovers — a dispense
+     * agreed after the deadline, an invoicing mistake found at the end of
+     * the year — is precisely what a treasurer does once a campaign is
+     * closed, and forcing a reopen for it would re-expose its receivables
+     * to the families in the meantime.
+     *
      * @param array<string, string> $params
      */
     public function waive(Request $request, array $params): Response
@@ -412,6 +429,9 @@ class CampaignController extends AbstractController
      * treasurer reads it, edits it, and sends it from the mail-merge
      * screen like any other draft.
      *
+     * Refused on a closed campaign (CampaignService::requireOpenCampaign()):
+     * « les rappels s'arrêtent » is what the closing dialog promises.
+     *
      * @param array<string, string> $params
      */
     public function reminder(Request $request, array $params): Response
@@ -425,7 +445,12 @@ class CampaignController extends AbstractController
         }
 
         try {
-            $campaign = $this->campaignService->requireCampaign($campaignId, Role::fromString(AuthSession::getRole()));
+            $campaign = $this->campaignService->requireOpenCampaign(
+                $campaignId,
+                Role::fromString(AuthSession::getRole()),
+                CampaignService::ACTION_REMINDER,
+                AuthSession::getUserAccountId()
+            );
             $url = $this->reminderService->createDraft(
                 $campaign,
                 AuthSession::getRole(),
@@ -461,7 +486,9 @@ class CampaignController extends AbstractController
      *
      * "Les familles ont été prévenues." A separate, explicit gesture,
      * because the reminder leaves by hand from the mail-merge screen and
-     * the site cannot know when it actually went out.
+     * the site cannot know when it actually went out. Refused on a closed
+     * campaign by CampaignService::markNotified() itself, before anything
+     * is marked or sent.
      *
      * @param array<string, string> $params
      */

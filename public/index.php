@@ -9497,12 +9497,18 @@ if ($isEnabled('finance')) {
     // member's own page and the homepage band summarising a whole
     // family's open demands. One service for both, because they are one
     // question asked at two scales.
+    // Which campaign a receivable belongs to, and whether that campaign
+    // still asks (issue #1436) — one answer for the member page, the home
+    // band and the public QR, so the three can never disagree.
+    $financeReceivableCampaigns = new \Modules\Finance\Service\ReceivableCampaigns(
+        $financeCampaignRowRepo,
+        $financeCampaignRepo
+    );
     $financeFamilyPaymentService = new \Modules\Finance\Service\FamilyPaymentService(
         $financeExpectedReceivableRepo,
         $financeAllocationService,
         $financeAccountRepo,
-        $financeCampaignRowRepo,
-        $financeCampaignRepo,
+        $financeReceivableCampaigns,
         $financeStatementImportRepo,
         $financeQrTokenService,
         $memberService,
@@ -9523,6 +9529,7 @@ if ($isEnabled('finance')) {
             $financeAccountRepo,
             $financeAllocationService,
             $financeQrTokenService,
+            $financeReceivableCampaigns,
             $financeSepaQrCodeForOthers
         )
     );

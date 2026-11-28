@@ -41,11 +41,33 @@ use Modules\Finance\Repository\CampaignRowRepository;
  * Nothing here is a draft: the receivables exist from the import
  * onwards, so there is nothing a draft could usefully hold back. Two
  * states, open and closed, and closing freezes the campaign without
- * hiding it.
+ * hiding it: the three gestures that ask a family for money — the
+ * reminder draft, the notification, the sheet of labels — are refused
+ * ({@see requireOpenCampaign()}), and its unpaid receivables leave the
+ * family surfaces (Service\ReceivableCampaigns). Reopening undoes both,
+ * because neither wrote anything but the status.
  */
 class CampaignService
 {
     public const SOURCE_MODULE = 'finance';
+
+    /** The gestures a closed campaign refuses — the `action` its journal line names. */
+    public const ACTION_REMINDER = 'reminder';
+    public const ACTION_NOTIFY = 'notify';
+    public const ACTION_LABELS = 'labels';
+
+    /**
+     * What the treasurer reads when a closed campaign refuses a gesture:
+     * what is refused, why, and the way back.
+     */
+    private const REFUSED_WHEN_CLOSED = [
+        self::ACTION_REMINDER => 'Cette campagne est clôturée : elle ne prépare plus de brouillon de rappel. '
+            . 'Rouvrez-la pour en préparer un.',
+        self::ACTION_NOTIFY => 'Cette campagne est clôturée : elle ne notifie plus les familles. '
+            . 'Rouvrez-la pour les notifier.',
+        self::ACTION_LABELS => "Cette campagne est clôturée : elle ne produit plus d'étiquettes. "
+            . 'Rouvrez-la pour les imprimer.',
+    ];
 
     private const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
     private const STORAGE_SUBDIRECTORY = 'finance/campaigns';
@@ -333,16 +355,66 @@ class CampaignService
     }
 
     /**
+     * The campaign, provided it still asks families for money — what the
+     * reminder draft, the notification and the sheet of labels go through.
+     *
+     * **Closing has to mean what its dialog says** (issue #1436): « les
+     * rappels s'arrêtent ». It used to change the status and nothing else,
+     * so every one of those gestures stayed one click away on a campaign the
+     * treasurer believed frozen. Hiding the buttons is the screen's half;
+     * this is the half a stale page, a second tab or a hand-made POST meets.
+     *
+     * A refusal is journalled (`campaign_action_refused_closed`, info) with
+     * the action and the acting account: it is not an error, but a gesture
+     * somebody tried on a campaign they may not know was closed, which is
+     * worth being able to find when « le rappel ne part pas » is reported.
+     *
+     * No lock: the status is read, then the gesture runs. A close landing
+     * between the two lets one last draft or sheet through — money is never
+     * moved by any of them, and the treasurer who pressed the button is the
+     * one holding the result.
+     *
+     * @param self::ACTION_* $action
+     * @throws FinanceException when the campaign is unknown, out of reach
+     *         or closed
+     */
+    public function requireOpenCampaign(
+        int $campaignId,
+        Role $viewerRole,
+        string $action,
+        ?int $actorUserAccountId
+    ): Campaign {
+        $campaign = $this->requireCampaign($campaignId, $viewerRole);
+        if ($campaign->isOpen()) {
+            return $campaign;
+        }
+
+        $this->journal->log(
+            'finance',
+            'campaign_action_refused_closed',
+            'info',
+            'Geste refusé sur une campagne clôturée',
+            ['campaign_id' => $campaign->id, 'action' => $action],
+            $actorUserAccountId
+        );
+
+        throw new FinanceException(self::REFUSED_WHEN_CLOSED[$action]);
+    }
+
+    /**
      * Records that the treasurer has told the families. Not the creation
      * of the campaign: the reminder leaves by hand from the mass-mail
      * draft, so a notification sent at import time would announce a
      * message nobody has written yet.
      *
+     * Refused on a closed campaign ({@see requireOpenCampaign()}): the mark
+     * is what the notification hangs on, so refusing it here refuses both.
+     *
      * @throws FinanceException
      */
     public function markNotified(int $campaignId, Role $viewerRole, ?int $actorUserAccountId): Campaign
     {
-        $campaign = $this->requireCampaign($campaignId, $viewerRole);
+        $campaign = $this->requireOpenCampaign($campaignId, $viewerRole, self::ACTION_NOTIFY, $actorUserAccountId);
 
         $this->campaigns->markNotified($campaign->id, date('Y-m-d H:i:s'), $actorUserAccountId);
 

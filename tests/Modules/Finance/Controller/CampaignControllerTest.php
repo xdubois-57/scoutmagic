@@ -462,6 +462,160 @@ class CampaignControllerTest extends TestCase
     }
 
     /**
+     * Issue #1436: « Les rappels s'arrêtent » is now true on the server, not
+     * only on the screen — a stale page or a hand-made POST meets the same
+     * refusal, each one journalled with its action and the acting account.
+     */
+    public function testAClosedCampaignRefusesTheReminderTheNotificationAndTheLabels(): void
+    {
+        $campaignId = $this->createCampaign();
+        $this->closeThroughTheRoute($campaignId);
+        $controller = $this->controllerWithReminderUrl('/mass-mail/42');
+
+        $reminder = $controller->reminder(
+            new Request('POST', '/x', [], ['_csrf_token' => $this->csrfToken()], [], []),
+            ['id' => (string) $campaignId]
+        );
+        $this->assertSame('/finance/campaigns/' . $campaignId, $reminder->getHeaders()['Location'] ?? null);
+        $this->assertStringContainsString('ne prépare plus de brouillon de rappel', (string) (FlashMessage::get()['message'] ?? ''));
+
+        $notify = $controller->notify(
+            new Request('POST', '/x', [], ['_csrf_token' => $this->csrfToken()], [], []),
+            ['id' => (string) $campaignId]
+        );
+        $this->assertSame('/finance/campaigns/' . $campaignId, $notify->getHeaders()['Location'] ?? null);
+        $this->assertStringContainsString('ne notifie plus les familles', (string) (FlashMessage::get()['message'] ?? ''));
+        $this->assertFalse($this->campaigns->findById($campaignId)?->isNotified(), 'a closed campaign was marked notified');
+
+        $labels = $controller->labels(
+            new Request('GET', '/finance/campaigns/' . $campaignId . '/labels', [], [], [], []),
+            ['id' => (string) $campaignId]
+        );
+        $this->assertSame(302, $labels->getStatusCode());
+        $this->assertSame('/finance/campaigns/' . $campaignId, $labels->getHeaders()['Location'] ?? null);
+        $this->assertStringContainsString("ne produit plus d'étiquettes", (string) (FlashMessage::get()['message'] ?? ''));
+
+        $journal = $this->pdo->query(
+            "SELECT category, level, user_account_id, context FROM event_log
+             WHERE event_type = 'campaign_action_refused_closed' ORDER BY id"
+        )->fetchAll(\PDO::FETCH_ASSOC);
+        $this->assertSame(
+            [
+                ['finance', 'info', 1, ['campaign_id' => $campaignId, 'action' => 'reminder']],
+                ['finance', 'info', 1, ['campaign_id' => $campaignId, 'action' => 'notify']],
+                ['finance', 'info', 1, ['campaign_id' => $campaignId, 'action' => 'labels']],
+            ],
+            array_map(static fn(array $row): array => [
+                $row['category'],
+                $row['level'],
+                (int) $row['user_account_id'],
+                json_decode((string) $row['context'], true),
+            ], $journal)
+        );
+    }
+
+    /**
+     * The screen's half: the three buttons are gone and the page says what
+     * closing does and does not do. Reopening brings every button back.
+     */
+    public function testAClosedCampaignsPageHidesTheGesturesThatAskForMoneyUntilItReopens(): void
+    {
+        $campaignId = $this->createCampaign();
+        $controller = $this->controllerWithReminderUrl('/mass-mail/42');
+        $show = fn(): string => $controller->show(
+            new Request('GET', '/finance/campaigns/' . $campaignId, [], [], [], []),
+            ['id' => (string) $campaignId]
+        )->getBody();
+
+        $this->closeThroughTheRoute($campaignId);
+        $closed = $show();
+
+        $this->assertStringContainsString('Campagne clôturée.', $closed);
+        $this->assertStringContainsString('Un paiement qui arrive encore est rattaché', $closed);
+        $this->assertStringNotContainsString('Brouillon de rappel', $closed);
+        $this->assertStringNotContainsString('/notify', $closed);
+        $this->assertStringNotContainsString('/labels', $closed);
+        $this->assertStringContainsString('Rouvrir', $closed);
+        // What closing leaves alone stays on the page.
+        $this->assertStringContainsString('/note', $closed);
+        $this->assertStringContainsString('Abandonner la créance', $closed);
+
+        $this->controller->updateStatus(
+            new Request('POST', '/x', [], ['_csrf_token' => $this->csrfToken(), 'status' => 'open'], [], []),
+            ['id' => (string) $campaignId]
+        );
+        $reopened = $show();
+
+        $this->assertStringNotContainsString('Campagne clôturée.', $reopened);
+        $this->assertStringContainsString('Brouillon de rappel', $reopened);
+        $this->assertStringContainsString('/notify', $reopened);
+        $this->assertStringContainsString('/labels', $reopened);
+    }
+
+    public function testReopeningACampaignAcceptsTheGesturesAgain(): void
+    {
+        $campaignId = $this->createCampaign();
+        $this->closeThroughTheRoute($campaignId);
+        $this->controller->updateStatus(
+            new Request('POST', '/x', [], ['_csrf_token' => $this->csrfToken(), 'status' => 'open'], [], []),
+            ['id' => (string) $campaignId]
+        );
+        FlashMessage::get();
+
+        $reminder = $this->controllerWithReminderUrl('/mass-mail/42')->reminder(
+            new Request('POST', '/x', [], ['_csrf_token' => $this->csrfToken()], [], []),
+            ['id' => (string) $campaignId]
+        );
+        $this->assertSame('/mass-mail/42', $reminder->getHeaders()['Location'] ?? null);
+
+        $labels = $this->controller->labels(
+            new Request('GET', '/finance/campaigns/' . $campaignId . '/labels', [], [], [], []),
+            ['id' => (string) $campaignId]
+        );
+        $this->assertSame(200, $labels->getStatusCode());
+
+        $this->controller->notify(
+            new Request('POST', '/x', [], ['_csrf_token' => $this->csrfToken()], [], []),
+            ['id' => (string) $campaignId]
+        );
+        $this->assertTrue($this->campaigns->findById($campaignId)?->isNotified());
+        $this->assertSame(0, $this->countFrom("SELECT COUNT(*) FROM event_log WHERE event_type = 'campaign_action_refused_closed'"));
+    }
+
+    /**
+     * Closing stops the campaign ASKING; settling and annotating the
+     * leftovers is what a treasurer does after it, so both stay.
+     */
+    public function testAbandoningAndNotingStayAvailableOnAClosedCampaign(): void
+    {
+        $campaignId = $this->createCampaign();
+        $rowId = $this->rows->findByCampaignId($campaignId)[0]->id;
+        $receivableId = $this->receivables->findBySource(CampaignService::SOURCE_MODULE, $rowId)[0]->id;
+        $this->closeThroughTheRoute($campaignId);
+
+        $this->waiveThrough($campaignId, $receivableId, '1');
+        $this->assertSame('La créance a été abandonnée.', FlashMessage::get()['message'] ?? null);
+        $this->assertTrue($this->receivables->findById($receivableId)?->isWaived());
+
+        $this->controller->saveNote(
+            new Request('POST', '/x', [], ['_csrf_token' => $this->csrfToken(), 'note' => 'Dispense accordée.'], [], []),
+            ['id' => (string) $campaignId, 'rowId' => (string) $rowId]
+        );
+        $this->assertSame('La note a été enregistrée.', FlashMessage::get()['message'] ?? null);
+        $this->assertSame('Dispense accordée.', $this->rows->findById($rowId)?->note);
+    }
+
+    private function closeThroughTheRoute(int $campaignId): void
+    {
+        $this->controller->updateStatus(
+            new Request('POST', '/x', [], ['_csrf_token' => $this->csrfToken(), 'status' => 'closed'], [], []),
+            ['id' => (string) $campaignId]
+        );
+        self::assertSame('La campagne est clôturée.', FlashMessage::get()['message'] ?? null);
+        self::assertFalse($this->campaigns->findById($campaignId)?->isOpen());
+    }
+
+    /**
      * The other caller of `Modules\MassMail\Api\MassMailDraftInterface`
      * — news's « Écrire aux répondants » is the first — and the reason
      * both had to be checked: the interface promised « the draft's edit

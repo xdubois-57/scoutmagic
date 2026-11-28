@@ -14,12 +14,14 @@ use Core\Security\EncryptionService;
 use Modules\Finance\Service\FamilyPaymentService;
 use Modules\Finance\Repository\Account;
 use Modules\Finance\Repository\AccountRepository;
+use Modules\Finance\Repository\Campaign;
 use Modules\Finance\Repository\CampaignRepository;
 use Modules\Finance\Repository\CampaignRowRepository;
 use Modules\Finance\Repository\ExpectedReceivableRepository;
 use Modules\Finance\Repository\StatementImportRepository;
 use Modules\Finance\Repository\TransactionRepository;
 use Modules\Finance\Service\CampaignService;
+use Modules\Finance\Service\ReceivableCampaigns;
 use Modules\Finance\Service\ReceivableQrTokenService;
 use Modules\Finance\Service\StructuredCommunicationService;
 use PHPUnit\Framework\TestCase;
@@ -171,6 +173,92 @@ class FamilyPaymentServiceTest extends TestCase
             (new ReceivableQrTokenService($this->encryption))->urlFor($receivable->id, 'https://scoutmagic.test'),
             $payments[0]->qrUrl
         );
+    }
+
+    // ── a closed campaign stops asking (issue #1436) ────────────────────
+
+    /**
+     * « Clôturer » promises that the campaign stops asking. The member page
+     * is where a family is asked, so a closed campaign's unpaid receivable
+     * leaves it — and only that one: an open campaign's demand next to it
+     * stays, and so does a receivable no campaign raised.
+     */
+    public function testAClosedCampaignsDemandLeavesTheMemberPageAndReopeningBringsItBack(): void
+    {
+        $closed = $this->campaignWith([['Lucie', 4500]], 'Camp 2025');
+        $this->campaignWith([['Lucie', 3825]]);
+        $this->receivables->create('rental', 99, $this->accountId, 1200, '+++999/9999/99999+++', null, $this->memberIds['Lucie']);
+
+        $this->campaigns->setStatus($closed, Campaign::STATUS_CLOSED, '2026-03-01 10:00:00');
+        $payments = $this->service()->getOpenPayments($this->memberIds['Lucie']);
+
+        $this->assertSame([1200, 3825], array_map(static fn($p): int => $p->amountRemainingCents, $payments));
+        $this->assertNotContains('Camp 2025', array_map(static fn($p): string => $p->label, $payments));
+
+        $this->campaigns->setStatus($closed, Campaign::STATUS_OPEN, null);
+        $reopened = $this->service()->getOpenPayments($this->memberIds['Lucie']);
+
+        $this->assertCount(3, $reopened);
+        $this->assertContains('Camp 2025', array_map(static fn($p): string => $p->label, $reopened));
+    }
+
+    /**
+     * The staff's view of the member is not a family surface (#1555
+     * review): closing a campaign stops asking the family, it does not
+     * write the debt off, so the admin member page still shows it.
+     */
+    public function testTheStaffStillSeeAClosedCampaignsUnpaidDemand(): void
+    {
+        $closed = $this->campaignWith([['Lucie', 4500]], 'Camp 2025');
+        $this->campaigns->setStatus($closed, Campaign::STATUS_CLOSED, '2026-03-01 10:00:00');
+
+        $this->assertSame([], $this->service()->getOpenPayments($this->memberIds['Lucie']));
+        $outstanding = $this->service()->getOutstandingPayments($this->memberIds['Lucie']);
+        $this->assertSame([4500], array_map(static fn($p): int => $p->amountRemainingCents, $outstanding));
+    }
+
+    public function testAClosedCampaignsDemandLeavesTheHomeBandAndReopeningBringsItBack(): void
+    {
+        $closed = $this->campaignWith([['Lucie', 4500], ['Antoine', 4500]], 'Camp 2025');
+        $this->campaignWith([['Antoine', 1000]]);
+
+        $this->campaigns->setStatus($closed, Campaign::STATUS_CLOSED, '2026-03-01 10:00:00');
+        $summary = $this->signedInAs('famille@test.be')->getHomePaymentSummaryForCurrentUser();
+
+        $this->assertNotNull($summary);
+        $this->assertSame(1000, $summary['total_cents']);
+        $this->assertSame(['Antoine'], array_column($summary['demands'], 'member_name'));
+        $this->assertNotNull($summary['single_member_year_id'], 'only one member is still asked for something');
+
+        $this->campaigns->setStatus($closed, Campaign::STATUS_OPEN, null);
+        $reopened = $this->signedInAs('famille@test.be')->getHomePaymentSummaryForCurrentUser();
+
+        $this->assertNotNull($reopened);
+        $this->assertSame(10000, $reopened['total_cents']);
+    }
+
+    /** A family whose only demand was closed sees no band at all, not an empty one. */
+    public function testAFamilyWhoseOnlyCampaignIsClosedSeesNoBand(): void
+    {
+        $closed = $this->campaignWith([['Timeo', 3825]]);
+        $this->campaigns->setStatus($closed, Campaign::STATUS_CLOSED, '2026-03-01 10:00:00');
+
+        $this->assertNull($this->signedInAs('roskam@test.be')->getHomePaymentSummaryForCurrentUser());
+    }
+
+    /**
+     * The history is not a demand: what was paid stays true after the close.
+     */
+    public function testAClosedCampaignsSettledDemandStaysInTheHistory(): void
+    {
+        $closed = $this->campaignWith([['Lucie', 4500]]);
+        $this->pay($this->memberIds['Lucie'], 45.00);
+        $this->campaigns->setStatus($closed, Campaign::STATUS_CLOSED, '2026-03-01 10:00:00');
+
+        $settled = $this->service()->getSettledPayments($this->memberIds['Lucie']);
+
+        $this->assertCount(1, $settled);
+        $this->assertSame('Cotisations 2025-2026', $settled[0]->label);
     }
 
     // ── what is over (the admin member page) ───────────────────────────
@@ -409,8 +497,7 @@ class FamilyPaymentServiceTest extends TestCase
             $this->receivables,
             FinanceTestHelper::allocationService($this->pdo, $this->encryption, $this->receivables),
             new AccountRepository($this->pdo, $this->encryption),
-            $this->rows,
-            $this->campaigns,
+            new ReceivableCampaigns($this->rows, $this->campaigns),
             $this->imports,
             new ReceivableQrTokenService($this->encryption),
             new MemberService(
@@ -438,10 +525,10 @@ class FamilyPaymentServiceTest extends TestCase
     /**
      * @param array<int, array{0: string, 1: int}> $lines first name, amount in cents
      */
-    private function campaignWith(array $lines): void
+    private function campaignWith(array $lines, string $label = 'Cotisations 2025-2026'): int
     {
         $campaignId = $this->campaigns->create(
-            'Cotisations 2025-2026',
+            $label,
             $this->scoutYearId,
             $this->accountId,
             null,
@@ -459,11 +546,13 @@ class FamilyPaymentServiceTest extends TestCase
                 $rowId,
                 $this->accountId,
                 $amountCents,
-                StructuredCommunicationService::format(str_pad((string) (1000000000 + $sequence), 10, '0', STR_PAD_LEFT)),
+                StructuredCommunicationService::format(str_pad((string) (1000000000 + $campaignId * 1000 + $sequence), 10, '0', STR_PAD_LEFT)),
                 null,
                 $this->memberIds[$firstName]
             );
         }
+
+        return $campaignId;
     }
 
     private function pay(int $memberId, float $amount): void

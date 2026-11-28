@@ -47,6 +47,17 @@ interface MemberPaymentProvider
     public function getOpenPayments(int $memberId): array;
 
     /**
+     * Everything this member still owes, as the STAFF see it: the same as
+     * getOpenPayments(), plus what a closed payment campaign stopped
+     * asking the family for (issue #1436). Closing a campaign is a
+     * decision not to ask any more, not a write-off: the member's admin
+     * page still has to say where a payment stands (#1555 review).
+     *
+     * @return list<MemberPaymentView>
+     */
+    public function getOutstandingPayments(int $memberId): array;
+
+    /**
      * The demands that are over — paid, abandoned, refunded — most
      * recent first, capped at self::SETTLED_LIMIT.
      *

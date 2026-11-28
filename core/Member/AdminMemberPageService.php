@@ -159,7 +159,8 @@ class AdminMemberPageService
             'member_emails' => $this->buildReadOnlyEmails($profile),
             'member_documents' => $this->buildDocuments($profile->memberId),
             'open_payments' =>
-                $this->hooks?->getOptional(MemberPaymentProvider::class)?->getOpenPayments($profile->memberId) ?? [],
+                $this->hooks?->getOptional(MemberPaymentProvider::class)?->getOutstandingPayments($profile->memberId)
+                    ?? [],
             'settled_payments' => $settled,
             // Said on screen rather than left to be inferred: a member of
             // ten years has more closed rows than this page shows, and a

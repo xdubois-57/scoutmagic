@@ -16,6 +16,7 @@ use Modules\Finance\Repository\AccountRepository;
 use Modules\Finance\Repository\ExpectedReceivableRepository;
 use Modules\Finance\Service\IbanNormalizer;
 use Modules\Finance\Service\ReceivableAllocationService;
+use Modules\Finance\Service\ReceivableCampaigns;
 use Modules\Finance\Service\ReceivableQrTokenService;
 use Twig\Environment;
 
@@ -41,6 +42,13 @@ use Twig\Environment;
  * a photo's thumbnail. It encodes what is STILL DUE, so a reminder sent
  * after a partial payment asks for the balance and not for the whole
  * amount again.
+ *
+ * **A closed campaign's receivable has no code** (issue #1436): closing
+ * stops the campaign asking, and this image is the same one the member
+ * page shows, so the two can only agree if both read
+ * Service\ReceivableCampaigns. A mail already sent keeps the IBAN, amount
+ * and communication in text under the image, so a family who still wants
+ * to pay can; reopening the campaign brings the code back.
  */
 class ReceivableQrController extends AbstractController
 {
@@ -50,6 +58,7 @@ class ReceivableQrController extends AbstractController
         private AccountRepository $accounts,
         private ReceivableAllocationService $allocations,
         private ReceivableQrTokenService $tokens,
+        private ReceivableCampaigns $receivableCampaigns,
         private ?SepaQrCodeInterface $sepaQrCode = null
     ) {
     }
@@ -70,6 +79,12 @@ class ReceivableQrController extends AbstractController
 
         $receivable = $this->receivables->findById($receivableId);
         if ($receivable === null || $this->sepaQrCode === null) {
+            return new Response('Not Found', 404);
+        }
+
+        // Same answer as nothing left to pay: from the family's side, a
+        // closed campaign is a demand that is no longer made.
+        if ($this->receivableCampaigns->withoutClosedCampaigns([$receivable]) === []) {
             return new Response('Not Found', 404);
         }
 
