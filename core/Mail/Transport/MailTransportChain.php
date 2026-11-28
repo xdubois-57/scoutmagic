@@ -138,7 +138,7 @@ final class MailTransportChain implements MailTransportInterface
                 // to the next relay nor counts against this one's breaker.
                 throw $e;
             } catch (\Throwable $e) {
-                $lastReason = MailErrorRedaction::withoutAddresses($mail->ErrorInfo ?: $e->getMessage());
+                $lastReason = MailFailure::boundedReason($mail->ErrorInfo ?: $e->getMessage());
                 $attemptFailures[] = $lastReason;
                 $this->journalAttemptFailure($provider, $lane, $lastReason);
                 $this->recordFailure($provider, $lane, $lastReason);

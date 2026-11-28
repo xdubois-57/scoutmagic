@@ -8,6 +8,8 @@ declare(strict_types=1);
 
 namespace Core\Mail\Transport;
 
+use Core\Mail\MailErrorRedaction;
+
 /**
  * Whose fault a refusal was (D15, ARCHITECTURE.md §8.106).
  *
@@ -203,6 +205,31 @@ enum MailFailure
         }
 
         return self::Provider;
+    }
+
+    /**
+     * The reason as the rest of the chain keeps it — without addresses and
+     * bounded at 400 characters ({@see MailErrorRedaction::withoutAddresses()})
+     * — but **still carrying the code it is classified by** (#1571 review).
+     * PHPMailer appends the enhanced code at the very end of a long
+     * message, so the cap alone can cut it off; the breaker, the queue and
+     * the drain then read the bare « 550 » that is left and take a quota
+     * refusal for a refused address. When the cut text no longer reads
+     * like the whole, its last characters give way to the code, in
+     * brackets.
+     */
+    public static function boundedReason(string $text): string
+    {
+        $whole = MailErrorRedaction::addressesRemoved($text);
+        $bounded = MailErrorRedaction::withoutAddresses($text);
+        $code = self::enhancedCode($whole);
+        if ($code === null || ($bounded === $whole) || self::enhancedCode($bounded) === $code) {
+            return $bounded;
+        }
+
+        $suffix = ' [' . $code . ']';
+
+        return mb_substr($bounded, 0, max(0, mb_strlen($bounded) - mb_strlen($suffix))) . $suffix;
     }
 
     /**

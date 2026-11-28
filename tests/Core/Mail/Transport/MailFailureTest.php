@@ -128,6 +128,34 @@ class MailFailureTest extends TestCase
         ];
     }
 
+    /**
+     * A long PHPMailer message keeps, once bounded, the code it is
+     * classified by: the cap alone would leave a bare « 550 » that reads
+     * as a refused address (#1571 review).
+     */
+    public function testABoundedReasonKeepsTheCodeItIsReadBy(): void
+    {
+        $long = 'SMTP Error: The following recipients failed: jean.dupont@exemple.be: '
+            . str_repeat('Daily user sending limit exceeded. ', 20)
+            . 'SMTP code: 550 Additional SMTP info: 5.4.5';
+
+        $bounded = MailFailure::boundedReason($long);
+
+        $this->assertLessThanOrEqual(400, mb_strlen($bounded));
+        $this->assertStringNotContainsString('@', $bounded);
+        $this->assertSame('5.4.5', MailFailure::enhancedCode($bounded));
+        $this->assertSame(MailFailure::Provider, MailFailure::classify($bounded));
+        $this->assertSame(MailFailure::classify($long), MailFailure::classify($bounded));
+    }
+
+    /** A reason that fits, or that has no code, is only redacted and bounded. */
+    public function testABoundedReasonIsOtherwiseTheRedactedText(): void
+    {
+        $this->assertSame('550 5.1.1 [adresse] unknown', MailFailure::boundedReason('550 5.1.1 a@b.be unknown'));
+        $plain = str_repeat('Connexion refusée. ', 40);
+        $this->assertSame(mb_substr(trim($plain), 0, 400), MailFailure::boundedReason($plain));
+    }
+
     #[DataProvider('codes')]
     public function testTheEnhancedCodeIsReadWhereverItIs(string $reason, ?string $expected): void
     {

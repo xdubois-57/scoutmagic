@@ -505,7 +505,7 @@ class MailService
             // rather than lost — except on the authentication lane, where
             // a link delivered tomorrow is not a link (D9), and where the
             // person is in front of their screen and needs the truth now.
-            $reason = MailErrorRedaction::withoutAddresses($e->reason !== '' ? $e->reason : $e->getMessage());
+            $reason = Transport\MailFailure::boundedReason($e->reason !== '' ? $e->reason : $e->getMessage());
 
             // **Unless somebody DID say no to this message.** A lane runs
             // out when its last candidate fails, and on the ordinary
@@ -546,8 +546,10 @@ class MailService
 
             $this->journalFailure($reason);
 
+            // The code survives the cap (#1571 review): on a queue-less
+            // replay the drain classifies this very message.
             throw new MailException(
-                MailErrorRedaction::withoutAddresses($e->getMessage()),
+                Transport\MailFailure::boundedReason($e->getMessage()),
                 attemptFailures: $e->attemptFailures
             );
         } catch (MailSendingSuspendedException $e) {

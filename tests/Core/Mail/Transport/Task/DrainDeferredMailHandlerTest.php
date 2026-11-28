@@ -307,6 +307,24 @@ class DrainDeferredMailHandlerTest extends TestCase
         );
     }
 
+    /**
+     * The same quota refusal on replay, long enough that the code sits
+     * past the 400 characters kept: still rescheduled (#1571 review).
+     */
+    public function testALongQuotaRefusalOnReplayIsStillRescheduled(): void
+    {
+        $this->queue(MailLane::Bulk, nextAttemptAt: $this->minutesAgo(5));
+        $this->refuse = ['parent@exemple.test'];
+        $this->refusalReason = 'SMTP Error: The following recipients failed: [adresse]: '
+            . str_repeat('Daily user sending limit exceeded. ', 20)
+            . 'SMTP code: 550 Additional SMTP info: 5.4.5';
+
+        $this->drain();
+
+        $this->assertSame(0, $this->repository->countAbandoned());
+        $this->assertCount(1, $this->repository->due(10, '2099-01-01 00:00:00'));
+    }
+
     /** A provider failure on the same replay still walks the ladder. */
     public function testAProviderFailureOnReplayIsStillRescheduled(): void
     {

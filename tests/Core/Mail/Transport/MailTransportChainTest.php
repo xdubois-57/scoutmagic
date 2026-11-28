@@ -795,6 +795,31 @@ class MailTransportChainTest extends TestCase
     }
 
     /**
+     * The same refusal, long enough that the code sits past the 400
+     * characters the chain keeps: it still counts as a strike against the
+     * relay rather than as a refused address (#1571 review).
+     */
+    public function testALongQuotaRefusalStillOpensTheCircuit(): void
+    {
+        $first = $this->addRelay('Premier', 'smtp.premier.test');
+        $second = $this->addRelay('Second', 'smtp.second.test');
+        $this->enable(MailLane::Authentication, [$first, $second]);
+        $health = new ProviderHealthRepository($this->pdo);
+
+        $delivery = $this->recordingTransport(
+            refuseHosts: ['smtp.premier.test'],
+            refusalReason: 'SMTP Error: The following recipients failed: [adresse]: '
+                . str_repeat('Daily user sending limit exceeded. ', 20)
+                . 'SMTP code: 550 Additional SMTP info: 5.4.5'
+        );
+        for ($i = 0; $i < ProviderHealth::FAILURES_BEFORE_OPEN; $i++) {
+            $this->chain($delivery, $health)->deliver($this->message(), MailPurpose::MagicLink);
+        }
+
+        $this->assertTrue($health->forProvider($first)->isOpen());
+    }
+
+    /**
      * **A 550 that is the relay's own quota is a strike** (issue #1488).
      * « 550 5.4.5 Daily user sending limit exceeded » is Google refusing
      * everything until tomorrow, whoever the recipient; read as a bad

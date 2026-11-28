@@ -209,7 +209,9 @@ class DrainDeferredMailHandler implements TaskHandlerInterface
         } catch (\Core\Mail\SuppressedRecipientException) {
             return self::SUPPRESSED;
         } catch (\Throwable $e) {
-            return MailErrorRedaction::withoutAddresses($e->getMessage());
+            // Bounded, but keeping the code it is classified by below
+            // (#1571 review): a long refusal's code sits at its very end.
+            return MailFailure::boundedReason($e->getMessage());
         } finally {
             foreach ($attachments['temporary'] as $path) {
                 @unlink($path);
