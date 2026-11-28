@@ -547,8 +547,66 @@ class NewsController extends AbstractController
         }
 
         $this->applyIntentAfterSave($article, $intent, $accountId, $scheduleAt);
+        $this->reportRecomputedCapacities($accountId);
 
         return $this->redirect('/news/' . $article->id . '/gerer');
+    }
+
+    /**
+     * Journals each field whose cap this save set or changed, with the
+     * total its existing answers already take, and says so when those
+     * answers already exceed the cap (issue #1465). The answers stay; the
+     * form simply takes no more for that field.
+     *
+     * After the intent is applied: the one flash message a page shows is
+     * then this warning, joined to whatever the intent left there.
+     */
+    private function reportRecomputedCapacities(?int $accountId): void
+    {
+        $overruns = [];
+        foreach ($this->formService->recomputedCapacities() as $field) {
+            $this->journalService->log(
+                'news',
+                'form_field_capacity_recomputed',
+                'info',
+                'Places prises recalculées pour un champ dont la capacité a changé',
+                [
+                    'form_id' => $field['form_id'],
+                    'field_id' => $field['field_id'],
+                    'capacity_max' => $field['capacity_max'],
+                    'capacity_used' => $field['capacity_used'],
+                ],
+                $accountId
+            );
+            if ($field['capacity_used'] > $field['capacity_max']) {
+                $overruns[] = sprintf(
+                    '« %s » : %s places déjà prises pour une capacité de %d',
+                    $field['label'] ?? 'Champ sans libellé',
+                    self::formatQuantity($field['capacity_used']),
+                    $field['capacity_max']
+                );
+            }
+        }
+        if ($overruns === []) {
+            return;
+        }
+
+        $warning = 'La capacité est déjà dépassée par les réponses existantes ('
+            . implode(' ; ', $overruns)
+            . '). Ces réponses sont conservées, mais le formulaire n\'en acceptera plus pour ce champ.';
+        $pending = FlashMessage::peek();
+        FlashMessage::set(
+            $pending !== null && $pending['type'] === 'error' ? 'error' : 'warning',
+            $pending !== null ? $pending['message'] . ' ' . $warning : $warning
+        );
+    }
+
+    /** A quantity as a person writes it: no decimals when it is whole, a comma otherwise. */
+    private static function formatQuantity(float $quantity): string
+    {
+        return floor($quantity) === $quantity
+            ? (string) (int) $quantity
+            : str_replace('.', ',', rtrim(rtrim(number_format($quantity, 2, '.', ''), '0'), '.'));
     }
 
     /**

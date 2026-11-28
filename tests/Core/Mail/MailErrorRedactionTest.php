@@ -54,6 +54,25 @@ class MailErrorRedactionTest extends TestCase
         $this->assertStringContainsString('550', $clean);
     }
 
+    /**
+     * An internationalised address goes as a whole, local part or domain
+     * (#1522 review) — still without the `/u` flag.
+     */
+    public function testAnAddressWithAccentsGoesToo(): void
+    {
+        $clean = MailErrorRedaction::addressesRemoved(
+            '550 refus pour famille@exämple.be et élève.dupont@example.be'
+        );
+
+        $this->assertSame('550 refus pour [adresse] et [adresse]', $clean);
+    }
+
+    /** The same replacement without the cap, for a caller that bounds the text itself. */
+    public function testAddressesRemovedDoesNotCutTheText(): void
+    {
+        $this->assertSame(5000, mb_strlen(MailErrorRedaction::addressesRemoved(str_repeat('x', 5000))));
+    }
+
     public function testAWallOfTextIsBounded(): void
     {
         $clean = MailErrorRedaction::withoutAddresses(str_repeat('x', 5000));

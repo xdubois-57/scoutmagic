@@ -46,12 +46,12 @@ class FormFieldRepository
     ): int {
         $stmt = $this->pdo->prepare(
             'INSERT INTO news_form_fields (form_id, sort_order, field_type, label, is_required, options_source, '
-                . 'options_manual, capacity_max, price_per_unit, confirmation_text)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                . 'options_manual, capacity_max, capacity_peak, price_per_unit, confirmation_text)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([
             $formId, $sortOrder, $fieldType, $label, $isRequired ? 1 : 0,
-            $optionsSource, $optionsManual, $capacityMax, $pricePerUnit, $confirmationText,
+            $optionsSource, $optionsManual, $capacityMax, $capacityMax, $pricePerUnit, $confirmationText,
         ]);
         return (int) $this->pdo->lastInsertId();
     }
@@ -62,6 +62,11 @@ class FormFieldRepository
      * re-inserting everything, so a field that already has responses
      * keeps its id — and their news_form_response_values rows, which
      * cascade-delete if the field itself is ever actually removed).
+     *
+     * `capacity_peak` only ever rises: the highest cap the field has had,
+     * the one FormField::storedQuantity() bounds every answer by (#1546
+     * review). A row written before the column starts from its current
+     * cap — what it had before cannot be known.
      */
     public function update(
         int $id,
@@ -77,11 +82,18 @@ class FormFieldRepository
     ): void {
         $stmt = $this->pdo->prepare(
             'UPDATE news_form_fields SET sort_order = ?, field_type = ?, label = ?, is_required = ?, options_source = '
-                . '?, options_manual = ?, capacity_max = ?, price_per_unit = ?, confirmation_text = ? WHERE id = ?'
+                . '?, options_manual = ?, '
+                . 'capacity_peak = CASE'
+                // `? + 0`: a bound parameter arrives as text, which SQLite
+                // would compare as greater than any number.
+                . ' WHEN COALESCE(capacity_peak, capacity_max, 0) >= COALESCE(? + 0, 0) THEN COALESCE(capacity_peak, capacity_max)'
+                . ' ELSE ? END, '
+                . 'capacity_max = ?, price_per_unit = ?, confirmation_text = ? WHERE id = ?'
         );
         $stmt->execute([
             $sortOrder, $fieldType, $label, $isRequired ? 1 : 0,
-            $optionsSource, $optionsManual, $capacityMax, $pricePerUnit, $confirmationText, $id,
+            $optionsSource, $optionsManual, $capacityMax, $capacityMax,
+            $capacityMax, $pricePerUnit, $confirmationText, $id,
         ]);
     }
 
@@ -129,7 +141,8 @@ class FormFieldRepository
             capacityMax: $row['capacity_max'] !== null ? (int) $row['capacity_max'] : null,
             pricePerUnit: $row['price_per_unit'] !== null ? (float) $row['price_per_unit'] : null,
             confirmationText: $row['confirmation_text'] !== null ? (string) $row['confirmation_text'] : null,
-            capacityUsed: (float) ($row['capacity_used'] ?? 0)
+            capacityUsed: (float) ($row['capacity_used'] ?? 0),
+            capacityPeak: isset($row['capacity_peak']) ? (int) $row['capacity_peak'] : null
         );
     }
 
@@ -158,6 +171,44 @@ class FormFieldRepository
     }
 
     /**
+     * Locks the rows of $fieldIds, in ascending id order, and returns each
+     * one's running total — what a submission or an edit does BEFORE it
+     * writes its answers (#1546 review). Inserting an answer takes a shared
+     * lock on its field's row through the foreign key; two submissions
+     * holding that shared lock and then both asking for the exclusive one
+     * addUsedCapacity() needs would deadlock, and one of them would be
+     * refused. Taking the exclusive lock first makes them queue instead,
+     * and the same order everywhere keeps two multi-field writes from
+     * crossing. `FOR UPDATE` on MySQL/MariaDB only, as usedCapacity().
+     *
+     * @param list<int> $fieldIds
+     * @return array<int, float> field id => capacity_used
+     */
+    public function lockUsedCapacities(array $fieldIds): array
+    {
+        if ($fieldIds === []) {
+            return [];
+        }
+        $fieldIds = array_values(array_unique($fieldIds));
+        sort($fieldIds);
+
+        $sql = 'SELECT id, capacity_used FROM news_form_fields WHERE id IN ('
+            . implode(',', array_fill(0, count($fieldIds), '?')) . ') ORDER BY id';
+        if ($this->pdo->getAttribute(\PDO::ATTR_DRIVER_NAME) === 'mysql') {
+            $sql .= ' FOR UPDATE';
+        }
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute($fieldIds);
+
+        $used = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $used[(int) $row['id']] = (float) $row['capacity_used'];
+        }
+
+        return $used;
+    }
+
+    /**
      * Moves the running total by $delta — positive for a new answer,
      * negative for the part an edit gives back. Written as a relative
      * UPDATE rather than a read-then-write so it is correct under the
@@ -174,10 +225,89 @@ class FormFieldRepository
     }
 
     /**
+     * $work inside one transaction — the caller's if it already has one,
+     * else one of its own, committed when $work returns and rolled back if
+     * it throws. What lets the editor write a field's new cap and its
+     * recomputed total as one change (#1546 review).
+     *
+     * @template T
+     * @param callable(): T $work
+     * @return T
+     */
+    public function transactional(callable $work): mixed
+    {
+        if ($this->pdo->inTransaction()) {
+            return $work();
+        }
+
+        $this->pdo->beginTransaction();
+        try {
+            $result = $work();
+            $this->pdo->commit();
+
+            return $result;
+        } catch (\Throwable $e) {
+            $this->pdo->rollBack();
+            throw $e;
+        }
+    }
+
+    /**
+     * Recomputes the running total of ONE field from its answers, and
+     * returns it — what the editor does each time a field's cap is set or
+     * changed (issue #1465): the counter is only kept while a cap exists,
+     * so a cap added after the first answers would otherwise start from
+     * zero, and a cap removed then restored would miss every answer given
+     * in between.
+     */
+    public function recomputeUsedCapacity(int $fieldId, FormResponseRepository $responses): float
+    {
+        return $this->recount($fieldId, $responses);
+    }
+
+    /** The recount itself, under the row lock. */
+    private function recount(int $fieldId, FormResponseRepository $responses): float
+    {
+        // Under the row lock a submission's increment takes (#1546
+        // review): one in flight either commits first — its answer is then
+        // in the sum — or waits for this write and adds its share on top.
+        // Without it, an answer read as absent here and added on the
+        // uncapped path would be lost for good.
+        $ownTransaction = !$this->pdo->inTransaction();
+        if ($ownTransaction) {
+            $this->pdo->beginTransaction();
+        }
+        try {
+            $this->usedCapacity($fieldId, lockForUpdate: true);
+            // The field itself, so each answer counts what
+            // FormField::storedQuantity() says it does (issue #1525).
+            $field = $this->findById($fieldId);
+            $used = $field === null ? 0.0 : $responses->sumFieldValues($field);
+            $stmt = $this->pdo->prepare('UPDATE news_form_fields SET capacity_used = ? WHERE id = ?');
+            $stmt->execute([$used, $fieldId]);
+            if ($ownTransaction) {
+                $this->pdo->commit();
+            }
+        } catch (\Throwable $e) {
+            if ($ownTransaction) {
+                $this->pdo->rollBack();
+            }
+            throw $e;
+        }
+
+        return $used;
+    }
+
+    /**
      * Recomputes the running total of every capped field from the
      * answers themselves — the one-off reprise for installations whose
      * responses were written before the column existed, and the repair
      * if the two ever drift.
+     *
+     * Each field under its own row lock, as the editor's recount (#1546
+     * review): a submission committing between an unlocked read and the
+     * write would otherwise have its share erased, and the marker set
+     * after this one run would keep the undercount for good.
      *
      * @return int the number of fields recomputed
      */
@@ -186,16 +316,9 @@ class FormFieldRepository
         $stmt = $this->pdo->query('SELECT id FROM news_form_fields WHERE capacity_max IS NOT NULL');
         \assert($stmt !== false);
 
-        $update = $this->pdo->prepare('UPDATE news_form_fields SET capacity_used = ? WHERE id = ?');
         $count = 0;
         foreach ($stmt->fetchAll(\PDO::FETCH_COLUMN) as $fieldId) {
-            // The field itself, so each answer counts what
-            // FormField::storedQuantity() says it does (issue #1525).
-            $field = $this->findById((int) $fieldId);
-            if ($field === null) {
-                continue;
-            }
-            $update->execute([$responses->sumFieldValues($field), $field->id]);
+            $this->recount((int) $fieldId, $responses);
             $count++;
         }
 

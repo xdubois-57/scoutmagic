@@ -499,11 +499,36 @@ class ResponseService
      * FormField::storedQuantity(), zero for one the server would refuse
      * today (issue #1525). The same rule as the running total's own sum
      * (FormResponseRepository::sumFieldValues()), so an edit gives back
-     * exactly what that total counted for it.
+     * exactly what that total counted for it — and the one rule for what a
+     * new answer adds too, capped field or plain number (#1546 review):
+     * a plain field's fraction adds nothing, as its recount would count it.
      */
     private static function numericAnswer(FormField $field, ?string $answer): float
     {
         return (float) ($field->storedQuantity($answer) ?? 0);
+    }
+
+    /**
+     * Locks every number field of the form before its answers are written
+     * — capped or not, in ascending id order (#1546 review):
+     * FormFieldRepository::lockUsedCapacities().
+     *
+     * @param FormField[] $fields
+     * @return array<int, float> field id => capacity_used, empty without the field repository
+     */
+    private function lockNumberFields(array $fields): array
+    {
+        if ($this->fieldRepository === null) {
+            return [];
+        }
+        $ids = [];
+        foreach ($fields as $field) {
+            if ($field->fieldType === FormField::TYPE_NUMBER) {
+                $ids[] = $field->id;
+            }
+        }
+
+        return $this->fieldRepository->lockUsedCapacities($ids);
     }
 
     /**
@@ -613,6 +638,7 @@ class ResponseService
 
         $this->responseRepository->beginTransaction();
         try {
+            $held = $this->lockNumberFields($fields);
             foreach ($fields as $field) {
                 if ($field->capacityMax === null) {
                     continue;
@@ -622,7 +648,7 @@ class ResponseService
                 // whole-column sum used to take — and moved by this
                 // submission's own share once it is written.
                 $used = $this->fieldRepository !== null
-                    ? $this->fieldRepository->usedCapacity($field->id, lockForUpdate: true)
+                    ? ($held[$field->id] ?? 0.0)
                     : $this->responseRepository->sumFieldValues($field, null, lockForUpdate: true);
                 if ($used + $requested > $field->capacityMax) {
                     throw new NewsException('Il n\'y a plus assez de places disponibles pour "' . $field->label . '".');
@@ -643,15 +669,21 @@ class ResponseService
                 $receivableId
             );
 
+            // Kept for EVERY number field, capped or not (issue #1465):
+            // a cap set later then starts from what is already taken, and
+            // an answer in flight while the editor sets that cap is never
+            // lost between the two — FormFieldRepository::
+            // recomputeUsedCapacity() and this increment take the same
+            // row lock.
             foreach ($fields as $field) {
-                if ($field->capacityMax === null) {
+                if ($field->fieldType !== FormField::TYPE_NUMBER) {
                     continue;
                 }
-                // Never below zero: a submission only ever takes places
-                // (issue #1525) — validation already refuses a negative.
+                // Never below zero, never a fraction: what the recount
+                // counts for it (issue #1525, #1546 review).
                 $this->fieldRepository?->addUsedCapacity(
                     $field->id,
-                    max(0.0, (float) ($normalizedAnswers[$field->id] ?? 0))
+                    self::numericAnswer($field, $normalizedAnswers[$field->id] ?? null)
                 );
             }
 
@@ -970,6 +1002,7 @@ class ResponseService
             // against the pool MINUS its own share (module spec §11.9)
             // and the running total moves by the difference.
             $previousAnswers = $this->responseRepository->getValues($response->id);
+            $held = $this->lockNumberFields($fields);
 
             foreach ($fields as $field) {
                 if ($field->capacityMax === null) {
@@ -978,7 +1011,7 @@ class ResponseService
                 $requested = (float) ($normalizedAnswers[$field->id] ?? 0);
                 $previous = self::numericAnswer($field, $previousAnswers[$field->id] ?? null);
                 $used = $this->fieldRepository !== null
-                    ? $this->fieldRepository->usedCapacity($field->id, lockForUpdate: true) - $previous
+                    ? ($held[$field->id] ?? 0.0) - $previous
                     : $this->responseRepository->sumFieldValues($field, $response->id, lockForUpdate: true);
                 if ($used + $requested > $field->capacityMax) {
                     throw new NewsException('Il n\'y a plus assez de places disponibles pour "' . $field->label . '".');
@@ -987,13 +1020,14 @@ class ResponseService
 
             $this->responseRepository->update($response->id, $contactEmail, $normalizedAnswers);
 
+            // Every number field, capped or not: see submit() (#1465).
             foreach ($fields as $field) {
-                if ($field->capacityMax === null) {
+                if ($field->fieldType !== FormField::TYPE_NUMBER) {
                     continue;
                 }
                 $this->fieldRepository?->addUsedCapacity(
                     $field->id,
-                    (float) ($normalizedAnswers[$field->id] ?? 0)
+                    self::numericAnswer($field, $normalizedAnswers[$field->id] ?? null)
                         - self::numericAnswer($field, $previousAnswers[$field->id] ?? null)
                 );
             }

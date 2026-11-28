@@ -189,6 +189,11 @@ CREATE TABLE IF NOT EXISTS news_form_fields (
     -- already received, per visitor. The submissions already computed
     -- that sum under a row lock; they now keep it.
     capacity_used DECIMAL(12,2) NOT NULL DEFAULT 0,
+    -- The highest capacity_max this field has ever had (#1546 review):
+    -- an answer above 999 was only ever taken under a cap at least as
+    -- high, so it stays valid once the cap is lowered below it. NULL on
+    -- a field never capped, and on the rows written before the column.
+    capacity_peak INT UNSIGNED NULL,
     price_per_unit DECIMAL(10, 2) NULL,
     -- Also holds the 'text' field type's content (module usability
     -- review: a static, multi-line rich-formatted block usable anywhere

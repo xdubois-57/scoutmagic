@@ -167,4 +167,52 @@ class JournalServiceTest extends TestCase
         $this->assertCount(1, $results);
         $this->assertSame(9, (int) $results[0]['user_account_id']);
     }
+
+    /**
+     * A database that refuses the line still reaches the caller (issue
+     * #1438): whether an action may stand without its journal line is the
+     * caller's decision — a reactivated address rolls back when its audit
+     * cannot be written — so log() makes every line fit and stops there.
+     */
+    public function testADatabaseThatRefusesTheLineStillReachesTheCaller(): void
+    {
+        $broken = new class ($this->pdo) extends JournalRepository {
+            public function insert(
+                string $category,
+                string $type,
+                string $level,
+                string $description,
+                ?string $contextJson,
+                ?int $userId,
+                ?string $ipAddress = null
+            ): void {
+                throw new \PDOException('SQLSTATE[HY000]: no such table: event_log');
+            }
+        };
+
+        $this->expectException(\PDOException::class);
+        (new JournalService($broken))->log('core', 'anything', 'info', 'Ligne');
+    }
+
+    public function testFitCutsByCharactersAndMarksTheCut(): void
+    {
+        $this->assertSame('éé', JournalService::fit('éé', 2));
+        $this->assertSame('é…', JournalService::fit('ééé', 2));
+        $this->assertTrue(mb_check_encoding(JournalService::fit("Bo\xEEte", 10), 'UTF-8'));
+    }
+
+    public function testAContextThatThrowsWhileEncodingStillWritesTheLine(): void
+    {
+        $throwing = new class implements \JsonSerializable {
+            public function jsonSerialize(): mixed
+            {
+                throw new \RuntimeException('cannot serialise');
+            }
+        };
+
+        $this->service->log('core', 'throwing_context', 'info', 'Ligne', ['value' => $throwing]);
+
+        $context = $this->pdo->query("SELECT context FROM event_log WHERE event_type = 'throwing_context'")->fetchColumn();
+        $this->assertSame(['context_unencodable' => true], json_decode((string) $context, true));
+    }
 }

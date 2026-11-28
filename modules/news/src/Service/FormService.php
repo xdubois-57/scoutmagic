@@ -34,6 +34,14 @@ class FormService
 
     private HtmlSanitizer $htmlSanitizer;
 
+    /**
+     * The fields whose cap the last save() set or changed, with the total
+     * their existing answers already take (issue #1465).
+     *
+     * @var list<array{form_id: int, field_id: int, label: ?string, capacity_max: int, capacity_used: float}>
+     */
+    private array $recomputedCapacities = [];
+
     public function __construct(
         private FormRepository $formRepository,
         private FormFieldRepository $fieldRepository,
@@ -208,13 +216,26 @@ class FormService
             );
         }
 
-        $this->reconcileFields($formId, $fields);
+        $this->recomputedCapacities = $this->reconcileFields($formId, $fields);
         $this->articleService->markHasForm($articleId, true);
         // Saved after ArticleService::create()/update() in every route,
         // so the visibility read here is the one just written.
         $this->bodyImages?->syncArticle($articleId);
 
         return $this->formRepository->findById($formId);
+    }
+
+    /**
+     * The fields whose cap the last save() set or changed, each with the
+     * total its existing answers already take — recomputed from those
+     * answers at that save (issue #1465). The caller journals them and
+     * warns about a cap the answers already exceed.
+     *
+     * @return list<array{form_id: int, field_id: int, label: ?string, capacity_max: int, capacity_used: float}>
+     */
+    public function recomputedCapacities(): array
+    {
+        return $this->recomputedCapacities;
     }
 
     /**
@@ -394,12 +415,19 @@ class FormService
      *         confirmation_text: ?string
      *     }
      * > $fields
+     * @return list<array{form_id: int, field_id: int, label: ?string, capacity_max: int, capacity_used: float}>
+     *         the existing fields whose cap this save set or changed
      */
-    private function reconcileFields(int $formId, array $fields): void
+    private function reconcileFields(int $formId, array $fields): array
     {
         $existingFields = $this->fieldRepository->findByFormId($formId);
         $existingIds = array_map(fn(FormField $f) => $f->id, $existingFields);
+        $previousCaps = [];
+        foreach ($existingFields as $existingField) {
+            $previousCaps[$existingField->id] = $existingField->capacityMax;
+        }
         $incomingIds = [];
+        $recomputed = [];
 
         foreach ($fields as $index => $field) {
             if (!in_array($field['field_type'], FormField::TYPES, true)) {
@@ -425,19 +453,58 @@ class FormService
             $isRequired = $isNonInput ? false : $field['is_required'];
 
             if ($field['id'] !== null && in_array($field['id'], $existingIds, true)) {
-                $this->fieldRepository->update(
-                    $field['id'],
+                $fieldId = $field['id'];
+                // The running total was once kept only while a cap existed.
+                // A cap set on a field that already has answers — or
+                // changed, or restored after answers came in without one —
+                // would count from a stale figure and let the form
+                // overbook: it is recomputed from the answers (issue #1465),
+                // in the SAME transaction as the cap itself (#1546 review),
+                // so no submission ever reads the new cap against the old
+                // total.
+                $recomputesCap = $capacityMax !== null && $capacityMax !== $previousCaps[$fieldId];
+                $used = $this->fieldRepository->transactional(function () use (
+                    $fieldId,
                     $index,
-                    $field['field_type'],
+                    $field,
                     $label,
                     $isRequired,
                     $optionsSource,
                     $optionsManual,
                     $capacityMax,
                     $pricePerUnit,
-                    $confirmationText
-                );
-                $incomingIds[] = $field['id'];
+                    $confirmationText,
+                    $recomputesCap
+                ): ?float {
+                    $this->fieldRepository->update(
+                        $fieldId,
+                        $index,
+                        $field['field_type'],
+                        $label,
+                        $isRequired,
+                        $optionsSource,
+                        $optionsManual,
+                        $capacityMax,
+                        $pricePerUnit,
+                        $confirmationText
+                    );
+
+                    return $recomputesCap
+                        ? $this->fieldRepository->recomputeUsedCapacity($fieldId, $this->responseRepository)
+                        : null;
+                });
+                $incomingIds[] = $fieldId;
+
+                if ($used !== null) {
+                    \assert($capacityMax !== null);
+                    $recomputed[] = [
+                        'form_id' => $formId,
+                        'field_id' => $fieldId,
+                        'label' => $label,
+                        'capacity_max' => $capacityMax,
+                        'capacity_used' => $used,
+                    ];
+                }
             } else {
                 $incomingIds[] = $this->fieldRepository->create(
                     $formId,
@@ -457,6 +524,8 @@ class FormService
         foreach (array_diff($existingIds, $incomingIds) as $removedId) {
             $this->fieldRepository->delete($removedId);
         }
+
+        return $recomputed;
     }
 
     /**

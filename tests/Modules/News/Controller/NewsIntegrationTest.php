@@ -3112,6 +3112,52 @@ class NewsIntegrationTest extends TestCase
         $this->assertSame(302, $response->getStatusCode());
     }
 
+    /**
+     * The editor sets a cap the existing answers already exceed (issue
+     * #1465): the save goes through, the counter is recomputed and
+     * journaled with the acting account, and the page says so.
+     */
+    public function testACapBelowTheExistingAnswersIsJournaledAndTheEditorWarns(): void
+    {
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+        $id = NewsTestHelper::publish($this->pdo, $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId, 'Résumé.', null));
+        $formId = $this->formRepository->create($id, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', null, null);
+        $placesId = $this->fieldRepository->create($formId, 0, FormField::TYPE_NUMBER, 'Places bus', false, null, null, null, null, null);
+        $this->responseRepository->create($formId, null, null, 'a@test.com', [$placesId => '20'], null, null);
+        $this->responseRepository->create($formId, null, null, 'b@test.com', [$placesId => '10'], null, null);
+        $logged = [];
+        $this->journalService->method('log')->willReturnCallback(
+            function (string $module, string $event, string $level, string $description, array $context = [], ?int $userId = null) use (&$logged): void {
+                $logged[] = [$module, $event, $level, $context, $userId];
+            }
+        );
+        $_FILES['image'] = $this->fakeUploadedImage();
+
+        $response = $this->newsController->update(new Request('POST', '/news/' . $id, [], [
+            '_csrf_token' => CsrfGuard::generateToken(),
+            'title' => 'Camp',
+            'summary' => 'Un résumé en une phrase.',
+            'body_html' => '<p>Bienvenue</p>',
+            'visibility' => 'public',
+            'form_access' => 'public',
+            'fields_json' => json_encode([[
+                'id' => $placesId, 'field_type' => FormField::TYPE_NUMBER, 'label' => 'Places bus', 'capacity_max' => '25',
+            ]]),
+        ], [], []), ['id' => (string) $id]);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertContains(
+            ['news', 'form_field_capacity_recomputed', 'info',
+                ['form_id' => $formId, 'field_id' => $placesId, 'capacity_max' => 25, 'capacity_used' => 30.0],
+                $this->chiefAccountId],
+            $logged
+        );
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertSame('warning', $flash['type'] ?? null);
+        $this->assertStringContainsString('« Places bus » : 30 places déjà prises pour une capacité de 25', (string) ($flash['message'] ?? ''));
+        $this->assertSame(30.0, $this->fieldRepository->usedCapacity($placesId));
+    }
+
     public function testUpdateResponseJournalsTheResponseUpdate(): void
     {
         $articleId = NewsTestHelper::publish($this->pdo, $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId));
