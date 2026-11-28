@@ -308,16 +308,23 @@ class FormFieldRepository
      * write would otherwise have its share erased, and the marker set
      * after this one run would keep the undercount for good.
      *
+     * $keepCounted as for recount(): off for a repair of totals that may
+     * be wrong. The #1465 reprise turns it on (#1546 review): it runs
+     * where the #1525 reprise has already rebuilt every total strictly, or
+     * just before it does — so the total it trusts is either clean or
+     * about to be rebuilt — and an earlier lowered cap must not make it
+     * erase a booking the total had kept.
+     *
      * @return int the number of fields recomputed
      */
-    public function recomputeUsedCapacities(FormResponseRepository $responses): int
+    public function recomputeUsedCapacities(FormResponseRepository $responses, bool $keepCounted = false): int
     {
         $stmt = $this->pdo->query('SELECT id FROM news_form_fields WHERE capacity_max IS NOT NULL');
         \assert($stmt !== false);
 
         $count = 0;
         foreach ($stmt->fetchAll(\PDO::FETCH_COLUMN) as $fieldId) {
-            $this->recount((int) $fieldId, $responses, keepCounted: false);
+            $this->recount((int) $fieldId, $responses, $keepCounted);
             $count++;
         }
 

@@ -9954,7 +9954,10 @@ if ($isEnabled('news')) {
             false,
             999
         );
-        $newsFieldRepo->recomputeUsedCapacities($newsResponseRepo);
+        // Trusting the total held, so a booking taken under a cap lowered
+        // since is not erased (#1546 review): FormFieldRepository::
+        // recomputeUsedCapacities().
+        $newsFieldRepo->recomputeUsedCapacities($newsResponseRepo, keepCounted: true);
         $settingRepo->updateValue('news', 'news_field_capacity_recomputed_1465', '1');
         $settingService->clearCache();
     }

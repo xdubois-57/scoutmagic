@@ -1322,6 +1322,24 @@ class ResponseServiceTest extends TestCase
         $this->assertSame(0, $this->service()->remainingCapacity($this->fieldRepository->findById($fieldId)));
     }
 
+    /**
+     * The #1465 reprise keeps a booking a cap lowered before it would
+     * otherwise erase (#1546 review) — the total had kept it, as the
+     * editor did not recount then; the strict repair does not.
+     */
+    public function testTheReprise1465KeepsABookingAboveACapLoweredBeforeIt(): void
+    {
+        $fieldId = $this->fieldRepository->create($this->formId, 0, FormField::TYPE_NUMBER, 'Places', false, null, null, 2000, null, null);
+        $this->submitPlaces($fieldId, '1500', 'a');
+        $this->pdo->exec('UPDATE news_form_fields SET capacity_max = 1000 WHERE id = ' . $fieldId);
+
+        $this->fieldRepository->recomputeUsedCapacities($this->responseRepository, keepCounted: true);
+        $this->assertSame(1500.0, $this->fieldRepository->usedCapacity($fieldId));
+
+        $this->fieldRepository->recomputeUsedCapacities($this->responseRepository);
+        $this->assertSame(0.0, $this->fieldRepository->usedCapacity($fieldId));
+    }
+
     /** The share an edit gives back is the one the total counted, whatever the cap became since. */
     public function testEditingABookingAboveALoweredCapGivesBackItsWholeShare(): void
     {
