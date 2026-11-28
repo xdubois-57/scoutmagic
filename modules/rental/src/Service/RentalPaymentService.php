@@ -22,6 +22,7 @@ use Modules\Finance\Api\SepaQrCodeInterface;
 use Modules\Finance\Api\StatementImportStatusInterface;
 use Modules\Finance\Api\StructuredCommunicationInterface;
 use Modules\Rental\Booking\RentalBooking;
+use Modules\Rental\Payment\DepositMode;
 use Modules\Rental\Payment\PaymentSettings;
 use Modules\Rental\Payment\SecurityDepositStatus;
 use Modules\Rental\Audit\BookingAudit;
@@ -177,9 +178,11 @@ class RentalPaymentService
             );
         }
 
-        $current = $this->paymentRepository->loadSettings($assetId);
-
-        $this->saveSettings($assetId, $current->withFinanceAccount($financeAccountId, $financeCategoryId));
+        $this->rewriteSettings(
+            $assetId,
+            static fn (PaymentSettings $current): PaymentSettings
+                => $current->withFinanceAccount($financeAccountId, $financeCategoryId)
+        );
     }
 
     /**
@@ -202,12 +205,120 @@ class RentalPaymentService
      */
     public function saveManagedSettings(int $assetId, PaymentSettings $settings): void
     {
-        $current = $this->paymentRepository->loadSettings($assetId);
-
-        $this->saveSettings(
+        $this->rewriteSettings(
             $assetId,
-            $settings->withFinanceAccount($current->financeAccountId, $current->financeCategoryId)
+            static fn (PaymentSettings $current): PaymentSettings
+                => $settings->withFinanceAccount($current->financeAccountId, $current->financeCategoryId)
         );
+    }
+
+    /**
+     * Switches payment tracking on or off for this asset, and nothing else
+     * (issue #1355, D11) — the deposit, the deadlines, the security
+     * deposit, the account and the category stay as stored. Switching it on
+     * is refused while no account or category is pinned; the refusal says
+     * where they are pinned.
+     *
+     * Returns the configuration now stored, so the screen can show the
+     * state actually saved.
+     *
+     * @throws RentalException
+     */
+    public function saveTracking(int $assetId, bool $enabled): PaymentSettings
+    {
+        if ($enabled && !$this->isAvailable()) {
+            throw new RentalException(
+                'Le suivi des paiements par le site n\'est pas disponible sur cette installation.'
+            );
+        }
+
+        $check = static function (PaymentSettings $current) use ($enabled): PaymentSettings {
+            // Read under the lock: an account unpinned a moment ago must
+            // not be switched on against.
+            if ($enabled && ($current->financeAccountId === null || $current->financeCategoryId === null)) {
+                throw new RentalException(
+                    'Le site doit savoir sur quel compte les virements arrivent : associez d\'abord un compte et '
+                    . 'une catégorie dans « Biens à louer › Compte des paiements ».'
+                );
+            }
+
+            return $current->withTracking($enabled);
+        };
+
+        return $this->rewriteSettings($assetId, $check);
+    }
+
+    /**
+     * Saves the deposit and the two deadlines, and nothing else (issue
+     * #1355, D11). Works with Finance off too (D12): the contract states
+     * them whatever tracks the money.
+     *
+     * @throws RentalException
+     */
+    public function saveDepositTerms(
+        int $assetId,
+        DepositMode $depositMode,
+        ?int $depositAmountCents,
+        ?int $depositPercentage,
+        ?int $depositDueDays,
+        ?int $balanceDueDays
+    ): void {
+        $this->rewriteSettings(
+            $assetId,
+            static fn (PaymentSettings $current): PaymentSettings => $current->withDepositTerms(
+                $depositMode,
+                $depositAmountCents,
+                $depositPercentage,
+                $depositDueDays,
+                $balanceDueDays
+            )
+        );
+    }
+
+    /**
+     * Saves the security deposit, and nothing else (issue #1355, D11).
+     * Works with Finance off too (D12).
+     *
+     * @throws RentalException
+     */
+    public function saveSecurityDeposit(int $assetId, bool $enabled, ?int $amountCents): void
+    {
+        if ($enabled && ($amountCents === null || $amountCents <= 0)) {
+            throw new RentalException('Indiquez le montant de la caution demandée.');
+        }
+
+        $this->rewriteSettings(
+            $assetId,
+            static fn (PaymentSettings $current): PaymentSettings
+                => $current->withSecurityDeposit($enabled, $amountCents)
+        );
+    }
+
+    /**
+     * Reads the stored settings, applies `$change`, saves the result — all
+     * under the asset lock (#1429 review).
+     *
+     * **Every writer of this row goes through here.** Each one owns a part
+     * of the row and carries the rest across from what it read, so two of
+     * them interleaving without the lock — a tracking switch and a security
+     * deposit saved in the same second, both reading « tracking off » —
+     * would let the second write back the first one's stale half, and both
+     * would report success. Under the lock the second reads what the first
+     * wrote. The lock is re-entrant, so a caller already holding it joins.
+     *
+     * @param callable(PaymentSettings): PaymentSettings $change
+     * @throws RentalException from `$change` or the save, nothing written
+     */
+    private function rewriteSettings(int $assetId, callable $change): PaymentSettings
+    {
+        $rewrite = function () use ($assetId, $change): PaymentSettings {
+            $updated = $change($this->paymentRepository->loadSettings($assetId));
+            $this->saveSettings($assetId, $updated);
+
+            return $updated;
+        };
+
+        return $this->paymentRepository->withAssetLocked($assetId, $rewrite);
     }
 
     // ── The booking's receivable ────────────────────────────────────────

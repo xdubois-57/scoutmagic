@@ -4984,7 +4984,10 @@ class RentalManagementController extends AbstractController
      * One row per reminder for the « Rappels » section of the settings
      * screen (§6.29).
      *
-     * @return list<array{key: string, label: string, days: int|null, default_days: int, active: bool, repeats: bool, internal: bool}>
+     * @return list<array{
+     *     key: string, label: string, days: int|null, default_days: int,
+     *     active: bool, repeats: bool, internal: bool
+     * }>
      */
     private function reminderRows(int $assetId): array
     {

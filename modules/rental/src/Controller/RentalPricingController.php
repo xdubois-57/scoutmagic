@@ -21,7 +21,6 @@ use Core\Service\IntegerInput;
 use Modules\Rental\Document\AssetConditions;
 use Modules\Rental\Document\Landlord;
 use Modules\Rental\Payment\DepositMode;
-use Modules\Rental\Payment\PaymentSettings;
 use Modules\Rental\Reminder\ReminderKind;
 use Modules\Rental\Pricing\PricingSettings;
 use Modules\Rental\Repository\RentalAsset;
@@ -379,47 +378,108 @@ class RentalPricingController extends AbstractController
     }
 
     /**
-     * POST /mes-locations/{slug}/reglages/paiements — the asset's money
-     * configuration (§6.19, §6.20), minus the Finance account.
+     * POST /mes-locations/{slug}/reglages/suivi-paiements — the « Suivre
+     * les paiements via le site » switch (issue #1355, D11), saved the
+     * moment it changes: JSON in, `{success, enabled}` out, and nothing
+     * else about the money changes. The answer carries the state actually
+     * stored, which the switch goes back to on a refusal.
      *
-     * Which account the money lands on is pinned by unit staff on
-     * "Espace chefs d'U > Locations" and is deliberately not a field here —
-     * see Controller\RentalConfigController::saveFinanceAccount() for why.
-     * `saveManagedSettings()` reads the stored account back and carries it
-     * across, so saving this form can never clear it.
+     * Switching it on is refused while the asset has no Finance account or
+     * category — they are pinned on « Biens à louer », by somebody who may
+     * not be this manager.
      *
      * @param array<string, string> $params
      */
-    public function savePayments(Request $request, array $params): Response
+    public function saveTracking(Request $request, array $params): Response
+    {
+        $data = json_decode($request->getRawBody(), true);
+        if (!is_array($data)) {
+            return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
+        }
+
+        if (($guard = $this->guardCsrfJson($request, (string) ($data['_csrf_token'] ?? ''))) !== null) {
+            return $guard;
+        }
+
+        $asset = $this->manageableAsset($params);
+        if ($asset === null) {
+            return $this->json(['success' => false, 'error' => 'Ce bien n\'existe pas.'], 404);
+        }
+        if ($this->paymentService === null) {
+            return $this->json([
+                'success' => false,
+                'error' => 'Le suivi des paiements par le site n\'est pas disponible sur cette installation.',
+                'enabled' => false,
+            ], 422);
+        }
+
+        try {
+            $stored = $this->paymentService->saveTracking($asset->id, ($data['enabled'] ?? false) === true);
+        } catch (RentalException $e) {
+            return $this->json([
+                'success' => false,
+                'error' => $e->getMessage(),
+                'enabled' => $this->paymentService->settingsFor($asset->id)->enabled,
+            ], 422);
+        }
+
+        return $this->json([
+            'success' => true,
+            'enabled' => $stored->enabled,
+            'message' => $stored->enabled ? 'Suivi des paiements activé.' : 'Suivi des paiements désactivé.',
+        ]);
+    }
+
+    /**
+     * POST /mes-locations/{slug}/reglages/acompte — the deposit and the two
+     * deadlines, and nothing else (issue #1355, D11): the security deposit,
+     * the tracking switch, the account and the category stay as stored.
+     * Available with Finance off too (D12): the contract states them.
+     *
+     * @param array<string, string> $params
+     */
+    public function saveDeposit(Request $request, array $params): Response
     {
         return $this->guarded($request, $params, 'paiements', function (RentalAsset $asset) use ($request): string {
-            if ($this->paymentService === null) {
-                throw new RentalException(
-                    'Le module Finances n\'est pas actif : la configuration des paiements est indisponible.'
-                );
-            }
-
-            $this->paymentService->saveManagedSettings(
+            $this->requirePaymentService()->saveDepositTerms(
                 $asset->id,
-                new PaymentSettings(
-                    enabled: $request->getBody('payments_enabled') !== null,
-                    depositMode: DepositMode::tryFrom((string) $request->getBody('deposit_mode', 'none'))
-                        ?? DepositMode::NONE,
-                    depositAmountCents: RentalPricingService::parseAmountToCents(
-                        (string) $request->getBody('deposit_amount', '')
-                    ),
-                    depositPercentage: self::optionalInt($request->getBody('deposit_percentage')),
-                    depositDueDays: self::optionalInt($request->getBody('deposit_due_days')),
-                    balanceDueDays: self::optionalInt($request->getBody('balance_due_days')),
-                    securityDepositEnabled: $request->getBody('security_deposit_enabled') !== null,
-                    securityDepositAmountCents: RentalPricingService::parseAmountToCents(
-                        (string) $request->getBody('security_deposit_amount', '')
-                    )
-                )
+                DepositMode::tryFrom((string) $request->getBody('deposit_mode', 'none')) ?? DepositMode::NONE,
+                RentalPricingService::parseAmountToCents((string) $request->getBody('deposit_amount', '')),
+                self::optionalInt($request->getBody('deposit_percentage')),
+                self::optionalInt($request->getBody('deposit_due_days')),
+                self::optionalInt($request->getBody('balance_due_days'))
             );
 
-            return 'Configuration des paiements enregistrée.';
+            return 'L\'acompte et les échéances ont été enregistrés.';
         });
+    }
+
+    /**
+     * POST /mes-locations/{slug}/reglages/caution — the security deposit,
+     * and nothing else (issue #1355, D11). Available with Finance off too
+     * (D12).
+     *
+     * @param array<string, string> $params
+     */
+    public function saveSecurityDeposit(Request $request, array $params): Response
+    {
+        return $this->guarded($request, $params, 'paiements', function (RentalAsset $asset) use ($request): string {
+            $enabled = $request->getBody('security_deposit_enabled') !== null;
+            $this->requirePaymentService()->saveSecurityDeposit(
+                $asset->id,
+                $enabled,
+                RentalPricingService::parseAmountToCents((string) $request->getBody('security_deposit_amount', ''))
+            );
+
+            return $enabled ? 'La caution a été enregistrée.' : 'Aucune caution ne sera demandée.';
+        });
+    }
+
+    /** @throws RentalException */
+    private function requirePaymentService(): RentalPaymentService
+    {
+        return $this->paymentService
+            ?? throw new RentalException('La configuration des paiements est indisponible.');
     }
 
     /**

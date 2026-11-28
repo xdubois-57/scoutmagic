@@ -133,6 +133,32 @@ class SwitchAriaCheckedTest extends TestCase
         $this->assertSwitchAriaChecked($html, 'id="notification-discretion"', true);
     }
 
+    /**
+     * The payment-tracking switch of a rental asset (#1355, lot D).
+     *
+     * @return array<string, array{bool}>
+     */
+    public static function trackingStates(): array
+    {
+        return ['tracked' => [true], 'not tracked' => [false]];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('trackingStates')]
+    public function testRentalPaymentTrackingSwitchAriaCheckedTracksSetting(bool $enabled): void
+    {
+        $twig = $this->createTwig(['rental' => dirname(__DIR__, 3) . '/modules/rental/views']);
+        $html = $twig->render('@rental/management/_payments.html.twig', [
+            'asset' => ['id' => 1, 'slug' => 'local'],
+            'payment_settings' => new \Modules\Rental\Payment\PaymentSettings(enabled: $enabled),
+            'finance_available' => true,
+            'payment_account_name' => null,
+            'can_pin_account' => false,
+            'deposit_modes' => [],
+        ]);
+
+        $this->assertSwitchAriaChecked($html, 'id="payments-tracking"', $enabled);
+    }
+
     public function testCalendarConfigNotifyEnabledSwitchAriaCheckedTracksSetting(): void
     {
         $twig = $this->createTwig(['calendar' => dirname(__DIR__, 3) . '/modules/calendar/views']);

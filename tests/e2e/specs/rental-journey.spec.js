@@ -230,12 +230,26 @@ test.describe('Rentals — one booking from the request to the deposit back', ()
         await pricing.getByRole('button', { name: 'Enregistrer la tarification' }).click();
         await expect(page.locator('#tarification')).toContainText(NIGHT_PRICE);
 
-        const payments = await openSectionEditor(page, 'paiements-edit');
-        await payments.locator('input[name="payments_enabled"]').check();
-        await payments.locator('input[name="security_deposit_enabled"]').check();
-        await payments.locator('input[name="security_deposit_amount"]').fill(SECURITY_DEPOSIT);
-        await payments.getByRole('button', { name: 'Enregistrer les paiements' }).click();
+        // « Suivre les paiements via le site » saves on its own, with the
+        // usual toast, and is still on after a reload (issue #1355, D11).
+        // The tariff's save has just reloaded the page, and the text above
+        // shows as soon as it is parsed — before the deferred module that
+        // wires the switch has run. A click in that gap toggles the box with
+        // nothing listening, so the page is let finish loading first.
+        await page.waitForLoadState('load');
+        const tracking = page.getByRole('switch', { name: 'Suivre les paiements via le site' });
+        await tracking.check();
+        await expect(page.getByText('Suivi des paiements activé.')).toBeVisible();
+        await page.reload({ waitUntil: 'load' });
+        await expect(page.getByRole('switch', { name: 'Suivre les paiements via le site' })).toBeChecked();
+
+        // The security deposit, from its own dialog.
+        const securityDeposit = await openSectionEditor(page, 'caution-edit');
+        await securityDeposit.getByRole('checkbox', { name: 'Demander une caution' }).check();
+        await securityDeposit.getByLabel('Montant (€)').fill(SECURITY_DEPOSIT);
+        await securityDeposit.getByRole('button', { name: 'Enregistrer la caution' }).click();
         await expect(page.locator('#paiements')).toContainText(SECURITY_DEPOSIT);
+        await expect(page.getByRole('switch', { name: 'Suivre les paiements via le site' })).toBeChecked();
 
         // What no contract is generated without (issue #977): the asset's
         // address here, the renter's from their own page further down.

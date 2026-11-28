@@ -71,6 +71,72 @@ final class PaymentSettings
     }
 
     /**
+     * The same configuration with payment tracking switched on or off, and
+     * nothing else changed (issue #1355, D11): the switch saves on its own.
+     */
+    public function withTracking(bool $enabled): self
+    {
+        return new self(
+            enabled: $enabled,
+            financeAccountId: $this->financeAccountId,
+            depositMode: $this->depositMode,
+            depositAmountCents: $this->depositAmountCents,
+            depositPercentage: $this->depositPercentage,
+            depositDueDays: $this->depositDueDays,
+            balanceDueDays: $this->balanceDueDays,
+            securityDepositEnabled: $this->securityDepositEnabled,
+            securityDepositAmountCents: $this->securityDepositAmountCents,
+            financeCategoryId: $this->financeCategoryId
+        );
+    }
+
+    /**
+     * The same configuration with another deposit and other deadlines —
+     * the deposit's and the balance's, which the security deposit follows —
+     * and nothing else changed (issue #1355, D11).
+     */
+    public function withDepositTerms(
+        DepositMode $depositMode,
+        ?int $depositAmountCents,
+        ?int $depositPercentage,
+        ?int $depositDueDays,
+        ?int $balanceDueDays
+    ): self {
+        return new self(
+            enabled: $this->enabled,
+            financeAccountId: $this->financeAccountId,
+            depositMode: $depositMode,
+            depositAmountCents: $depositAmountCents,
+            depositPercentage: $depositPercentage,
+            depositDueDays: $depositDueDays,
+            balanceDueDays: $balanceDueDays,
+            securityDepositEnabled: $this->securityDepositEnabled,
+            securityDepositAmountCents: $this->securityDepositAmountCents,
+            financeCategoryId: $this->financeCategoryId
+        );
+    }
+
+    /**
+     * The same configuration with another security deposit, and nothing
+     * else changed (issue #1355, D11).
+     */
+    public function withSecurityDeposit(bool $enabled, ?int $amountCents): self
+    {
+        return new self(
+            enabled: $this->enabled,
+            financeAccountId: $this->financeAccountId,
+            depositMode: $this->depositMode,
+            depositAmountCents: $this->depositAmountCents,
+            depositPercentage: $this->depositPercentage,
+            depositDueDays: $this->depositDueDays,
+            balanceDueDays: $this->balanceDueDays,
+            securityDepositEnabled: $enabled,
+            securityDepositAmountCents: $amountCents,
+            financeCategoryId: $this->financeCategoryId
+        );
+    }
+
+    /**
      * Whether a receivable can actually be raised: switched on **and**
      * pointed at an account and a category (issue #838).
      *

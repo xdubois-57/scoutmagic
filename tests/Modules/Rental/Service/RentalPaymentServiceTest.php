@@ -277,6 +277,80 @@ class RentalPaymentServiceTest extends TestCase
 
     // ── Configuration ───────────────────────────────────────────────────
 
+    /**
+     * **Every writer of the payment settings reads and writes under the
+     * asset lock** (#1429 review). Each owns one part of the row and
+     * carries the rest across from what it read: without the lock, a
+     * tracking switch and a security deposit saved in the same second
+     * would both read « tracking off », and the second would write the
+     * first one's change away while both reported success. A spy
+     * repository records whether each read and each write happened inside
+     * `withAssetLocked()`.
+     */
+    public function testEveryPaymentSettingsWriterReadsAndWritesUnderTheAssetLock(): void
+    {
+        $spy = new class ($this->pdo, $this->encryption) extends RentalPaymentRepository {
+            public int $depth = 0;
+            /** @var list<string> */
+            public array $outsideTheLock = [];
+
+            public function withAssetLocked(int $assetId, callable $work): mixed
+            {
+                $this->depth++;
+                try {
+                    return parent::withAssetLocked($assetId, $work);
+                } finally {
+                    $this->depth--;
+                }
+            }
+
+            public function loadSettings(int $assetId): PaymentSettings
+            {
+                if ($this->depth === 0) {
+                    $this->outsideTheLock[] = 'read';
+                }
+
+                return parent::loadSettings($assetId);
+            }
+
+            public function saveSettings(int $assetId, PaymentSettings $settings): void
+            {
+                if ($this->depth === 0) {
+                    $this->outsideTheLock[] = 'write';
+                }
+                parent::saveSettings($assetId, $settings);
+            }
+        };
+        $receivables = new ExpectedReceivableRepository($this->pdo, $this->encryption);
+        $service = new RentalPaymentService(
+            $spy,
+            $this->bookingAudit,
+            new JournalService(new JournalRepository($this->pdo)),
+            FinanceTestHelper::receivableService($this->pdo, $this->encryption, $receivables),
+            new StructuredCommunicationService($receivables),
+            new SepaQrCodeService(),
+            new FinanceAccountService(new AccountRepository($this->pdo, $this->encryption))
+        );
+
+        $service->saveFinanceAccount($this->assetId, $this->accountId, $this->categoryId);
+        $service->saveTracking($this->assetId, true);
+        $service->saveDepositTerms($this->assetId, DepositMode::PERCENTAGE, null, 30, 14, 7);
+        $service->saveSecurityDeposit($this->assetId, true, 25000);
+        // What the manager's screen would post back — read for display,
+        // outside any write, and not what this test is about.
+        $managed = $service->settingsFor($this->assetId);
+        array_pop($spy->outsideTheLock);
+        $service->saveManagedSettings($this->assetId, $managed);
+
+        $this->assertSame([], $spy->outsideTheLock);
+        // And each write kept what the others wrote.
+        $stored = $spy->loadSettings($this->assetId);
+        $this->assertTrue($stored->enabled);
+        $this->assertSame($this->accountId, $stored->financeAccountId);
+        $this->assertSame(30, $stored->depositPercentage);
+        $this->assertSame(25000, $stored->securityDepositAmountCents);
+    }
+
     public function testPaymentsCannotBeEnabledWithoutAnAccount(): void
     {
         // Half-configured is worse than off: it looks like it is working.
