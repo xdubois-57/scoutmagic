@@ -113,20 +113,24 @@ final class FormField
      * The units a STORED answer of this quantity field counts, or null
      * when the answer is one the server would never have taken (issue
      * #1525): not written in digits alone, or above the per-answer ceiling
-     * — MAX_QUANTITY_PER_ANSWER, raised to the capacity when that is larger
-     * (a capacity can only lift this ceiling, never lower it). What the
+     * — MAX_QUANTITY_PER_ANSWER, raised to the field's capacity when that
+     * is larger, and to $ceilingAtLeast when that is larger still. What the
      * door shows as « invalide », what the reprise flags, and what every
      * seat or capacity sum leaves out are all this one rule. An empty
      * answer counts zero.
      *
-     * **Never bounded by the field's current capacity**: staff may lower
-     * it after people booked, and an answer that was valid when it was
-     * written stays valid — counting it as nothing would free its places
-     * for resale and flag a family who did nothing wrong. What remains of a
-     * capacity is checked when an answer is written (ResponseService),
-     * under the row lock, and nowhere else.
+     * **The ceiling is not what remains of the capacity**: what remains is
+     * checked when an answer is written (ResponseService), under the row
+     * lock, and nowhere else. But it does follow the current capacity, so
+     * a cap lowered below an answer already above MAX_QUANTITY_PER_ANSWER
+     * would read that answer as one the server never took. A caller that
+     * counts answers the running total already counted passes that total
+     * as $ceilingAtLeast — no single counted answer exceeds it — so an
+     * answer valid when it was written keeps counting after the cap is
+     * lowered (#1546 review): the recount on a cap change and the share an
+     * edit gives back.
      */
-    public function storedQuantity(?string $stored): ?int
+    public function storedQuantity(?string $stored, int $ceilingAtLeast = 0): ?int
     {
         if ($stored === null || $stored === '') {
             return 0;
@@ -138,7 +142,7 @@ final class FormField
         return \Core\Service\IntegerInput::bounded(
             $stored,
             0,
-            max(self::MAX_QUANTITY_PER_ANSWER, $this->capacityMax ?? 0)
+            max(self::MAX_QUANTITY_PER_ANSWER, $this->capacityMax ?? 0, $ceilingAtLeast)
         );
     }
 

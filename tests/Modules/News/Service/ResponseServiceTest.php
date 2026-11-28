@@ -1286,7 +1286,7 @@ class ResponseServiceTest extends TestCase
         $fieldId = $this->fieldRepository->create($this->formId, 0, FormField::TYPE_NUMBER, 'Places', false, null, null, null, null, null);
         $this->submitPlaces($fieldId, '30', 'a');
         $failing = new class ($this->pdo, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))) extends FormResponseRepository {
-            public function sumFieldValues(FormField $field, ?int $excludeResponseId = null, bool $lockForUpdate = false): float
+            public function sumFieldValues(FormField $field, ?int $excludeResponseId = null, bool $lockForUpdate = false, int $ceilingAtLeast = 0): float
             {
                 throw new \PDOException('deliberate failure while counting');
             }
@@ -1300,6 +1300,117 @@ class ResponseServiceTest extends TestCase
 
         $this->assertNull($this->fieldRepository->findById($fieldId)?->capacityMax);
         $this->assertFalse($this->pdo->inTransaction());
+    }
+
+    /**
+     * An answer taken under a higher cap keeps counting once the cap is
+     * lowered below it (#1546 review): above MAX_QUANTITY_PER_ANSWER, the
+     * per-answer ceiling follows the cap, and the recount would otherwise
+     * read 1500 as nothing and offer a thousand places again.
+     */
+    public function testLoweringACapBelowABookingAboveTheCeilingKeepsItCounted(): void
+    {
+        $fieldId = $this->fieldRepository->create($this->formId, 0, FormField::TYPE_NUMBER, 'Places', false, null, null, 2000, null, null);
+        $this->submitPlaces($fieldId, '1500', 'a');
+        $formService = $this->formService();
+
+        $this->saveCap($formService, $fieldId, 1000);
+
+        $this->assertSame(1500.0, $this->fieldRepository->usedCapacity($fieldId));
+        // What NewsController warns the editor from.
+        $this->assertSame(1500.0, $formService->recomputedCapacities()[0]['capacity_used']);
+        $this->assertSame(0, $this->service()->remainingCapacity($this->fieldRepository->findById($fieldId)));
+    }
+
+    /** The share an edit gives back is the one the total counted, whatever the cap became since. */
+    public function testEditingABookingAboveALoweredCapGivesBackItsWholeShare(): void
+    {
+        $fieldId = $this->fieldRepository->create($this->formId, 0, FormField::TYPE_NUMBER, 'Places', false, null, null, 2000, null, null);
+        $this->submitPlaces($fieldId, '1500', 'a');
+        // The cap lowered with no recount — the total still holds 1500 —
+        // so only the edit's own give-back is measured.
+        $this->pdo->exec('UPDATE news_form_fields SET capacity_max = 1000 WHERE id = ' . $fieldId);
+        $response = $this->responseRepository->findByFormId($this->formId)[0];
+
+        $this->service()->update($response, $this->form(), [$this->fieldRepository->findById($fieldId)],
+            'a@test.com', [$fieldId => '500'], null, 1);
+
+        $this->assertSame(500.0, $this->fieldRepository->usedCapacity($fieldId));
+    }
+
+    /**
+     * A plain number's answer adds what its recount would count, so a cap
+     * set later finds the total it would have rebuilt (#1546 review): a
+     * fraction counts nothing on submission, on edit and on recount alike.
+     */
+    public function testAPlainFractionAddsWhatItsRecountCounts(): void
+    {
+        $fieldId = $this->fieldRepository->create($this->formId, 0, FormField::TYPE_NUMBER, 'Taille', false, null, null, null, null, null);
+        $this->submitPlaces($fieldId, '37.5', 'a');
+        $this->assertSame(0.0, $this->fieldRepository->usedCapacity($fieldId));
+
+        $response = $this->responseRepository->findByFormId($this->formId)[0];
+        $this->service()->update($response, $this->form(), [$this->fieldRepository->findById($fieldId)],
+            'a@test.com', [$fieldId => '38.5'], null, 1);
+        $this->assertSame(0.0, $this->fieldRepository->usedCapacity($fieldId));
+
+        $this->service()->update($response, $this->form(), [$this->fieldRepository->findById($fieldId)],
+            'a@test.com', [$fieldId => '12'], null, 1);
+        $this->assertSame(12.0, $this->fieldRepository->usedCapacity($fieldId));
+        $this->assertSame(12.0, $this->fieldRepository->recomputeUsedCapacity($fieldId, $this->responseRepository));
+    }
+
+    /**
+     * Every number field's row is locked before the answers are written,
+     * capped or not, in ascending id order (#1546 review): the insert's
+     * foreign key takes a shared lock on the row first otherwise, and two
+     * submissions then deadlock on the increment.
+     */
+    public function testASubmissionLocksEveryNumberFieldBeforeWritingItsAnswers(): void
+    {
+        $plain = $this->fieldRepository->create($this->formId, 0, FormField::TYPE_NUMBER, 'Taille', false, null, null, null, null, null);
+        $capped = $this->fieldRepository->create($this->formId, 1, FormField::TYPE_NUMBER, 'Places', false, null, null, 50, null, null);
+        $text = $this->fieldRepository->create($this->formId, 2, FormField::TYPE_TEXT, 'Nom', false, null, null, null, null, null);
+        $responses = $this->responseRepository;
+        $spy = new class ($this->pdo, $responses) extends FormFieldRepository {
+            /** @var list<list<int>> */
+            public array $locked = [];
+            public bool $answersWrittenWhenLocked = true;
+
+            public function __construct(\PDO $pdo, private readonly FormResponseRepository $responses)
+            {
+                parent::__construct($pdo);
+            }
+
+            public function lockUsedCapacities(array $fieldIds): array
+            {
+                $this->locked[] = $fieldIds;
+                $this->answersWrittenWhenLocked = $this->responses->findByFormId($this->formIdOf($fieldIds)) !== [];
+
+                return parent::lockUsedCapacities($fieldIds);
+            }
+
+            /** @param list<int> $fieldIds */
+            private function formIdOf(array $fieldIds): int
+            {
+                return (int) $this->findById($fieldIds[0])?->formId;
+            }
+        };
+        $this->fieldRepository = $spy;
+
+        $this->service()->submit($this->article, $this->form(), [
+            $this->fieldRepository->findById($capped),
+            $this->fieldRepository->findById($plain),
+            $this->fieldRepository->findById($text),
+        ], null, null, 1, 'a@test.com', [$plain => '3', $capped => '2', $text => 'Lea'], null);
+
+        $this->assertCount(1, $spy->locked);
+        $locked = $spy->locked[0];
+        sort($locked);
+        $this->assertSame([$plain, $capped], $locked);
+        $this->assertFalse($spy->answersWrittenWhenLocked);
+        $this->assertSame(3.0, $this->fieldRepository->usedCapacity($plain));
+        $this->assertSame(2.0, $this->fieldRepository->usedCapacity($capped));
     }
 
     private function submitPlaces(int $fieldId, string $places, string $who): void

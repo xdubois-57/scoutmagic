@@ -71,11 +71,11 @@ final class FormFieldRepositoryOnMysqlTest extends TestCase
         $counting = new class ($this->pdo, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))) extends FormResponseRepository {
             public bool $counted = false;
 
-            public function sumFieldValues(FormField $field, ?int $excludeResponseId = null, bool $lockForUpdate = false): float
+            public function sumFieldValues(FormField $field, ?int $excludeResponseId = null, bool $lockForUpdate = false, int $ceilingAtLeast = 0): float
             {
                 $this->counted = true;
 
-                return parent::sumFieldValues($field, $excludeResponseId, $lockForUpdate);
+                return parent::sumFieldValues($field, $excludeResponseId, $lockForUpdate, $ceilingAtLeast);
             }
         };
         try {
@@ -92,6 +92,48 @@ final class FormFieldRepositoryOnMysqlTest extends TestCase
         $this->assertFalse($this->pdo->inTransaction(), 'its own transaction is rolled back');
 
         $this->assertSame(30.0, $repository->recomputeUsedCapacity($this->fieldId, $this->responses));
+        $this->assertSame(30.0, $repository->usedCapacity($this->fieldId));
+    }
+
+    /** A submission's lock on every number field holds off another one's increment (#1546 review). */
+    public function testLockingTheNumberFieldsHoldsTheirRowsUntilTheCommit(): void
+    {
+        $other = self::productionEngineConnection((string) $this->pdo->query('SELECT DATABASE()')->fetchColumn())->getPdo();
+        $other->exec('SET SESSION innodb_lock_wait_timeout = 1');
+        $this->pdo->beginTransaction();
+        $held = (new FormFieldRepository($this->pdo))->lockUsedCapacities([$this->fieldId]);
+        $this->assertArrayHasKey($this->fieldId, $held);
+
+        try {
+            (new FormFieldRepository($other))->addUsedCapacity($this->fieldId, 1.0);
+            $this->fail('The increment did not wait for the locked field row.');
+        } catch (\PDOException $e) {
+            $this->assertStringContainsString('Lock wait timeout', $e->getMessage());
+        } finally {
+            $this->pdo->rollBack();
+        }
+    }
+
+    /** The startup repair recounts each field under its row lock too (#1546 review). */
+    public function testTheStartupRepairWaitsForASubmissionHoldingTheFieldRow(): void
+    {
+        $this->pdo->exec('UPDATE news_form_fields SET capacity_max = 50 WHERE id = ' . $this->fieldId);
+        $other = self::productionEngineConnection((string) $this->pdo->query('SELECT DATABASE()')->fetchColumn())->getPdo();
+        $this->pdo->exec('SET SESSION innodb_lock_wait_timeout = 1');
+        $other->beginTransaction();
+        (new FormFieldRepository($other))->usedCapacity($this->fieldId, lockForUpdate: true);
+
+        $repository = new FormFieldRepository($this->pdo);
+        try {
+            $repository->recomputeUsedCapacities($this->responses);
+            $this->fail('The repair did not wait for the row a submission holds.');
+        } catch (\PDOException $e) {
+            $this->assertStringContainsString('Lock wait timeout', $e->getMessage());
+        } finally {
+            $other->rollBack();
+        }
+
+        $this->assertSame(1, $repository->recomputeUsedCapacities($this->responses));
         $this->assertSame(30.0, $repository->usedCapacity($this->fieldId));
     }
 }
