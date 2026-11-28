@@ -79,11 +79,16 @@ class MergeRowRepository
             ? '0'
             : "CASE WHEN d.{$winner} IS NOT NULL AND (k.{$winner} IS NULL OR d.{$winner} > k.{$winner})"
                 . ' THEN 1 ELSE 0 END';
+        // Locked: a write to a compared row committing between this
+        // comparison and the delete below would otherwise have the newer
+        // row deleted in favour of the older one. The caller — the merge,
+        // or its catch-up — owns the transaction. SQLite has no such clause.
+        $forUpdate = $this->pdo->getAttribute(\PDO::ATTR_DRIVER_NAME) === 'sqlite' ? '' : ' FOR UPDATE';
         $stmt = $this->pdo->prepare(
             "SELECT d.id AS duplicate_row, k.id AS kept_row, {$duplicateWins} AS duplicate_wins
              FROM {$table} d
              JOIN {$table} k ON k.{$column} = ? AND {$join}
-             WHERE d.{$column} = ?"
+             WHERE d.{$column} = ?" . $forUpdate
         );
         $stmt->execute([$keptMemberId, $duplicateMemberId]);
         $collisions = $stmt->fetchAll(\PDO::FETCH_ASSOC);

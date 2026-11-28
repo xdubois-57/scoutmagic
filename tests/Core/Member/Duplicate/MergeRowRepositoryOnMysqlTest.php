@@ -73,4 +73,59 @@ final class MergeRowRepositoryOnMysqlTest extends TestCase
         $this->assertSame([$first => 'stays', $second => 'stays'], $decisions->fetchAll(\PDO::FETCH_KEY_PAIR));
         $this->assertSame(0, $rows->count('registration_reenrollments', 'member_id', $merged));
     }
+
+    /**
+     * The compared rows are read FOR UPDATE inside the merge's transaction:
+     * a write to the kept row has to wait until the merge is over.
+     */
+    public function testAWriteToAComparedRowWaitsForTheMergeToFinish(): void
+    {
+        $pdo = $this->productionEngine();
+        $member = $pdo->prepare('INSERT INTO members (desk_id) VALUES (?)');
+        $member->execute(['ML-KEPT']);
+        $kept = (int) $pdo->lastInsertId();
+        $member->execute(['ML-MERGED']);
+        $merged = (int) $pdo->lastInsertId();
+        $pdo->prepare('INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES (?, ?, ?, 0)')
+            ->execute(['2030-2031', '2030-09-01', '2031-08-31']);
+        $year = (int) $pdo->lastInsertId();
+        // The kept answer is the fresher one: the merge only READS it, and
+        // deletes the other — so the kept row is held by FOR UPDATE alone.
+        $answer = $pdo->prepare(
+            'INSERT INTO registration_reenrollments (member_id, scout_year_id, decision, answered_at)
+             VALUES (?, ?, ?, ?)'
+        );
+        $answer->execute([$kept, $year, 'stays', '2030-06-01 10:00:00']);
+        $answer->execute([$merged, $year, 'leaves', '2030-05-01 10:00:00']);
+
+        $rows = new MergeRowRepository($pdo);
+        $other = self::productionEngineConnection(self::$productionEngineDatabase)->getPdo();
+        $other->exec('SET SESSION innodb_lock_wait_timeout = 1');
+
+        $pdo->beginTransaction();
+        try {
+            $this->assertSame(
+                ['handled' => 1, 'collisions' => 1],
+                $rows->repointUnique(
+                    'registration_reenrollments',
+                    'member_id',
+                    ['scout_year_id'],
+                    'answered_at',
+                    $kept,
+                    $merged
+                )
+            );
+
+            try {
+                $other->prepare("UPDATE registration_reenrollments SET decision = 'leaves' WHERE member_id = ?")
+                    ->execute([$kept]);
+                $this->fail('the row the merge compared was written while the merge still held it');
+            } catch (\PDOException $e) {
+                $this->assertSame('HY000', $e->getCode());
+                $this->assertStringContainsString('1205', $e->getMessage(), 'a lock wait, nothing else');
+            }
+        } finally {
+            $pdo->rollBack();
+        }
+    }
 }
