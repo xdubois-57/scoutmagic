@@ -7,6 +7,7 @@ namespace Tests\Core\Scheduler;
 use Core\Config\SettingRepository;
 use Core\Config\SettingService;
 use Core\Scheduler\CronHealth;
+use Core\Scheduler\CronPassEnd;
 use Core\Scheduler\CronRunHistory;
 use Core\Scheduler\CronStatus;
 use PHPUnit\Framework\TestCase;
@@ -57,6 +58,7 @@ class CronHealthTest extends TestCase
         $settings = new SettingService(new SettingRepository(DatabaseTestHelper::createTestDatabase()));
         $settings->register('cron_last_run', '0', 'number', 'L', 'D', null, null, null, false, 999);
         CronRunHistory::register($settings);
+        CronPassEnd::register($settings);
 
         return $settings;
     }
@@ -70,7 +72,7 @@ class CronHealthTest extends TestCase
         $this->assertSame(CronStatus::STATE_NEVER, $status->state);
         $this->assertFalse($status->isActive());
         $this->assertNull($status->lastHeartbeatAt);
-        $this->assertNull($status->lastFullPassAt);
+        $this->assertNull($status->lastPassStartAt);
         $this->assertNull($status->secondsSinceLastSeen());
     }
 
@@ -88,7 +90,7 @@ class CronHealthTest extends TestCase
 
         $this->assertSame(CronStatus::STATE_ACTIVE, $status->state);
         $this->assertSame($now, $status->lastHeartbeatAt);
-        $this->assertNull($status->lastFullPassAt);
+        $this->assertNull($status->lastPassStartAt);
     }
 
     /**
@@ -161,7 +163,7 @@ class CronHealthTest extends TestCase
         $status = (new CronHealth($this->storagePath, $settings))->status($now);
 
         $this->assertSame(CronStatus::STATE_ACTIVE, $status->state);
-        $this->assertSame($now - 30, $status->lastFullPassAt);
+        $this->assertSame($now - 30, $status->lastPassStartAt);
         $this->assertNull($status->lastHeartbeatAt);
     }
 
@@ -178,7 +180,7 @@ class CronHealthTest extends TestCase
         $status = (new CronHealth($this->storagePath, $settings))->status($now);
 
         $this->assertTrue($status->isActive());
-        $this->assertNull($status->lastFullPassAt);
+        $this->assertNull($status->lastPassStartAt);
     }
 
     public function testALongSilenceIsReportedBeyondTheStaleThreshold(): void
@@ -239,6 +241,101 @@ class CronHealthTest extends TestCase
     public function testNoSettingServiceMeansNoIntervalRatherThanZero(): void
     {
         $this->assertNull((new CronHealth($this->storagePath))->status()->medianIntervalSeconds);
+    }
+
+    // --- passes that start without finishing (issue #1439) ----------------
+
+    /**
+     * The incident: every trace but the end stamp is written at the START
+     * of a pass, so a cron whose passes all die mid-way — memory, a host
+     * killing the process, a fatal error in a handler — looked active.
+     */
+    public function testACronWhosePassesStartWithoutFinishingIsReported(): void
+    {
+        $now = time();
+        $this->writeHeartbeat((string) $now);
+        $settings = $this->settings();
+        $settings->setInternal('cron_last_run', (string) ($now - 5));
+        $settings->setInternal(CronPassEnd::SETTING, (string) ($now - 3600));
+        $settings->setInternal(CronRunHistory::SETTING, (string) json_encode([
+            $now - 3660, $now - 185, $now - 125, $now - 65, $now - 5,
+        ]));
+
+        $status = (new CronHealth($this->storagePath, $settings))->status($now);
+
+        $this->assertTrue($status->isActive(), 'the crontab does fire — that half stays true');
+        $this->assertTrue($status->passesDoNotFinish());
+        $this->assertSame(4, $status->startsSinceLastPassEnd);
+        $this->assertSame($now - 3600, $status->lastPassEndAt);
+        $this->assertSame(3600, $status->secondsSinceLastPassEnd());
+    }
+
+    /**
+     * No pass ever recorded as finished is UNKNOWN, not broken: the stamp
+     * is new, and an installation upgrading to it holds twenty starts from
+     * before it existed. Reporting those as unfinished would turn the
+     * maintenance page orange right after every such update.
+     */
+    public function testNoRecordedPassEndIsUnknownRatherThanAFailure(): void
+    {
+        $now = time();
+        $settings = $this->settings();
+        $settings->setInternal('cron_last_run', (string) ($now - 5));
+        $settings->setInternal(CronRunHistory::SETTING, (string) json_encode([$now - 65, $now - 5]));
+
+        $status = (new CronHealth($this->storagePath, $settings))->status($now);
+
+        $this->assertFalse($status->passesDoNotFinish());
+        $this->assertNull($status->lastPassEndAt);
+        $this->assertNull($status->secondsSinceLastPassEnd());
+        $this->assertSame(0, $status->startsSinceLastPassEnd);
+    }
+
+    /**
+     * One start after the last end is the pass running right now — a
+     * backup can hold one for ten minutes while every later tick stands
+     * down on the lock and records no start. That is not a failure.
+     */
+    public function testOnePassStillRunningIsNotReported(): void
+    {
+        $now = time();
+        $settings = $this->settings();
+        $settings->setInternal('cron_last_run', (string) ($now - 600));
+        $settings->setInternal(CronPassEnd::SETTING, (string) ($now - 620));
+        $settings->setInternal(CronRunHistory::SETTING, (string) json_encode([$now - 680, $now - 600]));
+
+        $status = (new CronHealth($this->storagePath, $settings))->status($now);
+
+        $this->assertFalse($status->passesDoNotFinish());
+        $this->assertSame(1, $status->startsSinceLastPassEnd);
+    }
+
+    public function testPassesThatFinishAreNotReported(): void
+    {
+        $now = time();
+        $settings = $this->settings();
+        $settings->setInternal('cron_last_run', (string) ($now - 5));
+        // The latest pass ended in the second it started: that start is
+        // not counted against it.
+        $settings->setInternal(CronPassEnd::SETTING, (string) ($now - 5));
+        $settings->setInternal(CronRunHistory::SETTING, (string) json_encode([$now - 125, $now - 65, $now - 5]));
+
+        $status = (new CronHealth($this->storagePath, $settings))->status($now);
+
+        $this->assertFalse($status->passesDoNotFinish());
+        $this->assertSame(0, $status->startsSinceLastPassEnd);
+    }
+
+    /** Before the site has a database there is nothing to compare, and nothing is claimed. */
+    public function testWithoutSettingsNothingIsSaidAboutUnfinishedPasses(): void
+    {
+        $now = time();
+        $this->writeHeartbeat((string) $now);
+
+        $status = (new CronHealth($this->storagePath))->status($now);
+
+        $this->assertFalse($status->passesDoNotFinish());
+        $this->assertNull($status->lastPassEndAt);
     }
 
     // --- the shared crontab line ------------------------------------------

@@ -89,23 +89,71 @@ class SchedulerRunner
      *
      * Tasks claimed but not started are handed back to the pending pool
      * before returning — see SchedulerRepository::release().
+     *
+     * **Called under `CronPassLock` only** (`public/cron.php`), and the
+     * first step depends on it: a row an earlier pass claimed and never
+     * started can only belong to a pass that is gone, so it goes straight
+     * back to 'pending' (SchedulerRepository::releaseNeverStarted()).
+     * `Tests\Architecture\CronPassSingleFlightTest` pins that cron.php is
+     * the only production caller.
      */
     public function processOverdue(?float $deadline = null): int
     {
-        // Before claiming anything: hand back the rows a previous pass
-        // claimed and never finished. Nothing else does — a handler killed
-        // outright takes none of the three ways out of a claim, and its
-        // row then reads as a live chain forever, so seed() stops
-        // re-arming and the task simply stops happening. Reclaiming first
-        // means a row freed here is picked up by this very pass rather
-        // than waiting for the next one.
+        // First, what a pass that died in the middle of its list left
+        // reserved without ever reaching. Without this they waited
+        // RECLAIM_AFTER_HOURS behind the one task that killed the pass —
+        // every queued mail, every mailbox sync, every reminder — and
+        // nothing said so until the reclaim warning six hours later.
+        $neverStarted = $this->repository->releaseNeverStarted();
+        if ($neverStarted !== []) {
+            $count = count($neverStarted);
+            $this->journalSafely(
+                'scheduler_tasks_released',
+                'warning',
+                $count === 1
+                    ? 'Une tâche planifiée remise en file : un passage précédent du cron l\'avait réservée puis '
+                        . 's\'est interrompu avant de la démarrer.'
+                    : "{$count} tâches planifiées remises en file : un passage précédent du cron les avait "
+                        . 'réservées puis s\'est interrompu avant de les démarrer.',
+                ['count' => $count, 'task_ids' => $neverStarted]
+            );
+        }
+
+        // Then hand back the rows a previous pass STARTED and never
+        // finished. Nothing else does — a handler killed outright takes
+        // none of the three ways out of a claim, and its row then reads as
+        // a live chain forever, so seed() stops re-arming and the task
+        // simply stops happening. Reclaiming first means a row freed here
+        // is picked up by this very pass rather than waiting for the next
+        // one. Each reclaim is an attempt; past the ceiling the row is
+        // given up on, since it is the likeliest cause of the dead pass.
         foreach ($this->repository->reclaimAbandoned() as $abandoned) {
+            if ($abandoned['abandoned']) {
+                $this->journalSafely(
+                    'scheduler_task_abandoned',
+                    'error',
+                    "Tâche planifiée « {$abandoned['task_key']} » abandonnée après {$abandoned['attempts']} "
+                        . "tentatives infructueuses, la dernière interrompue avec le passage du cron. "
+                        . "Elle est marquée en échec.",
+                    [
+                        'task_id' => $abandoned['id'],
+                        'module_id' => $abandoned['module_id'],
+                        'attempts' => $abandoned['attempts'],
+                    ]
+                );
+                continue;
+            }
+
             $this->journalSafely(
                 'scheduler_task_reclaimed',
                 'warning',
                 "Tâche planifiée « {$abandoned['task_key']} » reprise : elle était retenue depuis trop "
                     . 'longtemps par une passe qui ne l\'a jamais terminée.',
-                ['task_id' => $abandoned['id'], 'module_id' => $abandoned['module_id']]
+                [
+                    'task_id' => $abandoned['id'],
+                    'module_id' => $abandoned['module_id'],
+                    'attempts' => $abandoned['attempts'],
+                ]
             );
         }
 
@@ -135,6 +183,14 @@ class SchedulerRunner
                     'released' => $released,
                 ]);
                 break;
+            }
+
+            // Stamped before anything can fail, so that a pass dying from
+            // here on leaves THIS row as the one that was running, and the
+            // rows after it as never started. A row this call cannot stamp
+            // is no longer this pass's to run.
+            if (!$this->markStarted((int) $task['id'])) {
+                continue;
             }
 
             $started++;
@@ -264,6 +320,37 @@ class SchedulerRunner
         }
 
         return $processed;
+    }
+
+    /**
+     * SchedulerRepository::markStarted(), on a table that may not have the
+     * column yet.
+     *
+     * One task replaces the whole database under the pass that runs it:
+     * `Task\RestoreBackupHandler`, which hands the migration to a later
+     * pass and returns. The rows after it in this pass's list are then
+     * stamped on the RESTORED schema, and a backup taken before
+     * `started_at` existed has none — an error there would kill the very
+     * pass that just restored the site. The task runs as it would have
+     * before the column existed; the next pass migrates the schema first.
+     */
+    private function markStarted(int $taskId): bool
+    {
+        try {
+            return $this->repository->markStarted($taskId);
+        } catch (\PDOException $e) {
+            // Only the missing column. Any other failure goes up before the
+            // handler runs (#1554 review): a task started without its stamp
+            // and then killed would be handed back as never started,
+            // escaping both the six-hour delay and the attempt count. Left
+            // unstamped, the row is released at the next pass — correctly,
+            // since nothing of it ran.
+            if (!SchedulerRepository::isMissingColumn($e)) {
+                throw $e;
+            }
+
+            return true;
+        }
     }
 
     private function createFallbackContext(): TaskContext

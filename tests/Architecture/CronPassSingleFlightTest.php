@@ -110,4 +110,66 @@ class CronPassSingleFlightTest extends TestCase
         $this->assertNotSame(\Core\Maintenance\InstallLock::NAME, CronPassLock::NAME);
         $this->assertNotSame('scoutmagic_schema_migration', CronPassLock::NAME);
     }
+
+    /**
+     * `SchedulerRunner::processOverdue()` hands back every row an earlier
+     * pass claimed and never started, at once (issue #1439). That is only
+     * true under the lock: a second caller running beside a pass would
+     * hand back rows that pass is about to start, and they would run
+     * twice. So cron.php — which takes the lock above — must stay its only
+     * production caller.
+     */
+    public function testTheTaskPassIsRunFromTheCronEntryPointAlone(): void
+    {
+        $root = dirname(__DIR__, 2);
+        $callers = [];
+        foreach (['core', 'modules', 'public', 'bootstrap', 'scripts'] as $dir) {
+            if (!is_dir($root . '/' . $dir)) {
+                continue;
+            }
+            $files = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($root . '/' . $dir));
+            foreach ($files as $file) {
+                if (!$file instanceof \SplFileInfo || $file->getExtension() !== 'php') {
+                    continue;
+                }
+                $code = (string) file_get_contents($file->getPathname());
+                if (preg_match('/->processOverdue\(/', $code) === 1) {
+                    $callers[] = substr($file->getPathname(), strlen($root) + 1);
+                }
+            }
+        }
+
+        $this->assertSame(['public/cron.php'], $callers);
+    }
+
+    /**
+     * The end-of-pass stamp is the one trace that says a pass went all
+     * the way through, so it must come after the work — every task, the
+     * probes, the purges — and must not be skipped by a pass that stood
+     * down, which exits before any of it.
+     */
+    public function testThePassEndIsStampedAfterAllTheWork(): void
+    {
+        $end = strpos($this->source, 'CronPassEnd::record(');
+        $this->assertIsInt($end, 'public/cron.php must stamp the end of a pass');
+
+        foreach (
+            [
+                '$runner->processOverdue(',
+                'CronExecutionFacts::recordIfDue(',
+                '$journalService->cleanup(',
+                '->purgeAbandoned(',
+            ] as $work
+        ) {
+            $at = strpos($this->source, $work);
+            $this->assertIsInt($at, "public/cron.php no longer contains {$work}");
+            $this->assertGreaterThan($at, $end, "the pass end must be stamped after {$work}");
+        }
+
+        $this->assertGreaterThan(
+            $end,
+            (int) strpos($this->source, 'CronPassLock::release('),
+            'the lock is let go after the stamp, not before'
+        );
+    }
 }

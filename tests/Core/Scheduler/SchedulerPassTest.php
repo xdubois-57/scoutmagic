@@ -37,7 +37,10 @@ use Tests\DatabaseTestHelper;
  *   which is the guarantee `Task\InstallUpdateHandler` relies on when it
  *   schedules the schema migration instead of running it in the process
  *   that has just replaced every file on disk
- *   (`Tests\Architecture\SelfUpdateMigrationBoundaryTest`).
+ *   (`Tests\Architecture\SelfUpdateMigrationBoundaryTest`);
+ * - a pass that DIED in the middle of its list (issue #1439) costs the
+ *   next pass nothing for the tasks it never reached, and the task it was
+ *   running is retried a bounded number of times, not for ever.
  */
 #[\PHPUnit\Framework\Attributes\Group('database')]
 class SchedulerPassTest extends TestCase
@@ -226,5 +229,133 @@ class SchedulerPassTest extends TestCase
         // A later pass — a different process, in production — runs it.
         $this->runner->processOverdue();
         $this->assertSame(['spawner', 'spawned'], $ranInThisPass);
+    }
+
+    /**
+     * Backdate a row to « claimed and started seven hours ago, by a pass
+     * that is gone » — the state a killed process leaves, which no test
+     * can produce by actually killing one.
+     */
+    private function abandonWhileRunning(int $id): void
+    {
+        $longAgo = (new \DateTimeImmutable('-7 hours'))->format('Y-m-d H:i:s');
+        $this->pdo->prepare(
+            "UPDATE scheduled_actions SET status = 'processing', claimed_at = ?, started_at = ? WHERE id = ?"
+        )->execute([$longAgo, $longAgo, $id]);
+    }
+
+    /**
+     * Issue #1439, the scenario: a pass claims its list, the first task
+     * takes the process down, and the others were never reached. They go
+     * back to the queue at the NEXT pass and run there — not six hours
+     * later — while the task that was running keeps the reclaim delay of
+     * decision #446, since nothing here can prove it is not still running.
+     */
+    public function testAPassKilledMidListLeavesNothingButTheRunningTaskBehind(): void
+    {
+        $handler = $this->countingHandler();
+        $this->runner->registerHandler('core', 'test_task', $handler);
+        $this->queue(4);
+
+        // The dead pass: everything claimed, the first one started, and
+        // then the process is gone.
+        $claimed = $this->repo->claimOverdue();
+        $this->assertCount(4, $claimed);
+        $running = (int) $claimed[0]['id'];
+        $this->assertTrue($this->repo->markStarted($running));
+
+        $processed = $this->runner->processOverdue();
+
+        $this->assertSame(3, $processed, 'the three never-started tasks run in the very next pass');
+        $this->assertSame(3, $handler->calls);
+        $this->assertSame('processing', $this->repo->findById($running)['status'], 'the running one keeps its delay');
+        $this->assertSame(['done' => 3, 'processing' => 1], $this->statusCounts());
+
+        $lines = $this->pdo->query(
+            "SELECT level, context FROM event_log WHERE event_type = 'scheduler_tasks_released'"
+        )->fetchAll(\PDO::FETCH_ASSOC);
+        $this->assertCount(1, $lines, 'one line per pass, not one per task');
+        $this->assertSame('warning', $lines[0]['level']);
+        $context = json_decode((string) $lines[0]['context'], true);
+        $this->assertSame(3, $context['count']);
+        $released = array_map('intval', array_column(array_slice($claimed, 1), 'id'));
+        sort($released);
+        $this->assertSame($released, $context['task_ids']);
+
+        // A release is not an attempt: nothing ran.
+        foreach ($released as $id) {
+            $this->assertSame(0, (int) $this->repo->findById($id)['attempts']);
+        }
+    }
+
+    /** And a pass with nothing to hand back says nothing. */
+    public function testANormalPassWritesNoReleaseLine(): void
+    {
+        $this->runner->registerHandler('core', 'test_task', $this->countingHandler());
+        $this->queue(2);
+
+        $this->runner->processOverdue();
+
+        $this->assertSame(
+            0,
+            (int) $this->pdo->query(
+                "SELECT COUNT(*) FROM event_log WHERE event_type = 'scheduler_tasks_released'"
+            )->fetchColumn()
+        );
+    }
+
+    /**
+     * The task that killed its pass is reclaimed after the delay, and each
+     * reclaim counts. Without the count it killed the next pass, and the
+     * one after, for ever; at the ceiling it ends 'failed', visibly.
+     *
+     * The row is due in the future after each reclaim so that this test's
+     * passes do not run it — each cycle stands for « ran, and took the
+     * pass down with it again ».
+     */
+    public function testATaskThatKeepsKillingItsPassEndsFailedWithItsJournalLine(): void
+    {
+        $handler = $this->countingHandler();
+        $this->runner->registerHandler('core', 'test_task', $handler);
+        $id = $this->repo->create('core', 'killer_task', '2099-01-01 00:00:00', null, null);
+
+        for ($cycle = 1; $cycle < SchedulerRepository::ABANDON_AFTER_ATTEMPTS; $cycle++) {
+            $this->abandonWhileRunning($id);
+            $this->runner->processOverdue();
+
+            $row = $this->repo->findById($id);
+            $this->assertSame('pending', $row['status'], "reclaim #{$cycle} hands it back");
+            $this->assertSame($cycle, (int) $row['attempts']);
+            $this->assertNull($row['started_at']);
+        }
+
+        $this->abandonWhileRunning($id);
+        $this->runner->processOverdue();
+
+        $row = $this->repo->findById($id);
+        $this->assertSame('failed', $row['status']);
+        $this->assertSame(SchedulerRepository::ABANDON_AFTER_ATTEMPTS, (int) $row['attempts']);
+        $this->assertStringContainsString('killer_task', (string) $row['last_error']);
+        $this->assertStringContainsString('abandonnée', (string) $row['last_error']);
+
+        $lines = $this->pdo->query(
+            "SELECT category, level, description, context FROM event_log WHERE event_type = 'scheduler_task_abandoned'"
+        )->fetchAll(\PDO::FETCH_ASSOC);
+        $this->assertCount(1, $lines);
+        $this->assertSame('core', $lines[0]['category']);
+        $this->assertSame('error', $lines[0]['level']);
+        $this->assertStringContainsString('killer_task', (string) $lines[0]['description']);
+        $this->assertSame(
+            ['task_id' => $id, 'module_id' => 'core', 'attempts' => SchedulerRepository::ABANDON_AFTER_ATTEMPTS],
+            json_decode((string) $lines[0]['context'], true)
+        );
+        $this->assertSame(
+            SchedulerRepository::ABANDON_AFTER_ATTEMPTS - 1,
+            (int) $this->pdo->query(
+                "SELECT COUNT(*) FROM event_log WHERE event_type = 'scheduler_task_reclaimed'"
+            )->fetchColumn(),
+            'the reclaims before the ceiling are warnings, as before'
+        );
+        $this->assertSame(0, $handler->calls);
     }
 }

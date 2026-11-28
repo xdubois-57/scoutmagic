@@ -502,13 +502,16 @@ class RestoreBackupRoundTripTest extends TestCase
 
     /**
      * The tasks are reset on the restored schema, before any migration: a
-     * backup older than `scheduled_actions.claimed_at` restores too.
+     * backup older than `scheduled_actions.claimed_at` and `started_at`
+     * restores too.
      */
     public function testABackupOlderThanTheLatestSchedulerColumnRestores(): void
     {
+        $this->pdo()->exec('ALTER TABLE scheduled_actions DROP COLUMN started_at');
         $this->pdo()->exec('ALTER TABLE scheduled_actions DROP COLUMN claimed_at');
         $backupId = $this->takeServerBackup();
         $this->pdo()->exec('ALTER TABLE scheduled_actions ADD COLUMN claimed_at DATETIME NULL');
+        $this->pdo()->exec('ALTER TABLE scheduled_actions ADD COLUMN started_at DATETIME NULL');
         $this->pdo()->exec(
             "INSERT INTO scheduled_actions (module_id, task_key, run_at, status)
              VALUES ('core', 'restore_backup', NOW(), 'processing')"

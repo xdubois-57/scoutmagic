@@ -29,19 +29,55 @@ final class CronStatus
     public const STATE_ACTIVE = 'active';
 
     /**
+     * Two recorded starts after the last recorded end: passes run one at a
+     * time, so the earlier of the two started and never finished. One is
+     * not enough — that one may simply be the pass running right now.
+     */
+    public const UNFINISHED_STARTS_THRESHOLD = 2;
+
+    /**
      * @param self::STATE_* $state
-     * @param int|null $lastHeartbeatAt Unix timestamp of the last time public/cron.php STARTED (file, works
-     *     pre-database).
-     * @param int|null $lastFullPassAt Unix timestamp of the last time it completed far enough to reach the database.
+     * @param int|null $lastHeartbeatAt Unix timestamp of the last time public/cron.php was launched (file, works
+     *     pre-database, written even by a pass that stands down on the lock).
+     * @param int|null $lastPassStartAt Unix timestamp of the last pass that took the lock and started its work
+     *     (`cron_last_run`). Says nothing about whether that pass finished.
      * @param int|null $medianIntervalSeconds Median gap between recorded passes, null with fewer than two of them.
+     * @param int|null $lastPassEndAt Unix timestamp of the last pass that went all the way through
+     *     (`Core\Scheduler\CronPassEnd`), null when none has ever been recorded.
+     * @param int $startsSinceLastPassEnd How many pass starts the ring buffer holds after $lastPassEndAt (0 when
+     *     that is null: never recorded is unknown, see CronHealth::startsAfter()).
      */
     public function __construct(
         public readonly string $state,
         public readonly ?int $lastHeartbeatAt,
-        public readonly ?int $lastFullPassAt,
+        public readonly ?int $lastPassStartAt,
         public readonly ?int $medianIntervalSeconds,
-        private readonly int $now
+        private readonly int $now,
+        public readonly ?int $lastPassEndAt = null,
+        public readonly int $startsSinceLastPassEnd = 0
     ) {
+    }
+
+    /**
+     * « The cron fires, but its passes do not get to the end » — the case
+     * every start-of-pass stamp hides: a pass killed by the host, out of
+     * memory, or by a fatal error still leaves the cron looking active.
+     *
+     * Independent of $state on purpose. A cron can be `active` (it fires
+     * every minute) and failing all the same, and a page that folded the
+     * two into one verdict would have to choose which half to hide.
+     */
+    public function passesDoNotFinish(): bool
+    {
+        return $this->state !== self::STATE_NEVER
+            && $this->lastPassEndAt !== null
+            && $this->startsSinceLastPassEnd >= self::UNFINISHED_STARTS_THRESHOLD;
+    }
+
+    /** Seconds since the last pass that finished, null when none ever did. */
+    public function secondsSinceLastPassEnd(): ?int
+    {
+        return $this->lastPassEndAt === null ? null : max(0, $this->now - $this->lastPassEndAt);
     }
 
     public function isActive(): bool
@@ -56,7 +92,7 @@ final class CronStatus
     public function lastSeenAt(): ?int
     {
         $candidates = array_filter(
-            [$this->lastHeartbeatAt, $this->lastFullPassAt],
+            [$this->lastHeartbeatAt, $this->lastPassStartAt],
             static fn(?int $at): bool => $at !== null
         );
 

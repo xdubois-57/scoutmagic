@@ -674,6 +674,31 @@ class MaintenanceControllerTest extends TestCase
     }
 
     /**
+     * #1439: the crontab fires every minute and every pass dies before its
+     * end. The line says so, and does NOT offer the crontab line to fix —
+     * the line is right; something the pass runs kills it.
+     */
+    public function testTheHealthBlockReportsACronWhosePassesDoNotFinish(): void
+    {
+        $now = time();
+        $this->writeCronHeartbeat($now - 5);
+        $this->settingService->register('cron_last_run', (string) ($now - 5), 'number', 'L', 'D', null, null, null, false, 999);
+        \Core\Scheduler\CronRunHistory::register($this->settingService);
+        \Core\Scheduler\CronPassEnd::register($this->settingService);
+        $this->settingService->setInternal(
+            \Core\Scheduler\CronRunHistory::SETTING,
+            (string) json_encode([$now - 3700, $now - 125, $now - 65, $now - 5])
+        );
+        $this->settingService->setInternal(\Core\Scheduler\CronPassEnd::SETTING, (string) ($now - 3660));
+
+        $body = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), [])->getBody();
+
+        $this->assertMatchesRegularExpression('~id="host-check-cron" data-state="degraded"~', $body);
+        $this->assertStringContainsString('Se déclenche, mais ses passages s&#039;interrompent avant la fin', $body);
+        $this->assertStringNotContainsString('maintenance-cron-warning', $body);
+    }
+
+    /**
      * The portable block is on screen, warning first.
      *
      * The mockup is authoritative for this wording, and the wording is the

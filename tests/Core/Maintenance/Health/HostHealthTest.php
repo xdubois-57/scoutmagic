@@ -82,6 +82,70 @@ final class HostHealthTest extends TestCase
     }
 
     /**
+     * #1439: the crontab fires every minute and every pass dies before its
+     * end. The start stamps say « active »; the line must not.
+     */
+    public function testACronWhosePassesDoNotFinishIsNotReportedAsActive(): void
+    {
+        $check = HostHealth::cronCheck(new CronStatus(
+            CronStatus::STATE_ACTIVE,
+            self::NOW - 5,
+            self::NOW - 5,
+            60,
+            self::NOW,
+            self::NOW - 3 * 3600,
+            5
+        ));
+
+        $this->assertSame(HostCheck::STATE_DEGRADED, $check->state);
+        $this->assertSame(
+            'Se déclenche, mais ses passages s\'interrompent avant la fin — dernier passage terminé il y a 3 h',
+            $check->status
+        );
+        $this->assertStringContainsString('journal', $check->ask);
+    }
+
+    /**
+     * No end ever recorded is unknown, not a failure: an installation
+     * upgrading to the stamp has a ring buffer of starts from before it.
+     */
+    public function testACronWithNoRecordedPassEndStaysActive(): void
+    {
+        $check = HostHealth::cronCheck(
+            new CronStatus(CronStatus::STATE_ACTIVE, self::NOW - 5, self::NOW - 5, 60, self::NOW, null, 3)
+        );
+
+        $this->assertSame(HostCheck::STATE_OK, $check->state);
+    }
+
+    /** One start after the last end is the pass running now: still « Active ». */
+    public function testAPassInProgressKeepsTheCronActive(): void
+    {
+        $check = HostHealth::cronCheck(
+            new CronStatus(CronStatus::STATE_ACTIVE, self::NOW - 5, self::NOW - 300, 60, self::NOW, self::NOW - 310, 1)
+        );
+
+        $this->assertSame(HostCheck::STATE_OK, $check->state);
+    }
+
+    /** A cron that stopped altogether is « Plus détectée », whatever its last passes did. */
+    public function testAStoppedCronStaysStaleEvenIfItsLastPassesDied(): void
+    {
+        $check = HostHealth::cronCheck(new CronStatus(
+            CronStatus::STATE_STALE,
+            self::NOW - 10800,
+            self::NOW - 10800,
+            60,
+            self::NOW,
+            self::NOW - 20000,
+            4
+        ));
+
+        $this->assertSame(HostCheck::STATE_MISSING, $check->state);
+        $this->assertStringStartsWith('Plus détectée', $check->status);
+    }
+
+    /**
      * #700: the web PHP sandboxed, the cron's free — the LWS case. Video
      * reads the cron, so it is available, and nothing is asked about the
      * web shell for it.

@@ -514,15 +514,55 @@ class SchedulerRunnerTest extends TestCase
             null,
             null
         );
-        // Claimed, then the process holding it disappears.
+        // Claimed and started, then the process holding it disappears.
         $this->repo->claimOverdue();
-        $stmt = $this->pdo->prepare('UPDATE scheduled_actions SET claimed_at = ? WHERE id = ?');
-        $stmt->execute([(new \DateTimeImmutable('-12 hours'))->format('Y-m-d H:i:s'), $id]);
+        $this->repo->markStarted($id);
+        $stmt = $this->pdo->prepare('UPDATE scheduled_actions SET claimed_at = ?, started_at = ? WHERE id = ?');
+        $longAgo = (new \DateTimeImmutable('-12 hours'))->format('Y-m-d H:i:s');
+        $stmt->execute([$longAgo, $longAgo, $id]);
 
         $this->runner->processOverdue();
 
         $this->assertTrue($handler->called, 'the reclaimed task runs in the very pass that freed it');
         $this->assertSame('done', $this->repo->findById($id)['status']);
+    }
+
+    /**
+     * One task replaces the whole database under its own pass — a restore
+     * — and the restored schema may predate `started_at`. The rows after
+     * it in the list must still run rather than the stamp killing the pass
+     * that just restored the site.
+     */
+    public function testATaskAfterOneThatReplacedTheSchemaStillRuns(): void
+    {
+        $pdo = $this->pdo;
+        $restorer = new class ($pdo) implements TaskHandlerInterface {
+            public function __construct(private \PDO $pdo)
+            {
+            }
+
+            public function handle(array $payload, TaskContext $context): void
+            {
+                $this->pdo->exec('ALTER TABLE scheduled_actions DROP COLUMN started_at');
+            }
+        };
+        $after = new class implements TaskHandlerInterface {
+            public bool $called = false;
+
+            public function handle(array $payload, TaskContext $context): void
+            {
+                $this->called = true;
+            }
+        };
+        $this->runner->registerHandler('core', 'restore_like', $restorer);
+        $this->runner->registerHandler('core', 'after_restore', $after);
+        $past = (new \DateTimeImmutable('-2 minutes'))->format('Y-m-d H:i:s');
+        $this->repo->create('core', 'restore_like', $past, null, null);
+        $this->repo->create('core', 'after_restore', $past, null, null);
+
+        $this->runner->processOverdue();
+
+        $this->assertTrue($after->called);
     }
 
     /**
@@ -540,8 +580,10 @@ class SchedulerRunnerTest extends TestCase
             null
         );
         $this->repo->claimOverdue();
-        $stmt = $this->pdo->prepare('UPDATE scheduled_actions SET claimed_at = ? WHERE id = ?');
-        $stmt->execute([(new \DateTimeImmutable('-12 hours'))->format('Y-m-d H:i:s'), $id]);
+        $this->repo->markStarted($id);
+        $stmt = $this->pdo->prepare('UPDATE scheduled_actions SET claimed_at = ?, started_at = ? WHERE id = ?');
+        $longAgo = (new \DateTimeImmutable('-12 hours'))->format('Y-m-d H:i:s');
+        $stmt->execute([$longAgo, $longAgo, $id]);
 
         $this->runner->processOverdue();
 
@@ -661,5 +703,44 @@ final class ModuleResolvedFixtureHandler implements TaskHandlerInterface
     public function handle(array $payload, TaskContext $context): void
     {
         self::$payloads[] = $payload;
+    }
+
+    /**
+     * A start stamp that fails for any reason other than a missing column
+     * stops the pass before the handler runs (#1554 review): started
+     * without its stamp and then killed, the task would come back as
+     * never started, escaping the delay and the attempt count.
+     */
+    public function testAStartStampThatFailsOtherwiseStopsBeforeTheHandler(): void
+    {
+        $handler = new class implements TaskHandlerInterface {
+            public bool $called = false;
+
+            public function handle(array $payload, TaskContext $context): void
+            {
+                $this->called = true;
+            }
+        };
+        $repo = new class ($this->pdo) extends SchedulerRepository {
+            public function markStarted(int $id): bool
+            {
+                $e = new \PDOException('SQLSTATE[HY000]: General error: 2006 MySQL server has gone away');
+                $e->errorInfo = ['HY000', 2006, 'MySQL server has gone away'];
+                throw $e;
+            }
+        };
+        $runner = new SchedulerRunner($repo, $this->journal);
+        $runner->setTaskContext($this->taskContext);
+        $runner->registerHandler('core', 'stamped_task', $handler);
+        $repo->create('core', 'stamped_task', (new \DateTimeImmutable('-1 minute'))->format('Y-m-d H:i:s'), null, null);
+
+        try {
+            $runner->processOverdue();
+            $this->fail('The stamp failure must stop the pass.');
+        } catch (\PDOException $e) {
+            $this->assertStringContainsString('gone away', $e->getMessage());
+        }
+
+        $this->assertFalse($handler->called);
     }
 }

@@ -148,6 +148,15 @@ final class HostHealth
 
     public static function cronCheck(CronStatus $status): HostCheck
     {
+        // A cron that fires every minute and never gets to the end of a
+        // pass is `active` by its start stamps, and saying « Active »
+        // there is the false green issue #1439 was about. Only while it
+        // fires: a cron that stopped altogether is « Plus détectée »,
+        // whatever its last passes did.
+        if ($status->isActive() && $status->passesDoNotFinish()) {
+            return self::unfinishedCronCheck($status);
+        }
+
         $seconds = $status->secondsSinceLastSeen() ?? 0;
         [$state, $text] = match ($status->state) {
             CronStatus::STATE_ACTIVE => [
@@ -171,6 +180,39 @@ final class HostHealth
             'Ajouter la ligne ci-dessous dans les tâches planifiées de l\'hébergement (rubrique « Tâches '
                 . 'planifiées » ou « Cron »).'
         );
+    }
+
+    /**
+     * The crontab is there and fires; its passes die before the end. Not
+     * the crontab line to fix, then — something the pass does kills it,
+     * and the journal and the host's limits are where that is found.
+     */
+    private static function unfinishedCronCheck(CronStatus $status): HostCheck
+    {
+        $lastEnd = 'dernier passage terminé il y a ' . self::elapsed($status->secondsSinceLastPassEnd() ?? 0);
+
+        return new HostCheck(
+            'cron',
+            'Tâche cron',
+            HostCheck::STATE_DEGRADED,
+            "Se déclenche, mais ses passages s'interrompent avant la fin — {$lastEnd}",
+            'Une partie des tâches de fond ne s\'exécute pas : sauvegardes, mises à jour, rappels et '
+                . 'notifications peuvent rester en attente.',
+            'Consulter le journal des événements (Configuration > Journal), puis demander à l\'hébergeur si le '
+                . 'processus du cron est arrêté en cours de route (mémoire ou durée maximale dépassée).'
+        );
+    }
+
+    private static function elapsed(int $seconds): string
+    {
+        if ($seconds < 60) {
+            return $seconds . ' s';
+        }
+        if ($seconds < 7200) {
+            return intdiv($seconds, 60) . ' min';
+        }
+
+        return intdiv($seconds, 3600) . ' h';
     }
 
     private static function cadence(?int $medianSeconds): string

@@ -35,6 +35,22 @@ class SchedulerRepository
      */
     private const RECLAIM_AFTER_HOURS = 6;
 
+    /**
+     * How many times a row may be handed back by reclaimAbandoned() before
+     * it is given up on and marked 'failed' instead.
+     *
+     * A row only reaches reclaimAbandoned() once it was STARTED and its
+     * pass never came back — releaseNeverStarted() has already returned
+     * the rows a dead pass merely reserved. So each reclaim is one run that
+     * took its whole process down with it, and without a ceiling the same
+     * task kills a pass every RECLAIM_AFTER_HOURS for ever. Three: the
+     * first death can be the host (a restart, a one-off memory spike), the
+     * second is a pattern, the third ends it — at the cost of eighteen
+     * hours of retries, which a task that kills its pass has not earned
+     * any sooner.
+     */
+    public const ABANDON_AFTER_ATTEMPTS = 3;
+
     public function __construct(private \PDO $pdo)
     {
     }
@@ -491,6 +507,92 @@ class SchedulerRepository
     }
 
     /**
+     * Record that this claimed row's handler is starting NOW — the moment
+     * that separates « reserved by a pass » from « running ».
+     *
+     * claimOverdue() reserves a whole list at once and SchedulerRunner works
+     * through it one row at a time, so `claimed_at` alone cannot say which
+     * rows a pass that died had actually reached. This stamp can, and
+     * releaseNeverStarted() reads it.
+     *
+     * Returns whether THIS call stamped it, decided on `rowCount()` under
+     * the same `status = 'processing'` guard the claim uses: a row that
+     * went back to the pool in the meantime, or was started already, is
+     * not this caller's to run.
+     */
+    public function markStarted(int $id): bool
+    {
+        $stmt = $this->pdo->prepare(
+            "UPDATE scheduled_actions SET started_at = ?"
+            . " WHERE id = ? AND status = 'processing' AND started_at IS NULL"
+        );
+        $stmt->execute([(new \DateTimeImmutable())->format('Y-m-d H:i:s'), $id]);
+
+        return $stmt->rowCount() === 1;
+    }
+
+    /**
+     * Hand back to 'pending' every row a previous pass claimed and never
+     * started.
+     *
+     * **Only safe under `CronPassLock`**, and that is the whole argument:
+     * with one pass at a time, a row reserved by an earlier pass that is
+     * still 'processing' with no `started_at` belongs to a pass that no
+     * longer exists — nobody is about to start it. Releasing it at once is
+     * what keeps a pass killed in the middle of its list from freezing
+     * every task behind the one that killed it for RECLAIM_AFTER_HOURS:
+     * the deferred mail drain, the mailbox sync, the reminders.
+     *
+     * Not an attempt, exactly as release() is not: nothing ran.
+     *
+     * **A row with no `claimed_at` is left alone**, to reclaimAbandoned()'s
+     * slower path. claimOverdue() always stamps it, so a 'processing' row
+     * without one was put there by something else — the running restore's
+     * row re-inserted by `Task\RestoreBackupHandler` on the restored
+     * schema, a row claimed by a version older than the column — and for
+     * those this method cannot know whether they were running.
+     *
+     * @return list<int> the ids actually released
+     */
+    public function releaseNeverStarted(): array
+    {
+        try {
+            $candidateStmt = $this->pdo->prepare(
+                "SELECT id FROM scheduled_actions"
+                . " WHERE status = 'processing' AND claimed_at IS NOT NULL AND started_at IS NULL"
+            );
+            $candidateStmt->execute();
+        } catch (\PDOException $e) {
+            // A schema without `started_at` (a backup restored from before
+            // it, a migration left half-applied) cannot tell a started row
+            // from one that never was: nothing is released here, and
+            // reclaimAbandoned()'s slower path still covers every row
+            // (#1554 review). The pass itself must go on.
+            if (!self::isMissingColumn($e)) {
+                throw $e;
+            }
+
+            return [];
+        }
+        $candidateIds = $candidateStmt->fetchAll(\PDO::FETCH_COLUMN);
+
+        $releaseStmt = $this->pdo->prepare(
+            "UPDATE scheduled_actions SET status = 'pending', claimed_at = NULL"
+            . " WHERE id = ? AND status = 'processing' AND started_at IS NULL"
+        );
+
+        $released = [];
+        foreach ($candidateIds as $id) {
+            $releaseStmt->execute([(int) $id]);
+            if ($releaseStmt->rowCount() === 1) {
+                $released[] = (int) $id;
+            }
+        }
+
+        return $released;
+    }
+
+    /**
      * Hand a claimed row back to the pending pool, untouched — the counter
      * part of claimOverdue()'s claim.
      *
@@ -505,15 +607,44 @@ class SchedulerRepository
      */
     public function release(int $id): void
     {
-        $stmt = $this->pdo->prepare(
-            "UPDATE scheduled_actions SET status = 'pending', claimed_at = NULL"
-            . " WHERE id = ? AND status = 'processing'"
-        );
-        $stmt->execute([$id]);
+        try {
+            $stmt = $this->pdo->prepare(
+                "UPDATE scheduled_actions SET status = 'pending', claimed_at = NULL, started_at = NULL"
+                . " WHERE id = ? AND status = 'processing'"
+            );
+            $stmt->execute([$id]);
+        } catch (\PDOException $e) {
+            // A pass that restored a backup taken before `started_at`
+            // existed (see SchedulerRunner::markStarted()) still has to
+            // hand back what it did not run (#1554 review).
+            if (!self::isMissingColumn($e)) {
+                throw $e;
+            }
+            $stmt = $this->pdo->prepare(
+                "UPDATE scheduled_actions SET status = 'pending', claimed_at = NULL"
+                . " WHERE id = ? AND status = 'processing'"
+            );
+            $stmt->execute([$id]);
+        }
     }
 
     /**
-     * Hand back the rows that were claimed and never finished.
+     * Whether $e is a statement naming a column this schema does not have:
+     * SQLSTATE 42S22 / error 1054 on MySQL and MariaDB, « no such column »
+     * on SQLite. The one failure a restored, older schema produces here.
+     */
+    public static function isMissingColumn(\PDOException $e): bool
+    {
+        $info = is_array($e->errorInfo) ? $e->errorInfo : [];
+
+        return ($info[0] ?? null) === '42S22'
+            || ($info[1] ?? null) === 1054
+            || str_contains((string) ($info[2] ?? $e->getMessage()), 'no such column');
+    }
+
+    /**
+     * Hand back the rows that were claimed and never finished — or, past
+     * ABANDON_AFTER_ATTEMPTS, give up on them.
      *
      * A claim has exactly three ways out — done, failed, released — and a
      * handler killed outright takes none of them. The process is gone, so
@@ -530,21 +661,30 @@ class SchedulerRepository
      * reclaimed one of those would start a second copy of it beside the
      * first, which is worse than the silence it is fixing.
      * `RECLAIM_AFTER_HOURS` is set well beyond the longest task this
-     * repository ships rather than close to it.
+     * repository ships rather than close to it. The rows a dead pass
+     * reserved without starting do not wait for it: releaseNeverStarted()
+     * returns those first.
      *
-     * `COALESCE(claimed_at, run_at)`: a row claimed before that column
-     * existed carries NULL, and `run_at` is the only timestamp such a row
-     * has. It is the wrong question — "when was this due" rather than
-     * "since when has it been held" — and it errs on the side of
-     * reclaiming, which is the right direction for rows that have by
-     * definition been stranded since before the migration.
+     * **Each reclaim counts an attempt**, and the one that reaches
+     * ABANDON_AFTER_ATTEMPTS marks the row 'failed' rather than 'pending'.
+     * The row that was running when its pass died is the likeliest cause
+     * of the death, and handing it back without a count let it kill the
+     * next pass, and the one after, for ever.
      *
-     * Reclaimed one row at a time under the same `AND status =
-     * 'processing'` guard `claimOverdue()` uses, so a pass that reclaims
-     * while another finishes the very same task cannot resurrect a row
-     * that has just been marked done.
+     * `COALESCE(started_at, claimed_at, run_at)`: since when the row has
+     * been running, where that is known; since when it has been held,
+     * otherwise. A row claimed before `claimed_at` existed carries NULL in
+     * both, and `run_at` is the only timestamp such a row has — the wrong
+     * question, erring on the side of reclaiming, which is the right
+     * direction for rows stranded since before the migration.
      *
-     * @return array<int, array<string, mixed>> the rows actually reclaimed
+     * Each row is handed back under the same `AND status = 'processing'`
+     * guard `claimOverdue()` uses, so a pass that reclaims while another
+     * finishes the very same task cannot resurrect a row that has just
+     * been marked done.
+     *
+     * @return array<int, array{id: int, module_id: string, task_key: string, attempts: int, abandoned: bool}>
+     *     the rows actually reclaimed (`abandoned` false) or given up on (`abandoned` true)
      */
     public function reclaimAbandoned(): array
     {
@@ -552,11 +692,26 @@ class SchedulerRepository
             ->sub(new \DateInterval('PT' . self::RECLAIM_AFTER_HOURS . 'H'))
             ->format('Y-m-d H:i:s');
 
-        $candidateStmt = $this->pdo->prepare(
-            "SELECT id, module_id, task_key FROM scheduled_actions"
-            . " WHERE status = 'processing' AND COALESCE(claimed_at, run_at) <= ?"
-        );
-        $candidateStmt->execute([$threshold]);
+        $hasStartedAt = true;
+        try {
+            $candidateStmt = $this->pdo->prepare(
+                "SELECT id, module_id, task_key, attempts FROM scheduled_actions"
+                . " WHERE status = 'processing' AND COALESCE(started_at, claimed_at, run_at) <= ?"
+            );
+            $candidateStmt->execute([$threshold]);
+        } catch (\PDOException $e) {
+            // A schema without `started_at` still drains its stranded rows,
+            // on the timestamps it has (#1554 review), as release() does.
+            if (!self::isMissingColumn($e)) {
+                throw $e;
+            }
+            $hasStartedAt = false;
+            $candidateStmt = $this->pdo->prepare(
+                "SELECT id, module_id, task_key, attempts FROM scheduled_actions"
+                . " WHERE status = 'processing' AND COALESCE(claimed_at, run_at) <= ?"
+            );
+            $candidateStmt->execute([$threshold]);
+        }
         $candidates = $candidateStmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
 
         if ($candidates === []) {
@@ -564,19 +719,45 @@ class SchedulerRepository
         }
 
         $reclaimStmt = $this->pdo->prepare(
-            "UPDATE scheduled_actions SET status = 'pending', claimed_at = NULL"
+            "UPDATE scheduled_actions SET status = 'pending', attempts = attempts + 1,"
+            . ($hasStartedAt ? " claimed_at = NULL, started_at = NULL" : " claimed_at = NULL")
+            . " WHERE id = ? AND status = 'processing'"
+        );
+        $abandonStmt = $this->pdo->prepare(
+            "UPDATE scheduled_actions SET status = 'failed', attempts = attempts + 1, last_error = ?,"
+            . " claimed_at = NULL"
             . " WHERE id = ? AND status = 'processing'"
         );
 
-        $reclaimed = [];
+        $handled = [];
         foreach ($candidates as $candidate) {
-            $reclaimStmt->execute([(int) $candidate['id']]);
-            if ($reclaimStmt->rowCount() === 1) {
-                $reclaimed[] = $candidate;
+            $attempts = (int) $candidate['attempts'] + 1;
+            $abandoned = $attempts >= self::ABANDON_AFTER_ATTEMPTS;
+
+            if ($abandoned) {
+                $abandonStmt->execute([
+                    "La tâche « {$candidate['task_key']} » a été abandonnée après {$attempts} tentatives "
+                        . "infructueuses, la dernière interrompue en même temps que le passage du cron.",
+                    (int) $candidate['id'],
+                ]);
+                $changed = $abandonStmt->rowCount();
+            } else {
+                $reclaimStmt->execute([(int) $candidate['id']]);
+                $changed = $reclaimStmt->rowCount();
+            }
+
+            if ($changed === 1) {
+                $handled[] = [
+                    'id' => (int) $candidate['id'],
+                    'module_id' => (string) $candidate['module_id'],
+                    'task_key' => (string) $candidate['task_key'],
+                    'attempts' => $attempts,
+                    'abandoned' => $abandoned,
+                ];
             }
         }
 
-        return $reclaimed;
+        return $handled;
     }
 
     /**
