@@ -86,7 +86,8 @@ class FormFieldRepository
                 . 'capacity_peak = CASE'
                 // `? + 0`: a bound parameter arrives as text, which SQLite
                 // would compare as greater than any number.
-                . ' WHEN COALESCE(capacity_peak, capacity_max, 0) >= COALESCE(? + 0, 0) THEN COALESCE(capacity_peak, capacity_max)'
+                . ' WHEN COALESCE(capacity_peak, capacity_max, 0) >= COALESCE(? + 0, 0)'
+                . ' THEN COALESCE(capacity_peak, capacity_max)'
                 . ' ELSE ? END, '
                 . 'capacity_max = ?, price_per_unit = ?, confirmation_text = ? WHERE id = ?'
         );
