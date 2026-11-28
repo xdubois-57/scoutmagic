@@ -1111,6 +1111,7 @@ class ResponseService
             }
 
             $value = is_array($raw) ? implode(', ', $raw) : (string) ($raw ?? '');
+            self::assertAnswerLength($field, $value);
 
             // A required capped field whose capacity is exhausted is
             // rendered with no input at all ("Complet" — partials/
@@ -1152,6 +1153,55 @@ class ResponseService
         }
 
         return $normalized;
+    }
+
+    /**
+     * Refuses an answer longer than FormField::MAX_ANSWER_LENGTH, naming
+     * the field and the limit (issue #1486). Every answer that is not a
+     * choice among options comes through here — a « texte court » or
+     * « texte long » above all, but a date, an address or a number sent by
+     * a script is no shorter for being of another type — on a submission
+     * and on an edit alike. Without it a pasted document reached the
+     * INSERT, the engine refused the encrypted value as wider than its
+     * `BLOB`, and the respondent got the generic error page instead of a
+     * sentence next to the field. SECURITY.md §35: that net is a floor,
+     * not the validation.
+     *
+     * Refused, never truncated: storing the first ten thousand characters
+     * would record an answer nobody gave, and say nothing.
+     */
+    public static function assertAnswerLength(FormField $field, string $value): void
+    {
+        $length = self::answerLength($value);
+        if ($length <= FormField::MAX_ANSWER_LENGTH) {
+            return;
+        }
+
+        throw new FieldAnswerException(
+            'Le champ "' . $field->label . '" ne peut pas dépasser '
+                . self::frenchInteger(FormField::MAX_ANSWER_LENGTH) . ' caractères (votre réponse en compte '
+                . self::frenchInteger($length) . ') : raccourcissez-la.',
+            $field->id
+        );
+    }
+
+    /**
+     * An answer's length in characters as the page counted it: a textarea's
+     * `maxlength` reads a line break as ONE character and the browser then
+     * sends it as CRLF, so a CRLF counts once here, or an answer the page
+     * accepted would be refused for its line breaks. Bytes that are not
+     * valid UTF-8 count one each, which keeps every counted character at
+     * four bytes or fewer — the premise of FormField::MAX_ANSWER_LENGTH.
+     */
+    public static function answerLength(string $value): int
+    {
+        return mb_strlen(str_replace("\r\n", "\n", $value), 'UTF-8');
+    }
+
+    /** « 10 000 », the way a French reader groups digits. */
+    private static function frenchInteger(int $value): string
+    {
+        return number_format($value, 0, ',', ' ');
     }
 
     /**

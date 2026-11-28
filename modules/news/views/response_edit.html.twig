@@ -19,11 +19,11 @@
 
             <div class="mb-3">
                 <label class="form-label" for="contact_email">Email de contact <span class="text-danger">*</span></label>
-                <input type="email" class="form-control" id="contact_email" name="contact_email" value="{{ response.contactEmail }}" required>
+                <input type="email" class="form-control" id="contact_email" name="contact_email" value="{{ contact_email_value ?? response.contactEmail }}" required>
             </div>
 
             {% for row in fields %}
-                {% include '@news/partials/_field.html.twig' with {field: row.field, options: row.options, remaining_capacity: row.remaining_capacity, value: existing_answers[row.field.id] ?? ''} %}
+                {% include '@news/partials/_field.html.twig' with {field: row.field, options: row.options, remaining_capacity: row.remaining_capacity, value: existing_answers[row.field.id] ?? '', error: (field_errors|default({}))[row.field.id] ?? null} %}
             {% endfor %}
 
             <div class="d-flex flex-column flex-sm-row gap-2">

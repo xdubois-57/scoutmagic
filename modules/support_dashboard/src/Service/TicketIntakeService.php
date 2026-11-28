@@ -246,6 +246,9 @@ class TicketIntakeService
         // installation row is up to date, with no second call and no
         // window in which the two disagree.
         $statistics = is_array($payload['statistics'] ?? null) ? $payload['statistics'] : null;
+        // Bounded to what its column holds (issue #1486): a report can
+        // fill the whole body, and the body may weigh more than the column.
+        $snapshot = $statistics !== null ? SupportTicketRepository::encodeStatisticsSnapshot($statistics) : null;
 
         $reference = $this->tickets->create(
             $installationRowId,
@@ -254,9 +257,23 @@ class TicketIntakeService
             $contactEmail,
             self::trimmedString($payload['site_version'] ?? null, 50),
             self::trimmedString($payload['php_version'] ?? null, 20),
-            $statistics !== null ? (string) json_encode($statistics) : null,
+            $snapshot['json'] ?? null,
             self::consentScopeIn($payload)
         );
+
+        // A report cut to fit is said so — the sections that went are named
+        // in the snapshot itself, and here how much it weighed. Sizes and
+        // the reference only: the report describes somebody else's
+        // installation and stays encrypted.
+        if ($snapshot !== null && $snapshot['original_bytes'] !== null) {
+            $this->journal->log(
+                'support_dashboard',
+                'ticket_statistics_truncated',
+                'info',
+                'Rapport d\'utilisation d\'un ticket de support tronqué pour tenir dans sa colonne',
+                ['ticket_reference' => $reference, 'original_bytes' => $snapshot['original_bytes']]
+            );
+        }
 
         if ($statistics !== null) {
             // Same path an ordinary report takes, so the range checks and

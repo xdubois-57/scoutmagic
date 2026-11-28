@@ -3282,6 +3282,109 @@ class NewsIntegrationTest extends TestCase
     }
 
     /**
+     * Issue #1486: a « Remarques » answer above FormField::MAX_ANSWER_LENGTH
+     * is refused with a sentence NEXT TO the field, and what was typed comes
+     * back in it — the long answer included, so it can be shortened rather
+     * than retyped. The free-text inputs tell the browser the same limit.
+     */
+    public function testASubmissionTooLongIsRefusedNextToTheFieldAndKeepsWhatWasTyped(): void
+    {
+        $articleId = $this->publishedArticle();
+        [$nameId, $remarksId] = $this->nameAndRemarksForm($articleId);
+        $tooLong = str_repeat('Une très longue remarque. ', 500);
+
+        $response = $this->formController->submit(
+            new Request('POST', '/news/' . $articleId . '/form/submit', [], [
+                '_csrf_token' => CsrfGuard::generateToken(),
+                'contact_email' => 'famille@test.com',
+                'field_' . $nameId => 'Bob',
+                'field_' . $remarksId => $tooLong,
+            ], [], []),
+            ['id' => (string) $articleId]
+        );
+        $body = $response->getBody();
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertMatchesRegularExpression(
+            '/<div class="invalid-feedback d-block" id="field_' . $remarksId . '_error">'
+                . 'Le champ &quot;Remarques&quot; ne peut pas dépasser 10 000 caractères/',
+            $body
+        );
+        $this->assertMatchesRegularExpression(
+            '/<textarea class="form-control is-invalid" id="field_' . $remarksId . '"/',
+            $body
+        );
+        $this->assertStringContainsString('>' . $tooLong . '</textarea>', $body, 'the long answer comes back');
+        $this->assertStringContainsString('value="Bob"', $body);
+        $this->assertStringContainsString('maxlength="10000"', $body);
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM news_form_responses')->fetchColumn());
+    }
+
+    /**
+     * A public form asking « Nom » then « Remarques ».
+     *
+     * @return array{0: int, 1: int} the two field ids
+     */
+    private function nameAndRemarksForm(int $articleId): array
+    {
+        $formId = $this->formRepository->create(
+            $articleId,
+            NewsForm::ACCESS_PUBLIC,
+            NewsForm::RESPONSE_LIMIT_UNLIMITED,
+            null,
+            null,
+            false,
+            'chief',
+            null,
+            null
+        );
+
+        return [
+            $this->fieldRepository->create(
+                $formId, 0, FormField::TYPE_SHORT_TEXT, 'Nom', true, null, null, null, null, null
+            ),
+            $this->fieldRepository->create(
+                $formId, 1, FormField::TYPE_LONG_TEXT, 'Remarques', false, null, null, null, null, null
+            ),
+        ];
+    }
+
+    /**
+     * The edit form used to re-render a refused edit with the STORED
+     * answers: everything just typed was gone. It now shows what was
+     * posted, contact address included, with the sentence next to the field.
+     */
+    public function testAnEditTooLongIsRefusedNextToTheFieldAndKeepsWhatWasTyped(): void
+    {
+        $articleId = $this->publishedArticle();
+        [$nameId, $remarksId] = $this->nameAndRemarksForm($articleId);
+        $responseId = $this->responseRepository->create(
+            (int) $this->formRepository->findByArticleId($articleId)?->id, null, null, 'parent@test.com', [$nameId => 'Bob', $remarksId => 'Rien.'], null, null
+        );
+        AuthSession::login($this->chiefAccountId, 'admin@test.com', 'admin');
+        $tooLong = str_repeat('x', FormField::MAX_ANSWER_LENGTH + 1);
+
+        $response = $this->formController->updateResponse(
+            new Request('POST', '/news/' . $articleId . '/form/responses/' . $responseId . '/edit', [], [
+                '_csrf_token' => CsrfGuard::generateToken(),
+                'contact_email' => 'nouvelle@test.com',
+                'field_' . $nameId => 'Robert',
+                'field_' . $remarksId => $tooLong,
+            ], [], []),
+            ['id' => (string) $articleId, 'response_id' => (string) $responseId]
+        );
+        $body = $response->getBody();
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertStringContainsString('id="field_' . $remarksId . '_error"', $body);
+        $this->assertStringContainsString('(votre réponse en compte 10 001)', $body);
+        $this->assertStringContainsString('value="Robert"', $body, 'the edited answer, not the stored one');
+        $this->assertStringContainsString('>' . $tooLong . '</textarea>', $body);
+        $this->assertStringContainsString('name="contact_email" value="nouvelle@test.com"', $body);
+        $this->assertSame([$nameId => 'Bob', $remarksId => 'Rien.'], $this->responseRepository->getValues($responseId));
+    }
+
+    /**
      * A reorder naming questions that are not the form's: refused as
      * JSON, and the questions keep their order.
      */

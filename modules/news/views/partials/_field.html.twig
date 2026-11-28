@@ -5,13 +5,19 @@
   is both, a member is their Desk id and their full name),
   `remaining_capacity` (?int), `value` (existing answer, default '': a
   string, or a list of option values for checkboxes),
-  `disabled` (bool, preview/read-only mode), `csrf_free` (bool, unused —
-  kept for symmetry). Reused by detail.html.twig (submit), response_edit.
+  `disabled` (bool, preview/read-only mode), `error` (?string, the refusal
+  of this field's answer, shown under it — Controller\FormController::
+  fieldErrors()), `csrf_free` (bool, unused — kept for symmetry). Reused by detail.html.twig (submit), response_edit.
   html.twig (edit) and editor.html.twig's preview tab.
 #}
 {% set value = value|default('') %}
 {% set disabled = disabled|default(false) %}
 {% set input_name = 'field_' ~ field.id %}
+{% set error = error|default(null) %}
+{# Only the two free-text inputs carry it: every other type is bounded by
+   its own widget, and FormField::MAX_ANSWER_LENGTH is a convenience here —
+   Service\ResponseService::assertAnswerLength() is the check (issue #1486). #}
+{% set max_length = constant('Modules\\News\\Repository\\FormField::MAX_ANSWER_LENGTH') %}
 
 <div class="mb-3">
     {% if not field.isNonInput() %}
@@ -22,10 +28,14 @@
     {% endif %}
 
     {% if field.fieldType == 'short_text' %}
-        <input type="text" class="form-control" id="{{ input_name }}" name="{{ input_name }}" value="{{ value }}" {{ field.isRequired ? 'required' : '' }} {{ disabled ? 'disabled' : '' }}>
+        <input type="text" class="form-control{{ error ? ' is-invalid' : '' }}" id="{{ input_name }}" name="{{ input_name }}"
+               value="{{ value }}" maxlength="{{ max_length }}" {% if error %}aria-describedby="{{ input_name }}_error"{% endif %}
+               {{ field.isRequired ? 'required' : '' }} {{ disabled ? 'disabled' : '' }}>
 
     {% elseif field.fieldType == 'long_text' %}
-        <textarea class="form-control" id="{{ input_name }}" name="{{ input_name }}" rows="4" {{ field.isRequired ? 'required' : '' }} {{ disabled ? 'disabled' : '' }}>{{ value }}</textarea>
+        <textarea class="form-control{{ error ? ' is-invalid' : '' }}" id="{{ input_name }}" name="{{ input_name }}" rows="4"
+                  maxlength="{{ max_length }}" {% if error %}aria-describedby="{{ input_name }}_error"{% endif %}
+                  {{ field.isRequired ? 'required' : '' }} {{ disabled ? 'disabled' : '' }}>{{ value }}</textarea>
 
     {% elseif field.fieldType == 'number' %}
         {% set full = remaining_capacity is not null and remaining_capacity <= 0 %}
@@ -112,5 +122,9 @@
         {# Rich HTML, sanitized at save time (Service\FormService) — not a
            confirmation-style alert box, just plain formatted content. #}
         <div class="news-article-body rich-text">{{ field.confirmationText|raw }}</div>
+    {% endif %}
+
+    {% if error %}
+        <div class="invalid-feedback d-block" id="{{ input_name }}_error">{{ error }}</div>
     {% endif %}
 </div>

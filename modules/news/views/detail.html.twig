@@ -154,7 +154,7 @@
                            the visitor's posted values, so nothing is lost. #}
                         {% for row in fields %}
                             {% if not row.field.isNonInput() %}
-                                {% include '@news/partials/_field.html.twig' with {field: row.field, options: row.options, remaining_capacity: row.remaining_capacity, value: submitted_answers[row.field.id] ?? ''} %}
+                                {% include '@news/partials/_field.html.twig' with {field: row.field, options: row.options, remaining_capacity: row.remaining_capacity, value: submitted_answers[row.field.id] ?? '', error: (field_errors|default({}))[row.field.id] ?? null} %}
                             {% endif %}
                         {% endfor %}
 

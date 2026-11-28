@@ -97,6 +97,25 @@ final class FormField
      */
     public const MAX_QUANTITY_PER_ANSWER = 999;
 
+    /**
+     * The longest answer a field takes, in CHARACTERS — what the person
+     * typing understands, and what the message refusing it says (issue
+     * #1486). Ten thousand is several pages of « Remarques ».
+     *
+     * The bound that matters is in BYTES: every answer is encrypted into
+     * `news_form_response_values.value`, a `BLOB` of 65 535 bytes, and the
+     * engine refuses anything wider (SQLite stores it, which is why nothing
+     * caught it). A character is at most 4 bytes in UTF-8, and encryption
+     * adds a 12-byte nonce and a 16-byte tag, so the widest answer this
+     * admits is 4 × 10 000 + 28 = 40 028 bytes, well inside the column.
+     * The count reads a CRLF as one character (ResponseService::answerLength()),
+     * which is two bytes and still within that worst case.
+     *
+     * The short and long text inputs carry it as `maxlength`, a
+     * convenience: the server is the check (ResponseService).
+     */
+    public const MAX_ANSWER_LENGTH = 10000;
+
     public function isPriced(): bool
     {
         return $this->fieldType === self::TYPE_NUMBER && $this->pricePerUnit !== null;
