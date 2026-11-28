@@ -556,11 +556,24 @@ class SchedulerRepository
      */
     public function releaseNeverStarted(): array
     {
-        $candidateStmt = $this->pdo->prepare(
-            "SELECT id FROM scheduled_actions"
-            . " WHERE status = 'processing' AND claimed_at IS NOT NULL AND started_at IS NULL"
-        );
-        $candidateStmt->execute();
+        try {
+            $candidateStmt = $this->pdo->prepare(
+                "SELECT id FROM scheduled_actions"
+                . " WHERE status = 'processing' AND claimed_at IS NOT NULL AND started_at IS NULL"
+            );
+            $candidateStmt->execute();
+        } catch (\PDOException $e) {
+            // A schema without `started_at` (a backup restored from before
+            // it, a migration left half-applied) cannot tell a started row
+            // from one that never was: nothing is released here, and
+            // reclaimAbandoned()'s slower path still covers every row
+            // (#1554 review). The pass itself must go on.
+            if (!self::isMissingColumn($e)) {
+                throw $e;
+            }
+
+            return [];
+        }
         $candidateIds = $candidateStmt->fetchAll(\PDO::FETCH_COLUMN);
 
         $releaseStmt = $this->pdo->prepare(
@@ -679,11 +692,26 @@ class SchedulerRepository
             ->sub(new \DateInterval('PT' . self::RECLAIM_AFTER_HOURS . 'H'))
             ->format('Y-m-d H:i:s');
 
-        $candidateStmt = $this->pdo->prepare(
-            "SELECT id, module_id, task_key, attempts FROM scheduled_actions"
-            . " WHERE status = 'processing' AND COALESCE(started_at, claimed_at, run_at) <= ?"
-        );
-        $candidateStmt->execute([$threshold]);
+        $hasStartedAt = true;
+        try {
+            $candidateStmt = $this->pdo->prepare(
+                "SELECT id, module_id, task_key, attempts FROM scheduled_actions"
+                . " WHERE status = 'processing' AND COALESCE(started_at, claimed_at, run_at) <= ?"
+            );
+            $candidateStmt->execute([$threshold]);
+        } catch (\PDOException $e) {
+            // A schema without `started_at` still drains its stranded rows,
+            // on the timestamps it has (#1554 review), as release() does.
+            if (!self::isMissingColumn($e)) {
+                throw $e;
+            }
+            $hasStartedAt = false;
+            $candidateStmt = $this->pdo->prepare(
+                "SELECT id, module_id, task_key, attempts FROM scheduled_actions"
+                . " WHERE status = 'processing' AND COALESCE(claimed_at, run_at) <= ?"
+            );
+            $candidateStmt->execute([$threshold]);
+        }
         $candidates = $candidateStmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
 
         if ($candidates === []) {
@@ -692,7 +720,7 @@ class SchedulerRepository
 
         $reclaimStmt = $this->pdo->prepare(
             "UPDATE scheduled_actions SET status = 'pending', attempts = attempts + 1,"
-            . " claimed_at = NULL, started_at = NULL"
+            . ($hasStartedAt ? " claimed_at = NULL, started_at = NULL" : " claimed_at = NULL")
             . " WHERE id = ? AND status = 'processing'"
         );
         $abandonStmt = $this->pdo->prepare(

@@ -476,6 +476,37 @@ class SchedulerRepositoryTest extends TestCase
         $this->assertSame('pending', $this->repo->findById($id)['status']);
     }
 
+    /**
+     * The first two calls of every pass (#1554 review): on a schema
+     * without `started_at`, neither may stop the pass before it claims.
+     */
+    public function testNeverStartedReleaseIsANoOpOnASchemaWithoutStartedAt(): void
+    {
+        $id = $this->repo->create('core', 'later_task', (new \DateTimeImmutable('-1 minute'))->format('Y-m-d H:i:s'), null, null);
+        $this->repo->claimOverdue();
+        $this->pdo->exec('ALTER TABLE scheduled_actions DROP COLUMN started_at');
+
+        $this->assertSame([], $this->repo->releaseNeverStarted());
+        $this->assertSame('processing', $this->repo->findById($id)['status']);
+    }
+
+    public function testAbandonedRowsAreStillReclaimedOnASchemaWithoutStartedAt(): void
+    {
+        $id = $this->repo->create('core', 'later_task', (new \DateTimeImmutable('-1 minute'))->format('Y-m-d H:i:s'), null, null);
+        $this->repo->claimOverdue();
+        $old = (new \DateTimeImmutable('-7 hours'))->format('Y-m-d H:i:s');
+        $this->pdo->prepare('UPDATE scheduled_actions SET claimed_at = ? WHERE id = ?')->execute([$old, $id]);
+        $this->pdo->exec('ALTER TABLE scheduled_actions DROP COLUMN started_at');
+
+        $handled = $this->repo->reclaimAbandoned();
+
+        $this->assertCount(1, $handled);
+        $this->assertFalse($handled[0]['abandoned']);
+        $row = $this->repo->findById($id);
+        $this->assertSame('pending', $row['status']);
+        $this->assertSame(1, (int) $row['attempts']);
+    }
+
     public function testOnlyAMissingColumnIsRecognisedAsOne(): void
     {
         $sqlite = new \PDOException('SQLSTATE[HY000]: General error: 1 no such column: started_at');
