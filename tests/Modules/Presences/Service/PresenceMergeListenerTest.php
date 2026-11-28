@@ -4,9 +4,12 @@ declare(strict_types=1);
 
 namespace Tests\Modules\Presences\Service;
 
+use Core\Config\SettingRepository;
+use Core\Config\SettingService;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Member\Duplicate\DuplicateMemberRepository;
+use Core\Member\Duplicate\MemberMergeListenerRegistrar;
 use Core\Member\Duplicate\MemberMergeListenerRegistry;
 use Core\Member\Duplicate\MemberMergeRepository;
 use Core\Member\Duplicate\MemberMergeService;
@@ -137,5 +140,41 @@ final class PresenceMergeListenerTest extends TestCase
 
         $this->assertSame(1, $handled);
         $this->assertSame(PresenceStatus::PRESENT, $this->presences->find(10, $this->kept)?->status);
+    }
+
+    /**
+     * The whole path: the module is disabled (no listener registered) when
+     * the merge happens, then enabled again — the registrar's catch-up moves
+     * the evenings, once.
+     */
+    public function testAMergeMadeWhilePresencesWasDisabledIsFollowedOnceItIsEnabledAgain(): void
+    {
+        $this->presences->saveStatus(10, $this->duplicate, PresenceStatus::PRESENT, null);
+        $journal = new JournalService(new JournalRepository($this->pdo));
+        $duplicates = new DuplicateMemberRepository($this->pdo, $this->encryption);
+        $boot = function (bool $presencesEnabled) use ($journal, $duplicates): MemberMergeService {
+            $registry = new MemberMergeListenerRegistry();
+            $repository = new MemberMergeRepository($this->pdo, $duplicates, $registry);
+            if ($presencesEnabled) {
+                (new MemberMergeListenerRegistrar(
+                    $registry,
+                    $repository,
+                    new SettingService(new SettingRepository($this->pdo)),
+                    $journal
+                ))->register(new PresenceMergeListener($this->presences, $journal));
+            }
+
+            return new MemberMergeService($repository, $duplicates, $journal);
+        };
+
+        $boot(false)->merge($this->kept, $this->duplicate, 1);
+        $this->assertSame(1, $this->presences->countForMember($this->duplicate), 'disabled: nothing moved');
+
+        $boot(true);
+        $this->assertSame(PresenceStatus::PRESENT, $this->presences->find(10, $this->kept)?->status);
+        $this->assertSame(0, $this->presences->countForMember($this->duplicate));
+
+        $boot(true);
+        $this->assertSame(1, $this->presences->countForMember($this->kept), 'not replayed on the next request');
     }
 }
