@@ -386,11 +386,13 @@ CREATE TABLE IF NOT EXISTS mass_mail_deliveries (
     error_message TEXT NULL,
     sent_at DATETIME NULL,
     attempts INT UNSIGNED NOT NULL DEFAULT 0,
-    -- One-click unsubscribe token of THIS message (RFC 8058), minted right
-    -- before the send by Task\SendBatchHandler through Core\Security\
-    -- CapabilityToken and stored as its SHA-256 hex digest — 32 random
-    -- bytes need no slow hash. Never single-use nor expiring: it must work
-    -- for as long as the message sits in a mailbox.
+    -- Legacy, read-only: the SHA-256 of the one-click unsubscribe token
+    -- (RFC 8058) a message's last send minted before issue #1514, still
+    -- accepted so that link keeps working. Nothing writes it any more: the
+    -- token is now derived from the message's ids under the blind-index
+    -- key (Repository\DeliveryRepository::unsubscribeTokenFor()), the same
+    -- on every send. Never single-use nor expiring: a link must work for
+    -- as long as the message sits in a mailbox.
     unsubscribe_token_hash CHAR(64) NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_mmd_status_id (status, id),

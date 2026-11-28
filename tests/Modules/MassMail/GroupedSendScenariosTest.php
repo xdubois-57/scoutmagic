@@ -108,6 +108,8 @@ class GroupedSendScenariosTest extends TestCase
 
     /** @var list<string> every address the mail service was asked to send to */
     private array $sent = [];
+    /** @var list<array{to: string, id: int, token: string}> the one-click link of every message sent */
+    private array $unsubscribeLinks = [];
     /** @var array<string, true> addresses the transport refuses */
     private array $failing = [];
 
@@ -831,8 +833,7 @@ class GroupedSendScenariosTest extends TestCase
         [$first, $second] = $this->deliveries->findByEmailId($email->id);
         $tokens = [];
         foreach ([$first, $second] as $delivery) {
-            $tokens[$delivery->id] = CapabilityToken::generate();
-            $this->deliveries->setUnsubscribeTokenHash($delivery->id, CapabilityToken::hash($tokens[$delivery->id]));
+            $tokens[$delivery->id] = $this->deliveries->unsubscribeTokenFor($delivery);
         }
 
         $this->assertNull($this->deliveries->verifyUnsubscribeToken($second->id, $tokens[$first->id]));
@@ -887,8 +888,7 @@ class GroupedSendScenariosTest extends TestCase
         $this->assertCount(1, $matching);
         $delivery = $matching[0];
         $this->assertSame($origin === 'member', $delivery->memberEmailId !== null);
-        $token = CapabilityToken::generate();
-        $this->deliveries->setUnsubscribeTokenHash($delivery->id, CapabilityToken::hash($token));
+        $token = $this->deliveries->unsubscribeTokenFor($delivery);
         $controller = new UnsubscribeController($this->createStub(Environment::class), $this->deliveries,
             $this->memberEmailService, $this->suppressed, $this->blockService);
         $request = new Request('POST', '/mass-mail/unsubscribe/' . $delivery->id, ['token' => $token], [], [], []);
@@ -929,6 +929,137 @@ class GroupedSendScenariosTest extends TestCase
         } finally {
             $_SESSION = [];
         }
+    }
+
+    /**
+     * **A message keeps its link from one send to the next** (issue
+     * #1514). « Renvoyer » used to mint a new token and overwrite the
+     * stored hash, so the « Se désinscrire » of the first copy answered
+     * « le lien n'est pas valable » — while the help says a link never
+     * expires. Both copies' links work, and they are one link.
+     */
+    public function testTheFirstCopysUnsubscribeLinkStillWorksAfterAResend(): void
+    {
+        $this->member('Alice', 'alice@x.be');
+        $this->member('Bob', 'bob@x.be');
+        $email = $this->send($this->activeMembersEmail());
+        $alice = $this->recipient($email, 'alice@x.be');
+        $firstCopy = $this->linkSentTo('alice@x.be');
+
+        $this->unsubscribeLinks = [];
+        $this->service->resendDelivery($alice->id, null);
+        $this->drain();
+        $secondCopy = $this->linkSentTo('alice@x.be');
+
+        $this->assertSame($alice->id, $firstCopy['id']);
+        $this->assertSame($firstCopy, $secondCopy, 'the resent copy carries the same link');
+        $this->assertSame($alice->id, $this->deliveries->verifyUnsubscribeToken($alice->id, $firstCopy['token'])?->id);
+        $this->assertSame($alice->id, $this->deliveries->verifyUnsubscribeToken($alice->id, $secondCopy['token'])?->id);
+
+        $controller = $this->unsubscribeController();
+        foreach ([$firstCopy, $secondCopy] as $link) {
+            $response = $controller->unsubscribe(
+                new Request('POST', '/mass-mail/unsubscribe/' . $link['id'], ['token' => $link['token']], [], [], []),
+                ['id' => (string) $link['id']]
+            );
+            $this->assertSame(200, $response->getStatusCode());
+            $this->assertTrue($this->suppressed->isSuppressed('alice@x.be'));
+        }
+        $this->assertFalse($this->suppressed->isSuppressed('bob@x.be'));
+    }
+
+    /**
+     * The link is the message's own: two messages never share one, one
+     * message's token opens nothing on another, and a token altered by one
+     * character is refused like any wrong one.
+     */
+    public function testTwoMessagesHaveDifferentLinksAndATamperedTokenIsRefused(): void
+    {
+        $this->member('Alice', 'alice@x.be');
+        $this->member('Bob', 'bob@x.be');
+        $email = $this->send($this->activeMembersEmail());
+        $alice = $this->linkSentTo('alice@x.be');
+        $bob = $this->linkSentTo('bob@x.be');
+
+        $this->assertNotSame($alice['id'], $bob['id']);
+        $this->assertNotSame($alice['token'], $bob['token']);
+        $this->assertNull($this->deliveries->verifyUnsubscribeToken($bob['id'], $alice['token']));
+
+        // The same message ids under another installation's key open nothing.
+        $otherKey = new DeliveryRepository($this->pdo, new EncryptionService(str_repeat('a', 32), str_repeat('c', 32)));
+        $this->assertNotSame($alice['token'], $otherKey->unsubscribeTokenFor($this->recipient($email, 'alice@x.be')));
+
+        $last = $alice['token'][63];
+        $tampered = substr($alice['token'], 0, 63) . ($last === '0' ? '1' : '0');
+        $this->assertNull($this->deliveries->verifyUnsubscribeToken($alice['id'], $tampered));
+        $this->assertNull($this->deliveries->verifyUnsubscribeToken($alice['id'], ''));
+        $this->unsubscribeController()->unsubscribe(
+            new Request('POST', '/mass-mail/unsubscribe/' . $alice['id'], ['token' => $tampered], [], [], []),
+            ['id' => (string) $alice['id']]
+        );
+        $this->assertFalse($this->suppressed->isSuppressed('alice@x.be'), 'a tampered token does nothing');
+    }
+
+    /**
+     * A message sent before issue #1514 holds the SHA-256 of its last
+     * random token. That link keeps working, and the first send after the
+     * fix — a resend — leaves the stored hash alone while mailing the
+     * derived link, which works too.
+     */
+    public function testALinkSentBeforeTheFixKeepsWorkingAfterAResend(): void
+    {
+        $this->member('Alice', 'alice@x.be');
+        $email = $this->send($this->activeMembersEmail());
+        $alice = $this->recipient($email, 'alice@x.be');
+        $legacyToken = CapabilityToken::generate();
+        $this->pdo->prepare('UPDATE mass_mail_deliveries SET unsubscribe_token_hash = ? WHERE id = ?')
+            ->execute([CapabilityToken::hash($legacyToken), $alice->id]);
+
+        $this->unsubscribeLinks = [];
+        $this->service->resendDelivery($alice->id, null);
+        $this->drain();
+        $resent = $this->linkSentTo('alice@x.be');
+
+        $stmt = $this->pdo->prepare('SELECT unsubscribe_token_hash FROM mass_mail_deliveries WHERE id = ?');
+        $stmt->execute([$alice->id]);
+        $this->assertSame(CapabilityToken::hash($legacyToken), $stmt->fetchColumn(), 'the send writes no hash');
+        $this->assertNotSame($legacyToken, $resent['token']);
+        $this->assertSame($alice->id, $this->deliveries->verifyUnsubscribeToken($alice->id, $legacyToken)?->id);
+        $this->assertSame($alice->id, $this->deliveries->verifyUnsubscribeToken($alice->id, $resent['token'])?->id);
+    }
+
+    /** @return array{to: string, id: int, token: string} */
+    private function linkSentTo(string $address): array
+    {
+        $links = array_values(array_filter(
+            $this->unsubscribeLinks,
+            static fn(array $link): bool => $link['to'] === $address
+        ));
+        self::assertCount(1, $links, 'one message sent to ' . $address);
+
+        return $links[0];
+    }
+
+    private function recipient(Email $email, string $address): Delivery
+    {
+        $matching = array_values(array_filter(
+            $this->deliveries->findByEmailId($email->id),
+            static fn(Delivery $delivery): bool => $delivery->emailAddress === $address
+        ));
+        self::assertCount(1, $matching);
+
+        return $matching[0];
+    }
+
+    private function unsubscribeController(): UnsubscribeController
+    {
+        return new UnsubscribeController(
+            $this->createStub(Environment::class),
+            $this->deliveries,
+            $this->memberEmailService,
+            $this->suppressed,
+            $this->blockService
+        );
     }
 
     public static function unsubscribeOrigins(): iterable
@@ -1070,11 +1201,17 @@ class GroupedSendScenariosTest extends TestCase
     {
         $mailService = $this->createMock(MailService::class);
         $mailService->method('getDefaultSender')->willReturn(['address' => 'unite@test.be', 'name' => 'Unité']);
-        $mailService->method('send')->willReturnCallback(function (string $to): void {
+        $mailService->method('send')->willReturnCallback(function (string $to, mixed ...$rest): void {
             if (isset($this->failing[mb_strtolower($to)])) {
                 throw new MailException('550 mailbox full');
             }
             $this->sent[] = $to;
+            $headers = $rest[7] ?? [];
+            $header = is_array($headers) && is_string($headers['List-Unsubscribe'] ?? null)
+                ? $headers['List-Unsubscribe'] : '';
+            if (preg_match('#/mass-mail/unsubscribe/(\d+)\?token=([a-f0-9]{64})>$#', $header, $match) === 1) {
+                $this->unsubscribeLinks[] = ['to' => $to, 'id' => (int) $match[1], 'token' => $match[2]];
+            }
         });
 
         $context = new TaskContext(

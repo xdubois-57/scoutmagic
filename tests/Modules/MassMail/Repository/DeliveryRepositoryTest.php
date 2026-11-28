@@ -85,17 +85,64 @@ class DeliveryRepositoryTest extends TestCase
         $this->assertSame([$family => [$aliceTarget, $bobTarget]], $this->repository->findTargetIdsByEmail($this->emailId));
     }
 
-    public function testTheUnsubscribeTokenIsVerifiedAgainstItsHashOnly(): void
+    public function testTheUnsubscribeTokenIsDerivedFromTheMessageAndVerifiedInConstantTime(): void
     {
         $id = $this->repository->create($this->emailId, 'a@test.be');
-        $this->assertNull($this->repository->verifyUnsubscribeToken($id, 'anything'), 'no token minted yet');
+        $other = $this->repository->create($this->emailId, 'b@test.be');
+        $delivery = $this->repository->findById($id);
+        $this->assertNotNull($delivery);
+        $this->assertNull($this->repository->verifyUnsubscribeToken($id, 'anything'));
 
-        $raw = CapabilityToken::generate();
-        $this->repository->setUnsubscribeTokenHash($id, CapabilityToken::hash($raw));
-
+        $raw = $this->repository->unsubscribeTokenFor($delivery);
+        $this->assertMatchesRegularExpression('/^[a-f0-9]{64}$/', $raw);
+        $this->assertSame($raw, $this->repository->unsubscribeTokenFor($delivery), 'the same on every call');
         $this->assertSame($id, $this->repository->verifyUnsubscribeToken($id, $raw)?->id);
         $this->assertNull($this->repository->verifyUnsubscribeToken($id, $raw . 'x'));
-        $this->assertNull($this->repository->verifyUnsubscribeToken($id + 1, $raw));
+        $this->assertNull($this->repository->verifyUnsubscribeToken($id, ''));
+        $this->assertNull($this->repository->verifyUnsubscribeToken($other, $raw));
+        $this->assertNull($this->repository->verifyUnsubscribeToken($id + 100, $raw));
+
+        // Nothing of the token is stored: the legacy hash column stays empty.
+        $stmt = $this->pdo->prepare('SELECT unsubscribe_token_hash FROM mass_mail_deliveries WHERE id = ?');
+        $stmt->execute([$id]);
+        $this->assertNull($stmt->fetchColumn());
+    }
+
+    /**
+     * The same message id under another email (an id reused after its row
+     * went) is another token: the email's id is part of what is derived.
+     */
+    public function testTheTokenIsBoundToTheEmailAsWellAsToTheMessageId(): void
+    {
+        $id = $this->repository->create($this->emailId, 'a@test.be');
+        $delivery = $this->repository->findById($id);
+        $this->assertNotNull($delivery);
+        $sameIdOtherEmail = new Delivery($id, $this->emailId + 1, null, 'a@test.be', null, Delivery::STATUS_SENT,
+            null, null, 0, '2026-01-01 00:00:00');
+
+        $this->assertNotSame(
+            $this->repository->unsubscribeTokenFor($delivery),
+            $this->repository->unsubscribeTokenFor($sameIdOtherEmail)
+        );
+    }
+
+    /** A message sent before issue #1514: its stored hash still opens it. */
+    public function testALegacyStoredHashStillVerifies(): void
+    {
+        $id = $this->repository->create($this->emailId, 'a@test.be');
+        $legacy = CapabilityToken::generate();
+        $this->pdo->prepare('UPDATE mass_mail_deliveries SET unsubscribe_token_hash = ? WHERE id = ?')
+            ->execute([CapabilityToken::hash($legacy), $id]);
+        $delivery = $this->repository->findById($id);
+        $this->assertNotNull($delivery);
+
+        $this->assertSame($id, $this->repository->verifyUnsubscribeToken($id, $legacy)?->id);
+        $derived = $this->repository->unsubscribeTokenFor($delivery);
+        $this->assertSame($id, $this->repository->verifyUnsubscribeToken($id, $derived)?->id);
+        $this->assertNull(
+            $this->repository->verifyUnsubscribeToken($id, CapabilityToken::hash($legacy)),
+            'the stored hash is not itself a token'
+        );
     }
 
     public function testFindOldestPendingRespectsLimitAndFifoOrder(): void

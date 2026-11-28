@@ -818,9 +818,12 @@ class SendBatchHandlerTest extends TestCase
         $this->assertStringContainsString('/mass-mail/unsubscribe/', $capturedBodyHtml);
         $this->assertStringContainsString('Se désinscrire des emails groupés', $capturedBodyHtml);
 
-        $stmt = $this->pdo->prepare('SELECT unsubscribe_token_hash FROM mass_mail_deliveries WHERE id = ?');
-        $stmt->execute([$recipientBefore->id]);
-        $this->assertNotNull($stmt->fetchColumn());
+        // The link opens THIS message, with the token derived for it.
+        $this->assertStringEndsWith(
+            '/mass-mail/unsubscribe/' . $recipientBefore->id . '?token='
+                . $this->deliveryRepository->unsubscribeTokenFor($recipientBefore) . '>',
+            $capturedExtraHeaders['List-Unsubscribe']
+        );
     }
 
     /**

@@ -26,6 +26,7 @@ class DeliveryRepository
 {
     private const ENCRYPTION_CONTEXT = 'mass_mail_deliveries.email_address';
     private const BLIND_INDEX_PURPOSE = 'mass_mail_deliveries.email';
+    private const UNSUBSCRIBE_TOKEN_PURPOSE = 'mass_mail_unsubscribe_token';
 
     public function __construct(
         private \PDO $pdo,
@@ -128,23 +129,37 @@ class DeliveryRepository
     }
 
     /**
-     * Task\SendBatchHandler mints a fresh one-click unsubscribe token right
-     * before actually sending a message (never at freeze time — there would
-     * be nowhere safe to hold the raw token in between), through
-     * Core\Security\CapabilityToken, whose contract the endpoint obeys.
+     * The one-click unsubscribe token of a message — the same on every send
+     * of it (issue #1514): « Renvoyer » used to mint a fresh one and
+     * overwrite the stored hash, so the link in the first copy stopped
+     * working while the help promised it never expires.
+     *
+     * **Derived, never stored**, the way Modules\Finance\Service\
+     * ReceivableQrTokenService derives its QR token: an HMAC of the
+     * message's id and its email's id under the installation's blind-index
+     * key, domain-separated by its own purpose. 256 bits that cannot be
+     * computed without that key, so there is no raw token to keep — a
+     * database read yields nothing that opens a link. Both ids are part of
+     * the input so that a message id ever reused for another email does
+     * not open with an old link.
      */
-    public function setUnsubscribeTokenHash(int $id, string $tokenHash): void
+    public function unsubscribeTokenFor(Delivery $delivery): string
     {
-        $stmt = $this->pdo->prepare('UPDATE mass_mail_deliveries SET unsubscribe_token_hash = ? WHERE id = ?');
-        $stmt->execute([$tokenHash, $id]);
+        return $this->derivedUnsubscribeToken($delivery->id, $delivery->emailId);
     }
 
     /**
      * The one-click unsubscribe endpoint's authentication — never trusts a
-     * bare message id in the URL, always re-verifies the token against the
-     * stored hash. Null on any mismatch (unknown id, no token ever minted
-     * for this message, wrong token): Controller\UnsubscribeController
+     * bare message id in the URL, always re-verifies the token. Null on any
+     * mismatch (unknown id, wrong token): Controller\UnsubscribeController
      * answers the same page either way, with nothing to enumerate.
+     *
+     * Two tokens open a message, both compared in constant time: the
+     * derived one (unsubscribeTokenFor()), and — for a message sent before
+     * issue #1514 — the random token whose SHA-256 its last send stored in
+     * `unsubscribe_token_hash`. Nothing writes that column any more, so the
+     * link of a message's last send before the fix keeps working for good,
+     * beside the derived link of every send after it.
      */
     public function verifyUnsubscribeToken(int $id, string $rawToken): ?Delivery
     {
@@ -154,12 +169,22 @@ class DeliveryRepository
         if ($row === false) {
             return null;
         }
+        $derived = $this->derivedUnsubscribeToken((int) $row['id'], (int) $row['email_id']);
         $storedHash = $row['unsubscribe_token_hash'] !== null ? (string) $row['unsubscribe_token_hash'] : null;
-        if (!CapabilityToken::verifyAgainstHash($rawToken, $storedHash)) {
+        // Both compared, whichever matches: no short-circuit that would
+        // tell the two kinds apart by timing.
+        $matchesDerived = CapabilityToken::equalsConstantTime($derived, $rawToken);
+        $matchesLegacy = CapabilityToken::verifyAgainstHash($rawToken, $storedHash);
+        if (!$matchesDerived && !$matchesLegacy) {
             return null;
         }
 
         return $this->hydrate($row);
+    }
+
+    private function derivedUnsubscribeToken(int $deliveryId, int $emailId): string
+    {
+        return $this->encryption->blindIndex($deliveryId . ':' . $emailId, self::UNSUBSCRIBE_TOKEN_PURPOSE);
     }
 
     public function findById(int $id): ?Delivery
