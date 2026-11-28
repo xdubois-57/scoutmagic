@@ -8,6 +8,7 @@ use Core\Member\Duplicate\MergeRowRepository;
 use PHPUnit\Framework\TestCase;
 
 /** Issue #1462: the two statements most merge listeners need, and their collision rules. */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 final class MergeRowRepositoryTest extends TestCase
 {
     private \PDO $pdo;
