@@ -18,12 +18,15 @@ use Core\Notification\PushSubscriptionRepository;
 use Core\Scheduler\SchedulerRepository;
 use Core\Scheduler\SchedulerService;
 use Core\Security\EncryptionService;
+use Core\Security\Role;
 use Core\Security\UserAccountRepository;
 use Minishlink\WebPush\WebPush;
 use Modules\Calendar\Repository\Calendar;
+use Modules\Calendar\Repository\CalendarEvent;
 use Modules\Calendar\Repository\CalendarEventRepository;
 use Modules\Calendar\Repository\CalendarRepository;
 use Modules\Calendar\Repository\CalendarUnitFeedTokenRepository;
+use Modules\Calendar\Service\CalendarEventService;
 use Modules\Calendar\Service\CalendarException;
 use Modules\Calendar\Service\CalendarNotificationService;
 use Modules\Calendar\Service\CalendarService;
@@ -54,6 +57,7 @@ class CalendarNotificationServiceTest extends TestCase
     private int $sectionId;
     private int $scoutYearId;
     private int $animeFunctionId;
+    private CalendarService $calendarService;
 
     protected function setUp(): void
     {
@@ -69,6 +73,7 @@ class CalendarNotificationServiceTest extends TestCase
         $calendarService = new CalendarService(
             $this->calendarRepository, $this->eventRepository, $sectionService, new CalendarUnitFeedTokenRepository($this->pdo, new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32)))
         );
+        $this->calendarService = $calendarService;
 
         $this->settingService = new SettingService(new SettingRepository($this->pdo));
         $this->settingService->register('notify_multiday_events_enabled', '0', 'boolean', 'Rappels', 'desc', 'calendar');
@@ -389,7 +394,7 @@ class CalendarNotificationServiceTest extends TestCase
         $eventId = $this->createEvent($this->sectionCalendarId, (new \DateTimeImmutable('+5 days'))->format('Y-m-d'), null);
         $event = $this->eventRepository->findById($eventId);
 
-        $this->serviceWithNotifications->dispatchEventChanged($event, null);
+        $this->serviceWithNotifications->dispatchEventChanged($this->withStartDate($event, '+4 days'), $event, null);
 
         $notifications = $this->notificationRepository->findByUserAccountId($other);
         $this->assertCount(1, $notifications);
@@ -449,7 +454,7 @@ class CalendarNotificationServiceTest extends TestCase
         $date = (new \DateTimeImmutable('+5 days'))->format('Y-m-d');
         $event = $this->eventRepository->findById($this->createEvent($seeoneeCalendar, $date, null));
         $this->serviceWithNotifications->dispatchEventPublished($event, null);
-        $this->serviceWithNotifications->dispatchEventChanged($event, null);
+        $this->serviceWithNotifications->dispatchEventChanged($this->withStartDate($event, '+4 days'), $event, null);
 
         $this->assertSame([], $this->notificationRepository->findByUserAccountId($admin));
         $this->assertSame([], $this->notificationRepository->findByUserAccountId($super));
@@ -533,6 +538,213 @@ class CalendarNotificationServiceTest extends TestCase
         $this->service->dispatchEventPublished($event, null);
 
         $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM notifications')->fetchColumn());
+    }
+
+    // --- When an announcement is worth sending (issue #1477) ---
+
+    /** $event as it stood before an edit that moved its start date to $relativeDate. */
+    private function withStartDate(CalendarEvent $event, string $relativeDate): CalendarEvent
+    {
+        return new CalendarEvent(
+            $event->id, $event->calendarId, $event->title,
+            (new \DateTimeImmutable($relativeDate))->format('Y-m-d'), null,
+            $event->startTime, $event->endTime, $event->location, $event->description,
+            $event->sequence, $event->autoCreateRetro, $event->createdBy, $event->updatedAt
+        );
+    }
+
+    /** The write path a leader's form goes through, announcing through the real notification service. */
+    private function eventService(): CalendarEventService
+    {
+        return new CalendarEventService(
+            $this->eventRepository,
+            $this->calendarService,
+            $this->serviceWithNotifications
+        );
+    }
+
+    /** A parent of the section, the account every test below watches. */
+    private function aParentOfTheSection(): int
+    {
+        $parent = $this->userAccountRepository->create('watching-parent@test.com')->id;
+        $this->memberOfTheSection('watching-parent@test.com');
+
+        return $parent;
+    }
+
+    private function day(string $relative): string
+    {
+        return (new \DateTimeImmutable($relative))->format('Y-m-d');
+    }
+
+    private function notificationsOfType(int $accountId, string $typeId): int
+    {
+        return count(array_filter(
+            $this->notificationRepository->findByUserAccountId($accountId),
+            static fn($n): bool => $n->typeId === $typeId
+        ));
+    }
+
+    /**
+     * Saves $event again through the leader's form, with $changes applied
+     * to its current values — the way the page posts every field back.
+     *
+     * @param array<string, mixed> $changes
+     */
+    private function save(CalendarEvent $event, array $changes = []): CalendarEvent
+    {
+        $v = array_merge([
+            'calendarId' => $event->calendarId, 'title' => $event->title,
+            'startDate' => $event->startDate, 'endDate' => $event->endDate,
+            'startTime' => $event->startTime, 'endTime' => $event->endTime,
+            'location' => $event->location, 'description' => $event->description,
+            'retro' => $event->autoCreateRetro,
+        ], $changes);
+
+        return $this->eventService()->updateEvent(
+            $event->id, $v['calendarId'], $v['title'], $v['startDate'], $v['endDate'], $v['startTime'],
+            $v['endTime'], $v['location'], $v['description'], $v['retro'], null,
+            Role::ADMIN, [$this->sectionId]
+        );
+    }
+
+    private function createThroughTheForm(string $startDate, ?string $endDate = null): CalendarEvent
+    {
+        return $this->eventService()->createEvent(
+            $this->sectionCalendarId, 'Réunion', $startDate, $endDate, '14:00', '17:00', 'Local',
+            'Prévoir le pique-nique.', null, false, Role::ADMIN, [$this->sectionId]
+        );
+    }
+
+    public function testAPastEventRecordedAfterTheFactAndCorrectedIsNeverAnnounced(): void
+    {
+        $parent = $this->aParentOfTheSection();
+
+        $event = $this->createThroughTheForm($this->day('-3 days'));
+        $this->save($event, ['startTime' => '15:00', 'location' => 'Bois de la Cambre', 'title' => 'Jeu de piste']);
+
+        $this->assertSame([], $this->notificationRepository->findByUserAccountId($parent));
+    }
+
+    /** « Today » is a day, not an instant: an event whose last day is today is not past yet. */
+    public function testAnEventEndingTodayIsStillAnnounced(): void
+    {
+        $parent = $this->aParentOfTheSection();
+
+        $event = $this->createThroughTheForm($this->day('-1 day'), $this->day('today'));
+        $this->assertSame(1, $this->notificationsOfType($parent, 'calendar.event_published'));
+
+        $this->save($event, ['location' => 'Gare centrale']);
+        $this->assertSame(1, $this->notificationsOfType($parent, 'calendar.event_changed'));
+    }
+
+    public function testAnUpcomingEventIsAnnouncedOnceWhenCreated(): void
+    {
+        $parent = $this->aParentOfTheSection();
+
+        $this->createThroughTheForm($this->day('+5 days'));
+
+        $this->assertSame(1, $this->notificationsOfType($parent, 'calendar.event_published'));
+    }
+
+    /**
+     * The reported case: ticking « créer une rétro » or rewording the
+     * description re-announced the activity. Posting an end date equal to
+     * the start date where none was stored is the same day, not a move.
+     */
+    public function testSavingAnUpcomingEventWithoutAVisibleChangeAnnouncesNothing(): void
+    {
+        $parent = $this->aParentOfTheSection();
+        $event = $this->createThroughTheForm($this->day('+5 days'));
+
+        $event = $this->save($event, ['retro' => true]);
+        $event = $this->save($event, ['description' => 'Prévoir le pique-nique et une gourde.']);
+        $this->save($event, ['endDate' => $event->startDate]);
+        $this->save($event);
+
+        $this->assertSame(0, $this->notificationsOfType($parent, 'calendar.event_changed'));
+    }
+
+    public function testChangingTheTimeOfAnUpcomingEventAnnouncesItOnce(): void
+    {
+        $parent = $this->aParentOfTheSection();
+        $event = $this->createThroughTheForm($this->day('+5 days'));
+
+        $this->save($event, ['startTime' => '15:00']);
+
+        $this->assertSame(1, $this->notificationsOfType($parent, 'calendar.event_changed'));
+    }
+
+    public function testChangingTheLocationOfAnUpcomingEventAnnouncesItOnce(): void
+    {
+        $parent = $this->aParentOfTheSection();
+        $event = $this->createThroughTheForm($this->day('+5 days'));
+
+        $this->save($event, ['location' => 'Bois de la Cambre']);
+
+        $this->assertSame(1, $this->notificationsOfType($parent, 'calendar.event_changed'));
+    }
+
+    public function testChangingTheTitleOrTheDateOfAnUpcomingEventAnnouncesEachChange(): void
+    {
+        $parent = $this->aParentOfTheSection();
+        $event = $this->createThroughTheForm($this->day('+5 days'));
+
+        $event = $this->save($event, ['title' => 'Grand jeu']);
+        $event = $this->save($event, ['startDate' => $this->day('+6 days')]);
+        $this->save($event, ['endDate' => $this->day('+7 days')]);
+
+        $this->assertSame(3, $this->notificationsOfType($parent, 'calendar.event_changed'));
+    }
+
+    public function testMovingAnUpcomingEventToAnotherCalendarAnnouncesItOnce(): void
+    {
+        $parent = $this->aParentOfTheSection();
+        $event = $this->createThroughTheForm($this->day('+5 days'));
+
+        // The public « Animateurs » calendar is everybody's, the parent included.
+        $this->save($event, ['calendarId' => $this->supplementaryCalendarId]);
+
+        $this->assertSame(1, $this->notificationsOfType($parent, 'calendar.event_changed'));
+    }
+
+    /** A past event moved into the future is an upcoming activity with a new date: families need it. */
+    public function testMovingAPastEventIntoTheFutureAnnouncesIt(): void
+    {
+        $parent = $this->aParentOfTheSection();
+        $event = $this->createThroughTheForm($this->day('-3 days'));
+
+        $this->save($event, ['startDate' => $this->day('+5 days')]);
+
+        $this->assertSame(1, $this->notificationsOfType($parent, 'calendar.event_changed'));
+    }
+
+    /** Moved into the past, the event is over: as for any past event, nothing goes out. */
+    public function testMovingAnUpcomingEventIntoThePastAnnouncesNothing(): void
+    {
+        $parent = $this->aParentOfTheSection();
+        $event = $this->createThroughTheForm($this->day('+5 days'));
+
+        $this->save($event, ['startDate' => $this->day('-3 days')]);
+
+        $this->assertSame(0, $this->notificationsOfType($parent, 'calendar.event_changed'));
+    }
+
+    public function testIsPastLooksAtTheLastDayOfTheEvent(): void
+    {
+        $past = $this->eventRepository->findById(
+            $this->createEvent($this->sectionCalendarId, $this->day('-1 day'), null)
+        );
+        $endsToday = $this->eventRepository->findById(
+            $this->createEvent($this->sectionCalendarId, $this->day('-2 days'), $this->day('today'))
+        );
+        $startsToday = $this->eventRepository->findById(
+            $this->createEvent($this->sectionCalendarId, $this->day('today'), null)
+        );
+
+        $this->assertTrue($this->service->isPast($past));
+        $this->assertFalse($this->service->isPast($endsToday));
+        $this->assertFalse($this->service->isPast($startsToday));
     }
 
     // --- Activity reminder (day-before, calendar.event_reminder) ---

@@ -113,9 +113,12 @@ final class CalendarImportWriterTest extends TestCase
                 $this->dispatched[] = 'published:' . $event->id;
             }
 
-            public function dispatchEventChanged(CalendarEvent $event, ?int $actorUserAccountId): void
-            {
-                $this->dispatched[] = 'changed:' . $event->id;
+            public function dispatchEventChanged(
+                CalendarEvent $before,
+                CalendarEvent $after,
+                ?int $actorUserAccountId
+            ): void {
+                $this->dispatched[] = 'changed:' . $after->id;
             }
         };
 

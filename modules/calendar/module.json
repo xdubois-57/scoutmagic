@@ -270,7 +270,7 @@
     {
       "id": "calendar.event_changed",
       "label": "Activité modifiée",
-      "description": "Un évènement du calendrier a été modifié (date, heure ou lieu).",
+      "description": "Un évènement à venir du calendrier a été modifié (date, heure, lieu, titre ou calendrier).",
       "group": "Calendrier",
       "role_min": "identified",
       "channels": {
