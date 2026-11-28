@@ -573,7 +573,9 @@ class MailService
             // support archive. There is one rule about addresses in a
             // message that reaches a screen or a log (SECURITY.md §11),
             // and it cannot hold in one branch of the same catch.
-            throw new MailException(MailErrorRedaction::withoutAddresses($reason));
+            // Bounded but keeping its enhanced code (#1571 review): the
+            // drain classifies this very message again on a replay.
+            throw new MailException(Transport\MailFailure::boundedReason($reason));
         }
     }
 

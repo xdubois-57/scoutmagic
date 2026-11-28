@@ -10,6 +10,7 @@ use Core\Mail\DkimManager;
 use Core\Mail\MailException;
 use Core\Mail\MailService;
 use Core\Mail\MailTransportInterface;
+use Core\Mail\Transport\MailFailure;
 use PHPMailer\PHPMailer\PHPMailer;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
@@ -243,6 +244,32 @@ class MailFailureJournalTest extends TestCase
         $this->assertStringNotContainsString('5.4.5', (string) $context['reason']);
         $this->assertSame('Provider', $context['classification']);
         $this->assertSame('5.4.5', $context['enhanced_code']);
+    }
+
+    /**
+     * The exception a transport's long refusal becomes keeps its code too:
+     * the deferred-mail drain classifies that message again on a replay,
+     * and a bare « 550 » would abandon a quota refusal (#1571 review).
+     */
+    public function testTheThrownMessageKeepsTheCodeOfALongRefusal(): void
+    {
+        $service = $this->service(
+            $this->refusingTransport(
+                'SMTP Error: The following recipients failed: jean.dupont@exemple.be: '
+                    . str_repeat('Daily user sending limit exceeded. ', 20)
+                    . 'SMTP code: 550 Additional SMTP info: 5.4.5'
+            ),
+            null
+        );
+
+        try {
+            $service->send('jean.dupont@exemple.be', 'Bonjour', '<p>Bonjour</p>', 'Bonjour');
+            $this->fail('The refusal must surface.');
+        } catch (MailException $e) {
+            $this->assertLessThanOrEqual(400, mb_strlen($e->getMessage()));
+            $this->assertStringNotContainsString('@', $e->getMessage());
+            $this->assertSame(MailFailure::Provider, MailFailure::classify($e->getMessage()));
+        }
     }
 
     /**
