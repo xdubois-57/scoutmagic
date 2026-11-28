@@ -10,6 +10,7 @@ namespace Modules\Groups\Service;
 
 use Core\Member\Duplicate\MemberMergeListener;
 use Core\Member\Duplicate\MergeRowRepository;
+use Modules\Groups\Repository\PollRepository;
 
 /**
  * Brings a member's discussion-group rows along when two of their
@@ -21,8 +22,10 @@ use Core\Member\Duplicate\MergeRowRepository;
  * one membership, and the moderator one stays (the kept identity's on a
  * tie); a reaction or a report on the same message is one, the kept
  * identity's stays; what was last read in a group is the later of the two.
- * Authorship, the invitation's « invité par », a group's creator and a
- * poll ballot's voter simply follow. Rate-limit counters and the link
+ * A poll ballot is keyed by `m:<member id>`, so PollRepository::mergeVoter()
+ * rewrites that key too; a poll both identities answered keeps the kept
+ * identity's ballots. Authorship, the invitation's « invité par » and a
+ * group's creator simply follow. Rate-limit counters and the link
  * preview log are short-lived and stay where they are.
  */
 final class GroupMergeListener implements MemberMergeListener
@@ -48,10 +51,9 @@ final class GroupMergeListener implements MemberMergeListener
         'discussion_groups' => 'created_by_member_id',
         'discussion_group_posts' => 'author_member_id',
         'discussion_group_replies' => 'author_member_id',
-        'discussion_group_poll_ballots' => 'voter_member_id',
     ];
 
-    public function __construct(private MergeRowRepository $rows)
+    public function __construct(private MergeRowRepository $rows, private PollRepository $polls)
     {
     }
 
@@ -87,6 +89,7 @@ final class GroupMergeListener implements MemberMergeListener
         foreach (self::PLAIN as $table => $column) {
             $handled += $this->rows->repoint($table, $column, $keptMemberId, $duplicateMemberId);
         }
+        $handled += $this->polls->mergeVoter($keptMemberId, $duplicateMemberId)['handled'];
 
         return $handled;
     }

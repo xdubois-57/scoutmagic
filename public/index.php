@@ -10471,7 +10471,8 @@ if ($isEnabled('groups')) {
     // A merge brings explicit memberships, messages and reactions along
     // (issue #1462).
     $registerMemberMergeListener(new \Modules\Groups\Service\GroupMergeListener(
-        new \Core\Member\Duplicate\MergeRowRepository($pdo)
+        new \Core\Member\Duplicate\MergeRowRepository($pdo),
+        new \Modules\Groups\Repository\PollRepository($pdo)
     ));
     \Core\Debug\RequestTimeline::mark('module_groups');
     // Reported messages no moderator has answered, on the attention page
