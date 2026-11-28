@@ -8,8 +8,10 @@ declare(strict_types=1);
 
 namespace Modules\Groups\Service;
 
+use Core\Journal\JournalService;
 use Core\Member\Duplicate\MemberMergeListener;
 use Core\Member\Duplicate\MergeRowRepository;
+use Modules\Groups\Repository\GroupMemberRepository;
 use Modules\Groups\Repository\PollRepository;
 
 /**
@@ -20,8 +22,11 @@ use Modules\Groups\Repository\PollRepository;
  *
  * **Collision rules:** a membership held by both identities in one group is
  * one membership, and the moderator one stays (the kept identity's on a
- * tie); a reaction or a report on the same message is one, the kept
- * identity's stays; what was last read in a group is the later of the two.
+ * tie, taking the other's account binding when only that one was bound —
+ * an unbound grant moderates nothing); a reaction or a report on the same
+ * message is one, the kept identity's stays; what was last read in a group
+ * is the later of the two. Each collision is journalled
+ * (`groups_merge_collisions`), ids and counts only.
  * A poll ballot is keyed by `m:<member id>`, so PollRepository::mergeVoter()
  * rewrites that key too; a poll both identities answered keeps the kept
  * identity's ballots. Authorship, the invitation's « invité par » and a
@@ -53,8 +58,12 @@ final class GroupMergeListener implements MemberMergeListener
         'discussion_group_replies' => 'author_member_id',
     ];
 
-    public function __construct(private MergeRowRepository $rows, private PollRepository $polls)
-    {
+    public function __construct(
+        private MergeRowRepository $rows,
+        private PollRepository $polls,
+        private GroupMemberRepository $members,
+        private JournalService $journal
+    ) {
     }
 
     public function mergePreview(int $duplicateMemberId): array
@@ -75,21 +84,50 @@ final class GroupMergeListener implements MemberMergeListener
 
     public function onMembersMerged(int $keptMemberId, int $duplicateMemberId): int
     {
+        // A moderator grant that works must survive the settling below.
+        $this->members->carryModeratorBinding($keptMemberId, $duplicateMemberId);
+
         $handled = 0;
+        $collisions = [];
         foreach (self::UNIQUE as $table => [$column, $scope, $winner]) {
-            $handled += $this->rows->repointUnique(
+            $result = $this->rows->repointUnique(
                 $table,
                 $column,
                 $scope,
                 $winner,
                 $keptMemberId,
                 $duplicateMemberId
-            )['handled'];
+            );
+            $handled += $result['handled'];
+            if ($result['collisions'] > 0) {
+                $collisions[$table] = $result['collisions'];
+            }
         }
         foreach (self::PLAIN as $table => $column) {
             $handled += $this->rows->repoint($table, $column, $keptMemberId, $duplicateMemberId);
         }
-        $handled += $this->polls->mergeVoter($keptMemberId, $duplicateMemberId)['handled'];
+        $ballots = $this->polls->mergeVoter($keptMemberId, $duplicateMemberId);
+        $handled += $ballots['handled'];
+        if ($ballots['collisions'] > 0) {
+            $collisions['discussion_group_poll_ballots'] = $ballots['collisions'];
+        }
+
+        // Every collision deleted a row: said in the journal, ids and
+        // counts only, never what was written.
+        if ($collisions !== []) {
+            $this->journal->log(
+                'groups',
+                'groups_merge_collisions',
+                'info',
+                'Fusion de fiches : données de groupes présentes sous les deux fiches, '
+                    . 'une seule est gardée selon la règle de chaque donnée',
+                [
+                    'kept_member_id' => $keptMemberId,
+                    'merged_member_id' => $duplicateMemberId,
+                    'collisions' => $collisions,
+                ]
+            );
+        }
 
         return $handled;
     }

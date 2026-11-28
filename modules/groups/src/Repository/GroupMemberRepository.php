@@ -22,6 +22,35 @@ class GroupMemberRepository
     }
 
     /**
+     * Before a merge settles the memberships held under both identities
+     * (issue #1462, Service\GroupMergeListener): where both are moderators
+     * of a group but only the absorbed identity's grant is bound to an
+     * account, the kept row takes that binding. Otherwise the merge would
+     * keep an unbound grant — one that moderates nothing,
+     * GroupAccessService::canModerate() matching the account — and delete
+     * the one that worked. Returns how many rows took a binding.
+     */
+    public function carryModeratorBinding(int $keptMemberId, int $duplicateMemberId): int
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT k.id AS kept_row, d.moderator_user_account_id AS account
+             FROM discussion_group_members d
+             JOIN discussion_group_members k ON k.group_id = d.group_id AND k.member_id = ?
+             WHERE d.member_id = ? AND d.is_moderator = 1 AND d.moderator_user_account_id IS NOT NULL
+               AND k.is_moderator = 1 AND k.moderator_user_account_id IS NULL'
+        );
+        $stmt->execute([$keptMemberId, $duplicateMemberId]);
+        $bind = $this->pdo->prepare('UPDATE discussion_group_members SET moderator_user_account_id = ? WHERE id = ?');
+        $carried = 0;
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $bind->execute([(int) $row['account'], (int) $row['kept_row']]);
+            $carried++;
+        }
+
+        return $carried;
+    }
+
+    /**
      * Idempotent on (group, member): inviting someone already invited
      * leaves the existing row (and its moderator flag) untouched rather
      * than failing on the unique index.

@@ -10464,7 +10464,9 @@ if ($isEnabled('groups')) {
     // (issue #1462).
     $registerMemberMergeListener(new \Modules\Groups\Service\GroupMergeListener(
         new \Core\Member\Duplicate\MergeRowRepository($pdo),
-        new \Modules\Groups\Repository\PollRepository($pdo)
+        new \Modules\Groups\Repository\PollRepository($pdo),
+        new \Modules\Groups\Repository\GroupMemberRepository($pdo),
+        $journalService
     ));
     \Core\Debug\RequestTimeline::mark('module_groups');
     // Reported messages no moderator has answered, on the attention page
