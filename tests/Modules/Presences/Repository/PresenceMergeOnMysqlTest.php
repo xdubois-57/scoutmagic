@@ -19,6 +19,21 @@ final class PresenceMergeOnMysqlTest extends TestCase
 {
     use UsesProductionEngine;
 
+    /** The premise first (AGENTS.md § Database): this engine counts changed rows. */
+    public function testThisEngineReportsChangedRowsRatherThanMatchedOnes(): void
+    {
+        $pdo = $this->productionEngine();
+        $pdo->prepare('INSERT INTO members (desk_id) VALUES (?)')->execute(['PM-PROBE']);
+        $member = (int) $pdo->lastInsertId();
+        $pdo->prepare('INSERT INTO presences_records (calendar_event_id, member_id, status) VALUES (?, ?, ?)')
+            ->execute([99, $member, 'present']);
+
+        $update = $pdo->prepare('UPDATE presences_records SET member_id = ? WHERE member_id = ?');
+        $update->execute([$member, $member]);
+
+        $this->assertSame(0, $update->rowCount(), 'the engine counts matched rows: the counts below prove nothing.');
+    }
+
     public function testTheLatestDecisionWinsAndTheCountsAreTruthful(): void
     {
         $pdo = $this->productionEngine();
