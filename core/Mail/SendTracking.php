@@ -47,7 +47,10 @@ final class SendTracking
      */
     public function __construct(public readonly ?string $origin = null)
     {
-        if ($origin !== null && preg_match('/^[a-z0-9_.:-]{1,' . self::ORIGIN_MAX . '}$/', $origin) !== 1) {
+        // `\z`, not `$`: a `$` also matches before a final newline, and an
+        // origin is stored and compared as it is — « mass_mail.delivery:4\n »
+        // would pass and then name nothing anybody wrote.
+        if ($origin !== null && preg_match('/^[a-z0-9_.:-]{1,' . self::ORIGIN_MAX . '}\z/', $origin) !== 1) {
             throw new \InvalidArgumentException('A send origin is a short reference made of [a-z0-9_.:-].');
         }
     }

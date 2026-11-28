@@ -41,8 +41,10 @@ use Modules\MassMail\Api\MassMailException;
 use Modules\MassMail\Repository\Delivery;
 use Modules\MassMail\Repository\DeliveryRepository;
 use Modules\MassMail\Repository\Email;
+use Modules\MassMail\Repository\SuppressedAddressRepository;
 use Modules\MassMail\Repository\TargetRepository;
 use Modules\MassMail\Task\DeferredDeliveryListener;
+use Modules\MassMail\Service\MassMailService;
 use Modules\MassMail\Task\SendBatchHandler;
 use PHPMailer\PHPMailer\PHPMailer;
 use PHPUnit\Framework\TestCase;
@@ -263,6 +265,102 @@ final class DeferredDeliveryTest extends TestCase
         $everything = implode(' ', $this->pdo->query('SELECT description || context FROM event_log')
             ->fetchAll(\PDO::FETCH_COLUMN));
         $this->assertStringNotContainsString('parent@exemple.test', $everything);
+    }
+
+    /**
+     * **Unsubscribed while the message waited** (review of #1561). The
+     * core's replay knows the bounce state, not this module's group-mail
+     * unsubscribe; asked before the replay, the module withdraws the
+     * message: nothing reaches the relay, the line reads the batch's own
+     * « désinscrite » reason, the batch's own journal line says so, and
+     * the mailing is finished.
+     */
+    public function testAMessageWhoseRecipientUnsubscribedWhileItWaitedIsNeverSent(): void
+    {
+        $deliveryId = $this->messageTo('parent@exemple.test', withAccount: true);
+        (new SendBatchHandler())->handle([], $this->batchContext());
+        (new SuppressedAddressRepository($this->pdo))->suppress('parent@exemple.test');
+
+        $this->laneExhausted = false;
+        $this->drainNow();
+
+        $this->assertSame([], $this->delivered, 'nothing in the transport');
+        $delivery = $this->deliveries->findById($deliveryId);
+        $this->assertSame(Delivery::STATUS_ERROR, $delivery?->status);
+        $this->assertSame(MassMailService::REASON_UNSUBSCRIBED, $delivery->errorMessage);
+        $this->assertSame(Email::STATUS_SENT, $this->emailStatus());
+        $this->assertSame(1, $this->journalCount('delivery_skipped_unsubscribed'));
+        $this->assertSame(0, $this->journalCount('delivery_sent'));
+        $this->assertSame(0, $this->notificationCount());
+        $this->assertSame(
+            ['abandoned'],
+            $this->pdo->query('SELECT status FROM mail_deferred_messages')->fetchAll(\PDO::FETCH_COLUMN),
+            'kept for the Relance screen, unsent'
+        );
+    }
+
+    /**
+     * A message the queue still holds but that is no longer the queue's —
+     * put back in the batch meanwhile — is not replayed as a second copy.
+     */
+    public function testAMessageNoLongerDeferredHereIsNotReplayed(): void
+    {
+        $deliveryId = $this->messageTo('parent@exemple.test');
+        (new SendBatchHandler())->handle([], $this->batchContext());
+        $this->pdo->exec("UPDATE mass_mail_deliveries SET status = 'pending' WHERE id = {$deliveryId}");
+
+        $this->laneExhausted = false;
+        $this->drainNow();
+
+        $this->assertSame([], $this->delivered);
+        $this->assertSame(Delivery::STATUS_PENDING, $this->deliveries->findById($deliveryId)?->status);
+    }
+
+    /**
+     * **A follow-up that fails does not leave the mailing « Envoi en
+     * cours »** (review of #1561). The message is out and settled; the
+     * lookups and lines after that throw here, and the mailing still
+     * reaches « Envoyé ». The failure is not swallowed: the drain journals
+     * it, naming the message by its origin.
+     */
+    public function testAFollowUpThatThrowsStillLetsTheMailingComplete(): void
+    {
+        $deliveryId = $this->messageTo('parent@exemple.test', withAccount: true);
+        (new SendBatchHandler())->handle([], $this->batchContext());
+        $this->pdo->exec('DROP TABLE mass_mail_delivery_targets');
+
+        $this->laneExhausted = false;
+        $this->drainNow();
+
+        $this->assertSame(['parent@exemple.test'], $this->delivered);
+        $this->assertSame(Delivery::STATUS_SENT, $this->deliveries->findById($deliveryId)?->status);
+        $this->assertSame(Email::STATUS_SENT, $this->emailStatus());
+        $this->assertSame(
+            [['origin' => DeferredDeliveryListener::originFor($deliveryId), 'error_class' => \PDOException::class]],
+            $this->journalContexts('mail_deferred_outcome_unreported')
+        );
+    }
+
+    /**
+     * **The way out of an outcome lost on the way back** (review of #1561).
+     * The drain settled the queue's row but could not tell this module, so
+     * the line still reads « en attente » with nothing waiting for it. The
+     * tracking page says so and offers « Renvoyer », which is accepted —
+     * while one the queue really holds stays refused.
+     */
+    public function testADeferredMessageTheQueueNoLongerHoldsCanBeResent(): void
+    {
+        $deliveryId = $this->messageTo('parent@exemple.test');
+        (new SendBatchHandler())->handle([], $this->batchContext());
+        $service = SendBatchHandler::buildMassMailService($this->batchContext());
+        $this->assertFalse($service->getTrackingData($this->emailId)['messages'][0]['outcome_lost']);
+
+        $this->pdo->exec('DELETE FROM mail_deferred_messages');
+
+        $this->assertTrue($service->getTrackingData($this->emailId)['messages'][0]['outcome_lost']);
+        $service->resendDelivery($deliveryId, null);
+        $this->assertSame(Delivery::STATUS_PENDING, $this->deliveries->findById($deliveryId)?->status);
+        $this->assertSame(1, $this->journalCount('delivery_resent'));
     }
 
     /** « Renvoyer » would queue a second copy of a message the core still holds. */

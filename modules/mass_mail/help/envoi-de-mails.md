@@ -74,6 +74,6 @@ numéro de l'e-mail et le motif d'un échec.
 ## La désinscription
 
 Chaque message porte un lien de désinscription. L'adresse ne reçoit
-plus d'envoi groupé, même lancé, pour tous les animés qui la
-partagent. Pour revenir : « Réactiver » sur la page de l'animé ; un contact s'adresse à
-l'unité.
+plus d'envoi groupé, même lancé ou en attente chez le fournisseur,
+pour tous les animés qui la partagent. Pour revenir : « Réactiver »
+sur la page de l'animé ; un contact s'adresse à l'unité.

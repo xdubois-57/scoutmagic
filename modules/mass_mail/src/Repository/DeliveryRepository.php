@@ -312,14 +312,31 @@ class DeliveryRepository
      * 'pending' so the next batch picks it up again. sent_at is left as the
      * record of the previous send; the tracking page only shows it while
      * the status is 'sent'.
+     *
+     * **Never a message the core's deferred queue holds** (issue #1454),
+     * and decided by this UPDATE, not by the row the caller read a moment
+     * earlier: a batch that defers the message between that read and this
+     * write would otherwise get a second copy queued behind the one the
+     * drain will send. $lostDeferred lifts the guard for the one case
+     * where 'deferred' no longer means waiting — the core's queue has no
+     * message left for it, its outcome lost on the way back
+     * (Service\MassMailService::resendDelivery()).
+     *
+     * @return bool whether the message was put back — false when it was
+     *         'deferred' (or is gone) at the moment of the write
      */
-    public function resend(int $id): void
+    public function resend(int $id, bool $lostDeferred = false): bool
     {
         $stmt = $this->pdo->prepare(
             "UPDATE mass_mail_deliveries SET status = 'pending', error_message = NULL, attempts = attempts + 1 "
-                . 'WHERE id = ?'
+                . 'WHERE id = ?' . ($lostDeferred ? '' : " AND status <> 'deferred'")
         );
         $stmt->execute([$id]);
+
+        // `attempts + 1` changes every matched row, so MySQL's « rows
+        // changed » count is the matched count here, as on SQLite
+        // (DeferredDeliveriesOnMysqlTest).
+        return $stmt->rowCount() === 1;
     }
 
     /**

@@ -82,19 +82,7 @@ final class BulkCadence
                 continue;
             }
 
-            if ($provider->dailyQuota === null) {
-                return true;
-            }
-
-            try {
-                $ceiling = $provider->dailyQuota - ($this->reserve?->forProvider($provider)->messages ?? 0);
-            } catch (\Throwable) {
-                // The chain's posture: a reserve that cannot be computed
-                // is not a reason to stop sending.
-                $ceiling = $provider->dailyQuota;
-            }
-
-            if (($usedToday[$provider->id] ?? 0) < max(0, $ceiling)) {
+            if (!$this->isFull($provider, $usedToday)) {
                 return true;
             }
         }
@@ -129,7 +117,12 @@ final class BulkCadence
 
             $firstEnabled ??= $provider;
 
-            if ($provider->dailyQuota !== null && ($usedToday[$provider->id] ?? 0) >= $provider->dailyQuota) {
+            // **The same ceiling as hasRoomLeft() and the chain**: quota
+            // minus the reserve. Against the raw quota, a relay with 170
+            // of 200 spent and 30 reserved was still « the active one »,
+            // and the mailing was paced on a relay the chain had already
+            // stepped past.
+            if ($this->isFull($provider, $usedToday)) {
                 continue;
             }
 
@@ -142,6 +135,19 @@ final class BulkCadence
         // one — what happens to the messages themselves is D9's business,
         // not the cadence's.
         return $firstEnabled ?? $this->directory->local();
+    }
+
+    /**
+     * Whether $provider has nothing left for the mailing lane today —
+     * {@see MailReserve::laneCeiling()}, the chain's own reading.
+     *
+     * @param array<int, int> $usedToday
+     */
+    private function isFull(MailProvider $provider, array $usedToday): bool
+    {
+        $ceiling = MailReserve::laneCeiling($this->reserve, $provider, MailLane::Bulk);
+
+        return $ceiling !== null && ($usedToday[$provider->id] ?? 0) >= $ceiling;
     }
 
     /**

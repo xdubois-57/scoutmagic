@@ -34,6 +34,20 @@ enum DeferredMailAbandonment: string
     case Unreadable = 'unreadable';
 
     /**
+     * The recipient asked its sender to stop writing while the message
+     * waited — an unsubscribe the sender keeps itself, which the core's
+     * bounce state knows nothing about. Its sender says so before the
+     * replay (`DeferredMailOutcomeListener::deferredMailWithdrawn()`).
+     */
+    case Unsubscribed = 'unsubscribed';
+
+    /**
+     * Its sender no longer wants it sent: the message it stood for was
+     * sent another way, or no longer exists.
+     */
+    case Withdrawn = 'withdrawn';
+
+    /**
      * The reason as a person reads it — French words naming
      * nothing internal and no address, so a sender may store and show it
      * as it is.
@@ -45,6 +59,8 @@ enum DeferredMailAbandonment: string
             self::Refused => 'Refusé par le serveur du destinataire après la mise en attente',
             self::Suppressed => 'Adresse suspendue après des refus répétés',
             self::Unreadable => 'Abandonné : le message mis en attente n\'a pas pu être relu',
+            self::Unsubscribed => 'Abandonné : le destinataire s\'est désinscrit pendant l\'attente',
+            self::Withdrawn => 'Abandonné : retiré par l\'expéditeur pendant l\'attente',
         };
     }
 }

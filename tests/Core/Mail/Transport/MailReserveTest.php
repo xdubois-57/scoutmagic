@@ -160,6 +160,34 @@ class MailReserveTest extends TestCase
         $this->assertSame(11 + MailReserve::MARGIN, $reserve->messages);
     }
 
+    /**
+     * **The one ceiling the chain and the cadence both read** (issue
+     * #1454): the reserve comes off the mailing lane only, the other lanes
+     * see the whole quota, a provider without a quota has none, and a
+     * reserve that cannot be read leaves the quota whole.
+     */
+    public function testTheLaneCeilingIsTheQuotaLessTheReserveOnTheMailingLaneOnly(): void
+    {
+        $this->shareProviderBetweenBulkAndAuthentication(1);
+        $provider = $this->provider(1, 200);
+
+        $this->assertSame(
+            200 - MailReserve::FLOOR,
+            MailReserve::laneCeiling($this->reserve, $provider, MailLane::Bulk)
+        );
+        $this->assertSame(200, MailReserve::laneCeiling($this->reserve, $provider, MailLane::Authentication));
+        $this->assertSame(200, MailReserve::laneCeiling(null, $provider, MailLane::Bulk));
+        $this->assertNull(MailReserve::laneCeiling(
+            $this->reserve,
+            new MailProvider(1, 'Local', 'localhost', 25, '', null, 50, 10, 'mail_provider_1'),
+            MailLane::Bulk
+        ));
+
+        $this->pdo->exec('DROP TABLE mail_lane_entries');
+
+        $this->assertSame(200, MailReserve::laneCeiling($this->reserve, $provider, MailLane::Bulk));
+    }
+
     private function shareProviderBetweenBulkAndAuthentication(int $providerId): void
     {
         $this->chains->append(MailLane::Bulk, $providerId, true);

@@ -243,6 +243,34 @@ final class DeferredMailRepository
         return $counts;
     }
 
+    /**
+     * Which of these origins still name a message the queue will try again
+     * (issue #1454) — 'pending', not abandoned and not sent.
+     *
+     * Asked by a sender whose own record still reads « waiting » when it
+     * wants to know whether that is true: the drain tells it the outcome
+     * only after settling the row, so an outcome that could not be told
+     * (its listener failed) leaves the sender waiting on a row that is
+     * gone. Origins are opaque here, as everywhere in core.
+     *
+     * @param list<string> $origins
+     * @return list<string> the ones still waiting
+     */
+    public function waitingOrigins(array $origins): array
+    {
+        if ($origins === []) {
+            return [];
+        }
+
+        $statement = $this->pdo->prepare(
+            'SELECT DISTINCT origin FROM mail_deferred_messages WHERE status = ? AND origin IN ('
+                . implode(', ', array_fill(0, count($origins), '?')) . ')'
+        );
+        $statement->execute([DeferredMessage::STATUS_PENDING, ...$origins]);
+
+        return array_map('strval', $statement->fetchAll(PDO::FETCH_COLUMN));
+    }
+
     public function countAbandoned(): int
     {
         $statement = $this->pdo->prepare('SELECT COUNT(*) FROM mail_deferred_messages WHERE status = ?');

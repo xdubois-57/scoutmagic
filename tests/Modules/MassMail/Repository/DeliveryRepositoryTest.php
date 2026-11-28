@@ -150,13 +150,26 @@ class DeliveryRepositoryTest extends TestCase
     {
         $id = $this->repository->create($this->emailId, 'a@test.be', Delivery::STATUS_ERROR, 'Adresse invalide');
 
-        $this->repository->resend($id);
+        $this->assertTrue($this->repository->resend($id));
 
         $delivery = $this->repository->findById($id);
         $this->assertSame(Delivery::STATUS_PENDING, $delivery?->status);
         $this->assertNull($delivery->errorMessage);
         $this->assertSame(1, $delivery->attempts);
         $this->assertTrue($this->repository->hasUnsettled($this->emailId));
+    }
+
+    /** A message the core's deferred queue holds is not put back by the write itself (issue #1454). */
+    public function testResendLeavesADeferredMessageAloneUnlessItsOutcomeWasLost(): void
+    {
+        $id = $this->repository->create($this->emailId, 'a@test.be');
+        $this->repository->recordDeferred($id);
+
+        $this->assertFalse($this->repository->resend($id));
+        $this->assertSame(Delivery::STATUS_DEFERRED, $this->repository->findById($id)?->status);
+
+        $this->assertTrue($this->repository->resend($id, lostDeferred: true));
+        $this->assertSame(Delivery::STATUS_PENDING, $this->repository->findById($id)?->status);
     }
 
     public function testCountGroupedByStatusCountsMessages(): void

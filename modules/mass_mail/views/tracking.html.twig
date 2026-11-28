@@ -150,12 +150,16 @@
                             <span class="d-block small text-body-secondary">
                                 {% if d.status == 'sent' and d.sentAt %}{{ d.sentAt|datetime_fr }}
                                 {% elseif d.status == 'error' %}{{ d.errorMessage ?? '—' }}
+                                {% elseif d.status == 'deferred' and item.outcome_lost %}Le fournisseur d'envoi n'a plus ce message en attente, mais son issue n'a pas pu être enregistrée : renvoyez-le si nécessaire.
                                 {% elseif d.status == 'deferred' %}Pas encore parti : il partira dès que le fournisseur d'envoi reprendra les messages.
                                 {% endif %}
                             </span>
                         </td>
                         <td class="text-end">
-                            {% if not imported and d.status in ['error', 'sent'] %}
+                            {# A deferred message only once the core's queue no longer
+                               holds it (issue #1454): its outcome was lost on the
+                               way back, and nothing else will ever settle it. #}
+                            {% if not imported and (d.status in ['error', 'sent'] or (d.status == 'deferred' and item.outcome_lost)) %}
                                 <button type="button" class="btn btn-sm btn-outline-secondary mmt-resend-btn"
                                         data-id="{{ d.id }}" data-recipient="{{ d.emailAddress }}">Renvoyer</button>
                             {% endif %}

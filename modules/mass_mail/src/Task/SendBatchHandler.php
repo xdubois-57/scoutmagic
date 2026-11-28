@@ -982,7 +982,11 @@ class SendBatchHandler implements TaskHandlerInterface
             // written to through a custom list either.
             new \Core\Mail\Feedback\Bounce\BounceService(
                 new \Core\Mail\Feedback\Bounce\BounceStateRepository($pdo, $context->encryption)
-            )
+            ),
+            null,
+            // Whether a 'deferred' message is still in the core's queue
+            // (issue #1454) — the same answer the web request gets.
+            new \Core\Mail\Transport\DeferredMailRepository($pdo, $context->encryption)
         );
     }
 }

@@ -223,6 +223,36 @@ class BulkCadenceTest extends TestCase
     }
 
     /**
+     * **The cadence reads the same ceiling as the room** (issue #1454).
+     * 170 of 200 spent with 30 reserved is a full relay for the mailing
+     * lane — the chain steps past it, hasRoomLeft() says so — and the
+     * mailing must be paced on the relay that will actually carry it, not
+     * on the one the raw quota still called active.
+     */
+    public function testARelayFullOnceTheReserveIsTakenOffIsNotTheActiveOne(): void
+    {
+        $shared = $this->addRelay('Partagé', batchSize: 30, interval: 7, dailyQuota: 200);
+        $next = $this->addRelay('Suivant', batchSize: 100, interval: 2);
+        $this->chains->append(MailLane::Bulk, $shared, true);
+        $this->chains->append(MailLane::Bulk, $next, true);
+        $this->chains->append(MailLane::Transactional, $shared, true);
+        $reserve = new MailReserve($this->counters, $this->chains);
+        $this->assertSame(
+            30,
+            $reserve->forProvider($this->directory()->all()[$shared])->messages,
+            'The premise: a fresh shared relay keeps the floor.'
+        );
+        for ($i = 0; $i < 170; $i++) {
+            $this->counters->increment($shared, MailLane::Bulk);
+        }
+
+        $this->assertSame($next, $this->cadence($reserve)->activeProvider()->id);
+        $this->assertSame(['batch_size' => 100, 'interval_minutes' => 2], $this->cadence($reserve)->current());
+        $this->assertTrue($this->cadence($reserve)->hasRoomLeft(), 'the next relay has no quota');
+        $this->assertSame($shared, $this->cadence()->activeProvider()->id, 'without a reserve, 170 < 200');
+    }
+
+    /**
      * No chain laid down means the configured relay carries the message,
      * and a chain that cannot be read must not stop a mailing: room, both.
      */

@@ -27,7 +27,10 @@ use Tests\UsesProductionEngine;
  * - `sent_at` is filled in by the server (`CURRENT_TIMESTAMP`) when the
  *   drain settles the message as sent;
  * - the settling UPDATEs are guarded by their WHERE clause alone, and the
- *   statuses they must leave alone are checked here rather than trusted.
+ *   statuses they must leave alone are checked here rather than trusted;
+ * - « Renvoyer » decides on `rowCount()`, which MySQL reports as rows
+ *   CHANGED rather than matched — so whether the guarded write reports
+ *   one row exactly when it moved one is the engine's answer to give.
  */
 #[Group('database')]
 final class DeferredDeliveriesOnMysqlTest extends TestCase
@@ -153,5 +156,33 @@ final class DeferredDeliveriesOnMysqlTest extends TestCase
         $delivery = $this->deliveries->findById($id);
         $this->assertSame(Delivery::STATUS_SENT, $delivery?->status);
         $this->assertNull($delivery->errorMessage);
+    }
+
+    /**
+     * **« Renvoyer » is refused by the write, not by a snapshot** (issue
+     * #1454): a message that became 'deferred' after the service read it
+     * is left in the core's hands and the write says so; any other status
+     * is put back and reported as one row; and a deferred message whose
+     * outcome was lost is put back when the caller says so.
+     */
+    public function testResendIsGuardedByTheWriteAndReportsWhetherItMovedTheRow(): void
+    {
+        $deferred = $this->deliveries->create($this->emailId, 'a@test.be');
+        $this->deliveries->recordDeferred($deferred);
+        $error = $this->deliveries->create($this->emailId, 'b@test.be');
+        $this->deliveries->recordSendFailure($error, 'Erreur');
+
+        $this->assertFalse($this->deliveries->resend($deferred));
+        $this->assertSame(Delivery::STATUS_DEFERRED, $this->deliveries->findById($deferred)?->status);
+        $this->assertSame(1, $this->deliveries->findById($deferred)?->attempts, 'nothing was written');
+
+        $this->assertTrue($this->deliveries->resend($error));
+        $this->assertSame(Delivery::STATUS_PENDING, $this->deliveries->findById($error)?->status);
+        $this->assertTrue($this->deliveries->resend($error), 'already pending: attempts still moves, one row');
+
+        $this->assertTrue($this->deliveries->resend($deferred, lostDeferred: true));
+        $this->assertSame(Delivery::STATUS_PENDING, $this->deliveries->findById($deferred)?->status);
+
+        $this->assertFalse($this->deliveries->resend(999999), 'a message that does not exist');
     }
 }

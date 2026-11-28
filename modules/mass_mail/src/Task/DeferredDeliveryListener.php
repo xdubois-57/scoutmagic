@@ -16,8 +16,10 @@ use Modules\MassMail\Repository\Delivery;
 use Modules\MassMail\Repository\DeliveryRepository;
 use Modules\MassMail\Repository\Email;
 use Modules\MassMail\Repository\EmailRepository;
+use Modules\MassMail\Repository\SuppressedAddressRepository;
 use Modules\MassMail\Repository\Target;
 use Modules\MassMail\Repository\TargetRepository;
+use Modules\MassMail\Service\MassMailService;
 use Modules\MassMail\Service\MergeRenderer;
 
 /**
@@ -54,11 +56,42 @@ final class DeferredDeliveryListener implements DeferredMailOutcomeListener
     /** The message an origin names, or null for an origin some other sender wrote. */
     public static function deliveryIdOf(string $origin): ?int
     {
-        if (preg_match('/^' . preg_quote(self::ORIGIN_PREFIX, '/') . '([1-9]\d{0,9})$/', $origin, $match) !== 1) {
+        if (preg_match('/^' . preg_quote(self::ORIGIN_PREFIX, '/') . '([1-9]\d{0,9})\z/', $origin, $match) !== 1) {
             return null;
         }
 
         return (int) $match[1];
+    }
+
+    /**
+     * **Asked before the drain replays the message** — the gap #1437 closed
+     * for the batch, closed for the deferred queue too. The core's replay
+     * checks only its own bounce state; the group-mail unsubscribe is this
+     * module's, so somebody who clicked « Se désinscrire » while their
+     * message waited would otherwise receive it a day later all the same.
+     * Withdrawn too when the message is no longer the queue's to send —
+     * « Renvoyer » put it back in the batch, or it no longer exists —
+     * because then a replay would be a second copy.
+     */
+    public function deferredMailWithdrawn(string $origin, TaskContext $context): ?DeferredMailAbandonment
+    {
+        $deliveryId = self::deliveryIdOf($origin);
+        if ($deliveryId === null) {
+            return null;
+        }
+
+        $pdo = $context->connection->getPdo();
+        $delivery = (new DeliveryRepository($pdo, $context->encryption))->findById($deliveryId);
+        if (
+            $delivery === null
+            || !in_array($delivery->status, [Delivery::STATUS_DEFERRED, Delivery::STATUS_ERROR], true)
+        ) {
+            return DeferredMailAbandonment::Withdrawn;
+        }
+
+        return (new SuppressedAddressRepository($pdo))->isSuppressed($delivery->emailAddress)
+            ? DeferredMailAbandonment::Unsubscribed
+            : null;
     }
 
     public function deferredMailSent(string $origin, TaskContext $context): void
@@ -73,20 +106,21 @@ final class DeferredDeliveryListener implements DeferredMailOutcomeListener
 
         $deliveries->settleDeferredAsSent($delivery->id);
 
-        $targets = (new TargetRepository($pdo))->findByDelivery($delivery->id);
-        [$subject, $personalised] = $this->sentSubject($context, $email, $delivery);
-        (new SentMessageFollowUp())->record(
-            $context,
-            $massMailService,
-            $delivery,
-            $email,
-            $targets,
-            array_values(array_unique(array_map(static fn(Target $t): int => $t->memberId, $targets))),
-            $subject,
-            $personalised
-        );
-
-        $massMailService->checkAndMarkSentIfComplete($email->id);
+        $followUp = function () use ($context, $massMailService, $pdo, $delivery, $email): void {
+            $targets = (new TargetRepository($pdo))->findByDelivery($delivery->id);
+            [$subject, $personalised] = $this->sentSubject($context, $email, $delivery);
+            (new SentMessageFollowUp())->record(
+                $context,
+                $massMailService,
+                $delivery,
+                $email,
+                $targets,
+                array_values(array_unique(array_map(static fn(Target $t): int => $t->memberId, $targets))),
+                $subject,
+                $personalised
+            );
+        };
+        $this->thenComplete($massMailService, $email->id, $followUp);
     }
 
     public function deferredMailAbandoned(
@@ -101,13 +135,61 @@ final class DeferredDeliveryListener implements DeferredMailOutcomeListener
         [$delivery, $email, $deliveries] = $settling;
         $massMailService = SendBatchHandler::buildMassMailService($context);
 
+        if ($reason === DeferredMailAbandonment::Unsubscribed) {
+            // The batch's own vocabulary for the same situation (#1437):
+            // one sentence on the tracking page, one journal line, whether
+            // the unsubscribe was noticed before the send or in the queue.
+            $deliveries->settleDeferredAsAbandoned($delivery->id, MassMailService::REASON_UNSUBSCRIBED);
+            $this->thenComplete(
+                $massMailService,
+                $email->id,
+                static fn() => $massMailService->journalDeliverySkippedUnsubscribed($email->id, $delivery->id)
+            );
+
+            return;
+        }
+
         // The reason as the tracking page shows it: a French sentence the
         // core wrote for exactly this, never the relay's transcript, and
         // no address (SECURITY.md §11).
         $deliveries->settleDeferredAsAbandoned($delivery->id, $reason->label());
-        $massMailService->journalDeliveryAbandoned($email->id, $delivery->id, $reason->label());
+        $this->thenComplete(
+            $massMailService,
+            $email->id,
+            static fn() => $massMailService->journalDeliveryAbandoned($email->id, $delivery->id, $reason->label())
+        );
+    }
 
-        $massMailService->checkAndMarkSentIfComplete($email->id);
+    /**
+     * Run what follows a settled message, then finish the mailing if
+     * nothing of it is left waiting — **whatever the first part did**.
+     *
+     * The message is already settled when this runs, so the mailing's
+     * completion no longer depends on anything else: a follow-up that
+     * fails (its journal line, its notification, the lookups before them)
+     * used to throw past the completion check and leave the mailing
+     * « Envoi en cours » for good, with no message left to settle it.
+     *
+     * The follow-up's failure is the one that propagates — the drain
+     * journals it with the message's origin — and a completion check that
+     * fails too must not replace it, so that one is dropped: the next
+     * settled message of the mailing asks again.
+     */
+    private function thenComplete(MassMailService $massMailService, int $emailId, callable $followUp): void
+    {
+        try {
+            $followUp();
+        } catch (\Throwable $failure) {
+            try {
+                $massMailService->checkAndMarkSentIfComplete($emailId);
+            } catch (\Throwable) {
+                // The follow-up's failure is the one worth reporting.
+            }
+
+            throw $failure;
+        }
+
+        $massMailService->checkAndMarkSentIfComplete($emailId);
     }
 
     /**

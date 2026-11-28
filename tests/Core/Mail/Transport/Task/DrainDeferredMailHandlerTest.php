@@ -594,12 +594,124 @@ class DrainDeferredMailHandlerTest extends TestCase
             '0',
             (string) $this->pdo->query('SELECT COUNT(*) FROM mail_deferred_messages')->fetchColumn()
         );
+        // The origin is in the line — an id, never an address — so the
+        // message its sender still believes is waiting can be found.
         $this->assertSame(
-            '2',
-            (string) $this->pdo->query(
-                "SELECT COUNT(*) FROM event_log WHERE event_type = 'mail_deferred_outcome_unreported'"
-            )->fetchColumn()
+            [
+                ['origin' => 'mass_mail.delivery:7', 'error_class' => \RuntimeException::class],
+                ['origin' => 'mass_mail.delivery:8', 'error_class' => \RuntimeException::class],
+            ],
+            array_map(
+                static fn(mixed $json): mixed => json_decode((string) $json, true),
+                $this->pdo->query(
+                    "SELECT context FROM event_log WHERE event_type = 'mail_deferred_outcome_unreported' ORDER BY id"
+                )->fetchAll(\PDO::FETCH_COLUMN)
+            )
         );
+    }
+
+    /**
+     * **The sender is asked before the replay** (issue #1454): a message it
+     * withdraws — its recipient unsubscribed from it while it waited — is
+     * never handed to the transport, is abandoned with the reason, and the
+     * sender is told so; the message it still wants goes out as before.
+     */
+    public function testAMessageItsSenderWithdrawsIsAbandonedUnsent(): void
+    {
+        $listener = $this->recordingListener();
+        $listener->withdraws = ['mass_mail.delivery:7' => DeferredMailAbandonment::Unsubscribed];
+        $this->listener = $listener;
+        $withdrawn = $this->queue(MailLane::Bulk, nextAttemptAt: $this->minutesAgo(6), origin: 'mass_mail.delivery:7');
+        $this->queue(MailLane::Bulk, nextAttemptAt: $this->minutesAgo(5), origin: 'mass_mail.delivery:8');
+
+        $this->drain();
+
+        $this->assertCount(1, $this->sent, 'only the one still wanted');
+        $this->assertSame(['mass_mail.delivery:7', 'mass_mail.delivery:8'], $listener->asked);
+        $this->assertSame(
+            ['abandoned mass_mail.delivery:7 unsubscribed', 'sent mass_mail.delivery:8'],
+            $listener->told
+        );
+        $row = $this->pdo->query(
+            "SELECT status, attempts, last_reason FROM mail_deferred_messages WHERE id = {$withdrawn}"
+        )
+            ->fetch(\PDO::FETCH_ASSOC);
+        $this->assertSame('abandoned', $row['status']);
+        $this->assertSame(0, (int) $row['attempts'], 'nothing was attempted');
+        $this->assertSame(DeferredMailAbandonment::Unsubscribed->label(), $row['last_reason']);
+    }
+
+    /**
+     * **A sender that cannot answer is not a yes.** The message is kept,
+     * unsent, one pass further out and without spending an attempt; the
+     * line says which message, never to whom; and the next pass, with the
+     * sender back, sends it.
+     */
+    public function testAMessageWhoseSenderCannotBeAskedIsKeptUnsentForALaterPass(): void
+    {
+        $listener = $this->recordingListener();
+        $listener->cannotAnswer = true;
+        $this->listener = $listener;
+        $id = $this->queue(MailLane::Bulk, nextAttemptAt: $this->minutesAgo(5), origin: 'mass_mail.delivery:7');
+
+        $this->drain();
+
+        $this->assertSame([], $this->sent);
+        $this->assertSame([], $listener->told);
+        $row = $this->pdo->query(
+            "SELECT status, attempts, next_attempt_at FROM mail_deferred_messages WHERE id = {$id}"
+        )
+            ->fetch(\PDO::FETCH_ASSOC);
+        $this->assertSame('pending', $row['status']);
+        $this->assertSame(0, (int) $row['attempts']);
+        $this->assertGreaterThan(time(), strtotime((string) $row['next_attempt_at']), 'not due again in this pass');
+        $line = $this->pdo->query(
+            "SELECT level, context FROM event_log WHERE event_type = 'mail_deferred_sender_unreachable'"
+        )->fetch(\PDO::FETCH_ASSOC);
+        $this->assertSame('warning', $line['level']);
+        $this->assertSame(
+            ['origin' => 'mass_mail.delivery:7', 'error_class' => \RuntimeException::class],
+            json_decode((string) $line['context'], true)
+        );
+
+        $listener->cannotAnswer = false;
+        $this->pdo->exec("UPDATE mail_deferred_messages SET next_attempt_at = '2000-01-01 00:00:00'");
+        $this->drain();
+
+        $this->assertCount(1, $this->sent);
+        $this->assertSame(['sent mass_mail.delivery:7'], $listener->told);
+    }
+
+    /** A message without an origin is nobody's to withdraw, and nobody is asked. */
+    public function testAMessageWithoutAnOriginIsNotAsked(): void
+    {
+        $listener = $this->recordingListener();
+        $listener->cannotAnswer = true;
+        $this->listener = $listener;
+        $this->queue(MailLane::Transactional, nextAttemptAt: $this->minutesAgo(5));
+
+        $this->drain();
+
+        $this->assertCount(1, $this->sent);
+        $this->assertSame([], $listener->asked);
+    }
+
+    /**
+     * Which origins the queue will still try (issue #1454): pending ones
+     * only — not an abandoned message, not one that left and was deleted,
+     * not one it never held.
+     */
+    public function testTheQueueSaysWhichOriginsAreStillWaiting(): void
+    {
+        $this->queue(MailLane::Bulk, nextAttemptAt: $this->minutesAgo(5), origin: 'mass_mail.delivery:1');
+        $abandoned = $this->queue(MailLane::Bulk, nextAttemptAt: $this->minutesAgo(5), origin: 'mass_mail.delivery:2');
+        $this->repository->abandon($abandoned, 1, 'délai');
+
+        $this->assertSame(
+            ['mass_mail.delivery:1'],
+            $this->repository->waitingOrigins(['mass_mail.delivery:1', 'mass_mail.delivery:2', 'mass_mail.delivery:3'])
+        );
+        $this->assertSame([], $this->repository->waitingOrigins([]));
     }
 
     // ── helpers ───────────────────────────────────────────────────────
@@ -649,7 +761,7 @@ class DrainDeferredMailHandlerTest extends TestCase
      * A listener that writes down what it was told, and can be made to
      * throw.
      *
-     * @return DeferredMailOutcomeListener&object{told: list<string>, fails: bool}
+     * @return DeferredMailOutcomeListener&object{told: list<string>, asked: list<string>, fails: bool, withdraws: array<string, DeferredMailAbandonment>, cannotAnswer: bool}
      */
     private function recordingListener(): DeferredMailOutcomeListener
     {
@@ -657,6 +769,21 @@ class DrainDeferredMailHandlerTest extends TestCase
             /** @var list<string> */
             public array $told = [];
             public bool $fails = false;
+            /** @var array<string, DeferredMailAbandonment> origin => why it is withdrawn */
+            public array $withdraws = [];
+            public bool $cannotAnswer = false;
+            /** @var list<string> */
+            public array $asked = [];
+
+            public function deferredMailWithdrawn(string $origin, TaskContext $context): ?DeferredMailAbandonment
+            {
+                $this->asked[] = $origin;
+                if ($this->cannotAnswer) {
+                    throw new \RuntimeException('listener down');
+                }
+
+                return $this->withdraws[$origin] ?? null;
+            }
 
             public function deferredMailSent(string $origin, TaskContext $context): void
             {
