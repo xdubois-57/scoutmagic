@@ -65,8 +65,8 @@ d'unité ne notifie que les personnes liées qui ont ce rôle.
 « Activité modifiée » ne part que si la date, l'heure, le lieu, le titre
 ou le calendrier changent : corriger la description ou cocher la
 rétrospective n'envoie rien. La veille, un rappel part au même public.
-Rien n'est envoyé pour une activité déjà terminée, même encodée après
-coup.
+Rien n'est envoyé pour une activité dont le dernier jour est passé,
+même encodée après coup ; le jour même, elle compte encore comme à venir.
 
 ## S'abonner depuis un agenda personnel
 
