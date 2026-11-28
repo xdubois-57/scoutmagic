@@ -243,6 +243,23 @@ class SchedulerBootstrapTest extends TestCase
         );
     }
 
+    /**
+     * Issue #1448: the Staff d'U responsable the SOS page resolves the
+     * default number to is on the scheduled path too, built by the
+     * trombinoscope as the page's is. (The module is enabled by default, so
+     * there is no « without » here: TaskCapabilitiesTest holds the live
+     * enablement guard for every capability alike.)
+     */
+    public function testTheSectionResponsableHookIsOnTheScheduledPath(): void
+    {
+        ['context' => $context] = $this->bootstrap(['trombinoscope']);
+
+        $this->assertInstanceOf(
+            \Modules\Trombinoscope\Service\TrombinoscopeService::class,
+            $context->getOptional(\Core\Module\SectionResponsableProvider::class)
+        );
+    }
+
     public function testTheRetroBoardCreationCapabilityResolvesExactlyWhenTheModuleIsEnabled(): void
     {
         ['context' => $with] = $this->bootstrap(['retro']);

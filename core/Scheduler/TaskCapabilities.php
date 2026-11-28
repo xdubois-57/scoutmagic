@@ -55,7 +55,8 @@ final class TaskCapabilities
      * Declare that $interface is provided by $providerModuleId, built by
      * $factory when first resolved while that module is enabled.
      *
-     * @param class-string $interface a published `Api\` interface
+     * @param class-string $interface a published `Api\` interface, or a
+     *        core hook (`Core\Module\…`, §7.4) that a module implements
      * @param callable(): object $factory
      */
     public function register(string $interface, string $providerModuleId, callable $factory): void

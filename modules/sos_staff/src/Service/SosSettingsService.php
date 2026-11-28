@@ -238,18 +238,39 @@ class SosSettingsService
      */
     public function resolveDefaultNumberMemberId(int $scoutYearId): ?int
     {
+        return $this->resolveDefaultNumber($scoutYearId)['member_id'];
+    }
+
+    /** The default number was chosen on the page, and that choice holds. */
+    public const RESOLUTION_EXPLICIT = 'explicit';
+    /** Nothing chosen: the Staff d'U section's responsable. */
+    public const RESOLUTION_RESPONSABLE = 'responsable';
+    /** Nothing chosen and no usable responsable: the first of the roster. */
+    public const RESOLUTION_FIRST_STAFF = 'first_staff';
+
+    /**
+     * resolveDefaultNumberMemberId(), and which of its three steps answered
+     * — what the hourly correction journals (issue #1448), so a line moved
+     * to somebody unexpected says why. `resolution` is null only when no
+     * step found anybody.
+     *
+     * @return array{member_id: ?int, resolution: ?string}
+     */
+    public function resolveDefaultNumber(int $scoutYearId): array
+    {
         $explicit = $this->settingsRepository->findDefaultNumberMemberId();
         if ($explicit !== null && $this->isStaffOption($explicit, $scoutYearId)) {
-            return $explicit;
+            return ['member_id' => $explicit, 'resolution' => self::RESOLUTION_EXPLICIT];
         }
 
         $responsableId = $this->resolveSectionResponsableMemberId($scoutYearId);
         if ($responsableId !== null) {
-            return $responsableId;
+            return ['member_id' => $responsableId, 'resolution' => self::RESOLUTION_RESPONSABLE];
         }
 
-        $staffOptions = $this->getDefaultNumberOptions($scoutYearId);
-        return $staffOptions[0]['member_id'] ?? null;
+        $first = $this->getDefaultNumberOptions($scoutYearId)[0]['member_id'] ?? null;
+
+        return ['member_id' => $first, 'resolution' => $first === null ? null : self::RESOLUTION_FIRST_STAFF];
     }
 
     /**

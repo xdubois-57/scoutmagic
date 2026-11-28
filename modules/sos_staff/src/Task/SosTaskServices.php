@@ -18,6 +18,7 @@ use Core\Member\Repository\MemberProfileRepository;
 use Core\Member\Repository\SectionRepository;
 use Core\Member\SectionService;
 use Core\Member\UnitStaffSectionService;
+use Core\Module\SectionResponsableProvider;
 use Core\Scheduler\SchedulerService;
 use Core\Scheduler\TaskContext;
 use Core\ScoutYear\ScoutYearResolver;
@@ -68,6 +69,13 @@ final class SosTaskServices
         ))->getCurrentPublicYear()['id'];
     }
 
+    private static function sectionResponsableProvider(TaskContext $context): ?SectionResponsableProvider
+    {
+        $provider = $context->getOptional(SectionResponsableProvider::class);
+
+        return $provider instanceof SectionResponsableProvider ? $provider : null;
+    }
+
     public static function build(TaskContext $context): self
     {
         $pdo = $context->connection->getPdo();
@@ -91,7 +99,14 @@ final class SosTaskServices
             $sectionService,
             $memberYearRepository,
             new UnitStaffSectionService(new \Core\Member\Repository\UnitStaffSectionRepository($pdo)),
-            $context->settings
+            $context->settings,
+            // The same responsable the page resolves the default number to
+            // (issue #1448): without it this path fell back to the first
+            // Staff d'U member, so the hourly correction moved the line
+            // away from the person the page showed, and every save on the
+            // page and every pass undid each other. Null when the
+            // trombinoscope module is off — the page has none then either.
+            self::sectionResponsableProvider($context)
         );
 
         // A simulated line where test_tools offers one (ARCHITECTURE.md
