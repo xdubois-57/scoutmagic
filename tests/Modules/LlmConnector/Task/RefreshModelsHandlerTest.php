@@ -60,19 +60,28 @@ class RefreshModelsHandlerTest extends TestCase
             ->with(
                 'llm_connector',
                 'models_refresh_failed',
-                'info',
+                'warning',
                 $this->stringContains('Unreachable'),
                 $this->isArray(),
                 null
             );
 
         $context = $this->createTaskContext();
-        $handler = new RefreshModelsHandler();
+        // The address check passes here, so what fails is the connection
+        // itself: with the real check, plain http to 127.0.0.1 is refused
+        // before any connection is tried, which is a configuration failure
+        // and `error` (issue #1450).
+        $handler = new RefreshModelsHandler(static fn (string $url): bool => true);
         $handler->handle([], $context);
 
         // Verify no models were inserted
         $models = $this->modelRepo->findByProvider(1);
         $this->assertSame([], $models);
+        // Unreachable is `warning` above: the retry queued here may get
+        // through without anybody stepping in.
+        $this->assertNotNull(
+            \Core\Scheduler\SchedulerService::forPdo($this->pdo)->find('llm_connector', 'refresh_models', 'retry-1')
+        );
     }
 
     public function testHandleSkipsInactiveProviders(): void
@@ -110,7 +119,9 @@ class RefreshModelsHandlerTest extends TestCase
             ->with(
                 'llm_connector',
                 'models_refresh_failed',
-                'info',
+                // A driver this build does not know is the configuration:
+                // no retry fixes it (#1559 review).
+                'error',
                 $this->stringContains('UnknownDriver'),
                 $this->callback(function (array $ctx): bool {
                     return $ctx['error_type'] === \RuntimeException::class && $ctx['error_code'] === 0;
@@ -121,6 +132,11 @@ class RefreshModelsHandlerTest extends TestCase
         $context = $this->createTaskContext();
         $handler = new RefreshModelsHandler();
         $handler->handle([], $context);
+
+        // The level changed, not the recovery: the retry is still queued.
+        $this->assertNotNull(
+            \Core\Scheduler\SchedulerService::forPdo($this->pdo)->find('llm_connector', 'refresh_models', 'retry-1')
+        );
     }
 
     /**
@@ -139,7 +155,8 @@ class RefreshModelsHandlerTest extends TestCase
             ->with(
                 'llm_connector',
                 'models_refresh_failed',
-                'info',
+                // The stored address is for the superadmin to correct.
+                'error',
                 $this->stringContains('Rebound'),
                 $this->callback(static fn (array $context): bool
                     => $context['error_type'] === \Modules\LlmConnector\Api\LlmException::class),
@@ -176,7 +193,9 @@ class RefreshModelsHandlerTest extends TestCase
             ->with(
                 'llm_connector',
                 'models_refresh_failed',
-                'info',
+                // Building a driver contacts nothing: what fails there is
+                // the provider's configuration, hence `error`.
+                'error',
                 $this->stringContains('Accepted'),
                 $this->callback(static fn (array $context): bool => $context['error_type'] === \RuntimeException::class),
                 null

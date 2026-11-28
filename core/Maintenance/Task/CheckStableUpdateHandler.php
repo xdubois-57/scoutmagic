@@ -75,7 +75,7 @@ class CheckStableUpdateHandler implements TaskHandlerInterface
             $context->journal->log(
                 'core',
                 'auto_update_check_failed',
-                'info',
+                'warning',
                 'Échec de la vérification quotidienne des mises à jour',
                 ['error' => $e->getMessage()]
             );

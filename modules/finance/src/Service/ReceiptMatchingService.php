@@ -318,7 +318,7 @@ class ReceiptMatchingService
             $this->journalService->log(
                 'finance',
                 'receipt_ai_match_failed',
-                'info',
+                'warning',
                 "Association IA du reçu échouée : {$e->getMessage()}",
                 ['attachment_id' => $receipt->id],
                 null

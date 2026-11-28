@@ -229,7 +229,7 @@ class GalleryConfigController extends AbstractController
             $this->journalService->log(
                 'gallery',
                 'config_update_failed',
-                'info',
+                'error',
                 'Échec de l\'enregistrement de la configuration de la galerie',
                 ['error' => $e->getMessage()],
                 (int) AuthSession::getUserAccountId()

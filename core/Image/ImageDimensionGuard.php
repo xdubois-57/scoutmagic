@@ -21,6 +21,12 @@ namespace Core\Image;
  * 50 megapixels comfortably clears any real photo a phone or camera produces
  * (a 48 MP phone shot is under it) while bounding a single decode to a few
  * hundred MB rather than several GB.
+ *
+ * Bounding is not fitting: a few hundred MB can still be more than the
+ * host's `memory_limit` leaves, and running out of it is a fatal no caller
+ * can catch. This guard does not know the limit; the gallery's background
+ * photo task checks the memory actually left before decoding, on top of
+ * this ceiling (SECURITY.md §25, issue #1449).
  */
 final class ImageDimensionGuard
 {

@@ -78,7 +78,7 @@ class AutoCloseHandler implements TaskHandlerInterface
                 $context->journal->log(
                     'retro',
                     'board_summary_failed',
-                    'info',
+                    'warning',
                     'Échec de la synthèse IA',
                     ['board_id' => $boardId, 'error' => $e->getMessage()]
                 );
@@ -161,7 +161,7 @@ class AutoCloseHandler implements TaskHandlerInterface
             $context->journal->log(
                 'retro',
                 'board_close_notification_failed',
-                'info',
+                'error',
                 'Échec de l\'envoi de la notification de clôture',
                 ['board_id' => $board->id, 'error' => $e->getMessage()]
             );

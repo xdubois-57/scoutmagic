@@ -375,6 +375,9 @@ final class SendRemoteBackupHandlerTest extends TestCase
         $this->assertNotNull($next);
         $this->assertSame($archive, $next['payload']['archive_path']);
         $this->assertSame(1, $next['payload']['failures']);
+        // A refused chunk is picked back up by the next run: `warning`,
+        // where an unreadable credential is `error` (issue #1450).
+        $this->assertSame('warning', $this->journalLevelOf('remote_backup_failed'));
     }
 
     /**
@@ -618,6 +621,41 @@ final class SendRemoteBackupHandlerTest extends TestCase
             $this->events(['remote_backup_abandoned']),
             'the site kept retrying past its own ceiling'
         );
+        // A destination that kept refusing chunks: the next scheduled run
+        // starts afresh by itself (issue #1450).
+        $this->assertSame('warning', $this->journalLevelOf('remote_backup_abandoned'));
+    }
+
+    /**
+     * An abandonment whose cause is an unreadable credential is `error`:
+     * the next scheduled run meets the same secret, so nothing is sent
+     * off-site again until an administrator reconnects the account (#1559
+     * review).
+     */
+    public function testAnAbandonmentOverAnUnreadableCredentialIsJournaledAtTheErrorLevel(): void
+    {
+        $this->settings->values[SendRemoteBackupHandler::MAX_FAILURES_SETTING] = '1';
+        $archive = $this->archiveOf(64);
+        $rotated = new RemoteBackupDestination(
+            $this->settings,
+            new StorageLocationRepository(
+                $this->pdo,
+                new EncryptionService(str_repeat('z', 32), str_repeat('y', 32))
+            ),
+            new StorageBackendFactory(
+                new StorageLocationRepository(
+                    $this->pdo,
+                    new EncryptionService(str_repeat('z', 32), str_repeat('y', 32))
+                ),
+                $this->storagePath
+            )
+        );
+
+        (new SendRemoteBackupHandler(null, $rotated, fn (): float => $this->clock, 1024))
+            ->handle($this->payloadFor($archive), $this->context());
+
+        $this->assertFileDoesNotExist($archive);
+        $this->assertSame('error', $this->journalLevelOf('remote_backup_abandoned'));
     }
 
     /**
@@ -1002,6 +1040,9 @@ final class SendRemoteBackupHandlerTest extends TestCase
         $this->assertSame(1, $next['payload']['failures']);
         $this->assertSame($archive, $next['payload']['archive_path']);
         $this->assertFileExists($archive, 'the archive was thrown away on the first failure');
+        // Retried all the same, but no retry reads the secret any better:
+        // an administrator has to reconnect the account (#1559 review).
+        $this->assertSame('error', $this->journalLevelOf('remote_backup_failed'));
     }
 
     /**
@@ -1114,6 +1155,18 @@ final class SendRemoteBackupHandlerTest extends TestCase
         }
 
         return [];
+    }
+
+    /** The level of the first journal line of that type, or null when there is none. */
+    private function journalLevelOf(string $eventType): ?string
+    {
+        foreach ((new JournalRepository($this->pdo))->search() as $entry) {
+            if ($entry['event_type'] === $eventType) {
+                return (string) $entry['level'];
+            }
+        }
+
+        return null;
     }
 
     /** Makes the journal refuse one event type, as a broken table would. */

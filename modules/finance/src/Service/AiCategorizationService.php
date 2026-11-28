@@ -114,7 +114,7 @@ class AiCategorizationService
             $this->journalService->log(
                 'finance',
                 'ai_categorization_failed',
-                'info',
+                'warning',
                 "Catégorisation IA échouée : {$e->getMessage()}",
                 ['transaction_id' => $transaction->id],
                 null

@@ -125,6 +125,11 @@ class ProcessVideoHandlerTest extends TestCase
 
         $this->assertSame(Media::STATUS_FAILED, $this->mediaRepository->findById($mediaId)->processingStatus);
         $this->assertSame(1, (int) $this->pdo->query("SELECT COUNT(*) FROM event_log WHERE event_type = 'video_processing_failed'")->fetchColumn());
+        // Nothing processes it again: `error`, never `info` (issue #1450).
+        $this->assertSame(
+            'error',
+            $this->pdo->query("SELECT level FROM event_log WHERE event_type = 'video_processing_failed'")->fetchColumn()
+        );
     }
 
     /**

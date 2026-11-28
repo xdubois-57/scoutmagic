@@ -10,6 +10,9 @@ namespace Modules\Gallery\Repository;
 
 class MediaRepository
 {
+    /** gallery_media.processing_error is a VARCHAR(255). */
+    public const PROCESSING_ERROR_MAX_LENGTH = 255;
+
     public function __construct(private \PDO $pdo)
     {
     }
@@ -120,14 +123,26 @@ class MediaRepository
 
     public function markProcessing(int $id): void
     {
-        $stmt = $this->pdo->prepare('UPDATE gallery_media SET processing_status = ? WHERE id = ?');
+        $stmt = $this->pdo->prepare(
+            'UPDATE gallery_media SET processing_status = ?, processing_error = NULL WHERE id = ?'
+        );
         $stmt->execute([Media::STATUS_PROCESSING, $id]);
     }
 
-    public function markFailed(int $id): void
+    /**
+     * @param string|null $error why, in French, for the animateur who sees the
+     *                           failed media. Shown as written: the CALLER
+     *                           gates it (Core\Exception\UserFacingMessage),
+     *                           this method only bounds it to the column.
+     */
+    public function markFailed(int $id, ?string $error = null): void
     {
-        $stmt = $this->pdo->prepare('UPDATE gallery_media SET processing_status = ? WHERE id = ?');
-        $stmt->execute([Media::STATUS_FAILED, $id]);
+        $stmt = $this->pdo->prepare('UPDATE gallery_media SET processing_status = ?, processing_error = ? WHERE id = ?');
+        $stmt->execute([
+            Media::STATUS_FAILED,
+            $error !== null ? mb_substr($error, 0, self::PROCESSING_ERROR_MAX_LENGTH) : null,
+            $id,
+        ]);
     }
 
     public function markPhotoDone(
@@ -140,8 +155,8 @@ class MediaRepository
     ): void
     {
         $stmt = $this->pdo->prepare(
-            'UPDATE gallery_media SET processing_status = ?, thumb_path = ?, medium_path = ?, large_path = ?, width = '
-                . '?, height = ? WHERE id = ?'
+            'UPDATE gallery_media SET processing_status = ?, processing_error = NULL, thumb_path = ?, medium_path = ?, '
+                . 'large_path = ?, width = ?, height = ? WHERE id = ?'
         );
         $stmt->execute([Media::STATUS_DONE, $thumbPath, $mediumPath, $largePath, $width, $height, $id]);
     }
@@ -231,7 +246,8 @@ class MediaRepository
             durationSeconds: $row['duration_seconds'] !== null ? (int) $row['duration_seconds'] : null,
             sortOrder: (int) $row['sort_order'],
             originalFilename: $row['original_filename'] !== null ? (string) $row['original_filename'] : null,
-            createdAt: (string) $row['created_at']
+            createdAt: (string) $row['created_at'],
+            processingError: isset($row['processing_error']) ? (string) $row['processing_error'] : null
         );
     }
 }

@@ -91,6 +91,34 @@ class MediaRepositoryTest extends TestCase
         $this->assertSame(Media::STATUS_FAILED, $this->repository->findById($id)->processingStatus);
     }
 
+    public function testMarkFailedRecordsTheReasonAndProcessingAgainClearsIt(): void
+    {
+        $id = $this->repository->create($this->albumId, Media::TYPE_PHOTO, $this->fileId, 0, null);
+        $this->assertNull($this->repository->findById($id)->processingError);
+
+        $this->repository->markFailed($id, 'Cette photo est trop lourde.');
+        $this->assertSame('Cette photo est trop lourde.', $this->repository->findById($id)->processingError);
+
+        $this->repository->markProcessing($id);
+        $this->assertNull($this->repository->findById($id)->processingError);
+
+        $this->repository->markFailed($id, 'Encore.');
+        $this->repository->markPhotoDone($id, 'thumb.jpg', 'med.jpg', 'lg.jpg', 10, 10);
+        $this->assertNull($this->repository->findById($id)->processingError);
+    }
+
+    public function testMarkFailedBoundsTheReasonToItsColumn(): void
+    {
+        $id = $this->repository->create($this->albumId, Media::TYPE_PHOTO, $this->fileId, 0, null);
+
+        $this->repository->markFailed($id, str_repeat('é', 400));
+
+        $this->assertSame(
+            MediaRepository::PROCESSING_ERROR_MAX_LENGTH,
+            mb_strlen((string) $this->repository->findById($id)->processingError)
+        );
+    }
+
     public function testMarkPhotoDoneSetsAllFields(): void
     {
         $id = $this->repository->create($this->albumId, Media::TYPE_PHOTO, $this->fileId, 0, null);

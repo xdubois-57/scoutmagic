@@ -334,7 +334,7 @@ class EmailTemplateController extends AbstractController
             $this->journalService->log(
                 'core',
                 'email_template_test_failed',
-                'info',
+                'error',
                 "Échec de l'envoi de test d'un email",
                 ['template_id' => $template->id, 'error' => str_replace($to, '[adresse]', $e->getMessage())],
                 $userId

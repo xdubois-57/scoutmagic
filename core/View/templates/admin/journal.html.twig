@@ -3,6 +3,19 @@
 {% block content %}
     {% include 'partials/page_header.html.twig' with { title: 'Journal' } only %}
 
+    {#
+      The four values of event_log.level (schema/core.sql), each with its
+      own label and badge — the filter and both renderings read this one
+      map, so a level cannot be offered by one and missing from another
+      (issue #1450; JournalControllerTest pins it against the ENUM).
+    #}
+    {% set levels = {
+        'info': { label: 'Info', badge: 'text-bg-info' },
+        'warning': { label: 'Avertissement', badge: 'bg-warning-subtle text-warning-emphasis' },
+        'security': { label: 'Sécurité', badge: 'text-bg-warning' },
+        'error': { label: 'Erreur', badge: 'text-bg-danger' },
+    } %}
+
     {# Filter bar #}
     <form method="get" action="/admin/journal" class="card mb-3">
         <div class="card-body">
@@ -19,12 +32,22 @@
                 </div>
                 <div class="col-6 col-md-2">
                     {% include 'partials/form_field.html.twig' with {
+                        field_id: 'journal-filter-type', field_name: 'type',
+                        label: 'Type', type: 'select', size: 'sm', wrapper_class: '',
+                        options: [{ value: '', label: 'Tous', selected: filter_type == '' }]
+                            |merge(event_types|default([])|map(event_type => {
+                                value: event_type, label: event_type, selected: filter_type == event_type,
+                            })),
+                    } only %}
+                </div>
+                <div class="col-6 col-md-2">
+                    {% include 'partials/form_field.html.twig' with {
                         field_id: 'journal-filter-level', field_name: 'level',
                         label: 'Niveau', type: 'select', size: 'sm', wrapper_class: '',
-                        options: { '': 'Tous', 'info': 'Info', 'security': 'Sécurité', 'error': 'Erreur' }
-                            |map((label, value) => {
-                                value: value, label: label, selected: filter_level == value,
-                            }),
+                        options: [{ value: '', label: 'Tous', selected: filter_level == '' }]
+                            |merge(levels|map((level, value) => {
+                                value: value, label: level.label, selected: filter_level == value,
+                            })),
                     } only %}
                 </div>
                 <div class="col-12 col-md-3">
@@ -78,6 +101,7 @@
                         <th style="width:140px;">Date</th>
                         <th style="width:80px;">Niveau</th>
                         <th style="width:100px;">Catégorie</th>
+                        <th style="width:180px;">Type</th>
                         <th style="width:180px;">Utilisateur</th>
                         <th style="width:120px;">IP</th>
                         <th>Description</th>
@@ -88,23 +112,16 @@
                     <tr class="journal-row" data-context='{{ entry.context|default("")|e('html_attr') }}'
                         data-reveal="next:.context-row" style="cursor:pointer;">
                         <td class="text-nowrap small">{{ entry.logged_at }}</td>
-                        <td>
-                            {% if entry.level == 'error' %}
-                                <span class="badge text-bg-danger">erreur</span>
-                            {% elseif entry.level == 'security' %}
-                                <span class="badge text-bg-warning">sécurité</span>
-                            {% else %}
-                                <span class="badge text-bg-info">info</span>
-                            {% endif %}
-                        </td>
+                        <td>{{ _self.level_badge(levels, entry.level) }}</td>
                         <td class="small">{{ entry.category }}</td>
+                        <td class="small text-break"><code>{{ entry.event_type }}</code></td>
                         <td class="small text-truncate" style="max-width:180px;">{{ entry.user_email ?? '—' }}</td>
                         <td class="small text-nowrap">{{ entry.ip_address ?? '—' }}</td>
                         <td class="small">{{ entry.description }}</td>
                     </tr>
                     {% if entry.context %}
                     <tr class="d-none context-row">
-                        <td colspan="6">
+                        <td colspan="7">
                             <pre class="bg-body-tertiary p-2 rounded small mb-0">{{ entry.context }}</pre>
                         </td>
                     </tr>
@@ -112,7 +129,7 @@
                     {% else %}
                     {% include 'partials/empty_state.html.twig' with {
                         message: 'Aucune entrée trouvée.',
-                        colspan: 6,
+                        colspan: 7,
                     } only %}
                     {% endfor %}
                 </tbody>
@@ -128,17 +145,11 @@
             <div class="card-body py-2 px-3">
                 <div class="d-flex justify-content-between align-items-center mb-1">
                     <span class="text-body-secondary" style="font-size:0.7rem;">{{ entry.logged_at }}</span>
-                    {% if entry.level == 'error' %}
-                        <span class="badge text-bg-danger" style="font-size:0.65rem;">erreur</span>
-                    {% elseif entry.level == 'security' %}
-                        <span class="badge text-bg-warning" style="font-size:0.65rem;">sécurité</span>
-                    {% else %}
-                        <span class="badge text-bg-info" style="font-size:0.65rem;">info</span>
-                    {% endif %}
+                    {{ _self.level_badge(levels, entry.level, 'font-size:0.65rem;') }}
                 </div>
                 <div class="small">{{ entry.description }}</div>
                 <div class="text-body-secondary" style="font-size:0.7rem;">
-                    {{ entry.category }}
+                    {{ entry.category }} · <code>{{ entry.event_type }}</code>
                     {% if entry.user_email %} · {{ entry.user_email }}{% endif %}
                     {% if entry.ip_address %} · {{ entry.ip_address }}{% endif %}
                 </div>
@@ -155,16 +166,33 @@
         {% endfor %}
     </div>
 
+    {# Encoded, never concatenated: a search for « #12 » or « a&b » used
+       to end the query string or start a new parameter, and page 2 then
+       showed the whole journal (issue #1450). #}
+    {% set filter_query = {
+        category: filter_category, type: filter_type, level: filter_level,
+        search: filter_search, email: filter_email, ip: filter_ip,
+        date_from: filter_date_from, date_to: filter_date_to,
+    }|filter(value => value is not null and value != '')|url_encode %}
     <div class="mt-3">
         {% include 'partials/pagination.html.twig' with {
             page: page,
             total_pages: total_pages,
-            base_url: '?category=' ~ filter_category ~ '&level=' ~ filter_level ~ '&search=' ~ filter_search ~ '&email=' ~ filter_email ~ '&ip=' ~ filter_ip ~ '&date_from=' ~ filter_date_from ~ '&date_to=' ~ filter_date_to ~ '&page=',
+            base_url: '?' ~ (filter_query ? filter_query ~ '&' : '') ~ 'page=',
             label: 'Pagination du journal',
             centered: true,
         } only %}
     </div>
 {% endblock %}
+
+{#
+  One level's badge. A value outside the map — none today, but the column
+  is the only authority — is shown as itself rather than as « info ».
+#}
+{% macro level_badge(levels, level, style) %}
+    {% set known = levels[level] ?? null %}
+    <span class="badge {{ known ? known.badge : 'text-bg-secondary' }}"{% if style %} style="{{ style }}"{% endif %}>{{ (known ? known.label : level)|lower }}</span>
+{% endmacro %}
 
 {% block scripts %}
 <script src="{{ asset('/assets/js/reveal-details.js') }}" defer></script>

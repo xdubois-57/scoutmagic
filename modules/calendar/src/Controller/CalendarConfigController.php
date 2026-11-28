@@ -120,7 +120,7 @@ class CalendarConfigController extends AbstractController
                 $this->journalService->log(
                     'calendar',
                     'defaults_update_failed',
-                    'info',
+                    'error',
                     'Échec de l\'enregistrement d\'une valeur par défaut du calendrier',
                     ['setting_key' => $key, 'error' => $e->getMessage()],
                     AuthSession::getUserAccountId()

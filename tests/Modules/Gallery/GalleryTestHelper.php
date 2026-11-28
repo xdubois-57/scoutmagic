@@ -54,6 +54,7 @@ class GalleryTestHelper
             large_path TEXT NULL,
             original_path TEXT NULL,
             processing_status TEXT NOT NULL DEFAULT "pending",
+            processing_error TEXT NULL,
             width INTEGER NULL,
             height INTEGER NULL,
             duration_seconds INTEGER NULL,

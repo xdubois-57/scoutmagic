@@ -50,9 +50,18 @@
                         </span>
                     {% endif %}
                 {% elseif m.processingStatus == 'failed' %}
+                    {#
+                      processingError is gallery's own Repository\Media only
+                      (Api\DelegatedMedia has none, hence the ??): the reason,
+                      gated to a French sentence when it was written
+                      (Task\ProcessPhotoHandler).
+                    #}
+                    {% set failure = m.processingError ?? null %}
+                    {% set failure_label = failure ? 'Échec du traitement : ' ~ failure : 'Échec du traitement' %}
                     <span class="d-flex align-items-center justify-content-center h-100 text-danger"
-                          title="Échec du traitement">
+                          title="{{ failure_label }}">
                         <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
+                        <span class="visually-hidden">{{ failure_label }}</span>
                     </span>
                 {% else %}
                     <span class="d-flex align-items-center justify-content-center h-100 text-body-secondary"

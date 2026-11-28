@@ -890,6 +890,9 @@ CREATE TABLE event_log (
     context JSON,
     INDEX idx_logged_at (logged_at),
     INDEX idx_category (category),
+    -- /admin/journal lists the distinct keys for its « Type » filter and
+    -- filters on one (issue #1450), as it does for the category above.
+    INDEX idx_event_type (event_type),
     INDEX idx_level (level),
     INDEX idx_user (user_account_id),
     INDEX idx_ip (ip_address),

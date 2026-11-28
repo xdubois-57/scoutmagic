@@ -885,7 +885,7 @@ class RedirectServiceTest extends TestCase
         $this->service()->apply(1, null, 100);
 
         self::assertSame([[
-            'sos_staff', 'notification_failed', 'info',
+            'sos_staff', 'notification_failed', 'error',
             'Échec de la notification de changement de garde.',
             ['member_id' => 1, 'type_id' => 'sos_staff.oncall_started', 'exception_class' => \RuntimeException::class],
         ]], $failures);

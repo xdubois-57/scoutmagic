@@ -550,6 +550,9 @@ class SendDecisionEmailsHandlerTest extends TestCase
             $this->emails->findForRequest($request->id)[1]->dueAt?->format('Y-m-d H:i:s')
         );
         $this->assertSame([], $this->alerts);
+        // A temporary refusal the poller retries by itself: `warning`
+        // (#1559 review).
+        $this->assertSame(['warning'], $this->journalLevels('registration_status_email_failed'));
         $this->runAt('2027-01-11 08:59:59');
         $this->assertSame([], $this->sent);
         $this->runAt('2027-01-11 09:00:00');
@@ -582,6 +585,12 @@ class SendDecisionEmailsHandlerTest extends TestCase
                 'url' => '/config/inscriptions/demandes/' . $request->id,
             ],
         ]], $this->alerts);
+        // The first two are retried, the last waits for a person: only it
+        // is `error` (#1559 review).
+        $this->assertSame(
+            ['warning', 'warning', 'error'],
+            $this->journalLevels('registration_status_email_failed')
+        );
         $this->runAt('2027-01-12 08:00:00');
         $this->assertCount(1, $this->alerts);
         $this->assertCount(3, $this->emails->findForRequest($request->id));
@@ -595,6 +604,8 @@ class SendDecisionEmailsHandlerTest extends TestCase
         $this->runAt('2027-01-11 08:00:00');
         $this->assertSame(['failed'], $this->states($request->id));
         $this->assertCount(1, $this->alerts);
+        // Never retried: somebody has to act, `error`.
+        $this->assertSame(['error'], $this->journalLevels('registration_status_email_failed'));
     }
 
     public function testAChangedDecisionCancelsItsAutomaticRetry(): void
@@ -619,6 +630,25 @@ class SendDecisionEmailsHandlerTest extends TestCase
         $this->assertSame(['failed', 'sent'], $this->states($request->id));
         $this->assertCount(1, $this->sent);
         $this->assertSame([], $this->alerts);
+    }
+
+    /**
+     * A temporary refusal of a send by hand is never retried by the poller:
+     * the chief who pressed the button has to try again, so it is `error`,
+     * not the `warning` of an automatic attempt (#1559 review).
+     */
+    public function testATemporaryRefusalOfASendByHandIsJournaledAtTheErrorLevel(): void
+    {
+        $request = $this->decide('accepted');
+        $this->temporaryRefusals = 1;
+
+        try {
+            $this->emailService()->sendAccepted($this->reload($request->id), '2027-2028');
+            $this->fail('The refusal must reach the chief who pressed the button.');
+        } catch (\Modules\Registration\Service\RegistrationException) {
+        }
+
+        $this->assertSame(['error'], $this->journalLevels('registration_status_email_failed'));
     }
 
     public function testAFailedNotificationIsRetriedWithoutSendingTheEmailAgain(): void
@@ -855,6 +885,19 @@ class SendDecisionEmailsHandlerTest extends TestCase
         $value = $stmt->fetchColumn();
 
         return $value === false || $value === null ? null : (string) $value;
+    }
+
+    /**
+     * The level of every journal line of $eventType, oldest first.
+     *
+     * @return list<string>
+     */
+    private function journalLevels(string $eventType): array
+    {
+        $stmt = $this->pdo->prepare('SELECT level FROM event_log WHERE event_type = ? ORDER BY id');
+        $stmt->execute([$eventType]);
+
+        return array_map('strval', $stmt->fetchAll(\PDO::FETCH_COLUMN));
     }
 
     /**
