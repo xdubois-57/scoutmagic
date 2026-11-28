@@ -400,10 +400,12 @@ final class MailTransportChain implements MailTransportInterface
      * Tell the breaker a provider refused — but only when the refusal was
      * its own doing (D15, {@see MailFailure}).
      *
-     * A `550` walks straight past this. The relay answered, correctly,
-     * about one address; counting that as a strike would shut a provider
-     * out because somebody mistyped an e-mail, and the mailing lane —
-     * where dead addresses collect — would shut one out nearly every run.
+     * A `550 5.1.1` walks straight past this. The relay answered,
+     * correctly, about one address; counting that as a strike would shut a
+     * provider out because somebody mistyped an e-mail, and the mailing
+     * lane — where dead addresses collect — would shut one out nearly
+     * every run. A `550 5.4.5` does not: that is the relay's own sending
+     * quota, spent until tomorrow, and it counts (issue #1488).
      */
     private function recordFailure(MailProvider $provider, MailLane $lane, string $reason): void
     {

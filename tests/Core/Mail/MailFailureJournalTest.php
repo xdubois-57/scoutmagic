@@ -190,6 +190,53 @@ class MailFailureJournalTest extends TestCase
     }
 
     /**
+     * How the refusal was read travels with it as closed values (issue
+     * #1488): whose fault it was, and the enhanced code it was read from.
+     * « 550 » alone could not tell a quota from a bad address, and nothing
+     * in the entry said which reading the site had made.
+     */
+    public function testTheEntrySaysHowTheRefusalWasRead(): void
+    {
+        $service = $this->service(
+            $this->refusingTransport(
+                'SMTP Error: The following recipients failed: jean.dupont@exemple.be: Daily user sending limit'
+                    . ' exceeded. SMTP code: 550 Additional SMTP info: 5.4.5'
+            ),
+            null
+        );
+
+        try {
+            $service->send('jean.dupont@exemple.be', 'Bonjour', '<p>Bonjour</p>', 'Bonjour');
+        } catch (MailException) {
+            // Asserted below.
+        }
+
+        $context = json_decode((string) $this->entries()[0]['context'], true);
+        $this->assertSame('Provider', $context['classification']);
+        $this->assertSame('5.4.5', $context['enhanced_code']);
+    }
+
+    /**
+     * A refused address reads as the recipient's, and a reason without an
+     * enhanced code says so with a null rather than a guess.
+     */
+    public function testTheEntrySaysWhenThereWasNoEnhancedCode(): void
+    {
+        $service = $this->service($this->refusingTransport('550 Requested action not taken'), null);
+
+        try {
+            $service->send('destinataire@example.be', 'Bonjour', '<p>Bonjour</p>', 'Bonjour');
+        } catch (MailException) {
+            // Asserted below.
+        }
+
+        $context = json_decode((string) $this->entries()[0]['context'], true);
+        $this->assertSame('Recipient', $context['classification']);
+        $this->assertArrayHasKey('enhanced_code', $context);
+        $this->assertNull($context['enhanced_code']);
+    }
+
+    /**
      * « Not configured » and « the relay refused » read the same on
      * screen and are completely different problems, so the entry says
      * which one it was without ever naming a host, a user or a password.

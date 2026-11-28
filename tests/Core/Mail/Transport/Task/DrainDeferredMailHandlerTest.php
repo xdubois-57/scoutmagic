@@ -282,6 +282,31 @@ class DrainDeferredMailHandlerTest extends TestCase
         $this->assertSame(1, $this->repository->countAbandoned());
     }
 
+    /**
+     * **A quota refusal on replay walks the ladder** (issue #1488). It
+     * wears a 550 and, at RCPT TO, PHPMailer's « recipients failed »; read
+     * as a bad address, a message queued during an outage was abandoned
+     * at its first retry because the relay had spent its day's quota —
+     * the very thing waiting would have cured.
+     */
+    public function testAQuotaRefusalOnReplayIsRescheduledRatherThanAbandoned(): void
+    {
+        $this->queue(MailLane::Bulk, nextAttemptAt: $this->minutesAgo(5));
+        $this->refuse = ['parent@exemple.test'];
+        $this->refusalReason = 'SMTP Error: The following recipients failed: [adresse]: Daily user sending limit'
+            . ' exceeded. SMTP server error: RCPT TO command failed Detail: Daily user sending limit exceeded.'
+            . ' SMTP code: 550 Additional SMTP info: 5.4.5';
+
+        $this->drain();
+
+        $this->assertSame(0, $this->repository->countAbandoned());
+        $this->assertCount(
+            1,
+            $this->repository->due(10, '2099-01-01 00:00:00'),
+            'Still waiting, further out.'
+        );
+    }
+
     /** A provider failure on the same replay still walks the ladder. */
     public function testAProviderFailureOnReplayIsStillRescheduled(): void
     {

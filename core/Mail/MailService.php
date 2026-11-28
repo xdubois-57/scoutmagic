@@ -1012,6 +1012,8 @@ class MailService
     private function journalFailure(string $reason): void
     {
         try {
+            $reason = MailErrorRedaction::withoutAddresses($reason);
+
             $this->journal?->log(
                 'core',
                 'mail_send_failed',
@@ -1025,7 +1027,17 @@ class MailService
                     'mode' => $this->getDeliveryMode(),
                     'configured' => $this->isDeliveryConfigured(),
                     'origin' => self::callerOutsideThisNamespace(),
-                    'reason' => MailErrorRedaction::withoutAddresses($reason),
+                    'reason' => $reason,
+                    // How the site read the refusal, as closed values
+                    // somebody can filter on (issue #1488): whose fault it
+                    // was — the reading that decided between failing now
+                    // and queueing, and whether the relay's breaker
+                    // counted it — and the enhanced status code it was
+                    // read from, null when the relay gave none. Neither
+                    // is the server's text: an enum case name and
+                    // `class.subject.detail`.
+                    'classification' => Transport\MailFailure::classify($reason)->name,
+                    'enhanced_code' => Transport\MailFailure::enhancedCode($reason),
                 ]
             );
         } catch (\Throwable) {

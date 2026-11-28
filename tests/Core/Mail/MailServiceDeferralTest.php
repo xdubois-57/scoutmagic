@@ -326,6 +326,66 @@ class MailServiceDeferralTest extends TestCase
         }
     }
 
+    /**
+     * **A 550 is not always an address** (issue #1488). The relay's own
+     * sending quota wears one too — « 550 5.4.5 » is Google's daily
+     * limit — and a road shut until tomorrow is worth waiting for. Read
+     * as a refused recipient, the message was failed instead.
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('quotaRefusals')]
+    public function testAQuotaRefusalUnderA550IsQueuedRatherThanFailed(string $reason): void
+    {
+        $service = $this->service($this->exhaustedTransport(MailLane::Transactional, $reason), $this->queue);
+
+        $service->send(
+            to: 'parent@exemple.test',
+            subject: 'Reçu de paiement',
+            bodyHtml: '<p>Bonjour</p>',
+            bodyText: 'Bonjour'
+        );
+
+        $this->assertSame(['transactional' => 1], $this->repository->pendingCountByLane());
+    }
+
+    /**
+     * Quoted from Google Workspace's « Gmail SMTP errors and codes » and
+     * Microsoft's Exchange Online NDR reference.
+     *
+     * @return array<string, array{string}>
+     */
+    public static function quotaRefusals(): array
+    {
+        return [
+            'Gmail daily sending limit' => ['550 5.4.5 Daily user sending limit exceeded.'],
+            'Gmail relay limit for the user' => ['550-5.4.5 Daily SMTP relay limit exceeded for user.'],
+            'Microsoft submission quota' => ['550 5.2.2 Submission quota exceeded'],
+            'Microsoft daily recipient limit' => [
+                "550 5.1.90 Your message can't be sent because you've reached your daily limit for message recipients",
+            ],
+        ];
+    }
+
+    /** Without an enhanced code, a bare 550 is still a refused address, as before. */
+    public function testABare550StillFailsNow(): void
+    {
+        $service = $this->service(
+            $this->exhaustedTransport(MailLane::Transactional, '550 Requested action not taken'),
+            $this->queue
+        );
+
+        try {
+            $service->send(
+                to: 'parent@exemple.test',
+                subject: 'Reçu de paiement',
+                bodyHtml: '<p>Bonjour</p>',
+                bodyText: 'Bonjour'
+            );
+            $this->fail('A bare 550 is a refused recipient.');
+        } catch (MailException) {
+            $this->assertSame([], $this->repository->pendingCountByLane());
+        }
+    }
+
     /** A provider failure on the same lane still waits, as it should. */
     public function testAProviderFailureOnTheSameLaneStillDefers(): void
     {
