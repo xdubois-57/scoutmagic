@@ -57,7 +57,12 @@ final class FormField
          * writes (schema.sql). Read straight off the field, so showing a
          * form costs no query and no decryption at all for it.
          */
-        public readonly float $capacityUsed = 0.0
+        public readonly float $capacityUsed = 0.0,
+        /**
+         * The highest capacity this field has ever had (schema.sql): the
+         * per-answer ceiling of storedQuantity() never falls below it.
+         */
+        public readonly ?int $capacityPeak = null
     ) {
     }
 
@@ -113,18 +118,22 @@ final class FormField
      * The units a STORED answer of this quantity field counts, or null
      * when the answer is one the server would never have taken (issue
      * #1525): not written in digits alone, or above the per-answer ceiling
-     * — MAX_QUANTITY_PER_ANSWER, raised to the capacity when that is larger
-     * (a capacity can only lift this ceiling, never lower it). What the
-     * door shows as « invalide », what the reprise flags, and what every
-     * seat or capacity sum leaves out are all this one rule. An empty
-     * answer counts zero.
+     * — MAX_QUANTITY_PER_ANSWER, raised to the highest capacity the field
+     * has ever had when that is larger. What the door shows as
+     * « invalide », what the reprise flags, and what every seat or
+     * capacity sum leaves out are all this one rule. An empty answer
+     * counts zero.
      *
-     * **Never bounded by the field's current capacity**: staff may lower
-     * it after people booked, and an answer that was valid when it was
+     * **Never the current capacity, nor what remains of it**: staff may
+     * lower a cap after people booked, and an answer valid when it was
      * written stays valid — counting it as nothing would free its places
-     * for resale and flag a family who did nothing wrong. What remains of a
-     * capacity is checked when an answer is written (ResponseService),
-     * under the row lock, and nowhere else.
+     * for resale and flag a family who did nothing wrong (#1546 review).
+     * No answer above MAX_QUANTITY_PER_ANSWER was ever taken but under a
+     * cap at least that high, so the peak bounds every valid one, and the
+     * rule depends on the field alone — never on a running total that
+     * cannot say which answers it counted. What remains of a capacity is
+     * checked when an answer is written (ResponseService), under the row
+     * lock, and nowhere else.
      */
     public function storedQuantity(?string $stored): ?int
     {
@@ -138,7 +147,7 @@ final class FormField
         return \Core\Service\IntegerInput::bounded(
             $stored,
             0,
-            max(self::MAX_QUANTITY_PER_ANSWER, $this->capacityMax ?? 0)
+            max(self::MAX_QUANTITY_PER_ANSWER, $this->capacityMax ?? 0, $this->capacityPeak ?? 0)
         );
     }
 
@@ -157,7 +166,8 @@ final class FormField
             $this->capacityMax,
             $this->pricePerUnit,
             $text,
-            $this->capacityUsed
+            $this->capacityUsed,
+            $this->capacityPeak
         );
     }
 
