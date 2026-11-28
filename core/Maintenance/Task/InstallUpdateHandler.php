@@ -138,7 +138,8 @@ class InstallUpdateHandler implements TaskHandlerInterface
                 $context,
                 $updateHistoryRepository,
                 $backupRepository,
-                $fileRepository
+                $fileRepository,
+                (int) ($payload['scheduled_action_id'] ?? 0)
             );
             return;
         }
@@ -392,7 +393,11 @@ class InstallUpdateHandler implements TaskHandlerInterface
                     (string) $dbDumpPath,
                     (string) $filesZipPath,
                     $safetyPassword,
-                    $installError
+                    $installError,
+                    // The copy was taken by this very pass, and nothing has
+                    // run since: the queue it brings back is today's. See
+                    // rollbackToSafetyBackup().
+                    null
                 );
             }
         } catch (\Throwable $e) {
@@ -456,7 +461,8 @@ class InstallUpdateHandler implements TaskHandlerInterface
         TaskContext $context,
         UpdateHistoryRepository $updateHistoryRepository,
         BackupRepository $backupRepository,
-        FileRepository $fileRepository
+        FileRepository $fileRepository,
+        int $runningTaskId
     ): void {
         $basePath = dirname($context->storagePath);
         $pdo = $context->connection->getPdo();
@@ -560,7 +566,8 @@ class InstallUpdateHandler implements TaskHandlerInterface
                 // Kept under the safety copy's row since IT-03b; null for a
                 // copy taken before, which was written in clear.
                 BackupPasswords::forStorage($context->storagePath)->passwordFor($backup->id),
-                $migrationError
+                $migrationError,
+                $runningTaskId
             );
         }
     }
@@ -952,6 +959,18 @@ class InstallUpdateHandler implements TaskHandlerInterface
      * (which already holds $dbDumpPath/$filesZipPath locally) and
      * resumeMigration()'s catch block (which reconstructs them from
      * update_history.backup_id first).
+     *
+     * **The queue is reset only when rolling back a resumed migration**
+     * ($resumedTaskId set: this task's own scheduled_actions row, or 0 when
+     * unknown), see resetTasksAfterRollback(). There, the copy was taken by
+     * an earlier pass whose other tasks have run since. On the initial
+     * attempt it was taken by this very pass, minutes ago, and no task has
+     * run in between — the scheduler runs one task at a time, under one
+     * pass at a time — so the queue it brings back is the queue as it
+     * stands: the rows this pass claimed after this one and has not
+     * started yet are still to run, and the pass runs them once this
+     * handler returns. A reset there would cancel them, and lose a
+     * one-shot task that never ran.
      */
     private function rollbackToSafetyBackup(
         int $historyId,
@@ -962,7 +981,8 @@ class InstallUpdateHandler implements TaskHandlerInterface
         string $dbDumpPath,
         string $filesZipPath,
         ?string $filesZipPassword,
-        \Throwable $error
+        \Throwable $error,
+        ?int $resumedTaskId
     ): void {
         $context->journal->log(
             'core',
@@ -979,6 +999,9 @@ class InstallUpdateHandler implements TaskHandlerInterface
 
         try {
             $backupService->restoreDatabase($dbDumpPath);
+            if ($resumedTaskId !== null) {
+                $this->resetTasksAfterRollback($historyId, $history, $context, $resumedTaskId);
+            }
             $backupService->restoreFiles($filesZipPath, $filesZipPassword);
             // Same write-site rule as markFailed() above: this string is
             // rendered as a title="" tooltip on the maintenance page.
@@ -1042,6 +1065,54 @@ class InstallUpdateHandler implements TaskHandlerInterface
         }
 
         $this->announce($context, $history, 'core.update_failed', $notifyTitle, $notifyBody);
+    }
+
+    /**
+     * The queue the safety copy brought back starts clean (#1463), exactly
+     * as after a restore: {@see SchedulerRepository::startCleanAfterDatabaseReplaced()}.
+     *
+     * The copy was taken in the middle of the pass that started the
+     * update, with the rows that pass claimed `processing`, and is
+     * restored on a later pass. Left as they came back, those rows would
+     * run again — the ones never started at once, handed back by
+     * SchedulerRepository::releaseNeverStarted(), the others after six
+     * hours — and the successors their chains re-armed since are gone: a
+     * one-shot task that has run since, a mailing batch or a notification,
+     * would run a second time, with no trace of the first since the
+     * journal was restored too.
+     *
+     * Right after the database, before the files: restoreFiles() puts the
+     * previous version's code back on disk under this running process, and
+     * nothing loaded from there may be needed afterwards.
+     *
+     * The update's own task is not re-armed: a row of it with an empty
+     * payload has nothing to install. Another install queued in the copy
+     * is canceled with the rest, and its update_history row, left with no
+     * task to start it, is closed by AbandonedInstallSweeper. The running
+     * row keeps its id: it was created after the copy, so it is
+     * re-inserted under that id for the scheduler to mark done.
+     */
+    private function resetTasksAfterRollback(
+        int $historyId,
+        UpdateHistory $history,
+        TaskContext $context,
+        int $runningTaskId
+    ): void {
+        $reset = (new SchedulerRepository($context->connection->getPdo()))
+            ->startCleanAfterDatabaseReplaced($runningTaskId, 'core', 'install_update');
+
+        $context->journal->log(
+            'core',
+            'update_rollback_tasks_reset',
+            'warning',
+            'Tâches planifiées remises à zéro par la restauration automatique après échec de mise à jour',
+            [
+                'cancelled' => $reset['cancelled'],
+                'rearmed' => $reset['rearmed'],
+                'update_history_id' => $historyId,
+            ],
+            $history->requestedBy
+        );
     }
 
     /**

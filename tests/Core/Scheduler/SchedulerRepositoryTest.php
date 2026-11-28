@@ -520,4 +520,96 @@ class SchedulerRepositoryTest extends TestCase
         $this->assertTrue(SchedulerRepository::isMissingColumn($mysql));
         $this->assertFalse(SchedulerRepository::isMissingColumn($gone));
     }
+
+    // ── startCleanAfterDatabaseReplaced() (#847, #1463) ───────────────
+
+    private function rowIn(string $taskKey, ?string $reference, string $status, ?string $payload = null): int
+    {
+        $this->pdo->prepare(
+            'INSERT INTO scheduled_actions (module_id, task_key, reference, payload, run_at, status)
+             VALUES (?, ?, ?, ?, ?, ?)'
+        )->execute(['core', $taskKey, $reference, $payload, '2030-01-01 03:00:00', $status]);
+
+        return (int) $this->pdo->lastInsertId();
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    private function liveRows(): array
+    {
+        return $this->pdo->query(
+            "SELECT id, task_key, reference, payload, run_at, status FROM scheduled_actions
+             WHERE status IN ('pending', 'processing') ORDER BY id"
+        )->fetchAll(\PDO::FETCH_ASSOC);
+    }
+
+    public function testAReplacedQueueKeepsOneFreshRowPerChainAndNoOneShot(): void
+    {
+        $this->rowIn('purge', 'daily', 'processing', '{"cursor": 42}');
+        $this->rowIn('purge', 'daily', 'pending');
+        $this->rowIn('sync', 'auto', 'pending');
+        $this->rowIn('mailing_batch', null, 'processing');
+        $this->rowIn('mailing_batch', null, 'pending');
+        $this->rowIn('notify', null, 'pending');
+        $done = $this->rowIn('old', 'weekly', 'done');
+
+        $reset = $this->repo->startCleanAfterDatabaseReplaced(0, 'core', 'restore_backup');
+
+        $this->assertSame(6, $reset['cancelled']);
+        $this->assertSame(2, $reset['rearmed']);
+        $this->assertSame(['core/mailing_batch' => 2, 'core/notify' => 1], $reset['abandoned']);
+        $live = $this->liveRows();
+        $this->assertSame(
+            [['purge', 'daily'], ['sync', 'auto']],
+            array_map(static fn (array $row): array => [$row['task_key'], $row['reference']], $live)
+        );
+        foreach ($live as $row) {
+            $this->assertSame('pending', $row['status']);
+            $this->assertNull($row['payload'], 'what a run carried then is not today\'s');
+            $this->assertSame('2030-01-01 03:00:00', $row['run_at']);
+        }
+        $this->assertSame('done', $this->repo->findById($done)['status'], 'only live rows are touched');
+    }
+
+    public function testTheRunningTasksOwnRowKeepsItsIdAndIsNeverReArmed(): void
+    {
+        $original = $this->rowIn('install_update', 'push', 'processing', '{"history_id": 3}');
+        $this->rowIn('purge', 'daily', 'processing');
+        // An id the copy did not have: the running row was created after it.
+        $runningId = $original + 100;
+
+        $reset = $this->repo->startCleanAfterDatabaseReplaced($runningId, 'core', 'install_update');
+
+        $this->assertSame(2, $reset['cancelled']);
+        $this->assertSame(1, $reset['rearmed'], 'the update itself is not a chain to re-arm');
+        $this->assertSame(['core/install_update' => 1], $reset['abandoned']);
+        $running = $this->repo->findById($runningId);
+        $this->assertNotNull($running);
+        $this->assertSame('install_update', $running['task_key']);
+        $this->assertSame('processing', $running['status']);
+        $this->assertNull($running['claimed_at'], 'releaseNeverStarted() must leave it alone');
+        $this->assertSame('canceled', $this->repo->findById($original)['status']);
+        $this->assertSame(
+            ['purge'],
+            array_values(array_map(static fn (array $row): string => $row['task_key'], array_filter(
+                $this->liveRows(),
+                static fn (array $row): bool => $row['status'] === 'pending'
+            )))
+        );
+    }
+
+    public function testARunningRowTheCopyAlreadyHoldsIsNotCountedNorDuplicated(): void
+    {
+        $runningId = $this->rowIn('restore_backup', null, 'processing');
+        $this->rowIn('notify', null, 'pending');
+
+        $reset = $this->repo->startCleanAfterDatabaseReplaced($runningId, 'core', 'restore_backup');
+
+        $this->assertSame(1, $reset['cancelled']);
+        $this->assertSame(['core/notify' => 1], $reset['abandoned']);
+        $this->assertSame(2, $this->repo->countAll(), 'nothing re-inserted over an id the copy holds');
+        // Canceled with the rest; the scheduler marks it done by id next.
+        $this->assertSame('canceled', $this->repo->findById($runningId)['status']);
+    }
 }
