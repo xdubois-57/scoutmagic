@@ -141,10 +141,12 @@ class InstallUpdateRollbackRoundTripTest extends TestCase
         $line = $this->journalLine('update_rollback_tasks_reset');
         $this->assertSame('core', $line['category']);
         $this->assertSame('warning', $line['level']);
-        $this->assertSame(
-            ['cancelled' => 3, 'rearmed' => 1, 'update_history_id' => $historyId],
-            json_decode((string) $line['context'], true)
-        );
+        // Key order is not part of the contract: MySQL's JSON type stores
+        // an object's keys sorted by length, SQLite keeps them as written.
+        $context = json_decode((string) $line['context'], true);
+        $this->assertIsArray($context);
+        ksort($context);
+        $this->assertSame(['cancelled' => 3, 'rearmed' => 1, 'update_history_id' => $historyId], $context);
 
         $this->runner(new InstallUpdateHandler())->processOverdue();
 
