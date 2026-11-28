@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Modules\Groups\Service;
 
 use Core\Member\Duplicate\MergeRowRepository;
+use Modules\Groups\Repository\PollRepository;
 use Modules\Groups\Service\GroupMergeListener;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
@@ -25,7 +26,10 @@ final class GroupMergeListenerTest extends TestCase
     {
         $this->pdo = DatabaseTestHelper::createTestDatabase();
         GroupsTestHelper::createTables($this->pdo);
-        $this->listener = new GroupMergeListener(new MergeRowRepository($this->pdo));
+        $this->listener = new GroupMergeListener(
+            new MergeRowRepository($this->pdo),
+            new PollRepository($this->pdo)
+        );
         $this->pdo->exec("INSERT INTO discussion_groups (name) VALUES ('Patrouille'), ('Camp')");
     }
 
@@ -57,5 +61,44 @@ final class GroupMergeListenerTest extends TestCase
 
         $this->assertSame([1 => 1, 2 => 0], $this->membershipsOf(10));
         $this->assertSame([], $this->membershipsOf(20));
+    }
+
+    /**
+     * A ballot is keyed `m:<member id>`: the key follows the merge, so the
+     * kept member sees and can withdraw the vote, and a poll both
+     * identities answered keeps the kept identity's answer — one voter,
+     * counted once.
+     */
+    public function testBallotsFollowByTheirKeyAndASharedPollKeepsTheKeptIdentitysAnswer(): void
+    {
+        $this->pdo->exec('PRAGMA foreign_keys = OFF');
+        $polls = new PollRepository($this->pdo);
+        $this->pdo->exec(
+            "INSERT INTO discussion_group_polls (id, post_id, question, vote_scope, allow_multiple, created_at)
+             VALUES (1, 1, 'Date ?', 'member', 0, '2026-11-01'), (2, 2, 'Lieu ?', 'member', 0, '2026-11-01')"
+        );
+        $this->pdo->exec(
+            "INSERT INTO discussion_group_poll_options (id, poll_id, label, position)
+             VALUES (11, 1, 'Samedi', 1), (12, 1, 'Dimanche', 2), (21, 2, 'Bois', 1)"
+        );
+        $polls->castBallot(1, 11, 'm:10', null, 10, false, '2026-11-02 10:00:00');
+        $polls->castBallot(1, 12, 'm:20', null, 20, false, '2026-11-03 10:00:00');
+        $polls->castBallot(2, 21, 'm:20', null, 20, false, '2026-11-03 10:00:00');
+
+        $this->listener->onMembersMerged(10, 20);
+
+        $this->assertSame(
+            [[1, 11, 10], [2, 21, 10]],
+            array_map(
+                static fn(array $row): array => array_map('intval', $row),
+                $this->pdo->query(
+                    "SELECT poll_id, option_id, voter_member_id FROM discussion_group_poll_ballots
+                     WHERE voter_key = 'm:10' ORDER BY poll_id"
+                )->fetchAll(\PDO::FETCH_NUM)
+            )
+        );
+        $this->assertSame(0, (int) $this->pdo->query(
+            "SELECT COUNT(*) FROM discussion_group_poll_ballots WHERE voter_key = 'm:20' OR voter_member_id = 20"
+        )->fetchColumn());
     }
 }
