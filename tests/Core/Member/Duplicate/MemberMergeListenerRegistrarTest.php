@@ -115,10 +115,10 @@ final class MemberMergeListenerRegistrarTest extends TestCase
 
     /**
      * The catch-up runs from the composition root: a failing one must not
-     * 500 the page. It is journalled once, retried on every request, and
-     * runs normally once the fault is gone.
+     * 500 the page, nor be re-run by every request. It is journalled once,
+     * left alone for a quarter of an hour, then retried and done.
      */
-    public function testAFailingCatchUpIsJournalledOnceAndRetriedWithoutBreakingThePage(): void
+    public function testAFailingCatchUpIsJournalledOnceAndRetriedLaterWithoutBreakingThePage(): void
     {
         $kept = $this->member('K', $this->lastYear);
         $duplicate = $this->member('D', $this->thisYear);
@@ -128,15 +128,21 @@ final class MemberMergeListenerRegistrarTest extends TestCase
         $errorLog = ini_set('error_log', '/dev/null');
         try {
             $this->bootWith($broken);
-            $this->bootWith($broken);
         } finally {
             ini_set('error_log', (string) $errorLog);
         }
+        $repaired = new RecordingMergeListener([], 0);
+        $this->bootWith($repaired);
+        $this->assertSame([], $repaired->calls, 'not retried by the very next page');
         $this->assertSame(1, (int) $this->pdo->query(
             "SELECT COUNT(*) FROM event_log WHERE event_type = 'member_merge_catch_up_failed'"
-        )->fetchColumn(), 'journalled once, not once per page');
+        )->fetchColumn());
 
-        $repaired = new RecordingMergeListener([], 0);
+        // A quarter of an hour later.
+        $this->pdo->exec(
+            "UPDATE settings SET setting_value = REPLACE(setting_value, SUBSTR(setting_value, -10), '1000000000')
+             WHERE setting_key = 'member_merge_caught_up_presences'"
+        );
         $this->bootWith($repaired);
         $this->assertSame([[$kept, $duplicate]], $repaired->calls, 'retried, and done');
     }

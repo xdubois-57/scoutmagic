@@ -324,6 +324,25 @@ class MemberMergeRepository
     }
 
     /**
+     * catchUp() by one connection at a time, per module: null when another
+     * request holds it already — that one is doing the work, and this one
+     * stands down instead of queueing behind it for the same row locks
+     * (\Core\Database\AdvisoryLock, timeout 0).
+     */
+    public function catchUpAlone(MemberMergeListener $listener): ?int
+    {
+        $lock = 'member_merge_catch_up_' . $listener->moduleId();
+        if (!\Core\Database\AdvisoryLock::acquire($this->pdo, $lock)) {
+            return null;
+        }
+        try {
+            return $this->catchUp($listener);
+        } finally {
+            \Core\Database\AdvisoryLock::release($this->pdo, $lock);
+        }
+    }
+
+    /**
      * Repoints the notes still held by identities merged before notes were
      * part of a merge (issue #1462) onto the identity each was merged into
      * — one hop, as mergeInto() keeps every chain. Idempotent: a second run

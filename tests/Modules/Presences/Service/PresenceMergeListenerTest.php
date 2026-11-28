@@ -177,4 +177,56 @@ final class PresenceMergeListenerTest extends TestCase
         $boot(true);
         $this->assertSame(1, $this->presences->countForMember($this->kept), 'not replayed on the next request');
     }
+
+    private function age(int $memberId, int $eventId, string $updatedAt): void
+    {
+        $this->pdo->prepare(
+            'UPDATE presences_records SET updated_at = ? WHERE member_id = ? AND calendar_event_id = ?'
+        )->execute([$updatedAt, $memberId, $eventId]);
+    }
+
+    /**
+     * A state and a comment are written separately, so the row written
+     * last may carry only one of them: the merge keeps the other from the
+     * older row instead of dropping that row whole.
+     */
+    public function testACollisionKeepsWhatEachRowAloneCarries(): void
+    {
+        // Evening 10: the kept identity holds a comment; the duplicate only
+        // a later state.
+        $this->presences->saveStatus(10, $this->kept, PresenceStatus::ABSENT, null);
+        $this->presences->saveComment(10, $this->kept, 'Allergie au pollen, inhalateur dans le sac.', null);
+        $this->presences->saveStatus(10, $this->duplicate, PresenceStatus::PRESENT, null);
+        $this->age($this->kept, 10, '2026-01-01 10:00:00');
+        $this->age($this->duplicate, 10, '2026-01-02 10:00:00');
+        // Evening 11: the kept identity holds a state; the duplicate only a
+        // later comment, its state left « non renseigné ».
+        $this->presences->saveStatus(11, $this->kept, PresenceStatus::EXCUSED, null);
+        $this->presences->saveComment(11, $this->duplicate, 'Prévenu par sa mère.', null);
+        $this->age($this->kept, 11, '2026-01-01 10:00:00');
+        $this->age($this->duplicate, 11, '2026-01-02 10:00:00');
+
+        $this->merge->merge($this->kept, $this->duplicate, 1);
+
+        $evening10 = $this->presences->find(10, $this->kept);
+        $this->assertSame(PresenceStatus::PRESENT, $evening10?->status, 'the later state wins');
+        $this->assertSame('Allergie au pollen, inhalateur dans le sac.', $evening10?->comment, 'the comment survives');
+        $evening11 = $this->presences->find(11, $this->kept);
+        $this->assertSame(PresenceStatus::EXCUSED, $evening11?->status, 'the state survives an unset one');
+        $this->assertSame('Prévenu par sa mère.', $evening11?->comment);
+        $this->assertSame(0, $this->presences->countForMember($this->duplicate));
+    }
+
+    /** Two different comments on one evening are both kept, the later row's first. */
+    public function testTwoDifferentCommentsAreBothKept(): void
+    {
+        $this->presences->saveComment(10, $this->kept, 'Arrivé en retard.', null);
+        $this->presences->saveComment(10, $this->duplicate, 'Parti à 17 h.', null);
+        $this->age($this->kept, 10, '2026-01-01 10:00:00');
+        $this->age($this->duplicate, 10, '2026-01-02 10:00:00');
+
+        $this->merge->merge($this->kept, $this->duplicate, 1);
+
+        $this->assertSame("Parti à 17 h.\n\nArrivé en retard.", $this->presences->find(10, $this->kept)?->comment);
+    }
 }
