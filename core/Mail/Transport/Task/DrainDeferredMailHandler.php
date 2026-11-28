@@ -322,9 +322,11 @@ class DrainDeferredMailHandler implements TaskHandlerInterface
 
     /**
      * Whether the message's sender still wants it sent (issue #1454) —
-     * null for yes (and for a message without an origin, or whose sender's
-     * module is disabled: nobody is there to say no), the reason when it
-     * withdraws it, false when it could not be asked.
+     * null for yes (and for a message without an origin), the reason when
+     * it withdraws it, false when it could not be asked — which includes a
+     * sender whose module is disabled: nobody is there to vouch for the
+     * recipient, so the message waits unsent until its time to live runs
+     * out (#1561 review).
      */
     private function askSender(TaskContext $context, DeferredMessage $message): DeferredMailAbandonment|false|null
     {

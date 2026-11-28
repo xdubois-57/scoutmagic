@@ -40,7 +40,8 @@ use Modules\MassMail\Service\MergeRenderer;
  *
  * Registered for the scheduled path in `public/scheduler-bootstrap.php`,
  * under this module's live enabled state; with the module off the core
- * sends or abandons the message all the same and this row simply keeps
+ * keeps the message unsent (nobody can say its recipient has not
+ * unsubscribed) until its time to live runs out, and this row simply keeps
  * waiting, which is what a disabled module's data does.
  */
 final class DeferredDeliveryListener implements DeferredMailOutcomeListener
