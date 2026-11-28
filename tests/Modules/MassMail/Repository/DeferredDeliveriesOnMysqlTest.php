@@ -28,9 +28,11 @@ use Tests\UsesProductionEngine;
  *   drain settles the message as sent;
  * - the settling UPDATEs are guarded by their WHERE clause alone, and the
  *   statuses they must leave alone are checked here rather than trusted;
- * - « Renvoyer » decides on `rowCount()`, which MySQL reports as rows
- *   CHANGED rather than matched — so whether the guarded write reports
- *   one row exactly when it moved one is the engine's answer to give.
+ * - « Renvoyer » and the two settling writes decide on `rowCount()`,
+ *   which MySQL reports as rows CHANGED rather than matched — so whether
+ *   each guarded write reports a row exactly when it matched one, an
+ *   abandonment that changes nothing included, is the engine's answer to
+ *   give.
  */
 #[Group('database')]
 final class DeferredDeliveriesOnMysqlTest extends TestCase
@@ -127,21 +129,68 @@ final class DeferredDeliveriesOnMysqlTest extends TestCase
     }
 
     /**
-     * A message « Renvoyer » put back in the batch queue, or one already
-     * sent, is not the queue's to settle any more.
+     * A message already sent is not the queue's to settle any more, and a
+     * message « Renvoyer » put back in the batch queue is not abandoned:
+     * nothing left, and somebody asked for it to be sent.
      */
-    public function testSettlingLeavesAPendingOrASentMessageAlone(): void
+    public function testSettlingLeavesASentMessageAloneAndAbandonsNoPendingOne(): void
     {
         $pending = $this->deliveries->create($this->emailId, 'a@test.be');
+        $this->deliveries->recordDeferred($pending);
+        $this->deliveries->resend($pending, lostDeferred: true);
         $sent = $this->deliveries->create($this->emailId, 'b@test.be');
         $this->deliveries->recordSendSuccess($sent);
 
-        $this->deliveries->settleDeferredAsSent($pending);
-        $this->deliveries->settleDeferredAsAbandoned($sent, 'Abandonné');
+        $this->assertFalse($this->deliveries->settleDeferredAsAbandoned($pending, 'Abandonné'));
+        $this->assertFalse($this->deliveries->settleDeferredAsAbandoned($sent, 'Abandonné'));
+        $this->assertFalse($this->deliveries->settleDeferredAsSent($sent));
 
         $this->assertSame(Delivery::STATUS_PENDING, $this->deliveries->findById($pending)?->status);
+        $this->assertNull($this->deliveries->findById($pending)?->errorMessage);
         $this->assertSame(Delivery::STATUS_SENT, $this->deliveries->findById($sent)?->status);
         $this->assertNull($this->deliveries->findById($sent)?->errorMessage);
+        $this->assertFalse($this->deliveries->settleDeferredAsSent(999999), 'a message that does not exist');
+        $this->assertFalse($this->deliveries->settleDeferredAsAbandoned(999999, 'Abandonné'));
+    }
+
+    /**
+     * **A « Renvoyer » that crossed the drain's send** (#1561 review): the
+     * message has left, so the call back takes the re-queued row back
+     * from 'pending' and says it did — one row changed, as MySQL counts.
+     */
+    public function testASendSettlesTheRowAResendPutBackAndReportsIt(): void
+    {
+        $id = $this->deliveries->create($this->emailId, 'a@test.be');
+        $this->deliveries->recordDeferred($id);
+        $this->assertTrue($this->deliveries->resend($id, lostDeferred: true, expectedAttempts: 1));
+
+        $this->assertTrue($this->deliveries->settleDeferredAsSent($id));
+
+        $delivery = $this->deliveries->findById($id);
+        $this->assertSame(Delivery::STATUS_SENT, $delivery?->status);
+        $this->assertNotNull($delivery->sentAt);
+        $this->assertFalse($this->deliveries->hasAnyPending(), 'no second copy for the batch');
+        $this->assertFalse($this->deliveries->settleDeferredAsSent($id), 'and only once');
+    }
+
+    /**
+     * **MySQL counts rows CHANGED** (#1561 review): an abandonment of a
+     * relaunched message that already carries this very reason matches
+     * the row without changing it, and the write reports it as settled
+     * all the same — as SQLite, which counts matched rows, does.
+     */
+    public function testAnAbandonmentThatChangesNothingStillReportsTheRowItMatched(): void
+    {
+        $id = $this->deliveries->create($this->emailId, 'a@test.be');
+        $this->deliveries->recordDeferred($id);
+
+        $this->assertTrue($this->deliveries->settleDeferredAsAbandoned($id, 'Abandonné : délai dépassé'));
+        $this->assertTrue(
+            $this->deliveries->settleDeferredAsAbandoned($id, 'Abandonné : délai dépassé'),
+            'the same reason again: matched, unchanged'
+        );
+        $this->assertTrue($this->deliveries->settleDeferredAsAbandoned($id, 'Abandonné : refusé'));
+        $this->assertSame('Abandonné : refusé', $this->deliveries->findById($id)?->errorMessage);
     }
 
     /** One relaunched after its abandonment, and then sent, does become sent. */

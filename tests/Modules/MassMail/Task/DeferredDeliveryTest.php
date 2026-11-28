@@ -392,6 +392,105 @@ final class DeferredDeliveryTest extends TestCase
         $this->assertSame(1, $this->journalCount('delivery_resent'));
     }
 
+    /**
+     * **A « Renvoyer » that crosses the drain's send** (#1561 review). The
+     * drain has sent the message and settled its own row, and is about to
+     * call back: in that window the tracking page reads the outcome as
+     * lost and the resend is accepted. The call back then takes the row
+     * back from 'pending' — the message has left — so the next batch has
+     * nothing to send a second time, and what a sent message is owed is
+     * written once.
+     */
+    public function testAResendThatCrossesTheDrainsSendDoesNotSendTheMessageTwice(): void
+    {
+        $deliveryId = $this->messageTo('parent@exemple.test', withAccount: true);
+        (new SendBatchHandler())->handle([], $this->batchContext());
+        $this->laneExhausted = false;
+
+        // The drain sent it and settled the queue's row…
+        $this->pdo->exec('DELETE FROM mail_deferred_messages');
+        // …and before it calls back, « Renvoyer ».
+        SendBatchHandler::buildMassMailService($this->batchContext())->resendDelivery($deliveryId, null);
+        $this->assertSame(Delivery::STATUS_PENDING, $this->deliveries->findById($deliveryId)?->status);
+
+        (new DeferredDeliveryListener())->deferredMailSent(
+            DeferredDeliveryListener::originFor($deliveryId),
+            $this->batchContext()
+        );
+        (new SendBatchHandler())->handle([], $this->batchContext());
+
+        $this->assertSame([], $this->delivered, 'the batch finds nothing left to send');
+        $this->assertSame(Delivery::STATUS_SENT, $this->deliveries->findById($deliveryId)?->status);
+        $this->assertSame(Email::STATUS_SENT, $this->emailStatus());
+        $this->assertSame(1, $this->journalCount('delivery_sent'));
+        $this->assertSame(1, $this->notificationCount());
+    }
+
+    /**
+     * **An abandonment a resend reclaimed is not recorded** (#1561 review).
+     * The resend lands between the listener's read and its write: the row
+     * stays 'pending' for the batch — somebody asked for it to be sent —
+     * no `delivery_abandoned` line describes an outcome the row does not
+     * carry, and the mailing, which still has a message to send, does not
+     * reach « Envoyé ».
+     */
+    public function testAnAbandonmentThatAResendReclaimedLeavesTheMessageToTheBatch(): void
+    {
+        $deliveryId = $this->messageTo('parent@exemple.test');
+        (new SendBatchHandler())->handle([], $this->batchContext());
+        // What « Renvoyer » writes, at the moment the abandonment is about
+        // to: the abandonment's own write then matches nothing.
+        $this->pdo->exec(
+            "CREATE TRIGGER resend_crosses BEFORE UPDATE OF status ON mass_mail_deliveries
+             WHEN NEW.status = 'error' AND OLD.status = 'deferred'
+             BEGIN
+                 UPDATE mass_mail_deliveries SET status = 'pending', attempts = attempts + 1 WHERE id = OLD.id;
+                 SELECT RAISE(IGNORE);
+             END"
+        );
+
+        (new DeferredDeliveryListener())->deferredMailAbandoned(
+            DeferredDeliveryListener::originFor($deliveryId),
+            DeferredMailAbandonment::Expired,
+            $this->batchContext()
+        );
+
+        $delivery = $this->deliveries->findById($deliveryId);
+        $this->assertSame(Delivery::STATUS_PENDING, $delivery?->status);
+        $this->assertNull($delivery->errorMessage);
+        $this->assertSame(0, $this->journalCount('delivery_abandoned'));
+        $this->assertSame(Email::STATUS_SENDING, $this->emailStatus());
+    }
+
+    /**
+     * The same for a send whose row the batch recorded meanwhile: the
+     * batch wrote its own follow-up, so the call back writes none, and
+     * the mailing still completes.
+     */
+    public function testASendWhoseRowMovedBeforeTheWriteWritesNoSecondFollowUp(): void
+    {
+        $deliveryId = $this->messageTo('parent@exemple.test', withAccount: true);
+        (new SendBatchHandler())->handle([], $this->batchContext());
+        $this->pdo->exec(
+            "CREATE TRIGGER batch_recorded BEFORE UPDATE OF status ON mass_mail_deliveries
+             WHEN NEW.status = 'sent' AND OLD.status = 'deferred'
+             BEGIN
+                 UPDATE mass_mail_deliveries SET status = 'sent', sent_at = CURRENT_TIMESTAMP WHERE id = OLD.id;
+                 SELECT RAISE(IGNORE);
+             END"
+        );
+
+        (new DeferredDeliveryListener())->deferredMailSent(
+            DeferredDeliveryListener::originFor($deliveryId),
+            $this->batchContext()
+        );
+
+        $this->assertSame(Delivery::STATUS_SENT, $this->deliveries->findById($deliveryId)?->status);
+        $this->assertSame(0, $this->journalCount('delivery_sent'));
+        $this->assertSame(0, $this->notificationCount());
+        $this->assertSame(Email::STATUS_SENT, $this->emailStatus(), 'the completion check still ran');
+    }
+
     /** « Renvoyer » would queue a second copy of a message the core still holds. */
     public function testADeferredMessageCannotBeResentByHand(): void
     {

@@ -100,7 +100,13 @@ final class DeferredDeliveryListener implements DeferredMailOutcomeListener
 
     public function deferredMailSent(string $origin, TaskContext $context): void
     {
-        $settling = $this->settling($origin, $context);
+        // 'pending' too: a « Renvoyer » that crossed the send, which
+        // settling it 'sent' cancels (DeliveryRepository::settleDeferredAsSent()).
+        $settling = $this->settling(
+            $origin,
+            $context,
+            [Delivery::STATUS_DEFERRED, Delivery::STATUS_ERROR, Delivery::STATUS_PENDING]
+        );
         if ($settling === null) {
             return;
         }
@@ -108,7 +114,7 @@ final class DeferredDeliveryListener implements DeferredMailOutcomeListener
         $pdo = $context->connection->getPdo();
         $massMailService = SendBatchHandler::buildMassMailService($context);
 
-        $deliveries->settleDeferredAsSent($delivery->id);
+        $settled = $deliveries->settleDeferredAsSent($delivery->id);
 
         $followUp = function () use ($context, $massMailService, $pdo, $delivery, $email): void {
             // Each lookup has its own fallback (#1561 review): the copy has
@@ -138,7 +144,7 @@ final class DeferredDeliveryListener implements DeferredMailOutcomeListener
                 $personalised
             );
         };
-        $this->thenComplete($massMailService, $email->id, $followUp);
+        $this->thenComplete($massMailService, $email->id, $settled, $followUp);
     }
 
     public function deferredMailAbandoned(
@@ -146,7 +152,9 @@ final class DeferredDeliveryListener implements DeferredMailOutcomeListener
         DeferredMailAbandonment $reason,
         TaskContext $context
     ): void {
-        $settling = $this->settling($origin, $context);
+        // Never 'pending': nothing left, and a « Renvoyer » that reclaimed
+        // the message wants it sent.
+        $settling = $this->settling($origin, $context, [Delivery::STATUS_DEFERRED, Delivery::STATUS_ERROR]);
         if ($settling === null) {
             return;
         }
@@ -157,10 +165,11 @@ final class DeferredDeliveryListener implements DeferredMailOutcomeListener
             // The batch's own vocabulary for the same situation (#1437):
             // one sentence on the tracking page, one journal line, whether
             // the unsubscribe was noticed before the send or in the queue.
-            $deliveries->settleDeferredAsAbandoned($delivery->id, MassMailService::REASON_UNSUBSCRIBED);
+            $settled = $deliveries->settleDeferredAsAbandoned($delivery->id, MassMailService::REASON_UNSUBSCRIBED);
             $this->thenComplete(
                 $massMailService,
                 $email->id,
+                $settled,
                 static fn() => $massMailService->journalDeliverySkippedUnsubscribed($email->id, $delivery->id)
             );
 
@@ -170,10 +179,11 @@ final class DeferredDeliveryListener implements DeferredMailOutcomeListener
         // The reason as the tracking page shows it: a French sentence the
         // core wrote for exactly this, never the relay's transcript, and
         // no address (SECURITY.md §11).
-        $deliveries->settleDeferredAsAbandoned($delivery->id, $reason->label());
+        $settled = $deliveries->settleDeferredAsAbandoned($delivery->id, $reason->label());
         $this->thenComplete(
             $massMailService,
             $email->id,
+            $settled,
             static fn() => $massMailService->journalDeliveryAbandoned($email->id, $delivery->id, $reason->label())
         );
     }
@@ -192,9 +202,29 @@ final class DeferredDeliveryListener implements DeferredMailOutcomeListener
      * journals it with the message's origin — and a completion check that
      * fails too must not replace it, so that one is dropped: the next
      * settled message of the mailing asks again.
+     *
+     * **No follow-up for a settlement that did not happen** (#1561 review):
+     * when the write matched nothing — a resend reclaimed the message
+     * between the read in {@see settling()} and the write, or the batch
+     * already recorded it — a `delivery_sent` line, a receipt or a
+     * notification would describe an outcome this row does not carry, and
+     * whoever moved the row writes its own. The completion check still
+     * runs: it is idempotent, finishes nothing that still waits, and
+     * costs one lookup, so a mailing never depends on which of the two
+     * writers came last to leave « Envoi en cours ».
      */
-    private function thenComplete(MassMailService $massMailService, int $emailId, callable $followUp): void
-    {
+    private function thenComplete(
+        MassMailService $massMailService,
+        int $emailId,
+        bool $settled,
+        callable $followUp
+    ): void {
+        if (!$settled) {
+            $massMailService->checkAndMarkSentIfComplete($emailId);
+
+            return;
+        }
+
         try {
             $followUp();
         } catch (\Throwable $failure) {
@@ -212,14 +242,19 @@ final class DeferredDeliveryListener implements DeferredMailOutcomeListener
 
     /**
      * The message an origin names, when it is still one the queue may
-     * settle: 'deferred', or 'error' for one a superadmin relaunched after
-     * its abandonment (the core's Relance, D17). A message « Renvoyer » put
-     * back in the batch queue meanwhile, or one already sent, is left as it
-     * is.
+     * settle — in one of `$statuses`: 'deferred', 'error' for one a
+     * superadmin relaunched after its abandonment (the core's Relance,
+     * D17), and for a send 'pending' too, a « Renvoyer » that crossed it.
+     * A message already sent is left as it is.
      *
+     * Only a first look: the row can move between this read and the
+     * settling write, which is why the write repeats the condition and
+     * its result, not this read, decides whether anything follows.
+     *
+     * @param list<string> $statuses
      * @return array{Delivery, Email, DeliveryRepository}|null
      */
-    private function settling(string $origin, TaskContext $context): ?array
+    private function settling(string $origin, TaskContext $context, array $statuses): ?array
     {
         $deliveryId = self::deliveryIdOf($origin);
         if ($deliveryId === null) {
@@ -229,10 +264,7 @@ final class DeferredDeliveryListener implements DeferredMailOutcomeListener
         $pdo = $context->connection->getPdo();
         $deliveries = new DeliveryRepository($pdo, $context->encryption);
         $delivery = $deliveries->findById($deliveryId);
-        if (
-            $delivery === null
-            || !in_array($delivery->status, [Delivery::STATUS_DEFERRED, Delivery::STATUS_ERROR], true)
-        ) {
+        if ($delivery === null || !in_array($delivery->status, $statuses, true)) {
             return null;
         }
 
