@@ -235,7 +235,8 @@ class SendBatchHandler implements TaskHandlerInterface
         $failures = self::consecutiveFailures($payload) + 1;
         $pending = null;
         try {
-            $pending = (new DeliveryRepository($context->connection->getPdo(), $context->encryption))->countAllPending();
+            $deliveries = new DeliveryRepository($context->connection->getPdo(), $context->encryption);
+            $pending = $deliveries->countAllPending();
             if ($pending > 0 && $failures < self::MAX_CONSECUTIVE_FAILURES) {
                 $this->rearmIfPendingRemain($context, [self::FAILURES_KEY => $failures]);
             }
