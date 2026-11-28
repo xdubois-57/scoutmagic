@@ -680,7 +680,7 @@ Subject prefixed `[{short_name}]`. PHPMailer: SMTP or local, DKIM signed, multip
 
 **Every address is listed before send(), in ASCII** (issue #916). PHPMailer holds an address whose domain is internationalised in a queue it lists nowhere until `send()`, so the guard above, built from `getToAddresses()`, saw an empty list and a relay refusing `famille@exämple.be` had the copy receive the DATA alone. `MailService` therefore encodes the domain of the recipient and of each copy itself (`punyencodeAddress()`, what PHPMailer would do inside `send()`) before adding them; an address whose domain cannot be made ASCII — PHP without `intl`, or a domain IDNA refuses — fails the send, where PHPMailer used to drop it with a bare `false` and let the message go to the copy only, counted as sent.
 
-**A send that fails is journaled here, and not by the caller.** `mail_send_failed` at **`error`**, written by `MailService::journalFailure()` in the same catch block that builds the `MailException` — because the callers are the problem. Of the ~95 call sites a handful journal a failure themselves, a handful more swallow the exception on purpose (`catch (MailException) {}`: a notification is not worth failing the action it accompanies), and the rest turn it into a flash message that is gone on the next page load. An administrator watched « l'e-mail de test n'a pas pu partir » and found nothing whatsoever in `/admin/journal` — which is also what the diagnostic archive carries, so the failure was invisible from both ends at once. One entry at the single point every path goes through is the only version of this that the next call site cannot forget. It carries the delivery mode, whether mail was configured at all (« not configured » and « the relay refused » read identically on screen and are different problems), the calling class read off the stack (`send()` is told a recipient, a subject and a body and nothing that says *why*, and ninety call sites should not each have to name themselves), and what the transport said **with e-mail addresses replaced by `[adresse]`** — PHPMailer glues the address that failed to the SMTP code that explains it, the code is the diagnosis and the address is a member, and SECURITY.md's rule for journal entries has no exception for « it was in the error message ». The entry can never fail the send: it is already the failure path, and a journal insert that throws (no table yet, a database that just went away — the very conditions under which mail also stops working) must not replace a `MailException` the caller knows how to read with a `PDOException` it does not. The journal is a constructor dependency, nullable for exactly one caller: `SetupController` tests the values sitting in its own form, on an installation whose database may not exist yet.
+**A send that fails is journaled here, and not by the caller.** `mail_send_failed` at **`error`**, written by `MailService::journalFailure()` in the same catch block that builds the `MailException` — because the callers are the problem. Of the ~95 call sites a handful journal a failure themselves, a handful more swallow the exception on purpose (`catch (MailException) {}`: a notification is not worth failing the action it accompanies), and the rest turn it into a flash message that is gone on the next page load. An administrator watched « l'e-mail de test n'a pas pu partir » and found nothing whatsoever in `/admin/journal` — which is also what the diagnostic archive carries, so the failure was invisible from both ends at once. One entry at the single point every path goes through is the only version of this that the next call site cannot forget. It carries the delivery mode, whether mail was configured at all (« not configured » and « the relay refused » read identically on screen and are different problems), the calling class read off the stack (`send()` is told a recipient, a subject and a body and nothing that says *why*, and ninety call sites should not each have to name themselves), how the refusal was read — `classification` (`Provider` or `Recipient`, the `MailFailure` case that decided between queueing and failing) and `enhanced_code` (`5.4.5`, or null when the relay gave none; issue #1488), closed values rather than text — and what the transport said **with e-mail addresses replaced by `[adresse]`** — PHPMailer glues the address that failed to the SMTP code that explains it, the code is the diagnosis and the address is a member, and SECURITY.md's rule for journal entries has no exception for « it was in the error message ». The entry can never fail the send: it is already the failure path, and a journal insert that throws (no table yet, a database that just went away — the very conditions under which mail also stops working) must not replace a `MailException` the caller knows how to read with a `PDOException` it does not. The journal is a constructor dependency, nullable for exactly one caller: `SetupController` tests the values sitting in its own form, on an installation whose database may not exist yet.
 
 **That redaction is `Core\Mail\MailErrorRedaction`, a class rather than a private method, because it now has two persistence sites in two layers**: this journal entry, and `captured_emails.error_message` in the mail sandbox (§8.63). A security control with two call sites must have one implementation — the second copy is the one that silently stops matching the first. Its pattern is deliberately **not** `/u`: a transport error is routinely not valid UTF-8, `preg_replace()` with that flag returns `null` on such a subject, and the `(string)` cast then turns the one clue into an empty string — which is how a journal entry written to record a failure ends up recording nothing. `Core\Support\SupportCollectorContext::collapseWhitespace()` had already reached the same conclusion for the same reason; an address quoted in an SMTP error is ASCII, so the flag bought nothing and cost the diagnosis.
 
@@ -5056,12 +5056,30 @@ that are the PROVIDER's open the circuit for five minutes, doubling on
 each reopening to a ceiling of four hours; the first success closes it
 and clears the consecutive count. Whose failure it was is
 `MailFailure::classify()`, and getting that backwards would be worse than
-having no breaker: a `550` is one address the relay will not accept, and
-counting it as a strike would shut out a perfectly healthy relay because
-somebody mistyped an e-mail — on the mailing lane, where dead addresses
-accumulate, almost every run. **An unrecognised failure counts as the
-provider's**, deliberately: the other direction leaves a dead relay being
-retried four hundred times by one publipostage, which is the exact harm.
+having no breaker: a `550 5.1.1` is one address the relay will not accept,
+and counting it as a strike would shut out a perfectly healthy relay
+because somebody mistyped an e-mail — on the mailing lane, where dead
+addresses accumulate, almost every run. **An unrecognised failure counts
+as the provider's**, deliberately: the other direction leaves a dead relay
+being retried four hundred times by one publipostage, which is the exact
+harm. **The enhanced status code decides, not the `550`** (issue #1488):
+relays answer 550 to whatever they refuse, Google's « 550 5.4.5 Daily user
+sending limit exceeded » included, and read as a bad address that quota
+refusal failed the message instead of queueing it, never opened the
+circuit and abandoned a queued message at its first retry. Only the
+destination codes of the 5.1 family (5.1.0–5.1.4, 5.1.6, 5.1.10) and
+5.2.1 « mailbox disabled » are the recipient's; every other class-4 or
+class-5 code is the provider's — including 5.1.8 and Microsoft's 5.1.90
+(the sender's address, the sender's daily limit) and 5.2.2, which RFC 3463
+calls transient and Microsoft uses for « Submission quota exceeded ».
+5.4.1, « no answer from host », is the recipient's only when the relay
+says « Recipient address rejected » beside it, as Exchange Online does
+for an address its tenant does not hold.
+`5.0.0` and `5.5.0` say nothing and are read past, and a reason with no
+enhanced code is read by the basic code and the prose as before, a bare
+`550` still a refused address. The 5.7/4.7 policy family is read first,
+unchanged. The table, and the documented responses it was read against,
+are in `MailFailure::RECIPIENT_CODES`.
 `open_count` is never reset, because it is what makes the next lockout
 longer than the last.
 

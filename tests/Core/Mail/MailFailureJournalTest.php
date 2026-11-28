@@ -10,6 +10,7 @@ use Core\Mail\DkimManager;
 use Core\Mail\MailException;
 use Core\Mail\MailService;
 use Core\Mail\MailTransportInterface;
+use Core\Mail\Transport\MailFailure;
 use PHPMailer\PHPMailer\PHPMailer;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
@@ -187,6 +188,108 @@ class MailFailureJournalTest extends TestCase
         // What diagnoses the problem survives intact.
         $this->assertStringContainsString('550 5.1.1 User unknown', $context['reason']);
         $this->assertStringContainsString('[adresse]', $context['reason']);
+    }
+
+    /**
+     * How the refusal was read travels with it as closed values (issue
+     * #1488): whose fault it was, and the enhanced code it was read from.
+     * « 550 » alone could not tell a quota from a bad address, and nothing
+     * in the entry said which reading the site had made.
+     */
+    public function testTheEntrySaysHowTheRefusalWasRead(): void
+    {
+        $service = $this->service(
+            $this->refusingTransport(
+                'SMTP Error: The following recipients failed: jean.dupont@exemple.be: Daily user sending limit'
+                    . ' exceeded. SMTP code: 550 Additional SMTP info: 5.4.5'
+            ),
+            null
+        );
+
+        try {
+            $service->send('jean.dupont@exemple.be', 'Bonjour', '<p>Bonjour</p>', 'Bonjour');
+        } catch (MailException) {
+            // Asserted below.
+        }
+
+        $context = json_decode((string) $this->entries()[0]['context'], true);
+        $this->assertSame('Provider', $context['classification']);
+        $this->assertSame('5.4.5', $context['enhanced_code']);
+    }
+
+    /**
+     * PHPMailer appends the enhanced code at the very end of its message:
+     * a long refusal must still be read from its code, not from the
+     * 400 characters the stored reason keeps (#1571 review).
+     */
+    public function testTheCodeIsReadPastTheStoredReasonsLength(): void
+    {
+        $service = $this->service(
+            $this->refusingTransport(
+                'SMTP Error: The following recipients failed: jean.dupont@exemple.be: '
+                    . str_repeat('Daily user sending limit exceeded. ', 20)
+                    . 'SMTP code: 550 Additional SMTP info: 5.4.5'
+            ),
+            null
+        );
+
+        try {
+            $service->send('jean.dupont@exemple.be', 'Bonjour', '<p>Bonjour</p>', 'Bonjour');
+        } catch (MailException) {
+            // Asserted below.
+        }
+
+        $context = json_decode((string) $this->entries()[0]['context'], true);
+        $this->assertLessThanOrEqual(400, mb_strlen((string) $context['reason']));
+        $this->assertStringNotContainsString('5.4.5', (string) $context['reason']);
+        $this->assertSame('Provider', $context['classification']);
+        $this->assertSame('5.4.5', $context['enhanced_code']);
+    }
+
+    /**
+     * The exception a transport's long refusal becomes keeps its code too:
+     * the deferred-mail drain classifies that message again on a replay,
+     * and a bare « 550 » would abandon a quota refusal (#1571 review).
+     */
+    public function testTheThrownMessageKeepsTheCodeOfALongRefusal(): void
+    {
+        $service = $this->service(
+            $this->refusingTransport(
+                'SMTP Error: The following recipients failed: jean.dupont@exemple.be: '
+                    . str_repeat('Daily user sending limit exceeded. ', 20)
+                    . 'SMTP code: 550 Additional SMTP info: 5.4.5'
+            ),
+            null
+        );
+
+        try {
+            $service->send('jean.dupont@exemple.be', 'Bonjour', '<p>Bonjour</p>', 'Bonjour');
+            $this->fail('The refusal must surface.');
+        } catch (MailException $e) {
+            $this->assertLessThanOrEqual(400, mb_strlen($e->getMessage()));
+            $this->assertStringNotContainsString('@', $e->getMessage());
+            $this->assertSame(MailFailure::Provider, MailFailure::classify($e->getMessage()));
+        }
+    }
+
+    /**
+     * A refused address reads as the recipient's, and a reason without an
+     * enhanced code says so with a null rather than a guess.
+     */
+    public function testTheEntrySaysWhenThereWasNoEnhancedCode(): void
+    {
+        $service = $this->service($this->refusingTransport('550 Requested action not taken'), null);
+
+        try {
+            $service->send('destinataire@example.be', 'Bonjour', '<p>Bonjour</p>', 'Bonjour');
+        } catch (MailException) {
+            // Asserted below.
+        }
+
+        $context = json_decode((string) $this->entries()[0]['context'], true);
+        $this->assertSame('Recipient', $context['classification']);
+        $this->assertArrayHasKey('enhanced_code', $context);
+        $this->assertNull($context['enhanced_code']);
     }
 
     /**

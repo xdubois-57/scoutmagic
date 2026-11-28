@@ -8,6 +8,8 @@ declare(strict_types=1);
 
 namespace Core\Mail\Transport;
 
+use Core\Mail\MailErrorRedaction;
+
 /**
  * Whose fault a refusal was (D15, ARCHITECTURE.md §8.106).
  *
@@ -32,6 +34,97 @@ enum MailFailure
 {
     case Provider;
     case Recipient;
+
+    /**
+     * The enhanced status codes that name the recipient's address or
+     * mailbox — every other class-4 or class-5 code is the provider's.
+     *
+     * The reading, from RFC 3463 and the IANA registry, checked against
+     * what relays are documented to send (issue #1488):
+     *
+     * | Code                    | Whose            | Why                                             |
+     * |-------------------------|------------------|-------------------------------------------------|
+     * | 4.x.x                   | provider         | class 4 is transient: « sending in the future   |
+     * |                         |                  | may be successful », so the message waits       |
+     * | 5.1.0-5.1.4, 5.1.6,     | recipient        | « bad destination mailbox / system / syntax »,  |
+     * | 5.1.10                  |                  | ambiguous, moved, null MX: the address itself   |
+     * | 5.1.7, 5.1.8, other     | provider         | 5.1.7/5.1.8 are the SENDER's address; Microsoft |
+     * | 5.1.x                   |                  | answers « 5.1.8 Access denied, bad outbound     |
+     * |                         |                  | sender » and « 5.1.90 … you've reached your     |
+     * |                         |                  | daily limit for message recipients »            |
+     * | 5.2.1                   | recipient        | « mailbox disabled »: Google's « 550 5.2.1 The  |
+     * |                         |                  | email account that you tried to reach is        |
+     * |                         |                  | inactive ». Google also sends it for a          |
+     * |                         |                  | recipient receiving too fast — read as refused, |
+     * |                         |                  | that one message is lost rather than a healthy  |
+     * |                         |                  | relay struck out for one busy inbox             |
+     * | 5.2.2                   | provider         | RFC 3463 makes « mailbox full » a persistent    |
+     * |                         |                  | TRANSIENT failure, and Microsoft uses the code  |
+     * |                         |                  | for « Submission quota exceeded » — the         |
+     * |                         |                  | sender's quota. Waiting is right either way.    |
+     * | other 5.2.x (5.2.121…)  | provider         | per-hour receive limits, size limits            |
+     * | 5.3.x, 5.4.x, 5.5.x,    | provider         | the mail system, routing, protocol, content:    |
+     * | 5.6.x                   |                  | Google's « 550 5.4.5 Daily user sending limit   |
+     * |                         |                  | exceeded » is the case this list exists for     |
+     * | 5.7.x, 4.7.x            | provider         | read first by {@see classify()}, unchanged      |
+     * | 5.0.0, 5.5.0            | (no code)        | {@see UNINFORMATIVE_CODES}                      |
+     *
+     * Real responses this was read against — quoted from the providers'
+     * public documentation, not observed from this site's relays:
+     *
+     * - Google Workspace, « Gmail SMTP errors and codes »
+     *   (knowledge.workspace.google.com, admin/support/troubleshooting/
+     *   gmail-smtp-errors-and-codes): « 550 5.4.5 Daily user sending
+     *   limit exceeded. », « 550 5.4.5 Daily SMTP relay limit exceeded for
+     *   user. », « 550 5.7.1 Daily SMTP relay sending limit exceeded for
+     *   this customer. », « 550 5.1.1 The email account that you tried to
+     *   reach does not exist. », « 550 5.2.1 The email account that you
+     *   tried to reach is inactive. », « 552 5.2.2 The recipient's inbox
+     *   is out of storage space and inactive. ».
+     * - Microsoft, « Email nondelivery reports (NDRs) and SMTP errors in
+     *   Exchange Online » (learn.microsoft.com): « 5.1.90 Your message
+     *   can't be sent because you've reached your daily limit for message
+     *   recipients », « 5.2.2 Submission quota exceeded », « 5.1.8 Access
+     *   denied, bad outbound sender », « 5.2.122 Recipient's per hour
+     *   message receive limit exceeded », « 5.1.10 Recipient not found ».
+     *
+     * The tests carry each of them (`Tests\Core\Mail\Transport\
+     * MailFailureTest::responses()`).
+     *
+     * @var list<string>
+     */
+    private const RECIPIENT_CODES = ['5.1.0', '5.1.1', '5.1.2', '5.1.3', '5.1.4', '5.1.6', '5.1.10', '5.2.1'];
+
+    /**
+     * Codes that name the recipient only when the relay says so in words.
+     *
+     * `5.4.1` is RFC 3463's « no answer from host », a routing failure —
+     * but Exchange Online uses it for an address its tenant does not hold:
+     * « 550 5.4.1 Recipient address rejected: Access denied » (#1571
+     * review). Read as the provider's, one mistyped outlook.com address
+     * would count as a strike against a healthy relay and be retried for
+     * a day. So the code alone stays the provider's, and with
+     * « recipient address rejected » beside it, it is the recipient's.
+     *
+     * @var array<string, string> code => the phrase that confirms it
+     */
+    private const RECIPIENT_CODES_WHEN_SAID = ['5.4.1' => 'recipient address rejected'];
+
+    /**
+     * Enhanced codes that carry no more than the basic code does, and are
+     * read past as if absent.
+     *
+     * `5.0.0` is RFC 3463's « other undefined status ». `5.5.0`, « other
+     * or undefined protocol status », is what Microsoft puts in front of
+     * an address nobody holds on outlook.com and hotmail.com: « 550 5.5.0
+     * Requested action not taken: mailbox unavailable ». Letting either
+     * decide would make those unknown addresses the provider's, retried
+     * for a day and counted as strikes; read past, the 550 and the prose
+     * decide, as they did before #1488.
+     *
+     * @var list<string>
+     */
+    private const UNINFORMATIVE_CODES = ['5.0.0', '5.5.0'];
 
     /**
      * Read the failure out of what the relay said.
@@ -71,19 +164,52 @@ enum MailFailure
         // The cost of this direction is a message retried for a day
         // against a relay that will keep refusing it — the same cost as
         // any unknown failure, and the one this enum already chooses.
-        foreach (['5.7.', '4.7.'] as $policy) {
-            if (str_contains($haystack, $policy)) {
-                return self::Provider;
-            }
+        //
+        // Bounded on both sides like the codes below (#1571 review): no
+        // letter, digit, underscore or dot before the class, and no digit
+        // — nor a dot followed by one — after the detail, so neither
+        // « server=v4.7.1 » (a version) nor « [4.7.1.9] » (an address)
+        // turns a « 550 5.1.1 » into the relay's failure.
+        if (preg_match('/(?<![\w.])[45]\.7\.\d{1,3}(?!\.?\d)/', $haystack) === 1) {
+            return self::Provider;
         }
 
-        // Permanent recipient rejections. `550` is the common one; the
-        // rest are its neighbours in RFC 3463's 5.1.x «bad destination
-        // address» family, plus the wording used by relays that answer in
-        // prose rather than codes.
+        // **An enhanced status code, when there is one, decides** (issue
+        // #1488). The basic code cannot: `550` is RFC 5321's « mailbox
+        // unavailable » and relays use it for whatever they refuse —
+        // Google answers « 550 5.4.5 Daily user sending limit exceeded »
+        // when the ACCOUNT has spent its quota. Read as a bad address,
+        // that refusal failed the message instead of queueing it, never
+        // counted against a relay that will refuse everything until
+        // tomorrow, and abandoned an already-queued message at its first
+        // retry. The enhanced code says what the 550 does not; the rule
+        // it is read by is RECIPIENT_CODES below.
+        $codes = self::enhancedCodes($reason);
+        if ($codes !== []) {
+            // Every code has to name the recipient. One that does not is
+            // the provider's, the same direction as an unknown reason.
+            foreach ($codes as $code) {
+                if (in_array($code, self::RECIPIENT_CODES, true)) {
+                    continue;
+                }
+                $phrase = self::RECIPIENT_CODES_WHEN_SAID[$code] ?? null;
+                if ($phrase === null || !str_contains($haystack, $phrase)) {
+                    return self::Provider;
+                }
+            }
+
+            return self::Recipient;
+        }
+
+        // No enhanced code: the basic codes and the prose are all there
+        // is. `550` stays a recipient refusal here, as it always was — a
+        // relay that says only « 550 » has said nothing better, and the
+        // common case of a bare 550 is still an address nobody holds.
+        // `551` and `553` are RFC 5321's « user not local » and « mailbox
+        // name not allowed »; the phrases are the wording of relays that
+        // answer in prose rather than codes.
         $recipientMarkers = [
             '550', '551', '553',
-            '5.1.0', '5.1.1', '5.1.2', '5.1.3', '5.1.6',
             'recipient address rejected',
             'user unknown',
             'no such user',
@@ -102,5 +228,106 @@ enum MailFailure
         }
 
         return self::Provider;
+    }
+
+    /**
+     * The reason as the rest of the chain keeps it — without addresses and
+     * bounded at 400 characters ({@see MailErrorRedaction::withoutAddresses()})
+     * — but **still carrying the code it is classified by** (#1571 review).
+     * PHPMailer appends the enhanced code at the very end of a long
+     * message, so the cap alone can cut it off; the breaker, the queue and
+     * the drain then read the bare « 550 » that is left and take a quota
+     * refusal for a refused address. When the cut text no longer reads
+     * like the whole, its last characters give way to the code, in
+     * brackets.
+     */
+    public static function boundedReason(string $text): string
+    {
+        $whole = MailErrorRedaction::addressesRemoved($text);
+        $bounded = MailErrorRedaction::withoutAddresses($text);
+        $code = self::enhancedCode($whole);
+        if ($code === null || ($bounded === $whole) || self::enhancedCode($bounded) === $code) {
+            return $bounded;
+        }
+
+        $suffix = ' [' . $code . ']';
+
+        return mb_substr($bounded, 0, max(0, mb_strlen($bounded) - mb_strlen($suffix))) . $suffix;
+    }
+
+    /**
+     * The enhanced status code {@see classify()} read the reason by, or
+     * null when the relay gave none — normalised (`5.04.005` reads
+     * `5.4.5`).
+     *
+     * For the journal: a closed value somebody can filter on, where the
+     * reason around it is free text. When there are several, it is the
+     * one that decided — the first that is not a recipient's, since one is
+     * enough to make the failure the provider's. A code that says nothing
+     * ({@see UNINFORMATIVE_CODES}) is still returned when it is all there
+     * is: it is what the relay said, even though the classification reads
+     * past it.
+     */
+    public static function enhancedCode(string $reason): ?string
+    {
+        $informative = self::enhancedCodes($reason);
+
+        foreach ($informative as $code) {
+            if (!in_array($code, self::RECIPIENT_CODES, true)) {
+                return $code;
+            }
+        }
+
+        return $informative[0] ?? self::enhancedCodesIn($reason)[0] ?? null;
+    }
+
+    /**
+     * Every informative enhanced status code in the reason, in order.
+     *
+     * @return list<string>
+     */
+    private static function enhancedCodes(string $reason): array
+    {
+        return array_values(array_filter(
+            self::enhancedCodesIn($reason),
+            static fn(string $code): bool => !in_array($code, self::UNINFORMATIVE_CODES, true)
+        ));
+    }
+
+    /**
+     * Every class-4 and class-5 enhanced status code in the reason
+     * (RFC 3463 §2: `class.subject.detail`, the last two of one to three
+     * digits).
+     *
+     * Found anywhere in the text, because that is where PHPMailer leaves
+     * it: its SMTP client cuts « 550-5.4.5 » off the server's lines and
+     * re-appends the code as « Additional SMTP info: 5.4.5 », except when
+     * the detail has three digits (« 5.7.705 », « 5.2.121 »), which its
+     * pattern does not take and which therefore stays in the text after
+     * « 550 ». Both shapes, and the raw « 550 5.4.5 » and « 550-5.4.5 »,
+     * are read the same.
+     *
+     * Bounded on both sides so that a dotted number is not mistaken for
+     * one: no letter, digit, underscore or dot may come before the class
+     * (#1571 review: « server=v4.97.1 » is a version, not a code), and no
+     * digit — nor a dot followed by one — after the detail. « 10.5.1.2 »
+     * (an address), « 5.1.1.4 », « 192.168.5.1 » and « v4.97.1 » therefore
+     * yield nothing,
+     * and « 5.1.1. » at the end of a sentence still yields 5.1.1. Class 2
+     * is success and is never a reason, so it is not read.
+     *
+     * @return list<string>
+     */
+    private static function enhancedCodesIn(string $reason): array
+    {
+        $pattern = '/(?<![\w.])([45])\.(\d{1,3})\.(\d{1,3})(?!\.?\d)/';
+        if (preg_match_all($pattern, $reason, $matches, PREG_SET_ORDER) < 1) {
+            return [];
+        }
+
+        return array_map(
+            static fn(array $match): string => $match[1] . '.' . (int) $match[2] . '.' . (int) $match[3],
+            $matches
+        );
     }
 }

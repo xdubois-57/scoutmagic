@@ -505,7 +505,7 @@ class MailService
             // rather than lost — except on the authentication lane, where
             // a link delivered tomorrow is not a link (D9), and where the
             // person is in front of their screen and needs the truth now.
-            $reason = MailErrorRedaction::withoutAddresses($e->reason !== '' ? $e->reason : $e->getMessage());
+            $reason = Transport\MailFailure::boundedReason($e->reason !== '' ? $e->reason : $e->getMessage());
 
             // **Unless somebody DID say no to this message.** A lane runs
             // out when its last candidate fails, and on the ordinary
@@ -546,8 +546,10 @@ class MailService
 
             $this->journalFailure($reason);
 
+            // The code survives the cap (#1571 review): on a queue-less
+            // replay the drain classifies this very message.
             throw new MailException(
-                MailErrorRedaction::withoutAddresses($e->getMessage()),
+                Transport\MailFailure::boundedReason($e->getMessage()),
                 attemptFailures: $e->attemptFailures
             );
         } catch (MailSendingSuspendedException $e) {
@@ -571,7 +573,9 @@ class MailService
             // support archive. There is one rule about addresses in a
             // message that reaches a screen or a log (SECURITY.md §11),
             // and it cannot hold in one branch of the same catch.
-            throw new MailException(MailErrorRedaction::withoutAddresses($reason));
+            // Bounded but keeping its enhanced code (#1571 review): the
+            // drain classifies this very message again on a replay.
+            throw new MailException(Transport\MailFailure::boundedReason($reason));
         }
     }
 
@@ -1012,6 +1016,12 @@ class MailService
     private function journalFailure(string $reason): void
     {
         try {
+            // Read before the 400-character cap (#1571 review): PHPMailer
+            // appends the enhanced code at the very end of a long message.
+            // Only closed values leave this text, never the text itself.
+            $unbounded = MailErrorRedaction::addressesRemoved($reason);
+            $reason = MailErrorRedaction::withoutAddresses($reason);
+
             $this->journal?->log(
                 'core',
                 'mail_send_failed',
@@ -1025,7 +1035,17 @@ class MailService
                     'mode' => $this->getDeliveryMode(),
                     'configured' => $this->isDeliveryConfigured(),
                     'origin' => self::callerOutsideThisNamespace(),
-                    'reason' => MailErrorRedaction::withoutAddresses($reason),
+                    'reason' => $reason,
+                    // How the site read the refusal, as closed values
+                    // somebody can filter on (issue #1488): whose fault it
+                    // was — the reading that decided between failing now
+                    // and queueing, and whether the relay's breaker
+                    // counted it — and the enhanced status code it was
+                    // read from, null when the relay gave none. Neither
+                    // is the server's text: an enum case name and
+                    // `class.subject.detail`.
+                    'classification' => Transport\MailFailure::classify($unbounded)->name,
+                    'enhanced_code' => Transport\MailFailure::enhancedCode($unbounded),
                 ]
             );
         } catch (\Throwable) {
