@@ -124,6 +124,14 @@ class MailFailureTest extends TestCase
                 '550 5.1.1 Recipient unknown; client [4.7.1.9] not found',
                 MailFailure::Recipient,
             ],
+            'Exchange Online, an address its tenant does not hold' => [
+                '550 5.4.1 Recipient address rejected: Access denied. AS(201806281)',
+                MailFailure::Recipient,
+            ],
+            'a 5.4.1 that does not name the recipient (no answer from host)' => [
+                '550 5.4.1 No answer from host',
+                MailFailure::Provider,
+            ],
             // ── the policy family, read first and unchanged ──
             'Gmail relay limit for the customer, under 5.7.1' => [
                 '550 5.7.1 Daily SMTP relay sending limit exceeded for this customer.',

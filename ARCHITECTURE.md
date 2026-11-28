@@ -5072,6 +5072,9 @@ destination codes of the 5.1 family (5.1.0–5.1.4, 5.1.6, 5.1.10) and
 class-5 code is the provider's — including 5.1.8 and Microsoft's 5.1.90
 (the sender's address, the sender's daily limit) and 5.2.2, which RFC 3463
 calls transient and Microsoft uses for « Submission quota exceeded ».
+5.4.1, « no answer from host », is the recipient's only when the relay
+says « Recipient address rejected » beside it, as Exchange Online does
+for an address its tenant does not hold.
 `5.0.0` and `5.5.0` say nothing and are read past, and a reason with no
 enhanced code is read by the basic code and the prose as before, a bare
 `550` still a refused address. The 5.7/4.7 policy family is read first,

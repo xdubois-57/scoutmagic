@@ -96,6 +96,21 @@ enum MailFailure
     private const RECIPIENT_CODES = ['5.1.0', '5.1.1', '5.1.2', '5.1.3', '5.1.4', '5.1.6', '5.1.10', '5.2.1'];
 
     /**
+     * Codes that name the recipient only when the relay says so in words.
+     *
+     * `5.4.1` is RFC 3463's « no answer from host », a routing failure —
+     * but Exchange Online uses it for an address its tenant does not hold:
+     * « 550 5.4.1 Recipient address rejected: Access denied » (#1571
+     * review). Read as the provider's, one mistyped outlook.com address
+     * would count as a strike against a healthy relay and be retried for
+     * a day. So the code alone stays the provider's, and with
+     * « recipient address rejected » beside it, it is the recipient's.
+     *
+     * @var array<string, string> code => the phrase that confirms it
+     */
+    private const RECIPIENT_CODES_WHEN_SAID = ['5.4.1' => 'recipient address rejected'];
+
+    /**
      * Enhanced codes that carry no more than the basic code does, and are
      * read past as if absent.
      *
@@ -174,7 +189,11 @@ enum MailFailure
             // Every code has to name the recipient. One that does not is
             // the provider's, the same direction as an unknown reason.
             foreach ($codes as $code) {
-                if (!in_array($code, self::RECIPIENT_CODES, true)) {
+                if (in_array($code, self::RECIPIENT_CODES, true)) {
+                    continue;
+                }
+                $phrase = self::RECIPIENT_CODES_WHEN_SAID[$code] ?? null;
+                if ($phrase === null || !str_contains($haystack, $phrase)) {
                     return self::Provider;
                 }
             }
