@@ -123,7 +123,7 @@ class SendBatchHandler implements TaskHandlerInterface
             throw $e;
         } finally {
             if ($failure === null) {
-                $this->rearmIfPendingRemain($context, []);
+                $this->rearmAfterSuccess($context);
             } else {
                 $this->afterFailedBatch($payload, $context, $failure);
             }
@@ -165,11 +165,14 @@ class SendBatchHandler implements TaskHandlerInterface
             return false;
         }
 
-        if (self::isHaltedOnItsCap($scheduler, $now ?? new \DateTimeImmutable())) {
+        $now ??= new \DateTimeImmutable();
+        if (self::isHaltedOnItsCap($scheduler, $now)) {
             return false;
         }
 
-        if ($scheduler->scheduleAfterUnlessLive(self::MODULE_ID, self::TASK_KEY, 0, [], self::REFERENCE) === null) {
+        $payload = self::failuresCarriedOver($scheduler);
+        $queued = $scheduler->scheduleAfterUnlessLive(self::MODULE_ID, self::TASK_KEY, 0, $payload, self::REFERENCE);
+        if ($queued === null) {
             return false;
         }
 
@@ -188,24 +191,69 @@ class SendBatchHandler implements TaskHandlerInterface
     /**
      * Whether the chain's latest run is the one that hit the cap, less
      * than {@see HALT_HOURS} ago. Read off the scheduler's own row — its
-     * status and the payload this handler gave it — so the cap needs no
-     * state of its own.
+     * status, the payload this handler gave it, and when it failed
+     * (`executed_at`, which SchedulerRepository::markFailed() writes; not
+     * `run_at`, which says when it was due, #1557 review) — so the cap
+     * needs no state of its own. A run that succeeded is a `done` row,
+     * never read as a capped failure, whatever its payload carried.
      */
     public static function isHaltedOnItsCap(SchedulerService $scheduler, \DateTimeImmutable $now): bool
     {
+        $latest = self::latestFailedRun($scheduler);
+        if ($latest === null || self::failuresOf($latest) < self::MAX_CONSECUTIVE_FAILURES) {
+            return false;
+        }
+
+        $endedAt = $latest['executed_at'] ?? $latest['run_at'] ?? null;
+        $failedAt = \Core\Service\DateInput::fromStorage(is_string($endedAt) ? $endedAt : null);
+
+        return $failedAt !== null && $failedAt > $now->sub(new \DateInterval('PT' . self::HALT_HOURS . 'H'));
+    }
+
+    /**
+     * The payload {@see bootstrap()} queues the chain with: the count of
+     * failures in a row the latest run brought it to, when that run failed
+     * below the cap (#1557 review). A failed batch whose own re-arm could
+     * not be written would otherwise start again from zero each time, and
+     * the cap would never be reached. A run that succeeded, or a series
+     * whose halt has run out, starts afresh.
+     *
+     * @return array<string, int>
+     */
+    private static function failuresCarriedOver(SchedulerService $scheduler): array
+    {
+        $latest = self::latestFailedRun($scheduler);
+        if ($latest === null) {
+            return [];
+        }
+        $failures = self::failuresOf($latest);
+
+        return $failures < self::MAX_CONSECUTIVE_FAILURES ? [self::FAILURES_KEY => $failures] : [];
+    }
+
+    /**
+     * The chain's latest row when it is a failed run, else null.
+     *
+     * @return array<string, mixed>|null
+     */
+    private static function latestFailedRun(SchedulerService $scheduler): ?array
+    {
         $latest = $scheduler->findAllForTask(self::MODULE_ID, self::TASK_KEY, 1)[0] ?? null;
-        if ($latest === null || ($latest['status'] ?? null) !== 'failed') {
-            return false;
-        }
 
-        $payload = is_string($latest['payload'] ?? null) ? json_decode($latest['payload'], true) : null;
-        if (self::consecutiveFailures(is_array($payload) ? $payload : []) + 1 < self::MAX_CONSECUTIVE_FAILURES) {
-            return false;
-        }
+        return $latest !== null && ($latest['status'] ?? null) === 'failed' ? $latest : null;
+    }
 
-        $ranAt = \Core\Service\DateInput::fromStorage(is_string($latest['run_at'] ?? null) ? $latest['run_at'] : null);
+    /**
+     * How many failures in a row a failed run brought the chain to: the
+     * count its payload carried, plus itself.
+     *
+     * @param array<string, mixed> $row
+     */
+    private static function failuresOf(array $row): int
+    {
+        $payload = is_string($row['payload'] ?? null) ? json_decode($row['payload'], true) : null;
 
-        return $ranAt !== null && $ranAt > $now->sub(new \DateInterval('PT' . self::HALT_HOURS . 'H'));
+        return self::consecutiveFailures(is_array($payload) ? $payload : []) + 1;
     }
 
     /**
@@ -216,6 +264,24 @@ class SendBatchHandler implements TaskHandlerInterface
         $value = $payload[self::FAILURES_KEY] ?? 0;
 
         return is_int($value) ? max(0, $value) : 0;
+    }
+
+    /**
+     * The next link after a batch that went through — **never throwing**
+     * (#1557 review). A successor that could not be written must not turn
+     * this run into a failure: its row would then read as the last
+     * failure of a capped series, and {@see bootstrap()} would hold the
+     * chain for {@see HALT_HOURS} although the batch succeeded. Left as a
+     * `done` row, the chain is simply queued again by {@see bootstrap()}
+     * on the next request or cron pass, from a count of zero.
+     */
+    private function rearmAfterSuccess(TaskContext $context): void
+    {
+        try {
+            $this->rearmIfPendingRemain($context, []);
+        } catch (\Throwable) {
+            // bootstrap() picks the chain up.
+        }
     }
 
     /**
@@ -617,7 +683,16 @@ class SendBatchHandler implements TaskHandlerInterface
                 // batch summary below stays, but it answers a different
                 // question ("did the scheduler run, and how big was the
                 // lot?") and answers nothing about any one recipient.
-                $massMailService->journalDeliverySent($email->id, $delivery->id, $memberIds);
+                // Best-effort too (#1557 review): the copy has left and its
+                // row says so. A journal that throws here would end the
+                // batch before the completion check below, and a mailing
+                // whose last copy this was would stay « Envoi en cours »
+                // for good — no later batch selects it again.
+                try {
+                    $massMailService->journalDeliverySent($email->id, $delivery->id, $memberIds);
+                } catch (\Throwable) {
+                    // Nobody to tell: the journal is the one that refused.
+                }
                 $sentCount++;
                 // Best-effort, like the receipt above: the copy has left
                 // and its row says so. A notification that throws — a

@@ -1537,6 +1537,75 @@ class SendBatchHandlerTest extends TestCase
         (new SchedulerRepository($this->pdo))->markFailed((int) $payload['scheduled_action_id'], 'boom');
 
         $this->assertTrue($this->bootstrap());
-        $this->assertCount(1, $this->pendingBatches());
+        $queued = $this->pendingBatches();
+        $this->assertCount(1, $queued);
+        $this->assertSame(
+            ['consecutive_failures' => 2],
+            json_decode((string) $queued[0]['payload'], true),
+            'the restarted chain keeps counting, so the cap is still reached (#1557 review)'
+        );
+    }
+
+    /**
+     * The halt runs from when the capped run FAILED, not from when it was
+     * due (#1557 review): a run due three hours ago that failed just now
+     * still holds the chain.
+     */
+    public function testTheHaltCountsFromTheFailureNotFromWhenTheRunWasDue(): void
+    {
+        $payload = $this->claimedRun(['consecutive_failures' => SendBatchHandler::MAX_CONSECUTIVE_FAILURES - 1]);
+        $id = (int) $payload['scheduled_action_id'];
+        $dueAt = (new \DateTimeImmutable('-3 hours'))->format('Y-m-d H:i:s');
+        $this->pdo->exec("UPDATE scheduled_actions SET run_at = '{$dueAt}' WHERE id = {$id}");
+        (new SchedulerRepository($this->pdo))->markFailed($id, 'boom');
+
+        $this->assertFalse($this->bootstrap());
+        $this->assertSame([], $this->pendingBatches());
+    }
+
+    /**
+     * A batch that went through is never read as a capped failure
+     * (#1557 review): a successor that cannot be written does not make
+     * handle() throw, the run ends `done`, and the next request queues the
+     * chain again from a count of zero.
+     */
+    public function testASuccessfulBatchWhoseSuccessorCannotBeWrittenIsNotHalted(): void
+    {
+        $payload = $this->claimedRun(['consecutive_failures' => SendBatchHandler::MAX_CONSECUTIVE_FAILURES - 1]);
+        $this->pdo->exec(
+            "CREATE TRIGGER refuse_successor BEFORE INSERT ON scheduled_actions BEGIN SELECT RAISE(ABORT, 'refused'); END"
+        );
+
+        (new SendBatchHandler())->handle($payload, $this->buildContext($this->mailServiceDouble()));
+
+        $this->pdo->exec('DROP TRIGGER refuse_successor');
+        (new SchedulerRepository($this->pdo))->markDone((int) $payload['scheduled_action_id']);
+        $this->assertSame([], $this->pendingBatches());
+        $this->assertTrue($this->bootstrap(), 'not held as a capped failure');
+        $this->assertNull($this->pendingBatches()[0]['payload']);
+    }
+
+    /**
+     * A journal that refuses the line of a copy that left does not end the
+     * batch before its completion check (#1557 review): the mailing whose
+     * last copy it was is marked sent, not left « Envoi en cours ».
+     */
+    public function testAJournalThatRefusesStillLetsTheMailingComplete(): void
+    {
+        $this->pdo->exec("DELETE FROM mass_mail_deliveries WHERE id NOT IN (SELECT MIN(id) FROM mass_mail_deliveries)");
+        $this->pdo->exec(
+            "CREATE TRIGGER refuse_journal BEFORE INSERT ON event_log BEGIN SELECT RAISE(ABORT, 'refused'); END"
+        );
+
+        try {
+            (new SendBatchHandler())->handle([], $this->buildContext($this->mailServiceDouble()));
+        } catch (\PDOException) {
+            // The completion's own journal line may refuse too, once the
+            // mailing is marked: the run then fails, the mailing does not.
+        }
+
+        $stmt = $this->pdo->prepare('SELECT status FROM mass_mail_emails WHERE id = ?');
+        $stmt->execute([$this->emailId]);
+        $this->assertSame(Email::STATUS_SENT, $stmt->fetchColumn());
     }
 }
