@@ -22,6 +22,39 @@ class GroupMemberRepository
     }
 
     /**
+     * Before a merge settles the memberships held under both identities
+     * (issue #1462, Service\GroupMergeListener): where both are moderators
+     * of a group but only the absorbed identity's grant is bound to an
+     * account, the kept row takes that binding. Otherwise the merge would
+     * keep an unbound grant — one that moderates nothing,
+     * GroupAccessService::canModerate() matching the account — and delete
+     * the one that worked. Returns how many rows took a binding.
+     */
+    public function carryModeratorBinding(int $keptMemberId, int $duplicateMemberId): int
+    {
+        // Locked, inside the merge's transaction: a revocation committing
+        // between this read and the copy below would otherwise hand the
+        // revoked account to the kept row. A revocation that waits for the
+        // merge follows it to the kept identity (demoteUnlessLastModerator()).
+        $stmt = $this->pdo->prepare(
+            'SELECT k.id AS kept_row, d.moderator_user_account_id AS account
+             FROM discussion_group_members d
+             JOIN discussion_group_members k ON k.group_id = d.group_id AND k.member_id = ?
+             WHERE d.member_id = ? AND d.is_moderator = 1 AND d.moderator_user_account_id IS NOT NULL
+               AND k.is_moderator = 1 AND k.moderator_user_account_id IS NULL' . $this->forUpdate()
+        );
+        $stmt->execute([$keptMemberId, $duplicateMemberId]);
+        $bind = $this->pdo->prepare('UPDATE discussion_group_members SET moderator_user_account_id = ? WHERE id = ?');
+        $carried = 0;
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $bind->execute([(int) $row['account'], (int) $row['kept_row']]);
+            $carried++;
+        }
+
+        return $carried;
+    }
+
+    /**
      * Idempotent on (group, member): inviting someone already invited
      * leaves the existing row (and its moderator flag) untouched rather
      * than failing on the unique index.
@@ -242,11 +275,16 @@ class GroupMemberRepository
         $this->pdo->beginTransaction();
 
         try {
-            $row = $this->find($groupId, $memberId);
+            $row = $this->findLocked($groupId, $memberId);
             if ($row === null) {
-                $this->pdo->commit();
+                $keptMemberId = $this->mergedInto($memberId);
+                $row = $keptMemberId !== null ? $this->findLocked($groupId, $keptMemberId) : null;
+                if ($row === null) {
+                    $this->pdo->commit();
 
-                return true;
+                    return true;
+                }
+                $memberId = $keptMemberId;
             }
 
             // An unbound row (granted before the flag became per-login)
@@ -282,7 +320,11 @@ class GroupMemberRepository
      *
      * An unbound row (granted before the flag became per-login) moderates
      * nobody, so clearing it takes nothing away and is always allowed. A
-     * missing row is nothing to demote and reports success.
+     * missing row is nothing to demote and reports success — unless the
+     * member was merged meanwhile (issue #1462): the revocation then
+     * follows them to the kept identity, whose row now carries what this
+     * one held. The row is read FOR UPDATE, so a merge in flight is waited
+     * for and its outcome seen, never raced.
      *
      * @return bool false when the revocation was refused because it would
      *         have left the group without a moderator
@@ -292,11 +334,16 @@ class GroupMemberRepository
         $this->pdo->beginTransaction();
 
         try {
-            $row = $this->find($groupId, $memberId);
+            $row = $this->findLocked($groupId, $memberId);
             if ($row === null) {
-                $this->pdo->commit();
+                $keptMemberId = $this->mergedInto($memberId);
+                $row = $keptMemberId !== null ? $this->findLocked($groupId, $keptMemberId) : null;
+                if ($row === null) {
+                    $this->pdo->commit();
 
-                return true;
+                    return true;
+                }
+                $memberId = $keptMemberId;
             }
 
             if ($row->isModerator && $row->moderatorUserAccountId !== null && $this->countModerators($groupId) <= 1) {
@@ -320,6 +367,33 @@ class GroupMemberRepository
 
             throw $e;
         }
+    }
+
+    private function findLocked(int $groupId, int $memberId): ?GroupMember
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT * FROM discussion_group_members WHERE group_id = ? AND member_id = ?' . $this->forUpdate()
+        );
+        $stmt->execute([$groupId, $memberId]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+        return is_array($row) ? $this->hydrate($row) : null;
+    }
+
+    /** The identity $memberId was merged into, or null when it was not (one hop, issue #914). */
+    private function mergedInto(int $memberId): ?int
+    {
+        $stmt = $this->pdo->prepare('SELECT merged_into_member_id FROM members WHERE id = ?');
+        $stmt->execute([$memberId]);
+        $kept = $stmt->fetchColumn();
+
+        return $kept !== false && $kept !== null ? (int) $kept : null;
+    }
+
+    /** ` FOR UPDATE`, or nothing on SQLite, the test engine, which has no such clause. */
+    private function forUpdate(): string
+    {
+        return $this->pdo->getAttribute(\PDO::ATTR_DRIVER_NAME) === 'sqlite' ? '' : ' FOR UPDATE';
     }
 
     public function remove(int $groupId, int $memberId): void

@@ -6689,6 +6689,13 @@ $householdRepository = new \Core\Member\Household\HouseholdRepository($pdo, $enc
 $householdRegistrationCountForOthers = null;
 if ($isEnabled('registration')) {
     \Core\Debug\RequestTimeline::mark('module_registration');
+    // A merge brings the reenrollment answers, passage notes and the
+    // rest of the module's rows along (issue #1462).
+    $registerMemberMergeListener(new \Modules\Registration\Service\RegistrationMergeListener(
+        new \Core\Member\Duplicate\MergeRowRepository($pdo),
+        $journalService,
+        new \Modules\Registration\Repository\PassageNoteRepository($pdo, $encryptionService)
+    ));
     $householdRegistrationCountForOthers = new \Modules\Registration\Service\HouseholdRegistrationCountService(
         new \Modules\Registration\Repository\RegistrationRequestRepository(
             $pdo,
@@ -10454,6 +10461,14 @@ if ($isEnabled('gallery')) {
 // module is off, and the « Groupe de discussion » destination disappears.
 $groupsPublisherForOthers = null;
 if ($isEnabled('groups')) {
+    // A merge brings explicit memberships, messages and reactions along
+    // (issue #1462).
+    $registerMemberMergeListener(new \Modules\Groups\Service\GroupMergeListener(
+        new \Core\Member\Duplicate\MergeRowRepository($pdo),
+        new \Modules\Groups\Repository\PollRepository($pdo),
+        new \Modules\Groups\Repository\GroupMemberRepository($pdo),
+        $journalService
+    ));
     \Core\Debug\RequestTimeline::mark('module_groups');
     // Reported messages no moderator has answered, on the attention page
     // only while the module is on (#718 § C point 6).

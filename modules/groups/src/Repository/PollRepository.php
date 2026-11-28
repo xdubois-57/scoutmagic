@@ -218,6 +218,56 @@ class PollRepository
     }
 
     /**
+     * Brings the ballots cast for $duplicateMemberId over to $keptMemberId
+     * (issue #1462, Service\GroupMergeListener). A member's ballot is KEYED
+     * `m:<member id>` — the unique index, the tallies and the withdraw path
+     * all read voter_key, voter_member_id being information — so both are
+     * rewritten, or the kept member could neither see nor withdraw the
+     * vote, and a second one would count them twice.
+     *
+     * **Collision rule:** a poll both identities answered keeps the kept
+     * identity's ballots, the other's are deleted — whole polls, never
+     * mixed, so a single-answer poll still has one answer. Returns how many
+     * of the duplicate's ballots were handled and on how many polls both
+     * had answered.
+     *
+     * @return array{handled: int, collisions: int}
+     */
+    public function mergeVoter(int $keptMemberId, int $duplicateMemberId): array
+    {
+        $kept = 'm:' . $keptMemberId;
+        $duplicate = 'm:' . $duplicateMemberId;
+        // Locked, inside the merge's transaction: a ballot cast between
+        // this read and the delete below would otherwise be kept beside
+        // the other identity's. SQLite has no such clause.
+        $forUpdate = $this->pdo->getAttribute(\PDO::ATTR_DRIVER_NAME) === 'sqlite' ? '' : ' FOR UPDATE';
+        $stmt = $this->pdo->prepare(
+            'SELECT DISTINCT d.poll_id FROM discussion_group_poll_ballots d
+             JOIN discussion_group_poll_ballots k ON k.poll_id = d.poll_id AND k.voter_key = ?
+             WHERE d.voter_key = ?' . $forUpdate
+        );
+        $stmt->execute([$kept, $duplicate]);
+        $shared = array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN));
+
+        $settled = 0;
+        if ($shared !== []) {
+            $placeholders = implode(',', array_fill(0, count($shared), '?'));
+            $delete = $this->pdo->prepare(
+                'DELETE FROM discussion_group_poll_ballots WHERE voter_key = ? AND poll_id IN (' . $placeholders . ')'
+            );
+            $delete->execute([$duplicate, ...$shared]);
+            $settled = $delete->rowCount();
+        }
+
+        $move = $this->pdo->prepare(
+            'UPDATE discussion_group_poll_ballots SET voter_key = ?, voter_member_id = ? WHERE voter_key = ?'
+        );
+        $move->execute([$kept, $keptMemberId, $duplicate]);
+
+        return ['handled' => $move->rowCount() + $settled, 'collisions' => count($shared)];
+    }
+
+    /**
      * Records one answer, and — for a single-answer poll — drops whatever
      * that voter had answered before.
      *
