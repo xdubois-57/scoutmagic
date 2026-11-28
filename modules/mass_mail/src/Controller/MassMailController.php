@@ -855,7 +855,7 @@ class MassMailController extends AbstractController
                 : ['address' => '', 'name' => ''],
             'counts' => $email !== null
                 ? $this->massMailService->getStatusCounts($email->id)
-                : ['total' => 0, 'sent' => 0, 'pending' => 0, 'error' => 0, 'unknown' => 0],
+                : ['total' => 0, 'sent' => 0, 'pending' => 0, 'error' => 0, 'unknown' => 0, 'deferred' => 0],
             'current_user_email' => AuthSession::getEmail() ?? '',
             'csrf_token' => CsrfGuard::generateToken(),
             // An imported email's sender as the former site recorded it (D6).

@@ -91,6 +91,39 @@ final class MailReserve
     }
 
     /**
+     * How many messages $lane may hand to $provider today, all lanes
+     * counted together — the ONE reading of « full » (issue #1454), shared
+     * by the chain that sends (`MailTransportChain`), the question a
+     * mailing asks before a batch (`BulkCadence::hasRoomLeft()`) and the
+     * cadence it paces itself on (`BulkCadence::activeProvider()`). Three
+     * copies of this arithmetic had already drifted once: the cadence
+     * compared against the raw quota while the chain took the reserve off,
+     * and so paced a mailing on a relay the chain would no longer use.
+     *
+     * Null when the provider has no known quota. On the mailing lane the
+     * reserve comes off the top (D8), never below zero; the other lanes,
+     * which the reserve protects, see the whole quota. **A reserve that
+     * cannot be read leaves the quota whole**: it must never become the
+     * reason a lane stops sending — the posture of every reading here.
+     */
+    public static function laneCeiling(?self $reserve, MailProvider $provider, MailLane $lane): ?int
+    {
+        if ($provider->dailyQuota === null) {
+            return null;
+        }
+
+        if ($lane !== MailLane::Bulk || $reserve === null) {
+            return $provider->dailyQuota;
+        }
+
+        try {
+            return max(0, $provider->dailyQuota - $reserve->forProvider($provider)->messages);
+        } catch (\Throwable) {
+            return $provider->dailyQuota;
+        }
+    }
+
+    /**
      * Whether this provider carries the mailing lane and at least one
      * other — the only case where a reserve means anything.
      *

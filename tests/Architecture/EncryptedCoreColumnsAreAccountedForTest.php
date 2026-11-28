@@ -117,7 +117,12 @@ final class EncryptedCoreColumnsAreAccountedForTest extends TestCase
         // The three mail features the page describes one by one, each in its
         // own numbered rule. These are the entries a new column will most
         // often land in, and the ones whose rule is unambiguous.
-        'mail_deferred_messages' => [11, 'rule 4octies « Messages en attente d\'envoi »'],
+        // Twelve since issue #1454 added `origin`, the sender's own opaque
+        // reference (`mass_mail.delivery:42`) for telling it what became of
+        // the message. An id, never an address (Core\Mail\SendTracking
+        // refuses one), so what rule 4octies says the queue keeps — the whole
+        // message, encrypted — is unchanged and the prose did not have to move.
+        'mail_deferred_messages' => [12, 'rule 4octies « Messages en attente d\'envoi »'],
         // Twelve since issue #419 added the traced bounce: the category, the
         // enhanced status code and the moment. Rule 4nonies already carries
         // all three, and says in the same breath that the server's diagnostic

@@ -24,6 +24,12 @@ final class Delivery
      * became of this message. Never sent, never resent, never « Remis ».
      */
     public const STATUS_UNKNOWN = 'unknown';
+    /**
+     * Kept in the core's deferred queue because the mailing lane had
+     * nothing left (issue #1454): « en attente chez le fournisseur ».
+     * Nothing has left; the drain settles it as sent or as an error.
+     */
+    public const STATUS_DEFERRED = 'deferred';
 
     public function __construct(
         public readonly int $id,

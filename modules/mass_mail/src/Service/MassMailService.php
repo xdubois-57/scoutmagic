@@ -35,6 +35,7 @@ use Modules\MassMail\Repository\MemberResolutionRepository;
 use Modules\MassMail\Repository\SuppressedAddressRepository;
 use Modules\MassMail\Repository\Target;
 use Modules\MassMail\Repository\TargetRepository;
+use Modules\MassMail\Task\DeferredDeliveryListener;
 use Modules\MassMail\Task\SendBatchHandler;
 
 /**
@@ -50,6 +51,10 @@ class MassMailService
      * (issue #1437).
      */
     public const REASON_UNSUBSCRIBED = 'Adresse désinscrite des emails groupés';
+
+    /** « Renvoyer » on a message the core's deferred queue still holds (issue #1454). */
+    private const RESEND_REFUSED_DEFERRED
+        = 'Ce message est en attente chez le fournisseur : il partira dès que l\'envoi reprendra.';
 
     public function __construct(
         private EmailRepository $emailRepository,
@@ -88,7 +93,16 @@ class MassMailService
          * the read-only lock of such an email is Email::isImported(), read
          * from EmailRepository, and never depends on this being wired.
          */
-        private ?ImportedEmailRepository $importedEmails = null
+        private ?ImportedEmailRepository $importedEmails = null,
+        /**
+         * The core's deferred queue, read-only and by origin (issue
+         * #1454): whether a message this module still calls 'deferred'
+         * is really waiting there, or whether the drain settled it and
+         * could not say so. Null reads every deferred message as
+         * waiting, which is the cautious answer — « Renvoyer » stays
+         * refused.
+         */
+        private ?\Core\Mail\Transport\DeferredMailRepository $deferredQueue = null
     ) {
     }
 
@@ -269,6 +283,47 @@ class MassMailService
             $emailId,
             $deliveryId,
             $memberIds
+        );
+    }
+
+    /**
+     * One journal entry for a message that did NOT leave: the mailing lane
+     * had nothing left, and the core kept it in its deferred queue
+     * (issue #1454). `info`, like the core's own `mail_deferred` — nothing
+     * has gone wrong for the recipient yet — and never `delivery_sent`,
+     * which is what this used to be filed as. The ids and the lane, no
+     * address.
+     */
+    public function journalDeliveryDeferred(int $emailId, int $deliveryId, string $lane): void
+    {
+        $this->journalService->log(
+            'mass_mail',
+            'delivery_deferred',
+            'info',
+            self::emailPrefix($emailId) . ' : message #' . $deliveryId
+                . ' mis en attente, le fournisseur d\'envoi ne prend plus de message',
+            ['email_id' => $emailId, 'delivery_id' => $deliveryId, 'lane' => $lane],
+            null
+        );
+    }
+
+    /**
+     * One journal entry for a deferred message the drain gave up on
+     * (issue #1454) — `warning`, the line that used to exist nowhere: the
+     * core counted it in `mail_deferred_drained` and the mailing kept
+     * reading « Envoyé ». $reason is the French sentence the tracking page
+     * shows (Core\Mail\Transport\DeferredMailAbandonment::label()), never
+     * the relay's words.
+     */
+    public function journalDeliveryAbandoned(int $emailId, int $deliveryId, string $reason): void
+    {
+        $this->journalService->log(
+            'mass_mail',
+            'delivery_abandoned',
+            'warning',
+            self::emailPrefix($emailId) . ' : message #' . $deliveryId . ' abandonné après sa mise en attente',
+            ['email_id' => $emailId, 'delivery_id' => $deliveryId, 'reason' => $reason],
+            null
         );
     }
 
@@ -486,7 +541,7 @@ class MassMailService
     /**
      * Messages by status — one per address, never people.
      *
-     * @return array{pending: int, sent: int, error: int, unknown: int, total: int}
+     * @return array{pending: int, sent: int, error: int, unknown: int, deferred: int, total: int}
      */
     public function getStatusCounts(int $emailId): array
     {
@@ -1498,8 +1553,11 @@ class MassMailService
 
     /**
      * Called once per email actually touched by a processed batch (Task\
-     * SendBatchHandler) — flips 'sending' → 'sent' the moment no message
-     * of it is 'pending' any more.
+     * SendBatchHandler), and after the drain settled one of its deferred
+     * messages (Task\DeferredDeliveryListener) — flips 'sending' → 'sent'
+     * the moment no message of it is 'pending' or 'deferred' any more. A
+     * message only kept in the core's queue has not left, and a mailing
+     * reading « Envoyé » while it waits would say otherwise (issue #1454).
      */
     public function checkAndMarkSentIfComplete(int $emailId, ?int $actorId = null): void
     {
@@ -1507,7 +1565,7 @@ class MassMailService
         if ($email === null || $email->status !== Email::STATUS_SENDING) {
             return;
         }
-        if ($this->deliveryRepository->hasPending($emailId)) {
+        if ($this->deliveryRepository->hasUnsettled($emailId)) {
             return;
         }
 
@@ -1550,6 +1608,17 @@ class MassMailService
         if ($delivery->status === Delivery::STATUS_UNKNOWN) {
             throw new MassMailException('Ce message ne peut pas être renvoyé.');
         }
+        // Waiting in the core's deferred queue, which will send it once
+        // the provider takes mail again (issue #1454): a « Renvoyer » now
+        // would put a second copy in the batch queue. Unless the queue no
+        // longer holds it — the drain settled it and its outcome never
+        // came back here — in which case « Renvoyer » is the way out of a
+        // line that would otherwise read « en attente » for good.
+        $lostDeferred = $delivery->status === Delivery::STATUS_DEFERRED
+            && $this->deferredOutcomeLost([$delivery->id]) !== [];
+        if ($delivery->status === Delivery::STATUS_DEFERRED && !$lostDeferred) {
+            throw new MassMailException(self::RESEND_REFUSED_DEFERRED);
+        }
         // Somebody who unsubscribed is not written to again by hand
         // either (issue #1437): « Renvoyer » used to put their message
         // back in the queue, weeks later, with no check at all. The batch
@@ -1561,7 +1630,13 @@ class MassMailService
             );
         }
 
-        $this->deliveryRepository->resend($deliveryId);
+        // **The write decides, not the read above.** A batch may have
+        // deferred this very message since it was read; the UPDATE refuses
+        // a 'deferred' row itself, and nothing else — the mailing's status,
+        // the batch chain, the journal — moves unless it did.
+        if (!$this->deliveryRepository->resend($deliveryId, $lostDeferred, $delivery->attempts)) {
+            throw new MassMailException(self::RESEND_REFUSED_DEFERRED);
+        }
 
         $email = $this->emailRepository->findById($delivery->emailId);
         if ($email !== null && $email->status === Email::STATUS_SENT) {
@@ -1581,6 +1656,35 @@ class MassMailService
     }
 
     /**
+     * Which of these 'deferred' messages the core's queue no longer holds
+     * (issue #1454): the drain sent or abandoned them, and the outcome did
+     * not make it back here — its listener failed after the queue row was
+     * settled. Nothing waits for them any more, so the tracking page offers
+     * « Renvoyer » for them, and only for them.
+     *
+     * Empty when the queue is not wired: every deferred message then reads
+     * as waiting, which keeps « Renvoyer » refused.
+     *
+     * @param list<int> $deliveryIds messages this module calls 'deferred'
+     * @return list<int>
+     */
+    private function deferredOutcomeLost(array $deliveryIds): array
+    {
+        if ($this->deferredQueue === null || $deliveryIds === []) {
+            return [];
+        }
+
+        $waiting = array_flip($this->deferredQueue->waitingOrigins(
+            array_map(static fn(int $id): string => DeferredDeliveryListener::originFor($id), $deliveryIds)
+        ));
+
+        return array_values(array_filter(
+            $deliveryIds,
+            static fn(int $id): bool => !isset($waiting[DeferredDeliveryListener::originFor($id)])
+        ));
+    }
+
+    /**
      * The tracking page (§2.4, screen 3 of the mock-up): one line per
      * MESSAGE — its address, the members it concerns, and for a mail merge
      * the line of the file — then one line per target left without any
@@ -1590,10 +1694,10 @@ class MassMailService
      *
      * @return array{
      *     email: Email,
-     *     counts: array{pending: int, sent: int, error: int, unknown: int, total: int},
+     *     counts: array{pending: int, sent: int, error: int, unknown: int, deferred: int, total: int},
      *     target_count: int,
      *     targets_without_message: int,
-     *     messages: list<array{delivery: Delivery, members: string, row_index: ?int}>,
+     *     messages: list<array{delivery: Delivery, members: string, row_index: ?int, outcome_lost: bool}>,
      *     unsent: list<array{label: string, row_index: ?int}>
      * }
      * @throws MassMailException when the email doesn't exist
@@ -1608,6 +1712,11 @@ class MassMailService
 
         $names = $this->targetNames($targets);
         $rowIndexes = $this->audienceRowIndexes($email);
+
+        $lost = array_flip($this->deferredOutcomeLost(array_values(array_map(
+            static fn(Delivery $d): int => $d->id,
+            array_filter($deliveries, static fn(Delivery $d): bool => $d->status === Delivery::STATUS_DEFERRED)
+        ))));
 
         $targetsWithMessage = [];
         $messages = [];
@@ -1626,6 +1735,7 @@ class MassMailService
                 'row_index' => $delivery->audienceRowId !== null
                     ? ($rowIndexes[$delivery->audienceRowId] ?? null)
                     : null,
+                'outcome_lost' => isset($lost[$delivery->id]),
             ];
         }
 

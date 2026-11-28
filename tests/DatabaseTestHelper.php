@@ -874,7 +874,8 @@ class DatabaseTestHelper
             next_attempt_at TEXT NOT NULL,
             expires_at TEXT NOT NULL,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            settled_at TEXT
+            settled_at TEXT,
+            origin TEXT
         )');
 
         // The return round trip (roadmap IT-03). UNIQUE on the blind

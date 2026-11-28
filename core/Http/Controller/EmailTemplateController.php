@@ -22,6 +22,7 @@ use Core\Mail\Template\EmailTemplateRenderer;
 use Core\Mail\Template\EmailTestSendThrottler;
 use Core\Mail\Template\MissingRequiredVariableException;
 use Core\Mail\MailException;
+use Core\Mail\SendTracking;
 use Core\Mail\MailService;
 use Core\Security\AuthSession;
 use Core\Template\TokenEngine;
@@ -325,8 +326,12 @@ class EmailTemplateController extends AbstractController
             return $this->redirect($this->editUrl($template->id));
         }
 
+        // Told whether the test LEFT or was only kept for later (issue
+        // #1454): a test that « succeeds » during an outage would tell the
+        // administrator the very opposite of what they are testing.
+        $tracking = new SendTracking();
         try {
-            $this->mailService->send($to, $email->subject, $email->bodyHtml, $email->bodyText);
+            $this->mailService->send($to, $email->subject, $email->bodyHtml, $email->bodyText, tracking: $tracking);
         } catch (MailException $e) {
             // The address is stripped: SECURITY.md §11 bars personal data
             // from journal entries unconditionally, and a relay's error
@@ -365,9 +370,19 @@ class EmailTemplateController extends AbstractController
             EmailTestSendThrottler::JOURNAL_TYPE,
             'info',
             "Envoi de test de l'email « {$template->label} »",
-            ['template_id' => $template->id],
+            ['template_id' => $template->id, 'deferred' => $tracking->wasDeferred()],
             $userId
         );
+
+        if ($tracking->wasDeferred()) {
+            FlashMessage::set(
+                'warning',
+                "Test mis en attente, le relais ne répond pas : rien n'est parti pour l'instant. "
+                    . 'Il partira dès que le fournisseur d\'envoi acceptera de nouveau les messages.'
+            );
+
+            return $this->redirect($this->editUrl($template->id));
+        }
 
         FlashMessage::set('success', 'Test envoyé à votre adresse.');
 

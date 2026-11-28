@@ -10,7 +10,9 @@ namespace Core\Mail\Transport\Task;
 
 use Core\Config\SettingRepository;
 use Core\Config\SettingService;
+use Core\Module\DeferredMailOutcomeListener;
 use Core\Mail\MailErrorRedaction;
+use Core\Mail\Transport\DeferredMailAbandonment;
 use Core\Mail\Transport\MailFailure;
 use Core\Mail\Transport\DeferredMailQueue;
 use Core\Mail\Transport\DeferredMailRepository;
@@ -55,6 +57,12 @@ class DrainDeferredMailHandler implements TaskHandlerInterface
     private const SUPPRESSED = 'adresse suspendue — le site a cessé de lui écrire';
 
     private const INTERVAL_SECONDS = 300;
+
+    /**
+     * What the Relance screen reads on a message kept back because its
+     * sender could not be asked whether it still wanted it sent.
+     */
+    private const SENDER_UNREACHABLE = 'expéditeur injoignable — envoi retenu jusqu\'au prochain passage';
 
     /**
      * How many messages one pass sends.
@@ -108,15 +116,51 @@ class DrainDeferredMailHandler implements TaskHandlerInterface
         $sent = 0;
         $abandoned = 0;
 
-        foreach ($repository->due(self::BATCH) as $message) {
+        $unreadable = function (?string $origin) use ($context, &$abandoned): void {
+            $abandoned++;
+            $this->tellAbandoned($context, $origin, DeferredMailAbandonment::Unreadable);
+        };
+
+        foreach ($repository->due(self::BATCH, null, $unreadable) as $message) {
             if ($message->hasExpired()) {
                 $repository->abandon($message->id, $message->attempts, 'délai de vie dépassé');
+                $this->tellAbandoned($context, $message->origin, DeferredMailAbandonment::Expired);
+                $abandoned++;
+                continue;
+            }
+
+            // **Asked before it leaves, not told after** (issue #1454): its
+            // sender may have learnt, while it waited, that the recipient
+            // does not want it — an unsubscribe the core's bounce state
+            // cannot see.
+            $withdrawal = $this->askSender($context, $message);
+            if ($withdrawal === false) {
+                // **Kept, unsent, and not counted as an attempt.** A sender
+                // that cannot answer is not a « yes »: the question exists
+                // so that somebody who said stop is not written to, and a
+                // replay on a guess would be exactly that mistake. Pushed
+                // one pass out rather than left due, so a sender in trouble
+                // cannot fill every batch with its own messages and starve
+                // the rest of the queue; its deadline still holds, and
+                // abandons it in its time like any other.
+                $repository->reschedule(
+                    $message->id,
+                    $message->attempts,
+                    self::SENDER_UNREACHABLE,
+                    date('Y-m-d H:i:s', time() + self::INTERVAL_SECONDS)
+                );
+                continue;
+            }
+            if ($withdrawal !== null) {
+                $repository->abandon($message->id, $message->attempts, $withdrawal->label());
+                $this->tellAbandoned($context, $message->origin, $withdrawal);
                 $abandoned++;
                 continue;
             }
 
             $reason = $this->trySend($message, $repository, $context);
             if ($reason === null) {
+                $this->tellSent($context, $message->origin);
                 $sent++;
             } elseif ($reason === self::SUPPRESSED) {
                 // **Not a failure, and not something to retry.** The site
@@ -127,9 +171,14 @@ class DrainDeferredMailHandler implements TaskHandlerInterface
                 // Abandoned rather than deleted, so the Relance screen can
                 // say why this one never left.
                 $repository->abandon($message->id, $message->attempts + 1, self::SUPPRESSED);
+                $this->tellAbandoned($context, $message->origin, DeferredMailAbandonment::Suppressed);
                 $abandoned++;
             } else {
-                $abandoned += $this->settleFailure($message, $repository, $queue, $reason) ? 1 : 0;
+                $why = $this->settleFailure($message, $repository, $queue, $reason);
+                if ($why !== null) {
+                    $this->tellAbandoned($context, $message->origin, $why);
+                    $abandoned++;
+                }
             }
         }
 
@@ -230,14 +279,15 @@ class DrainDeferredMailHandler implements TaskHandlerInterface
      * repair, where « nouvel échec » tells them nothing they did not
      * already know from the row existing.
      *
-     * @return bool Whether it was abandoned.
+     * @return DeferredMailAbandonment|null Why it was abandoned, or null when
+     *         it is due again later.
      */
     private function settleFailure(
         DeferredMessage $message,
         DeferredMailRepository $repository,
         DeferredMailQueue $queue,
         string $reason
-    ): bool {
+    ): ?DeferredMailAbandonment {
         // **Somebody said no: there is nothing to wait for.** The same
         // distinction `MailService` draws before queueing a message has to
         // be drawn again here, because the two failures need not be the
@@ -249,7 +299,7 @@ class DrainDeferredMailHandler implements TaskHandlerInterface
         if (MailFailure::classify($reason) === MailFailure::Recipient) {
             $repository->abandon($message->id, $message->attempts + 1, $reason);
 
-            return true;
+            return DeferredMailAbandonment::Refused;
         }
 
         // `attempts + 1` on BOTH sides of this: the attempt that has just
@@ -262,12 +312,119 @@ class DrainDeferredMailHandler implements TaskHandlerInterface
         if ($next === null) {
             $repository->abandon($message->id, $message->attempts + 1, $reason);
 
-            return true;
+            return DeferredMailAbandonment::Expired;
         }
 
         $repository->reschedule($message->id, $message->attempts + 1, $reason, $next);
 
-        return false;
+        return null;
+    }
+
+    /**
+     * Whether the message's sender still wants it sent (issue #1454) —
+     * null for yes (and for a message without an origin), the reason when
+     * it withdraws it, false when it could not be asked — which includes a
+     * sender whose module is disabled: nobody is there to vouch for the
+     * recipient, so the message waits unsent until its time to live runs
+     * out (#1561 review).
+     */
+    private function askSender(TaskContext $context, DeferredMessage $message): DeferredMailAbandonment|false|null
+    {
+        if ($message->origin === null) {
+            return null;
+        }
+
+        try {
+            $listener = $context->getOptional(DeferredMailOutcomeListener::class);
+            // A message that names its sender is that sender's to vouch for
+            // (#1561 review): with nobody listening — the module disabled
+            // since the message was queued — there is nobody to say the
+            // recipient has not unsubscribed in the meantime, so it is kept
+            // unsent rather than sent blind. Its time to live still runs:
+            // a sender that never comes back has it abandoned like any
+            // other.
+            if ($listener === null) {
+                return false;
+            }
+
+            return $listener->deferredMailWithdrawn($message->origin, $context);
+        } catch (\Throwable $e) {
+            try {
+                $context->journal->log(
+                    'core',
+                    'mail_deferred_sender_unreachable',
+                    'warning',
+                    'Message différé retenu : son expéditeur n\'a pas pu confirmer l\'envoi',
+                    ['origin' => $message->origin, 'error_class' => $e::class]
+                );
+            } catch (\Throwable) {
+                // Nobody left to tell: the journal goes through the same
+                // database that may just have refused.
+            }
+
+            return false;
+        }
+    }
+
+    /**
+     * Tell the message's sender it has left (issue #1454) — when it named
+     * itself, and when the module that listens is enabled.
+     *
+     * **After the queue row is settled, and unable to unsettle it.** The
+     * message is out and its row deleted; a listener that throws (its own
+     * table, its own database) must not turn that into a failed pass, so
+     * it is journaled and the drain goes on to the next message.
+     */
+    private function tellSent(TaskContext $context, ?string $origin): void
+    {
+        if ($origin === null) {
+            return;
+        }
+
+        try {
+            $context->getOptional(DeferredMailOutcomeListener::class)?->deferredMailSent($origin, $context);
+        } catch (\Throwable $e) {
+            $this->journalUnreported($context, $e, $origin);
+        }
+    }
+
+    /** {@see tellSent()}, for a message given up on. */
+    private function tellAbandoned(TaskContext $context, ?string $origin, DeferredMailAbandonment $reason): void
+    {
+        if ($origin === null) {
+            return;
+        }
+
+        try {
+            $context->getOptional(DeferredMailOutcomeListener::class)
+                ?->deferredMailAbandoned($origin, $reason, $context);
+        } catch (\Throwable $e) {
+            $this->journalUnreported($context, $e, $origin);
+        }
+    }
+
+    /**
+     * The origin is in the line, because it is the only thing that lets
+     * anybody find the message the sender still believes is waiting — and
+     * it is an id by construction (`SendTracking` accepts [a-z0-9_.:-]
+     * only), never an address. The sender has its own way back too:
+     * `DeferredMailRepository::waitingOrigins()` says the queue no longer
+     * holds it.
+     */
+    private function journalUnreported(TaskContext $context, \Throwable $e, string $origin): void
+    {
+        try {
+            $context->journal->log(
+                'core',
+                'mail_deferred_outcome_unreported',
+                'warning',
+                'Issue d\'un message différé non transmise à son expéditeur',
+                ['origin' => $origin, 'error_class' => $e::class]
+            );
+        } catch (\Throwable) {
+            // Nobody left to tell: the journal goes through the same
+            // database that may just have refused.
+        }
     }
 
     /**

@@ -253,6 +253,96 @@ class DeliveryRepository
     }
 
     /**
+     * The message went to the core's deferred queue instead of a relay
+     * (issue #1454): nothing has left, so no `sent_at`, and the attempt is
+     * counted like any other.
+     */
+    public function recordDeferred(int $id): void
+    {
+        $stmt = $this->pdo->prepare(
+            "UPDATE mass_mail_deliveries SET status = 'deferred', error_message = NULL, attempts = attempts + 1 "
+                . 'WHERE id = ?'
+        );
+        $stmt->execute([$id]);
+    }
+
+    /**
+     * A deferred message the drain has now sent. From 'deferred'; from
+     * 'error', for one a superadmin relaunched after it was abandoned; and
+     * **from 'pending'** (#1561 review): the drain sends the message and
+     * settles its own queue row before it calls back here, and a
+     * « Renvoyer » in that window sees the outcome lost and puts the row
+     * back for the batch. The message has demonstrably left, so settling
+     * it 'sent' is what cancels that resend before the batch sends a
+     * second copy. A 'pending' row is this message's re-queue and nothing
+     * else: the drain only calls back for an origin it held, an origin
+     * only exists once the batch deferred this row, and after that only a
+     * resend makes it 'pending' again. A 'sent' row is not touched.
+     *
+     * **What it cannot close**: the batch claims no row — it reads its lot
+     * ({@see findOldestPending()}) and sends — so a batch that had already
+     * read the re-queued row is sending it as this runs, and that second
+     * copy only a transaction across the core's queue and this table
+     * could prevent. Settling it 'sent' here is still right: the batch's
+     * own success then writes 'sent' again.
+     *
+     * The status always changes ('sent' is never among those matched), so
+     * MySQL's « rows changed » count is the matched count here, as on
+     * SQLite (DeferredDeliveriesOnMysqlTest).
+     *
+     * @return bool whether a row was settled — false when it was already
+     *         sent, or gone, at the moment of the write
+     */
+    public function settleDeferredAsSent(int $id): bool
+    {
+        $stmt = $this->pdo->prepare(
+            "UPDATE mass_mail_deliveries SET status = 'sent', sent_at = CURRENT_TIMESTAMP, error_message = NULL "
+                . "WHERE id = ? AND status IN ('deferred', 'error', 'pending')"
+        );
+        $stmt->execute([$id]);
+
+        return $stmt->rowCount() === 1;
+    }
+
+    /**
+     * A deferred message the drain gave up on, with a French reason that
+     * names no address (Core\Mail\Transport\DeferredMailAbandonment). Only
+     * from 'deferred' or 'error' (a relaunched one): unlike a send, nothing
+     * left, so a « Renvoyer » that reclaimed the message meanwhile wins —
+     * somebody asked for it to be sent — and its 'pending' row is left to
+     * the batch.
+     *
+     * **MySQL counts rows CHANGED**: a relaunched 'error' row that already
+     * carries this very reason is matched but unchanged, and reports 0.
+     * No column of this table always changes on this write, so a 0 is
+     * resolved by reading the row: one that now reads exactly what this
+     * abandonment writes — 'error', a status the WHERE matches, with this
+     * reason — was matched. SQLite counts matched rows and never needs the
+     * read; the two engines then agree (DeferredDeliveriesOnMysqlTest).
+     *
+     * @return bool whether a row was settled — false when a resend put it
+     *         back for the batch, it was sent, or it is gone
+     */
+    public function settleDeferredAsAbandoned(int $id, string $errorMessage): bool
+    {
+        $stmt = $this->pdo->prepare(
+            "UPDATE mass_mail_deliveries SET status = 'error', error_message = ? "
+                . "WHERE id = ? AND status IN ('deferred', 'error')"
+        );
+        $stmt->execute([$errorMessage, $id]);
+        if ($stmt->rowCount() === 1) {
+            return true;
+        }
+
+        $unchanged = $this->pdo->prepare(
+            "SELECT 1 FROM mass_mail_deliveries WHERE id = ? AND status = 'error' AND error_message = ?"
+        );
+        $unchanged->execute([$id, $errorMessage]);
+
+        return $unchanged->fetchColumn() !== false;
+    }
+
+    /**
      * $errorMessage must never contain the address or any other personal
      * data — Task\SendBatchHandler only ever passes a fixed French reason.
      */
@@ -269,21 +359,55 @@ class DeliveryRepository
      * 'pending' so the next batch picks it up again. sent_at is left as the
      * record of the previous send; the tracking page only shows it while
      * the status is 'sent'.
+     *
+     * **Never a message the core's deferred queue holds** (issue #1454),
+     * and decided by this UPDATE, not by the row the caller read a moment
+     * earlier: a batch that defers the message between that read and this
+     * write would otherwise get a second copy queued behind the one the
+     * drain will send. $lostDeferred lifts the guard for the one case
+     * where 'deferred' no longer means waiting — the core's queue has no
+     * message left for it, its outcome lost on the way back
+     * (Service\MassMailService::resendDelivery()).
+     *
+     * $expectedAttempts, when given, ties the write to the row the caller
+     * read (#1561 review): two « Renvoyer » that both saw the same lost
+     * outcome would otherwise both go through — the first puts it back,
+     * a batch defers it again, and the second, its guard lifted, puts a
+     * message the queue now holds back to 'pending' for a second copy.
+     * Every resend moves `attempts`, so only the first of them matches.
+     *
+     * What `attempts` does not see is the drain: settling a deferred
+     * message never moves it, so a resend that read the lost outcome
+     * while the drain was between its send and its call back still
+     * matches. {@see settleDeferredAsSent()} takes the row back from
+     * 'pending' then, the message having left.
+     *
+     * @return bool whether the message was put back — false when it was
+     *         'deferred' (or is gone, or moved since it was read) at the
+     *         moment of the write
      */
-    public function resend(int $id): void
+    public function resend(int $id, bool $lostDeferred = false, ?int $expectedAttempts = null): bool
     {
         $stmt = $this->pdo->prepare(
             "UPDATE mass_mail_deliveries SET status = 'pending', error_message = NULL, attempts = attempts + 1 "
-                . 'WHERE id = ?'
+                . 'WHERE id = ?' . ($lostDeferred ? '' : " AND status <> 'deferred'")
+                . ($expectedAttempts !== null ? ' AND attempts = ?' : '')
         );
-        $stmt->execute([$id]);
+        $stmt->execute($expectedAttempts !== null ? [$id, $expectedAttempts] : [$id]);
+
+        // `attempts + 1` changes every matched row, so MySQL's « rows
+        // changed » count is the matched count here, as on SQLite
+        // (DeferredDeliveriesOnMysqlTest).
+        return $stmt->rowCount() === 1;
     }
 
     /**
      * Counts MESSAGES — one per address — never people. `unknown` is only
-     * ever non-zero for an email imported from a former site.
+     * ever non-zero for an email imported from a former site; `deferred`
+     * is what waits in the core's queue and is never part of `sent`
+     * (issue #1454).
      *
-     * @return array{pending: int, sent: int, error: int, unknown: int, total: int}
+     * @return array{pending: int, sent: int, error: int, unknown: int, deferred: int, total: int}
      */
     public function countGroupedByStatus(int $emailId): array
     {
@@ -292,7 +416,7 @@ class DeliveryRepository
         );
         $stmt->execute([$emailId]);
 
-        $counts = ['pending' => 0, 'sent' => 0, 'error' => 0, 'unknown' => 0];
+        $counts = ['pending' => 0, 'sent' => 0, 'error' => 0, 'unknown' => 0, 'deferred' => 0];
         foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
             $counts[(string) $row['status']] = (int) $row['c'];
         }
@@ -302,7 +426,9 @@ class DeliveryRepository
             'sent' => $counts['sent'],
             'error' => $counts['error'],
             'unknown' => $counts['unknown'],
-            'total' => $counts['pending'] + $counts['sent'] + $counts['error'] + $counts['unknown'],
+            'deferred' => $counts['deferred'],
+            'total' => $counts['pending'] + $counts['sent'] + $counts['error'] + $counts['unknown']
+                + $counts['deferred'],
         ];
     }
 
@@ -329,10 +455,16 @@ class DeliveryRepository
         return (int) $stmt->fetchColumn();
     }
 
-    public function hasPending(int $emailId): bool
+    /**
+     * Whether any message of this email is not settled yet — waiting for a
+     * batch ('pending') or in the core's deferred queue ('deferred'). What
+     * keeps a mailing at « Envoi en cours » rather than « Envoyé » while
+     * part of it has not left (issue #1454).
+     */
+    public function hasUnsettled(int $emailId): bool
     {
         $stmt = $this->pdo->prepare(
-            "SELECT 1 FROM mass_mail_deliveries WHERE email_id = ? AND status = 'pending' LIMIT 1"
+            "SELECT 1 FROM mass_mail_deliveries WHERE email_id = ? AND status IN ('pending', 'deferred') LIMIT 1"
         );
         $stmt->execute([$emailId]);
 

@@ -382,7 +382,12 @@ CREATE TABLE IF NOT EXISTS mass_mail_deliveries (
     -- message is never 'pending' — Task\SendBatchHandler would send it —
     -- and its 'sent' reads « Accepté par le serveur d'envoi », never
     -- « Remis » (nothing proves a delivery).
-    status ENUM('pending', 'sent', 'error', 'unknown') NOT NULL DEFAULT 'pending',
+    -- 'deferred': the mailing lane had nothing left, so the core kept the
+    -- message in its deferred queue (mail_deferred_messages.origin points
+    -- back here) rather than any relay taking it — « en attente chez le
+    -- fournisseur », never counted as sent (issue #1454). The drain turns
+    -- it into 'sent' when it leaves, or 'error' when it is abandoned.
+    status ENUM('pending', 'sent', 'error', 'unknown', 'deferred') NOT NULL DEFAULT 'pending',
     error_message TEXT NULL,
     sent_at DATETIME NULL,
     attempts INT UNSIGNED NOT NULL DEFAULT 0,

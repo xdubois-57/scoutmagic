@@ -11,6 +11,7 @@ use Core\Mail\MailException;
 use Core\Mail\MailPurpose;
 use Core\Mail\MailService;
 use Core\Mail\MailTransportInterface;
+use Core\Mail\SendTracking;
 use Core\Mail\Transport\DeferredMailQueue;
 use Core\Mail\Transport\DeferredMailRepository;
 use Core\Mail\Transport\LaneExhaustedException;
@@ -380,6 +381,92 @@ class MailServiceDeferralTest extends TestCase
             bodyHtml: '<p>Bonjour</p>',
             bodyText: 'Bonjour'
         );
+    }
+
+    /**
+     * **The caller can now tell** (issue #1454). A deferral still returns
+     * normally — D9 is unchanged for the ninety callers that pass nothing —
+     * but one that hands in a `SendTracking` learns that nothing left, on
+     * which lane, and its origin is stored beside the message so the drain
+     * can find its way back to it.
+     */
+    public function testATrackedSendIsToldItWasDeferredAndItsOriginIsKept(): void
+    {
+        $tracking = new SendTracking('mass_mail.delivery:42');
+
+        $this->serviceDeferring(MailLane::Bulk)->send(
+            to: 'parent@exemple.test',
+            subject: 'Nouvelles du camp',
+            bodyHtml: '<p>Bonjour</p>',
+            bodyText: 'Bonjour',
+            purpose: MailPurpose::Bulk,
+            tracking: $tracking
+        );
+
+        $this->assertTrue($tracking->wasDeferred());
+        $this->assertSame(MailLane::Bulk, $tracking->deferredLane());
+        $this->assertSame('mass_mail.delivery:42', $this->repository->due(1, '2099-01-01 00:00:00')[0]->origin);
+    }
+
+    /** A message a relay took is not a deferral, and says so. */
+    public function testATrackedSendThatLeftIsNotADeferral(): void
+    {
+        $tracking = new SendTracking('mass_mail.delivery:42');
+        $delivering = new class implements MailTransportInterface {
+            public function deliver(PHPMailer $mail, MailPurpose $purpose = MailPurpose::Ordinary): void
+            {
+            }
+        };
+
+        $this->service($delivering, $this->queue)->send(
+            to: 'parent@exemple.test',
+            subject: 'Nouvelles du camp',
+            bodyHtml: '<p>Bonjour</p>',
+            bodyText: 'Bonjour',
+            tracking: $tracking
+        );
+
+        $this->assertFalse($tracking->wasDeferred());
+        $this->assertNull($tracking->deferredLane());
+        $this->assertSame([], $this->repository->pendingCountByLane());
+    }
+
+    /**
+     * A deferral the queue REFUSED is a failure, and the tracking must not
+     * have been marked before the refusal — or a caller catching the
+     * exception would find a « deferred » flag on a message nobody kept.
+     */
+    public function testADeferralTheQueueRefusedIsNotReportedAsOne(): void
+    {
+        $tracking = new SendTracking();
+        $attachment = $this->tempDir . '/camp.zip';
+        file_put_contents($attachment, str_repeat('x', DeferredMailQueue::MAX_ATTACHMENT_BYTES + 1));
+
+        try {
+            $this->serviceDeferring(MailLane::Bulk)->send(
+                to: 'parent@exemple.test',
+                subject: 'Photos du camp',
+                bodyHtml: '<p>Bonjour</p>',
+                bodyText: 'Bonjour',
+                attachments: [['path' => $attachment, 'name' => 'camp.zip']],
+                purpose: MailPurpose::Bulk,
+                tracking: $tracking
+            );
+            $this->fail('A message the queue refuses must fail.');
+        } catch (MailException) {
+            $this->assertFalse($tracking->wasDeferred());
+        }
+    }
+
+    /**
+     * The origin is stored in plain text, so it may never carry an address
+     * or a name: anything outside a short reference alphabet is refused.
+     */
+    public function testAnOriginThatCouldCarryAnAddressIsRefused(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+
+        new SendTracking('parent@exemple.test');
     }
 
     private function serviceDeferring(MailLane $lane, bool $journal = false): MailService

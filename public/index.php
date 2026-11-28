@@ -9729,7 +9729,10 @@ if ($isEnabled('mass_mail')) {
         // The original sender of an email imported from a former site,
         // shown as is (data_migration, D6). Display only: the read-only
         // lock is the email's own imported_at.
-        $massMailImportedEmailRepo
+        $massMailImportedEmailRepo,
+        // Whether a message still « en attente chez le fournisseur » is
+        // really in the core's deferred queue (issue #1454).
+        new \Core\Mail\Transport\DeferredMailRepository($pdo, $encryptionService)
     );
 
     // « L'envoi … est à l'arrêt » (issue #1443): a mailing still shown
@@ -12776,7 +12779,8 @@ if ($isEnabled('registration')) {
             new \Core\Mail\Feedback\Bounce\BounceService(
                 new \Core\Mail\Feedback\Bounce\BounceStateRepository($pdo, $encryptionService)
             ),
-            new \Modules\MassMail\Repository\ImportedEmailRepository($pdo, $encryptionService)
+            new \Modules\MassMail\Repository\ImportedEmailRepository($pdo, $encryptionService),
+            new \Core\Mail\Transport\DeferredMailRepository($pdo, $encryptionService)
         );
         $frontController->registerController(
             \Modules\MassMail\Controller\MassMailController::class,

@@ -88,10 +88,19 @@ final class DeferredMailQueue
      *     cc?: list<string>,
      *     attachments: array<int, array{name: string, content: string}>
      * } $payload
+     * @param string|null $origin The caller's reference for this message
+     *        (`Core\Mail\SendTracking`), kept beside it in plain text so
+     *        the drain can say what became of it to whoever sent it
+     *        (issue #1454). Never an address: SendTracking refuses one.
      * @return bool Whether it was taken. False means the caller's failure stands.
      */
-    public function defer(MailLane $lane, MailPurpose $purpose, array $payload, string $reason): bool
-    {
+    public function defer(
+        MailLane $lane,
+        MailPurpose $purpose,
+        array $payload,
+        string $reason,
+        ?string $origin = null
+    ): bool {
         if (!$this->defers($lane)) {
             return false;
         }
@@ -115,7 +124,8 @@ final class DeferredMailQueue
                 $payload,
                 $reason,
                 date('Y-m-d H:i:s', $now + self::BACKOFF_MINUTES[0] * 60),
-                date('Y-m-d H:i:s', $now + $this->lifetimeHours() * 3600)
+                date('Y-m-d H:i:s', $now + $this->lifetimeHours() * 3600),
+                $origin
             );
         } catch (\Throwable) {
             // A queue that cannot be written to must not swallow the

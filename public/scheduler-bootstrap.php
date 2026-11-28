@@ -197,7 +197,7 @@ function scoutmagicBootstrapScheduler(
         )
     );
 
-    // The one CORE hook (§7.4) a scheduled task needs, under the same
+    // A CORE hook (§7.4) a scheduled task needs, under the same
     // live enablement guard as the Api\ capabilities: the Staff d'U
     // section's responsable, which the SOS page resolves the default
     // number to (issue #1448). Without it the hourly correction resolved
@@ -217,6 +217,16 @@ function scoutmagicBootstrapScheduler(
                 )
             )
         )
+    );
+
+    // The second core hook on this path (§7.4, issue #1454): what became of
+    // a mailing's message the deferred queue kept — sent by the drain, or
+    // abandoned — told back to the message's row. Built from the context
+    // like a task handler, so the factory names nothing but the class.
+    $capabilities->register(
+        \Core\Module\DeferredMailOutcomeListener::class,
+        'mass_mail',
+        static fn (): object => new \Modules\MassMail\Task\DeferredDeliveryListener()
     );
 
     $capabilities->register(
@@ -336,7 +346,14 @@ function scoutmagicBootstrapScheduler(
         $mailProviderDirectory === null ? null : new \Core\Mail\Transport\BulkCadence(
             $mailProviderDirectory,
             new \Core\Mail\Transport\LaneChainRepository($pdo),
-            new \Core\Mail\Transport\SendCounterRepository($pdo)
+            new \Core\Mail\Transport\SendCounterRepository($pdo),
+            // The reserve the chain takes off the mailing lane's quota, so
+            // « the lane has room » means what the chain will then do
+            // (issue #1454): a mailing suspends where the chain would defer.
+            new \Core\Mail\Transport\MailReserve(
+                new \Core\Mail\Transport\SendCounterRepository($pdo),
+                new \Core\Mail\Transport\LaneChainRepository($pdo)
+            )
         )
     );
     $runner->setModuleManager($moduleManager);

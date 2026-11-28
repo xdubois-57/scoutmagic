@@ -12,6 +12,7 @@ use Core\Mail\Transport\MailLane;
 use Core\Mail\Transport\MailProvider;
 use Core\Mail\Transport\MailProviderDirectory;
 use Core\Mail\Transport\MailProviderRepository;
+use Core\Mail\Transport\MailReserve;
 use Core\Mail\Transport\ProviderConnections;
 use Core\Mail\Transport\SendCounterRepository;
 use PHPUnit\Framework\TestCase;
@@ -159,6 +160,121 @@ class BulkCadenceTest extends TestCase
         );
     }
 
+    // ── Whether the lane has room (issue #1454) ───────────────────────
+
+    /**
+     * The question a mailing asks before each batch: a lane whose every
+     * enabled quota is spent suspends the mailing rather than having the
+     * chain defer it message by message.
+     */
+    public function testALaneHasRoomUntilItsLastQuotaIsSpent(): void
+    {
+        $first = $this->addRelay('Premier', batchSize: 30, interval: 7, dailyQuota: 1);
+        $second = $this->addRelay('Second', batchSize: 30, interval: 7, dailyQuota: 1);
+        $this->chains->append(MailLane::Bulk, $first, true);
+        $this->chains->append(MailLane::Bulk, $second, true);
+
+        $this->assertTrue($this->cadence()->hasRoomLeft());
+
+        $this->counters->increment($first, MailLane::Bulk);
+        $this->assertTrue($this->cadence()->hasRoomLeft(), 'The second provider still has its quota.');
+
+        $this->counters->increment($second, MailLane::Bulk);
+        $this->assertFalse($this->cadence()->hasRoomLeft());
+    }
+
+    /** A provider with no known quota never runs out, and a disabled entry never counts. */
+    public function testAProviderWithoutAQuotaAlwaysHasRoomAndADisabledOneNever(): void
+    {
+        $spent = $this->addRelay('Épuisé', batchSize: 30, interval: 7, dailyQuota: 1);
+        $unbounded = $this->addRelay('Sans quota', batchSize: 30, interval: 7);
+        $this->chains->append(MailLane::Bulk, $spent, true);
+        $this->chains->append(MailLane::Bulk, $unbounded, false);
+        $this->counters->increment($spent, MailLane::Bulk);
+
+        $this->assertFalse($this->cadence()->hasRoomLeft(), 'The unbounded relay is disabled.');
+
+        $this->chains->append(MailLane::Bulk, MailProvider::LOCAL_ID, true);
+        $this->assertTrue($this->cadence()->hasRoomLeft(), 'The local send has no known ceiling (D6).');
+    }
+
+    /**
+     * **The chain's reading, reserve included** (D8): on the mailing lane
+     * the share kept for sign-in links and transactional mail comes off
+     * the quota first, so « room » here is what the chain would accept.
+     */
+    public function testTheReserveComesOffTheMailingLanesQuota(): void
+    {
+        $shared = $this->addRelay('Partagé', batchSize: 30, interval: 7, dailyQuota: 200);
+        $this->chains->append(MailLane::Bulk, $shared, true);
+        $this->chains->append(MailLane::Transactional, $shared, true);
+        $reserve = new MailReserve($this->counters, $this->chains);
+        $kept = $reserve->forProvider($this->directory()->all()[$shared])->messages;
+        $this->assertGreaterThan(0, $kept, 'The premise: a shared relay keeps a reserve.');
+
+        for ($i = 0; $i < 200 - $kept - 1; $i++) {
+            $this->counters->increment($shared, MailLane::Bulk);
+        }
+        $this->assertTrue($this->cadence($reserve)->hasRoomLeft(), 'One message before the reserve.');
+
+        $this->counters->increment($shared, MailLane::Bulk);
+        $this->assertFalse($this->cadence($reserve)->hasRoomLeft());
+        $this->assertTrue($this->cadence()->hasRoomLeft(), 'Without the reserve the quota is read whole.');
+    }
+
+    /**
+     * **The cadence reads the same ceiling as the room** (issue #1454).
+     * 170 of 200 spent with 30 reserved is a full relay for the mailing
+     * lane — the chain steps past it, hasRoomLeft() says so — and the
+     * mailing must be paced on the relay that will actually carry it, not
+     * on the one the raw quota still called active.
+     */
+    public function testARelayFullOnceTheReserveIsTakenOffIsNotTheActiveOne(): void
+    {
+        $shared = $this->addRelay('Partagé', batchSize: 30, interval: 7, dailyQuota: 200);
+        $next = $this->addRelay('Suivant', batchSize: 100, interval: 2);
+        $this->chains->append(MailLane::Bulk, $shared, true);
+        $this->chains->append(MailLane::Bulk, $next, true);
+        $this->chains->append(MailLane::Transactional, $shared, true);
+        $reserve = new MailReserve($this->counters, $this->chains);
+        $this->assertSame(
+            30,
+            $reserve->forProvider($this->directory()->all()[$shared])->messages,
+            'The premise: a fresh shared relay keeps the floor.'
+        );
+        for ($i = 0; $i < 170; $i++) {
+            $this->counters->increment($shared, MailLane::Bulk);
+        }
+
+        $this->assertSame($next, $this->cadence($reserve)->activeProvider()->id);
+        $this->assertSame(['batch_size' => 100, 'interval_minutes' => 2], $this->cadence($reserve)->current());
+        $this->assertTrue($this->cadence($reserve)->hasRoomLeft(), 'the next relay has no quota');
+        $this->assertSame($shared, $this->cadence()->activeProvider()->id, 'without a reserve, 170 < 200');
+    }
+
+    /**
+     * No chain laid down means the configured relay carries the message,
+     * and a chain that cannot be read must not stop a mailing: room, both.
+     */
+    public function testALaneWithNoChainOrNoReadableStateHasRoom(): void
+    {
+        $this->assertTrue($this->cadence()->hasRoomLeft());
+
+        $only = $this->addRelay('Unique', batchSize: 25, interval: 9, dailyQuota: 1);
+        $this->chains->append(MailLane::Bulk, $only, true);
+        $this->counters->increment($only, MailLane::Bulk);
+        $this->assertFalse($this->cadence()->hasRoomLeft(), 'The premise: this lane is full.');
+
+        $this->pdo->exec('DROP TABLE mail_send_counters');
+
+        $this->assertTrue($this->cadence()->hasRoomLeft());
+    }
+
+    private function directory(): MailProviderDirectory
+    {
+        return new MailProviderDirectory($this->providers, new ProviderConnections($this->secrets), $this->settings);
+    }
+
     private function addRelay(string $name, int $batchSize, int $interval, ?int $dailyQuota = null): int
     {
         $id = $this->providers->create($name, $dailyQuota, $batchSize, $interval);
@@ -167,14 +283,15 @@ class BulkCadenceTest extends TestCase
         return $id;
     }
 
-    private function cadence(): BulkCadence
+    private function cadence(?MailReserve $reserve = null): BulkCadence
     {
         $connections = new ProviderConnections($this->secrets);
 
         return new BulkCadence(
             new MailProviderDirectory($this->providers, $connections, $this->settings),
             $this->chains,
-            $this->counters
+            $this->counters,
+            $reserve
         );
     }
 }

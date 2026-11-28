@@ -129,7 +129,8 @@ class EmailTemplateControllerTest extends TestCase
                 bool $vouchesForRecipient = false,
                 ?string $bulkRunReference = null,
                 ?\Core\Mail\Feedback\Seed\SeedCopyContent $bulkCopy = null,
-                string|array|null $cc = null
+                string|array|null $cc = null,
+                ?\Core\Mail\SendTracking $tracking = null
             ): void {
                 $this->sent[] = ['to' => $to, 'subject' => $subject, 'html' => $bodyHtml, 'text' => $bodyText];
             }
@@ -838,6 +839,85 @@ class EmailTemplateControllerTest extends TestCase
             0,
             $this->journalCount(EmailTestSendThrottler::JOURNAL_TYPE),
             'a refused test was counted, so the next try would be throttled'
+        );
+    }
+
+    /**
+     * **A test during an outage says nothing left** (issue #1454). The
+     * lane has no provider, so `MailService` keeps the message in its
+     * deferred queue and returns normally — and this page used to answer
+     * « Test envoyé », the very opposite of what the administrator was
+     * checking. Through the real service and the real queue: the relay is
+     * the one thing stood in for.
+     */
+    public function testATestSentDuringAnOutageSaysItWasOnlyPutOnHold(): void
+    {
+        $tempDir = sys_get_temp_dir() . '/email_template_outage_' . uniqid();
+        mkdir($tempDir, 0700, true);
+        $settings = new \Core\Config\SettingService(new \Core\Config\SettingRepository($this->pdo));
+        $queued = new \Core\Mail\Transport\DeferredMailRepository(
+            $this->pdo,
+            new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32))
+        );
+        $journal = new JournalService(new JournalRepository($this->pdo));
+        $deferring = new MailService(
+            mode: 'local',
+            fromAddress: 'noreply@test.be',
+            fromName: 'Unité Test',
+            shortName: 'UT',
+            dkimManager: new \Core\Mail\DkimManager($tempDir),
+            dkimSelector: 'mail',
+            transport: new class implements \Core\Mail\MailTransportInterface {
+                public function deliver(
+                    \PHPMailer\PHPMailer\PHPMailer $mail,
+                    \Core\Mail\MailPurpose $purpose = \Core\Mail\MailPurpose::Ordinary
+                ): void {
+                    throw new \Core\Mail\Transport\LaneExhaustedException(
+                        \Core\Mail\Transport\MailLane::fromPurpose($purpose),
+                        'SMTP connect() failed.'
+                    );
+                }
+            },
+            journal: $journal,
+            deferred: new \Core\Mail\Transport\DeferredMailQueue($queued, $settings)
+        );
+        $controller = new EmailTemplateController(
+            \Tests\TestTwig::create(),
+            $this->registry,
+            $this->overrides,
+            $this->renderer,
+            new EmailTemplateCustomisationService($this->registry, $this->overrides, new HtmlSanitizer()),
+            $journal,
+            $deferring,
+            new EmailTestSendThrottler($this->pdo)
+        );
+
+        try {
+            $response = $controller->sendTest($this->formRequest([]), ['template' => self::OPEN_TEMPLATE]);
+        } finally {
+            @rmdir($tempDir);
+        }
+
+        $this->assertSame(302, $response->getStatusCode());
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertSame('warning', $flash['type'] ?? null);
+        $this->assertStringStartsWith('Test mis en attente, le relais ne répond pas', (string) ($flash['message'] ?? ''));
+        $this->assertStringContainsString("rien n'est parti", (string) ($flash['message'] ?? ''));
+        $this->assertSame(['transactional' => 1], $queued->pendingCountByLane(), 'the premise: it was deferred');
+        $this->assertStringContainsString(
+            '"deferred":true',
+            $this->journalContext(EmailTestSendThrottler::JOURNAL_TYPE)
+        );
+    }
+
+    /** And a test that left still says so, in the words it always used. */
+    public function testATestThatLeftSaysItWasSent(): void
+    {
+        $this->controller->sendTest($this->formRequest([]), ['template' => self::OPEN_TEMPLATE]);
+
+        $this->assertSame(
+            ['type' => 'success', 'message' => 'Test envoyé à votre adresse.'],
+            \Core\Http\FlashMessage::get()
         );
     }
 

@@ -48,7 +48,14 @@ final class DeferredMessage
         public readonly string $nextAttemptAt,
         public readonly string $expiresAt,
         public readonly string $createdAt,
-        public readonly ?string $settledAt
+        public readonly ?string $settledAt,
+        /**
+         * Who sent it, in the sender's own words (`Core\Mail\SendTracking`)
+         * — what the drain hands back when the message finally leaves or is
+         * given up on (issue #1454). Null for nearly every message: only a
+         * sender that has to hear the outcome names one.
+         */
+        public readonly ?string $origin = null
     ) {
     }
 

@@ -376,24 +376,12 @@ final class MailTransportChain implements MailTransportInterface
      */
     private function hasSpentItsQuota(MailProvider $provider, array $usedToday, MailLane $lane): bool
     {
-        if ($provider->dailyQuota === null) {
-            return false;
-        }
+        // One reading of the ceiling for the chain and the cadence alike
+        // (MailReserve::laneCeiling()), including what happens when the
+        // reserve cannot be computed: the whole quota, never a stop.
+        $ceiling = MailReserve::laneCeiling($this->reserve, $provider, $lane);
 
-        $ceiling = $provider->dailyQuota;
-
-        if ($lane === MailLane::Bulk && $this->reserve !== null) {
-            try {
-                $ceiling -= $this->reserve->forProvider($provider)->messages;
-            } catch (\Throwable) {
-                // Same posture as the breaker: a reserve that cannot be
-                // computed must not become a reason to stop sending.
-                // @catch-unreachable forProvider() reads only the two tables candidates() read a moment
-                // earlier in this send, with no I/O between; only a connection lost in that gap lands here.
-            }
-        }
-
-        return ($usedToday[$provider->id] ?? 0) >= max(0, $ceiling);
+        return $ceiling !== null && ($usedToday[$provider->id] ?? 0) >= $ceiling;
     }
 
     /**
