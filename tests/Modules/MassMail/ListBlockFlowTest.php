@@ -889,8 +889,7 @@ class ListBlockFlowTest extends TestCase
         $this->massMailService->startSending($email->id, null);
         $recipient = $this->recipientFor($this->deliveryRepository->findByEmailId($email->id), 'jeunesse@wavre.be');
 
-        $token = 'a' . str_repeat('b', 63);
-        $this->deliveryRepository->setUnsubscribeTokenHash($recipient->id, \Core\Security\CapabilityToken::hash($token));
+        $token = $this->deliveryRepository->unsubscribeTokenFor($recipient);
 
         $response = $this->unsubscribeController()->unsubscribe(
             new Request('POST', '/mass-mail/unsubscribe/' . $recipient->id, ['token' => $token], [], [], []),
@@ -979,8 +978,7 @@ class ListBlockFlowTest extends TestCase
         $recipient = $this->recipientFor($this->deliveryRepository->findByEmailId($email->id), 'chef@test.be');
         $this->assertNotNull($recipient->memberEmailId, 'a member recipient, unsubscribing through member_emails');
 
-        $token = 'a' . str_repeat('b', 63);
-        $this->deliveryRepository->setUnsubscribeTokenHash($recipient->id, \Core\Security\CapabilityToken::hash($token));
+        $token = $this->deliveryRepository->unsubscribeTokenFor($recipient);
         $this->unsubscribeController()->unsubscribe(
             new Request('POST', '/mass-mail/unsubscribe/' . $recipient->id, ['token' => $token], [], [], []),
             ['id' => (string) $recipient->id]

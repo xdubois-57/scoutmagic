@@ -14,7 +14,6 @@ use Core\Mail\MailException;
 use Core\Scheduler\SchedulerService;
 use Core\Scheduler\TaskContext;
 use Core\Scheduler\TaskHandlerInterface;
-use Core\Security\CapabilityToken;
 use Core\Member\MemberService;
 use Modules\MassMail\Repository\AudienceRepository;
 use Modules\MassMail\Repository\Delivery;
@@ -485,23 +484,15 @@ class SendBatchHandler implements TaskHandlerInterface
             }
             $sender = $senderIdentityBySection[$email->sectionId];
 
-            // One-click unsubscribe (module addendum, RFC 8058) — a fresh
-            // token for THIS message, generated right before this actual
-            // send (never at freeze time in MassMailService::startSending();
-            // there'd be nowhere safe to hold a raw token between freezing
-            // and sending). Every message gets the footer link + both
-            // headers, whatever its address is — Modules\MassMail\
+            // One-click unsubscribe (module addendum, RFC 8058) — the token
+            // of THIS message, the same on every send of it, so the link in
+            // a first copy still works after « Renvoyer » (issue #1514;
+            // derived, never stored: DeliveryRepository::
+            // unsubscribeTokenFor()). Every message gets the footer link +
+            // both headers, whatever its address is — Modules\MassMail\
             // Controller\UnsubscribeController resolves the right
             // Core\Member\MemberEmail row from delivery->memberEmailId.
-            // The token is 32 bytes of entropy, so a fast hash (SHA-256 +
-            // hash_equals on verify) is as safe as bcrypt here and avoids a
-            // per-request bcrypt on an anonymous endpoint — a needless
-            // CPU-burn primitive an attacker could hammer (audit hardening).
-            $rawUnsubscribeToken = CapabilityToken::generate();
-            $deliveryRepository->setUnsubscribeTokenHash(
-                $delivery->id,
-                CapabilityToken::hash($rawUnsubscribeToken)
-            );
+            $rawUnsubscribeToken = $deliveryRepository->unsubscribeTokenFor($delivery);
             $unsubscribeUrl = rtrim((string) $context->settings->get('base_url'), '/')
                 . '/mass-mail/unsubscribe/' . $delivery->id . '?token=' . $rawUnsubscribeToken;
 
