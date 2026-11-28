@@ -228,6 +228,40 @@ class PassageNoteRepository
     }
 
     /**
+     * The friends an AI reading found in a passage comment are stored as
+     * resolved member ids (`ai_friend_member_ids`), on OTHER children's
+     * notes: when a merge absorbs one of those friends (issue #1462,
+     * Service\RegistrationMergeListener), the id becomes the kept one —
+     * once, the others untouched — or the optimiser would stop keeping the
+     * pair together, and nothing would re-read the unchanged comment.
+     * Returns how many notes changed.
+     */
+    public function repointAiFriend(int $keptMemberId, int $duplicateMemberId): int
+    {
+        // LIKE only narrows the candidates; the decoded list decides.
+        $stmt = $this->pdo->prepare(
+            'SELECT id, ai_friend_member_ids FROM registration_passage_notes WHERE ai_friend_member_ids LIKE ?'
+        );
+        $stmt->execute(['%' . $duplicateMemberId . '%']);
+        $update = $this->pdo->prepare('UPDATE registration_passage_notes SET ai_friend_member_ids = ? WHERE id = ?');
+        $changed = 0;
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $ids = self::decodeIds($row['ai_friend_member_ids']);
+            if (!in_array($duplicateMemberId, $ids, true)) {
+                continue;
+            }
+            $ids = array_values(array_unique(array_map(
+                static fn(int $id): int => $id === $duplicateMemberId ? $keptMemberId : $id,
+                $ids
+            )));
+            $update->execute([json_encode($ids, JSON_THROW_ON_ERROR), (int) $row['id']]);
+            $changed++;
+        }
+
+        return $changed;
+    }
+
+    /**
      * @return array<int, int>
      */
     private static function decodeIds(mixed $json): array

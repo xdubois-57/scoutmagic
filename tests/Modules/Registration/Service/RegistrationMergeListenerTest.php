@@ -7,6 +7,8 @@ namespace Tests\Modules\Registration\Service;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Member\Duplicate\MergeRowRepository;
+use Core\Security\EncryptionService;
+use Modules\Registration\Repository\PassageNoteRepository;
 use Modules\Registration\Service\RegistrationMergeListener;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
@@ -32,7 +34,8 @@ final class RegistrationMergeListenerTest extends TestCase
         RegistrationTestHelper::createTables($this->pdo);
         $this->listener = new RegistrationMergeListener(
             new MergeRowRepository($this->pdo),
-            new JournalService(new JournalRepository($this->pdo))
+            new JournalService(new JournalRepository($this->pdo)),
+            new PassageNoteRepository($this->pdo, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)))
         );
         $this->pdo->exec(
             "INSERT INTO scout_years (label, start_date, end_date, is_current)
@@ -98,5 +101,24 @@ final class RegistrationMergeListenerTest extends TestCase
             "SELECT context FROM event_log WHERE event_type = 'registration_merge_collisions'"
         )->fetchColumn(), true);
         $this->assertSame(['registration_reenrollments' => 1], $context['collisions']);
+    }
+
+    /**
+     * A friend an AI reading found in another child's passage comment is a
+     * resolved id: it names the kept identity after the merge, once.
+     */
+    public function testAFriendAnAiReadingFoundNamesTheKeptIdentityOnce(): void
+    {
+        $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('T1')");
+        $third = (int) $this->pdo->lastInsertId();
+        $this->pdo->prepare(
+            'INSERT INTO registration_passage_notes (member_id, scout_year_id, ai_friend_member_ids) VALUES (?, ?, ?)'
+        )->execute([$third, $this->year, json_encode([$this->duplicate, 99, $this->kept])]);
+
+        $this->listener->onMembersMerged($this->kept, $this->duplicate);
+
+        $stmt = $this->pdo->prepare('SELECT ai_friend_member_ids FROM registration_passage_notes WHERE member_id = ?');
+        $stmt->execute([$third]);
+        $this->assertSame([$this->kept, 99], json_decode((string) $stmt->fetchColumn(), true));
     }
 }
