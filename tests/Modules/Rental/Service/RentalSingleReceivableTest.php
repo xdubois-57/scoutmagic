@@ -863,6 +863,113 @@ class RentalSingleReceivableTest extends TestCase
         $this->assertTrue($this->depositReturnedLine($booking));
     }
 
+    // ── The return reminder, read from this status (#1473) ────────────
+
+    /**
+     * Whether the planner, fed statusFor()'s real answer as the reminder
+     * service feeds it, asks the managers to return the deposit — a month
+     * after the stay, well past the fortnight it waits for.
+     */
+    private function depositReturnIsChased(RentalBooking $booking): bool
+    {
+        $due = (new \Modules\Rental\Reminder\ReminderPlanner())->forBooking(
+            $this->reload($booking->id),
+            $this->asset(),
+            $this->paymentStatus($booking),
+            ['arrival' => true, 'departure' => true],
+            true,
+            true,
+            new \DateTimeImmutable('2027-04-15')
+        );
+
+        foreach ($due as $reminder) {
+            if ($reminder->kind === \Modules\Rental\Reminder\ReminderKind::SECURITY_DEPOSIT_TO_RETURN) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * A confirmed booking, paid in full by transfer — only a stay that goes
+     * ahead is chased about money — and the communication it was paid with.
+     *
+     * @return array{RentalBooking, string}
+     */
+    private function confirmedAndPaid(): array
+    {
+        $booking = $this->createBooking();
+        $communication = $this->firstContract($booking);
+        $this->operations->confirm(
+            $this->reload($booking->id),
+            $this->asset(),
+            1,
+            new \DateTimeImmutable('2027-01-25')
+        );
+        $this->pay($communication, 818.00);
+
+        return [$this->reload($booking->id), $communication];
+    }
+
+    public function testADepositHeldAfterTheStayIsChasedForReturn(): void
+    {
+        // 818 € in, settlement validated without withholding, nothing
+        // refunded yet: the renter's 150 € are still sitting with the unit.
+        [$booking] = $this->confirmedAndPaid();
+        $settlement = $this->stay->recordSettlement($this->reload($booking->id), $this->assetId, null, [], 1);
+        $this->stay->validateSettlement($this->reload($booking->id), $settlement->id, 1);
+
+        $this->assertTrue($this->depositReturnIsChased($booking));
+    }
+
+    public function testADepositRefundedByTransferIsNotChasedForReturn(): void
+    {
+        // Finance follows the booking: the refund is a reconciled transfer,
+        // no return date is ever typed, and the deposit reads « Restituée ».
+        [$booking, $communication] = $this->confirmedAndPaid();
+        $settlement = $this->stay->recordSettlement($this->reload($booking->id), $this->assetId, null, [], 1);
+        $this->stay->validateSettlement($this->reload($booking->id), $settlement->id, 1);
+        $this->refund(150.00, 'Remboursement caution ' . $communication);
+
+        $status = $this->paymentStatus($booking);
+        $this->assertSame(
+            \Modules\Rental\Payment\SecurityDepositStatus::RETURNED,
+            $status['security_deposit']['status']
+        );
+        $this->assertNull($status['security_deposit']['returned_at']);
+        $this->assertFalse($this->depositReturnIsChased($booking));
+    }
+
+    public function testADepositFullyWithheldIsNotChasedForReturn(): void
+    {
+        [$booking] = $this->confirmedAndPaid();
+        $this->settleWithCharge($booking, 15000);
+
+        $this->assertSame(
+            \Modules\Rental\Payment\SecurityDepositStatus::FULLY_WITHHELD,
+            $this->paymentStatus($booking)['security_deposit']['status']
+        );
+        $this->assertFalse($this->depositReturnIsChased($booking));
+    }
+
+    public function testADepositPartlyWithheldIsChasedUntilTheRestIsRefunded(): void
+    {
+        // 34 € kept: the other 116 € are still owed back, and the reminder
+        // says so until the transfer is reconciled.
+        [$booking, $communication] = $this->confirmedAndPaid();
+        $this->settleWithCharge($booking, 3400);
+        $this->assertTrue($this->depositReturnIsChased($booking));
+
+        $this->refund(116.00, 'Remboursement caution ' . $communication);
+
+        $this->assertSame(
+            \Modules\Rental\Payment\SecurityDepositStatus::PARTIALLY_WITHHELD,
+            $this->paymentStatus($booking)['security_deposit']['status']
+        );
+        $this->assertFalse($this->depositReturnIsChased($booking));
+    }
+
     public function testTenEurosPaidTooMuchAndGivenBackAreNotTheDepositGoingBack(): void
     {
         // The receivable still asks for the deposit: a refund of a small

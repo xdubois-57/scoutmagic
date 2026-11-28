@@ -9,6 +9,7 @@ use Modules\Rental\Booking\HoldOrigin;
 use Modules\Rental\Booking\RentalBooking;
 use Modules\Rental\Calendar\PublishFrom;
 use Modules\Rental\Compliance\ComplianceItem;
+use Modules\Rental\Payment\SecurityDepositStatus;
 use Modules\Rental\Reminder\DueReminder;
 use Modules\Rental\Reminder\ReminderKind;
 use Modules\Rental\Reminder\ReminderPlanner;
@@ -513,6 +514,50 @@ class ReminderPlannerTest extends TestCase
         ]));
 
         $this->assertNotContains(ReminderKind::SECURITY_DEPOSIT_TO_RETURN->value, self::kinds($due));
+    }
+
+    /**
+     * The deposit's end as statusFor() derives it for a booking Finance
+     * follows (#1473): settled by the account, with no return date typed.
+     *
+     * @return iterable<string, array{SecurityDepositStatus}>
+     */
+    public static function settledDepositStatuses(): iterable
+    {
+        yield 'returned by transfer' => [SecurityDepositStatus::RETURNED];
+        yield 'partly withheld, the rest refunded' => [SecurityDepositStatus::PARTIALLY_WITHHELD];
+        yield 'fully withheld' => [SecurityDepositStatus::FULLY_WITHHELD];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('settledDepositStatuses')]
+    public function testASecurityDepositSettledWithoutAReturnDateIsNotChased(SecurityDepositStatus $status): void
+    {
+        $due = $this->plan($this->booking(), '2027-08-20', $this->payment([
+            'security_deposit' => [
+                'status' => $status,
+                'amount_cents' => 30000,
+                'received_cents' => 30000,
+                'due_date' => '2027-06-20',
+                'returned_at' => null,
+            ],
+        ]));
+
+        $this->assertNotContains(ReminderKind::SECURITY_DEPOSIT_TO_RETURN->value, self::kinds($due));
+    }
+
+    public function testASecurityDepositStatedHeldIsChased(): void
+    {
+        $due = $this->plan($this->booking(), '2027-08-20', $this->payment([
+            'security_deposit' => [
+                'status' => SecurityDepositStatus::RECEIVED,
+                'amount_cents' => 30000,
+                'received_cents' => 30000,
+                'due_date' => '2027-06-20',
+                'returned_at' => null,
+            ],
+        ]));
+
+        $this->assertContains(ReminderKind::SECURITY_DEPOSIT_TO_RETURN->value, self::kinds($due));
     }
 
     public function testADepositIsNotChasedForReturnTheDayAfterTheStay(): void
