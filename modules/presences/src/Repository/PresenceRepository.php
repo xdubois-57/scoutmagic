@@ -376,11 +376,17 @@ class PresenceRepository
      */
     public function mergeMember(int $keptMemberId, int $duplicateMemberId): array
     {
+        // Locked: a chef's saveStatus() or saveComment() committing between
+        // this comparison and the delete below would otherwise have the
+        // newer evening deleted in favour of the older one. The caller — the
+        // merge, or its catch-up — owns the transaction. SQLite, which most
+        // tests run on, has no such clause.
+        $forUpdate = $this->pdo->getAttribute(\PDO::ATTR_DRIVER_NAME) === 'sqlite' ? '' : ' FOR UPDATE';
         $collisions = $this->pdo->prepare(
             'SELECT d.id AS duplicate_row, k.id AS kept_row, d.updated_at > k.updated_at AS duplicate_newer
              FROM presences_records d
              JOIN presences_records k ON k.calendar_event_id = d.calendar_event_id AND k.member_id = ?
-             WHERE d.member_id = ?'
+             WHERE d.member_id = ?' . $forUpdate
         );
         $collisions->execute([$keptMemberId, $duplicateMemberId]);
         $rows = $collisions->fetchAll(\PDO::FETCH_ASSOC);
