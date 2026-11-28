@@ -1,0 +1,149 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Tests\Core\Member\Duplicate;
+
+use Core\Config\SettingRepository;
+use Core\Config\SettingService;
+use Core\Journal\JournalRepository;
+use Core\Journal\JournalService;
+use Core\Member\Duplicate\DuplicateMemberRepository;
+use Core\Member\Duplicate\MemberMergeListenerRegistrar;
+use Core\Member\Duplicate\MemberMergeListenerRegistry;
+use Core\Member\Duplicate\MemberMergeRepository;
+use Core\Member\Duplicate\MemberMergeService;
+use Core\Security\EncryptionService;
+use PHPUnit\Framework\TestCase;
+use Tests\DatabaseTestHelper;
+
+/**
+ * Issue #1462: a module's listener catches up on every merge it has not
+ * seen — the first time it is registered, and again after a merge made
+ * while the module was disabled (its listener not registered at all).
+ */
+#[\PHPUnit\Framework\Attributes\Group('database')]
+final class MemberMergeListenerRegistrarTest extends TestCase
+{
+    private \PDO $pdo;
+    private EncryptionService $encryption;
+    private DuplicateMemberRepository $duplicates;
+    private int $lastYear;
+    private int $thisYear;
+
+    protected function setUp(): void
+    {
+        $this->pdo = DatabaseTestHelper::createTestDatabase();
+        $this->encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $this->duplicates = new DuplicateMemberRepository($this->pdo, $this->encryption);
+        $this->pdo->exec(
+            "INSERT INTO scout_years (label, start_date, end_date, is_current)
+             VALUES ('2024-2025', '2024-09-01', '2025-08-31', 0), ('2025-2026', '2025-09-01', '2026-08-31', 1)"
+        );
+        [$this->lastYear, $this->thisYear] = array_map(
+            'intval',
+            $this->pdo->query('SELECT id FROM scout_years ORDER BY id')->fetchAll(\PDO::FETCH_COLUMN)
+        );
+    }
+
+    /** One request: a fresh registry, and the listeners of the modules enabled in it. */
+    private function bootWith(?RecordingMergeListener $listener): MemberMergeService
+    {
+        $registry = new MemberMergeListenerRegistry();
+        $repository = new MemberMergeRepository($this->pdo, $this->duplicates, $registry);
+        $journal = new JournalService(new JournalRepository($this->pdo));
+        if ($listener !== null) {
+            (new MemberMergeListenerRegistrar(
+                $registry,
+                $repository,
+                new SettingService(new SettingRepository($this->pdo)),
+                $journal
+            ))->register($listener);
+        }
+
+        return new MemberMergeService($repository, $this->duplicates, $journal);
+    }
+
+    private function member(string $deskId, int $yearId): int
+    {
+        $this->pdo->prepare('INSERT INTO members (desk_id) VALUES (?)')->execute([$deskId]);
+        $id = (int) $this->pdo->lastInsertId();
+        $this->pdo->prepare(
+            'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted, is_active)
+             VALUES (?, ?, ?, ?, 1)'
+        )->execute([$id, $yearId, 'x', 'y']);
+
+        return $id;
+    }
+
+    public function testAMergeMadeWhileTheModuleWasDisabledReachesItOnceEnabledAgain(): void
+    {
+        $enabled = new RecordingMergeListener([], 0);
+        $this->bootWith($enabled);
+        $this->assertSame([], $enabled->calls, 'nothing merged yet: nothing to catch up');
+
+        $kept = $this->member('K', $this->lastYear);
+        $duplicate = $this->member('D', $this->thisYear);
+        $this->bootWith(null)->merge($kept, $duplicate, 1);
+
+        $reEnabled = new RecordingMergeListener([], 0);
+        $this->bootWith($reEnabled);
+        $this->assertSame([[$kept, $duplicate]], $reEnabled->calls);
+
+        $nextRequest = new RecordingMergeListener([], 0);
+        $this->bootWith($nextRequest);
+        $this->assertSame([], $nextRequest->calls, 'already caught up: not replayed on every request');
+    }
+
+    /**
+     * A merge made while the module is enabled is followed there and then:
+     * it advances the module's state in its own transaction, so the next
+     * request does not replay the site's whole merge history.
+     */
+    public function testAnOrdinaryMergeIsNotReplayedOnTheNextRequest(): void
+    {
+        $first = new RecordingMergeListener([], 0);
+        $kept = $this->member('K', $this->lastYear);
+        $duplicate = $this->member('D', $this->thisYear);
+        $this->bootWith($first)->merge($kept, $duplicate, 1);
+        $this->assertSame([[$kept, $duplicate]], $first->calls, 'followed by the merge itself');
+
+        $nextRequest = new RecordingMergeListener([], 0);
+        $this->bootWith($nextRequest);
+        $this->assertSame([], $nextRequest->calls);
+    }
+
+    /**
+     * The catch-up runs from the composition root: a failing one must not
+     * 500 the page, nor be re-run by every request. It is journalled once,
+     * left alone for a quarter of an hour, then retried and done.
+     */
+    public function testAFailingCatchUpIsJournalledOnceAndRetriedLaterWithoutBreakingThePage(): void
+    {
+        $kept = $this->member('K', $this->lastYear);
+        $duplicate = $this->member('D', $this->thisYear);
+        $this->bootWith(null)->merge($kept, $duplicate, 1);
+
+        $broken = new RecordingMergeListener([], 0, new \RuntimeException('lock wait timeout'));
+        $errorLog = ini_set('error_log', '/dev/null');
+        try {
+            $this->bootWith($broken);
+        } finally {
+            ini_set('error_log', (string) $errorLog);
+        }
+        $repaired = new RecordingMergeListener([], 0);
+        $this->bootWith($repaired);
+        $this->assertSame([], $repaired->calls, 'not retried by the very next page');
+        $this->assertSame(1, (int) $this->pdo->query(
+            "SELECT COUNT(*) FROM event_log WHERE event_type = 'member_merge_catch_up_failed'"
+        )->fetchColumn());
+
+        // A quarter of an hour later.
+        $this->pdo->exec(
+            "UPDATE settings SET setting_value = REPLACE(setting_value, SUBSTR(setting_value, -10), '1000000000')
+             WHERE setting_key = 'member_merge_caught_up_presences'"
+        );
+        $this->bootWith($repaired);
+        $this->assertSame([[$kept, $duplicate]], $repaired->calls, 'retried, and done');
+    }
+}

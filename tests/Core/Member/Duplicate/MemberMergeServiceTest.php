@@ -349,6 +349,23 @@ class MemberMergeServiceTest extends TestCase
     }
 
     /**
+     * Issue #1462: the merges' signature changes with every merge, which is
+     * what has a module catch up on a merge made while it was disabled.
+     */
+    public function testTheMergeSignatureChangesWithEveryMerge(): void
+    {
+        $repository = new MemberMergeRepository($this->pdo, $this->duplicates);
+        $before = $repository->mergeSignature();
+        $kept = $this->createMember('T001', $this->lastYear);
+        $duplicate = $this->createMember('T900', $this->thisYear);
+
+        $this->service->merge($kept, $duplicate, 1);
+
+        $this->assertNotSame($before, $repository->mergeSignature());
+        $this->assertSame($repository->mergeSignature(), $repository->mergeSignature());
+    }
+
+    /**
      * Issue #1462: a module brings its own rows along through a listener,
      * inside the merge: its preview is shown, its rows are moved, and the
      * journal counts them per module.

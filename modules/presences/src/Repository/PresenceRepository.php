@@ -354,6 +354,118 @@ class PresenceRepository
         return $stmt->rowCount();
     }
 
+    /** How many evenings are recorded under this member id. */
+    public function countForMember(int $memberId): int
+    {
+        $stmt = $this->pdo->prepare('SELECT COUNT(*) FROM presences_records WHERE member_id = ?');
+        $stmt->execute([$memberId]);
+
+        return (int) $stmt->fetchColumn();
+    }
+
+    /**
+     * Moves every evening recorded under $duplicateMemberId onto
+     * $keptMemberId (issue #1462, Service\PresenceMergeListener). An
+     * evening recorded under BOTH ids — the same animé pointed twice — ends
+     * as one row, one row per (event, animé) being the table's own rule.
+     *
+     * The two rows are merged column by column, never one dropped whole:
+     * a state and a comment are written separately (saveStatus(),
+     * saveComment()), so `updated_at` says which ROW moved last, not which
+     * column. The row written last wins (the kept member's on a tie), and
+     * it takes from the other row whatever it lacks — a state where it has
+     * none, a comment where it has none. Two different comments are both
+     * kept, the winner's first: what the staff wrote about a child is
+     * never thrown away by a merge. Only two different states conflict
+     * outright, and there the winner's stands.
+     *
+     * Returns how many of the duplicate's evenings were brought along
+     * (moved, or settled against the kept one's) and how many were
+     * recorded twice.
+     *
+     * @return array{handled: int, collisions: int}
+     */
+    public function mergeMember(int $keptMemberId, int $duplicateMemberId): array
+    {
+        // Locked: a chef's saveStatus() or saveComment() committing between
+        // this comparison and the delete below would otherwise be merged
+        // from a stale copy. The caller — the merge, or its catch-up — owns
+        // the transaction. SQLite, which most tests run on, has no such
+        // clause.
+        $forUpdate = $this->pdo->getAttribute(\PDO::ATTR_DRIVER_NAME) === 'sqlite' ? '' : ' FOR UPDATE';
+        $collisions = $this->pdo->prepare(
+            'SELECT d.id AS duplicate_row, k.id AS kept_row, d.updated_at > k.updated_at AS duplicate_newer,
+                    d.status AS duplicate_status, k.status AS kept_status,
+                    d.comment_encrypted AS duplicate_comment, k.comment_encrypted AS kept_comment
+             FROM presences_records d
+             JOIN presences_records k ON k.calendar_event_id = d.calendar_event_id AND k.member_id = ?
+             WHERE d.member_id = ?' . $forUpdate
+        );
+        $collisions->execute([$keptMemberId, $duplicateMemberId]);
+        $rows = $collisions->fetchAll(\PDO::FETCH_ASSOC);
+
+        $delete = $this->pdo->prepare('DELETE FROM presences_records WHERE id = ?');
+        $complete = $this->pdo->prepare('UPDATE presences_records SET status = ?, comment_encrypted = ? WHERE id = ?');
+        foreach ($rows as $row) {
+            $winner = (bool) $row['duplicate_newer'] ? 'duplicate' : 'kept';
+            $loser = $winner === 'duplicate' ? 'kept' : 'duplicate';
+
+            $status = (string) $row[$winner . '_status'];
+            if ($status === PresenceStatus::UNSET->value) {
+                $status = (string) $row[$loser . '_status'];
+            }
+            $winnerEncrypted = self::blob($row[$winner . '_comment']);
+            $loserEncrypted = self::blob($row[$loser . '_comment']);
+            $comment = $winnerEncrypted;
+            $loserText = $this->decryptComment($loserEncrypted);
+            if ($loserText !== null) {
+                $winnerText = $this->decryptComment($winnerEncrypted);
+                if ($winnerText === null) {
+                    $comment = $loserEncrypted;
+                } elseif ($winnerText !== $loserText) {
+                    $comment = $this->encryption->encrypt($winnerText . "\n\n" . $loserText, self::COMMENT_CONTEXT);
+                }
+            }
+
+            // The losing row goes first, or the move below would collide
+            // with the unique (event, member) index.
+            $delete->execute([(int) $row[$loser . '_row']]);
+            if ($status !== (string) $row[$winner . '_status'] || $comment !== $winnerEncrypted) {
+                $complete->execute([$status, $comment, (int) $row[$winner . '_row']]);
+            }
+        }
+
+        $move = $this->pdo->prepare('UPDATE presences_records SET member_id = ? WHERE member_id = ?');
+        $move->execute([$keptMemberId, $duplicateMemberId]);
+
+        $settledAgainstKept = count(array_filter(
+            $rows,
+            static fn(array $row): bool => !(bool) $row['duplicate_newer']
+        ));
+
+        return ['handled' => $move->rowCount() + $settledAgainstKept, 'collisions' => count($rows)];
+    }
+
+    /** A BLOB column as a string, or null when empty (some drivers hand a stream). */
+    private static function blob(mixed $value): ?string
+    {
+        if (is_resource($value)) {
+            $value = stream_get_contents($value);
+        }
+
+        return is_string($value) && $value !== '' ? $value : null;
+    }
+
+    private function decryptComment(?string $encrypted): ?string
+    {
+        if ($encrypted === null) {
+            return null;
+        }
+        $comment = $this->encryption->decrypt($encrypted, self::COMMENT_CONTEXT);
+
+        return $comment !== '' ? $comment : null;
+    }
+
     /**
      * @param array<string, mixed> $row
      */

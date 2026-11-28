@@ -249,6 +249,8 @@ class MemberMergeRepository
                 $this->candidates->decide($candidateId, 'merged', $userAccountId);
             }
 
+            $this->listeners?->merged();
+
             $this->pdo->commit();
         } catch (\Throwable $e) {
             $this->pdo->rollBack();
@@ -256,6 +258,88 @@ class MemberMergeRepository
         }
 
         return $moduleRowsMoved;
+    }
+
+    /**
+     * Every merge already done, as [merged id, kept id] — one hop, as
+     * mergeInto() keeps every chain. What a module's listener catches up on
+     * the first time it is registered (issue #1462).
+     *
+     * @return list<array{int, int}>
+     */
+    public function mergedPairs(): array
+    {
+        $stmt = $this->pdo->query(
+            'SELECT id, merged_into_member_id FROM members WHERE merged_into_member_id IS NOT NULL ORDER BY id'
+        );
+
+        return array_map(
+            static fn(array $row): array => [(int) $row['id'], (int) $row['merged_into_member_id']],
+            $stmt !== false ? $stmt->fetchAll(\PDO::FETCH_ASSOC) : []
+        );
+    }
+
+    /**
+     * What the merges done so far look like, in one short string: how many
+     * identities are merged and the latest merge's date. It changes with
+     * every merge, so a module's catch-up runs again when there is one it
+     * has not seen — made while the module was disabled, or concurrently
+     * with its last catch-up (issue #1462).
+     */
+    public function mergeSignature(): string
+    {
+        $stmt = $this->pdo->query(
+            'SELECT COUNT(*), MAX(merged_at) FROM members WHERE merged_into_member_id IS NOT NULL'
+        );
+        $row = $stmt !== false ? $stmt->fetch(\PDO::FETCH_NUM) : false;
+
+        return $row === false ? '0|' : (int) $row[0] . '|' . (string) ($row[1] ?? '');
+    }
+
+    /**
+     * Runs $listener over every merge already done, in one transaction:
+     * the rows a module wrote under identities merged before it could
+     * follow a merge are brought to the kept identity. Returns how many.
+     */
+    public function catchUp(MemberMergeListener $listener): int
+    {
+        $pairs = $this->mergedPairs();
+        if ($pairs === []) {
+            return 0;
+        }
+
+        $this->pdo->beginTransaction();
+        try {
+            $handled = 0;
+            foreach ($pairs as [$mergedId, $keptId]) {
+                $handled += $listener->onMembersMerged($keptId, $mergedId);
+            }
+            $this->pdo->commit();
+        } catch (\Throwable $e) {
+            $this->pdo->rollBack();
+            throw $e;
+        }
+
+        return $handled;
+    }
+
+    /**
+     * catchUp() by one connection at a time, per module: null when another
+     * request holds it already — that one is doing the work, and this one
+     * stands down instead of queueing behind it for the same row locks
+     * (\Core\Database\AdvisoryLock, timeout 0).
+     */
+    public function catchUpAlone(MemberMergeListener $listener): ?int
+    {
+        $lock = 'member_merge_catch_up_' . $listener->moduleId();
+        if (!\Core\Database\AdvisoryLock::acquire($this->pdo, $lock)) {
+            return null;
+        }
+        try {
+            return $this->catchUp($listener);
+        } finally {
+            \Core\Database\AdvisoryLock::release($this->pdo, $lock);
+        }
     }
 
     /**

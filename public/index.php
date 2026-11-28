@@ -3043,6 +3043,15 @@ $memberMergeService = new \Core\Member\Duplicate\MemberMergeService(
     $duplicateMemberRepository,
     $journalService
 );
+// How a module block registers its listener: into the registry, and over
+// every merge already done whenever there is one it has not seen
+// (Core\Member\Duplicate\MemberMergeListenerRegistrar, issue #1462).
+$registerMemberMergeListener = (new \Core\Member\Duplicate\MemberMergeListenerRegistrar(
+    $memberMergeListeners,
+    $memberMergeRepository,
+    $settingService,
+    $journalService
+))->register(...);
 // One-time repair (issue #1462): the chef d'unité's notes were not part
 // of a merge until now, so a note written on an identity merged before
 // stayed on it, read by nobody. Same shape as
@@ -7929,10 +7938,19 @@ if ($isEnabled('official_documents')) {
     // The health sheet's one storage path. Encryption lives in the
     // Repository and nowhere else (specifications.md §44), so this is the
     // only place the encryption service reaches it.
+    $healthSheetRepository = new \Modules\OfficialDocuments\Repository\HealthSheetRepository(
+        $pdo,
+        $encryptionService
+    );
     $healthSheetService = new \Modules\OfficialDocuments\Service\HealthSheetService(
-        new \Modules\OfficialDocuments\Repository\HealthSheetRepository($pdo, $encryptionService),
+        $healthSheetRepository,
         $journalService
     );
+    // A merge brings the child's sheet along (issue #1462).
+    $registerMemberMergeListener(new \Modules\OfficialDocuments\Service\HealthSheetMergeListener(
+        $healthSheetRepository,
+        $journalService
+    ));
     $officialDocumentsAccess = new \Modules\OfficialDocuments\Security\OwnMemberOnly($memberService);
 
     $memberOfficialDocumentsProvider = new \Modules\OfficialDocuments\Service\MemberDocumentsSummaryService(
@@ -7991,6 +8009,15 @@ if ($isEnabled('official_documents')) {
 // reports it enabled while the calendar is off — the null check below is
 // belt and braces, and it is what makes the dependency provable at the
 // one place that wires it rather than only in a manifest.
+// Merges bring an animé's evenings along (issue #1462) — whether or not
+// the calendar is there to show them: the rows exist either way.
+if ($isEnabled('presences')) {
+    $registerMemberMergeListener(new \Modules\Presences\Service\PresenceMergeListener(
+        new \Modules\Presences\Repository\PresenceRepository($pdo, $encryptionService),
+        $journalService
+    ));
+}
+
 if ($isEnabled('presences') && $calendarSectionEventLookupForOthers !== null) {
     \Core\Debug\RequestTimeline::mark('module_presences');
     $presenceRepository = new \Modules\Presences\Repository\PresenceRepository($pdo, $encryptionService);
