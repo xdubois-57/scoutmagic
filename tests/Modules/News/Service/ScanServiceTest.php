@@ -258,9 +258,150 @@ class ScanServiceTest extends TestCase
         $this->assertSame('Roskam', $verdict['holder'], 'the name the form collected, not the address');
         $this->assertSame(4, $verdict['seat_total']);
         $this->assertSame(
-            [['label' => 'Repas adulte', 'quantity' => '2'], ['label' => 'Repas enfant', 'quantity' => '2']],
+            [
+                ['label' => 'Repas adulte', 'quantity' => '2', 'invalid' => false],
+                ['label' => 'Repas enfant', 'quantity' => '2', 'invalid' => false],
+            ],
             $verdict['seats']
         );
+    }
+
+    /**
+     * Issue #1525. A quantity stored before the server refused negatives
+     * and fractions used to be dropped from the verdict, so « Adultes × 4,
+     * Enfants × −8 » — a total of zero, no receivable, a valid ticket —
+     * read at the door as an ordinary booking for four. The line stays,
+     * marked, and gives no seat; only a plain zero is left out.
+     */
+    public function testAStoredQuantityThatIsNotAWholeNumberIsNeverSilentlyDropped(): void
+    {
+        [, $formId] = $this->event('Souper spaghetti');
+        $f = $this->dinnerFields($formId);
+        $responseId = $this->booking($formId, [$f['name'] => 'Roskam', $f['adults'] => '4', $f['children'] => '-8'], 'a@test.com');
+        $reference = (string) $this->responses->findById($responseId)?->ticketReference;
+
+        $verdict = $this->service()->verdictFor($this->forms->findById($formId), TicketService::format($reference));
+
+        $this->assertSame(
+            [
+                ['label' => 'Repas adulte', 'quantity' => '4', 'invalid' => false],
+                ['label' => 'Repas enfant', 'quantity' => '-8', 'invalid' => true],
+            ],
+            $verdict['seats']
+        );
+        $this->assertSame(4, $verdict['seat_total'], 'a negative takes no seat off the others');
+    }
+
+    public function testAFractionalQuantityIsShownAsInvalidAndAZeroIsLeftOut(): void
+    {
+        [, $formId] = $this->event('Souper spaghetti');
+        $f = $this->dinnerFields($formId);
+        $responseId = $this->booking($formId, [$f['name'] => 'Roskam', $f['adults'] => '0.5', $f['children'] => '0'], 'a@test.com');
+        $reference = (string) $this->responses->findById($responseId)?->ticketReference;
+
+        $verdict = $this->service()->verdictFor($this->forms->findById($formId), TicketService::format($reference));
+
+        $this->assertSame([['label' => 'Repas adulte', 'quantity' => '0.5', 'invalid' => true]], $verdict['seats']);
+    }
+
+    /**
+     * « 2.5 » is invalid AND counts no seat: a cast once made it two, in
+     * the verdict and in the head-of-screen counters alike.
+     */
+    public function testAFractionalQuantityCountsNoSeatAnywhere(): void
+    {
+        [, $formId] = $this->event('Souper spaghetti');
+        $f = $this->dinnerFields($formId);
+        $responseId = $this->booking($formId, [$f['name'] => 'Roskam', $f['adults'] => '2.5', $f['children'] => '1'], 'a@test.com', true);
+        $reference = (string) $this->responses->findById($responseId)?->ticketReference;
+        $form = $this->forms->findById($formId);
+
+        $verdict = $this->service()->verdictFor($form, TicketService::format($reference));
+        $counters = $this->service()->counters($form);
+
+        $this->assertTrue($verdict['seats'][0]['invalid']);
+        $this->assertSame(1, $verdict['seat_total']);
+        $this->assertSame(1, $counters['sold']);
+        $this->assertSame(1, $counters['entered']);
+    }
+
+    /**
+     * A priced field with no capacity once took any number: a stored 1000
+     * is above what one response may ask (999) and is flagged, not counted.
+     */
+    public function testAStoredQuantityAboveThePerResponseCeilingIsInvalid(): void
+    {
+        [, $formId] = $this->event('Vente de gaufres');
+        $boxes = $this->fields->create($formId, 0, FormField::TYPE_NUMBER, 'Boîtes', false, null, null, null, 6.0, null);
+        $responseId = $this->booking($formId, [$boxes => '1000'], 'a@test.com');
+        $reference = (string) $this->responses->findById($responseId)?->ticketReference;
+
+        $verdict = $this->service()->verdictFor($this->forms->findById($formId), TicketService::format($reference));
+
+        $this->assertSame([['label' => 'Boîtes', 'quantity' => '1000', 'invalid' => true]], $verdict['seats']);
+        $this->assertSame(0, $verdict['seat_total']);
+    }
+
+    /**
+     * One rule with the reprise (FormField::storedQuantity()), on the raw
+     * stored text: « 3 » with a leading space was accepted before and is
+     * refused now, so the door marks it as the reprise flags it.
+     */
+    public function testAQuantityStoredWithASpaceIsInvalidAtTheDoorAsInTheReprise(): void
+    {
+        [, $formId] = $this->event('Souper spaghetti');
+        $f = $this->dinnerFields($formId);
+        $responseId = $this->booking($formId, [$f['name'] => 'Roskam', $f['adults'] => ' 3'], 'a@test.com');
+        $reference = (string) $this->responses->findById($responseId)?->ticketReference;
+
+        $verdict = $this->service()->verdictFor($this->forms->findById($formId), TicketService::format($reference));
+
+        $this->assertSame([['label' => 'Repas adulte', 'quantity' => '3', 'invalid' => true]], $verdict['seats']);
+        $this->assertSame(0, $verdict['seat_total']);
+    }
+
+    /**
+     * The sold counter applies the door's rule answer by answer: 1000 on
+     * an uncapped priced field is above the per-answer ceiling and sells no
+     * seat. A booking of 8 on a field whose capacity was lowered to 5 since
+     * stays a valid booking: counted, and not flagged at the door.
+     */
+    public function testTheSoldCounterSkipsAboveTheCeilingButKeepsABookingAboveALoweredCapacity(): void
+    {
+        [, $formId] = $this->event('Vente de gaufres');
+        $boxes = $this->fields->create($formId, 0, FormField::TYPE_NUMBER, 'Boîtes', false, null, null, null, 6.0, null);
+        $places = $this->fields->create($formId, 1, FormField::TYPE_NUMBER, 'Places', false, null, null, 10, null, null);
+        $this->booking($formId, [$boxes => '1000', $places => '8'], 'a@test.com');
+        $responseId = $this->booking($formId, [$boxes => '2', $places => '1'], 'b@test.com');
+        $this->pdo->prepare('UPDATE news_form_fields SET capacity_max = 5 WHERE id = ?')->execute([$places]);
+        $form = $this->forms->findById($formId);
+
+        $this->assertSame(11, $this->service()->counters($form)['sold']);
+
+        $first = $this->responses->findByFormId($formId)[0];
+        $verdict = $this->service()->verdictForResponse($form, $first);
+        $this->assertSame(
+            [
+                ['label' => 'Boîtes', 'quantity' => '1000', 'invalid' => true],
+                ['label' => 'Places', 'quantity' => '8', 'invalid' => false],
+            ],
+            $verdict['seats']
+        );
+        $this->assertSame(8, $verdict['seat_total']);
+        $this->assertNotSame($first->id, $responseId);
+    }
+
+    /** The printed list carries the same lines: it is the door's fallback. */
+    public function testThePrintedListKeepsAnInvalidQuantityToo(): void
+    {
+        [, $formId] = $this->event('Souper spaghetti');
+        $f = $this->dinnerFields($formId);
+        $this->booking($formId, [$f['name'] => 'Roskam', $f['adults'] => '4', $f['children'] => '-8'], 'a@test.com');
+
+        $rows = $this->service()->expectedAttendees($this->forms->findById($formId));
+
+        $this->assertCount(2, $rows[0]['seats']);
+        $this->assertTrue($rows[0]['seats'][1]['invalid']);
     }
 
     public function testAUsedTicketSaysWhenItWasUsed(): void

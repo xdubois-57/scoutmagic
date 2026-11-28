@@ -41,6 +41,9 @@
 // they can be driven exhaustively. This scenario stops where the unit's
 // own screen stops — the amount is due, the communication is quoted, and
 // the responses page shows it unpaid.
+// The second scenario below is the one exception, and says why: a paid
+// response edited upwards (issue #1525) is about « paid », so it imports
+// one statement line.
 //
 // LOCATORS
 // ----------------------------------------------------------------------------
@@ -421,6 +424,157 @@ test('a chief publishes an article with a paying form, a family signs up and is 
     await expect(page.getByText('25,00 €').first()).toBeVisible();
 
     expect(alerts, 'the application reported an error through window.alert()').toEqual([]);
+    expect(serverErrors, 'the application returned a server error').toEqual([]);
+    expect(pageErrors, 'uncaught JavaScript error in the browser').toEqual([]);
+});
+
+// ----------------------------------------------------------------------------
+// Issue #1525: a response edited after it was paid. The amount due follows
+// the edit — the receivable moves in place, keeping its communication — so
+// a family who paid for one meal and corrects their answer to three is
+// asked for the difference, told what was already received, and the
+// responses page no longer reads « Payé ».
+//
+// This one does go through the bank side, because « paid » is the whole
+// point: a real BNP statement is imported, the payment is matched on its
+// communication, and only then is the response edited. Everything is
+// reached through visible text, as above.
+// ----------------------------------------------------------------------------
+
+const EDIT_ARTICLE_TITLE = `Souper d'unité ${Date.now()}`;
+const MEAL_LABEL = 'Repas';
+const MEAL_PRICE = '18.00';
+const EDIT_FAMILY_EMAIL = 'famille-souper@example.invalid';
+// Its own account and IBAN, used by no other spec: the import sends a
+// statement to the account carrying its IBAN, and two active accounts
+// sharing one would set every line aside (see rental-journey.spec.js).
+const EDIT_ACCOUNT_NAME = 'Compte soupers E2E';
+const EDIT_ACCOUNT_IBAN = 'BE03 0634 4128 7084';
+
+/**
+ * Today in Brussels as `dd/mm/yyyy` — inside the current scout year, which
+ * is where the import files a movement.
+ */
+function todayInBrussels() {
+    const [y, m, d] = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Europe/Brussels', year: 'numeric', month: '2-digit', day: '2-digit',
+    }).format(new Date()).split('-');
+
+    return `${d}/${m}/${y}`;
+}
+
+test('a paid response edited upwards moves its receivable: the family is asked for the difference and it is no longer paid', async ({ page }) => {
+    /** @type {string[]} */
+    const serverErrors = [];
+    page.on('response', (response) => {
+        if (response.status() >= 500) {
+            serverErrors.push(`HTTP ${response.status()} on ${response.url()}`);
+        }
+    });
+    /** @type {string[]} */
+    const pageErrors = [];
+    page.on('pageerror', (error) => pageErrors.push(error.message));
+
+    await loginAsAdmin(page);
+
+    await page.goto('/config/finance/accounts', { waitUntil: 'domcontentloaded' });
+    await page.getByRole('button', { name: 'Nouveau compte' }).click();
+    await page.getByLabel(/^Nom \*$/).fill(EDIT_ACCOUNT_NAME);
+    await page.getByLabel('IBAN').fill(EDIT_ACCOUNT_IBAN);
+    await page.getByLabel('Nom du titulaire').fill(ACCOUNT_HOLDER);
+    await page.getByRole('button', { name: 'Enregistrer' }).click();
+    await expect(page.getByRole('row', { name: new RegExp(EDIT_ACCOUNT_NAME) }).getByText('Actif')).toBeVisible();
+
+    // A one-field paying form: a priced meal, no capacity.
+    await page.goto('/news/manage', { waitUntil: 'domcontentloaded' });
+    await page.locator('main').getByRole('link', { name: 'Nouvel article' }).first().click();
+    await page.getByLabel("Titre de l'article").fill(EDIT_ARTICLE_TITLE);
+    await page.getByLabel('Résumé en une phrase').fill('Le souper annuel de l\'unité.');
+    await page.locator('#image').setInputFiles({ name: 'affiche.png', mimeType: 'image/png', buffer: PIXEL_PNG });
+    await page.getByRole('radio', { name: 'Public', exact: true }).check();
+    await fieldRow(page, 0).getByRole('textbox', { name: 'Contenu' }).fill('Samedi soir, au local.');
+
+    await page.getByRole('button', { name: 'Ajouter un champ' }).click();
+    await page.getByRole('button', { name: 'Nombre' }).click();
+    const mealPanel = fieldRow(page, 1);
+    await mealPanel.getByLabel('Libellé du champ').fill(MEAL_LABEL);
+    await mealPanel.getByLabel('Prix unitaire (€)').fill(MEAL_PRICE);
+
+    const paymentSettings = page.locator('#news-payment-settings');
+    await expect(paymentSettings).toBeVisible();
+    await paymentSettings.getByLabel('Compte destinataire').selectOption({ label: EDIT_ACCOUNT_NAME });
+    await paymentSettings.getByLabel('Catégorie').selectOption({ label: 'Weekend de section' });
+    await saveDraftThenPublish(page);
+    const articleUrl = new URL(page.url()).pathname.replace(/\/gerer$/, '');
+
+    // ---------------------------------------------------------------
+    // The family signs up for one meal, anonymously, and is asked 18 €.
+    // ---------------------------------------------------------------
+    const family = await page.context().browser().newContext();
+    let communication = '';
+    try {
+        const familyPage = await family.newPage();
+        await familyPage.goto(articleUrl, { waitUntil: 'domcontentloaded' });
+        await familyPage.getByRole('button', { name: 'Tout refuser' }).click();
+        await familyPage.getByLabel('Email de contact').fill(EDIT_FAMILY_EMAIL);
+        await familyPage.getByLabel(new RegExp(MEAL_LABEL)).fill('1');
+        await waitOutHumanCheckDelay(familyPage);
+        await familyPage.getByRole('button', { name: 'Envoyer' }).click();
+        await expect(familyPage.getByText('Montant à payer : 18,00 €')).toBeVisible();
+        communication = (await familyPage.locator('.card.border-primary p', { hasText: 'Communication structurée' })
+            .innerText()).replace('Communication structurée :', '').trim();
+        expect(communication).not.toBe('');
+    } finally {
+        await family.close();
+    }
+
+    // ---------------------------------------------------------------
+    // The family pays: a real statement, matched on the communication.
+    // ---------------------------------------------------------------
+    const date = todayInBrussels();
+    const iban = EDIT_ACCOUNT_IBAN.replace(/ /g, '');
+    const header = "﻿Nº de séquence;Date d'exécution;Date valeur;Montant;Devise du compte;Numéro de compte;"
+        + 'Type de transaction;Contrepartie;Nom de la contrepartie;Communication;Détails;Statut;Motif du refus';
+    const line = `2026-;${date};${date};18,00;EUR;${iban};Virement en euros;BE00000000000004;Famille Souper;`
+        + `${communication};VIREMENT EN EUROS FAMILLE SOUPER COMMUNICATION : ${communication} `
+        + 'REFERENCE BANQUE : 2026001525 ;Accepté;';
+    await page.goto('/finance/import', { waitUntil: 'load' });
+    await page.getByLabel('Fichier du relevé').setInputFiles({
+        name: 'releve-bnp.csv', mimeType: 'text/csv', buffer: Buffer.from([header, line].join('\n'), 'utf8'),
+    });
+    await page.getByLabel('Solde après ce relevé').fill('18,00');
+    await page.getByRole('button', { name: 'Importer' }).click();
+    await expect(page.getByRole('heading', { name: "Résultat de l'import" })).toBeVisible();
+
+    await page.goto(`${articleUrl}/form/responses`, { waitUntil: 'domcontentloaded' });
+    const row = page.getByRole('table').getByRole('row', { name: new RegExp(`^${EDIT_FAMILY_EMAIL.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`) });
+    await expect(row.getByText('Payé')).toBeVisible();
+
+    // ---------------------------------------------------------------
+    // The Staff d'U corrects the answer to three meals. Staff editing
+    // somebody else's response go back to the responses list — the
+    // confirmation page is the family's — and the family is told by
+    // e-mail: the 36 € still due, not the whole 54 €, and why.
+    // ---------------------------------------------------------------
+    await row.getByRole('link', { name: 'Modifier' }).click();
+    await page.waitForURL(/\/form\/responses\/\d+\/edit$/, { waitUntil: 'domcontentloaded' });
+    await page.getByLabel(new RegExp(MEAL_LABEL)).fill('3');
+    await page.getByRole('button', { name: 'Enregistrer les modifications' }).click();
+    await page.waitForURL(/\/form\/responses$/, { waitUntil: 'domcontentloaded' });
+    await expect(page.getByText('La réponse a été modifiée.')).toBeVisible();
+
+    const notice = await waitForMail(
+        (message) => message.to.includes(EDIT_FAMILY_EMAIL) && message.text.includes('36,00'),
+        { description: `the confirmation of the edit addressed to ${EDIT_FAMILY_EMAIL}` },
+    );
+    expect(notice.text).toContain('Montant à payer : 36,00');
+    expect(notice.text).toContain('Déjà reçu : 18,00');
+    expect(notice.text).toContain(communication);
+
+    // And the response is no longer « Payé »: 54 € due, 18 € received.
+    await expect(row.getByText('Partiel')).toBeVisible();
+    await expect(row.getByText('54,00 €')).toBeVisible();
+
     expect(serverErrors, 'the application returned a server error').toEqual([]);
     expect(pageErrors, 'uncaught JavaScript error in the browser').toEqual([]);
 });

@@ -92,6 +92,7 @@ class NewsTestHelper
             receivable_id INTEGER NULL,
             ticket_reference TEXT NULL UNIQUE,
             ticket_used_at TEXT NULL,
+            invalid_quantity_flagged_at TEXT NULL,
             submitted_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT NULL,
             FOREIGN KEY (form_id) REFERENCES news_forms(id)

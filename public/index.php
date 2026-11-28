@@ -9935,6 +9935,47 @@ if ($isEnabled('news')) {
         $settingRepo->updateValue('news', 'news_field_capacity_backfilled', '1');
         $settingService->clearCache();
     }
+
+    // One-shot reprise of issue #1525, for the responses stored before the
+    // server refused a negative or fractional quantity: the running
+    // capacity totals are rebuilt — a negative answer gives no place back
+    // any more (FormResponseRepository::sumFieldValues()) — and every such
+    // response is marked for the Staff d'U, who sees it on the
+    // attention-points page (NewsAttentionProvider below) and corrects it.
+    // The answers themselves are left as they were: what the respondent
+    // meant is for a person to decide. Same shape as the reprise above.
+    if ($settingService->get('news_invalid_quantities_reviewed', 'news') !== '1') {
+        $settingService->register(
+            'news_invalid_quantities_reviewed',
+            '0',
+            'boolean',
+            'Quantités invalides recherchées',
+            'Indique si les réponses enregistrées avec une quantité négative ou non entière '
+                . 'ont été recherchées et signalées, et les capacités recalculées.',
+            'news',
+            null,
+            null,
+            false,
+            999
+        );
+        $newsFieldRepo->recomputeUsedCapacities($newsResponseRepo);
+        $newsInvalidQuantities = $newsResponseService->flagResponsesWithInvalidQuantities();
+        if ($newsInvalidQuantities > 0) {
+            $journalService->log(
+                'news',
+                'invalid_quantities_flagged',
+                'info',
+                $newsInvalidQuantities . ' réponse(s) de formulaire contenant une quantité invalide signalée(s) '
+                    . 'au Staff d\'Unité',
+                ['responses' => $newsInvalidQuantities]
+            );
+        }
+        $settingRepo->updateValue('news', 'news_invalid_quantities_reviewed', '1');
+        $settingService->clearCache();
+    }
+    // Who is told about them, on every display of the attention-points
+    // page: one aggregate query, nothing decrypted.
+    $attentionProviders[] = new \Modules\News\Service\NewsAttentionProvider($newsResponseRepo);
     // Optional dependency on the llm_connector module (ARCHITECTURE.md
     // §7.5), same reused instance as RGPD content generation above — the
     // "Générer avec l'IA" button is simply hidden when it's unavailable.

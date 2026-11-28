@@ -2063,13 +2063,17 @@ The contact email address is always asked and pre-filled for an identified visit
 
 **Payment is by bank transfer, always, and never by card on the site.** When the finance module is active and an account is selected, submitting generates a **structured communication**, opens the matching receivable in the finance module, and the confirmation page and email both carry the amount, the account, that communication and a payment QR code. Reconciliation then happens through the imported bank statements: a response shows `Payé`, `Partiel` or `Non payé`, and until the statement is imported a payment that really was made still reads as not received — which is an import to do, not a family to chase. A `Partiel` is most often one transfer covering several children.
 
-**Correcting a response never recalculates what is owed.** The amount stays the one from the first answer, and adjusting it is a human act in the Finances module. A silent recalculation would rewrite a debt somebody has already been told about, and possibly already paid.
+**A quantity is a whole number, checked by the server** (issue #1525). No number field takes a negative. A field carrying a price or a capacity takes a whole number written in digits — `0.5`, `1e2` or a leading space are refused, with a sentence naming the field — and at most its capacity, or 999 per response when it has none. A response whose total would be negative is refused. The same rules apply when a response is corrected.
+
+**Correcting a response moves what is owed** (issue #1525 — this reverses the earlier rule that the first answer's amount stood). The receivable keeps its structured communication and the payments already matched, and its amount becomes the new total: raised, the response is « à payer » again for the difference; lowered below what was already received, the surplus appears to the treasurer as a trop-perçu to refund (Finances › Paiements à traiter); a free response that becomes paying gets its receivable and communication then; a response corrected to zero keeps its receivable at zero with its communication — so a transfer made before the correction, and imported after it, becomes a trop-perçu — and that receivable owes nothing, so it appears on no unpaid list. When the amount changes, the confirmation e-mail is sent again; after any correction the confirmation page shows the answers, what is still to pay and what was already received — or that the unit owes the difference back.
 
 ### 32.4 Correcting a response
 
 A respondent may reopen their own response — answers and contact address — as long as **they were identified when they answered** and the form is **still open**. An answer sent without an account cannot be reopened by anybody claiming to be its author: there is no way to check. A **chef d'unité** may correct any response, including after the form has closed, to fix a manifest error — never to decide in somebody's place.
 
 A capacity may have filled in the meantime: the save is then refused, naming the option that blocks it, and the previous response is kept intact.
+
+Responses stored before the quantity rules existed and holding a negative or non-whole quantity are flagged once to the Staff d'U, as an attention point per article and a « Quantité à vérifier » badge on the responses page, until they are corrected or deleted; the door shows such a line as a warning instead of leaving it out.
 
 ### 32.5 The responses
 
@@ -2081,7 +2085,7 @@ One line per response, one column per question, opened at the role the form's ow
 
 ### 32.6 Out of scope
 
-No card payment. No automatic re-pricing of a corrected response. No self-service correction of an anonymous answer. No article-level comment thread — a discussion belongs in a group (§20).
+No card payment. No automatic refund: a trop-perçu is refunded by the treasurer. No self-service correction of an anonymous answer. No article-level comment thread — a discussion belongs in a group (§20).
 
 
 ## 33. Galerie — albums photo et vidéo (module gallery)

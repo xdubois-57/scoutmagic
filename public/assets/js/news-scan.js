@@ -48,7 +48,11 @@
      * What the holder booked — « Repas adulte × 2 » — or a bare seat
      * count on a form that declares no quantity field at all.
      *
-     * @param {{seats: Array<{label: string, quantity: string}>, seat_total: number}} verdict
+     * A line whose stored quantity is not a whole number (`invalid`, issue
+     * #1525) is shown, in warning colours, never left out: hiding it is
+     * what made a ticket look paid for four when it was paid for none.
+     *
+     * @param {{seats: Array<{label: string, quantity: string, invalid?: boolean}>, seat_total: number}} verdict
      * @returns {string}
      */
     function seatsHtml(verdict) {
@@ -59,10 +63,27 @@
         }
 
         return verdict.seats.map(function (seat) {
-            return '<li class="d-flex justify-content-between gap-3">'
+            const tone = seat.invalid ? ' text-warning-emphasis' : '';
+            return '<li class="d-flex justify-content-between gap-3' + tone + '">'
                 + '<span>' + api.escapeHtml(seat.label) + '</span>'
                 + '<span class="fw-semibold">× ' + api.escapeHtml(seat.quantity) + '</span></li>';
         }).join('');
+    }
+
+    /**
+     * The warning under the seats when one of them is not a whole number —
+     * and nothing at all otherwise.
+     *
+     * @param {{seats: Array<{label: string, quantity: string, invalid?: boolean}>}} verdict
+     * @returns {string}
+     */
+    function invalidQuantityHtml(verdict) {
+        if (!verdict.seats?.some(function (seat) { return seat.invalid; })) return '';
+
+        return '<div class="alert alert-warning d-flex align-items-start gap-2 py-2 mb-0 mt-3" role="status">'
+            + '<i class="bi bi-exclamation-triangle mt-1" aria-hidden="true"></i>'
+            + '<span>Quantité invalide dans cette réservation : le montant payé ne correspond peut-être pas '
+            + 'aux places. Vérifiez avec un membre du Staff d\'Unité avant de valider.</span></div>';
     }
 
     /**
@@ -161,6 +182,7 @@
             + '<div class="card-body">'
             + '<p class="small text-body-secondary mb-1">Réservé</p>'
             + '<ul class="list-unstyled mb-0">' + seatsHtml(verdict) + '</ul>'
+            + invalidQuantityHtml(verdict)
             + paymentHtml(verdict)
             + '</div>'
             + '<div class="card-footer">'
