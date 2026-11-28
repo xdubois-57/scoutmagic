@@ -464,6 +464,11 @@ class AdminMemberPageServiceTest extends TestCase
 
             public function getOpenPayments(int $memberId): array
             {
+                return [];
+            }
+
+            public function getOutstandingPayments(int $memberId): array
+            {
                 $this->openAskedFor = $memberId;
 
                 return [];
@@ -560,6 +565,11 @@ class AdminMemberPageServiceTest extends TestCase
             }
 
             public function getOpenPayments(int $memberId): array
+            {
+                return [];
+            }
+
+            public function getOutstandingPayments(int $memberId): array
             {
                 return $this->open;
             }

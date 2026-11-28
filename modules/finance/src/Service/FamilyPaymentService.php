@@ -82,7 +82,25 @@ class FamilyPaymentService implements MemberPaymentProvider, HomePaymentDueProvi
      */
     public function getOpenPayments(int $memberId): array
     {
-        $open = $this->openReceivablesFor([$memberId], refresh: true);
+        return $this->viewsOf($this->openReceivablesFor([$memberId], refresh: true));
+    }
+
+    /**
+     * @return list<MemberPaymentView>
+     */
+    public function getOutstandingPayments(int $memberId): array
+    {
+        return $this->viewsOf(
+            $this->openReceivablesFor([$memberId], refresh: true, includeClosedCampaigns: true)
+        );
+    }
+
+    /**
+     * @param list<array{receivable: ExpectedReceivable, remaining_cents: int, received_cents: int}> $open
+     * @return list<MemberPaymentView>
+     */
+    private function viewsOf(array $open): array
+    {
         if ($open === []) {
             return [];
         }
@@ -322,8 +340,11 @@ class FamilyPaymentService implements MemberPaymentProvider, HomePaymentDueProvi
      * @param int[] $memberIds
      * @return list<array{receivable: ExpectedReceivable, remaining_cents: int, received_cents: int}>
      */
-    private function openReceivablesFor(array $memberIds, bool $refresh): array
-    {
+    private function openReceivablesFor(
+        array $memberIds,
+        bool $refresh,
+        bool $includeClosedCampaigns = false
+    ): array {
         // A closed campaign stops asking (issue #1436): its unpaid
         // receivables leave the member page and the home band, BEFORE the
         // refresh, so closing also spares those rows the re-allocation
@@ -331,9 +352,12 @@ class FamilyPaymentService implements MemberPaymentProvider, HomePaymentDueProvi
         // A payment that still arrives is matched all the same
         // (ReceivableAllocationService knows nothing of campaigns); it
         // simply is no longer asked for here.
-        $receivables = $this->receivableCampaigns->withoutClosedCampaigns(
-            $this->receivables->findByMemberIds($memberIds)
-        );
+        // The staff's own view of the member keeps them
+        // (getOutstandingPayments(), #1555 review).
+        $receivables = $this->receivables->findByMemberIds($memberIds);
+        if (!$includeClosedCampaigns) {
+            $receivables = $this->receivableCampaigns->withoutClosedCampaigns($receivables);
+        }
         if ($receivables === []) {
             return [];
         }

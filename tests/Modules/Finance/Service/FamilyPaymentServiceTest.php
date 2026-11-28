@@ -202,6 +202,21 @@ class FamilyPaymentServiceTest extends TestCase
         $this->assertContains('Camp 2025', array_map(static fn($p): string => $p->label, $reopened));
     }
 
+    /**
+     * The staff's view of the member is not a family surface (#1555
+     * review): closing a campaign stops asking the family, it does not
+     * write the debt off, so the admin member page still shows it.
+     */
+    public function testTheStaffStillSeeAClosedCampaignsUnpaidDemand(): void
+    {
+        $closed = $this->campaignWith([['Lucie', 4500]], 'Camp 2025');
+        $this->campaigns->setStatus($closed, Campaign::STATUS_CLOSED, '2026-03-01 10:00:00');
+
+        $this->assertSame([], $this->service()->getOpenPayments($this->memberIds['Lucie']));
+        $outstanding = $this->service()->getOutstandingPayments($this->memberIds['Lucie']);
+        $this->assertSame([4500], array_map(static fn($p): int => $p->amountRemainingCents, $outstanding));
+    }
+
     public function testAClosedCampaignsDemandLeavesTheHomeBandAndReopeningBringsItBack(): void
     {
         $closed = $this->campaignWith([['Lucie', 4500], ['Antoine', 4500]], 'Camp 2025');
