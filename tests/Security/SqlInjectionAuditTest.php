@@ -187,6 +187,20 @@ class SqlInjectionAuditTest extends TestCase
                 . 'checked against a strict identifier pattern in the constructor.',
         ],
 
+        // The member-merge listeners' shared statements (issue #1462): the
+        // table and column names are literals each module's
+        // MemberMergeListener passes, matched against /^[a-z][a-z0-9_]*$/
+        // by assertIdentifiers() before any statement is built — no merge
+        // reaches this class with anything a request carries; the member
+        // ids are bound.
+        'core/Member/Duplicate/MergeRowRepository.php' => [
+            '{$table}' => 'The module table holding a member reference, a literal of the calling listener, '
+                . 'checked against a strict identifier pattern first.',
+            '{$column}' => 'Its member column, a literal of the same listener, checked the same way.',
+            '{$join}' => 'k.<c> = d.<c> for each scope column — literals of the listener, each checked against '
+                . 'the same identifier pattern — joined with AND, or the literal 1 = 1.',
+        ],
+
         // Column names the code picks, never a caller.
         'core/Security/LoginThrottler.php' => [
             '{$column}' => 'The parameter of two PRIVATE methods (lockoutFor/countRecentFailures) whose only call '
