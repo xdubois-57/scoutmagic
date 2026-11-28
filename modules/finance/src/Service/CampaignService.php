@@ -106,7 +106,12 @@ class CampaignService
 
         // Read and validate BEFORE storing anything: a refused file must
         // leave no trace at all, not even an orphan blob on disk.
-        $import = $this->importService->read($filePath);
+        try {
+            $import = $this->importService->read($filePath);
+        } catch (CampaignImportException $e) {
+            $this->journalRefusal($e, $accountId, $scoutYearId, $actorUserAccountId);
+            throw $e;
+        }
 
         $contents = @file_get_contents($filePath);
         if ($contents === false) {
@@ -186,13 +191,50 @@ class CampaignService
                 'campaign_id' => $campaignId,
                 'account_id' => $accountId,
                 'scout_year_id' => $scoutYearId,
-                'row_count' => $import->count(),
+                'rows' => $import->count(),
+                // Always 0, and said rather than left out: a file is
+                // accepted whole or refused whole, so a campaign that
+                // exists was refused nothing (campaign_import_refused
+                // carries the other case).
+                'rows_refused' => 0,
                 'total_cents' => $import->totalCents(),
             ],
             $actorUserAccountId
         );
 
         return $campaignId;
+    }
+
+    /**
+     * A file refused on its lines leaves a journal line of its own — how
+     * many lines it held and how many were refused, never what they said:
+     * a refused line carries a name and an amount, and neither belongs in
+     * the journal. A refusal about the file as a whole (no amount column,
+     * not a workbook) has no lines to count, and is only shown on screen.
+     */
+    private function journalRefusal(
+        CampaignImportException $refusal,
+        int $accountId,
+        int $scoutYearId,
+        ?int $actorUserAccountId
+    ): void {
+        if ($refusal->lines === []) {
+            return;
+        }
+
+        $this->journal->log(
+            'finance',
+            'campaign_import_refused',
+            'warning',
+            'Fichier de campagne de paiement refusé',
+            [
+                'account_id' => $accountId,
+                'scout_year_id' => $scoutYearId,
+                'rows' => $refusal->rowsRead,
+                'rows_refused' => count(array_unique(array_column($refusal->lines, 'line'))),
+            ],
+            $actorUserAccountId
+        );
     }
 
     /**

@@ -33,7 +33,8 @@ Trois étapes, dans cet ordre :
 1. Exportez la liste des membres concernés depuis la page « Membres par
    section ».
 2. Ajoutez une colonne **Montant** au fichier, et complétez-la ligne par
-   ligne — les montants peuvent différer d'une personne à l'autre.
+   ligne — les montants peuvent différer d'une personne à l'autre,
+   5 000 € au plus par ligne.
 3. Rechargez le fichier sur la page « Campagnes », sans supprimer les
    autres colonnes, avec le compte et la **catégorie** où classer les
    paiements.

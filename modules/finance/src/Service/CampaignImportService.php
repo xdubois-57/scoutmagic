@@ -43,6 +43,27 @@ class CampaignImportService
     public const MAX_ROWS = 5000;
 
     /**
+     * The most one line may invoice: 5 000,00 €.
+     *
+     * No amount limit existed in the module to reuse; the nearest one,
+     * the fees module's 500 € cotisation bound, is per-member and too low
+     * for a campaign, which also bills camps. A scout camp, even abroad,
+     * costs a family a few hundred euros, a long trip at most a couple of
+     * thousand; 5 000 € leaves room above that and still sits far below
+     * what a misread decimal separator produces — « 31,875 » read as
+     * thousands is 31 875 € (issue #1472), and a real amount of 5 € to
+     * 50 € read that way lands between 5 000 € and 50 000 €. The ceiling
+     * is what stops such a line instead of billing it.
+     */
+    public const MAX_AMOUNT_CENTS = 500000;
+
+    /**
+     * Above this many euros a value is not an amount anybody meant, and
+     * multiplying it by a hundred would leave the integer range.
+     */
+    private const ABSURD_AMOUNT_EUROS = 1_000_000_000_000;
+
+    /**
      * "ID interne" is the header Core\Member\Export\MemberExportColumns
      * writes for `members.id`, and it is the one this expects. "Identifiant
      * Desk" is accepted as a second exact key, for the treasurer who
@@ -77,13 +98,14 @@ class CampaignImportService
      */
     public function read(string $filePath): CampaignImportResult
     {
-        $rows = $this->readFirstSheet($filePath);
+        [$rows, $rawRows] = $this->readFirstSheet($filePath);
         if ($rows === []) {
             throw CampaignImportException::file('Le fichier est vide : la première feuille ne contient aucune ligne.');
         }
 
         [$columns, $memberIdColumn, $deskIdColumn, $amountColumn] = $this->readHeaders(array_values($rows)[0]);
-        $dataRows = $this->collectDataRows($rows, $columns);
+        $amountIndex = (int) array_search($amountColumn, $columns, true);
+        $dataRows = $this->collectDataRows($rows, $rawRows, $columns, $amountIndex);
 
         if ($dataRows === []) {
             throw CampaignImportException::file("Le fichier ne contient aucune ligne sous la ligne d'en-têtes.");
@@ -140,7 +162,7 @@ class CampaignImportService
                 continue;
             }
 
-            $amountCents = self::parseAmountCents($row['data'][$amountColumn] ?? '');
+            $amountCents = self::cellAmountCents($row['amount'], $row['data'][$amountColumn] ?? '');
             if ($amountCents === null) {
                 $problems[] = [
                     'line' => $row['line'],
@@ -154,6 +176,19 @@ class CampaignImportService
                     'line' => $row['line'],
                     'content' => $this->summarize($row['data']),
                     'problem' => 'Le montant doit être supérieur à zéro.',
+                ];
+                continue;
+            }
+            if ($amountCents > self::MAX_AMOUNT_CENTS) {
+                $problems[] = [
+                    'line' => $row['line'],
+                    'content' => $this->summarize($row['data']),
+                    'problem' => sprintf(
+                        'Montant de %s € : au-delà du plafond de %s € par ligne. Vérifiez le séparateur '
+                            . 'décimal — dans une cellule texte, « 1.500 » se lit mille cinq cents euros.',
+                        self::formatEuros($amountCents),
+                        self::formatEuros(self::MAX_AMOUNT_CENTS)
+                    ),
                 ];
                 continue;
             }
@@ -174,7 +209,7 @@ class CampaignImportService
         }
 
         if ($problems !== []) {
-            throw new CampaignImportException($problems);
+            throw new CampaignImportException($problems, rowsRead: count($dataRows));
         }
 
         $mergeColumns = array_values(array_filter($columns, static fn(string $name): bool => $name !== $amountColumn));
@@ -249,6 +284,73 @@ class CampaignImportService
     }
 
     /**
+     * The amount of one cell, in cents.
+     *
+     * **A cell the spreadsheet holds as a number is read as that number**,
+     * rounded half up to the cent: 31,875 is 31,88 €, whatever the cell's
+     * display format makes of it. Only a cell holding text goes through
+     * {@see parseAmountCents()} and its thousands-separator rule — reading
+     * a number's display through that rule is how 31,875 became
+     * 31 875 € (issue #1472).
+     *
+     * @param mixed $raw the cell's unformatted value, as the workbook stores it
+     * @param string $formatted the same cell as displayed
+     */
+    public static function cellAmountCents(mixed $raw, string $formatted): ?int
+    {
+        if (is_int($raw) || is_float($raw)) {
+            return self::numberToCents($raw);
+        }
+        if (is_bool($raw)) {
+            return null;
+        }
+
+        return self::parseAmountCents($formatted);
+    }
+
+    /**
+     * Rounds half away from zero to the cent on the decimal digits, not on
+     * the binary float: 1.005 * 100 is 100.49999… in a float, and
+     * `round()` on it would lose the cent the treasurer typed. Fifteen
+     * significant digits is what a spreadsheet itself displays, so a
+     * formula result such as 31.874999999999996 reads as the 31,875 on
+     * the screen.
+     */
+    private static function numberToCents(int|float $value): ?int
+    {
+        if (is_float($value) && !is_finite($value)) {
+            return null;
+        }
+        if (abs($value) >= self::ABSURD_AMOUNT_EUROS) {
+            return null;
+        }
+        if (is_int($value)) {
+            return $value * 100;
+        }
+        if (abs($value) < 0.001) {
+            return 0; // below what %G prints without an exponent, and far below a cent
+        }
+
+        $decimal = sprintf('%.15G', abs($value));
+        $dot = strpos($decimal, '.');
+        $integerPart = $dot === false ? $decimal : substr($decimal, 0, $dot);
+        $fraction = $dot === false ? '' : substr($decimal, $dot + 1);
+        $fraction = str_pad($fraction, 3, '0');
+
+        $cents = (int) $integerPart * 100 + (int) substr($fraction, 0, 2);
+        if ((int) $fraction[2] >= 5) {
+            $cents++;
+        }
+
+        return $value < 0 ? -$cents : $cents;
+    }
+
+    private static function formatEuros(int $cents): string
+    {
+        return number_format($cents / 100, 2, ',', ' ');
+    }
+
+    /**
      * Belgian spreadsheets write "38,25", "38.25", "€ 38,25" and
      * "1 234,50" for the same amount, and a thin or non-breaking space is
      * what Excel actually puts in a thousands separator. Everything that
@@ -275,6 +377,10 @@ class CampaignImportService
             $lastSeparator = -1;
         }
 
+        if (strlen(ltrim(str_replace([',', '.', '-'], '', $value), '0')) > 15) {
+            return null; // more digits than any amount, and than an integer holds once in cents
+        }
+
         if ($lastSeparator < 0) {
             return (int) $value * 100;
         }
@@ -284,7 +390,10 @@ class CampaignImportService
 
         // Three digits after the last separator is a thousands separator,
         // not a decimal one: "1.500" is fifteen hundred euros, not one
-        // euro fifty.
+        // euro fifty. This is only ever applied to TEXT: a cell the
+        // spreadsheet holds as a number never reaches here (see
+        // cellAmountCents()), and a text "31,875" meant as 31,88 € is
+        // caught by MAX_AMOUNT_CENTS instead of billed.
         if (strlen($decimalPart) === 3 && ctype_digit($decimalPart)) {
             return (int) ($integerPart . $decimalPart) * 100;
         }
@@ -304,7 +413,9 @@ class CampaignImportService
     }
 
     /**
-     * @return array<int, array<int, mixed>>
+     * The first sheet twice: as displayed, and as stored.
+     *
+     * @return array{0: array<int, array<int, mixed>>, 1: array<int, array<int, mixed>>}
      * @throws CampaignImportException
      */
     private function readFirstSheet(string $filePath): array
@@ -326,11 +437,16 @@ class CampaignImportService
             // 4821 has to arrive as "4821" and not as "4821.0".
             /** @var array<int, array<int, mixed>> $rows */
             $rows = $spreadsheet->getSheet(0)->toArray(null, true, true, false);
+            // Stored values, for the amount only: a number displayed as
+            // "31,875" or "1.500" has to arrive as that number, not as a
+            // text the thousands rule would read (issue #1472).
+            /** @var array<int, array<int, mixed>> $rawRows */
+            $rawRows = $spreadsheet->getSheet(0)->toArray(null, true, false, false);
         } finally {
             $spreadsheet->disconnectWorksheets();
         }
 
-        return $rows;
+        return [$rows, $rawRows];
     }
 
     /**
@@ -394,12 +510,15 @@ class CampaignImportService
 
     /**
      * @param array<int, array<int, mixed>> $rows
+     * @param array<int, array<int, mixed>> $rawRows the same cells, unformatted
      * @param array<int, string> $columns column name by cell index
-     * @return array<int, array{line: int, data: array<string, string>}>
+     * @param int $amountIndex cell index of the amount column
+     * @return array<int, array{line: int, data: array<string, string>, amount: mixed}>
      */
-    private function collectDataRows(array $rows, array $columns): array
+    private function collectDataRows(array $rows, array $rawRows, array $columns, int $amountIndex): array
     {
         $dataRows = [];
+        $rawRows = array_values($rawRows);
         foreach (array_values($rows) as $rowIndex => $cells) {
             if ($rowIndex === 0) {
                 continue; // headers
@@ -418,7 +537,11 @@ class CampaignImportService
                 continue; // an entirely empty line is not an error
             }
 
-            $dataRows[] = ['line' => $rowIndex + 1, 'data' => $data];
+            $dataRows[] = [
+                'line' => $rowIndex + 1,
+                'data' => $data,
+                'amount' => $rawRows[$rowIndex][$amountIndex] ?? null,
+            ];
         }
 
         return $dataRows;
