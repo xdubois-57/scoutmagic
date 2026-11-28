@@ -85,10 +85,14 @@
                                 { value: preview.emailAddresses, label: 'adresse(s) e-mail secondaire(s)' },
                                 { value: preview.notifications, label: 'notification(s)' },
                                 { value: preview.rosterSnapshotRows, label: 'ligne(s) d\'instantané du roster' },
+                                { value: preview.notes, label: 'note(s) du chef d\'unité' },
                             ] %}
                                 {% if item.value > 0 %}
                                     <li><strong>{{ item.value }}</strong> {{ item.label }}</li>
                                 {% endif %}
+                            {% endfor %}
+                            {% for label, count in preview.moduleItems %}
+                                <li><strong>{{ count }}</strong> {{ label }}</li>
                             {% endfor %}
                         </ul>
                     {% endif %}

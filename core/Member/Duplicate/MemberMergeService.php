@@ -102,7 +102,7 @@ class MemberMergeService
 
         $preview = $this->preview($keptMemberId, $duplicateMemberId);
 
-        $this->repository->mergeInto(
+        $moduleRowsMoved = $this->repository->mergeInto(
             $keptMemberId,
             $duplicateMemberId,
             $duplicateDeskId,
@@ -126,6 +126,10 @@ class MemberMergeService
                 'badges' => $preview->badges,
                 'documents' => $preview->documents,
                 'files' => $preview->files,
+                'notes' => $preview->notes,
+                // What each enabled module brought along (issue #1462):
+                // module id => rows, never a name.
+                'module_rows_moved' => $moduleRowsMoved,
             ],
             $userAccountId
         );

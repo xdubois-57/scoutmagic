@@ -20,6 +20,7 @@ use Core\Import\MemberYearRepository;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Member\Duplicate\DuplicateMemberRepository;
+use Core\Member\Duplicate\MemberMergeListenerRegistry;
 use Core\Member\Duplicate\MemberMergeRepository;
 use Core\Member\Duplicate\MemberMergeService;
 use Core\ScoutYear\ScoutYearResolver;
@@ -39,18 +40,20 @@ final class DuplicateMemberControllerTest extends TestCase
     private EncryptionService $encryption;
     private DuplicateMemberRepository $duplicates;
     private DuplicateMemberController $controller;
+    private MemberMergeListenerRegistry $listeners;
 
     protected function setUp(): void
     {
         $this->pdo = DatabaseTestHelper::createTestDatabase();
         $this->encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $this->duplicates = new DuplicateMemberRepository($this->pdo, $this->encryption);
+        $this->listeners = new MemberMergeListenerRegistry();
         $settings = new SettingService(new SettingRepository($this->pdo));
         $this->controller = new DuplicateMemberController(
             TestTwig::create(),
             $this->duplicates,
             new MemberMergeService(
-                new MemberMergeRepository($this->pdo, $this->duplicates),
+                new MemberMergeRepository($this->pdo, $this->duplicates, $this->listeners),
                 $this->duplicates,
                 new JournalService(new JournalRepository($this->pdo))
             ),
@@ -108,6 +111,32 @@ final class DuplicateMemberControllerTest extends TestCase
         $merged = $this->pdo->query('SELECT COUNT(*) FROM members WHERE merged_into_member_id IS NOT NULL');
         $this->assertSame(0, (int) $merged->fetchColumn(), 'a refused merge marked a record as merged');
         $this->assertSame('pending', $this->duplicates->findById($candidate)['status'] ?? null);
+    }
+
+    /**
+     * Issue #1462: the screen lists, before the confirmation, what a merge
+     * would bring along — the chef d'unité's notes and every enabled
+     * module's own rows, in the module's own words.
+     */
+    public function testTheScreenListsTheNotesAndWhatEachModuleWouldBringAlong(): void
+    {
+        $this->pdo->exec(
+            "INSERT INTO scout_years (label, start_date, end_date, is_current)
+             VALUES ('2024-2025', '2024-09-01', '2025-08-31', 0), ('2025-2026', '2025-09-01', '2026-08-31', 1)"
+        );
+        $years = $this->pdo->query('SELECT id FROM scout_years ORDER BY id')->fetchAll(\PDO::FETCH_COLUMN);
+        $kept = $this->createMember('T001', (int) $years[0]);
+        $duplicate = $this->createMember('T900', (int) $years[1]);
+        $this->pdo->prepare('INSERT INTO member_notes (member_id, body) VALUES (?, ?)')->execute([$duplicate, 'x']);
+        $this->duplicates->recordCandidate($kept, $duplicate, false);
+        $this->listeners->register(
+            new \Tests\Core\Member\Duplicate\RecordingMergeListener(['soirée(s) de présence' => 10], 10)
+        );
+
+        $body = $this->controller->index(new Request('GET', '/admin/doublons', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString("<strong>1</strong> note(s) du chef d&#039;unité", $body);
+        $this->assertStringContainsString('<strong>10</strong> soirée(s) de présence', $body);
     }
 
     private function createMember(string $deskId, int $scoutYearId): int

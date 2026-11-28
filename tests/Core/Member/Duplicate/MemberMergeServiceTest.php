@@ -311,6 +311,104 @@ class MemberMergeServiceTest extends TestCase
         $this->assertSame(1, $this->countRows('member_photos', 'member_id', $duplicate));
     }
 
+    /**
+     * Issue #1462: the chef d'unité's notes are a core table, and follow
+     * the merge like the rest — a vigilance note written on the absorbed
+     * identity no longer disappears. The preview and the screen say so.
+     */
+    public function testTheChefDunitesNotesFollowTheMerge(): void
+    {
+        $kept = $this->createMember('T001', $this->lastYear);
+        $duplicate = $this->createMember('T900', $this->thisYear);
+        $this->pdo->prepare('INSERT INTO member_notes (member_id, body) VALUES (?, ?)')
+            ->execute([$duplicate, 'chiffré']);
+
+        $this->assertSame(1, $this->service->preview($kept, $duplicate)->notes);
+        $this->service->merge($kept, $duplicate, 1);
+
+        $this->assertSame(1, $this->countRows('member_notes', 'member_id', $kept));
+        $this->assertSame(0, $this->countRows('member_notes', 'member_id', $duplicate));
+    }
+
+    /**
+     * Issue #1462: notes left on an identity merged before they were part
+     * of a merge are moved to the kept identity, once.
+     */
+    public function testNotesLeftOnAlreadyMergedIdentitiesAreRepointedOnce(): void
+    {
+        $kept = $this->createMember('T001', $this->lastYear);
+        $duplicate = $this->createMember('T900', $this->thisYear);
+        $this->pdo->prepare('UPDATE members SET merged_into_member_id = ? WHERE id = ?')->execute([$kept, $duplicate]);
+        $this->pdo->prepare('INSERT INTO member_notes (member_id, body) VALUES (?, ?)')
+            ->execute([$duplicate, 'chiffré']);
+        $repository = new MemberMergeRepository($this->pdo, $this->duplicates);
+
+        $this->assertSame(1, $repository->repointNotesOfMergedMembers());
+        $this->assertSame(0, $repository->repointNotesOfMergedMembers());
+        $this->assertSame(1, $this->countRows('member_notes', 'member_id', $kept));
+    }
+
+    /**
+     * Issue #1462: a module brings its own rows along through a listener,
+     * inside the merge: its preview is shown, its rows are moved, and the
+     * journal counts them per module.
+     */
+    public function testAModuleListenerIsPreviewedRunAndJournaled(): void
+    {
+        $kept = $this->createMember('T001', $this->lastYear);
+        $duplicate = $this->createMember('T900', $this->thisYear);
+        $listener = new RecordingMergeListener(['soirée(s) de présence' => 3], 3);
+        $service = $this->serviceWith($listener);
+
+        $preview = $service->preview($kept, $duplicate);
+        $this->assertSame(['soirée(s) de présence' => 3], $preview->moduleItems);
+        $this->assertSame(4, $preview->total());
+
+        $service->merge($kept, $duplicate, 1);
+
+        $this->assertSame([[$kept, $duplicate]], $listener->calls);
+        $context = json_decode((string) $this->pdo->query(
+            "SELECT context FROM event_log WHERE event_type = 'member_merged'"
+        )->fetchColumn(), true);
+        $this->assertSame(['presences' => 3], $context['module_rows_moved']);
+        $this->assertSame($kept, $context['kept_member_id']);
+        $this->assertSame($duplicate, $context['merged_member_id']);
+    }
+
+    /**
+     * Issue #1462: a listener that fails rolls the whole merge back —
+     * core's own rows included.
+     */
+    public function testAFailingModuleListenerRollsTheWholeMergeBack(): void
+    {
+        $kept = $this->createMember('T001', $this->lastYear);
+        $duplicate = $this->createMember('T900', $this->thisYear);
+        $listener = new RecordingMergeListener([], 0, new \RuntimeException('module down'));
+
+        try {
+            $this->serviceWith($listener)->merge($kept, $duplicate, 1);
+            $this->fail('the module could not follow, so the merge had to fail');
+        } catch (\RuntimeException) {
+        }
+
+        $this->assertSame(1, $this->countRows('member_years', 'member_id', $duplicate));
+        $this->assertNull(
+            $this->pdo->query("SELECT merged_into_member_id FROM members WHERE id = {$duplicate}")->fetchColumn()
+        );
+    }
+
+    private function serviceWith(\Core\Member\Duplicate\MemberMergeListener $listener): MemberMergeService
+    {
+        $registry = new \Core\Member\Duplicate\MemberMergeListenerRegistry();
+        $registry->register($listener);
+
+        return new MemberMergeService(
+            new MemberMergeRepository($this->pdo, $this->duplicates, $registry),
+            $this->duplicates,
+            new JournalService(new JournalRepository($this->pdo))
+        );
+    }
+
     /* ------------------------------------------------------------------ */
 
     private function createMember(string $deskId, int $scoutYearId): int
