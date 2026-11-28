@@ -118,6 +118,59 @@ class HealthSheetRepository
         $stmt->execute([$now->format('Y-m-d H:i:s'), $memberId]);
     }
 
+    /** Whether this member id holds a sheet, readable or not. */
+    public function exists(int $memberId): bool
+    {
+        $stmt = $this->pdo->prepare('SELECT 1 FROM official_documents_health_sheets WHERE member_id = ?');
+        $stmt->execute([$memberId]);
+
+        return $stmt->fetchColumn() !== false;
+    }
+
+    /**
+     * Brings the sheet held by $duplicateMemberId to $keptMemberId (issue
+     * #1462, Service\HealthSheetMergeListener). One sheet per member is the
+     * table's rule, so when both hold one the most recently USED is kept
+     * (`last_used_at`; the kept member's on a tie) and the other deleted.
+     *
+     * @return 'none'|'moved'|'kept_duplicate'|'kept_existing'
+     */
+    public function mergeMember(int $keptMemberId, int $duplicateMemberId): string
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT member_id, last_used_at FROM official_documents_health_sheets WHERE member_id IN (?, ?)'
+        );
+        $stmt->execute([$keptMemberId, $duplicateMemberId]);
+        $lastUsed = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $lastUsed[(int) $row['member_id']] = (string) $row['last_used_at'];
+        }
+
+        if (!isset($lastUsed[$duplicateMemberId])) {
+            return 'none';
+        }
+
+        $delete = $this->pdo->prepare('DELETE FROM official_documents_health_sheets WHERE member_id = ?');
+        $move = $this->pdo->prepare('UPDATE official_documents_health_sheets SET member_id = ? WHERE member_id = ?');
+
+        if (!isset($lastUsed[$keptMemberId])) {
+            $move->execute([$keptMemberId, $duplicateMemberId]);
+
+            return 'moved';
+        }
+
+        if ($lastUsed[$duplicateMemberId] > $lastUsed[$keptMemberId]) {
+            $delete->execute([$keptMemberId]);
+            $move->execute([$keptMemberId, $duplicateMemberId]);
+
+            return 'kept_duplicate';
+        }
+
+        $delete->execute([$duplicateMemberId]);
+
+        return 'kept_existing';
+    }
+
     /**
      * Remove this member's sheet entirely — « Tout effacer ».
      *
@@ -172,8 +225,14 @@ class HealthSheetRepository
      */
     public function deleteUnusedSince(\DateTimeImmutable $cutoff): array
     {
+        // Never a sheet still held by an identity merged into another
+        // (issue #1462): nobody could reach it there, so nobody could have
+        // used it — it waits for the merge's catch-up to bring it to the
+        // kept identity, rather than being purged as abandoned.
         $stmt = $this->pdo->prepare(
-            'SELECT member_id FROM official_documents_health_sheets WHERE last_used_at < ?'
+            'SELECT member_id FROM official_documents_health_sheets
+             WHERE last_used_at < ?
+               AND member_id NOT IN (SELECT id FROM members WHERE merged_into_member_id IS NOT NULL)'
         );
         $stmt->execute([$cutoff->format('Y-m-d H:i:s')]);
 

@@ -460,4 +460,65 @@ final class HealthSheetRepositoryTest extends TestCase
         $this->assertSame([$this->memberId], $taken);
         $this->assertNotNull($this->repository->findForMember($used));
     }
+
+    // --- a merge of two identities (issue #1462) ---
+
+    public function testAMergeBringsTheAbsorbedIdentitysSheetToTheKeptOne(): void
+    {
+        $this->repository->save($this->otherMemberId, self::sheet(), self::now());
+
+        $this->assertSame('moved', $this->repository->mergeMember($this->memberId, $this->otherMemberId));
+
+        $this->assertSame("Arachides, œufs, et l'iode", $this->repository->findForMember($this->memberId)?->allergies);
+        $this->assertFalse($this->repository->exists($this->otherMemberId));
+    }
+
+    /**
+     * One sheet per member: when both identities hold one, the most
+     * recently used is kept, whichever identity it was on.
+     */
+    public function testWhenBothHoldASheetTheMostRecentlyUsedIsKept(): void
+    {
+        $this->repository->save($this->memberId, HealthSheet::fromArray(['allergies' => 'ancienne']), self::now());
+        $this->repository->save(
+            $this->otherMemberId,
+            HealthSheet::fromArray(['allergies' => 'récente']),
+            self::now('2026-10-01 10:00:00')
+        );
+
+        $this->assertSame('kept_duplicate', $this->repository->mergeMember($this->memberId, $this->otherMemberId));
+
+        $this->assertSame('récente', $this->repository->findForMember($this->memberId)?->allergies);
+        $this->assertFalse($this->repository->exists($this->otherMemberId));
+    }
+
+    public function testWhenTheKeptIdentitysSheetIsFresherItStays(): void
+    {
+        $this->repository->save(
+            $this->memberId,
+            HealthSheet::fromArray(['allergies' => 'récente']),
+            self::now('2026-10-01 10:00:00')
+        );
+        $this->repository->save($this->otherMemberId, HealthSheet::fromArray(['allergies' => 'ancienne']), self::now());
+
+        $this->assertSame('kept_existing', $this->repository->mergeMember($this->memberId, $this->otherMemberId));
+
+        $this->assertSame('récente', $this->repository->findForMember($this->memberId)?->allergies);
+        $this->assertFalse($this->repository->exists($this->otherMemberId));
+    }
+
+    /**
+     * A sheet still on an identity merged into another is out of the
+     * family's reach, so it was never « unused »: the purge leaves it for
+     * the merge to bring along.
+     */
+    public function testTheRetentionPurgeNeverTakesASheetHeldByAMergedIdentity(): void
+    {
+        $this->repository->save($this->otherMemberId, self::sheet(), self::now('2024-01-01 10:00:00'));
+        $this->pdo->prepare('UPDATE members SET merged_into_member_id = ? WHERE id = ?')
+            ->execute([$this->memberId, $this->otherMemberId]);
+
+        $this->assertSame([], $this->repository->deleteUnusedSince(self::now()));
+        $this->assertTrue($this->repository->exists($this->otherMemberId));
+    }
 }

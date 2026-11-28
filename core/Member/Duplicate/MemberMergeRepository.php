@@ -259,6 +259,52 @@ class MemberMergeRepository
     }
 
     /**
+     * Every merge already done, as [merged id, kept id] — one hop, as
+     * mergeInto() keeps every chain. What a module's listener catches up on
+     * the first time it is registered (issue #1462).
+     *
+     * @return list<array{int, int}>
+     */
+    public function mergedPairs(): array
+    {
+        $stmt = $this->pdo->query(
+            'SELECT id, merged_into_member_id FROM members WHERE merged_into_member_id IS NOT NULL ORDER BY id'
+        );
+
+        return array_map(
+            static fn(array $row): array => [(int) $row['id'], (int) $row['merged_into_member_id']],
+            $stmt !== false ? $stmt->fetchAll(\PDO::FETCH_ASSOC) : []
+        );
+    }
+
+    /**
+     * Runs $listener over every merge already done, in one transaction:
+     * the rows a module wrote under identities merged before it could
+     * follow a merge are brought to the kept identity. Returns how many.
+     */
+    public function catchUp(MemberMergeListener $listener): int
+    {
+        $pairs = $this->mergedPairs();
+        if ($pairs === []) {
+            return 0;
+        }
+
+        $this->pdo->beginTransaction();
+        try {
+            $handled = 0;
+            foreach ($pairs as [$mergedId, $keptId]) {
+                $handled += $listener->onMembersMerged($keptId, $mergedId);
+            }
+            $this->pdo->commit();
+        } catch (\Throwable $e) {
+            $this->pdo->rollBack();
+            throw $e;
+        }
+
+        return $handled;
+    }
+
+    /**
      * Repoints the notes still held by identities merged before notes were
      * part of a merge (issue #1462) onto the identity each was merged into
      * — one hop, as mergeInto() keeps every chain. Idempotent: a second run

@@ -3043,6 +3043,45 @@ $memberMergeService = new \Core\Member\Duplicate\MemberMergeService(
     $duplicateMemberRepository,
     $journalService
 );
+// How a module block registers its listener: into the registry, and — the
+// first time this installation sees it — over every merge already done,
+// so what the module wrote under identities merged before it could follow
+// a merge reaches the kept identity too (issue #1462). Gated per module by
+// a setting of the member_section_periods_backfilled shape.
+$registerMemberMergeListener = static function (
+    \Core\Member\Duplicate\MemberMergeListener $listener
+) use ($memberMergeListeners, $memberMergeRepository, $settingService, $settingRepo, $journalService): void {
+    $memberMergeListeners->register($listener);
+
+    $key = 'member_merge_caught_up_' . $listener->moduleId();
+    if ($settingService->get($key) === '1') {
+        return;
+    }
+    $settingService->register(
+        $key,
+        '0',
+        'boolean',
+        'Fusions passées rattrapées',
+        'Indique si les fusions de fiches faites avant ce module ont été appliquées à ses données.',
+        null,
+        null,
+        null,
+        false,
+        999
+    );
+    $handled = $memberMergeRepository->catchUp($listener);
+    if ($handled > 0) {
+        $journalService->log(
+            $listener->moduleId(),
+            'member_merge_caught_up',
+            'info',
+            'Fusions de fiches déjà faites appliquées aux données du module : ' . $handled . ' ligne(s)',
+            ['rows' => $handled]
+        );
+    }
+    $settingRepo->updateValue(null, $key, '1');
+    $settingService->clearCache();
+};
 // One-time repair (issue #1462): the chef d'unité's notes were not part
 // of a merge until now, so a note written on an identity merged before
 // stayed on it, read by nobody. Same shape as
@@ -7929,10 +7968,19 @@ if ($isEnabled('official_documents')) {
     // The health sheet's one storage path. Encryption lives in the
     // Repository and nowhere else (specifications.md §44), so this is the
     // only place the encryption service reaches it.
+    $healthSheetRepository = new \Modules\OfficialDocuments\Repository\HealthSheetRepository(
+        $pdo,
+        $encryptionService
+    );
     $healthSheetService = new \Modules\OfficialDocuments\Service\HealthSheetService(
-        new \Modules\OfficialDocuments\Repository\HealthSheetRepository($pdo, $encryptionService),
+        $healthSheetRepository,
         $journalService
     );
+    // A merge brings the child's sheet along (issue #1462).
+    $registerMemberMergeListener(new \Modules\OfficialDocuments\Service\HealthSheetMergeListener(
+        $healthSheetRepository,
+        $journalService
+    ));
     $officialDocumentsAccess = new \Modules\OfficialDocuments\Security\OwnMemberOnly($memberService);
 
     $memberOfficialDocumentsProvider = new \Modules\OfficialDocuments\Service\MemberDocumentsSummaryService(
@@ -7991,6 +8039,15 @@ if ($isEnabled('official_documents')) {
 // reports it enabled while the calendar is off — the null check below is
 // belt and braces, and it is what makes the dependency provable at the
 // one place that wires it rather than only in a manifest.
+// Merges bring an animé's evenings along (issue #1462) — whether or not
+// the calendar is there to show them: the rows exist either way.
+if ($isEnabled('presences')) {
+    $registerMemberMergeListener(new \Modules\Presences\Service\PresenceMergeListener(
+        new \Modules\Presences\Repository\PresenceRepository($pdo, $encryptionService),
+        $journalService
+    ));
+}
+
 if ($isEnabled('presences') && $calendarSectionEventLookupForOthers !== null) {
     \Core\Debug\RequestTimeline::mark('module_presences');
     $presenceRepository = new \Modules\Presences\Repository\PresenceRepository($pdo, $encryptionService);

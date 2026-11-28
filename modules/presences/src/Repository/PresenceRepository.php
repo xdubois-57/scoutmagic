@@ -354,6 +354,55 @@ class PresenceRepository
         return $stmt->rowCount();
     }
 
+    /** How many evenings are recorded under this member id. */
+    public function countForMember(int $memberId): int
+    {
+        $stmt = $this->pdo->prepare('SELECT COUNT(*) FROM presences_records WHERE member_id = ?');
+        $stmt->execute([$memberId]);
+
+        return (int) $stmt->fetchColumn();
+    }
+
+    /**
+     * Moves every evening recorded under $duplicateMemberId onto
+     * $keptMemberId (issue #1462, Service\PresenceMergeListener). An
+     * evening recorded under BOTH ids — the same animé pointed twice — keeps
+     * the row written last (the kept member's on a tie), and the other is
+     * deleted: one row per (event, animé) is the table's own rule. Returns
+     * how many of the duplicate's evenings were brought along (moved, or
+     * settled against the kept one's) and how many were recorded twice.
+     *
+     * @return array{handled: int, collisions: int}
+     */
+    public function mergeMember(int $keptMemberId, int $duplicateMemberId): array
+    {
+        $collisions = $this->pdo->prepare(
+            'SELECT d.id AS duplicate_row, k.id AS kept_row, d.updated_at > k.updated_at AS duplicate_newer
+             FROM presences_records d
+             JOIN presences_records k ON k.calendar_event_id = d.calendar_event_id AND k.member_id = ?
+             WHERE d.member_id = ?'
+        );
+        $collisions->execute([$keptMemberId, $duplicateMemberId]);
+        $rows = $collisions->fetchAll(\PDO::FETCH_ASSOC);
+
+        $delete = $this->pdo->prepare('DELETE FROM presences_records WHERE id = ?');
+        foreach ($rows as $row) {
+            // The losing row goes first, or the move below would collide
+            // with the unique (event, member) index.
+            $delete->execute([(bool) $row['duplicate_newer'] ? (int) $row['kept_row'] : (int) $row['duplicate_row']]);
+        }
+
+        $move = $this->pdo->prepare('UPDATE presences_records SET member_id = ? WHERE member_id = ?');
+        $move->execute([$keptMemberId, $duplicateMemberId]);
+
+        $settledAgainstKept = count(array_filter(
+            $rows,
+            static fn(array $row): bool => !(bool) $row['duplicate_newer']
+        ));
+
+        return ['handled' => $move->rowCount() + $settledAgainstKept, 'collisions' => count($rows)];
+    }
+
     /**
      * @param array<string, mixed> $row
      */
