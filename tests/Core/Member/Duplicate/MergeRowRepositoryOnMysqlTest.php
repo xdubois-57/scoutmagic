@@ -18,6 +18,20 @@ final class MergeRowRepositoryOnMysqlTest extends TestCase
 {
     use UsesProductionEngine;
 
+    /** The premise first (AGENTS.md § Database): this engine counts changed rows. */
+    public function testThisEngineReportsChangedRowsRatherThanMatchedOnes(): void
+    {
+        $pdo = $this->productionEngine();
+        $pdo->prepare('INSERT INTO members (desk_id) VALUES (?)')->execute(['MR-PROBE']);
+        $member = (int) $pdo->lastInsertId();
+
+        $this->assertSame(
+            0,
+            (new MergeRowRepository($pdo))->repoint('members', 'id', $member, $member),
+            'the engine counts matched rows: the counts below prove nothing.'
+        );
+    }
+
     public function testTheLatestAnswerWinsAndTheCountsAreTruthful(): void
     {
         $pdo = $this->productionEngine();
