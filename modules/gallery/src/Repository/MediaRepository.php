@@ -137,7 +137,9 @@ class MediaRepository
      */
     public function markFailed(int $id, ?string $error = null): void
     {
-        $stmt = $this->pdo->prepare('UPDATE gallery_media SET processing_status = ?, processing_error = ? WHERE id = ?');
+        $stmt = $this->pdo->prepare(
+            'UPDATE gallery_media SET processing_status = ?, processing_error = ? WHERE id = ?'
+        );
         $stmt->execute([
             Media::STATUS_FAILED,
             $error !== null ? mb_substr($error, 0, self::PROCESSING_ERROR_MAX_LENGTH) : null,
