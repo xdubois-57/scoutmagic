@@ -21,6 +21,9 @@ class MemberMergeListenerRegistry
     /** @var MemberMergeListener[] */
     private array $listeners = [];
 
+    /** @var list<\Closure(): void> */
+    private array $afterEachMerge = [];
+
     public function register(MemberMergeListener $listener): void
     {
         $this->listeners[] = $listener;
@@ -30,5 +33,25 @@ class MemberMergeListenerRegistry
     public function all(): array
     {
         return $this->listeners;
+    }
+
+    /**
+     * $callback runs at the end of every merge, inside its transaction —
+     * how {@see MemberMergeListenerRegistrar} records that the modules
+     * enabled in this request followed it, so it is not replayed.
+     *
+     * @param \Closure(): void $callback
+     */
+    public function afterEachMerge(\Closure $callback): void
+    {
+        $this->afterEachMerge[] = $callback;
+    }
+
+    /** Called by the merge, once its own writes are done and before it commits. */
+    public function merged(): void
+    {
+        foreach ($this->afterEachMerge as $callback) {
+            $callback();
+        }
     }
 }

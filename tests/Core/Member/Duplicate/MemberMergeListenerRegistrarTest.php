@@ -94,4 +94,50 @@ final class MemberMergeListenerRegistrarTest extends TestCase
         $this->bootWith($nextRequest);
         $this->assertSame([], $nextRequest->calls, 'already caught up: not replayed on every request');
     }
+
+    /**
+     * A merge made while the module is enabled is followed there and then:
+     * it advances the module's state in its own transaction, so the next
+     * request does not replay the site's whole merge history.
+     */
+    public function testAnOrdinaryMergeIsNotReplayedOnTheNextRequest(): void
+    {
+        $first = new RecordingMergeListener([], 0);
+        $kept = $this->member('K', $this->lastYear);
+        $duplicate = $this->member('D', $this->thisYear);
+        $this->bootWith($first)->merge($kept, $duplicate, 1);
+        $this->assertSame([[$kept, $duplicate]], $first->calls, 'followed by the merge itself');
+
+        $nextRequest = new RecordingMergeListener([], 0);
+        $this->bootWith($nextRequest);
+        $this->assertSame([], $nextRequest->calls);
+    }
+
+    /**
+     * The catch-up runs from the composition root: a failing one must not
+     * 500 the page. It is journalled once, retried on every request, and
+     * runs normally once the fault is gone.
+     */
+    public function testAFailingCatchUpIsJournalledOnceAndRetriedWithoutBreakingThePage(): void
+    {
+        $kept = $this->member('K', $this->lastYear);
+        $duplicate = $this->member('D', $this->thisYear);
+        $this->bootWith(null)->merge($kept, $duplicate, 1);
+
+        $broken = new RecordingMergeListener([], 0, new \RuntimeException('lock wait timeout'));
+        $errorLog = ini_set('error_log', '/dev/null');
+        try {
+            $this->bootWith($broken);
+            $this->bootWith($broken);
+        } finally {
+            ini_set('error_log', (string) $errorLog);
+        }
+        $this->assertSame(1, (int) $this->pdo->query(
+            "SELECT COUNT(*) FROM event_log WHERE event_type = 'member_merge_catch_up_failed'"
+        )->fetchColumn(), 'journalled once, not once per page');
+
+        $repaired = new RecordingMergeListener([], 0);
+        $this->bootWith($repaired);
+        $this->assertSame([[$kept, $duplicate]], $repaired->calls, 'retried, and done');
+    }
 }
