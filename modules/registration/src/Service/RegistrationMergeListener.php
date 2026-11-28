@@ -138,7 +138,7 @@ final class RegistrationMergeListener implements MemberMergeListener
                 'registration_merge_collisions',
                 'info',
                 'Fusion de fiches : données d\'inscription présentes sous les deux fiches, '
-                    . 'la plus récente est gardée',
+                    . 'une seule est gardée selon la règle de chaque donnée',
                 [
                     'kept_member_id' => $keptMemberId,
                     'merged_member_id' => $duplicateMemberId,
