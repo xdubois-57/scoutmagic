@@ -460,4 +460,33 @@ class SchedulerRepositoryTest extends TestCase
 
         $this->assertNull($this->repo->findById($id)['started_at']);
     }
+
+    /**
+     * A pass that restored a backup taken before `started_at` existed must
+     * still hand back what it did not run (#1554 review).
+     */
+    public function testReleaseStillWorksOnASchemaWithoutStartedAt(): void
+    {
+        $id = $this->repo->create('core', 'later_task', (new \DateTimeImmutable('-1 minute'))->format('Y-m-d H:i:s'), null, null);
+        $this->repo->claimOverdue();
+        $this->pdo->exec('ALTER TABLE scheduled_actions DROP COLUMN started_at');
+
+        $this->repo->release($id);
+
+        $this->assertSame('pending', $this->repo->findById($id)['status']);
+    }
+
+    public function testOnlyAMissingColumnIsRecognisedAsOne(): void
+    {
+        $sqlite = new \PDOException('SQLSTATE[HY000]: General error: 1 no such column: started_at');
+        $sqlite->errorInfo = ['HY000', 1, 'no such column: started_at'];
+        $mysql = new \PDOException("SQLSTATE[42S22]: Column not found: 1054 Unknown column 'started_at'");
+        $mysql->errorInfo = ['42S22', 1054, "Unknown column 'started_at' in 'field list'"];
+        $gone = new \PDOException('SQLSTATE[HY000]: General error: 2006 MySQL server has gone away');
+        $gone->errorInfo = ['HY000', 2006, 'MySQL server has gone away'];
+
+        $this->assertTrue(SchedulerRepository::isMissingColumn($sqlite));
+        $this->assertTrue(SchedulerRepository::isMissingColumn($mysql));
+        $this->assertFalse(SchedulerRepository::isMissingColumn($gone));
+    }
 }

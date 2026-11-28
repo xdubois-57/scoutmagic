@@ -130,8 +130,9 @@ class SchedulerRunner
                     'core',
                     'scheduler_task_abandoned',
                     'error',
-                    "Tâche planifiée « {$abandoned['task_key']} » abandonnée : elle a interrompu le passage du "
-                        . "cron {$abandoned['attempts']} fois sans jamais se terminer. Elle est marquée en échec.",
+                    "Tâche planifiée « {$abandoned['task_key']} » abandonnée après {$abandoned['attempts']} "
+                        . "tentatives infructueuses, la dernière interrompue avec le passage du cron. "
+                        . "Elle est marquée en échec.",
                     [
                         'task_id' => $abandoned['id'],
                         'module_id' => $abandoned['module_id'],
@@ -316,7 +317,17 @@ class SchedulerRunner
     {
         try {
             return $this->repository->markStarted($taskId);
-        } catch (\PDOException) {
+        } catch (\PDOException $e) {
+            // Only the missing column. Any other failure goes up before the
+            // handler runs (#1554 review): a task started without its stamp
+            // and then killed would be handed back as never started,
+            // escaping both the six-hour delay and the attempt count. Left
+            // unstamped, the row is released at the next pass — correctly,
+            // since nothing of it ran.
+            if (!SchedulerRepository::isMissingColumn($e)) {
+                throw $e;
+            }
+
             return true;
         }
     }

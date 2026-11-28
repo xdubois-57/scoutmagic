@@ -37,10 +37,12 @@ L'hébergeur peut arrêter un passage du cron en plein travail (mémoire
 épuisée, durée dépassée). Les tâches que ce passage n'avait pas encore
 commencées repartent dès le passage suivant, et le journal le signale.
 La tâche qui était en cours reste « En cours » jusqu'à six heures, puis
-elle est relancée et sa colonne « Tentatives » augmente. Après trois
-interruptions, elle passe en **Échoué** avec un message qui l'explique,
-et une erreur est consignée au journal : c'est souvent elle qui fait
-tomber le passage.
+elle est relancée et sa colonne « Tentatives » augmente. Échecs et
+interruptions comptent ensemble : à la troisième tentative infructueuse,
+elle passe en **Échoué** au lieu d'être relancée (après deux échecs, la
+première interruption suffit), avec un message qui l'explique, et une
+erreur est consignée au journal : c'est souvent elle qui fait tomber le
+passage.
 
 ## Pourquoi une tâche part en retard
 

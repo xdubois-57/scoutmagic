@@ -594,11 +594,39 @@ class SchedulerRepository
      */
     public function release(int $id): void
     {
-        $stmt = $this->pdo->prepare(
-            "UPDATE scheduled_actions SET status = 'pending', claimed_at = NULL, started_at = NULL"
-            . " WHERE id = ? AND status = 'processing'"
-        );
-        $stmt->execute([$id]);
+        try {
+            $stmt = $this->pdo->prepare(
+                "UPDATE scheduled_actions SET status = 'pending', claimed_at = NULL, started_at = NULL"
+                . " WHERE id = ? AND status = 'processing'"
+            );
+            $stmt->execute([$id]);
+        } catch (\PDOException $e) {
+            // A pass that restored a backup taken before `started_at`
+            // existed (see SchedulerRunner::markStarted()) still has to
+            // hand back what it did not run (#1554 review).
+            if (!self::isMissingColumn($e)) {
+                throw $e;
+            }
+            $stmt = $this->pdo->prepare(
+                "UPDATE scheduled_actions SET status = 'pending', claimed_at = NULL"
+                . " WHERE id = ? AND status = 'processing'"
+            );
+            $stmt->execute([$id]);
+        }
+    }
+
+    /**
+     * Whether $e is a statement naming a column this schema does not have:
+     * SQLSTATE 42S22 / error 1054 on MySQL and MariaDB, « no such column »
+     * on SQLite. The one failure a restored, older schema produces here.
+     */
+    public static function isMissingColumn(\PDOException $e): bool
+    {
+        $info = is_array($e->errorInfo) ? $e->errorInfo : [];
+
+        return ($info[0] ?? null) === '42S22'
+            || ($info[1] ?? null) === 1054
+            || str_contains((string) ($info[2] ?? $e->getMessage()), 'no such column');
     }
 
     /**
@@ -680,8 +708,8 @@ class SchedulerRepository
 
             if ($abandoned) {
                 $abandonStmt->execute([
-                    "La tâche « {$candidate['task_key']} » a été abandonnée : elle a interrompu le passage "
-                        . "du cron {$attempts} fois sans jamais se terminer.",
+                    "La tâche « {$candidate['task_key']} » a été abandonnée après {$attempts} tentatives "
+                        . "infructueuses, la dernière interrompue en même temps que le passage du cron.",
                     (int) $candidate['id'],
                 ]);
                 $changed = $abandonStmt->rowCount();

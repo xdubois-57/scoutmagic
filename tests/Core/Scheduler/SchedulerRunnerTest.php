@@ -26,6 +26,7 @@ class SchedulerRunnerTest extends TestCase
     private SchedulerRepository $repo;
     private JournalService $journal;
     private \PDO $pdo;
+    private TaskContext $taskContext;
 
     protected function setUp(): void
     {
@@ -44,6 +45,7 @@ class SchedulerRunnerTest extends TestCase
         $userAccounts = $this->createStub(UserAccountRepository::class);
         $taskContext = new TaskContext($connection, $encryption, $mailService, $this->journal, $settingService, $userAccounts, sys_get_temp_dir());
         $this->runner->setTaskContext($taskContext);
+        $this->taskContext = $taskContext;
     }
 
     public function testProcessOverdueWithRegisteredHandler(): void
@@ -581,5 +583,44 @@ final class ModuleResolvedFixtureHandler implements TaskHandlerInterface
     public function handle(array $payload, TaskContext $context): void
     {
         self::$payloads[] = $payload;
+    }
+
+    /**
+     * A start stamp that fails for any reason other than a missing column
+     * stops the pass before the handler runs (#1554 review): started
+     * without its stamp and then killed, the task would come back as
+     * never started, escaping the delay and the attempt count.
+     */
+    public function testAStartStampThatFailsOtherwiseStopsBeforeTheHandler(): void
+    {
+        $handler = new class implements TaskHandlerInterface {
+            public bool $called = false;
+
+            public function handle(array $payload, TaskContext $context): void
+            {
+                $this->called = true;
+            }
+        };
+        $repo = new class ($this->pdo) extends SchedulerRepository {
+            public function markStarted(int $id): bool
+            {
+                $e = new \PDOException('SQLSTATE[HY000]: General error: 2006 MySQL server has gone away');
+                $e->errorInfo = ['HY000', 2006, 'MySQL server has gone away'];
+                throw $e;
+            }
+        };
+        $runner = new SchedulerRunner($repo, $this->journal);
+        $runner->setTaskContext($this->taskContext);
+        $runner->registerHandler('core', 'stamped_task', $handler);
+        $repo->create('core', 'stamped_task', (new \DateTimeImmutable('-1 minute'))->format('Y-m-d H:i:s'), null, null);
+
+        try {
+            $runner->processOverdue();
+            $this->fail('The stamp failure must stop the pass.');
+        } catch (\PDOException $e) {
+            $this->assertStringContainsString('gone away', $e->getMessage());
+        }
+
+        $this->assertFalse($handler->called);
     }
 }
