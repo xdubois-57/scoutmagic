@@ -787,13 +787,21 @@ class SchedulerRepository
         $stmt->execute([$now, $id]);
     }
 
+    /**
+     * `executed_at` is when the run ended, as markDone() writes it: a
+     * failed run has an end too, and what reads it — a module's own
+     * back-off after repeated failures (#1557 review), the support
+     * collectors' `COALESCE(executed_at, run_at)` — needs that moment, not
+     * when the run was due.
+     */
     public function markFailed(int $id, string $error): void
     {
+        $now = (new \DateTimeImmutable())->format('Y-m-d H:i:s');
         $stmt = $this->pdo->prepare(
             "UPDATE scheduled_actions SET status = 'failed', last_error = ?, attempts = attempts + 1,"
-            . " claimed_at = NULL WHERE id = ?"
+            . " executed_at = ?, claimed_at = NULL WHERE id = ?"
         );
-        $stmt->execute([$error, $id]);
+        $stmt->execute([$error, $now, $id]);
     }
 
     public function cancel(int $id): void

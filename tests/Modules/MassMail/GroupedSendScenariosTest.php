@@ -670,6 +670,76 @@ class GroupedSendScenariosTest extends TestCase
         $this->assertSame(Email::STATUS_SENT, $this->service->findById($email->id)?->status);
     }
 
+    /** @return list<array<string, mixed>> every queued or running send_batch row */
+    private function liveBatches(): array
+    {
+        return $this->pdo->query(
+            "SELECT id, status, reference FROM scheduled_actions
+             WHERE module_id = 'mass_mail' AND task_key = 'send_batch' AND status IN ('pending', 'processing')
+             ORDER BY id"
+        )->fetchAll(\PDO::FETCH_ASSOC);
+    }
+
+    /**
+     * **Issue #1443, second half.** « Renvoyer » pressed while a batch is
+     * `processing` looked for a QUEUED run, found none, and queued a second
+     * chain beside the one running: both lived until the queue was empty,
+     * at twice the cadence the relay accepts. The running batch is the
+     * chain, so the click queues nothing — and the message it put back
+     * still leaves, once, with the batch.
+     */
+    public function testAResendWhileABatchRunsLeavesOneChain(): void
+    {
+        $this->member('Alice', 'alice@x.be');
+        $email = $this->send($this->activeMembersEmail());
+
+        $scheduler = new SchedulerRepository($this->pdo);
+        $this->pdo->exec("DELETE FROM scheduled_actions");
+        $running = $scheduler->create('mass_mail', 'send_batch', date('Y-m-d H:i:s'), null, SendBatchHandler::REFERENCE);
+        $this->pdo->exec("UPDATE scheduled_actions SET status = 'processing' WHERE id = {$running}");
+
+        $this->service->resendDelivery($this->deliveries->findByEmailId($email->id)[0]->id, null);
+        $this->service->resendDelivery($this->deliveries->findByEmailId($email->id)[0]->id, null);
+
+        $this->assertSame([$running], array_map('intval', array_column($this->liveBatches(), 'id')));
+
+        $this->drain();
+        $scheduler->markDone($running);
+
+        $this->assertSame(['alice@x.be', 'alice@x.be'], $this->sent, 'the message put back left once');
+        $this->assertSame([], $this->liveBatches(), 'nothing left to send, nothing left queued');
+    }
+
+    /**
+     * Messages waiting with no batch queued or running — what a failed
+     * batch left before issue #1443: the composition root queues exactly
+     * one run, on this engine's own lock, however often it is asked.
+     */
+    public function testPendingMessagesWithoutATaskAreSeededExactlyOnce(): void
+    {
+        $this->member('Alice', 'alice@x.be');
+        $email = $this->activeMembersEmail();
+        $this->service->moveToTest($email->id, null);
+        $this->service->startSending($email->id, null);
+        $this->pdo->exec("DELETE FROM scheduled_actions");
+
+        $scheduler = new SchedulerService(new SchedulerRepository($this->pdo));
+        $journal = new JournalService(new JournalRepository($this->pdo));
+        $seeded = 0;
+        for ($request = 0; $request < 3; $request++) {
+            $seeded += (int) SendBatchHandler::bootstrap($scheduler, $this->deliveries, $journal);
+        }
+
+        $this->assertSame(1, $seeded);
+        $this->assertCount(1, $this->liveBatches());
+        $this->assertSame(
+            1,
+            (int) $this->pdo->query(
+                "SELECT COUNT(*) FROM event_log WHERE category = 'mass_mail' AND event_type = 'batch_chain_recovered'"
+            )->fetchColumn()
+        );
+    }
+
     /**
      * Two messages of one communication whose addresses lead to the same
      * account — a guarantee held at the batch, whatever produced them: one

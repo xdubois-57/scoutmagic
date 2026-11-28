@@ -1266,4 +1266,346 @@ class SendBatchHandlerTest extends TestCase
         $this->assertSame(Delivery::STATUS_ERROR, $recipients[0]->status);
         $this->assertSame('Données de publipostage purgées', $recipients[0]->errorMessage);
     }
+
+    // ── The chain itself (issue #1443) ──────────────────────────────────
+
+    /**
+     * The row the scheduler would have claimed for this run: `processing`,
+     * as SchedulerRepository::claimOverdue() leaves it before calling the
+     * handler, and its id handed over the way SchedulerRunner does.
+     *
+     * @param array<string, mixed> $payload what the row was queued with
+     * @return array<string, mixed> the payload handle() receives
+     */
+    private function claimedRun(array $payload = []): array
+    {
+        $id = (new SchedulerRepository($this->pdo))->create(
+            'mass_mail',
+            'send_batch',
+            date('Y-m-d H:i:s'),
+            $payload === [] ? null : (string) json_encode($payload),
+            SendBatchHandler::REFERENCE
+        );
+        $this->pdo->exec("UPDATE scheduled_actions SET status = 'processing' WHERE id = {$id}");
+
+        return $payload + ['scheduled_action_id' => $id];
+    }
+
+    /** @return list<array<string, mixed>> the queued send_batch rows */
+    private function pendingBatches(): array
+    {
+        return $this->pdo->query(
+            "SELECT * FROM scheduled_actions WHERE module_id = 'mass_mail' AND task_key = 'send_batch'
+             AND status = 'pending' ORDER BY id"
+        )->fetchAll(\PDO::FETCH_ASSOC);
+    }
+
+    /** @return list<array{level: string, context: array<string, mixed>}> */
+    private function journalLines(string $type): array
+    {
+        $stmt = $this->pdo->prepare(
+            "SELECT level, context FROM event_log WHERE category = 'mass_mail' AND event_type = ? ORDER BY id"
+        );
+        $stmt->execute([$type]);
+
+        return array_map(
+            static fn(array $row): array => [
+                'level' => (string) $row['level'],
+                'context' => (array) json_decode((string) $row['context'], true),
+            ],
+            $stmt->fetchAll(\PDO::FETCH_ASSOC)
+        );
+    }
+
+    /**
+     * **The bug of issue #1443, first half.** Only `MailException` is
+     * caught inside the loop, and the re-arm used to sit after it: a
+     * `\PDOException` from the second message escaped, the run was marked
+     * failed, and the two messages left stayed `pending` with nothing
+     * queued to send them while the mailing read « Envoi en cours ».
+     *
+     * The exception still leaves handle() — the scheduler has to mark the
+     * run failed — but the chain's next link is queued first, the journal
+     * says what happened in the mailing's own category, and the next run
+     * sends exactly the two messages the failed one did not.
+     */
+    public function testABatchThatThrowsAPdoExceptionStillQueuesTheNextOneWhichSendsTheRest(): void
+    {
+        $failing = $this->mailServiceDouble();
+        $calls = 0;
+        $failing->method('send')->willReturnCallback(function () use (&$calls): void {
+            if (++$calls === 2) {
+                throw new \PDOException('SQLSTATE[HY000]: General error: 2006 MySQL server has gone away');
+            }
+        });
+
+        $payload = $this->claimedRun();
+        try {
+            (new SendBatchHandler())->handle($payload, $this->buildContext($failing));
+            $this->fail('the batch\'s own exception must still reach the scheduler');
+        } catch (\PDOException) {
+        }
+
+        $queued = $this->pendingBatches();
+        $this->assertCount(1, $queued, 'the next batch is queued although this one threw');
+        $this->assertSame(SendBatchHandler::REFERENCE, $queued[0]['reference']);
+        $this->assertSame(['consecutive_failures' => 1], json_decode((string) $queued[0]['payload'], true));
+
+        $lines = $this->journalLines('batch_failed');
+        $this->assertCount(1, $lines);
+        $this->assertSame('error', $lines[0]['level']);
+        $this->assertSame([
+            'task_id' => $payload['scheduled_action_id'],
+            'pending' => 2,
+            'error_class' => \PDOException::class,
+            'consecutive_failures' => 1,
+        ], $lines[0]['context']);
+
+        $sentTo = [];
+        $working = $this->mailServiceDouble();
+        $working->method('send')->willReturnCallback(function (string $to) use (&$sentTo): void {
+            $sentTo[] = $to;
+        });
+        (new SendBatchHandler())->handle(
+            $this->claimedRun(['consecutive_failures' => 1]),
+            $this->buildContext($working)
+        );
+
+        $this->assertSame(['member1@test.be', 'member2@test.be'], $sentTo, 'the next batch sends what was left');
+        $this->assertSame(0, $this->deliveryRepository->countGroupedByStatus($this->emailId)['pending']);
+    }
+
+    /**
+     * A batch that keeps failing stops the chain after the cap, instead of
+     * failing once per interval for ever — and says so.
+     */
+    public function testTheChainStopsReArmingAfterTheCapOfConsecutiveFailures(): void
+    {
+        $failing = $this->mailServiceDouble();
+        $failing->method('send')->willThrowException(new \RuntimeException('boom'));
+
+        try {
+            (new SendBatchHandler())->handle(
+                $this->claimedRun(['consecutive_failures' => SendBatchHandler::MAX_CONSECUTIVE_FAILURES - 1]),
+                $this->buildContext($failing)
+            );
+            $this->fail('the exception must reach the scheduler');
+        } catch (\RuntimeException) {
+        }
+
+        $this->assertSame([], $this->pendingBatches(), 'the last failure the cap allows queues nothing');
+        $lines = $this->journalLines('batch_failed');
+        $this->assertCount(1, $lines);
+        $this->assertSame(SendBatchHandler::MAX_CONSECUTIVE_FAILURES, $lines[0]['context']['consecutive_failures']);
+        $this->assertSame(3, $lines[0]['context']['pending']);
+    }
+
+    /** One batch that goes through is the end of a series of failures. */
+    public function testASuccessfulBatchResetsTheCountOfFailures(): void
+    {
+        (new SendBatchHandler())->handle(
+            $this->claimedRun(['consecutive_failures' => 3]),
+            $this->buildContext($this->mailServiceDouble())
+        );
+
+        $queued = $this->pendingBatches();
+        $this->assertCount(1, $queued);
+        $this->assertNull($queued[0]['payload'], 'the count starts again from nothing');
+        $this->assertSame([], $this->journalLines('batch_failed'));
+    }
+
+    /**
+     * **The bug of issue #1443, second half, on the handler's side.**
+     * « Renvoyer » pressed while this batch ran queued a run of its own;
+     * the batch's unguarded scheduleAfter() then queued another, and the
+     * two chains lived until the queue was empty — a full batch each per
+     * interval. The re-arm now finds the queued run and stands down.
+     */
+    public function testTheReArmStandsDownWhenARunIsAlreadyQueued(): void
+    {
+        $payload = $this->claimedRun();
+        (new SchedulerService(new SchedulerRepository($this->pdo)))->scheduleAfter(
+            'mass_mail',
+            'send_batch',
+            0,
+            [],
+            SendBatchHandler::REFERENCE
+        );
+
+        (new SendBatchHandler())->handle($payload, $this->buildContext($this->mailServiceDouble()));
+
+        $this->assertCount(1, $this->pendingBatches());
+    }
+
+    // ── Seeding from the composition roots (issue #1443) ───────────────
+
+    private function bootstrap(?\DateTimeImmutable $now = null): bool
+    {
+        return SendBatchHandler::bootstrap(
+            new SchedulerService(new SchedulerRepository($this->pdo)),
+            $this->deliveryRepository,
+            new JournalService(new JournalRepository($this->pdo)),
+            $now
+        );
+    }
+
+    /**
+     * Messages waiting and no batch queued or running — a queue left by a
+     * run whose re-arm failed with it, or by the version before this one:
+     * the composition root queues exactly one run, however many requests
+     * ask, and the journal says the chain was started again.
+     */
+    public function testPendingMessagesWithoutATaskAreSeededOnceAndJournalled(): void
+    {
+        $this->assertTrue($this->bootstrap());
+        $this->assertFalse($this->bootstrap(), 'a second request finds the chain alive');
+        $this->assertFalse($this->bootstrap());
+
+        $queued = $this->pendingBatches();
+        $this->assertCount(1, $queued);
+        $this->assertSame(SendBatchHandler::REFERENCE, $queued[0]['reference']);
+
+        $lines = $this->journalLines('batch_chain_recovered');
+        $this->assertCount(1, $lines);
+        $this->assertSame('warning', $lines[0]['level']);
+        $this->assertSame(['pending' => 3], $lines[0]['context']);
+    }
+
+    public function testNothingIsSeededWhenNoMessageWaits(): void
+    {
+        $this->pdo->exec("UPDATE mass_mail_deliveries SET status = 'sent'");
+
+        $this->assertFalse($this->bootstrap());
+        $this->assertSame([], $this->pendingBatches());
+    }
+
+    /**
+     * A batch running right now is a live chain: it re-arms in its own
+     * `finally`. A seed that only looked for a queued row would start a
+     * second one here — the very birth of the duplicate of §8.5.
+     */
+    public function testNothingIsSeededWhileABatchIsRunning(): void
+    {
+        $this->claimedRun();
+
+        $this->assertFalse($this->bootstrap());
+        $this->assertSame([], $this->pendingBatches());
+        $this->assertSame([], $this->journalLines('batch_chain_recovered'));
+    }
+
+    /**
+     * A row queued before the chain had a reference is the chain too:
+     * the task-wide guard sees it.
+     */
+    public function testARowQueuedWithoutTheReferenceCountsAsTheChain(): void
+    {
+        (new SchedulerService(new SchedulerRepository($this->pdo)))->scheduleAfter('mass_mail', 'send_batch', 0);
+
+        $this->assertFalse($this->bootstrap());
+        $this->assertCount(1, $this->pendingBatches());
+    }
+
+    /**
+     * A chain stopped on its cap is not restarted on the next page view —
+     * that would make the cap a one-minute pause — but it is after
+     * HALT_HOURS, so a cause somebody fixed is picked up by itself.
+     */
+    public function testAChainStoppedOnItsCapIsLeftAloneForTheHaltThenRestarted(): void
+    {
+        $failing = $this->mailServiceDouble();
+        $failing->method('send')->willThrowException(new \RuntimeException('boom'));
+        $payload = $this->claimedRun(['consecutive_failures' => SendBatchHandler::MAX_CONSECUTIVE_FAILURES - 1]);
+        try {
+            (new SendBatchHandler())->handle($payload, $this->buildContext($failing));
+        } catch (\RuntimeException) {
+        }
+        // What SchedulerRunner does with a run that threw.
+        (new SchedulerRepository($this->pdo))->markFailed((int) $payload['scheduled_action_id'], 'boom');
+
+        $this->assertFalse($this->bootstrap(), 'right after the halt');
+        $this->assertFalse($this->bootstrap(new \DateTimeImmutable('+' . (SendBatchHandler::HALT_HOURS * 60 - 5) . ' minutes')));
+        $this->assertSame([], $this->pendingBatches());
+
+        $this->assertTrue($this->bootstrap(new \DateTimeImmutable('+' . (SendBatchHandler::HALT_HOURS * 60 + 5) . ' minutes')));
+        $this->assertCount(1, $this->pendingBatches());
+    }
+
+    /** A failed run that was NOT the cap's — its re-arm failed with it — is restarted at once. */
+    public function testAFailedRunBelowTheCapIsRestartedAtOnce(): void
+    {
+        $payload = $this->claimedRun(['consecutive_failures' => 1]);
+        (new SchedulerRepository($this->pdo))->markFailed((int) $payload['scheduled_action_id'], 'boom');
+
+        $this->assertTrue($this->bootstrap());
+        $queued = $this->pendingBatches();
+        $this->assertCount(1, $queued);
+        $this->assertSame(
+            ['consecutive_failures' => 2],
+            json_decode((string) $queued[0]['payload'], true),
+            'the restarted chain keeps counting, so the cap is still reached (#1557 review)'
+        );
+    }
+
+    /**
+     * The halt runs from when the capped run FAILED, not from when it was
+     * due (#1557 review): a run due three hours ago that failed just now
+     * still holds the chain.
+     */
+    public function testTheHaltCountsFromTheFailureNotFromWhenTheRunWasDue(): void
+    {
+        $payload = $this->claimedRun(['consecutive_failures' => SendBatchHandler::MAX_CONSECUTIVE_FAILURES - 1]);
+        $id = (int) $payload['scheduled_action_id'];
+        $dueAt = (new \DateTimeImmutable('-3 hours'))->format('Y-m-d H:i:s');
+        $this->pdo->exec("UPDATE scheduled_actions SET run_at = '{$dueAt}' WHERE id = {$id}");
+        (new SchedulerRepository($this->pdo))->markFailed($id, 'boom');
+
+        $this->assertFalse($this->bootstrap());
+        $this->assertSame([], $this->pendingBatches());
+    }
+
+    /**
+     * A batch that went through is never read as a capped failure
+     * (#1557 review): a successor that cannot be written does not make
+     * handle() throw, the run ends `done`, and the next request queues the
+     * chain again from a count of zero.
+     */
+    public function testASuccessfulBatchWhoseSuccessorCannotBeWrittenIsNotHalted(): void
+    {
+        $payload = $this->claimedRun(['consecutive_failures' => SendBatchHandler::MAX_CONSECUTIVE_FAILURES - 1]);
+        $this->pdo->exec(
+            "CREATE TRIGGER refuse_successor BEFORE INSERT ON scheduled_actions BEGIN SELECT RAISE(ABORT, 'refused'); END"
+        );
+
+        (new SendBatchHandler())->handle($payload, $this->buildContext($this->mailServiceDouble()));
+
+        $this->pdo->exec('DROP TRIGGER refuse_successor');
+        (new SchedulerRepository($this->pdo))->markDone((int) $payload['scheduled_action_id']);
+        $this->assertSame([], $this->pendingBatches());
+        $this->assertTrue($this->bootstrap(), 'not held as a capped failure');
+        $this->assertNull($this->pendingBatches()[0]['payload']);
+    }
+
+    /**
+     * A journal that refuses the line of a copy that left does not end the
+     * batch before its completion check (#1557 review): the mailing whose
+     * last copy it was is marked sent, not left « Envoi en cours ».
+     */
+    public function testAJournalThatRefusesStillLetsTheMailingComplete(): void
+    {
+        $this->pdo->exec("DELETE FROM mass_mail_deliveries WHERE id NOT IN (SELECT MIN(id) FROM mass_mail_deliveries)");
+        $this->pdo->exec(
+            "CREATE TRIGGER refuse_journal BEFORE INSERT ON event_log BEGIN SELECT RAISE(ABORT, 'refused'); END"
+        );
+
+        try {
+            (new SendBatchHandler())->handle([], $this->buildContext($this->mailServiceDouble()));
+        } catch (\PDOException) {
+            // The completion's own journal line may refuse too, once the
+            // mailing is marked: the run then fails, the mailing does not.
+        }
+
+        $stmt = $this->pdo->prepare('SELECT status FROM mass_mail_emails WHERE id = ?');
+        $stmt->execute([$this->emailId]);
+        $this->assertSame(Email::STATUS_SENT, $stmt->fetchColumn());
+    }
 }
