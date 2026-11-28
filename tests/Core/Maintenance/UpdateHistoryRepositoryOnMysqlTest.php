@@ -126,4 +126,34 @@ class UpdateHistoryRepositoryOnMysqlTest extends TestCase
 
         $this->assertSame('skipped', $this->repository->findById($id)->status);
     }
+
+    /**
+     * A sentence that does not fit `error_message` is cut by characters on
+     * the engine that refuses half a character (issue #1438): 'a' and then
+     * « é » puts byte 500 in the middle of one, which a byte cut left
+     * behind and MariaDB refused (error 1366), losing the status with it.
+     *
+     * @return iterable<string, array{string, string}>
+     */
+    public static function sentenceWriters(): iterable
+    {
+        yield 'markFailed' => ['markFailed', 'failed'];
+        yield 'markSkipped' => ['markSkipped', 'skipped'];
+        yield 'markSkippedIfPending' => ['markSkippedIfPending', 'skipped'];
+        yield 'markRolledBack' => ['markRolledBack', 'rolled_back'];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('sentenceWriters')]
+    public function testALongAccentedSentenceIsCutByCharactersAndTheStatusIsWritten(string $method, string $status): void
+    {
+        $id = $this->repository->create('1.0.0', '1.1.0', false, null);
+
+        $this->repository->{$method}($id, 'a' . str_repeat('é', 700) . "\xEE");
+
+        $row = $this->pdo->query("SELECT status, error_message FROM update_history WHERE id = {$id}")->fetch(\PDO::FETCH_ASSOC);
+        $this->assertIsArray($row);
+        $this->assertSame($status, $row['status']);
+        $this->assertSame(UpdateHistoryRepository::ERROR_MESSAGE_MAX, mb_strlen((string) $row['error_message'], 'UTF-8'));
+        $this->assertTrue(mb_check_encoding((string) $row['error_message'], 'UTF-8'));
+    }
 }
