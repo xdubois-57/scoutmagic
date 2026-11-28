@@ -45,6 +45,9 @@ use Modules\MassMail\Service\MergeRenderer;
  */
 final class DeferredDeliveryListener implements DeferredMailOutcomeListener
 {
+    /** What a personalised subject reads as when its merge row cannot be read. */
+    private const GENERIC_SUBJECT = 'Un email personnalisé vous a été envoyé.';
+
     private const ORIGIN_PREFIX = 'mass_mail.delivery:';
 
     /** What a message of a mailing is called in the core's queue — its id, never its address. */
@@ -107,8 +110,22 @@ final class DeferredDeliveryListener implements DeferredMailOutcomeListener
         $deliveries->settleDeferredAsSent($delivery->id);
 
         $followUp = function () use ($context, $massMailService, $pdo, $delivery, $email): void {
-            $targets = (new TargetRepository($pdo))->findByDelivery($delivery->id);
-            [$subject, $personalised] = $this->sentSubject($context, $email, $delivery);
+            // Each lookup has its own fallback (#1561 review): the copy has
+            // left, so a lookup that fails must not cost its receipt, its
+            // journal line or its notification. No targets: the journal
+            // line and the receipt are still written, without members to
+            // name or notify. No subject: the generic one a merge row
+            // already falls back to when it is gone.
+            try {
+                $targets = (new TargetRepository($pdo))->findByDelivery($delivery->id);
+            } catch (\Throwable) {
+                $targets = [];
+            }
+            try {
+                [$subject, $personalised] = $this->sentSubject($context, $email, $delivery);
+            } catch (\Throwable) {
+                [$subject, $personalised] = [self::GENERIC_SUBJECT, false];
+            }
             (new SentMessageFollowUp())->record(
                 $context,
                 $massMailService,
@@ -249,7 +266,7 @@ final class DeferredDeliveryListener implements DeferredMailOutcomeListener
             : null;
 
         return $row === null
-            ? ['Un email personnalisé vous a été envoyé.', false]
+            ? [self::GENERIC_SUBJECT, false]
             : [$renderer->renderText($email->subject, $row->data), true];
     }
 }

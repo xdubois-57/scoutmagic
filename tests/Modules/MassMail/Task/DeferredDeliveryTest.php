@@ -317,13 +317,14 @@ final class DeferredDeliveryTest extends TestCase
     }
 
     /**
-     * **A follow-up that fails does not leave the mailing « Envoi en
-     * cours »** (review of #1561). The message is out and settled; the
-     * lookups and lines after that throw here, and the mailing still
-     * reaches « Envoyé ». The failure is not swallowed: the drain journals
-     * it, naming the message by its origin.
+     * **A lookup that fails after the message left costs nothing of what
+     * follows** (review of #1561). The message is out and settled; its
+     * targets can no longer be read here, yet the mailing reaches
+     * « Envoyé » and the sent line is still written — the follow-up falls
+     * back rather than giving up, so nothing is left for the drain to
+     * report as lost.
      */
-    public function testAFollowUpThatThrowsStillLetsTheMailingComplete(): void
+    public function testALookupThatFailsAfterTheMessageLeftStillRecordsIt(): void
     {
         $deliveryId = $this->messageTo('parent@exemple.test', withAccount: true);
         (new SendBatchHandler())->handle([], $this->batchContext());
@@ -335,10 +336,38 @@ final class DeferredDeliveryTest extends TestCase
         $this->assertSame(['parent@exemple.test'], $this->delivered);
         $this->assertSame(Delivery::STATUS_SENT, $this->deliveries->findById($deliveryId)?->status);
         $this->assertSame(Email::STATUS_SENT, $this->emailStatus());
-        $this->assertSame(
-            [['origin' => DeferredDeliveryListener::originFor($deliveryId), 'error_class' => \PDOException::class]],
-            $this->journalContexts('mail_deferred_outcome_unreported')
+        $this->assertSame(1, $this->journalCount('delivery_sent'));
+        $this->assertSame([], $this->journalContexts('mail_deferred_outcome_unreported'));
+    }
+
+    /**
+     * **A follow-up that throws does not leave the mailing « Envoi en
+     * cours »** (review of #1561): the abandoned message's own journal line
+     * is refused, and the mailing still completes; the drain journals the
+     * failure, naming the message by its origin.
+     */
+    public function testAFollowUpThatThrowsStillLetsTheMailingComplete(): void
+    {
+        $deliveryId = $this->messageTo('parent@exemple.test');
+        (new SendBatchHandler())->handle([], $this->batchContext());
+        $listener = new DeferredDeliveryListener();
+        $this->pdo->exec(
+            "CREATE TRIGGER refuse_abandoned BEFORE INSERT ON event_log WHEN NEW.event_type = 'delivery_abandoned' "
+            . "BEGIN SELECT RAISE(ABORT, 'refused'); END"
         );
+
+        try {
+            $listener->deferredMailAbandoned(
+                DeferredDeliveryListener::originFor($deliveryId),
+                \Core\Mail\Transport\DeferredMailAbandonment::Expired,
+                $this->batchContext()
+            );
+            $this->fail('the follow-up failure must reach the drain');
+        } catch (\PDOException) {
+        }
+
+        $this->assertSame(Delivery::STATUS_ERROR, $this->deliveries->findById($deliveryId)?->status);
+        $this->assertSame(Email::STATUS_SENT, $this->emailStatus());
     }
 
     /**
