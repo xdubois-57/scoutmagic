@@ -2,6 +2,7 @@
   "id": "mass_mail",
   "name": "Envoi de mails",
   "description": "Envois groupés et listes de diffusion.",
+  "member_merge_stays": "les envois déjà partis gardent leur destinataire d'origine ; les prochains visent la fiche conservée.",
   "version": "1.20.0",
   "enabled_by_default": false,
   "routes": [

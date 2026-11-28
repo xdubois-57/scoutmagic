@@ -158,4 +158,51 @@ final class DuplicateMemberControllerTest extends TestCase
 
         return $memberId;
     }
+
+    /**
+     * Issue #1462: the screen also says what a merge would NOT bring
+     * along — each enabled module's own sentence — and says so plainly
+     * when everything follows.
+     */
+    public function testTheScreenSaysWhatWouldStayOnTheRecreatedRecord(): void
+    {
+        $this->pdo->exec(
+            "INSERT INTO scout_years (label, start_date, end_date, is_current)
+             VALUES ('2024-2025', '2024-09-01', '2025-08-31', 0), ('2025-2026', '2025-09-01', '2026-08-31', 1)"
+        );
+        $years = $this->pdo->query('SELECT id FROM scout_years ORDER BY id')->fetchAll(\PDO::FETCH_COLUMN);
+        $this->duplicates->recordCandidate(
+            $this->createMember('T001', (int) $years[0]),
+            $this->createMember('T900', (int) $years[1]),
+            false
+        );
+        $request = new Request('GET', '/admin/doublons', [], [], [], []);
+
+        $everything = $this->controller->index($request, [])->getBody();
+        $this->assertStringContainsString('Ce qui resterait sur la fiche recréée', $everything);
+        $this->assertStringContainsString(
+            'Rien : tout ce que les modules actifs enregistrent suit la fiche conservée.',
+            $everything
+        );
+
+        $settings = new SettingService(new SettingRepository($this->pdo));
+        $withStays = new DuplicateMemberController(
+            TestTwig::create(),
+            $this->duplicates,
+            new MemberMergeService(
+                new MemberMergeRepository($this->pdo, $this->duplicates, $this->listeners),
+                $this->duplicates,
+                new JournalService(new JournalRepository($this->pdo))
+            ),
+            new ImportReportRepository($this->pdo, $this->encryption),
+            new ScoutYearResolver(new ScoutYearService($this->pdo), $settings, new MemberYearRepository($this->pdo)),
+            ['Envoi de mails' => "les envois déjà partis gardent leur destinataire d'origine."]
+        );
+        $body = $withStays->index($request, [])->getBody();
+        $this->assertStringContainsString(
+            '<strong>Envoi de mails</strong> : les envois déjà partis gardent leur destinataire d&#039;origine.',
+            $body
+        );
+        $this->assertStringNotContainsString('Rien : tout ce que les modules actifs', $body);
+    }
 }

@@ -8096,6 +8096,10 @@ if ($isEnabled('presences') && $calendarSectionEventLookupForOthers !== null) {
 }
 
 if ($isEnabled('sos_staff')) {
+    // A merge brings the on-call planning and the default number along (issue #1462).
+    $registerMemberMergeListener(new \Modules\SosStaff\Service\SosMergeListener(
+        new \Core\Member\Duplicate\MergeRowRepository($pdo)
+    ));
     \Core\Debug\RequestTimeline::mark('module_sos_staff');
     $sosProviderCredentialRepo = new \Modules\SosStaff\Repository\ProviderCredentialRepository(
         $pdo,
@@ -8210,6 +8214,10 @@ if ($isEnabled('sos_staff')) {
 }
 
 if ($isEnabled('attestations')) {
+    // A merge brings the lines of a batch being prepared along (issue #1462).
+    $registerMemberMergeListener(new \Modules\Attestations\Service\AttestationMergeListener(
+        new \Core\Member\Duplicate\MergeRowRepository($pdo)
+    ));
     \Core\Debug\RequestTimeline::mark('module_attestations');
     $attestationBatchRepository = new \Modules\Attestations\Repository\BatchRepository($connection);
     $attestationLineRepository = new \Modules\Attestations\Repository\BatchLineRepository(
@@ -11232,6 +11240,10 @@ if ($isEnabled('test_tools')) {
 // (ARCHITECTURE.md §7.5); null while camps is off.
 $campsPlaceImportWriterForOthers = null;
 if ($isEnabled('camps')) {
+    // A merge brings who booked and who reviewed a camp along (issue #1462).
+    $registerMemberMergeListener(new \Modules\Camps\Service\CampMergeListener(
+        new \Core\Member\Duplicate\MergeRowRepository($pdo)
+    ));
     \Core\Debug\RequestTimeline::mark('module_camps');
     $campsPlaceRepo = new \Modules\Camps\Repository\PlaceRepository($pdo);
     $campsCampRepo = new \Modules\Camps\Repository\CampRepository($pdo, $encryptionService);
@@ -12914,6 +12926,10 @@ if ($isEnabled('registration')) {
 // reusing its locals would only mean a forward reference nothing can prove
 // is defined. Both are stateless wrappers around the same PDO handle.
 if ($isEnabled('rental')) {
+    // A merge brings the assets managed and every « by » column along (issue #1462).
+    $registerMemberMergeListener(new \Modules\Rental\Service\RentalMergeListener(
+        new \Core\Member\Duplicate\MergeRowRepository($pdo)
+    ));
     \Core\Debug\RequestTimeline::mark('module_rental');
     // The year an authorization question about the CALLER is asked in on
     // this module's screens: the year they are served, preview excluded
@@ -13721,6 +13737,10 @@ if ($isEnabled('leadership')) {
 }
 
 if ($isEnabled('fees')) {
+    // A merge brings the people matched on a federation invoice along (issue #1462).
+    $registerMemberMergeListener(new \Modules\Fees\Service\FeesMergeListener(
+        new \Core\Member\Duplicate\MergeRowRepository($pdo)
+    ));
     \Core\Debug\RequestTimeline::mark('module_fees');
     $feesImportRepo = new \Modules\Fees\Repository\FeesImportRepository($pdo);
     $feesIgnoredHouseholdRepo = new \Modules\Fees\Repository\IgnoredHouseholdRepository($pdo, $encryptionService);
@@ -14097,7 +14117,8 @@ $frontController->registerController(
         $duplicateMemberRepository,
         $memberMergeService,
         new \Core\Import\ImportReportRepository($pdo, $encryptionService),
-        $scoutYearResolver
+        $scoutYearResolver,
+        $moduleManager->getEnabledMemberMergeStays()
     )
 );
 

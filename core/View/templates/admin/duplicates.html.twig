@@ -96,6 +96,18 @@
                             {% endfor %}
                         </ul>
                     {% endif %}
+                    <p class="small fw-semibold mt-3 mb-2">Ce qui resterait sur la fiche recréée</p>
+                    {% if stays_behind is empty %}
+                        <p class="small text-body-secondary mb-0">
+                            Rien : tout ce que les modules actifs enregistrent suit la fiche conservée.
+                        </p>
+                    {% else %}
+                        <ul class="list-unstyled small mb-0">
+                            {% for module, sentence in stays_behind %}
+                                <li><strong>{{ module }}</strong> : {{ sentence }}</li>
+                            {% endfor %}
+                        </ul>
+                    {% endif %}
                 </div>
 
                 <div class="card-footer d-flex flex-wrap gap-2">

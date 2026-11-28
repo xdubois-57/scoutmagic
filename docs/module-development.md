@@ -207,6 +207,7 @@ Two modules use it today: `support_dashboard` (`["statistics_receiver"]`) and `t
 - **offline**: optional, each entry must have `label`, `role_min`, and either a fixed `path` or a `provider` with its `prefix`. See the Offline pages section below.
 - **requires**: optional array of module ids this module cannot function without (hard dependencies). Must be non-empty strings, without duplicates, and never the module's own id. See the Hard dependencies section below.
 - **enabled_by_default**: optional boolean, defaults to `false`. When `true`, the module is activated automatically the very first time it is discovered on disk (no `module_registry` row yet) — no admin action needed. An admin's later explicit deactivation always sticks; this never re-activates a module that already has a registry row.
+- **member_merge_stays**: optional non-empty string, in French: what of this module's rows stays on the absorbed identity when two member records are merged (issue #1462). The merge screen lists it, under « Ce qui resterait sur la fiche recréée », for every enabled module that declares one. A module whose schema holds a member (a `…member_id` column, or a foreign key onto `members(id)`) must either ship a `Core\Member\Duplicate\MemberMergeListener` registered through `$registerMemberMergeListener` in `public/index.php` — most simply a `RepointingMergeListener` subclass listing its columns — or declare this; `Tests\Architecture\ModuleMemberReferencesFollowTheMergeTest` holds every module to it (ARCHITECTURE.md §8.80).
 
 ## Controller conventions
 

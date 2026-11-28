@@ -2,6 +2,7 @@
   "id": "finance",
   "name": "Finances",
   "description": "Comptes, mouvements et justificatifs.",
+  "member_merge_stays": "les créances et les lignes de campagne restent enregistrées sous la fiche recréée ; les Finances les rattachent d'elles-mêmes à la fiche conservée.",
   "version": "1.31.0",
   "enabled_by_default": false,
   "routes": [

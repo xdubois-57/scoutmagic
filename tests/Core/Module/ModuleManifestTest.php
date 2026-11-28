@@ -193,6 +193,30 @@ class ModuleManifestTest extends TestCase
         ]);
     }
 
+    /** Issue #1462: what a module leaves on the absorbed identity of a merge, for the merge screen. */
+    public function testMemberMergeStaysIsReadTrimmedAndAbsentMeansNull(): void
+    {
+        $base = ['id' => 'test', 'name' => 'Test', 'version' => '1.0.0'];
+
+        $this->assertNull(ModuleManifest::fromArray($base)->memberMergeStays);
+        $this->assertSame(
+            'les envois déjà partis gardent leur destinataire.',
+            ModuleManifest::fromArray(
+                $base + ['member_merge_stays' => ' les envois déjà partis gardent leur destinataire. ']
+            )->memberMergeStays
+        );
+    }
+
+    public function testABlankMemberMergeStaysIsRefused(): void
+    {
+        $this->expectException(ModuleException::class);
+        $this->expectExceptionMessage('member_merge_stays must be a non-empty string');
+
+        ModuleManifest::fromArray(
+            ['id' => 'test', 'name' => 'Test', 'version' => '1.0.0', 'member_merge_stays' => ' ']
+        );
+    }
+
     public function testRouteMenuOrderDefaultsTo100(): void
     {
         $manifest = ModuleManifest::fromFile($this->fixturesDir . '/valid_module/module.json');

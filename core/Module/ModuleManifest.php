@@ -206,7 +206,14 @@ class ModuleManifest
         // parameter with a default" rule as the four above, and for the
         // same reason: discoverModules() builds placeholder manifests
         // positionally.
-        public readonly string $category = self::DEFAULT_CATEGORY
+        public readonly string $category = self::DEFAULT_CATEGORY,
+        // What of this module's own rows stays on the absorbed identity
+        // when two member records are merged (module.json's
+        // `member_merge_stays`, issue #1462), in one French sentence the
+        // merge screen shows. Null for a module that holds no member
+        // reference, or whose MemberMergeListener brings everything
+        // along. Same "last parameter with a default" rule as above.
+        public readonly ?string $memberMergeStays = null
     ) {
     }
 
@@ -392,6 +399,14 @@ class ModuleManifest
             $enabledByDefault = $data['enabled_by_default'];
         }
 
+        $memberMergeStays = null;
+        if (array_key_exists('member_merge_stays', $data)) {
+            if (!is_string($data['member_merge_stays']) || trim($data['member_merge_stays']) === '') {
+                throw new ModuleException("Module '{$id}' member_merge_stays must be a non-empty string");
+            }
+            $memberMergeStays = trim($data['member_merge_stays']);
+        }
+
         $description = '';
         if (array_key_exists('description', $data)) {
             if (!is_string($data['description'])) {
@@ -504,7 +519,8 @@ class ModuleManifest
             $visibleWhen,
             $helpDirectory,
             $emails,
-            $category
+            $category,
+            $memberMergeStays
         );
     }
 

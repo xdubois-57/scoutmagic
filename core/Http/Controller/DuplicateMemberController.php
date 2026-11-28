@@ -30,12 +30,19 @@ use Twig\Environment;
  */
 class DuplicateMemberController extends AbstractController
 {
+    /**
+     * @param array<string, string> $staysBehind
+     */
     public function __construct(
         protected Environment $twig,
         private DuplicateMemberRepository $duplicates,
         private MemberMergeService $mergeService,
         private ImportReportRepository $identities,
-        private ScoutYearResolver $scoutYearResolver
+        private ScoutYearResolver $scoutYearResolver,
+        // What each enabled module leaves on the absorbed identity,
+        // module name => sentence (ModuleManager::getEnabledMemberMergeStays(),
+        // issue #1462): the screen says what will NOT follow, too.
+        private array $staysBehind = []
     ) {
     }
 
@@ -69,6 +76,7 @@ class DuplicateMemberController extends AbstractController
         return $this->render('admin/duplicates.html.twig', [
             'rows' => $rows,
             'scout_year' => $currentYear,
+            'stays_behind' => $this->staysBehind,
         ]);
     }
 

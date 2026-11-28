@@ -36,7 +36,10 @@ adresse.
 
 **« Fusionner les deux fiches »** rattache tout l'historique de la fiche
 recréée à la fiche conservée. La page énumère à l'avance ce qui va être
-rattaché : années, photos, badges, documents.
+rattaché : années, photos, badges, documents, et ce que chaque module
+actif apporte (soirées de présence, fiche santé, réponses de
+réinscription…). Elle dit aussi ce qui resterait sur la fiche recréée,
+module par module.
 
 **« Ce sont deux personnes »** écarte la paire définitivement. C'est une
 réponse à part entière : sans elle, chaque import reproposerait la même

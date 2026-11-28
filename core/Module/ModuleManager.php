@@ -39,6 +39,9 @@ class ModuleManager
      */
     private array $enabledModuleNames = [];
 
+    /** @var array<string, string> module name => sentence, see getEnabledMemberMergeStays() */
+    private array $enabledMemberMergeStays = [];
+
     public function __construct(
         private string $modulesDir,
         private SettingService $settingService,
@@ -468,6 +471,9 @@ class ModuleManager
 
             $this->enabledModuleIds[] = $module->manifest->id;
             $this->enabledModuleNames[$module->manifest->id] = $module->manifest->name;
+            if ($module->manifest->memberMergeStays !== null) {
+                $this->enabledMemberMergeStays[$module->manifest->name] = $module->manifest->memberMergeStays;
+            }
             $this->loadModule($module->manifest);
         }
     }
@@ -605,6 +611,18 @@ class ModuleManager
     public function getEnabledModuleNames(): array
     {
         return $this->enabledModuleNames;
+    }
+
+    /**
+     * What each enabled module leaves on the absorbed identity when two
+     * member records are merged, `module name => sentence` (module.json's
+     * `member_merge_stays`, issue #1462) — listed on the merge screen.
+     *
+     * @return array<string, string>
+     */
+    public function getEnabledMemberMergeStays(): array
+    {
+        return $this->enabledMemberMergeStays;
     }
 
     /**
