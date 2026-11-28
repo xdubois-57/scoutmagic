@@ -547,8 +547,8 @@ class SchedulerRepository
      *
      * **A row with no `claimed_at` is left alone**, to reclaimAbandoned()'s
      * slower path. claimOverdue() always stamps it, so a 'processing' row
-     * without one was put there by something else — the running restore's
-     * row re-inserted by `Task\RestoreBackupHandler` on the restored
+     * without one was put there by something else — the running task's
+     * row re-inserted by startCleanAfterDatabaseReplaced() on a restored
      * schema, a row claimed by a version older than the column — and for
      * those this method cannot know whether they were running.
      *
@@ -810,6 +810,99 @@ class SchedulerRepository
             "UPDATE scheduled_actions SET status = 'canceled' WHERE id = ?"
         );
         $stmt->execute([$id]);
+    }
+
+    /**
+     * Start the queue of a database that was just put back from a dump
+     * from a clean state — the reset shared by the two tasks that replace
+     * the database under the pass running them: `Task\RestoreBackupHandler`
+     * (#847, part 3) and the automatic rollback of
+     * `Task\InstallUpdateHandler` (#1463).
+     *
+     * A dump is taken in the middle of a pass, so the table it brings back
+     * holds rows that were running then and are not running now.
+     *
+     * - Left `processing`, such a row reads as a live chain to
+     *   `SchedulerService::seed()` and is only handed back by
+     *   reclaimAbandoned() hours later — then replayed against a database
+     *   it was never meant for. Every live row is canceled.
+     * - A recurring chain (a row with a reference) is re-armed at once with
+     *   one fresh row: same task, same reference, same date, and an empty
+     *   payload — what a run carried then (an archive being sent, a cursor)
+     *   describes files and rows that are not today's. One row per chain,
+     *   even where the dump had a duplicate.
+     * - A one-shot row (no reference) is abandoned, never replayed: it may
+     *   already have run since the dump was taken — a mailing batch, a
+     *   notification — and the journal that recorded it was put back too.
+     *   Counted per task in the result.
+     * - **The running task is not re-armed**, under any reference: it is
+     *   the one doing the replacing, still running. A queued update
+     *   install re-armed with an empty payload would be a row with nothing
+     *   to install.
+     * - **Its own row keeps its id, still running.** The scheduler marks it
+     *   done by that id once the handler returns. Where the dump holds the
+     *   id, it is canceled like any other live row and marked done after;
+     *   where the id was free in the dump (the row was created after it),
+     *   it is re-inserted `processing` before any chain is re-armed — a
+     *   re-armed chain that took the id would be marked done without ever
+     *   running. Re-inserted without `claimed_at`, which releaseNeverStarted()
+     *   leaves alone for that reason.
+     *
+     * Long-standing columns only: this runs on the restored schema, which
+     * can predate the latest scheduler columns, before any migration.
+     *
+     * @return array{cancelled: int, rearmed: int, abandoned: array<string, int>}
+     *     rows canceled (the running task's own row excepted), chains
+     *     re-armed, and the one-shot rows abandoned as "module/task" => count
+     */
+    public function startCleanAfterDatabaseReplaced(
+        int $runningTaskId,
+        string $runningModuleId,
+        string $runningTaskKey
+    ): array {
+        $stmt = $this->pdo->query(
+            "SELECT id, module_id, task_key, reference, run_at FROM scheduled_actions
+             WHERE status IN ('pending', 'processing') ORDER BY id"
+        );
+        $live = $stmt !== false ? $stmt->fetchAll(\PDO::FETCH_ASSOC) : [];
+
+        $cancelled = 0;
+        $chains = [];
+        $abandoned = [];
+        foreach ($live as $row) {
+            $ownTask = $row['module_id'] === $runningModuleId && $row['task_key'] === $runningTaskKey;
+            if ($ownTask && (int) $row['id'] === $runningTaskId) {
+                continue;
+            }
+            $cancelled++;
+            $key = $row['module_id'] . '/' . $row['task_key'];
+            if ($row['reference'] !== null && !$ownTask) {
+                $chains[$key . '/' . $row['reference']] ??= $row;
+            } else {
+                $abandoned[$key] = ($abandoned[$key] ?? 0) + 1;
+            }
+        }
+
+        $this->pdo->exec("UPDATE scheduled_actions SET status = 'canceled' WHERE status IN ('pending', 'processing')");
+        if ($runningTaskId > 0) {
+            $taken = $this->pdo->prepare('SELECT 1 FROM scheduled_actions WHERE id = ?');
+            $taken->execute([$runningTaskId]);
+            if ($taken->fetchColumn() === false) {
+                $this->pdo->prepare(
+                    "INSERT INTO scheduled_actions (id, module_id, task_key, run_at, status)
+                     VALUES (?, ?, ?, ?, 'processing')"
+                )->execute([$runningTaskId, $runningModuleId, $runningTaskKey, date('Y-m-d H:i:s')]);
+            }
+        }
+        $rearm = $this->pdo->prepare(
+            "INSERT INTO scheduled_actions (module_id, task_key, reference, payload, run_at, status)
+             VALUES (?, ?, ?, NULL, ?, 'pending')"
+        );
+        foreach ($chains as $row) {
+            $rearm->execute([$row['module_id'], $row['task_key'], $row['reference'], $row['run_at']]);
+        }
+
+        return ['cancelled' => $cancelled, 'rearmed' => count($chains), 'abandoned' => $abandoned];
     }
 
     /**

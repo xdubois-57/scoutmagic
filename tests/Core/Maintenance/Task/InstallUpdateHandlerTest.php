@@ -708,7 +708,8 @@ class InstallUpdateHandlerTest extends TestCase
             $this->storagePath . '/dump.sql',
             $this->storagePath . '/files.zip',
             null,
-            $error
+            $error,
+            0
         );
 
         $row = $this->pdo->query(
@@ -756,7 +757,8 @@ class InstallUpdateHandlerTest extends TestCase
             $this->storagePath . '/dump.sql',
             $this->storagePath . '/files.zip',
             'AB3DE-F7HJK-MNPQR-STUVW-XYZ23-45678',
-            new \RuntimeException('install failed')
+            new \RuntimeException('install failed'),
+            0
         );
     }
 
@@ -780,7 +782,8 @@ class InstallUpdateHandlerTest extends TestCase
             $this->storagePath . '/dump.sql',
             $this->storagePath . '/files.zip',
             null,
-            new \Error('Unknown named parameter $backupCreated')
+            new \Error('Unknown named parameter $backupCreated'),
+            0
         );
 
         $after = $this->updateHistoryRepository->findById($historyId);
