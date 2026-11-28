@@ -25,14 +25,31 @@ class ImageProcessingService
     private const MEDIUM_QUALITY = 85;
     private const LARGE_QUALITY = 90;
 
+    /** EXIF orientations correctOrientation() rotates. */
+    private const ROTATED_ORIENTATIONS = [3, 6, 8];
+
+    public function __construct(private readonly PhotoMemoryBudget $memoryBudget = new PhotoMemoryBudget())
+    {
+    }
+
     /**
      * @return array{thumb: string, medium: string, large: string, width: int, height: int}
+     * @throws PhotoMemoryRefusedException when decoding would exceed the memory PHP still allows
      * @throws GalleryException when the source can't be decoded or encoded
      */
     public function process(string $contents, string $mimeType, int $maxDimension): array
     {
+        $this->assertDimensionCeiling($contents);
+        // The orientation is read BEFORE decoding, not after: exif_read_data()
+        // is handed a base64 data:// copy of the whole file, and reading it
+        // first releases those copies before the bitmap exists, instead of
+        // holding them beside it. It also tells the memory check below
+        // whether a rotation will need a second bitmap.
+        $orientation = $this->readOrientation($contents, $mimeType);
+        $this->assertDecodeFitsInMemory($contents, $orientation, $maxDimension);
+
         $image = $this->decode($contents, $mimeType);
-        $image = $this->correctOrientation($image, $contents, $mimeType);
+        $image = $this->correctOrientation($image, $orientation);
 
         $width = imagesx($image);
         $height = imagesy($image);
@@ -69,9 +86,27 @@ class ImageProcessingService
      */
     private function decode(string $contents, string $mimeType)
     {
-        // Reject a decompression bomb before GD allocates width×height×4 bytes
-        // for it — the background photo task used to OOM on such an input
-        // (audit M7).
+        // imagecreatefromstring() sniffs the format itself; the match is
+        // only here to refuse anything outside the album's allowed photo
+        // mime types (Service\MediaService::PHOTO_MIMES).
+        $image = in_array($mimeType, ['image/jpeg', 'image/png', 'image/webp'], true)
+            ? @imagecreatefromstring($contents)
+            : false;
+
+        if ($image === false) {
+            throw new GalleryException('Impossible de décoder cette image.');
+        }
+
+        return $image;
+    }
+
+    /**
+     * Reject a decompression bomb before GD allocates width×height×4 bytes
+     * for it — the background photo task used to OOM on such an input
+     * (audit M7).
+     */
+    private function assertDimensionCeiling(string $contents): void
+    {
         try {
             \Core\Image\ImageDimensionGuard::assertWithinCeilingFromString($contents);
         } catch (\Core\Image\ImageDimensionException $e) {
@@ -88,19 +123,55 @@ class ImageProcessingService
                 $e
             );
         }
+    }
 
-        // imagecreatefromstring() sniffs the format itself; the match is
-        // only here to refuse anything outside the album's allowed photo
-        // mime types (Service\MediaService::PHOTO_MIMES).
-        $image = in_array($mimeType, ['image/jpeg', 'image/png', 'image/webp'], true)
-            ? @imagecreatefromstring($contents)
-            : false;
-
-        if ($image === false) {
-            throw new GalleryException('Impossible de décoder cette image.');
+    /**
+     * The dimension ceiling above is a fixed number; the memory left under
+     * `memory_limit` is not, and exhausting it is a fatal no catch survives
+     * (issue #1449). Read from the header only — getimagesizefromstring()
+     * decodes no pixel.
+     *
+     * @throws PhotoMemoryRefusedException
+     */
+    private function assertDecodeFitsInMemory(string $contents, int $orientation, int $maxDimension): void
+    {
+        $info = @getimagesizefromstring($contents);
+        // An unreadable header is decode()'s to report, with its own message.
+        if ($info === false) {
+            return;
         }
 
-        return $image;
+        [$width, $height] = $info;
+        $longSide = max($width, $height);
+        // Same target process() computes for the large rendition; a rotation
+        // swaps width and height but not the long side.
+        $largeLongSide = $maxDimension > 0 ? min($maxDimension, $longSide) : $longSide;
+
+        $shortfall = $this->memoryBudget->shortfall(
+            $width,
+            $height,
+            in_array($orientation, self::ROTATED_ORIENTATIONS, true),
+            $largeLongSide
+        );
+        if ($shortfall !== null) {
+            throw new PhotoMemoryRefusedException($width, $height, $shortfall['required'], $shortfall['available']);
+        }
+    }
+
+    /**
+     * The EXIF orientation of a JPEG, 1 ("as stored") for anything else or
+     * when it cannot be read.
+     */
+    private function readOrientation(string $contents, string $mimeType): int
+    {
+        if ($mimeType !== 'image/jpeg' || !function_exists('exif_read_data')) {
+            return 1;
+        }
+
+        $exif = @exif_read_data('data://image/jpeg;base64,' . base64_encode($contents));
+        $orientation = is_array($exif) ? ($exif['Orientation'] ?? 1) : 1;
+
+        return is_numeric($orientation) ? (int) $orientation : 1;
     }
 
     /**
@@ -112,17 +183,11 @@ class ImageProcessingService
      * verbatim, EXIF and all.
      *
      * @param \GdImage $image
+     * @param int $orientation from readOrientation()
      * @return \GdImage
      */
-    private function correctOrientation($image, string $contents, string $mimeType)
+    private function correctOrientation($image, int $orientation)
     {
-        if ($mimeType !== 'image/jpeg' || !function_exists('exif_read_data')) {
-            return $image;
-        }
-
-        $exif = @exif_read_data('data://image/jpeg;base64,' . base64_encode($contents));
-        $orientation = $exif['Orientation'] ?? 1;
-
         $rotated = match ($orientation) {
             3 => imagerotate($image, 180, 0),
             6 => imagerotate($image, -90, 0),
