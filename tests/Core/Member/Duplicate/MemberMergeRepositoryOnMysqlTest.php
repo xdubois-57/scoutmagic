@@ -21,6 +21,28 @@ final class MemberMergeRepositoryOnMysqlTest extends TestCase
 {
     use UsesProductionEngine;
 
+    /**
+     * The premise first (AGENTS.md § Database): this engine reports the
+     * rows an UPDATE CHANGED, not the rows it matched — which is what makes
+     * a second, idle pass of the repair answer 0 and journal nothing.
+     */
+    public function testThisEngineReportsChangedRowsRatherThanMatchedOnes(): void
+    {
+        $pdo = $this->productionEngine();
+        $pdo->prepare('INSERT INTO members (desk_id) VALUES (?)')->execute(['NM-PROBE']);
+        $member = (int) $pdo->lastInsertId();
+        $pdo->prepare('INSERT INTO member_notes (member_id, body) VALUES (?, ?)')->execute([$member, 'x']);
+
+        $update = $pdo->prepare('UPDATE member_notes SET member_id = ? WHERE member_id = ?');
+        $update->execute([$member, $member]);
+
+        $this->assertSame(
+            0,
+            $update->rowCount(),
+            'if this ever reports 1, the engine counts matched rows and the idle-pass assertion below proves nothing.'
+        );
+    }
+
     public function testNotesOfAlreadyMergedIdentitiesAreRepointedOnceAndCountedTruthfully(): void
     {
         $pdo = $this->productionEngine();
