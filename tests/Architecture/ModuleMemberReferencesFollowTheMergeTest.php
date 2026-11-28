@@ -28,7 +28,12 @@ final class ModuleMemberReferencesFollowTheMergeTest extends TestCase
         foreach (glob($root . '/modules/*/schema.sql') ?: [] as $file) {
             $module = basename(dirname($file));
             $schema = (string) preg_replace('/--[^\n]*/', '', (string) file_get_contents($file));
-            preg_match_all('/CREATE TABLE (?:IF NOT EXISTS )?`?(\w+)`?\s*\((.*?)\n\)/s', $schema, $tables, PREG_SET_ORDER);
+            preg_match_all(
+                '/CREATE TABLE (?:IF NOT EXISTS )?`?(\w+)`?\s*\((.*?)\n\)/s',
+                $schema,
+                $tables,
+                PREG_SET_ORDER
+            );
             foreach ($tables as [, $table, $body]) {
                 preg_match_all('/^\s*`?(\w*member_id)`?\s+(?:INT|BIGINT)/m', $body, $columns);
                 preg_match_all('/FOREIGN KEY\s*\(`?(\w+)`?\)\s*REFERENCES\s+`?members`?\s*\(\s*`?id/', $body, $keys);

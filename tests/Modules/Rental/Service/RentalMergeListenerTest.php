@@ -33,7 +33,8 @@ final class RentalMergeListenerTest extends TestCase
                 . ' INTEGER NULL)');
         }
         $pdo->exec(
-            'INSERT INTO rental_asset_managers (asset_id, member_id, is_active) VALUES (1, 10, 0), (1, 20, 1), (2, 20, 1)'
+            'INSERT INTO rental_asset_managers (asset_id, member_id, is_active)
+             VALUES (1, 10, 0), (1, 20, 1), (2, 20, 1)'
         );
         $pdo->exec('INSERT INTO rental_booking_comments (author_member_id) VALUES (20)');
         $listener = new RentalMergeListener(new MergeRowRepository($pdo));
