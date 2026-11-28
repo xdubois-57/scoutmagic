@@ -172,7 +172,7 @@ class CreateBackupHandler implements TaskHandlerInterface
             $context->journal->log(
                 'core',
                 'backup_failed',
-                'info',
+                'error',
                 'Échec de la génération d\'une sauvegarde : ' . Backup::typeLabel($scope),
                 ['backup_id' => $backupId, 'scope' => $scope, 'error' => $e->getMessage()],
                 $backup->requestedBy

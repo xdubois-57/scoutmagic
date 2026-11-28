@@ -63,7 +63,7 @@ class ProcessVideoHandler implements TaskHandlerInterface
             $context->journal->log(
                 'gallery',
                 'video_processing_failed',
-                'info',
+                'error',
                 'Échec du traitement d\'une vidéo',
                 ['media_id' => $mediaId, 'album_id' => $media->albumId, 'error' => 'Migration de stockage toujours en '
                     . 'cours.']
@@ -162,7 +162,7 @@ class ProcessVideoHandler implements TaskHandlerInterface
             $context->journal->log(
                 'gallery',
                 'video_processing_failed',
-                'info',
+                'error',
                 'Échec du traitement d\'une vidéo',
                 ['media_id' => $mediaId, 'album_id' => $media->albumId, 'error' => $e->getMessage()]
             );

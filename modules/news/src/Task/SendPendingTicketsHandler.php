@@ -153,7 +153,7 @@ class SendPendingTicketsHandler implements TaskHandlerInterface
                 $context->journal->log(
                     'news',
                     'ticket_email_failed',
-                    'info',
+                    'error',
                     "Échec de l'envoi d'un billet pour une réponse de formulaire",
                     ['article_id' => $article->id, 'form_id' => $formId, 'response_id' => $response->id],
                     null

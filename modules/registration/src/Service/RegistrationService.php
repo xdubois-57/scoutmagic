@@ -277,7 +277,7 @@ class RegistrationService
             $this->journalService->log(
                 'registration',
                 'registration_receipt_email_failed',
-                'info',
+                'error',
                 'Échec de l\'envoi de l\'accusé de réception',
                 ['error' => $e->getMessage()]
             );
@@ -325,7 +325,7 @@ class RegistrationService
             $this->journalService->log(
                 'registration',
                 'registration_unit_alert_email_failed',
-                'info',
+                'error',
                 'Échec de l\'envoi de l\'alerte à l\'unité',
                 ['error' => $e->getMessage()]
             );

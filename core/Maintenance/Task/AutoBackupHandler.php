@@ -71,11 +71,26 @@ class AutoBackupHandler implements TaskHandlerInterface
         // backed up monthly.
         $frequency = (string) ($context->settings->get('backup_auto_frequency') ?: 'weekly');
 
+        // A failed backup is a failed task (issue #1450): the exception
+        // leaves handle(), so SchedulerRunner marks the row failed and
+        // writes `scheduler_task_failed` instead of « terminée ». The next
+        // run is queued first all the same — a recurring chain that a
+        // full disk could break would stop backing up for good, with
+        // nothing on the screen to say so.
+        $failure = null;
         if (isset(self::INTERVALS[$frequency])) {
-            $this->performBackup($context);
+            try {
+                $this->performBackup($context);
+            } catch (\Throwable $e) {
+                $failure = $e;
+            }
         }
 
         $this->scheduleNext($context, $frequency);
+
+        if ($failure !== null) {
+            throw $failure;
+        }
     }
 
     private function performBackup(TaskContext $context): void
@@ -150,13 +165,17 @@ class AutoBackupHandler implements TaskHandlerInterface
                 \Core\Maintenance\BackupSafetyNet::forPdo($context->connection->getPdo())
             ))->purgeAfterCreating('auto_backup');
         } catch (\Throwable $e) {
+            // `error`: no backup exists for this period until somebody
+            // frees the space or fixes the cause.
             $context->journal->log(
                 'core',
                 'auto_backup_failed',
-                'info',
+                'error',
                 'Échec de la sauvegarde automatique',
                 ['error' => $e->getMessage()]
             );
+
+            throw $e;
         }
     }
 

@@ -254,7 +254,7 @@ class ResponseServiceTest extends TestCase
 
         $journalService = $this->createMock(JournalService::class);
         $journalService->expects($this->once())->method('log')
-            ->with('news', 'confirmation_email_failed', 'info', $this->anything(), $this->anything(), null);
+            ->with('news', 'confirmation_email_failed', 'error', $this->anything(), $this->anything(), null);
 
         $this->service(journalService: $journalService)
             ->submit($this->article, $this->form(), [$field], null, null, 1, 'parent@test.com', [$fieldId => 'Alice'], null);
@@ -542,10 +542,12 @@ class ResponseServiceTest extends TestCase
         $this->assertFalse($this->responseRepository->findById($response->id)?->hasTicket());
         $this->assertSame(['Roskam'], array_values($this->responseRepository->getValues($response->id)));
         $this->assertSame(['a@test.com'], $sentTo);
-        $stmt = $this->pdo->prepare('SELECT description, context FROM event_log WHERE event_type = ?');
+        $stmt = $this->pdo->prepare('SELECT description, context, level FROM event_log WHERE event_type = ?');
         $stmt->execute(['ticket_reference_failed']);
         $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
         $this->assertCount(1, $rows);
+        // The family has no ticket until somebody steps in: `error` (#1450).
+        $this->assertSame('error', $rows[0]['level']);
         $this->assertSame(
             'Échec de la génération de la référence de billet pour une réponse de formulaire',
             $rows[0]['description']

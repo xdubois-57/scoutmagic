@@ -86,6 +86,11 @@ class RefreshModelsHandler implements TaskHandlerInterface
                 continue;
             }
             $needsRetry = true;
+            // True from the address check until the driver exists: whatever
+            // fails in between — an address that no longer leads to a public
+            // https host, a driver this build does not know — is the
+            // configuration, which no retry changes (issue #1450).
+            $misconfigured = false;
             try {
                 // Decrypt only this provider, inside its bounded recovery path.
                 $configured = $providerRepo->findById($provider['id']);
@@ -96,6 +101,7 @@ class RefreshModelsHandler implements TaskHandlerInterface
                 // address was saved (#1269, SECURITY.md §17): the API key
                 // is sent to it, and nobody is watching this run. A refusal
                 // is journalled below like any other failure.
+                $misconfigured = true;
                 if (!$this->mayCall($configured['api_endpoint'])) {
                     throw LlmException::unsafeEndpoint();
                 }
@@ -104,6 +110,7 @@ class RefreshModelsHandler implements TaskHandlerInterface
                     $configured['api_endpoint'],
                     $configured['api_key']
                 );
+                $misconfigured = false;
                 $refresher = new ProviderCatalogRefresher(
                     $modelRepo,
                     new OcrModelSelector($context->journal),
@@ -122,10 +129,14 @@ class RefreshModelsHandler implements TaskHandlerInterface
                     null
                 );
             } catch (\Throwable $e) {
+                // `error` when the superadmin has to fix the provider's
+                // configuration, `warning` when the provider could not be
+                // reached and the retry below may get through. The retry is
+                // scheduled either way, as before.
                 $context->journal->log(
                     'llm_connector',
                     'models_refresh_failed',
-                    'info',
+                    $misconfigured ? 'error' : 'warning',
                     "Échec du rafraîchissement planifié pour {$provider['name']}.",
                     ['provider_id' => $provider['id'], 'error_type' => $e::class, 'error_code' => $e->getCode()],
                     null

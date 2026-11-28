@@ -826,6 +826,11 @@ class EmailTemplateControllerTest extends TestCase
             \Core\Http\FlashMessage::get()
         );
         $this->assertSame(1, $this->journalCount('email_template_test_failed'));
+        // The site's mail configuration needs fixing: `error` (issue #1450).
+        $this->assertSame(
+            'error',
+            $this->pdo->query("SELECT level FROM event_log WHERE event_type = 'email_template_test_failed'")->fetchColumn()
+        );
         $context = $this->journalContext('email_template_test_failed');
         $this->assertStringContainsString('SMTP connect() failed for [adresse]', $context);
         $this->assertStringNotContainsString('superadmin@test.be', $context, 'the journal kept the address');

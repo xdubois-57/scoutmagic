@@ -150,6 +150,8 @@ class ProcessPhotoHandlerTest extends TestCase
         (new ProcessPhotoHandler())->handle(['media_id' => $mediaId], $this->buildContext());
 
         $this->assertSame(Media::STATUS_FAILED, $this->mediaRepository->findById($mediaId)->processingStatus);
+        // Nothing processes it again: `error`, never `info` (issue #1450).
+        $this->assertSame(['error'], $this->journalLevels('photo_processing_failed'));
     }
 
     public function testIsANoOpWhenTheMediaRowDoesNotExist(): void
@@ -227,6 +229,8 @@ class ProcessPhotoHandlerTest extends TestCase
             0,
             (int) $this->pdo->query("SELECT COUNT(*) FROM scheduled_actions WHERE task_key = 'process_photo'")->fetchColumn()
         );
+        // Given up, not deferred: `error` like the other failure (#1450).
+        $this->assertSame(['error'], $this->journalLevels('photo_processing_failed'));
     }
 
     public function testProcessesNormallyOnceAMigrationHasFailed(): void
@@ -379,5 +383,18 @@ class ProcessPhotoHandlerTest extends TestCase
             ProcessPhotoHandler::GENERIC_FAILURE_MESSAGE,
             $this->mediaRepository->findById($mediaId)->processingError
         );
+    }
+
+    /**
+     * The level of every journal line of $eventType, oldest first.
+     *
+     * @return list<string>
+     */
+    private function journalLevels(string $eventType): array
+    {
+        $stmt = $this->pdo->prepare('SELECT level FROM event_log WHERE event_type = ? ORDER BY id');
+        $stmt->execute([$eventType]);
+
+        return array_map('strval', $stmt->fetchAll(\PDO::FETCH_COLUMN));
     }
 }

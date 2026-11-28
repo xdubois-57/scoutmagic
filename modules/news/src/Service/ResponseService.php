@@ -705,7 +705,7 @@ class ResponseService
                 $this->journalService?->log(
                     'news',
                     'ticket_reference_failed',
-                    'info',
+                    'error',
                     'Échec de la génération de la référence de billet pour une réponse de formulaire',
                     ['article_id' => $article->id, 'form_id' => $form->id, 'response_id' => $responseId],
                     $userAccountId
@@ -724,12 +724,12 @@ class ResponseService
         try {
             $this->sendConfirmationEmail($article, $form, $fields, $response, $total);
         } catch (MailException $e) {
+            // `error`: the respondent was not told, and nothing resends
+            // the confirmation on its own (issue #1450).
             $this->journalService?->log(
-                // 'warning' isn't a valid event_log.level (only 'info'/
-                // 'security' — see JournalService::log()'s docblock).
                 'news',
                 'confirmation_email_failed',
-                'info',
+                'error',
                 'Échec de l\'envoi de l\'email de confirmation pour une réponse de formulaire',
                 ['article_id' => $article->id, 'form_id' => $form->id, 'response_id' => $response->id],
                 $response->userAccountId
@@ -1053,7 +1053,7 @@ class ResponseService
                 $this->journalService?->log(
                     'news',
                     'confirmation_email_failed',
-                    'info',
+                    'error',
                     'Échec de l\'envoi de l\'email de confirmation pour une réponse de formulaire modifiée',
                     ['article_id' => $article->id, 'form_id' => $form->id, 'response_id' => $updated->id],
                     $updated->userAccountId

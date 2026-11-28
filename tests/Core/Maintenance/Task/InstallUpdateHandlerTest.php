@@ -427,9 +427,12 @@ class InstallUpdateHandlerTest extends TestCase
         // The detail an operator needs to find the failed build IS
         // journaled, unlike the tooltip.
         $row = $this->pdo->query(
-            "SELECT context FROM event_log WHERE event_type = 'update_failed' ORDER BY id DESC LIMIT 1"
+            "SELECT level, context FROM event_log WHERE event_type = 'update_failed' ORDER BY id DESC LIMIT 1"
         )->fetch(\PDO::FETCH_ASSOC);
         $this->assertNotFalse($row);
+        // `error`, not `warning`: past the deadline nothing is retried, so
+        // this version waits for somebody to push again (#1559 review).
+        $this->assertSame('error', $row['level']);
         $context = json_decode((string) $row['context'], true);
         $this->assertSame(self::DEV_ARTIFACT_URL, $context['download_url']);
         $this->assertSame(404, $context['http_status']);
@@ -1449,6 +1452,7 @@ class InstallUpdateHandlerTest extends TestCase
              WHERE event_type = 'update_notification_failed'"
         )->fetch(\PDO::FETCH_ASSOC);
         $this->assertIsArray($row, 'a notice that could not leave left no trace');
+        $this->assertSame('error', $row['level']);
         $this->assertSame('La notification de fin de mise à jour n\'a pas pu être envoyée', $row['description']);
         $this->assertSame($this->userId, (int) $row['user_account_id']);
         $context = json_decode((string) $row['context'], true);
@@ -1476,9 +1480,11 @@ class InstallUpdateHandlerTest extends TestCase
             . 'Consultez le journal des événements pour le détail — une intervention manuelle est nécessaire.',
             $history?->errorMessage
         );
-        $row = $this->pdo->query("SELECT context FROM event_log WHERE event_type = 'update_failed'")
+        $row = $this->pdo->query("SELECT level, context FROM event_log WHERE event_type = 'update_failed'")
             ->fetch(\PDO::FETCH_ASSOC);
         $this->assertIsArray($row);
+        // A person has to step in: `error`, never `info` (issue #1450).
+        $this->assertSame('error', $row['level']);
         $this->assertStringContainsString('SQLSTATE', (string) json_decode((string) $row['context'], true)['error']);
 
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
@@ -1532,6 +1538,12 @@ class InstallUpdateHandlerTest extends TestCase
         $types = $this->pdo->query('SELECT event_type FROM event_log ORDER BY id')->fetchAll(\PDO::FETCH_COLUMN);
         $this->assertContains('update_rollback_failed', $types);
         $this->assertNotContains('update_rolled_back', $types);
+        // « intervention manuelle nécessaire » — the one line of all that
+        // must be found by a filter on « Erreur » (issue #1450).
+        $levels = $this->pdo->query(
+            "SELECT DISTINCT level FROM event_log WHERE event_type IN ('update_failed', 'update_rollback_failed')"
+        )->fetchAll(\PDO::FETCH_COLUMN);
+        $this->assertSame(['error'], $levels);
 
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $notifications = (new NotificationRepository($this->pdo, $encryption))->findByUserAccountId($this->userId);

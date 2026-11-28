@@ -766,7 +766,7 @@ class BoardService implements RetroEventLinkLookupInterface
             $this->journalService->log(
                 'retro',
                 'board_close_notification_failed',
-                'info',
+                'error',
                 'Échec de l\'envoi de la notification de clôture',
                 ['board_id' => $board->id, 'error' => $e->getMessage()]
             );
