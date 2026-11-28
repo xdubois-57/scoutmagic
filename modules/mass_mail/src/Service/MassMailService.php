@@ -35,6 +35,7 @@ use Modules\MassMail\Repository\MemberResolutionRepository;
 use Modules\MassMail\Repository\SuppressedAddressRepository;
 use Modules\MassMail\Repository\Target;
 use Modules\MassMail\Repository\TargetRepository;
+use Modules\MassMail\Task\SendBatchHandler;
 
 /**
  * Owns the whole email lifecycle (module spec's "Workflow des statuts") —
@@ -49,9 +50,6 @@ class MassMailService
      * (issue #1437).
      */
     public const REASON_UNSUBSCRIBED = 'Adresse désinscrite des emails groupés';
-
-    private const SCHEDULER_TASK_KEY = 'send_batch';
-    private const SCHEDULER_MODULE_ID = 'mass_mail';
 
     public function __construct(
         private EmailRepository $emailRepository,
@@ -1802,21 +1800,31 @@ class MassMailService
     }
 
     /**
-     * Ensures exactly one 'send_batch' scheduled action is pending
-     * site-wide (module spec: never one job per recipient) — a no-op when
-     * one is already pending, since it will pick up every currently-
-     * pending recipient (across every email) on its own next run anyway.
+     * Ensures exactly one `send_batch` chain is alive site-wide (module
+     * spec: never one job per recipient) — a no-op when one is already
+     * queued OR RUNNING, since it picks up every pending message (across
+     * every email) on its own next run anyway.
+     *
+     * **Running counts, and that is issue #1443.** This used to look for a
+     * `pending` row only, so « Lancer l'envoi » or « Renvoyer » pressed
+     * while a batch was `processing` found nothing and queued a second
+     * chain; both then lived until the queue was empty, each sending a full
+     * batch per interval — twice the cadence the relay accepts.
+     * `scheduleAfterUnlessLive()` sees the running row, and is atomic, so
+     * two such clicks at once cannot both queue one. The running batch
+     * re-arms in its `finally` and finds the new messages there — unless
+     * it had already looked and found none, a window of a few
+     * milliseconds that SendBatchHandler::bootstrap() closes on the next
+     * request or cron pass.
      */
     private function ensureBatchTaskScheduled(bool $runImmediately): void
     {
-        if ($this->schedulerService->find(self::SCHEDULER_MODULE_ID, self::SCHEDULER_TASK_KEY) !== null) {
-            return;
-        }
-
-        $this->schedulerService->scheduleAfter(
-            self::SCHEDULER_MODULE_ID,
-            self::SCHEDULER_TASK_KEY,
-            $runImmediately ? 0 : 60
+        $this->schedulerService->scheduleAfterUnlessLive(
+            SendBatchHandler::MODULE_ID,
+            SendBatchHandler::TASK_KEY,
+            $runImmediately ? 0 : 60,
+            [],
+            SendBatchHandler::REFERENCE
         );
     }
 

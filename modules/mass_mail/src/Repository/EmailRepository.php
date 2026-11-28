@@ -197,6 +197,36 @@ class EmailRepository
     }
 
     /**
+     * Every email shown « Envoi en cours » that still has messages waiting,
+     * with how many — what Service\MassMailAttentionProvider reports when
+     * no `send_batch` is alive to send them (issue #1443). One aggregate
+     * query, oldest email first.
+     *
+     * @return list<array{id: int, subject: string, pending: int}>
+     */
+    public function findSendingWithPendingMessages(): array
+    {
+        $stmt = $this->pdo->prepare(
+            "SELECT e.id, e.subject, COUNT(d.id) AS pending
+             FROM mass_mail_emails e
+             JOIN mass_mail_deliveries d ON d.email_id = e.id AND d.status = 'pending'
+             WHERE e.status = ?
+             GROUP BY e.id, e.subject
+             ORDER BY e.id ASC"
+        );
+        $stmt->execute([Email::STATUS_SENDING]);
+
+        return array_map(
+            static fn(array $row): array => [
+                'id' => (int) $row['id'],
+                'subject' => (string) $row['subject'],
+                'pending' => (int) $row['pending'],
+            ],
+            $stmt->fetchAll(\PDO::FETCH_ASSOC)
+        );
+    }
+
+    /**
      * @return int[]
      */
     public function getScoutYearIds(int $emailId): array

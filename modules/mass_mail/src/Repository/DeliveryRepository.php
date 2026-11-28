@@ -306,6 +306,29 @@ class DeliveryRepository
         ];
     }
 
+    /**
+     * Whether any message of any email waits to leave — the one question
+     * Task\SendBatchHandler::bootstrap() asks on every request before it
+     * asks the scheduler anything (issue #1443). Served by
+     * `idx_mmd_status_id`, and answered « non » on almost every page view.
+     */
+    public function hasAnyPending(): bool
+    {
+        $stmt = $this->pdo->prepare("SELECT 1 FROM mass_mail_deliveries WHERE status = 'pending' LIMIT 1");
+        $stmt->execute();
+
+        return $stmt->fetchColumn() !== false;
+    }
+
+    /** How many messages of every email together wait to leave — what the chain still has to drain. */
+    public function countAllPending(): int
+    {
+        $stmt = $this->pdo->prepare("SELECT COUNT(*) FROM mass_mail_deliveries WHERE status = 'pending'");
+        $stmt->execute();
+
+        return (int) $stmt->fetchColumn();
+    }
+
     public function hasPending(int $emailId): bool
     {
         $stmt = $this->pdo->prepare(

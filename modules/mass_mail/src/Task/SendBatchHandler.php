@@ -58,10 +58,218 @@ use Modules\MassMail\Service\TargetEmailLink;
 class SendBatchHandler implements TaskHandlerInterface
 {
 
+    public const MODULE_ID = 'mass_mail';
+    public const TASK_KEY = 'send_batch';
+
     /**
+     * The chain's fixed reference (issue #1443). There is one queue for the
+     * whole site, so one chain, and a reference is what lets its own re-arm
+     * go through the guarded `rearmAfter()` — whose guard sees only a
+     * QUEUED row, so this run's own `processing` row does not stop it —
+     * while every other caller asks the task-wide
+     * `scheduleAfterUnlessLive()`, which sees the running batch too.
+     *
+     * Rows queued before the reference existed carry none. They are not
+     * lost: each runs once, its re-arm finds the referenced row already
+     * queued and stands down, and the chain is back to one row.
+     */
+    public const REFERENCE = 'queue';
+
+    /**
+     * How many batches in a row may fail before the chain stops re-arming
+     * itself. A batch that fails for a reason that does not go away by
+     * itself — a table missing, a key that no longer decrypts — would
+     * otherwise fail once per interval for ever, a journal line each time
+     * and the mailing still shown « Envoi en cours ». Five lets a passing
+     * outage (a restarted database, a relay down for a quarter of an hour)
+     * heal on its own.
+     */
+    public const MAX_CONSECUTIVE_FAILURES = 5;
+
+    /**
+     * How long a chain stopped by that cap is left alone before the
+     * composition root starts it again ({@see bootstrap()}). Meanwhile the
+     * mailing is on the attention page (Service\MassMailAttentionProvider),
+     * which is how a person hears about it; afterwards one more series of
+     * attempts is made, so a cause somebody fixed is picked up without
+     * anybody having to find a button.
+     */
+    public const HALT_HOURS = 1;
+
+    /** The payload key carrying how many batches in a row have failed. */
+    private const FAILURES_KEY = 'consecutive_failures';
+
+    /**
+     * One batch, then the chain's next link — **in a `finally`**, so that
+     * whatever the batch threw, the remaining recipients still have a
+     * successor to send them (issue #1443). Only `MailException` is caught
+     * inside the loop; anything else — a `\PDOException`, a
+     * `DecryptionException` — used to escape before the re-arm and leave
+     * every remaining message `pending` with nothing scheduled to send it.
+     *
+     * The exception is still rethrown: the scheduler marks the run failed
+     * and journals it, and that failed row is also what tells
+     * {@see bootstrap()} that a chain stopped on its cap.
+     *
      * @param array<string, mixed> $payload
      */
     public function handle(array $payload, TaskContext $context): void
+    {
+        $failure = null;
+        try {
+            $this->sendBatch($context);
+        } catch (\Throwable $e) {
+            $failure = $e;
+            throw $e;
+        } finally {
+            if ($failure === null) {
+                $this->rearmIfPendingRemain($context, []);
+            } else {
+                $this->afterFailedBatch($payload, $context, $failure);
+            }
+        }
+    }
+
+    /**
+     * Queue the chain again when it stopped while messages still wait —
+     * from the composition roots (`public/scheduler-bootstrap.php`), on
+     * every request and every cron pass (issue #1443). Returns whether it
+     * queued a run.
+     *
+     * The chain normally re-arms itself, so this only ever acts when that
+     * did not happen: a run whose re-arm failed with the batch (the same
+     * database refusing both), a row cancelled by hand, a queue left by a
+     * version that did not re-arm a failed batch at all. A process killed
+     * mid-batch is not one of them — its row stays `processing`, which is
+     * alive, and the scheduler hands it back after
+     * `SchedulerRepository::RECLAIM_AFTER_HOURS`.
+     *
+     * Ordered for the page view, which pays for it: one indexed lookup on
+     * the messages, which answers « nothing waits » on nearly every
+     * request, before anything is asked of the scheduler. Queued through
+     * `scheduleAfterUnlessLive()`, which sees a `processing` row and is
+     * atomic, so a page view landing during a batch never starts a second
+     * chain.
+     *
+     * A chain stopped by {@see MAX_CONSECUTIVE_FAILURES} is left alone for
+     * {@see HALT_HOURS}; restarting it at once would make the cap a delay
+     * of one minute.
+     */
+    public static function bootstrap(
+        SchedulerService $scheduler,
+        DeliveryRepository $deliveries,
+        \Core\Journal\JournalService $journal,
+        ?\DateTimeImmutable $now = null
+    ): bool {
+        if (!$deliveries->hasAnyPending() || $scheduler->hasLiveForTask(self::MODULE_ID, self::TASK_KEY)) {
+            return false;
+        }
+
+        if (self::isHaltedOnItsCap($scheduler, $now ?? new \DateTimeImmutable())) {
+            return false;
+        }
+
+        if ($scheduler->scheduleAfterUnlessLive(self::MODULE_ID, self::TASK_KEY, 0, [], self::REFERENCE) === null) {
+            return false;
+        }
+
+        $journal->log(
+            self::MODULE_ID,
+            'batch_chain_recovered',
+            'warning',
+            'Envoi groupé relancé : des messages attendaient sans qu\'aucun lot ne soit planifié',
+            ['pending' => $deliveries->countAllPending()],
+            null
+        );
+
+        return true;
+    }
+
+    /**
+     * Whether the chain's latest run is the one that hit the cap, less
+     * than {@see HALT_HOURS} ago. Read off the scheduler's own row — its
+     * status and the payload this handler gave it — so the cap needs no
+     * state of its own.
+     */
+    public static function isHaltedOnItsCap(SchedulerService $scheduler, \DateTimeImmutable $now): bool
+    {
+        $latest = $scheduler->findAllForTask(self::MODULE_ID, self::TASK_KEY, 1)[0] ?? null;
+        if ($latest === null || ($latest['status'] ?? null) !== 'failed') {
+            return false;
+        }
+
+        $payload = is_string($latest['payload'] ?? null) ? json_decode($latest['payload'], true) : null;
+        if (self::consecutiveFailures(is_array($payload) ? $payload : []) + 1 < self::MAX_CONSECUTIVE_FAILURES) {
+            return false;
+        }
+
+        $ranAt = \Core\Service\DateInput::fromStorage(is_string($latest['run_at'] ?? null) ? $latest['run_at'] : null);
+
+        return $ranAt !== null && $ranAt > $now->sub(new \DateInterval('PT' . self::HALT_HOURS . 'H'));
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     */
+    private static function consecutiveFailures(array $payload): int
+    {
+        $value = $payload[self::FAILURES_KEY] ?? 0;
+
+        return is_int($value) ? max(0, $value) : 0;
+    }
+
+    /**
+     * After a batch that threw: journal it, and re-arm unless this was the
+     * last failure the cap allows.
+     *
+     * **Nothing here may throw.** It runs in the `finally` while the
+     * batch's own exception is on its way out, and the usual reason for
+     * that exception — the database — is the reason this would fail too.
+     * A re-arm that could not be written is not lost: {@see bootstrap()}
+     * queues the chain again on the next request or cron pass.
+     *
+     * @param array<string, mixed> $payload
+     */
+    private function afterFailedBatch(array $payload, TaskContext $context, \Throwable $failure): void
+    {
+        $failures = self::consecutiveFailures($payload) + 1;
+        $pending = null;
+        try {
+            $pending = (new DeliveryRepository($context->connection->getPdo(), $context->encryption))->countAllPending();
+            if ($pending > 0 && $failures < self::MAX_CONSECUTIVE_FAILURES) {
+                $this->rearmIfPendingRemain($context, [self::FAILURES_KEY => $failures]);
+            }
+        } catch (\Throwable) {
+            // See above: bootstrap() picks the chain up.
+        }
+
+        $halted = $pending !== null && $pending > 0 && $failures >= self::MAX_CONSECUTIVE_FAILURES;
+        try {
+            $context->journal->log(
+                self::MODULE_ID,
+                'batch_failed',
+                'error',
+                $halted
+                    ? 'Lot d\'emails de masse en échec ' . $failures . ' fois de suite : envoi suspendu pendant '
+                        . self::HALT_HOURS . ' h'
+                    : 'Lot d\'emails de masse en échec : le lot suivant reprendra les messages restants',
+                [
+                    'task_id' => isset($payload['scheduled_action_id']) && is_int($payload['scheduled_action_id'])
+                        ? $payload['scheduled_action_id']
+                        : null,
+                    'pending' => $pending,
+                    'error_class' => $failure::class,
+                    'consecutive_failures' => $failures,
+                ],
+                null
+            );
+        } catch (\Throwable) {
+            // Nobody left to tell: the journal goes through the same
+            // database that may just have refused.
+        }
+    }
+
+    private function sendBatch(TaskContext $context): void
     {
         $pdo = $context->connection->getPdo();
 
@@ -389,11 +597,11 @@ class SendBatchHandler implements TaskHandlerInterface
                 // else — a `DecryptionException` on a row encrypted under
                 // a rotated key, a `\ValueError` from a stored category
                 // that is no longer a case, a `\PDOException` — would
-                // escape the loop entirely. `rescheduleIfPendingRemain()`
-                // never runs then, and nothing else reschedules a failed
-                // `send_batch`: every remaining recipient stays `pending`
-                // until somebody notices and restarts the mailing by
-                // hand. A receipt is not worth a mailing.
+                // end the batch here, with the rest of its recipients
+                // unsent until the next one. handle() re-arms the chain
+                // in its `finally` whatever escapes (issue #1443), so the
+                // mailing is delayed rather than stranded; still, a
+                // receipt is not worth even that.
                 try {
                     (new \Core\Mail\Feedback\Bounce\BounceStateRepository($pdo, $context->encryption))
                         ->recordSend($delivery->emailAddress, new \DateTimeImmutable(), true);
@@ -499,7 +707,6 @@ class SendBatchHandler implements TaskHandlerInterface
             );
         }
 
-        $this->rescheduleIfPendingRemain($context, $deliveryRepository);
     }
 
     /**
@@ -661,9 +868,22 @@ class SendBatchHandler implements TaskHandlerInterface
         ];
     }
 
-    private function rescheduleIfPendingRemain(TaskContext $context, DeliveryRepository $deliveryRepository): void
+    /**
+     * The chain's next link, when anything is left to send.
+     *
+     * `rearmAfter()` and not `scheduleAfter()` (issue #1443): the guard
+     * finds a row already queued — by « Lancer l'envoi » or « Renvoyer »
+     * while this batch ran, or by a second copy of the chain — and stands
+     * down instead of keeping two chains alive, each sending a full batch
+     * per interval. This run's own row is `processing`, which that guard
+     * deliberately does not see.
+     *
+     * @param array<string, mixed> $payload
+     */
+    private function rearmIfPendingRemain(TaskContext $context, array $payload): void
     {
-        if ($deliveryRepository->findOldestPending(1) === []) {
+        $deliveryRepository = new DeliveryRepository($context->connection->getPdo(), $context->encryption);
+        if (!$deliveryRepository->hasAnyPending()) {
             return;
         }
 
@@ -673,10 +893,13 @@ class SendBatchHandler implements TaskHandlerInterface
         // adopts THAT provider's cadence, not the one it started on.
         $intervalMinutes = $this->cadence($context)['interval_minutes'];
 
-        $schedulerService = new SchedulerService(
-            new \Core\Scheduler\SchedulerRepository($context->connection->getPdo())
+        SchedulerService::forPdo($context->connection->getPdo())->rearmAfter(
+            self::MODULE_ID,
+            self::TASK_KEY,
+            self::REFERENCE,
+            $intervalMinutes * 60,
+            $payload
         );
-        $schedulerService->scheduleAfter('mass_mail', 'send_batch', $intervalMinutes * 60);
     }
 
     private function buildMassMailService(TaskContext $context): MassMailService

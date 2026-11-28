@@ -9689,6 +9689,13 @@ if ($isEnabled('mass_mail')) {
         $massMailImportedEmailRepo
     );
 
+    // « L'envoi … est à l'arrêt » (issue #1443): a mailing still shown
+    // « Envoi en cours » while no send_batch is queued or running.
+    $attentionProviders[] = new \Modules\MassMail\Service\MassMailAttentionProvider(
+        $massMailEmailRepo,
+        $schedulerService
+    );
+
     // The import interface of the « Historique des courriels » migration
     // (data_migration, lot C): writes an email of a former site with no
     // send, no pending message, no notification. Consumed by the

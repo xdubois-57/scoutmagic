@@ -1081,6 +1081,21 @@ function scoutmagicBootstrapScheduler(
         \Modules\Finance\Task\CatchUpMailReceiptsHandler::bootstrap($schedulerService, $settingService);
     }
 
+    // The mailing queue's chain, started again when messages wait and no
+    // batch is queued or running (issue #1443): a batch whose re-arm failed
+    // with it, a row cancelled by hand, a queue left by a version that did
+    // not re-arm a failed batch. Not a recurring chain — it exists only
+    // while something waits — so it is asked through the messages first,
+    // one indexed lookup that answers « nothing » on nearly every request,
+    // and queued through the task-wide guard that sees a running batch.
+    if (in_array('mass_mail', $enabledModuleIds, true)) {
+        \Modules\MassMail\Task\SendBatchHandler::bootstrap(
+            $schedulerService,
+            new \Modules\MassMail\Repository\DeliveryRepository($connection->getPdo(), $encryptionService),
+            $journalService
+        );
+    }
+
     // Existing providers need capability evidence on the first cron pass after upgrading.
     if (in_array('llm_connector', $enabledModuleIds, true)) {
         \Modules\LlmConnector\Task\RefreshModelsHandler::bootstrap($schedulerService);
