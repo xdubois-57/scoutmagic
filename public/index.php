@@ -3044,54 +3044,14 @@ $memberMergeService = new \Core\Member\Duplicate\MemberMergeService(
     $journalService
 );
 // How a module block registers its listener: into the registry, and over
-// every merge already done whenever there is one it has not seen — made
-// before the module could follow a merge, while it was disabled, or
-// during its last catch-up (issue #1462). The setting holds the merges'
-// signature as of the module's last catch-up; replaying a merge the module
-// already followed finds nothing to move, so a re-run is harmless.
-$memberMergeSignature = null;
-$registerMemberMergeListener = static function (
-    \Core\Member\Duplicate\MemberMergeListener $listener
-) use (
+// every merge already done whenever there is one it has not seen
+// (Core\Member\Duplicate\MemberMergeListenerRegistrar, issue #1462).
+$registerMemberMergeListener = (new \Core\Member\Duplicate\MemberMergeListenerRegistrar(
     $memberMergeListeners,
     $memberMergeRepository,
     $settingService,
-    $settingRepo,
-    $journalService,
-    &$memberMergeSignature
-): void {
-    $memberMergeListeners->register($listener);
-
-    $memberMergeSignature ??= $memberMergeRepository->mergeSignature();
-    $key = 'member_merge_caught_up_' . $listener->moduleId();
-    if ($settingService->get($key) === $memberMergeSignature) {
-        return;
-    }
-    $settingService->register(
-        $key,
-        '',
-        'text',
-        'Fusions passées rattrapées',
-        'État des fusions de fiches déjà appliquées aux données de ce module.',
-        null,
-        null,
-        null,
-        false,
-        999
-    );
-    $handled = $memberMergeRepository->catchUp($listener);
-    if ($handled > 0) {
-        $journalService->log(
-            $listener->moduleId(),
-            'member_merge_caught_up',
-            'info',
-            'Fusions de fiches déjà faites appliquées aux données du module : ' . $handled . ' ligne(s)',
-            ['rows' => $handled]
-        );
-    }
-    $settingRepo->updateValue(null, $key, $memberMergeSignature);
-    $settingService->clearCache();
-};
+    $journalService
+))->register(...);
 // One-time repair (issue #1462): the chef d'unité's notes were not part
 // of a merge until now, so a note written on an identity merged before
 // stayed on it, read by nobody. Same shape as
