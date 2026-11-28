@@ -54,16 +54,19 @@ calendrier à l'autre. « Supprimer » demande confirmation.
 
 ## Ce qui part vers les membres
 
-À la création et à chaque modification, une notification « Nouvelle
-activité » ou « Activité modifiée » est proposée, selon leurs
-préférences, aux personnes **liées à la section** de l'évènement : celles
-dont un membre (enfant ou animateur) y a une fonction, par leur adresse
-d'inscription ou une adresse validée. Être animateur ou chef d'unité ne
-suffit pas : on n'est notifié que pour ses propres sections. Un calendrier
-réservé aux animateurs ou aux chefs d'unité ne notifie que les personnes
-liées qui ont ce rôle. La veille de l'activité, un rappel part
-automatiquement au même public. Vous n'avez rien à déclencher — et rien
-n'est envoyé pour un évènement déjà passé.
+À la création, une notification « Nouvelle activité » est proposée,
+selon leurs préférences, aux personnes **liées à la section** de
+l'évènement : celles dont un membre (enfant ou animateur) y a une
+fonction, par leur adresse d'inscription ou une adresse validée. Être
+animateur ou chef d'unité ne suffit pas : on n'est notifié que pour ses
+propres sections. Un calendrier réservé aux animateurs ou aux chefs
+d'unité ne notifie que les personnes liées qui ont ce rôle.
+
+« Activité modifiée » ne part que si la date, l'heure, le lieu, le titre
+ou le calendrier changent : corriger la description ou cocher la
+rétrospective n'envoie rien. La veille, un rappel part au même public.
+Rien n'est envoyé pour une activité déjà terminée, même encodée après
+coup.
 
 ## S'abonner depuis un agenda personnel
 

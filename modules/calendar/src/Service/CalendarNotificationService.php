@@ -187,9 +187,77 @@ class CalendarNotificationService
         $this->dispatchEventNotification('calendar.event_published', $event, 'Nouvelle activité', $actorUserAccountId);
     }
 
-    public function dispatchEventChanged(CalendarEvent $event, ?int $actorUserAccountId): void
+    /**
+     * « Activité modifiée » for $after, the event as stored once the edit
+     * is saved — only when the edit changed something a family acts on
+     * (see isVisibleChange()) and the event, as it now stands, is not past
+     * (dispatchEventNotification()). The two rules compose into the moves
+     * between past and future (issue #1477):
+     *
+     *  - moved from the past into the future: its date changed and it is
+     *    now upcoming, so it is announced — a family needs to hear of it;
+     *  - moved from the future into the past: it is now over, so nothing
+     *    goes out, as for any edit of a past event.
+     */
+    public function dispatchEventChanged(
+        CalendarEvent $before,
+        CalendarEvent $after,
+        ?int $actorUserAccountId
+    ): void {
+        if (!$this->isVisibleChange($before, $after)) {
+            return;
+        }
+        $this->dispatchEventNotification('calendar.event_changed', $after, 'Activité modifiée', $actorUserAccountId);
+    }
+
+    /**
+     * Whether an edit changed what a family sees of the activity and plans
+     * around: when (start and end date, start and end time), where
+     * (location), what it is called (title) and whose activity it is (the
+     * calendar, i.e. the section). These are exactly the fields the
+     * notification itself or the calendar grid show at a glance.
+     *
+     * Deliberately NOT counted (issue #1477): the description — a free
+     * text that is reworded, completed or corrected long after the event
+     * is announced, where a push for every typo fix trains families to
+     * ignore the channel — and the automatic-retrospective checkbox
+     * (auto_create_retro), a switch nobody outside the staff ever sees.
+     *
+     * A missing end date means "the same day", so an end date added equal
+     * to the start date (or removed while it was equal) is no change.
+     * Both sides are rows read back from the database, so the dates and
+     * times are compared in the one format the column returns.
+     */
+    public function isVisibleChange(CalendarEvent $before, CalendarEvent $after): bool
     {
-        $this->dispatchEventNotification('calendar.event_changed', $event, 'Activité modifiée', $actorUserAccountId);
+        return $before->calendarId !== $after->calendarId
+            || $before->title !== $after->title
+            || $before->startDate !== $after->startDate
+            || ($before->endDate ?? $before->startDate) !== ($after->endDate ?? $after->startDate)
+            || $before->startTime !== $after->startTime
+            || $before->endTime !== $after->endTime
+            || $before->location !== $after->location;
+    }
+
+    /**
+     * Whether the event is entirely over: its last day (end date, else its
+     * start date) is before today. The same notion of "upcoming" the module
+     * already uses everywhere — CalendarEventRepository::findUpcoming() and
+     * searchUpcomingEvents() keep `COALESCE(end_date, start_date) >= today`
+     * — on the application clock (Core\Config\AppClock, Brussels). It is
+     * a matter of days, not of hours, so an event that ends today is still
+     * announced even after its end time: an all-day event has no time to
+     * compare, and a correction made the same evening is still news to the
+     * families who were there.
+     */
+    public function isPast(CalendarEvent $event): bool
+    {
+        $lastDay = DateInput::requireFromStorage(
+            $event->endDate ?? $event->startDate,
+            'calendar_events.end_date'
+        )->format('Y-m-d');
+
+        return $lastDay < (new \DateTimeImmutable('today'))->format('Y-m-d');
     }
 
     private function dispatchEventNotification(
@@ -200,6 +268,14 @@ class CalendarNotificationService
     ): void
     {
         if ($this->notificationService === null || $this->audience === null) {
+            return;
+        }
+        // Nothing is announced about an activity that is already over: a
+        // leader recording a past meeting after the fact, or correcting a
+        // finished one, is bookkeeping, not news (issue #1477). The two
+        // scheduled reminders skip the past the same way, and the import
+        // announces nothing at all.
+        if ($this->isPast($event)) {
             return;
         }
 

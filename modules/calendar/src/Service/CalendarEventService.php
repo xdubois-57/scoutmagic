@@ -145,6 +145,8 @@ class CalendarEventService
         \assert($event !== null);
         $this->notificationService->syncReminderForEvent($event);
         $this->notificationService->syncActivityReminderForEvent($event);
+        // Not for an event already over — recorded after the fact
+        // (CalendarNotificationService::dispatchEventNotification()).
         $this->notificationService->dispatchEventPublished($event, $createdBy);
         $this->retroAutoCreateService?->syncAutoCreateForEvent($event);
         return $event;
@@ -274,7 +276,10 @@ class CalendarEventService
         \assert($updated !== null);
         $this->notificationService->syncReminderForEvent($updated);
         $this->notificationService->syncActivityReminderForEvent($updated);
-        $this->notificationService->dispatchEventChanged($updated, $updatedBy);
+        // $existing is the row as stored before this save: the announcement
+        // goes out only if a field a family sees changed and the event is
+        // not over (CalendarNotificationService::dispatchEventChanged()).
+        $this->notificationService->dispatchEventChanged($existing, $updated, $updatedBy);
         $this->retroAutoCreateService?->syncAutoCreateForEvent($updated);
         return $updated;
     }
