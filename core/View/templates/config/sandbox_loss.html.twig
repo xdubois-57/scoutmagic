@@ -1,0 +1,75 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{#
+  Configuration › Capture suspendue (issue #1469, ARCHITECTURE.md §8.63).
+
+  One card per test sandbox that is still armed and no longer acting. The
+  remedy comes first because it is the normal way out: once the profile or
+  the module is back, the block lifts by itself on the next request.
+  Reopening real sending without it is a deliberate decision, so its form
+  asks first and the button is the destructive outline.
+#}
+{% extends 'base.html.twig' %}
+{% block title %}Capture suspendue — {{ site_name }}{% endblock %}
+{% block content %}
+{% include 'partials/page_header.html.twig' with {
+    title: 'Capture suspendue',
+    subtitle: "Un outil de test encore armé qui n'agit plus : le site bloque l'envoi réel au lieu de le rouvrir.",
+} only %}
+
+{% if channels is empty %}
+    <div class="card">
+        <div class="card-body">
+            <p class="mb-0">
+                Rien n'est suspendu. La capture des e-mails et la téléphonie simulée agissent normalement, ou ne
+                sont pas armées.
+            </p>
+        </div>
+    </div>
+{% else %}
+    {% for channel in channels %}
+        <div class="card mb-3">
+            <div class="card-body">
+                <h2 class="h5">
+                    {{ channel.title }}
+                    {% if channel.released %}
+                        <span class="badge text-bg-warning">Envoi réel rouvert</span>
+                    {% else %}
+                        <span class="badge text-bg-danger">Suspendu</span>
+                    {% endif %}
+                </h2>
+                <p>
+                    L'outil est toujours armé, mais il n'agit plus : {{ channel.reason }}.
+                </p>
+                {% if channel.released %}
+                    <p>{{ channel.released_effect }}</p>
+                {% else %}
+                    <p>{{ channel.blocked_effect }}</p>
+                {% endif %}
+
+                <h3 class="h6">Réparer</h3>
+                <p>
+                    {{ channel.remedy }} Le blocage se lève alors de lui-même, et une nouvelle perte bloquerait de
+                    nouveau.
+                </p>
+
+                {% if not channel.released %}
+                    <h3 class="h6">Rouvrir sans réparer</h3>
+                    <p class="text-body-secondary small">
+                        Sur une installation de référence, les membres et les parents sont de vraies personnes :
+                        ne le faites que si vous savez que ces envois doivent partir. La décision est notée au
+                        journal, avec votre compte.
+                    </p>
+                    <form method="post" action="{{ release_url }}" data-confirm="{{ channel.confirm }}">
+                        {{ csrf_field()|raw }}
+                        <input type="hidden" name="channel" value="{{ channel.id }}">
+                        <button type="submit" class="btn btn-outline-danger">{{ channel.release_label }}</button>
+                    </form>
+                {% endif %}
+            </div>
+        </div>
+    {% endfor %}
+{% endif %}
+{% endblock %}

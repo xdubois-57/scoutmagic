@@ -252,7 +252,7 @@ class ScanService
      *     form: ?NewsForm,
      *     article_title: ?string,
      *     event_date: ?string,
-     *     seats: array<int, array{label: string, quantity: string}>,
+     *     seats: array<int, array{label: string, quantity: string, invalid: bool}>,
      *     seat_total: int,
      *     payment: ?array{amount_due: int, amount_received: int, status: string, receivable_id: int},
      *     used_at: ?string,
@@ -279,7 +279,7 @@ class ScanService
      *     form: ?NewsForm,
      *     article_title: ?string,
      *     event_date: ?string,
-     *     seats: array<int, array{label: string, quantity: string}>,
+     *     seats: array<int, array{label: string, quantity: string, invalid: bool}>,
      *     seat_total: int,
      *     payment: ?array{amount_due: int, amount_received: int, status: string, receivable_id: int},
      *     used_at: ?string,
@@ -383,7 +383,7 @@ class ScanService
      *     array{
      *         label: string,
      *         reference: string,
-     *         seats: array<int, array{label: string, quantity: string}>,
+     *         seats: array<int, array{label: string, quantity: string, invalid: bool}>,
      *         seat_total: int,
      *         payment: ?array{amount_due: int, amount_received: int, status: string, receivable_id: int}
      *     }
@@ -462,9 +462,18 @@ class ScanService
     /**
      * What this response booked, in words — « Repas adulte × 2 ».
      *
+     * **A stored quantity the server would refuse today is never dropped**
+     * (issue #1525) — negative, fractional, anything but digits, or above
+     * the field's capacity (999 without one): FormField::storedQuantity().
+     * It can only predate that rule, and it is exactly what made a ticket
+     * look paid for four when it was paid for none: « Adultes × 4 » with
+     * the « Enfants × −8 » left out. Such a line is kept, marked `invalid`,
+     * shown as a warning, and counts no seat (seatsForAnswers()). Only an
+     * empty answer and a plain zero — nothing booked — are left out.
+     *
      * @param FormField[] $fields
      * @param array<int, string> $answers
-     * @return array<int, array{label: string, quantity: string}>
+     * @return array<int, array{label: string, quantity: string, invalid: bool}>
      */
     private function seatLines(array $fields, array $answers): array
     {
@@ -473,11 +482,12 @@ class ScanService
             if (!self::isSeatField($field)) {
                 continue;
             }
-            $quantity = trim((string) ($answers[$field->id] ?? ''));
-            if ($quantity === '' || (float) $quantity <= 0) {
+            $stored = (string) ($answers[$field->id] ?? '');
+            $seats = $field->storedQuantity($stored);
+            if ($seats === 0) {
                 continue;
             }
-            $lines[] = ['label' => (string) $field->label, 'quantity' => $quantity];
+            $lines[] = ['label' => (string) $field->label, 'quantity' => trim($stored), 'invalid' => $seats === null];
         }
 
         return $lines;
@@ -511,7 +521,7 @@ class ScanService
 
         $total = 0;
         foreach ($seatFields as $field) {
-            $total += (int) $this->responses->sumFieldValues($field->id);
+            $total += (int) $this->responses->sumFieldValues($field);
         }
 
         return $total;
@@ -553,7 +563,10 @@ class ScanService
 
         $total = 0;
         foreach ($seatFields as $field) {
-            $total += (int) (float) ($answers[$field->id] ?? '0');
+            // A quantity the server would refuse today (issue #1525) counts
+            // no seat — a negative would take seats off the other lines, and
+            // a cast would make « 2.5 » two.
+            $total += $field->storedQuantity($answers[$field->id] ?? '') ?? 0;
         }
 
         return $total;
@@ -592,7 +605,7 @@ class ScanService
      *     form: ?NewsForm,
      *     article_title: ?string,
      *     event_date: ?string,
-     *     seats: array<int, array{label: string, quantity: string}>,
+     *     seats: array<int, array{label: string, quantity: string, invalid: bool}>,
      *     seat_total: int,
      *     payment: ?array{amount_due: int, amount_received: int, status: string, receivable_id: int},
      *     used_at: ?string,

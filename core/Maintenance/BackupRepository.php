@@ -10,6 +10,9 @@ namespace Core\Maintenance;
 
 class BackupRepository
 {
+    /** Width of `backups.error_message`, in characters. */
+    public const ERROR_MESSAGE_MAX = 500;
+
     public function __construct(private \PDO $pdo)
     {
     }
@@ -266,10 +269,16 @@ class BackupRepository
         return is_string($value) && $value !== '' ? $value : null;
     }
 
+    /**
+     * The sentence is made to fit `backups.error_message`, a VARCHAR(500):
+     * valid UTF-8, cut by characters — a byte cut can leave half an « é »,
+     * which MariaDB refuses (error 1366), and the backup would then stay
+     * « en cours » for ever (issue #1438).
+     */
     public function markFailed(int $id, string $errorMessage): void
     {
         $stmt = $this->pdo->prepare("UPDATE backups SET status = 'failed', error_message = ? WHERE id = ?");
-        $stmt->execute([$errorMessage, $id]);
+        $stmt->execute([mb_substr(mb_scrub($errorMessage, 'UTF-8'), 0, self::ERROR_MESSAGE_MAX, 'UTF-8'), $id]);
     }
 
     public function delete(int $id): void

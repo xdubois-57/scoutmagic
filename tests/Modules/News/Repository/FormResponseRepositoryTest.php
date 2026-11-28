@@ -124,7 +124,7 @@ class FormResponseRepositoryTest extends TestCase
         $this->repository->create($this->formId, null, null, 'a@test.com', [$numberFieldId => '3'], null, null);
         $this->repository->create($this->formId, null, null, 'b@test.com', [$numberFieldId => '4'], null, null);
 
-        $sum = $this->repository->sumFieldValues($numberFieldId);
+        $sum = $this->repository->sumFieldValues($this->fieldRepository->findById($numberFieldId));
 
         $this->assertSame(7.0, $sum);
     }
@@ -136,7 +136,7 @@ class FormResponseRepositoryTest extends TestCase
         $id1 = $this->repository->create($this->formId, null, null, 'a@test.com', [$numberFieldId => '3'], null, null);
         $this->repository->create($this->formId, null, null, 'b@test.com', [$numberFieldId => '4'], null, null);
 
-        $sum = $this->repository->sumFieldValues($numberFieldId, excludeResponseId: $id1);
+        $sum = $this->repository->sumFieldValues($this->fieldRepository->findById($numberFieldId), excludeResponseId: $id1);
 
         $this->assertSame(4.0, $sum);
     }
@@ -180,5 +180,122 @@ class FormResponseRepositoryTest extends TestCase
 
         $this->assertNull($this->repository->findById($second)?->ticketReference);
         $this->assertSame('K7QW3XPM2R', $this->repository->findById($first)?->ticketReference);
+    }
+
+    // --- Issue #1525 ---
+
+    public function testClearReceivableUnlinksTheCommunicationAndTheReceivable(): void
+    {
+        $id = $this->repository->create($this->formId, null, null, 'a@test.com', [], '+++100/0000/00034+++', 42);
+
+        $this->repository->clearReceivable($id);
+
+        $response = $this->repository->findById($id);
+        $this->assertNull($response?->structuredCommunication);
+        $this->assertNull($response?->receivableId);
+    }
+
+    public function testASumOfAnswersCountsAStoredNegativeAsNothing(): void
+    {
+        $numberId = $this->fieldRepository->create($this->formId, 1, FormField::TYPE_NUMBER, 'Places', false, null, null, 100, null, null);
+        $this->repository->create($this->formId, null, null, 'a@test.com', [$numberId => '4'], null, null);
+        $this->repository->create($this->formId, null, null, 'b@test.com', [$numberId => '-60'], null, null);
+
+        $this->assertSame(4.0, $this->repository->sumFieldValues($this->fieldRepository->findById($numberId)));
+    }
+
+    public function testFindNumberAnswersReadsEveryNumberAnswerAndNothingElse(): void
+    {
+        $numberId = $this->fieldRepository->create($this->formId, 1, FormField::TYPE_NUMBER, 'Adultes', false, null, null, null, 18.0, null);
+        $first = $this->repository->create($this->formId, null, null, 'a@test.com', [$this->fieldId => 'Alice', $numberId => '-8'], null, null);
+        $this->repository->create($this->formId, null, null, 'b@test.com', [$this->fieldId => 'Bob', $numberId => ''], null, null);
+
+        $this->assertSame(
+            [['response_id' => $first, 'field_id' => $numberId, 'value' => '-8']],
+            $this->repository->findNumberAnswers()
+        );
+    }
+
+    public function testAFlaggedResponseIsCountedPerArticleUntilItIsSavedAgain(): void
+    {
+        $flagged = $this->repository->create($this->formId, null, null, 'a@test.com', [], null, null);
+        $other = $this->repository->create($this->formId, null, null, 'b@test.com', [], null, null);
+        $this->repository->create($this->formId, null, null, 'c@test.com', [], null, null);
+
+        $this->repository->flagInvalidQuantity([$flagged, $other], '2026-11-27 10:00:00');
+        // Flagging again keeps the first date.
+        $this->repository->flagInvalidQuantity([$flagged], '2026-11-28 10:00:00');
+
+        $this->assertSame('2026-11-27 10:00:00', $this->repository->findById($flagged)?->invalidQuantityFlaggedAt);
+        $articleId = (int) $this->pdo->query('SELECT news_article_id FROM news_forms')->fetchColumn();
+        $this->assertSame(
+            [['article_id' => $articleId, 'title' => 'Camp', 'count' => 2]],
+            $this->repository->countInvalidQuantitiesByArticle()
+        );
+
+        $this->repository->update($flagged, 'a@test.com', []);
+        $this->repository->update($other, 'b@test.com', []);
+
+        $this->assertFalse($this->repository->findById($flagged)?->hasInvalidQuantity());
+        $this->assertSame([], $this->repository->countInvalidQuantitiesByArticle());
+    }
+
+    public function testASumOfAnswersCountsOnlyWholeNumbers(): void
+    {
+        $numberId = $this->fieldRepository->create($this->formId, 1, FormField::TYPE_NUMBER, 'Places', false, null, null, 100, null, null);
+        foreach (['2', '1.5', '1e2', ' 3', 'abc'] as $index => $value) {
+            $this->repository->create($this->formId, null, null, $index . '@test.com', [$numberId => $value], null, null);
+        }
+
+        $this->assertSame(2.0, $this->repository->sumFieldValues($this->fieldRepository->findById($numberId)));
+    }
+
+    /**
+     * One answer that no longer decrypts must not stop the one-off reprise:
+     * it would never write its flag, and run again on every request.
+     */
+    public function testAnUnreadableAnswerIsSkippedBySumsAndReturnedAsNullToTheReprise(): void
+    {
+        $numberId = $this->fieldRepository->create($this->formId, 1, FormField::TYPE_NUMBER, 'Places', false, null, null, 100, null, null);
+        $this->repository->create($this->formId, null, null, 'a@test.com', [$numberId => '2'], null, null);
+        $broken = $this->repository->create($this->formId, null, null, 'b@test.com', [$numberId => '3'], null, null);
+        $this->pdo->prepare('UPDATE news_form_response_values SET value = ? WHERE response_id = ?')->execute(['corrompu', $broken]);
+
+        $this->assertSame(2.0, $this->repository->sumFieldValues($this->fieldRepository->findById($numberId)));
+        $unreadable = array_values(array_filter(
+            $this->repository->findNumberAnswers(),
+            static fn (array $answer): bool => $answer['response_id'] === $broken
+        ));
+        $this->assertSame([['response_id' => $broken, 'field_id' => $numberId, 'value' => null]], $unreadable);
+    }
+
+    public function testLockReceivableLinkReadsTheStoredLink(): void
+    {
+        $id = $this->repository->create($this->formId, null, null, 'a@test.com', [], null, null);
+        $this->assertSame(['receivable_id' => null, 'structured_communication' => null], $this->repository->lockReceivableLink($id));
+
+        $this->repository->setReceivable($id, '+++100/0000/00034+++', 42);
+
+        $this->assertSame(
+            ['receivable_id' => 42, 'structured_communication' => '+++100/0000/00034+++'],
+            $this->repository->lockReceivableLink($id)
+        );
+    }
+
+    /**
+     * The sum applies FormField::storedQuantity() per answer: above the
+     * per-answer ceiling counts nothing, but an answer above a capacity
+     * lowered since it was written still counts — it was valid then.
+     */
+    public function testASumOfAnswersCountsNothingAboveTheCeilingButKeepsAnswersAboveALoweredCapacity(): void
+    {
+        $cappedId = $this->fieldRepository->create($this->formId, 1, FormField::TYPE_NUMBER, 'Places', false, null, null, 10, null, null);
+        $pricedId = $this->fieldRepository->create($this->formId, 2, FormField::TYPE_NUMBER, 'Boîtes', false, null, null, null, 6.0, null);
+        $this->repository->create($this->formId, null, null, 'a@test.com', [$cappedId => '8', $pricedId => '1000'], null, null);
+        $this->repository->create($this->formId, null, null, 'b@test.com', [$cappedId => '2', $pricedId => '999'], null, null);
+        $this->pdo->prepare('UPDATE news_form_fields SET capacity_max = 5 WHERE id = ?')->execute([$cappedId]);
+
+        $this->assertSame(10.0, $this->repository->sumFieldValues($this->fieldRepository->findById($cappedId)));
+        $this->assertSame(999.0, $this->repository->sumFieldValues($this->fieldRepository->findById($pricedId)));
     }
 }

@@ -57,6 +57,11 @@ laquelle.
 > Sur un évènement gratuit, aucun bloc de paiement n'apparaît. Il n'y a
 > pas de créance à chercher.
 
+Une réservation ancienne peut porter une quantité impossible, négative
+ou décimale : la ligne reste affichée, en orange, sous « Quantité
+invalide dans cette réservation ». Le montant payé ne correspond alors
+peut-être pas aux places : vérifiez avec le Staff d'Unité.
+
 ## Faire payer sur place
 
 Sur un billet impayé, « Faire payer maintenant » ouvre le code de virement

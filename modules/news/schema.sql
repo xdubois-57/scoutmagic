@@ -249,6 +249,13 @@ CREATE TABLE IF NOT EXISTS news_form_responses (
     -- possible (a scan by mistake, a validation made too early), which
     -- is why this is a nullable timestamp rather than a one-way flag.
     ticket_used_at DATETIME NULL,
+    -- Set once, by the reprise of issue #1525, on a response stored before
+    -- the server refused a negative or fractional quantity: it is what the
+    -- Staff d'U's attention point counts (Service\NewsAttentionProvider),
+    -- without decrypting a single answer. Cleared by the next save of the
+    -- response, which the current validation guarantees is clean. A date
+    -- rather than a flag only so a reader can tell when it was found.
+    invalid_quantity_flagged_at DATETIME NULL,
     submitted_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     -- No "ON UPDATE CURRENT_TIMESTAMP" — see news_articles.updated_at's
     -- doc comment; set explicitly by Repository\FormResponseRepository.

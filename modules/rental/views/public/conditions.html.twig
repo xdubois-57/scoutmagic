@@ -17,6 +17,12 @@
             title: 'Conditions de location — ' ~ asset.name,
         } only %}
 
+        {# What document-reader.js shows in its dialog when the request
+           form's link is tapped in the installed application (issue
+           #1431): this version's text and what is said about it, never
+           the rest of the page. The form links to the exact version it
+           holds, so the dialog shows that one. #}
+        <div data-document-reader-content data-document-reader-title="Conditions de location — {{ asset.name }}">
         {% if not is_current %}
             <div class="alert alert-warning" role="alert">
                 Ces conditions ne sont plus celles en vigueur.
@@ -36,6 +42,7 @@
             <div class="card-body rich-text">
                 {{ shown.html|raw }}
             </div>
+        </div>
         </div>
     </div>
 {% endblock %}

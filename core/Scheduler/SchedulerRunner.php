@@ -11,10 +11,14 @@ namespace Core\Scheduler;
 use Core\Debug\RequestTimeline;
 use Core\Exception\UserFacingMessage;
 use Core\Journal\JournalService;
+use Core\Mail\MailErrorRedaction;
 use Core\Module\ModuleManager;
 
 class SchedulerRunner
 {
+    /** How much of a failed task's exception message its journal line keeps, in characters. */
+    private const ERROR_MAX = 2000;
+
     /** @var array<string, TaskHandlerInterface> */
     private array $handlers = [];
 
@@ -103,8 +107,7 @@ class SchedulerRunner
         $neverStarted = $this->repository->releaseNeverStarted();
         if ($neverStarted !== []) {
             $count = count($neverStarted);
-            $this->journal->log(
-                'core',
+            $this->journalSafely(
                 'scheduler_tasks_released',
                 'warning',
                 $count === 1
@@ -126,8 +129,7 @@ class SchedulerRunner
         // given up on, since it is the likeliest cause of the dead pass.
         foreach ($this->repository->reclaimAbandoned() as $abandoned) {
             if ($abandoned['abandoned']) {
-                $this->journal->log(
-                    'core',
+                $this->journalSafely(
                     'scheduler_task_abandoned',
                     'error',
                     "Tâche planifiée « {$abandoned['task_key']} » abandonnée après {$abandoned['attempts']} "
@@ -142,8 +144,7 @@ class SchedulerRunner
                 continue;
             }
 
-            $this->journal->log(
-                'core',
+            $this->journalSafely(
                 'scheduler_task_reclaimed',
                 'warning',
                 "Tâche planifiée « {$abandoned['task_key']} » reprise : elle était retenue depuis trop "
@@ -196,6 +197,7 @@ class SchedulerRunner
             $handlerKey = $task['module_id'] . '::' . $task['task_key'];
             $handler = $this->handlers[$handlerKey] ?? null;
             $taskStart = microtime(true);
+            $doneInMs = null;
             RequestTimeline::mark('scheduler_task_start:' . $handlerKey, ['task_id' => $task['id']]);
 
             // A registered factory builds the handler on first use, with
@@ -219,8 +221,7 @@ class SchedulerRunner
                     (int) $task['id'],
                     'No handler registered for ' . $handlerKey
                 );
-                $this->journal->log(
-                    'core',
+                $this->journalSafely(
                     'scheduler_task_failed',
                     'info',
                     "Tâche planifiée « {$task['task_key']} » échouée : aucun gestionnaire enregistré",
@@ -259,14 +260,7 @@ class SchedulerRunner
                     'scheduler_task_done:' . $handlerKey,
                     ['task_id' => $task['id'], 'duration_ms' => $durationMs]
                 );
-
-                $this->journal->log(
-                    'core',
-                    'scheduler_task_done',
-                    'info',
-                    "Tâche planifiée « {$task['task_key']} » terminée",
-                    ['task_id' => $task['id'], 'module_id' => $task['module_id'], 'duration_ms' => $durationMs]
-                );
+                $doneInMs = $durationMs;
             } catch (\Throwable $e) {
                 // scheduled_actions.last_error is written here and rendered
                 // much later, inside a <pre>, on Configuration > Actions
@@ -288,12 +282,39 @@ class SchedulerRunner
                     'scheduler_task_failed:' . $handlerKey,
                     ['task_id' => $task['id'], 'duration_ms' => $durationMs]
                 );
-                $this->journal->log(
-                    'core',
+                // The exception's own text goes in the context, bounded, and
+                // never in the description: a remote service's answer or a
+                // SQL error quoting its query easily passes the column's 500
+                // characters (issue #1438).
+                $this->journalSafely(
                     'scheduler_task_failed',
                     'info',
-                    "Tâche planifiée « {$task['task_key']} » échouée : " . $e->getMessage(),
-                    ['task_id' => $task['id'], 'module_id' => $task['module_id'], 'duration_ms' => $durationMs]
+                    "Tâche planifiée « {$task['task_key']} » échouée",
+                    [
+                        'task_id' => $task['id'],
+                        'module_id' => $task['module_id'],
+                        'duration_ms' => $durationMs,
+                        'error_class' => $e::class,
+                        // Addresses removed, as from every mail error that
+                        // reaches the journal (SECURITY.md §11, #1522 review):
+                        // a task's exception can quote a recipient.
+                        'error' => JournalService::fit(
+                            MailErrorRedaction::addressesRemoved($e->getMessage()),
+                            self::ERROR_MAX
+                        ),
+                    ]
+                );
+            }
+
+            // Journaled once the task is settled, outside the try: a
+            // journal line that went wrong must not turn a task that
+            // succeeded into one marked failed (issue #1438).
+            if ($doneInMs !== null) {
+                $this->journalSafely(
+                    'scheduler_task_done',
+                    'info',
+                    "Tâche planifiée « {$task['task_key']} » terminée",
+                    ['task_id' => $task['id'], 'module_id' => $task['module_id'], 'duration_ms' => $doneInMs]
                 );
             }
         }
@@ -336,5 +357,35 @@ class SchedulerRunner
     {
         // Should never be called in production — TaskContext must be set during boot
         throw new \RuntimeException('TaskContext not set on SchedulerRunner');
+    }
+
+    /**
+     * A journal line of the runner's own, written without ever stopping
+     * the pass (issue #1438). The runner writes from the catch block that
+     * reports a failed task and between two tasks of one pass: a journal
+     * that cannot be written there would replace the task's own failure
+     * with its own, end the loop, and leave the tasks claimed by this pass
+     * stuck in `processing`. The line goes to the PHP error log instead.
+     *
+     * @param array<string, mixed> $context
+     */
+    private function journalSafely(string $type, string $level, string $description, array $context): void
+    {
+        try {
+            $this->journal->log('core', $type, $level, $description, $context);
+        } catch (\Throwable $e) {
+            // The line itself, then why it could not be written: what the
+            // journal would have kept (which task, and why it failed) is
+            // the part an operator needs (#1522 review).
+            $encoded = json_encode($context, JSON_INVALID_UTF8_SUBSTITUTE | JSON_PARTIAL_OUTPUT_ON_ERROR);
+            error_log(sprintf(
+                'ScoutMagic scheduler: could not journal %s « %s » %s (%s: %s)',
+                $type,
+                JournalService::fit($description, JournalService::DESCRIPTION_MAX),
+                $encoded !== false ? $encoded : '{}',
+                $e::class,
+                JournalService::fit($e->getMessage(), 300)
+            ));
+        }
     }
 }

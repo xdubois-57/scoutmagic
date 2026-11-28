@@ -1391,3 +1391,23 @@ html:not(.photo-tile-ready) .photo-tile-add,
     --bs-alert-bg: #2a2548;
     --bs-alert-border-color: #423a75;
 }
+
+/* The document reader (assets/js/document-reader.js, issue #1431) is
+   full-screen on a phone, and on an iPhone with a notch the installed
+   application draws under it: the header and « Fermer et revenir » keep
+   clear of the safe areas, so neither is ever cut off. */
+@media (max-width: 575.98px) {
+    #document-reader .modal-header {
+        padding-top: calc(var(--bs-modal-header-padding-y) + env(safe-area-inset-top, 0px));
+        padding-left: calc(var(--bs-modal-header-padding-x) + env(safe-area-inset-left, 0px));
+        padding-right: calc(var(--bs-modal-header-padding-x) + env(safe-area-inset-right, 0px));
+    }
+    #document-reader .modal-body {
+        padding-left: calc(var(--bs-modal-padding) + env(safe-area-inset-left, 0px));
+        padding-right: calc(var(--bs-modal-padding) + env(safe-area-inset-right, 0px));
+        overscroll-behavior: contain;
+    }
+    #document-reader .modal-footer {
+        padding-bottom: calc(var(--bs-modal-padding) + env(safe-area-inset-bottom, 0px));
+    }
+}

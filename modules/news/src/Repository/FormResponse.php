@@ -31,13 +31,24 @@ final class FormResponse
          * When the holder came in, or null. Global, not a counter: a
          * response holding four seats is used or not used, once.
          */
-        public readonly ?string $ticketUsedAt = null
+        public readonly ?string $ticketUsedAt = null,
+        /**
+         * When the reprise of issue #1525 found a negative or fractional
+         * quantity stored in this response, or null. The next save clears
+         * it: the answers it accepts are clean.
+         */
+        public readonly ?string $invalidQuantityFlaggedAt = null
     ) {
     }
 
     public function hasTicket(): bool
     {
         return $this->ticketReference !== null && $this->ticketReference !== '';
+    }
+
+    public function hasInvalidQuantity(): bool
+    {
+        return $this->invalidQuantityFlaggedAt !== null;
     }
 
     public function isTicketUsed(): bool

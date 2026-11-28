@@ -307,6 +307,11 @@ class FormController extends AbstractController
             'response' => $response,
             'answers' => $this->answerLines($fields, $readableAnswers[$response->id]),
             'payment' => $this->responseService->buildPaymentSummary($form, $response, $total),
+            'amount_owed_back' => $this->responseService->amountOwedBackCents($response),
+            // Shown on their own when nothing is left to pay — the payment
+            // card, with its QR, appears only for an amount still due.
+            'amount_total' => $total,
+            'amount_received' => $this->responseService->amountReceivedCents($response),
             'edit_url' => ($response->userAccountId !== null && $form->isOpen())
                 ? '/news/' . $article->id . '/form/responses/' . $response->id . '/edit'
                 : null,
@@ -896,7 +901,8 @@ class FormController extends AbstractController
                 (string) $request->getBody('contact_email', ''),
                 $this->extractAnswers($request, $fields),
                 AuthSession::getEmail(),
-                $scoutYearId
+                $scoutYearId,
+                $article
             );
         } catch (NewsException $e) {
             $memberOptions = $form->access === NewsForm::ACCESS_IDENTIFIED
@@ -924,7 +930,23 @@ class FormController extends AbstractController
             $accountId
         );
 
-        return $this->redirect('/news/' . $article->id);
+        // The respondent editing their own response lands on the
+        // confirmation page, as after a submission: the edit may have moved
+        // what is owed (issue #1525), and that page shows what is left to
+        // pay — or what the unit owes back — with the communication and the
+        // QR. A member of staff correcting somebody else's response goes
+        // back to the responses list instead: that page is the family's,
+        // and remembering a foreign response in the staff member's session
+        // would overwrite their own confirmation.
+        if ($accountId !== null && $response->userAccountId === $accountId) {
+            $this->rememberConfirmation($article->id, $response->id);
+
+            return $this->redirect('/news/' . $article->id . '/form/confirmation');
+        }
+
+        FlashMessage::set('success', 'La réponse a été modifiée.');
+
+        return $this->redirect('/news/' . $article->id . '/form/responses');
     }
 
     /**

@@ -198,7 +198,13 @@
                 <tbody>
                     {% for row in rows %}
                         <tr>
-                            <td>{{ row.response.contactEmail }}</td>
+                            <td>
+                                {{ row.response.contactEmail }}
+                                {# Marked by the reprise of issue #1525; saving the response clears it. #}
+                                {% if row.response.hasInvalidQuantity %}
+                                    <div>{% include 'partials/status_badge.html.twig' with { status: 'pending', label: 'Quantité à vérifier' } only %}</div>
+                                {% endif %}
+                            </td>
                             {% for line in row.answers %}
                                 <td>{{ line.value }}</td>
                             {% endfor %}
@@ -240,6 +246,9 @@
                         <div class="d-flex justify-content-between align-items-start gap-2">
                             <span class="fw-bold">{{ row.response.contactEmail }}</span>
                             <span class="d-flex flex-wrap justify-content-end gap-1">
+                                {% if row.response.hasInvalidQuantity %}
+                                    {% include 'partials/status_badge.html.twig' with { status: 'pending', label: 'Quantité à vérifier' } only %}
+                                {% endif %}
                                 {% if row.payment %}
                                     {% if row.payment.status == 'paid' %}{% include 'partials/status_badge.html.twig' with { status: 'done', label: 'Payé' } only %}
                                     {% elseif row.payment.status == 'partial' %}{% include 'partials/status_badge.html.twig' with { status: 'in_progress', label: 'Partiel' } only %}

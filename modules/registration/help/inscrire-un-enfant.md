@@ -25,7 +25,11 @@ s'affiche aussitôt), genre. Vous pouvez exprimer une préférence de
 section — elle reste indicative : la section sera confirmée par
 l'unité selon l'âge, l'équilibre des groupes et les places. Un champ
 de remarques est à votre disposition, et la case de protection des
-données est obligatoire.
+données est obligatoire. Le lien de cette case ouvre la politique de
+protection des données dans un nouvel onglet ; dans l'application
+installée, elle s'ouvre dans une fenêtre par-dessus le formulaire, et
+« Fermer et revenir » vous y ramène sans rien perdre de ce que vous avez
+déjà rempli.
 
 Une question est obligatoire et mérite un mot : « Déjà membre d'une
 autre unité Les Scouts ? ». Répondez « Oui » si la personne inscrite

@@ -12,6 +12,9 @@ use Core\Service\DateInput;
 
 class UpdateHistoryRepository
 {
+    /** Width of `update_history.error_message`, in characters. */
+    public const ERROR_MESSAGE_MAX = 500;
+
     /**
      * Safety-net fallback for findInProgress() — normally a stuck row gets
      * cleaned up immediately when the NEXT update actually starts
@@ -355,7 +358,7 @@ class UpdateHistoryRepository
     {
         $stmt = $this->pdo->prepare("UPDATE update_history SET status = 'failed', error_message = ?, completed_at = ? "
             . "WHERE id = ?");
-        $stmt->execute([substr($errorMessage, 0, 500), self::now(), $id]);
+        $stmt->execute([self::fitErrorMessage($errorMessage), self::now(), $id]);
     }
 
     /**
@@ -371,7 +374,7 @@ class UpdateHistoryRepository
     {
         $stmt = $this->pdo->prepare("UPDATE update_history SET status = 'skipped', error_message = ?, completed_at = ? "
             . "WHERE id = ?");
-        $stmt->execute([substr($reason, 0, 500), self::now(), $id]);
+        $stmt->execute([self::fitErrorMessage($reason), self::now(), $id]);
     }
 
     /**
@@ -399,7 +402,7 @@ class UpdateHistoryRepository
             "UPDATE update_history SET status = 'skipped', error_message = ?, completed_at = ?
               WHERE id = ? AND status = 'pending'"
         );
-        $stmt->execute([substr($reason, 0, 500), self::now(), $id]);
+        $stmt->execute([self::fitErrorMessage($reason), self::now(), $id]);
 
         return $stmt->rowCount() === 1;
     }
@@ -408,7 +411,7 @@ class UpdateHistoryRepository
     {
         $stmt = $this->pdo->prepare("UPDATE update_history SET status = 'rolled_back', error_message = ?, "
             . "completed_at = ? WHERE id = ?");
-        $stmt->execute([substr($errorMessage, 0, 500), self::now(), $id]);
+        $stmt->execute([self::fitErrorMessage($errorMessage), self::now(), $id]);
     }
 
     /**
@@ -444,5 +447,16 @@ class UpdateHistoryRepository
             // there rather than a warning.
             progressAt: ($row['progress_at'] ?? null) !== null ? (string) $row['progress_at'] : null
         );
+    }
+
+    /**
+     * $message made to fit `update_history.error_message`, a VARCHAR(500):
+     * valid UTF-8 and cut by characters, never bytes — a byte cut can leave
+     * half an « é », which MariaDB refuses (error 1366), and the status the
+     * sentence goes with would then never be written (issue #1438).
+     */
+    private static function fitErrorMessage(string $message): string
+    {
+        return mb_substr(mb_scrub($message, 'UTF-8'), 0, self::ERROR_MESSAGE_MAX, 'UTF-8');
     }
 }

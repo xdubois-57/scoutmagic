@@ -552,6 +552,31 @@ class ExpectedReceivableServiceTest extends TestCase
         $this->assertSame(12000, $this->service->getReceivableStatus($second)['amount_due']);
     }
 
+    /**
+     * Issue #1525: a receivable lowered to zero is kept — a transfer still
+     * on its way must find it — and owes nothing, so it never reads
+     * « Non payé » on an unpaid list. A transfer that arrives after is a
+     * trop-perçu.
+     */
+    public function testAReceivableLoweredToZeroIsSettledAndALateTransferIsATropPercu(): void
+    {
+        $id = $this->service->createReceivable('news', 12, $this->accountId, 3600, '+++100/0000/00034+++', null, $this->categoryId);
+
+        $this->service->updateReceivableAmount($id, 0);
+
+        $this->assertSame('paid', $this->service->getReceivableStatus($id)['status']);
+        $standing = $this->service->getReceivableStanding('news', $id);
+        $this->assertSame('paid', $standing?->status);
+        $this->assertSame(0, $standing?->amountRemainingCents);
+
+        $this->createTransaction('Virement +++100/0000/00034+++', 36.00);
+
+        $standing = $this->service->getReceivableStanding('news', $id);
+        $this->assertSame(3600, $standing?->amountReceivedCents);
+        $this->assertSame(3600, $standing?->amountOverpaidCents);
+        $this->assertSame('paid', $this->service->getReceivableStatus($id)['status']);
+    }
+
     private function createTransaction(string $label, float $amount): void
     {
         $this->transactionRepository->create(
