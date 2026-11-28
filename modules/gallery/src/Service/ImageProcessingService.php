@@ -150,7 +150,6 @@ class ImageProcessingService
         $shortfall = $this->memoryBudget->shortfall(
             $width,
             $height,
-            strlen($contents),
             in_array($orientation, self::ROTATED_ORIENTATIONS, true),
             $largeLongSide
         );

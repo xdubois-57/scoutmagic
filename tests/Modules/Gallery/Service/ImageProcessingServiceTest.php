@@ -270,7 +270,7 @@ class ImageProcessingServiceTest extends TestCase
     public function testARotationIsCountedOnlyWhenTheExifTagAsksForOne(): void
     {
         $rotated = $this->jpegWithOrientation(2000, 1000, 6);
-        $limit = PhotoMemoryBudget::fixed('-1', 0)->requiredBytes(2000, 1000, strlen($rotated), true, 300) - 1;
+        $limit = PhotoMemoryBudget::fixed('-1', 0)->requiredBytes(2000, 1000, true, 300) - 1;
         $service = new ImageProcessingService(PhotoMemoryBudget::fixed((string) $limit, 0));
 
         $result = $service->process($this->jpegWithOrientation(2000, 1000, 1), 'image/jpeg', 300);

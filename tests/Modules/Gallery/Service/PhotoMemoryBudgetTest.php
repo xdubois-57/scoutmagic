@@ -57,7 +57,7 @@ final class PhotoMemoryBudgetTest extends TestCase
         $budget = PhotoMemoryBudget::fixed('-1', 100 * self::MIB);
 
         $this->assertNull($budget->availableBytes());
-        $this->assertNull($budget->shortfall(8000, 6000, 20 * self::MIB, true, 3000));
+        $this->assertNull($budget->shortfall(8000, 6000, true, 3000));
     }
 
     public function testTheLimitAndUsageAreReadAtCheckTimeNotAtConstruction(): void
@@ -92,7 +92,7 @@ final class PhotoMemoryBudgetTest extends TestCase
      */
     public function testA48MegapixelBitmapIsCountedAtFourBytesPerPixel(): void
     {
-        $required = PhotoMemoryBudget::fixed('-1', 0)->requiredBytes(8000, 6000, 0, false, 3000);
+        $required = PhotoMemoryBudget::fixed('-1', 0)->requiredBytes(8000, 6000, false, 3000);
 
         $this->assertGreaterThanOrEqual(8000 * 6000 * PhotoMemoryBudget::BYTES_PER_PIXEL, $required);
         $this->assertLessThan(8000 * 6000 * PhotoMemoryBudget::BYTES_PER_PIXEL * 1.5, $required);
@@ -101,28 +101,32 @@ final class PhotoMemoryBudgetTest extends TestCase
     public function testARotationCountsASecondBitmapBesideTheFirst(): void
     {
         $budget = PhotoMemoryBudget::fixed('-1', 0);
-        $plain = $budget->requiredBytes(8000, 6000, 0, false, 3000);
-        $rotated = $budget->requiredBytes(8000, 6000, 0, true, 3000);
+        $plain = $budget->requiredBytes(8000, 6000, false, 3000);
+        $rotated = $budget->requiredBytes(8000, 6000, true, 3000);
 
         // The second bitmap replaces the (smaller) large canvas as the
         // biggest thing held beside the source bitmap.
         $this->assertGreaterThan($plain + 100 * self::MIB, $rotated);
     }
 
-    public function testTheFileStringIsCounted(): void
+    /**
+     * The file string is counted once, by the usage figure (#1558 review):
+     * it is already read when the check runs, so a larger file lowers
+     * what is available and adds nothing to what is required.
+     */
+    public function testTheFileStringIsCountedOnlyThroughTheUsage(): void
     {
-        $budget = PhotoMemoryBudget::fixed('-1', 0);
+        $required = PhotoMemoryBudget::fixed('-1', 0)->requiredBytes(4000, 3000, false, 3000);
+        $limit = (string) ($required + 30 * self::MIB);
 
-        $this->assertSame(
-            $budget->requiredBytes(4000, 3000, 0, false, 3000) + 20 * self::MIB,
-            $budget->requiredBytes(4000, 3000, 20 * self::MIB, false, 3000)
-        );
+        $this->assertNull(PhotoMemoryBudget::fixed($limit, 20 * self::MIB)->shortfall(4000, 3000, false, 3000));
+        $this->assertNotNull(PhotoMemoryBudget::fixed($limit, 40 * self::MIB)->shortfall(4000, 3000, false, 3000));
     }
 
     public function testRefusesAPhotoWhoseNeedExceedsTheSimulatedLimit(): void
     {
         // A 48 MP phone photo on a 256 MB host already using 20 MB.
-        $shortfall = PhotoMemoryBudget::fixed('256M', 20 * self::MIB)->shortfall(8000, 6000, 15 * self::MIB, true, 3000);
+        $shortfall = PhotoMemoryBudget::fixed('256M', 20 * self::MIB)->shortfall(8000, 6000, true, 3000);
 
         $this->assertNotNull($shortfall);
         $this->assertSame(236 * self::MIB, $shortfall['available']);
@@ -133,7 +137,7 @@ final class PhotoMemoryBudgetTest extends TestCase
     {
         // A 12 MP photo, the common case, on the same host.
         $this->assertNull(
-            PhotoMemoryBudget::fixed('256M', 20 * self::MIB)->shortfall(4000, 3000, 5 * self::MIB, true, 3000)
+            PhotoMemoryBudget::fixed('256M', 20 * self::MIB)->shortfall(4000, 3000, true, 3000)
         );
     }
 }

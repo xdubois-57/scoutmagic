@@ -24,7 +24,9 @@ namespace Modules\Gallery\Service;
  * The estimate is the PEAK of ImageProcessingService::process(), not a sum
  * of everything it ever allocates:
  *
- * - the source file as a string, alive for the whole call;
+ * - NOT the source file as a string: it is already read when the check
+ *   runs, so memory_get_usage() — and with it availableBytes() — has
+ *   counted it once already (#1558 review);
  * - the decoded bitmap: GD's truecolor image is one `int` (4 bytes) per
  *   pixel, allocated one row at a time, each row rounded up to Zend's 4 KiB
  *   page, plus a row-pointer array;
@@ -138,7 +140,7 @@ final class PhotoMemoryBudget
      * @param int $largeLongSide the long side of the "large" rendition, i.e.
      *                           the biggest canvas created beside the source
      */
-    public function requiredBytes(int $width, int $height, int $fileBytes, bool $rotates, int $largeLongSide): int
+    public function requiredBytes(int $width, int $height, bool $rotates, int $largeLongSide): int
     {
         $bitmap = self::bitmapBytes($width, $height);
 
@@ -151,21 +153,21 @@ final class PhotoMemoryBudget
 
         $secondImage = max($rotates ? $bitmap : 0, $canvas);
 
-        return max(0, $fileBytes) + $bitmap + $secondImage + self::OVERHEAD_BYTES;
+        return $bitmap + $secondImage + self::OVERHEAD_BYTES;
     }
 
     /**
      * @return array{required: int, available: int}|null the shortfall, or null
      *         when the photo fits (or there is no limit)
      */
-    public function shortfall(int $width, int $height, int $fileBytes, bool $rotates, int $largeLongSide): ?array
+    public function shortfall(int $width, int $height, bool $rotates, int $largeLongSide): ?array
     {
         $available = $this->availableBytes();
         if ($available === null) {
             return null;
         }
 
-        $required = $this->requiredBytes($width, $height, $fileBytes, $rotates, $largeLongSide);
+        $required = $this->requiredBytes($width, $height, $rotates, $largeLongSide);
 
         return $required > $available ? ['required' => $required, 'available' => $available] : null;
     }
