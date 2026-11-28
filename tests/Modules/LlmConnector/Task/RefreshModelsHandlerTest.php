@@ -60,7 +60,7 @@ class RefreshModelsHandlerTest extends TestCase
             ->with(
                 'llm_connector',
                 'models_refresh_failed',
-                'info',
+                'warning',
                 $this->stringContains('Unreachable'),
                 $this->isArray(),
                 null
@@ -110,7 +110,7 @@ class RefreshModelsHandlerTest extends TestCase
             ->with(
                 'llm_connector',
                 'models_refresh_failed',
-                'info',
+                'warning',
                 $this->stringContains('UnknownDriver'),
                 $this->callback(function (array $ctx): bool {
                     return $ctx['error_type'] === \RuntimeException::class && $ctx['error_code'] === 0;
@@ -139,7 +139,7 @@ class RefreshModelsHandlerTest extends TestCase
             ->with(
                 'llm_connector',
                 'models_refresh_failed',
-                'info',
+                'warning',
                 $this->stringContains('Rebound'),
                 $this->callback(static fn (array $context): bool
                     => $context['error_type'] === \Modules\LlmConnector\Api\LlmException::class),
@@ -176,7 +176,7 @@ class RefreshModelsHandlerTest extends TestCase
             ->with(
                 'llm_connector',
                 'models_refresh_failed',
-                'info',
+                'warning',
                 $this->stringContains('Accepted'),
                 $this->callback(static fn (array $context): bool => $context['error_type'] === \RuntimeException::class),
                 null

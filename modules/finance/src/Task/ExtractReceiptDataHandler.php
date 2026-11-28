@@ -136,7 +136,9 @@ class ExtractReceiptDataHandler implements TaskHandlerInterface
             try {
                 $content = $fileStorage->retrieve($attachment->fileId);
             } catch (\RuntimeException $e) {
-                $this->logFailure($context, $attachmentId, $e->getMessage());
+                // The receipt's own file is unreadable: that is not the AI
+                // falling short, and nobody can read it by hand either.
+                $this->logFailure($context, $attachmentId, $e->getMessage(), 'error');
                 return;
             }
 
@@ -330,12 +332,19 @@ class ExtractReceiptDataHandler implements TaskHandlerInterface
         return $stripped !== '' ? $stripped : $description;
     }
 
-    private function logFailure(TaskContext $context, int $attachmentId, string $reason): void
+    /**
+     * `warning` by default: an extraction the AI could not do leaves the
+     * receipt to be read by hand, which is the ordinary path anyway
+     * (issue #1450).
+     *
+     * @param 'warning'|'error' $level
+     */
+    private function logFailure(TaskContext $context, int $attachmentId, string $reason, string $level = 'warning'): void
     {
         $context->journal->log(
             'finance',
             'receipt_extraction_failed',
-            'info',
+            $level,
             "Extraction IA du reçu échouée : {$reason}",
             ['attachment_id' => $attachmentId],
             null

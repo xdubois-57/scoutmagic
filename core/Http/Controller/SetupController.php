@@ -1374,7 +1374,7 @@ class SetupController extends AbstractController
             $this->journalService?->log(
                 'core',
                 'setup_dkim_generation_failed',
-                'info',
+                'error',
                 'Échec de la génération de la clé DKIM',
                 ['error' => $e->getMessage()]
             );

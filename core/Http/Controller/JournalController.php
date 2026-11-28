@@ -33,6 +33,8 @@ class JournalController extends AbstractController
     {
         $category = $request->getQuery('category') ?: null;
         $level = $request->getQuery('level') ?: null;
+        $eventType = $request->getQuery('type');
+        $eventType = is_string($eventType) && $eventType !== '' ? $eventType : null;
         $search = $request->getQuery('search') ?: null;
         $dateFrom = $request->getQuery('date_from') ?: null;
         $dateTo = $request->getQuery('date_to') ?: null;
@@ -59,10 +61,26 @@ class JournalController extends AbstractController
             $ip,
             $userAccountId,
             $perPage,
-            $offset
+            $offset,
+            $eventType
         );
-        $total = $this->journalRepository->count($category, $level, $search, $dateFrom, $dateTo, $ip, $userAccountId);
+        $total = $this->journalRepository->count(
+            $category,
+            $level,
+            $search,
+            $dateFrom,
+            $dateTo,
+            $ip,
+            $userAccountId,
+            $eventType
+        );
         $categories = $this->journalRepository->getDistinctCategories();
+        $eventTypes = $this->journalRepository->getDistinctEventTypes();
+        // A key the journal no longer holds (purged, or typed into the URL)
+        // stays selectable, so the select shows the filter that is applied.
+        if ($eventType !== null && !in_array($eventType, $eventTypes, true)) {
+            $eventTypes[] = $eventType;
+        }
         $totalPages = max(1, (int) ceil($total / $perPage));
 
         $entries = $this->attachUserEmails($entries);
@@ -70,11 +88,13 @@ class JournalController extends AbstractController
         $html = $this->twig->render('admin/journal.html.twig', [
             'entries' => $entries,
             'categories' => $categories,
+            'event_types' => $eventTypes,
             'total' => $total,
             'page' => $page,
             'total_pages' => $totalPages,
             'filter_category' => $category,
             'filter_level' => $level,
+            'filter_type' => $eventType,
             'filter_search' => $search,
             'filter_date_from' => $dateFrom,
             'filter_date_to' => $dateTo,

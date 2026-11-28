@@ -138,6 +138,12 @@ class CreateBackupHandlerTest extends TestCase
             (string) $backup->errorMessage
         );
         $this->assertStringNotContainsString('Mot de passe de sauvegarde illisible', (string) $backup->errorMessage);
+
+        // The journal line a filter on « Erreur » finds: the archive does
+        // not exist until somebody relaunches it (issue #1450).
+        $levels = $this->pdo->query("SELECT level FROM event_log WHERE event_type = 'backup_failed'")
+            ->fetchAll(\PDO::FETCH_COLUMN);
+        $this->assertSame(['error'], $levels);
     }
 
     /**

@@ -61,7 +61,7 @@ class ProcessPhotoHandler implements TaskHandlerInterface
             $context->journal->log(
                 'gallery',
                 'photo_processing_failed',
-                'info',
+                'error',
                 'Échec du traitement d\'une photo',
                 ['media_id' => $mediaId, 'album_id' => $media->albumId, 'error' => 'Migration de stockage toujours en '
                     . 'cours.']
@@ -126,7 +126,7 @@ class ProcessPhotoHandler implements TaskHandlerInterface
             $context->journal->log(
                 'gallery',
                 'photo_processing_failed',
-                'info',
+                'error',
                 'Échec du traitement d\'une photo',
                 ['media_id' => $mediaId, 'album_id' => $media->albumId, 'error' => $e->getMessage()]
             );

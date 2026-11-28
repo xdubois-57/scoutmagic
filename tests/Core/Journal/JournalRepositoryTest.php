@@ -153,4 +153,37 @@ class JournalRepositoryTest extends TestCase
         $this->assertSame(1, $repo->count(null, 'info'));
         $this->assertSame(0, $repo->count(null, 'security'));
     }
+
+    /**
+     * `logged_at` has one-second precision, and a scheduler pass writes
+     * several lines inside one second: without `id` as a second key the
+     * engine may order them differently from one page to the next, so a
+     * line could show on two pages and another on none (issue #1450).
+     */
+    public function testSearchBreaksATieOnTheDateByIdNewestFirst(): void
+    {
+        foreach (['first', 'second', 'third'] as $type) {
+            $this->repo->insert('core', $type, 'info', 'Tie ' . $type, null, null);
+        }
+        $this->pdo->exec("UPDATE event_log SET logged_at = '2026-11-27 03:00:00'");
+
+        $this->assertSame(['third', 'second', 'first'], array_column($this->repo->search(), 'event_type'));
+        $this->assertSame(['second'], array_column($this->repo->search(limit: 1, offset: 1), 'event_type'));
+    }
+
+    /** The « Type » filter of /admin/journal: one key, and the list it is chosen from. */
+    public function testFiltersOnTheEventTypeAndListsTheDistinctTypes(): void
+    {
+        $this->repo->insert('core', 'auto_backup_failed', 'error', 'Échec de la sauvegarde automatique', null, null);
+        $this->repo->insert('core', 'scheduler_task_done', 'info', 'Tâche planifiée terminée', null, null);
+        $this->repo->insert('core', 'scheduler_task_done', 'info', 'Tâche planifiée terminée', null, null);
+
+        $this->assertSame(['auto_backup_failed', 'scheduler_task_done'], $this->repo->getDistinctEventTypes());
+
+        $rows = $this->repo->search(eventType: 'auto_backup_failed');
+        $this->assertCount(1, $rows);
+        $this->assertSame('auto_backup_failed', $rows[0]['event_type']);
+        $this->assertSame(2, $this->repo->count(eventType: 'scheduler_task_done'));
+        $this->assertSame(3, $this->repo->count());
+    }
 }

@@ -223,7 +223,7 @@ class SchedulerRunner
                 );
                 $this->journalSafely(
                     'scheduler_task_failed',
-                    'info',
+                    'error',
                     "Tâche planifiée « {$task['task_key']} » échouée : aucun gestionnaire enregistré",
                     ['task_id' => $task['id'], 'module_id' => $task['module_id']]
                 );
@@ -288,7 +288,7 @@ class SchedulerRunner
                 // characters (issue #1438).
                 $this->journalSafely(
                     'scheduler_task_failed',
-                    'info',
+                    'error',
                     "Tâche planifiée « {$task['task_key']} » échouée",
                     [
                         'task_id' => $task['id'],

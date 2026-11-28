@@ -317,7 +317,7 @@ class LlmConnectorAvailabilityTest extends TestCase
             ->with(
                 'llm_connector',
                 'llm_request_failed',
-                'info',
+                'error',
                 'LLM request failed',
                 $this->callback(static fn(array $context): bool => $context['tier'] === 'capable'
                     && $context['error_code'] === LlmException::NO_MODEL
@@ -343,7 +343,7 @@ class LlmConnectorAvailabilityTest extends TestCase
             ->with(
                 'llm_connector',
                 'llm_request_failed',
-                'info',
+                'error',
                 'LLM request failed',
                 $this->callback(static fn(array $context): bool => $context['error_code'] === LlmException::NO_PROVIDER),
                 null

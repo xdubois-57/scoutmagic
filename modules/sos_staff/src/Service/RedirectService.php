@@ -432,7 +432,7 @@ class RedirectService
             $this->journalService->log(
                 'sos_staff',
                 'notification_failed',
-                'info',
+                'error',
                 'Échec de la notification de changement de garde.',
                 ['member_id' => $profile->memberId, 'type_id' => $typeId, 'exception_class' => $e::class]
             );

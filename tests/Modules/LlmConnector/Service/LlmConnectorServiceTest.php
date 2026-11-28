@@ -242,7 +242,7 @@ class LlmConnectorServiceTest extends TestCase
             ->with(
                 'llm_connector',
                 'llm_request_failed',
-                'info',
+                'error',
                 'LLM request failed',
                 $this->callback(static fn (array $context): bool => $context['error_code'] === LlmException::API_ERROR),
                 null

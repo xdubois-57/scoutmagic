@@ -492,7 +492,7 @@ class RequestEmailService
             $this->journalService->log(
                 'registration',
                 'registration_status_email_failed',
-                'info',
+                'error',
                 "Échec de l'envoi d'un email de décision — lien de suivi inchangé, réessai possible",
                 [
                     'request_id' => $request->id,

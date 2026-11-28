@@ -743,4 +743,34 @@ final class ModuleResolvedFixtureHandler implements TaskHandlerInterface
 
         $this->assertFalse($handler->called);
     }
+
+    /**
+     * A failed task is an `error` line: it was written at `info`, so the
+     * reader who filters /admin/journal on « Erreur » to find why something
+     * did not happen saw nothing (issue #1450). Both ways a task fails —
+     * its handler throws, or there is no handler at all.
+     */
+    public function testAFailedTaskIsJournaledAtTheErrorLevel(): void
+    {
+        $this->runner->registerHandler('core', 'throwing_task', new class implements TaskHandlerInterface {
+            public function handle(array $payload, TaskContext $context): void
+            {
+                throw new \RuntimeException('disk full');
+            }
+        });
+        $past = (new \DateTimeImmutable('-1 minute'))->format('Y-m-d H:i:s');
+        $this->repo->create('core', 'throwing_task', $past, null, null);
+        $this->repo->create('core', 'task_without_handler', $past, null, null);
+
+        $this->runner->processOverdue();
+
+        $levels = $this->pdo->query(
+            "SELECT level FROM event_log WHERE event_type = 'scheduler_task_failed' ORDER BY id"
+        )->fetchAll(\PDO::FETCH_COLUMN);
+        $this->assertSame(['error', 'error'], $levels);
+        $this->assertSame(
+            0,
+            (int) $this->pdo->query("SELECT COUNT(*) FROM event_log WHERE event_type = 'scheduler_task_done'")->fetchColumn()
+        );
+    }
 }

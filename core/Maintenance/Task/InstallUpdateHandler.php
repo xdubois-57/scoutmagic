@@ -415,7 +415,7 @@ class InstallUpdateHandler implements TaskHandlerInterface
             $context->journal->log(
                 'core',
                 'update_failed',
-                'info',
+                'error',
                 'Échec de la sauvegarde de sécurité préalable à la mise à jour',
                 ['error' => $e->getMessage()],
                 $history->requestedBy
@@ -528,7 +528,7 @@ class InstallUpdateHandler implements TaskHandlerInterface
                 $context->journal->log(
                     'core',
                     'update_failed',
-                    'info',
+                    'error',
                     'Échec de la migration lors de la reprise d\'une mise à jour, sans sauvegarde disponible pour '
                         . 'restauration',
                     [
@@ -743,10 +743,12 @@ class InstallUpdateHandler implements TaskHandlerInterface
             . 'd\'attente de GitHub Actions était pleine et la construction a abouti un peu plus tard. Rien n\'a '
             . 'été modifié, et le prochain envoi de code installera la version la plus récente.'
         );
+        // `warning` and not `error`: nothing was touched, and the next push
+        // installs the latest version without anybody stepping in (#1450).
         $context->journal->log(
             'core',
             'update_failed',
-            'info',
+            'warning',
             'Artefact de mise à jour pas publié avant la fin du délai — installation abandonnée',
             [
                 'history_id' => $historyId,
@@ -933,7 +935,7 @@ class InstallUpdateHandler implements TaskHandlerInterface
             $context->journal->log(
                 'core',
                 'update_notification_failed',
-                'info',
+                'error',
                 'La notification de fin de mise à jour n\'a pas pu être envoyée',
                 ['type_id' => $typeId, 'error' => $e->getMessage()],
                 $history->requestedBy
@@ -962,7 +964,7 @@ class InstallUpdateHandler implements TaskHandlerInterface
         $context->journal->log(
             'core',
             'update_failed',
-            'info',
+            'error',
             'Échec de l\'installation de la mise à jour',
             [
                 'version_from' => $history->versionFrom,
@@ -1022,7 +1024,7 @@ class InstallUpdateHandler implements TaskHandlerInterface
             $context->journal->log(
                 'core',
                 'update_rollback_failed',
-                'info',
+                'error',
                 'La restauration automatique après échec de mise à jour a elle-même échoué',
                 [
                     'version_from' => $history->versionFrom,

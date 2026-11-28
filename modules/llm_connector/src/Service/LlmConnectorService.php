@@ -149,7 +149,7 @@ class LlmConnectorService implements LlmConnectorInterface
             $this->journalService->log(
                 'llm_connector',
                 'llm_request_failed',
-                'info',
+                'warning',
                 'LLM request failed',
                 [
                     'provider' => $provider['name'],
@@ -281,7 +281,7 @@ class LlmConnectorService implements LlmConnectorInterface
         $this->journalService->log(
             'llm_connector',
             'llm_request_failed',
-            'info',
+            'error',
             'LLM request failed',
             [
                 'provider' => $providerName ?? '(aucun)',

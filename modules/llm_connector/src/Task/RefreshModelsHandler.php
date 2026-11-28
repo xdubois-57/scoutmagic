@@ -125,7 +125,7 @@ class RefreshModelsHandler implements TaskHandlerInterface
                 $context->journal->log(
                     'llm_connector',
                     'models_refresh_failed',
-                    'info',
+                    'warning',
                     "Échec du rafraîchissement planifié pour {$provider['name']}.",
                     ['provider_id' => $provider['id'], 'error_type' => $e::class, 'error_code' => $e->getCode()],
                     null

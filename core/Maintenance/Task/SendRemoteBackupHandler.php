@@ -731,7 +731,7 @@ class SendRemoteBackupHandler implements TaskHandlerInterface
         $context->journal->log(
             'core',
             'remote_backup_failed',
-            'info',
+            'warning',
             'Un envoi hors site a échoué et sera repris',
             ['failures' => $failures, 'error' => $reason] + $kind
         );
