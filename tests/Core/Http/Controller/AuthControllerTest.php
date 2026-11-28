@@ -198,6 +198,7 @@ class AuthControllerTest extends TestCase
 
         $this->authService->method('isMagicLinkConfirmed')->willReturn(true);
         $this->authService->method('getUserForConfirmedLink')->willReturn($superAdmin);
+        $this->authService->method('collectConfirmedLink')->willReturn($superAdmin);
         $this->authService->method('getUserById')->willReturn($superAdmin);
 
         // This session is the one that asked for link #1.
@@ -223,6 +224,7 @@ class AuthControllerTest extends TestCase
         $account = new \Core\Security\UserAccount(5, 'restored@example.com', null, null, null, true, null);
         $this->authService->method('isMagicLinkConfirmed')->willReturn(true);
         $this->authService->method('getUserForConfirmedLink')->willReturn($account);
+        $this->authService->method('collectConfirmedLink')->willReturn($account);
         $this->authService->method('getUserById')->willReturn($account);
 
         $this->generation->rotate();
@@ -249,6 +251,7 @@ class AuthControllerTest extends TestCase
             return true;
         });
         $this->authService->method('getUserForConfirmedLink')->willReturn($account);
+        $this->authService->method('collectConfirmedLink')->willReturn($account);
         $this->authService->method('getUserById')->willReturn($account);
 
         $response = $this->controller->pollMagicLink($this->pollRequest(1, $pollToken), ['id' => '1']);
@@ -281,6 +284,7 @@ class AuthControllerTest extends TestCase
         // The link really is confirmed — it just isn't this session's.
         $this->authService->method('isMagicLinkConfirmed')->willReturn(true);
         $this->authService->expects($this->never())->method('getUserForConfirmedLink');
+        $this->authService->expects($this->never())->method('collectConfirmedLink');
 
         $request = new Request('GET', '/auth/poll/1', [], [], [], []);
         $response = $this->controller->pollMagicLink($request, ['id' => '1']);
@@ -305,6 +309,7 @@ class AuthControllerTest extends TestCase
 
         $this->authService->method('isMagicLinkConfirmed')->willReturn(true);
         $this->authService->expects($this->never())->method('getUserForConfirmedLink');
+        $this->authService->expects($this->never())->method('collectConfirmedLink');
 
         $pollToken = PendingMagicLink::remember(41, $this->generation->current());
 
@@ -339,6 +344,7 @@ class AuthControllerTest extends TestCase
         $account = new \Core\Security\UserAccount(5, 'owner@test.com', null, null, null, true, null);
         $this->authService->method('isMagicLinkConfirmed')->willReturn(true);
         $this->authService->method('getUserForConfirmedLink')->willReturn($account);
+        $this->authService->method('collectConfirmedLink')->willReturn($account);
         $this->authService->method('getUserById')->willReturn($account);
         $pageToken = PendingMagicLink::remember(1, $this->generation->current());
 
@@ -371,6 +377,7 @@ class AuthControllerTest extends TestCase
         $account = new \Core\Security\UserAccount(5, 'owner@test.com', null, null, null, true, null);
         $this->authService->method('isMagicLinkConfirmed')->willReturn(true);
         $this->authService->method('getUserForConfirmedLink')->willReturn($account);
+        $this->authService->method('collectConfirmedLink')->willReturn($account);
         PendingMagicLink::remember(1, $this->generation->current());
 
         $response = $this->controller->pollMagicLink(new Request('GET', '/auth/poll/1', [], [], [], []), ['id' => '1']);
@@ -389,12 +396,56 @@ class AuthControllerTest extends TestCase
         $this->startTestSession();
         $this->authService->method('isMagicLinkConfirmed')->willReturn(true);
         $this->authService->expects($this->never())->method('getUserForConfirmedLink');
+        $this->authService->expects($this->never())->method('collectConfirmedLink');
         $first = PendingMagicLink::remember(1, $this->generation->current());
         PendingMagicLink::remember(2, $this->generation->current());
 
         $response = $this->controller->pollMagicLink($this->pollRequest(2, $first), ['id' => '2']);
 
         $this->assertSame(['confirmed' => false], json_decode($response->getBody(), true));
+    }
+
+    /**
+     * Issue #1530: the poll took the link, but the session it loaded is no
+     * longer what is stored — another request renewed or emptied it. The
+     * pending link is read again from the store before login(), so nothing
+     * is written into a session that no longer asked for it.
+     */
+    public function testAPollWhoseStoredSessionNoLongerHoldsTheLinkSignsNobodyIn(): void
+    {
+        $this->startTestSession();
+        $account = new \Core\Security\UserAccount(5, 'poll@test.com', null, null, null, true, null);
+        $this->authService->method('isMagicLinkConfirmed')->willReturn(true);
+        $this->authService->method('collectConfirmedLink')->willReturn($account);
+        $this->authService->method('getUserById')->willReturn($account);
+        $pollToken = PendingMagicLink::remember(1, $this->generation->current());
+        $loadedByThisRequest = $_SESSION;
+        PendingMagicLink::forget();
+        session_write_close();
+        $_SESSION = $loadedByThisRequest;
+
+        $response = $this->controller->pollMagicLink($this->pollRequest(1, $pollToken), ['id' => '1']);
+
+        $this->assertSame(['confirmed' => false], json_decode($response->getBody(), true));
+        $this->assertFalse(AuthSession::isAuthenticated());
+    }
+
+    /**
+     * Issue #1530: a link someone else collected — the one button in the
+     * session that asked, or another poll — opens nothing here, and writes
+     * nothing into the session: the page just stops waiting.
+     */
+    public function testAPollThatLosesTheLinkSignsNobodyInAndStopsWaiting(): void
+    {
+        $this->startTestSession();
+        $this->authService->method('isMagicLinkConfirmed')->willReturn(true);
+        $this->authService->method('collectConfirmedLink')->willReturn(null);
+        $pollToken = PendingMagicLink::remember(1, $this->generation->current());
+
+        $response = $this->controller->pollMagicLink($this->pollRequest(1, $pollToken), ['id' => '1']);
+
+        $this->assertSame(['confirmed' => true, 'redirect' => '/'], json_decode($response->getBody(), true));
+        $this->assertFalse(AuthSession::isAuthenticated());
     }
 
     private function pollRequest(int $id, string $pollToken): Request
@@ -448,6 +499,7 @@ class AuthControllerTest extends TestCase
         );
         $this->authService->method('isMagicLinkConfirmed')->willReturn(true);
         $this->authService->method('getUserForConfirmedLink')->willReturn($member);
+        $this->authService->method('collectConfirmedLink')->willReturn($member);
         $this->authService->method('getUserById')->willReturn($member);
         $pollToken = PendingMagicLink::remember(1, $this->generation->current());
 
@@ -467,6 +519,7 @@ class AuthControllerTest extends TestCase
         $member = new \Core\Security\UserAccount(5, 'poll@test.com', null, null, null, true, null);
         $this->authService->method('isMagicLinkConfirmed')->willReturn(true);
         $this->authService->method('getUserForConfirmedLink')->willReturn($member);
+        $this->authService->method('collectConfirmedLink')->willReturn($member);
         $this->authService->method('getUserById')->willReturn($member);
         $pollToken = PendingMagicLink::remember(1, $this->generation->current());
 
@@ -600,6 +653,7 @@ class AuthControllerTest extends TestCase
         $member = new \Core\Security\UserAccount(5, 'poll@test.com', null, null, null, false, null);
         $this->authService->method('isMagicLinkConfirmed')->willReturn(true);
         $this->authService->method('getUserForConfirmedLink')->willReturn($member);
+        $this->authService->method('collectConfirmedLink')->willReturn($member);
         $pollToken = PendingMagicLink::remember(1, $this->generation->current());
 
         $response = $this->controller->pollMagicLink($this->pollRequest(1, $pollToken), ['id' => '1']);
@@ -621,6 +675,7 @@ class AuthControllerTest extends TestCase
         $other = new \Core\Security\UserAccount(9, 'other@test.com', null, null, null, false, null);
         $this->authService->method('isMagicLinkConfirmed')->willReturn(true);
         $this->authService->method('getUserForConfirmedLink')->willReturn($other);
+        $this->authService->method('collectConfirmedLink')->willReturn($other);
         $pollToken = PendingMagicLink::remember(1, $this->generation->current());
 
         $this->controller->pollMagicLink($this->pollRequest(1, $pollToken), ['id' => '1']);
@@ -635,6 +690,7 @@ class AuthControllerTest extends TestCase
         $member = new \Core\Security\UserAccount(5, 'poll@test.com', null, null, null, true, null);
         $this->authService->method('isMagicLinkConfirmed')->willReturn(true);
         $this->authService->method('getUserForConfirmedLink')->willReturn($member);
+        $this->authService->method('collectConfirmedLink')->willReturn($member);
         $this->authService->method('getUserById')->willReturn($member);
         $pollToken = PendingMagicLink::remember(1, $this->generation->current());
 

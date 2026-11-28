@@ -142,18 +142,22 @@
               refuses a submission against any other, so the box accepts
               exactly the text the visitor could open. Never empty either:
               Document\AssetConditions falls back to the standard Belgian body.
+
+              Both links are documents to read (`data-document-reader`, issue
+              #1431): in the installed application they open in a dialog over
+              this form instead of replacing it, a new tab everywhere else.
             #}
             <input type="hidden" name="conditions_version" value="{{ conditions.version }}">
             <div class="form-check mb-2">
                 <input class="form-check-input" type="checkbox" id="accept-conditions" name="accept_conditions" required>
                 <label class="form-check-label" for="accept-conditions">
-                    J'accepte les <a href="/locations/{{ asset.slug }}/conditions/{{ conditions.version }}" target="_blank" rel="noopener">conditions de location</a>
+                    J'accepte les <a href="/locations/{{ asset.slug }}/conditions/{{ conditions.version }}" target="_blank" rel="noopener" data-document-reader="Conditions de location">conditions de location</a>
                 </label>
             </div>
             <div class="form-check mb-4">
                 <input class="form-check-input" type="checkbox" id="accept-privacy" name="accept_privacy" required>
                 <label class="form-check-label" for="accept-privacy">
-                    J'ai pris connaissance de la <a href="/rgpd" target="_blank" rel="noopener">politique de confidentialité</a>
+                    J'ai pris connaissance de la <a href="/rgpd" target="_blank" rel="noopener" data-document-reader="Protection des données">politique de confidentialité</a>
                 </label>
             </div>
 

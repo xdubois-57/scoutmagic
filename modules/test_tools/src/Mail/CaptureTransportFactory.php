@@ -13,10 +13,13 @@ use Core\File\EncryptedFileStorageService;
 use Core\File\FileRepository;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
+use Core\Mail\MailTransportInterface;
 use Core\Mail\PhpMailerTransport;
+use Core\Mail\SuspendedMailTransport;
 use Core\Module\InstallationProfile;
 use Core\Module\ModuleRegistryRepository;
 use Core\Security\EncryptionService;
+use Core\Security\SandboxLossState;
 use Modules\TestTools\Repository\CapturedEmailRepository;
 use Modules\TestTools\Service\MailSandboxService;
 
@@ -79,6 +82,51 @@ final class CaptureTransportFactory
     }
 
     /**
+     * What the composition roots hand MailTransportFactory::build(): the
+     * blocking transport while the capture is armed and no longer acting
+     * (issue #1469), otherwise forInstallation()'s answer unchanged.
+     *
+     * The caller has already recorded this request's loss reason on
+     * $lossState (Modules\TestTools\Sandbox\SandboxLoss); this only reads
+     * the outcome, so that a lost capture blocks rather than falling
+     * through to null — which is « send for real ». While blocked the
+     * sign-in link still leaves only if the capture was letting it leave
+     * (Core\Mail\SuspendedMailTransport).
+     *
+     * **That one recorded answer is the whole decision**: the profile and
+     * the module are not read a second time. Asking shouldCapture() again
+     * here would read the registry row again, and a module switched off
+     * between the two reads would find neither a loss (the first read saw
+     * it on) nor a capture (the second saw it off) — null, real delivery.
+     * With no loss recorded, an armed switch therefore means the capture
+     * holds, and the capture is built.
+     */
+    public static function transportFor(
+        SettingService $settingService,
+        SandboxLossState $lossState,
+        \PDO $pdo,
+        EncryptionService $encryption,
+        string $storagePath
+    ): ?MailTransportInterface {
+        if ($lossState->isBlocked(SandboxLossState::CHANNEL_MAIL)) {
+            return new SuspendedMailTransport(
+                MailSandboxService::deliversMagicLinks($settingService) ? new PhpMailerTransport() : null
+            );
+        }
+
+        if ($lossState->reason(SandboxLossState::CHANNEL_MAIL) !== null) {
+            // Lost and released: a superadmin reopened real sending.
+            return null;
+        }
+
+        if (!MailSandboxService::isArmed($settingService)) {
+            return null;
+        }
+
+        return self::captureTransport($settingService, $pdo, $encryption, $storagePath);
+    }
+
+    /**
      * The transport to hand MailServiceFactory, or null to keep the
      * default one — i.e. to keep sending mail exactly as before.
      */
@@ -94,6 +142,15 @@ final class CaptureTransportFactory
             return null;
         }
 
+        return self::captureTransport($settingService, $pdo, $encryption, $storagePath);
+    }
+
+    private static function captureTransport(
+        SettingService $settingService,
+        \PDO $pdo,
+        EncryptionService $encryption,
+        string $storagePath
+    ): CaptureTransport {
         return new CaptureTransport(
             new CapturedEmailRepository($pdo, $encryption),
             new EncryptedFileStorageService(new FileRepository($pdo), $encryption, $storagePath),

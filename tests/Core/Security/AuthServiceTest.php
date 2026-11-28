@@ -62,6 +62,7 @@ class AuthServiceTest extends TestCase
                 confirmed_at DATETIME,
                 match_code_hash VARCHAR(255),
                 match_attempts INTEGER NOT NULL DEFAULT 0,
+                collected_at DATETIME,
                 created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
             )
         ');
@@ -745,6 +746,31 @@ class AuthServiceTest extends TestCase
         $this->assertFalse($this->authService->isMagicLinkConfirmed($id));
         $this->assertNull($this->authService->getUserForConfirmedLink($id));
         $this->assertGreaterThan(0, $user->id);
+    }
+
+    /**
+     * Issue #1530: a link confirmed for the window that asked to collect
+     * (from another browser; the code check is the controller's and
+     * AuthService's other tests') is collected once; one confirmed in that
+     * window is collected by its own confirmation, and never by a poll.
+     */
+    public function testAConfirmedLinkIsCollectedOnceAndALinkConfirmedHereNeverByAPoll(): void
+    {
+        $this->userRepo->create('collect@test.com');
+
+        $elsewhere = (int) $this->authService->requestMagicLink('collect@test.com')->magicLinkId;
+        $this->pdo->prepare('UPDATE magic_links SET token_hash = ? WHERE id = ?')
+            ->execute([password_hash('tok', PASSWORD_DEFAULT), $elsewhere]);
+        $this->assertNotNull($this->authService->verifyMagicLink($elsewhere, 'tok', null));
+        $this->assertSame('collect@test.com', $this->authService->collectConfirmedLink($elsewhere)?->email);
+        $this->assertNull($this->authService->collectConfirmedLink($elsewhere));
+
+        $here = (int) $this->authService->requestMagicLink('collect@test.com')->magicLinkId;
+        $this->pdo->prepare('UPDATE magic_links SET token_hash = ? WHERE id = ?')
+            ->execute([password_hash('tok', PASSWORD_DEFAULT), $here]);
+        $this->assertNotNull($this->authService->verifyMagicLink($here, 'tok', null, true));
+        $this->assertTrue($this->authService->isMagicLinkConfirmed($here));
+        $this->assertNull($this->authService->collectConfirmedLink($here));
     }
 
     public function testIsMagicLinkConfirmed(): void

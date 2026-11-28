@@ -417,7 +417,7 @@ défaut ce répertoire produit, et pourquoi la construction est un test.
 
 - **`CampsSeeder`** passait à `CampService::create()` l'id de la section que
   ce jeu de données vide en 2026-2027 et que
-  `MappingResolver::deactivateAllSections()` laisse donc inactive. Le
+  `ImportSectionRepository::recomputeActive()` laisse donc inactive. Le
   service valide les sections contre celles qui sont **actives**, quelles
   que soient les dates du séjour : un séjour passé rattaché à une section
   fermée depuis ne peut pas être créé par le service, et passer par le

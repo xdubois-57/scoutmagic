@@ -44,6 +44,10 @@ class MigrationService
     /**
      * @throws RegistrationException when $memberId is already linked to a
      *         different request
+     * @throws \PDOException on a write the database refuses — among them
+     *         the duplicate key of UNIQUE idx_rr_linked_member, when another
+     *         request links $memberId between the check above and the
+     *         UPDATE (the transaction is rolled back first)
      */
     public function migrate(int $requestId, int $memberId): void
     {

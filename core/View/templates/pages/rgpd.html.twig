@@ -8,5 +8,10 @@
     {# The page's whole body is one rich-text block (Core\View\
        RgpdContentService), so it gets the shared `.rich-text` wrapper
        that bounds an image nobody sized (app.css). #}
-    <div class="rich-text">{{ rgpd_content|raw }}</div>
+    {# data-document-reader-content: what document-reader.js shows in its
+       dialog when a form's link to this page is tapped in the installed
+       application (issue #1431) — this block and nothing else of the page. #}
+    <div data-document-reader-content data-document-reader-title="Protection des données">
+        <div class="rich-text">{{ rgpd_content|raw }}</div>
+    </div>
 {% endblock %}

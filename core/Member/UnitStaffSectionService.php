@@ -37,10 +37,11 @@ class UnitStaffSectionService
 
     /**
      * Idempotently ensure the "Staff d'U" age branch and section exist, and
-     * force the section active. It must survive
-     * ImportSectionRepository::deactivateAll() even though nothing in a
-     * Desk CSV row ever references it directly — membership comes only
-     * from syncMembership(), never from a "Section" column value.
+     * force the section active. ImportSectionRepository::recomputeActive()
+     * keeps it active by its desk code, even with nobody synced into it
+     * yet: nothing in a Desk CSV row ever references it directly —
+     * membership comes only from syncMembership(), never from a "Section"
+     * column value.
      */
     public function ensureSection(): int
     {

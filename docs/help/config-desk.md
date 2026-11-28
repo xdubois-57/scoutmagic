@@ -54,9 +54,11 @@ Pour chaque section, vous pouvez :
   les sélecteurs du site (Staffs, trombinoscope, calendrier, page
   publique Sections).
 
-Une section sans aucun membre au dernier import devient inactive et
-disparaît d'elle-même, y compris de cette page ; elle revient dès
-qu'un import lui redonne des membres — rien n'est jamais supprimé.
+Une section qui n'a plus aucun membre, ni dans l'année en cours ni
+dans la suivante, devient inactive et disparaît d'elle-même, y compris
+de cette page ; elle revient dès qu'un import lui redonne des membres —
+rien n'est jamais supprimé. Importer l'année suivante ne cache donc
+aucune section de l'année en cours.
 
 Les sections peuvent partager un nom. Un badge de référent au nom déjà
 pris reçoit le code Desk, puis un numéro au besoin. Les affectations

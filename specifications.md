@@ -484,7 +484,7 @@ Section identity always comes from the "Section" column. The Desk export also ha
 ### 7.3 Section configuration
 Sections identified by Desk code. Name and email configurable from the Staffs page (chief). Name and site-wide visibility also configurable from Configuration > Correspondances Desk (admin) — a hidden section disappears from every section picker (Staffs, Trombinoscope, public Sections page) until made visible again.
 
-A section with no member in a given import becomes inactive automatically (kept, never deleted) and is likewise excluded from every section picker until a later import gives it members again — see §7.1 pipeline and ARCHITECTURE.md §8.1/§8.8.
+A section with no member in the public scout year nor in any later one becomes inactive automatically (kept, never deleted) and is likewise excluded from every section picker until a later import gives it members again. Importing another year — next year's file in July, a past year replayed in configuration mode — therefore never hides a section of the year everybody is served, nor a section that only exists next year (issue #1460) — see §7.1 pipeline and ARCHITECTURE.md §8.1/§8.8.
 
 ## 8. Email system
 
@@ -1052,10 +1052,10 @@ Six types, all optional per member except one: a new post in one of my groups, a
 | Épingler un message | Moderator | One pinned message per group, for a chosen length of time — see §20.2. |
 | Modifier les membres | Moderator | Invite a member or a whole section; grant or revoke the moderator flag; remove an invited member. |
 | Quitter le groupe | Any invited member | Deletes their invitation; access is lost immediately and coming back needs a new invitation. A membership that comes from a **linked section cannot be left** — it follows the Desk import. The **last moderator** may not leave until another one is appointed; site admins do not count. Their existing posts and replies stay in the group. |
-| Clôturer | Moderator | Read-only from then on, still fully visible. |
-| Rouvrir | Moderator or site admin | Only while the group's scout year is still the current one — a past-year group stays a read-only archive. Reopening restarts the inactivity and purge clocks, so the nightly task does not close it straight back. Content already deleted by the retention purge does not come back. |
+| Archiver | Moderator | Moves the group to « Archives » at once, whatever its year (or none): read-only from then on, still fully visible to its members. |
+| Rouvrir | Moderator or site admin | For a group of the current scout year, of a future one, or of no year — a past-year group stays archived, whatever year the session previews. Reopening puts it back in the current list and restarts the inactivity clock, so the nightly task does not archive it straight back; archiving it again later starts a new archive date. Content already deleted by the retention purge does not come back. |
 
-An administrator caps how many **open, non-section** groups one person may have created (5 by default). Section groups are created automatically and never count; a closed group stops counting. The cap applies to administrators too.
+An administrator caps how many **open, non-section** groups one person may have created (5 by default). Section groups are created automatically and never count; an archived group stops counting. The cap applies to administrators too.
 
 ### 20.5 Lifecycle and retention
 
@@ -1064,9 +1064,9 @@ Four nightly tasks, each with its own admin-configurable duration and none of th
 | Task | Rule |
 |---|---|
 | Create section groups | One group per visible, active section per scout year, Staff d'U included. Idempotent, and also run whenever the group list is opened, so a missing group heals itself. Next year's groups appear as soon as that year is imported, ready for chiefs through the staff-year mechanism (§16). |
-| Close inactive groups | A group with no post, reply or reaction for `groups_inactivity_close_months` (12 by default) is closed: read-only, still fully visible to its members. A group that never held anything is counted from its creation. A moderator may also close a group by hand. |
+| Archive inactive groups and ended years | A group with no post, reply or reaction for `groups_inactivity_close_months` (12 by default) is archived: read-only, still fully visible to its members. A group that never held anything is counted from its creation. The same task archives the groups of a scout year that has ended, judged against the public year, never the year a session previews; a group of no year or of a future year is never archived for its year. A moderator may also archive a group by hand. All three give the same state, « Archivé », and an archive date the task never rewrites. |
 | Purge posts | A post is deleted `groups_post_retention_months` (24 by default) after its last activity, with its replies, reactions, reports, media and cached link image — the files themselves, not only the rows. A pinned post is never purged, at any age; a pin whose deadline has passed is not one any more (§20.2). |
-| Purge closed groups | A closed group is deleted `groups_closed_purge_months` (12 by default) after its closure, gallery album included. A group of the current or a future scout year is never purged. |
+| Purge archived groups | An archived group is deleted `groups_closed_purge_months` (12 by default) after its archive date, whatever archived it, gallery album included. A group of the current or a future scout year is never purged. The task and setting keys keep their historical names: installed sites have tasks scheduled under them. |
 
 
 ## 21. Usage statistics, support package and support dashboard (core + module support_dashboard)
@@ -2063,13 +2063,17 @@ The contact email address is always asked and pre-filled for an identified visit
 
 **Payment is by bank transfer, always, and never by card on the site.** When the finance module is active and an account is selected, submitting generates a **structured communication**, opens the matching receivable in the finance module, and the confirmation page and email both carry the amount, the account, that communication and a payment QR code. Reconciliation then happens through the imported bank statements: a response shows `Payé`, `Partiel` or `Non payé`, and until the statement is imported a payment that really was made still reads as not received — which is an import to do, not a family to chase. A `Partiel` is most often one transfer covering several children.
 
-**Correcting a response never recalculates what is owed.** The amount stays the one from the first answer, and adjusting it is a human act in the Finances module. A silent recalculation would rewrite a debt somebody has already been told about, and possibly already paid.
+**A quantity is a whole number, checked by the server** (issue #1525). No number field takes a negative. A field carrying a price or a capacity takes a whole number written in digits — `0.5`, `1e2` or a leading space are refused, with a sentence naming the field — and at most its capacity, or 999 per response when it has none. A response whose total would be negative is refused. The same rules apply when a response is corrected.
+
+**Correcting a response moves what is owed** (issue #1525 — this reverses the earlier rule that the first answer's amount stood). The receivable keeps its structured communication and the payments already matched, and its amount becomes the new total: raised, the response is « à payer » again for the difference; lowered below what was already received, the surplus appears to the treasurer as a trop-perçu to refund (Finances › Paiements à traiter); a free response that becomes paying gets its receivable and communication then; a response corrected to zero keeps its receivable at zero with its communication — so a transfer made before the correction, and imported after it, becomes a trop-perçu — and that receivable owes nothing, so it appears on no unpaid list. When the amount changes, the confirmation e-mail is sent again; after any correction the confirmation page shows the answers, what is still to pay and what was already received — or that the unit owes the difference back.
 
 ### 32.4 Correcting a response
 
 A respondent may reopen their own response — answers and contact address — as long as **they were identified when they answered** and the form is **still open**. An answer sent without an account cannot be reopened by anybody claiming to be its author: there is no way to check. A **chef d'unité** may correct any response, including after the form has closed, to fix a manifest error — never to decide in somebody's place.
 
 A capacity may have filled in the meantime: the save is then refused, naming the option that blocks it, and the previous response is kept intact.
+
+Responses stored before the quantity rules existed and holding a negative or non-whole quantity are flagged once to the Staff d'U, as an attention point per article and a « Quantité à vérifier » badge on the responses page, until they are corrected or deleted; the door shows such a line as a warning instead of leaving it out.
 
 ### 32.5 The responses
 
@@ -2081,7 +2085,7 @@ One line per response, one column per question, opened at the role the form's ow
 
 ### 32.6 Out of scope
 
-No card payment. No automatic re-pricing of a corrected response. No self-service correction of an anonymous answer. No article-level comment thread — a discussion belongs in a group (§20).
+No card payment. No automatic refund: a trop-perçu is refunded by the treasurer. No self-service correction of an anonymous answer. No article-level comment thread — a discussion belongs in a group (§20).
 
 
 ## 33. Galerie — albums photo et vidéo (module gallery)

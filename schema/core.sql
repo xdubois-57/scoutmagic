@@ -125,6 +125,14 @@ CREATE TABLE magic_links (
     -- Wrong codes typed so far; the link is spent at
     -- AuthService::MAX_MATCH_ATTEMPTS.
     match_attempts SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+    -- When a session was opened with this confirmed link (issue #1530):
+    -- taken once, by one conditional UPDATE, so a confirmed link opens one
+    -- session and never a second. Set in the very statement that confirms
+    -- the link when the confirming browser is the session that asked — it
+    -- is signed in there and then, and no poll may open another — and by
+    -- the poll that collects it otherwise. NULL on rows from before it
+    -- existed: they expire on their own within fifteen minutes.
+    collected_at DATETIME,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_token_hash (token_hash),
     INDEX idx_email_blind (email_blind_index),
@@ -475,10 +483,13 @@ CREATE TABLE member_functions (
 -- set is closed (end_date = the import date), any new section gets a
 -- freshly opened period (start_date = the import date) — sections
 -- unchanged since the last import are left untouched, so re-running the
--- same CSV creates nothing new. A period from an earlier scout year that
--- is still open when a later year's import runs (i.e. scout-year
--- rollover was never explicitly triggered) is closed at that earlier
--- year's own end_date, never at today's import date — "active in
+-- same CSV creates nothing new. A period from an earlier scout year (one
+-- that starts before the imported year — never the next one, which the
+-- import policy lets be imported first, #1461) that is still open when a
+-- later year's import runs (i.e. scout-year rollover was never explicitly
+-- triggered) is closed at that earlier year's own end_date, never at
+-- today's import date; a period closed on its own year's end_date still
+-- counts as that year's current period — "active in
 -- section S for scout year Y" (Core\Member\SectionDocumentOwnershipChecker,
 -- the Staffs/member-page section documents feature) means Y's configured
 -- reference date falls within a period for (member, S, Y).

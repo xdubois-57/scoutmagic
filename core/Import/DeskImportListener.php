@@ -20,7 +20,7 @@ namespace Core\Import;
  * assignment, an ownership — has derived state to re-sync at exactly that
  * point. Core already does this for itself
  * (`MemberYearRepository::deactivateAllForYear()`,
- * `MappingResolver::deactivateAllSections()`,
+ * `MappingResolver::recomputeSectionActivity()`,
  * `UnitStaffSectionService::syncMembership()`); this interface is the same
  * moment, opened to modules.
  *

@@ -347,12 +347,21 @@ class AuthService
      * nothing, counts against the link, and spends it at
      * MAX_MATCH_ATTEMPTS.
      *
+     * $collectedHere says the confirming browser IS the session that
+     * asked, and is signed in by the caller there and then: the link is
+     * marked collected in the statement that confirms it, so no poll can
+     * open a second session with it (issue #1530).
+     *
      * Returns the verified magic link data, or null if invalid.
      *
      * @throws MagicLinkCodeMismatch when $matchCode is given and wrong
      */
-    public function verifyMagicLink(int $id, string $rawToken, ?string $matchCode = null): ?VerifiedMagicLink
-    {
+    public function verifyMagicLink(
+        int $id,
+        string $rawToken,
+        ?string $matchCode = null,
+        bool $collectedHere = false
+    ): ?VerifiedMagicLink {
         $record = $this->checkMagicLink($id, $rawToken);
 
         if ($record === null) {
@@ -391,7 +400,7 @@ class AuthService
         // Mark as used — and only the request that actually claims the
         // link goes on: a concurrent confirmation of the same link, or one
         // that a third wrong code spent meanwhile, stops here.
-        if (!$this->magicLinkRepo->markUsed($id)) {
+        if (!$this->magicLinkRepo->markUsed($id, $collectedHere)) {
             return null;
         }
 
@@ -458,8 +467,10 @@ class AuthService
     }
 
     /**
-     * Get the user account associated with a confirmed magic link.
-     * Used by the polling endpoint to create a session on Device A.
+     * Get the user account associated with a confirmed magic link, without
+     * collecting it. The polling endpoint reads it for a session that is
+     * already signed in (« confirmez votre identité », issue #1115); opening
+     * a session goes through collectConfirmedLink(), once (issue #1530).
      */
     public function getUserForConfirmedLink(int $id): ?UserAccount
     {
@@ -474,6 +485,24 @@ class AuthService
 
         // verifyMagicLink() has necessarily run for a confirmed link, so
         // the account exists by now — a plain lookup, never a creation.
+        return $this->userRepo->findByBlindIndex($record->emailBlindIndex);
+    }
+
+    /**
+     * The account a confirmed link identifies, for the ONE request that
+     * opens a session with it (issue #1530) — null for every other: the
+     * link is unconfirmed or expired, it was confirmed in the session that
+     * asked (which was signed in there), or another poll collected it
+     * first. Taking the link is a single conditional UPDATE, so two polls
+     * holding the same session in memory cannot both win it.
+     */
+    public function collectConfirmedLink(int $id): ?UserAccount
+    {
+        $record = $this->magicLinkRepo->findById($id);
+        if ($record === null || !$this->magicLinkRepo->collect($id)) {
+            return null;
+        }
+
         return $this->userRepo->findByBlindIndex($record->emailBlindIndex);
     }
 

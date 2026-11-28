@@ -1537,6 +1537,11 @@ $settingService->register(
 // (Core\Attention\SiteAttentionProvider, issue #718 § C point 4).
 \Core\Attention\SiteAttentionProvider::register($settingService);
 
+// Whether a test sandbox armed but no longer acting holds real sending
+// shut (Core\Security\SandboxLossState, ARCHITECTURE.md §8.63) — two
+// internal rows, never listed on Configuration > Réglages.
+\Core\Security\SandboxLossState::register($settingService);
+
 // Offline content caching (Lot 3) — how old a cached copy of a
 // whitelisted page (Core\Offline\OfflineWhitelist) may be before the
 // service worker refuses to serve it and falls back to the offline page
@@ -2355,10 +2360,44 @@ $installationProfile = \Core\Module\InstallationProfile::resolve(
 // returns null (keep sending) for every other installation. Resolved here
 // because MailService is built long before modules load, which is also why
 // a forged module_registry row alone can never capture anything.
-$mailCaptureTransport = \Modules\TestTools\Mail\CaptureTransportFactory::forInstallation(
-    $installationProfile,
-    new ModuleRegistryRepository($pdo),
+//
+// **A capture that stops acting never means « send for real ».** When the
+// switch is still armed but the profile or the module no longer lets the
+// capture run — an update that lost `installation_profile`, a base_url
+// that no longer matches, the module switched off — the mail of a
+// reference installation would otherwise go straight back to the real
+// addresses of its members and parents (issue #1469). The loss is
+// recorded here (journaled once per change, shown as an attention point),
+// and until a superadmin decides on /config/capture-suspendue the factory
+// hands over a transport that refuses to send. Same for the simulated
+// telephony, used by the sos_staff block below and the scheduler.
+$sandboxLossState = new \Core\Security\SandboxLossState($settingService);
+$sandboxRegistryRepo = new ModuleRegistryRepository($pdo);
+$sandboxLossState->record(
+    \Core\Security\SandboxLossState::CHANNEL_MAIL,
+    \Modules\TestTools\Sandbox\SandboxLoss::mailLossReason(
+        $installationProfile,
+        $config->get('installation_profile', []),
+        $sandboxRegistryRepo,
+        $settingService,
+        __DIR__ . '/../modules'
+    ),
+    $journalService
+);
+$sandboxLossState->record(
+    \Core\Security\SandboxLossState::CHANNEL_TELEPHONY,
+    \Modules\TestTools\Sandbox\SandboxLoss::telephonyLossReason(
+        $installationProfile,
+        $config->get('installation_profile', []),
+        $sandboxRegistryRepo,
+        $settingService,
+        __DIR__ . '/../modules'
+    ),
+    $journalService
+);
+$mailCaptureTransport = \Modules\TestTools\Mail\CaptureTransportFactory::transportFor(
     $settingService,
+    $sandboxLossState,
     $pdo,
     $encryptionService,
     dirname(__DIR__) . '/storage'
@@ -3381,6 +3420,10 @@ $attentionProviders = [
     // last day (issue #1267): the visitor is told nothing, by design, so the
     // administrators have to be.
     new \Core\Security\LoginMailAttentionProvider(new \Core\Journal\JournalRepository($pdo)),
+    // A test sandbox armed but no longer acting, which holds real sending
+    // shut until a superadmin decides (issue #1469). Core's, because the
+    // usual cause is the test_tools module not loading at all.
+    new \Core\Security\SandboxLossAttentionProvider($sandboxLossState),
 ];
 
 // The registry Modules\Gallery\Service\DelegatedAlbumAccessRegistry
@@ -4028,7 +4071,8 @@ scoutmagicBootstrapScheduler(
     // eager call still gets a working feature, which is the shape
     // `cron.php` did not have.
     $seedMailboxes,
-    installationProfile: $installationProfile
+    installationProfile: $installationProfile,
+    sandboxLossState: $sandboxLossState
 );
 
 // Bootstrap the recurring automatic backup — Task\AutoBackupHandler
@@ -4799,6 +4843,24 @@ $router->addRoute(
     '/config/courrier-sortant/sonde/verdict',
     \Core\Http\Controller\OutboundMailController::class,
     'recordProbeVerdict',
+    'superadmin',
+);
+// Capture suspendue (issue #1469): a test sandbox still armed and no
+// longer acting holds real sending shut, and this is where a superadmin
+// decides. Reached from its attention point, never from a menu.
+$router->addRoute(
+    'GET',
+    '/config/capture-suspendue',
+    \Core\Http\Controller\SandboxLossController::class,
+    'index',
+    'superadmin',
+    ['label' => 'Capture suspendue', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]],
+);
+$router->addRoute(
+    'POST',
+    '/config/capture-suspendue/reouverture',
+    \Core\Http\Controller\SandboxLossController::class,
+    'release',
     'superadmin',
 );
 // Rebonds (roadmap IT-05).
@@ -7347,6 +7409,10 @@ $frontController->registerController(
 );
 $frontController->registerController(ConfigModeController::class, new ConfigModeController($twig));
 $frontController->registerController(
+    \Core\Http\Controller\SandboxLossController::class,
+    new \Core\Http\Controller\SandboxLossController($twig, $sandboxLossState, $journalService)
+);
+$frontController->registerController(
     FirstStepsController::class,
     new FirstStepsController($twig, $firstStepsService)
 );
@@ -7966,11 +8032,16 @@ if ($isEnabled('sos_staff')) {
     // Simulated telephony (ARCHITECTURE.md §8.63): where test_tools is on,
     // the installation is a reference or local one, AND the switch is
     // armed, a simulated line stands in for the configured provider so an
-    // end-to-end run can drive this module. Null everywhere else.
-    $sosSimulatedProvider = $isEnabled('test_tools')
-        && \Modules\TestTools\Telephony\SimulatedTelephony::isAllowed($installationProfile, $settingService)
-        ? new \Modules\TestTools\Telephony\SimulatedPhoneProvider($settingService)
-        : null;
+    // end-to-end run can drive this module. Armed but no longer acting
+    // (recorded on $sandboxLossState above), a line that refuses
+    // everything stands in instead, so the real SOS line is not driven
+    // again behind anybody's back (issue #1469). Null everywhere else.
+    $sosSimulatedProvider = \Modules\TestTools\Telephony\SimulatedTelephony::providerFor(
+        $isEnabled('test_tools'),
+        $installationProfile,
+        $settingService,
+        $sandboxLossState
+    );
     $sosProviderConfigService = new \Modules\SosStaff\Service\ProviderConfigService(
         $sosProviderCredentialRepo,
         null,
@@ -9887,6 +9958,47 @@ if ($isEnabled('news')) {
         $settingRepo->updateValue('news', 'news_field_capacity_recomputed_1465', '1');
         $settingService->clearCache();
     }
+
+    // One-shot reprise of issue #1525, for the responses stored before the
+    // server refused a negative or fractional quantity: the running
+    // capacity totals are rebuilt — a negative answer gives no place back
+    // any more (FormResponseRepository::sumFieldValues()) — and every such
+    // response is marked for the Staff d'U, who sees it on the
+    // attention-points page (NewsAttentionProvider below) and corrects it.
+    // The answers themselves are left as they were: what the respondent
+    // meant is for a person to decide. Same shape as the reprise above.
+    if ($settingService->get('news_invalid_quantities_reviewed', 'news') !== '1') {
+        $settingService->register(
+            'news_invalid_quantities_reviewed',
+            '0',
+            'boolean',
+            'Quantités invalides recherchées',
+            'Indique si les réponses enregistrées avec une quantité négative ou non entière '
+                . 'ont été recherchées et signalées, et les capacités recalculées.',
+            'news',
+            null,
+            null,
+            false,
+            999
+        );
+        $newsFieldRepo->recomputeUsedCapacities($newsResponseRepo);
+        $newsInvalidQuantities = $newsResponseService->flagResponsesWithInvalidQuantities();
+        if ($newsInvalidQuantities > 0) {
+            $journalService->log(
+                'news',
+                'invalid_quantities_flagged',
+                'info',
+                $newsInvalidQuantities . ' réponse(s) de formulaire contenant une quantité invalide signalée(s) '
+                    . 'au Staff d\'Unité',
+                ['responses' => $newsInvalidQuantities]
+            );
+        }
+        $settingRepo->updateValue('news', 'news_invalid_quantities_reviewed', '1');
+        $settingService->clearCache();
+    }
+    // Who is told about them, on every display of the attention-points
+    // page: one aggregate query, nothing decrypted.
+    $attentionProviders[] = new \Modules\News\Service\NewsAttentionProvider($newsResponseRepo);
     // Optional dependency on the llm_connector module (ARCHITECTURE.md
     // §7.5), same reused instance as RGPD content generation above — the
     // "Générer avec l'IA" button is simply hidden when it's unavailable.

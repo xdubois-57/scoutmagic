@@ -117,10 +117,14 @@ test('an article is re-edited without losing its form, a member edits their resp
         const placesField = memberPage.getByLabel(new RegExp(PLACES_LABEL));
         await expect(placesField).toHaveValue('2');
         await placesField.fill('3');
-        // Saving an EDIT redirects straight back to the article
-        // (FormController::updateResponse()), where the capacity has been
-        // recomputed against the edited answer: 5 − 3.
+        // Saving an EDIT lands on the confirmation page, as a submission
+        // does (FormController::updateResponse(), issue #1525: an edit may
+        // move what is owed, and that page says so). Back on the article,
+        // the capacity has been recomputed against the edited answer: 5 − 3.
         await memberPage.getByRole('button', { name: 'Enregistrer les modifications' }).click();
+        await memberPage.waitForURL(/\/form\/confirmation$/, { waitUntil: 'domcontentloaded' });
+        await expect(memberPage.getByRole('heading', { name: 'Votre réponse a été enregistrée' })).toBeVisible();
+        await memberPage.getByRole('link', { name: "Voir l'article" }).click();
         await memberPage.waitForURL(`**${articleUrl}`, { waitUntil: 'domcontentloaded' });
         await expect(memberPage.getByText('Il reste 2 places')).toBeVisible();
     } finally {

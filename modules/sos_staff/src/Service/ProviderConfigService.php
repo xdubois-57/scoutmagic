@@ -53,7 +53,10 @@ class ProviderConfigService
      *        by the composition roots only where test_tools' simulated
      *        telephony is armed on a reference or local installation
      *        (ARCHITECTURE.md §8.63), so an end-to-end run can drive this
-     *        module without a real provider. Null everywhere else.
+     *        module without a real provider — or, where that switch is
+     *        still armed but no longer acting, a line that refuses every
+     *        call, so the real one is not driven again (issue #1469).
+     *        Null everywhere else.
      */
     public function __construct(
         private ProviderCredentialRepository $repository,
@@ -231,9 +234,9 @@ class ProviderConfigService
             try {
                 return ($this->simulatedProvider->listLines()[0] ?? null)?->number;
             } catch (ProviderException) {
-                // @catch-unreachable the only stand-in any composition root hands over is test_tools'
-                // SimulatedPhoneProvider, whose listLines() returns one constant line and touches nothing
-                // that could fail; only a double written to throw would land here.
+                // test_tools' suspended line (simulated telephony armed but no longer
+                // acting, issue #1469) refuses every call: no number is shown rather
+                // than the simulated one, which no line carries any more.
                 return null;
             }
         }

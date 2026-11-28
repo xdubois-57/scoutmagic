@@ -15,10 +15,12 @@ use Core\Mail\Template\EmailTemplateRenderer;
 use Core\Member\SectionService;
 use Core\Security\Role;
 use Core\Security\RoleResolver;
+use Core\Service\IntegerInput;
 use Core\Url\ShortUrlService;
 use Modules\Finance\Api\ExpectedReceivableInterface;
 use Modules\Finance\Api\FinanceException;
 use Modules\Finance\Api\FinanceAccountInterface;
+use Modules\Finance\Api\ReceivableStanding;
 use Modules\Finance\Api\SepaQrCodeInterface;
 use Modules\Finance\Api\StructuredCommunicationInterface;
 use Modules\News\Repository\Article;
@@ -37,6 +39,16 @@ use Modules\News\Repository\NewsForm;
  */
 class ResponseService
 {
+    /**
+     * The most one response may ask of a quantity field that has no
+     * capacity of its own (issue #1525) — a capped field is bounded by
+     * what remains of its capacity instead. FormField owns the figure.
+     */
+    public const MAX_QUANTITY_PER_RESPONSE = FormField::MAX_QUANTITY_PER_ANSWER;
+
+    /** The module name finance's receivables are raised under. */
+    private const RECEIVABLE_SOURCE = 'news';
+
     public function __construct(
         private FormResponseRepository $responseRepository,
         private RoleResolver $roleResolver,
@@ -122,7 +134,21 @@ class ResponseService
      * second QR render for the screen is a deliberate, cheap trade-off
      * over caching the email's PNG bytes on the response row.
      *
-     * @return array{total: float, iban: string, beneficiary: string, communication: string, qr_data_uri: string}|null
+     * **`total` is what is still to pay**, not the price of the answers:
+     * once a response has been edited (issue #1525) its receivable may
+     * already have received part of it, and a parent shown the whole sum
+     * again would pay twice. `received` is what already came in, net of
+     * refunds. Nothing left to pay — paid, waived, or overpaid — is no
+     * payment block at all.
+     *
+     * @return array{
+     *     total: float,
+     *     received: float,
+     *     iban: string,
+     *     beneficiary: string,
+     *     communication: string,
+     *     qr_data_uri: string
+     * }|null
      */
     public function buildPaymentSummary(NewsForm $form, FormResponse $response, float $total): ?array
     {
@@ -133,6 +159,16 @@ class ResponseService
             || $form->financeAccountId === null
         ) {
             return null;
+        }
+
+        $receivedCents = 0;
+        $standing = $this->standingOf($response);
+        if ($standing !== null) {
+            if ($standing->amountRemainingCents <= 0) {
+                return null;
+            }
+            $total = $standing->amountRemainingCents / 100.0;
+            $receivedCents = max(0, $standing->amountReceivedCents - $standing->amountRefundedCents);
         }
 
         $accounts = $this->financeAccount->getConfiguredAccounts();
@@ -151,11 +187,44 @@ class ResponseService
 
         return [
             'total' => $total,
+            'received' => $receivedCents / 100.0,
             'iban' => $account['iban'],
             'beneficiary' => $account['holder_name'] ?? $this->siteName,
             'communication' => $response->structuredCommunication,
             'qr_data_uri' => 'data:image/png;base64,' . base64_encode($qrPng),
         ];
+    }
+
+    /**
+     * What the unit owes this respondent back, in cents — a paid response
+     * corrected down below what came in (issue #1525). Zero when nothing
+     * is owed, and whenever finance cannot say.
+     */
+    public function amountOwedBackCents(FormResponse $response): int
+    {
+        return $this->standingOf($response)->amountOverpaidCents ?? 0;
+    }
+
+    /**
+     * What has come in for this response, in cents, net of refunds — what
+     * the confirmation page shows beside the new total when nothing is
+     * left to pay (a paid response corrected, issue #1525). Zero when
+     * finance cannot say.
+     */
+    public function amountReceivedCents(FormResponse $response): int
+    {
+        $standing = $this->standingOf($response);
+
+        return $standing !== null ? max(0, $standing->amountReceivedCents - $standing->amountRefundedCents) : 0;
+    }
+
+    private function standingOf(FormResponse $response): ?ReceivableStanding
+    {
+        if ($response->receivableId === null || $this->expectedReceivable === null) {
+            return null;
+        }
+
+        return $this->expectedReceivable->getReceivableStanding(self::RECEIVABLE_SOURCE, $response->receivableId);
     }
 
     public function isPaymentAvailable(): bool
@@ -375,13 +444,14 @@ class ResponseService
         // per scan.
         $used = $this->fieldRepository !== null
             ? $field->capacityUsed
-            : $this->responseRepository->sumFieldValues($field->id, $excludeResponseId);
+            : $this->responseRepository->sumFieldValues($field, $excludeResponseId);
 
         // One response's own share, given back for the length of its
         // edit (module spec §11.9). Bounded to that response, unlike the
         // whole-column sum it replaces.
         if ($excludeResponseId !== null && $this->fieldRepository !== null) {
-            $used -= self::numericAnswer($this->responseRepository->getValues($excludeResponseId)[$field->id] ?? null);
+            $ownAnswer = $this->responseRepository->getValues($excludeResponseId)[$field->id] ?? null;
+            $used -= self::numericAnswer($field, $ownAnswer);
         }
 
         return max(0, (int) ($field->capacityMax - $used));
@@ -424,10 +494,16 @@ class ResponseService
         return null;
     }
 
-    /** An answer read as the number it consumes, or zero when it is not one. */
-    private static function numericAnswer(?string $answer): float
+    /**
+     * A stored answer read as the places it consumes — exactly
+     * FormField::storedQuantity(), zero for one the server would refuse
+     * today (issue #1525). The same rule as the running total's own sum
+     * (FormResponseRepository::sumFieldValues()), so an edit gives back
+     * exactly what that total counted for it.
+     */
+    private static function numericAnswer(FormField $field, ?string $answer): float
     {
-        return $answer !== null && is_numeric($answer) ? (float) $answer : 0.0;
+        return (float) ($field->storedQuantity($answer) ?? 0);
     }
 
     /**
@@ -518,6 +594,7 @@ class ResponseService
             ? $this->resolveMemberOptions($userEmail, $scoutYearId)
             : [];
         $normalizedAnswers = $this->validateAndNormalizeAnswers($fields, $answers, $memberOptions, null);
+        $total = $this->computeTotalOrRefuse($fields, $normalizedAnswers);
 
         // The double submission, which no rule above catches on a form
         // that accepts any number of answers: a second click while the
@@ -546,43 +623,15 @@ class ResponseService
                 // submission's own share once it is written.
                 $used = $this->fieldRepository !== null
                     ? $this->fieldRepository->usedCapacity($field->id, lockForUpdate: true)
-                    : $this->responseRepository->sumFieldValues($field->id, null, lockForUpdate: true);
+                    : $this->responseRepository->sumFieldValues($field, null, lockForUpdate: true);
                 if ($used + $requested > $field->capacityMax) {
                     throw new NewsException('Il n\'y a plus assez de places disponibles pour "' . $field->label . '".');
                 }
             }
 
-            $total = $this->computeTotal($fields, $normalizedAnswers);
-            $structuredCommunication = null;
-            $receivableId = null;
-
-            if ($total > 0.0 && $form->hasPaymentDestination() && $this->isPaymentAvailable()) {
-                \assert($form->financeAccountId !== null && $form->financeCategoryId !== null);
-                $structuredCommunication = $this->structuredCommunication->generate();
-                try {
-                    $receivableId = $this->expectedReceivable->createReceivable(
-                        'news',
-                        $form->id,
-                        $form->financeAccountId,
-                        (int) round($total * 100),
-                        $structuredCommunication,
-                        $contactEmail,
-                        $form->financeCategoryId
-                    );
-                } catch (FinanceException $e) {
-                    // The form's payment settings no longer hold — its
-                    // Finances category was archived or deleted since it
-                    // was chosen (issue #838). Finance's own wording is
-                    // meant for whoever configures the form; the person
-                    // signing up is told what happened to their answer.
-                    throw new NewsException(
-                        'Ce formulaire ne peut pas recevoir de paiement pour le moment : prévenez son responsable. '
-                        . "Votre réponse n'a pas été enregistrée.",
-                        0,
-                        $e
-                    );
-                }
-            }
+            [$structuredCommunication, $receivableId] = $this->opensReceivable($form, $total)
+                ? $this->openReceivable($form, $total, $contactEmail, "Votre réponse n'a pas été enregistrée.")
+                : [null, null];
 
             $responseId = $this->responseRepository->create(
                 $form->id,
@@ -604,9 +653,11 @@ class ResponseService
                 if ($field->fieldType !== FormField::TYPE_NUMBER) {
                     continue;
                 }
+                // Never below zero: a submission only ever takes places
+                // (issue #1525) — validation already refuses a negative.
                 $this->fieldRepository?->addUsedCapacity(
                     $field->id,
-                    (float) ($normalizedAnswers[$field->id] ?? 0)
+                    max(0.0, (float) ($normalizedAnswers[$field->id] ?? 0))
                 );
             }
 
@@ -662,6 +713,221 @@ class ResponseService
         return $response;
     }
 
+    /**
+     * The total of validated answers, refused when it is negative — which
+     * a negative unit price on one field can still produce once every
+     * quantity is a whole number (issue #1525). A negative total is a debt
+     * owed to the respondent, and no form is meant to create one.
+     *
+     * @param FormField[] $fields
+     * @param array<int, string> $normalizedAnswers
+     */
+    private function computeTotalOrRefuse(array $fields, array $normalizedAnswers): float
+    {
+        $total = $this->computeTotal($fields, $normalizedAnswers);
+        if ($total < 0.0) {
+            throw new NewsException(
+                'Le total de cette réponse ne peut pas être négatif : vérifiez les quantités indiquées.'
+            );
+        }
+
+        return $total;
+    }
+
+    /** Whether a response of this total, on this form, owes a receivable. */
+    private function opensReceivable(NewsForm $form, float $total): bool
+    {
+        return $total > 0.0 && $form->hasPaymentDestination() && $this->isPaymentAvailable();
+    }
+
+    /**
+     * Raises the receivable a response owes, with its new structured
+     * communication — at submission, and when an edit makes a free
+     * response a paying one (issue #1525). Called inside the caller's
+     * transaction.
+     *
+     * @param string $notRecorded the sentence telling the respondent their
+     *        answer was not saved, which differs between a submission and
+     *        an edit
+     * @return array{0: string, 1: int} the communication and the receivable id
+     */
+    private function openReceivable(NewsForm $form, float $total, string $contactEmail, string $notRecorded): array
+    {
+        \assert(
+            $this->structuredCommunication !== null && $this->expectedReceivable !== null
+            && $form->financeAccountId !== null && $form->financeCategoryId !== null
+        );
+        $structuredCommunication = $this->structuredCommunication->generate();
+        try {
+            $receivableId = $this->expectedReceivable->createReceivable(
+                self::RECEIVABLE_SOURCE,
+                $form->id,
+                $form->financeAccountId,
+                (int) round($total * 100),
+                $structuredCommunication,
+                $contactEmail,
+                $form->financeCategoryId
+            );
+        } catch (FinanceException $e) {
+            // The form's payment settings no longer hold — its Finances
+            // category was archived or deleted since it was chosen (issue
+            // #838). Finance's own wording is meant for whoever configures
+            // the form; the person answering is told what happened to
+            // their answer.
+            throw new NewsException(
+                'Ce formulaire ne peut pas recevoir de paiement pour le moment : prévenez son responsable. '
+                . $notRecorded,
+                0,
+                $e
+            );
+        }
+
+        return [$structuredCommunication, $receivableId];
+    }
+
+    /**
+     * Moves what an edited response owes to its new total — the
+     * maintainer's decision on issue #1525: the amount due follows the
+     * edit. Called inside update()'s transaction, so a refusal from
+     * finance leaves the answers as they were.
+     *
+     * - no receivable yet, and the total became positive: one is raised,
+     *   with its communication, exactly as at submission;
+     * - a receivable whose amount differs: it moves in place, keeping its
+     *   communication and every payment matched against it. Below what
+     *   has already come in, finance is told so explicitly, and the
+     *   surplus reads as a trop-perçu on the treasurer's « Paiements à
+     *   traiter » — never silently;
+     * - the total became zero: the receivable stays, at zero, with its
+     *   communication — never deleted, even when nothing has come in yet:
+     *   imports lag by days, and a transfer already made must still find
+     *   its receivable and read as a trop-perçu rather than as money nobody
+     *   expected. Finance reads a zero amount as owing nothing.
+     *
+     * @return bool whether what the response owes changed
+     */
+    private function moveReceivable(FormResponse $response, NewsForm $form, float $total, string $contactEmail): bool
+    {
+        $notRecorded = "Votre modification n'a pas été enregistrée.";
+        $cents = (int) round($total * 100);
+        // The link as committed now, under the response's row lock — never
+        // the caller's copy of the response, loaded before that lock: a
+        // competing edit may have raised a receivable since, and deciding
+        // on the stale copy would raise a second one.
+        $receivableId = $this->responseRepository->lockReceivableLink($response->id)['receivable_id'];
+
+        $standing = null;
+        if ($receivableId !== null && $this->expectedReceivable !== null) {
+            $standing = $this->expectedReceivable->getReceivableStanding(
+                self::RECEIVABLE_SOURCE,
+                $receivableId
+            );
+            // Linked to a receivable finance no longer knows (deleted by
+            // hand): the link is dropped, and the response is treated as
+            // one that has none. Finance reads the receivable as committed
+            // now inside this transaction (ExpectedReceivableService::
+            // currentReads()), so one a competing edit raised after this
+            // transaction's snapshot is found, never mistaken for gone.
+            if ($standing === null) {
+                $this->responseRepository->clearReceivable($response->id);
+            }
+        }
+
+        if ($standing === null) {
+            if ($receivableId !== null && $this->expectedReceivable === null) {
+                // Finance is disabled: nothing can be read or moved.
+                return false;
+            }
+            if (!$this->opensReceivable($form, $total)) {
+                return false;
+            }
+            [$communication, $newReceivableId] = $this->openReceivable($form, $total, $contactEmail, $notRecorded);
+            $this->responseRepository->setReceivable($response->id, $communication, $newReceivableId);
+
+            return true;
+        }
+
+        if ($standing->amountDueCents === $cents) {
+            return false;
+        }
+
+        $held = $standing->amountReceivedCents - $standing->amountRefundedCents;
+        try {
+            $this->expectedReceivable->updateReceivableAmount(
+                $receivableId,
+                $cents,
+                allowBelowReceived: $cents < $held
+            );
+        } catch (FinanceException $e) {
+            throw new NewsException(
+                'Le montant dû de cette réponse ne peut pas être modifié pour le moment : prévenez le responsable '
+                . 'du formulaire. ' . $notRecorded,
+                0,
+                $e
+            );
+        }
+
+        return true;
+    }
+
+    /**
+     * The one-off reprise of issue #1525: marks every response stored with
+     * a quantity the server now refuses — a negative on any number field,
+     * anything but a whole number on a quantity field — so the Staff d'U
+     * sees them on the attention-points page (NewsAttentionProvider) and
+     * corrects them. Nothing is changed in the answers themselves: what
+     * the respondent meant is for a person to decide.
+     *
+     * Reads every number answer once; run from the composition root behind
+     * a settings flag, never on a page.
+     *
+     * @return int the number of responses marked
+     */
+    public function flagResponsesWithInvalidQuantities(): int
+    {
+        if ($this->fieldRepository === null) {
+            return 0;
+        }
+
+        /** @var array<int, ?FormField> $fields */
+        $fields = [];
+        $flagged = [];
+        foreach ($this->responseRepository->findNumberAnswers() as $answer) {
+            if (!array_key_exists($answer['field_id'], $fields)) {
+                $fields[$answer['field_id']] = $this->fieldRepository->findById($answer['field_id']);
+            }
+            $field = $fields[$answer['field_id']];
+            if ($field !== null && self::isInvalidStoredNumber($field, $answer['value'])) {
+                $flagged[$answer['response_id']] = $answer['response_id'];
+            }
+        }
+
+        $this->responseRepository->flagInvalidQuantity(array_values($flagged), date('Y-m-d H:i:s'));
+
+        return count($flagged);
+    }
+
+    /**
+     * Whether a stored number answer breaks the rules normalizeNumberAnswer()
+     * now applies — the same rule as the door's (FormField::storedQuantity()).
+     * An answer that cannot be read at all (null) is flagged too: a person
+     * has to look at it.
+     */
+    private static function isInvalidStoredNumber(FormField $field, ?string $value): bool
+    {
+        if ($value === null) {
+            return true;
+        }
+        if ($value === '') {
+            return false;
+        }
+        if (is_numeric($value) && (float) $value < 0) {
+            return true;
+        }
+
+        return $field->isQuantity() && $field->storedQuantity($value) === null;
+    }
+
     public function canEditResponse(FormResponse $response, NewsForm $form, Role $role, ?int $currentAccountId): bool
     {
         if ($role->hasAccess(Role::ADMIN)) {
@@ -684,7 +950,12 @@ class ResponseService
         string $contactEmail,
         array $answers,
         ?string $userEmail,
-        int $scoutYearId
+        int $scoutYearId,
+        // The article, for the confirmation e-mail an edit that changes
+        // the amount due sends (issue #1525). Trailing-optional so the
+        // callers that only correct answers keep working; without it no
+        // e-mail leaves.
+        ?Article $article = null
     ): FormResponse
     {
         $memberOptions = $form->access === NewsForm::ACCESS_IDENTIFIED
@@ -697,6 +968,7 @@ class ResponseService
             $response->id,
             $this->responseRepository->getValues($response->id)
         );
+        $total = $this->computeTotalOrRefuse($fields, $normalizedAnswers);
 
         $this->responseRepository->beginTransaction();
         try {
@@ -710,10 +982,10 @@ class ResponseService
                     continue;
                 }
                 $requested = (float) ($normalizedAnswers[$field->id] ?? 0);
-                $previous = self::numericAnswer($previousAnswers[$field->id] ?? null);
+                $previous = self::numericAnswer($field, $previousAnswers[$field->id] ?? null);
                 $used = $this->fieldRepository !== null
                     ? $this->fieldRepository->usedCapacity($field->id, lockForUpdate: true) - $previous
-                    : $this->responseRepository->sumFieldValues($field->id, $response->id, lockForUpdate: true);
+                    : $this->responseRepository->sumFieldValues($field, $response->id, lockForUpdate: true);
                 if ($used + $requested > $field->capacityMax) {
                     throw new NewsException('Il n\'y a plus assez de places disponibles pour "' . $field->label . '".');
                 }
@@ -729,9 +1001,11 @@ class ResponseService
                 $this->fieldRepository?->addUsedCapacity(
                     $field->id,
                     (float) ($normalizedAnswers[$field->id] ?? 0)
-                        - self::numericAnswer($previousAnswers[$field->id] ?? null)
+                        - self::numericAnswer($field, $previousAnswers[$field->id] ?? null)
                 );
             }
+
+            $amountChanged = $this->moveReceivable($response, $form, $total, $contactEmail);
 
             $this->responseRepository->commit();
         } catch (\Throwable $e) {
@@ -739,7 +1013,28 @@ class ResponseService
             throw $e;
         }
 
-        return $this->responseRepository->findById($response->id);
+        $updated = $this->responseRepository->findById($response->id);
+        \assert($updated !== null);
+
+        // What the respondent owes changed: they are told, with what is
+        // left to pay and how — the same confirmation as at submission,
+        // and the same rule that a mail failure never undoes the save.
+        if ($amountChanged && $article !== null) {
+            try {
+                $this->sendConfirmationEmail($article, $form, $fields, $updated, $total);
+            } catch (MailException $e) {
+                $this->journalService?->log(
+                    'news',
+                    'confirmation_email_failed',
+                    'info',
+                    'Échec de l\'envoi de l\'email de confirmation pour une réponse de formulaire modifiée',
+                    ['article_id' => $article->id, 'form_id' => $form->id, 'response_id' => $updated->id],
+                    $updated->userAccountId
+                );
+            }
+        }
+
+        return $updated;
     }
 
     /**
@@ -803,8 +1098,8 @@ class ResponseService
                 $this->assertValidOptions($field, [$value]);
             }
 
-            if ($field->fieldType === FormField::TYPE_NUMBER && $value !== '' && !is_numeric($value)) {
-                throw new NewsException('Le champ "' . $field->label . '" doit être un nombre.');
+            if ($field->fieldType === FormField::TYPE_NUMBER && $value !== '') {
+                $value = $this->normalizeNumberAnswer($field, $value);
             }
 
             // Mirrors the client-side type="email"/pattern constraints
@@ -830,6 +1125,54 @@ class ResponseService
         }
 
         return $normalized;
+    }
+
+    /**
+     * A number answer as it is stored, or a refusal in French (issue
+     * #1525). The browser's `min="0"` and `step="1"` are a convenience; a
+     * request sent directly bypasses them, so the rules live here:
+     *
+     * - no number field takes a negative;
+     * - a quantity field (FormField::isQuantity()) takes a whole number
+     *   written in digits and nothing else — `0.5`, `1e2`, ` 3` and `+3`
+     *   are refused rather than read as some number the respondent did not
+     *   type — and stores it canonical (`007` is `7`);
+     * - and at most its capacity when it has one — what REMAINS of it is
+     *   checked under the row lock when the answer is written (submit(),
+     *   update()) — or MAX_QUANTITY_PER_RESPONSE when it has none.
+     */
+    private function normalizeNumberAnswer(FormField $field, string $value): string
+    {
+        $label = (string) $field->label;
+
+        if (is_numeric($value) && (float) $value < 0) {
+            throw new NewsException('Le champ "' . $label . '" ne peut pas être négatif.');
+        }
+
+        if (!$field->isQuantity()) {
+            if (!is_numeric($value)) {
+                throw new NewsException('Le champ "' . $label . '" doit être un nombre.');
+            }
+
+            return $value;
+        }
+
+        if (preg_match('/^\d+$/', $value) !== 1) {
+            throw new NewsException(
+                'Le champ "' . $label . '" doit être un nombre entier, écrit en chiffres seulement (0, 1, 2…).'
+            );
+        }
+
+        $max = $field->capacityMax ?? self::MAX_QUANTITY_PER_RESPONSE;
+        $quantity = IntegerInput::bounded($value, 0, $max);
+        if ($quantity === null) {
+            throw new NewsException($field->capacityMax !== null
+                ? 'Il n\'y a plus assez de places disponibles pour "' . $label . '".'
+                : 'Le champ "' . $label . '" ne peut pas dépasser '
+                    . self::MAX_QUANTITY_PER_RESPONSE . ' par réponse.');
+        }
+
+        return (string) $quantity;
     }
 
     private function isCapacityExhausted(FormField $field, ?int $excludeResponseId): bool
@@ -1043,6 +1386,7 @@ class ResponseService
      *
      * @param array{
      *     total: float,
+     *     received: float,
      *     iban: string,
      *     beneficiary: string,
      *     communication: string,
@@ -1057,6 +1401,11 @@ class ResponseService
 
         return implode("\n", [
             'Montant à payer : ' . number_format($payment['total'], 2, ',', ' ') . ' €',
+            // After an edit that raised the amount (issue #1525): what is
+            // asked is the difference, and the parent sees why.
+            ...($payment['received'] > 0.0
+                ? ['Déjà reçu : ' . number_format($payment['received'], 2, ',', ' ') . ' €']
+                : []),
             'Compte : ' . $payment['beneficiary'],
             'IBAN : ' . $payment['iban'],
             'Communication structurée : ' . $payment['communication'],

@@ -150,24 +150,36 @@ class DeskImportService
             // Mark all existing member_years for this year as inactive
             $this->memberYearRepository->deactivateAllForYear($scoutYearId);
 
-            // Mark all sections inactive — reactivated below as each is
-            // referenced by a member (see MappingResolver::resolveSection()).
-            // A section with no members this year ends up inactive: kept,
-            // never deleted, hidden from the site until it has members again.
-            $this->mappingResolver->deactivateAllSections();
+            // Which sections are active is recomputed once the roster is
+            // written, below — from every roster from the public year on,
+            // never from this file alone (issue #1460).
+            $sectionsActiveBefore = $this->mappingResolver->activeSectionIds();
 
-            // "Staff d'U" is never referenced by a CSV "Section" column, so
-            // deactivateAllSections() above would otherwise leave it
-            // inactive — force it back on immediately.
+            // "Staff d'U" is never referenced by a CSV "Section" column;
+            // created here if it is missing, and always kept active.
             $this->unitStaffSectionService->ensureSection();
 
+            $closedByRollover = 0;
             foreach ($parsed->members as $member) {
-                $this->importMember($member, $scoutYearId, $warnings, $asOf);
+                $closedByRollover += $this->importMember($member, $scoutYearId, $warnings, $asOf);
             }
 
             // Recompute Staff d'U from stored roles, including defaults just
             // assigned to newly encountered standard functions.
             $this->unitStaffSectionService->syncMembership($scoutYearId);
+
+            // A section is active when somebody holds a function in it in
+            // the public year or a later one (Staff d'U always). Importing
+            // next year's file, or replaying a past one, therefore changes
+            // nothing the public year shows, and a section that only exists
+            // next year stays visible to the staff preparing it. One flag,
+            // read by every list of sections, none of which has a year in
+            // hand: ImportSectionRepository::recomputeActive().
+            $importedYear = $this->scoutYears->findById($scoutYearId);
+            $this->mappingResolver->recomputeSectionActivity(
+                $this->yearPolicy->sectionActivityFrom($importedYear['start_date'] ?? '0000-01-01')
+            );
+            $sectionsActiveAfter = $this->mappingResolver->activeSectionIds();
 
             // A member whose Desk address just changed keeps the status
             // row a mailing wrote for the former one; it goes now, inside
@@ -265,9 +277,29 @@ class DeskImportService
             'roster_snapshot_taken',
             'info',
             'Composition du roster figée après un import Desk : ' . $snapshot->memberCount . ' membre(s)',
-            ['snapshot_id' => $snapshot->id, 'scout_year_id' => $scoutYearId, 'count' => $snapshot->memberCount],
+            [
+                'snapshot_id' => $snapshot->id,
+                'scout_year_id' => $scoutYearId,
+                'count' => $snapshot->memberCount,
+                'sections_activated' => count(array_diff($sectionsActiveAfter, $sectionsActiveBefore)),
+                'sections_deactivated' => count(array_diff($sectionsActiveBefore, $sectionsActiveAfter)),
+            ],
             $importedBy > 0 ? $importedBy : null
         );
+
+        // Section periods an earlier scout year left open, closed at that
+        // year's end by this import (SectionMembershipService). Written
+        // only when there were some: a count and a year, nobody's name.
+        if ($closedByRollover > 0) {
+            $this->journal->log(
+                'core',
+                'section_periods_closed_by_import',
+                'info',
+                'Périodes de section d\'une année antérieure clôturées par un import Desk : ' . $closedByRollover,
+                ['scout_year_id' => $scoutYearId, 'closed' => $closedByRollover],
+                $importedBy > 0 ? $importedBy : null
+            );
+        }
 
         // Members this import CREATED, compared with earlier scout years:
         // somebody who left and came back was re-created in Desk under a
@@ -462,6 +494,9 @@ class DeskImportService
     }
 
     /**
+     * Returns how many periods of an earlier scout year the section sync
+     * closed for this member ({@see SectionMembershipService::syncForMember()}).
+     *
      * @param string[] $warnings
      */
     private function importMember(
@@ -469,7 +504,7 @@ class DeskImportService
         int $scoutYearId,
         array &$warnings,
         \DateTimeImmutable $asOf
-    ): void
+    ): int
     {
         // Upsert member
         $memberId = $this->memberRepository->upsertByDeskId($member->deskId);
@@ -647,7 +682,7 @@ class DeskImportService
         }
         $this->memberYearRepository->replaceFunctions($memberYearId, $functions);
 
-        $this->sectionMembershipService->syncForMember($memberId, $memberYearId, $scoutYearId, $asOf);
+        return $this->sectionMembershipService->syncForMember($memberId, $memberYearId, $scoutYearId, $asOf);
     }
 
     private function ensureUserAccount(string $email, string $blindIndex): void

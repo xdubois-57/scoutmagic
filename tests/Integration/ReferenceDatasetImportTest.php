@@ -255,10 +255,10 @@ final class ReferenceDatasetImportTest extends TestCase
 
     public function testTheEmptiedSectionGoesInactiveAndIsNeverDeleted(): void
     {
-        // Scenario 15. MappingResolver::deactivateAllSections() turns every
-        // section off at the start of each import and resolveSection() turns
-        // back on the ones actually referenced — so a section with no members
-        // is left inactive, never dropped.
+        // Scenario 15. ImportSectionRepository::recomputeActive() keeps a
+        // section active only while it has members from the reference year
+        // on — the imported one here, the replay knowing no public year —
+        // so a section emptied in A3 is left inactive, never dropped.
         $row = $this->sectionRow('Iama Horizon');
 
         self::assertNotNull($row, 'the emptied section was deleted instead of being deactivated');

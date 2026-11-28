@@ -160,6 +160,28 @@ describe('the verdict', () => {
         expect(verdictHtml()).not.toContain('Faire payer');
     });
 
+    it('shows a stored quantity that is not a whole number, with a warning, rather than leaving it out', async () => {
+        // Issue #1525: « Adultes × 4 » with « Enfants × -8 » hidden is a
+        // ticket that looks paid for four when it was paid for none.
+        await show(verdict({
+            seats: [
+                { label: 'Adultes', quantity: '4', invalid: false },
+                { label: 'Enfants', quantity: '-8', invalid: true },
+            ],
+        }));
+
+        const html = verdictHtml();
+        expect(html).toContain('Enfants');
+        expect(html).toContain('× -8');
+        expect(html).toContain('Quantité invalide dans cette réservation');
+    });
+
+    it('raises no quantity warning on an ordinary booking', async () => {
+        await show(verdict());
+
+        expect(verdictHtml()).not.toContain('Quantité invalide');
+    });
+
     it('says when a used ticket was used, and offers to take it back', async () => {
         await show(verdict({ status: 'used', used_at: '2026-03-14 19:42:00' }));
 

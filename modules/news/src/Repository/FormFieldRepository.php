@@ -222,7 +222,10 @@ class FormFieldRepository
         }
         try {
             $this->usedCapacity($fieldId, lockForUpdate: true);
-            $used = $responses->sumFieldValues($fieldId);
+            // The field itself, so each answer counts what
+            // FormField::storedQuantity() says it does (issue #1525).
+            $field = $this->findById($fieldId);
+            $used = $field === null ? 0.0 : $responses->sumFieldValues($field);
             $stmt = $this->pdo->prepare('UPDATE news_form_fields SET capacity_used = ? WHERE id = ?');
             $stmt->execute([$used, $fieldId]);
             if ($ownTransaction) {
@@ -254,7 +257,13 @@ class FormFieldRepository
         $update = $this->pdo->prepare('UPDATE news_form_fields SET capacity_used = ? WHERE id = ?');
         $count = 0;
         foreach ($stmt->fetchAll(\PDO::FETCH_COLUMN) as $fieldId) {
-            $update->execute([$responses->sumFieldValues((int) $fieldId), (int) $fieldId]);
+            // The field itself, so each answer counts what
+            // FormField::storedQuantity() says it does (issue #1525).
+            $field = $this->findById((int) $fieldId);
+            if ($field === null) {
+                continue;
+            }
+            $update->execute([$responses->sumFieldValues($field), $field->id]);
             $count++;
         }
 

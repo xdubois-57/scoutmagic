@@ -941,6 +941,43 @@ phone's browser (`installed-app-links.js`). The `/files/…` link rule
 (`partials/file_link.html.twig`, `UxConventionsTest`) stays: it is what
 still serves a browser tab, where nothing is intercepted.
 
+**Un document à lire depuis un formulaire s'ouvre par-dessus ce formulaire
+dans l'application installée** (issue #1431). A link to one of this site's
+own pages stays inside the installed window whatever `target="_blank"`
+says, and replaces the form with no way back. A link marked
+`data-document-reader="<titre du dialogue>"` — a real anchor, its
+canonical address, `target="_blank" rel="noopener"` — is opened by
+`document-reader.js` in the one shared dialog of `base.html.twig`
+(`#document-reader`, `partials/modal.html.twig`, full-screen on a phone,
+« Fermer et revenir », clear of the safe areas), only when the window is
+the installed app (`display-mode: standalone` or `navigator.standalone`),
+never by screen size. A browser tab is untouched: the new tab does the
+job. The dialog shows the canonical page's own content — the element its
+template marks `data-document-reader-content` (with
+`data-document-reader-title`), fetched at the link's address, so the
+rental conditions are the exact archived version the form holds. It is
+parsed by DOMParser and stripped of scripts, forms, embeds, SVG/MathML,
+styles, ids, namespaced attributes and event handlers before it enters
+the page, and a link or image keeps its address only on an allowlist of
+schemes (`http:`, `https:`, `mailto:`, `tel:`, `data:image/` for an
+image), judged after the URL parser — the rule `Core\Security\HtmlSanitizer`
+follows; a failure is said in the
+dialog with « Réessayer » and « Ouvrir à part », never a navigation. A
+link to this site inside the dialog — the notice's own « page de
+préférences cookies », « Ouvrir à part » — goes to `window.open()` — through
+`x-safari-` on an iPhone or iPad, where the installed application would
+otherwise keep its own page in its one window (`document-viewer.js`'s
+`browserAddress()` rule): followed in place it would replace the form
+behind the dialog. The document is fetched with a timeout, and when the
+network does not answer the reader reads the copy the service worker keeps
+for offline reading — a `fetch()` is never a navigation, so the worker's
+own offline fallback does not apply to it.
+Reading is not agreeing: the click is cancelled before the `<label>` it
+sits in can tick its box. The marked links are exactly the ticket's —
+the booking request, the three sign-in modes, the public registration
+form, the footer — and `DocumentReaderScopeTest` fails on any other until
+the scope is decided.
+
 **A photo taken on the spot is a tile, not a drop zone** (#989). Where a
 manager photographs what is in front of them — an incident, a meter —
 the photos are a row of 72 px square thumbnails ending with a dashed

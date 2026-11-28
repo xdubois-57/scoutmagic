@@ -255,6 +255,37 @@ $installationProfile = \Core\Module\InstallationProfile::resolve(
     $declaredProfiles
 );
 
+// A sandbox armed but no longer acting blocks here exactly as on the web
+// (Core\Security\SandboxLossState, issue #1469): recorded with the same
+// rule, so whichever entry point sees the loss first journals it — once —
+// and a scheduled task never sends for real what a page would have
+// refused to.
+\Core\Security\SandboxLossState::register($settingService);
+$sandboxLossState = new \Core\Security\SandboxLossState($settingService);
+$sandboxRegistryRepo = new ModuleRegistryRepository($pdo);
+$sandboxLossState->record(
+    \Core\Security\SandboxLossState::CHANNEL_MAIL,
+    \Modules\TestTools\Sandbox\SandboxLoss::mailLossReason(
+        $installationProfile,
+        $declaredProfiles,
+        $sandboxRegistryRepo,
+        $settingService,
+        __DIR__ . '/../modules'
+    ),
+    $journalService
+);
+$sandboxLossState->record(
+    \Core\Security\SandboxLossState::CHANNEL_TELEPHONY,
+    \Modules\TestTools\Sandbox\SandboxLoss::telephonyLossReason(
+        $installationProfile,
+        $declaredProfiles,
+        $sandboxRegistryRepo,
+        $settingService,
+        __DIR__ . '/../modules'
+    ),
+    $journalService
+);
+
 // **The provider chain holds here too** (Core\Mail\Transport,
 // ARCHITECTURE.md §8.106), and for the same reason as the sandbox above:
 // half of this site's mail leaves from a scheduled task, the publipostage
@@ -273,10 +304,9 @@ $mailTransport = \Core\Mail\Transport\MailTransportFactory::build(
     $secrets,
     $settingService,
     $encryptionService,
-    \Modules\TestTools\Mail\CaptureTransportFactory::forInstallation(
-        $installationProfile,
-        new ModuleRegistryRepository($pdo),
+    \Modules\TestTools\Mail\CaptureTransportFactory::transportFor(
         $settingService,
+        $sandboxLossState,
         $pdo,
         $encryptionService,
         dirname(__DIR__) . '/storage'
@@ -470,7 +500,8 @@ scoutmagicBootstrapScheduler(
     // that emits the copies; without the module behind it,
     // `addresses()` answers « none » and nothing is ever measured.
     $seedMailboxes,
-    installationProfile: $installationProfile
+    installationProfile: $installationProfile,
+    sandboxLossState: $sandboxLossState
 );
 
 // Migrate the whole declared schema, before anything else runs.

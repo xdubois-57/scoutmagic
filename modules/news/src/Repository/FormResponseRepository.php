@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\News\Repository;
 
+use Core\Security\DecryptionException;
 use Core\Security\EncryptionService;
 
 class FormResponseRepository
@@ -171,8 +172,10 @@ class FormResponseRepository
     public function update(int $responseId, string $contactEmail, array $values): void
     {
         $stmt = $this->pdo->prepare(
-            'UPDATE news_form_responses SET contact_email = ?, contact_email_blind_index = ?, updated_at = ? WHERE id '
-                . '= ?'
+            // The answers written here passed the current validation, so a
+            // quantity flagged by the reprise of issue #1525 is gone.
+            'UPDATE news_form_responses SET contact_email = ?, contact_email_blind_index = ?, updated_at = ?, '
+                . 'invalid_quantity_flagged_at = NULL WHERE id = ?'
         );
         $stmt->execute([
             $this->encryption->encrypt(
@@ -247,7 +250,7 @@ class FormResponseRepository
     }
 
     /**
-     * Sum of all numeric answers for $fieldId across every response
+     * Sum of the quantities $field's answers hold across every response
      * (module spec: capacity is the cumulative sum of all responses).
      * Values are encrypted, so this decrypts and sums in PHP — never in
      * SQL. $lockForUpdate takes a real row lock on MySQL (InnoDB) to
@@ -260,7 +263,7 @@ class FormResponseRepository
      * @param int|null $excludeResponseId when editing an existing response, its own previous value is excluded from the
      *     sum (module spec: "their own previous value is returned to the pool for the edit")
      */
-    public function sumFieldValues(int $fieldId, ?int $excludeResponseId = null, bool $lockForUpdate = false): float
+    public function sumFieldValues(FormField $field, ?int $excludeResponseId = null, bool $lockForUpdate = false): float
     {
         $sql = 'SELECT value, response_id FROM news_form_response_values WHERE field_id = ?';
         if ($lockForUpdate && $this->pdo->getAttribute(\PDO::ATTR_DRIVER_NAME) === 'mysql') {
@@ -268,9 +271,9 @@ class FormResponseRepository
         }
 
         $stmt = $this->pdo->prepare($sql);
-        $stmt->execute([$fieldId]);
+        $stmt->execute([$field->id]);
 
-        $sum = 0.0;
+        $sum = 0;
         foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
             if ($excludeResponseId !== null && (int) $row['response_id'] === $excludeResponseId) {
                 continue;
@@ -278,10 +281,27 @@ class FormResponseRepository
             if ($row['value'] === null) {
                 continue;
             }
-            $sum += (float) $this->encryption->decrypt($row['value'], 'news_form_response_values.value');
+            // Each answer counts exactly what FormField::storedQuantity()
+            // says (issue #1525) — the rule the door and the reprise apply
+            // too: a whole number in digits, within the field's capacity or
+            // the per-answer ceiling, and nothing otherwise. A negative
+            // stored before then gives no place back (it would shrink the
+            // total and sell the places a second time), and a fraction, a
+            // figure above the ceiling or anything else consumes nothing
+            // rather than whatever a cast makes of it. An answer that can
+            // no longer be decrypted counts as nothing too, rather than
+            // making the whole sum — and the reprise reading it — fail;
+            // the reprise flags its response for the Staff d'U
+            // (findNumberAnswers()).
+            try {
+                $value = $this->encryption->decrypt($row['value'], 'news_form_response_values.value');
+            } catch (DecryptionException) {
+                continue;
+            }
+            $sum += $field->storedQuantity($value) ?? 0;
         }
 
-        return $sum;
+        return (float) $sum;
     }
 
     public function setReceivable(int $responseId, string $structuredCommunication, int $receivableId): void
@@ -289,6 +309,134 @@ class FormResponseRepository
         $stmt = $this->pdo->prepare('UPDATE news_form_responses SET structured_communication = ?, receivable_id = ? '
             . 'WHERE id = ?');
         $stmt->execute([$structuredCommunication, $receivableId, $responseId]);
+    }
+
+    /**
+     * The receivable link as COMMITTED now, read under a lock on the
+     * response's row — what an edit decides on (Service\ResponseService::
+     * moveReceivable()). Two edits of one response loaded while it had no
+     * receivable would otherwise both create one. A plain read is not
+     * enough on MySQL/MariaDB: inside a REPEATABLE READ transaction it
+     * returns the snapshot taken at the transaction's first read, and
+     * misses the link a competing edit committed since; `FOR UPDATE` reads
+     * the latest committed row and holds it. SQLite serialises writers
+     * and has no such clause.
+     *
+     * @return array{receivable_id: ?int, structured_communication: ?string}
+     */
+    public function lockReceivableLink(int $responseId): array
+    {
+        $sql = 'SELECT receivable_id, structured_communication FROM news_form_responses WHERE id = ?';
+        if ($this->pdo->getAttribute(\PDO::ATTR_DRIVER_NAME) === 'mysql') {
+            $sql .= ' FOR UPDATE';
+        }
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute([$responseId]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+        return [
+            'receivable_id' => is_array($row) && $row['receivable_id'] !== null ? (int) $row['receivable_id'] : null,
+            'structured_communication' => is_array($row) && $row['structured_communication'] !== null
+                ? (string) $row['structured_communication']
+                : null,
+        ];
+    }
+
+    /**
+     * Unlinks the response from its receivable and its communication — the
+     * receivable was deleted because the response no longer costs anything
+     * (Service\ResponseService::update()).
+     */
+    public function clearReceivable(int $responseId): void
+    {
+        $stmt = $this->pdo->prepare(
+            'UPDATE news_form_responses SET structured_communication = NULL, receivable_id = NULL WHERE id = ?'
+        );
+        $stmt->execute([$responseId]);
+    }
+
+    /**
+     * Every answer to a number field, decrypted, with what makes the field
+     * a quantity — what the reprise of issue #1525 reads once to find the
+     * responses stored with a negative or fractional quantity. A one-off
+     * pass over the whole table, never run on a page.
+     *
+     * An answer that can no longer be decrypted (a corrupted value, a key
+     * changed) comes back as null rather than stopping the pass: the
+     * reprise would otherwise never complete and run again on every
+     * request.
+     *
+     * @return list<array{response_id: int, field_id: int, value: ?string}>
+     */
+    public function findNumberAnswers(): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT v.response_id, v.field_id, v.value FROM news_form_response_values v '
+                . 'JOIN news_form_fields f ON f.id = v.field_id '
+                . "WHERE f.field_type = 'number' AND v.value IS NOT NULL ORDER BY v.response_id, v.field_id"
+        );
+        $stmt->execute();
+
+        $answers = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            try {
+                $value = $this->encryption->decrypt($row['value'], 'news_form_response_values.value');
+            } catch (DecryptionException) {
+                $value = null;
+            }
+            $answers[] = [
+                'response_id' => (int) $row['response_id'],
+                'field_id' => (int) $row['field_id'],
+                'value' => $value,
+            ];
+        }
+
+        return $answers;
+    }
+
+    /**
+     * Marks these responses as holding an invalid quantity (issue #1525).
+     * A response already marked keeps its first date.
+     *
+     * @param int[] $responseIds
+     */
+    public function flagInvalidQuantity(array $responseIds, string $at): void
+    {
+        $stmt = $this->pdo->prepare(
+            'UPDATE news_form_responses SET invalid_quantity_flagged_at = ? '
+                . 'WHERE id = ? AND invalid_quantity_flagged_at IS NULL'
+        );
+        foreach (array_unique($responseIds) as $responseId) {
+            $stmt->execute([$at, (int) $responseId]);
+        }
+    }
+
+    /**
+     * How many flagged responses each article's form still holds — one
+     * aggregate query, which is what lets the attention-points page show it
+     * on every display (Core\Attention\AttentionPointProvider).
+     *
+     * @return list<array{article_id: int, title: string, count: int}>
+     */
+    public function countInvalidQuantitiesByArticle(): array
+    {
+        $stmt = $this->pdo->query(
+            'SELECT a.id AS article_id, a.title, COUNT(*) AS flagged FROM news_form_responses r '
+                . 'JOIN news_forms f ON f.id = r.form_id '
+                . 'JOIN news_articles a ON a.id = f.news_article_id '
+                . 'WHERE r.invalid_quantity_flagged_at IS NOT NULL '
+                . 'GROUP BY a.id, a.title ORDER BY a.id'
+        );
+        \assert($stmt !== false);
+
+        return array_map(
+            static fn (array $row): array => [
+                'article_id' => (int) $row['article_id'],
+                'title' => (string) $row['title'],
+                'count' => (int) $row['flagged'],
+            ],
+            $stmt->fetchAll(\PDO::FETCH_ASSOC)
+        );
     }
 
     /**
@@ -409,7 +557,10 @@ class FormResponseRepository
             submittedAt: (string) $row['submitted_at'],
             updatedAt: $row['updated_at'] !== null ? (string) $row['updated_at'] : null,
             ticketReference: ($row['ticket_reference'] ?? null) !== null ? (string) $row['ticket_reference'] : null,
-            ticketUsedAt: ($row['ticket_used_at'] ?? null) !== null ? (string) $row['ticket_used_at'] : null
+            ticketUsedAt: ($row['ticket_used_at'] ?? null) !== null ? (string) $row['ticket_used_at'] : null,
+            invalidQuantityFlaggedAt: ($row['invalid_quantity_flagged_at'] ?? null) !== null
+                ? (string) $row['invalid_quantity_flagged_at']
+                : null
         );
     }
 }

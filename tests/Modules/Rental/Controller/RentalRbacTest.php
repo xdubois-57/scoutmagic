@@ -723,6 +723,33 @@ class RentalRbacTest extends TestCase
         $this->assertStringContainsString('Le local est rendu lavé.', $current);
     }
 
+    /**
+     * What the document reader shows in the installed application (issue
+     * #1431): the marked block of the version the form linked to, even once
+     * a newer wording exists — and none of the page around it.
+     */
+    public function testTheReaderContentOfAVersionIsThatVersionAlone(): void
+    {
+        $assetId = $this->createAsset('Local Saint-Georges', 'local-saint-georges');
+        $conditions = $this->conditionsService();
+        $first = $conditions->recordSave($assetId, '<p>Le local est rendu balayé.</p>', 1);
+        $conditions->recordSave($assetId, '<p>Le local est rendu lavé.</p>', 1);
+
+        $page = new \DOMDocument();
+        @$page->loadHTML((string) $this->dispatchConditions('local-saint-georges', $first->version)->getBody());
+        $marked = (new \DOMXPath($page))->query('//*[@data-document-reader-content]');
+
+        $this->assertSame(1, $marked->length);
+        $block = $marked->item(0);
+        $this->assertInstanceOf(\DOMElement::class, $block);
+        $this->assertSame('Conditions de location — Local Saint-Georges', $block->getAttribute('data-document-reader-title'));
+        $text = $block->textContent;
+        $this->assertStringContainsString('Le local est rendu balayé.', $text);
+        $this->assertStringNotContainsString('rendu lavé', $text);
+        $this->assertStringContainsString('ne sont plus celles en vigueur', $text);
+        $this->assertSame(0, (new \DOMXPath($page))->query('.//form|.//script|.//nav', $block)->length);
+    }
+
     public function testAnUnknownOrMalformedConditionsVersionIs404(): void
     {
         $this->createAsset('Local Saint-Georges', 'local-saint-georges');

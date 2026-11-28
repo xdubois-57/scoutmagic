@@ -64,9 +64,15 @@ class RgpdCoverageTest extends TestCase
     {
         $content = $this->service()->getDefaultContent();
 
-        foreach (['clôturé', 'supprimé définitivement', 'supprimé intégralement', 'épinglé'] as $needle) {
+        foreach (['archivé', 'supprimé définitivement', 'supprimé intégralement', 'épinglé'] as $needle) {
             $this->assertStringContainsString($needle, $content, "retention wording missing: {$needle}");
         }
+        // One state, « archivé », and one starting point for the purge
+        // whatever archived the group (#1350): « clôturé » described a
+        // second state that no longer exists.
+        $this->assertStringContainsString("après la date de son archivage", $content);
+        $this->assertStringContainsString("année scoute terminée", $content);
+        $this->assertDoesNotMatchRegularExpression('/groupe[^.<]{0,40}cl[ôo]tur/iu', $content);
 
         // Named in the retention section too, not only inside the module's
         // own sub-section — that section is where a reader looks first.

@@ -713,8 +713,8 @@ class GroupController extends AbstractController
     }
 
     /**
-     * POST /groups/{id}/close — moderator only: archives the group by
-     * hand (issue #1350; the route keeps its historical path).
+     * POST /groups/{id}/archive — moderator only: archives the group by
+     * hand (issue #1350).
      *
      * The manual counterpart of Task\CloseInactiveGroupsHandler: a
      * project that is over does not need to wait months for the
@@ -723,7 +723,7 @@ class GroupController extends AbstractController
      *
      * @param array<string, string> $params
      */
-    public function close(Request $request, array $params): Response
+    public function archive(Request $request, array $params): Response
     {
         return $this->moderatorAction($request, $params, function (
             DiscussionGroup $group,

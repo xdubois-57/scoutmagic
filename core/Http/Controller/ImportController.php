@@ -415,11 +415,23 @@ class ImportController extends AbstractController
         // 'accepted' registration request for this year against the
         // members just imported. A no-op when the registration module is
         // disabled ($registrationReconciliation is null then).
-        $this->registrationReconciliation?->reconcileForYear($scoutYearId);
+        //
+        // The import is already committed here. Whatever the
+        // reconciliation throws, it never hides that success (issue
+        // #1434): the page renders the import's report with a warning,
+        // and the requests left 'accepted' can still be linked by hand.
+        $reconciliationFailed = false;
+        try {
+            $this->registrationReconciliation?->reconcileForYear($scoutYearId);
+        } catch (\Throwable $e) {
+            $reconciliationFailed = true;
+            error_log('ScoutMagic: registration reconciliation after a Desk import failed (' . $e::class . ').');
+        }
 
         $data = $this->importPageData($scoutYearId) + [
             'import_result' => $result,
             'import_rejection' => null,
+            'reconciliation_failed' => $reconciliationFailed,
         ];
 
         return $this->render('admin/import.html.twig', $data);

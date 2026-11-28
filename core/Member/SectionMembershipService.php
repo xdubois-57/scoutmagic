@@ -29,8 +29,11 @@ class SectionMembershipService
      * touches nothing. $asOf is the import's own date — used both as the
      * close date for a section a member just left and the start date for
      * one they just joined.
+     *
+     * Returns how many periods of an EARLIER scout year the rollover
+     * safety net closed, so the import can journal the total once.
      */
-    public function syncForMember(int $memberId, int $memberYearId, int $scoutYearId, \DateTimeImmutable $asOf): void
+    public function syncForMember(int $memberId, int $memberYearId, int $scoutYearId, \DateTimeImmutable $asOf): int
     {
         $today = $asOf->format('Y-m-d');
 
@@ -38,10 +41,21 @@ class SectionMembershipService
         // year (i.e. the year it belongs to ended without this sync ever
         // running against it) is closed now, at THAT year's own end_date —
         // never at today's date, so it never bleeds into the current year.
-        foreach ($this->repository->findOpenPeriodsForMemberOutsideYear($memberId, $scoutYearId) as $period) {
+        // Earlier years only: a later year imported first keeps its
+        // periods when this one is re-imported (#1461).
+        $closedByRollover = 0;
+        foreach ($this->repository->findOpenPeriodsForMemberInEarlierYears($memberId, $scoutYearId) as $period) {
             $year = $this->scoutYearService->findById($period->scoutYearId);
-            $this->repository->close($period->id, $year['end_date'] ?? $today);
+            // Never before the period's own start: an ended year imported
+            // again in configuration mode opens one after its end.
+            $this->repository->close($period->id, max($year['end_date'] ?? $today, $period->startDate));
+            $closedByRollover++;
         }
+
+        // Repairs, on this member's next import of the year, the duplicates
+        // the safety net used to leave when it also closed a later year's
+        // periods (#1461). A no-op on any other history.
+        $this->mergeOverlappingPeriods($memberId, $scoutYearId);
 
         $desiredSectionIds = $this->repository->findDistinctSectionIdsForMemberYear($memberYearId);
         $openSectionIds = $this->repository->findOpenSectionIdsForMemberAndYear($memberId, $scoutYearId);
@@ -56,6 +70,55 @@ class SectionMembershipService
             if (!in_array($sectionId, $openSectionIds, true)) {
                 $this->repository->open($memberId, $sectionId, $scoutYearId, $today);
             }
+        }
+
+        return $closedByRollover;
+    }
+
+    /**
+     * Two periods of the same member, section and scout year that overlap
+     * can only be a duplicate: a member who leaves a section and comes
+     * back in the same year gets a second period that starts after the
+     * first one ended. Each overlapping run is folded into its earliest
+     * period, which keeps the earliest start and the latest end (an open
+     * end wins), and the others are deleted.
+     *
+     * Returns how many periods were deleted.
+     */
+    public function mergeOverlappingPeriods(int $memberId, int $scoutYearId): int
+    {
+        $deleted = 0;
+        $kept = null;
+        $keptEnd = null;
+
+        foreach ($this->repository->findAllForMemberAndYear($memberId, $scoutYearId) as $period) {
+            $overlaps = $kept !== null
+                && $kept->sectionId === $period->sectionId
+                && ($keptEnd === null || $period->startDate <= $keptEnd);
+
+            if (!$overlaps) {
+                $this->saveMergedEnd($kept, $keptEnd);
+                $kept = $period;
+                $keptEnd = $period->endDate;
+                continue;
+            }
+
+            if ($keptEnd !== null && ($period->endDate === null || $period->endDate > $keptEnd)) {
+                $keptEnd = $period->endDate;
+            }
+            $this->repository->delete($period->id);
+            $deleted++;
+        }
+
+        $this->saveMergedEnd($kept, $keptEnd);
+
+        return $deleted;
+    }
+
+    private function saveMergedEnd(?MemberSectionPeriod $kept, ?string $mergedEnd): void
+    {
+        if ($kept !== null && $kept->endDate !== $mergedEnd) {
+            $this->repository->setEndDate($kept->id, $mergedEnd);
         }
     }
 

@@ -21,6 +21,7 @@ use Core\Url\ShortUrlService;
 use Modules\Finance\Api\ExpectedReceivableInterface;
 use Modules\Finance\Api\FinanceException;
 use Modules\Finance\Api\FinanceAccountInterface;
+use Modules\Finance\Api\ReceivableStanding;
 use Modules\Finance\Api\SepaQrCodeInterface;
 use Modules\Finance\Api\StructuredCommunicationInterface;
 use Modules\News\Repository\Article;
@@ -708,6 +709,494 @@ class ResponseServiceTest extends TestCase
         $this->assertSame('New', $this->service()->getAnswers($updated->id)[$fieldId]);
     }
 
+    // --- Issue #1525: quantities, and what an edit owes ---
+
+    /** @return array<string, array{0: string}> */
+    public static function refusedQuantities(): array
+    {
+        return [
+            'a negative' => ['-1'],
+            'a fraction' => ['0.5'],
+            'an exponent' => ['1e2'],
+            'a leading space' => [' 3'],
+            'a sign' => ['+3'],
+            'a hexadecimal' => ['0x1A'],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('refusedQuantities')]
+    public function testAPricedQuantityRefusesAnythingButAWholeNumberOnSubmission(string $value): void
+    {
+        $fieldId = $this->fieldRepository->create($this->formId, 0, FormField::TYPE_NUMBER, 'Adultes', false, null, null, null, 18.0, null);
+
+        try {
+            $this->service()->submit($this->article, $this->form(), [$this->fieldRepository->findById($fieldId)],
+                null, null, 1, 'a@test.com', [$fieldId => $value], null);
+            $this->fail('« ' . $value . ' » must be refused on a priced field.');
+        } catch (NewsException $e) {
+            $this->assertStringContainsString('"Adultes"', $e->getMessage());
+        }
+
+        $this->assertSame([], $this->responseRepository->findByFormId($this->formId));
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('refusedQuantities')]
+    public function testACappedQuantityRefusesAnythingButAWholeNumberOnSubmission(string $value): void
+    {
+        $fieldId = $this->fieldRepository->create($this->formId, 0, FormField::TYPE_NUMBER, 'Places', false, null, null, 100, null, null);
+
+        $this->expectException(NewsException::class);
+        $this->service()->submit($this->article, $this->form(), [$this->fieldRepository->findById($fieldId)],
+            null, null, 1, 'a@test.com', [$fieldId => $value], null);
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('refusedQuantities')]
+    public function testAQuantityRefusesAnythingButAWholeNumberOnAnEdit(string $value): void
+    {
+        $pricedId = $this->fieldRepository->create($this->formId, 0, FormField::TYPE_NUMBER, 'Adultes', false, null, null, null, 18.0, null);
+        $cappedId = $this->fieldRepository->create($this->formId, 1, FormField::TYPE_NUMBER, 'Places', false, null, null, 100, null, null);
+        $fields = [$this->fieldRepository->findById($pricedId), $this->fieldRepository->findById($cappedId)];
+        $response = $this->service()->submit($this->article, $this->form(), $fields, null, null, 1, 'a@test.com',
+            [$pricedId => '1', $cappedId => '1'], null);
+
+        foreach ([[$pricedId => $value, $cappedId => '1'], [$pricedId => '1', $cappedId => $value]] as $answers) {
+            try {
+                $this->service()->update($response, $this->form(), $fields, 'a@test.com', $answers, null, 1);
+                $this->fail('« ' . $value . ' » must be refused on an edit too.');
+            } catch (NewsException) {
+            }
+        }
+
+        $this->assertSame([$pricedId => '1', $cappedId => '1'], $this->service()->getAnswers($response->id));
+        $this->assertSame(1.0, $this->fieldRepository->usedCapacity($cappedId));
+    }
+
+    public function testAPlainNumberFieldStillTakesADecimalButNeverANegative(): void
+    {
+        $fieldId = $this->fieldRepository->create($this->formId, 0, FormField::TYPE_NUMBER, 'Pointure', false, null, null, null, null, null);
+        $field = $this->fieldRepository->findById($fieldId);
+
+        $response = $this->service()->submit($this->article, $this->form(), [$field], null, null, 1, 'a@test.com', [$fieldId => '37.5'], null);
+        $this->assertSame('37.5', $this->service()->getAnswers($response->id)[$fieldId]);
+
+        $this->expectException(NewsException::class);
+        $this->expectExceptionMessage('Le champ "Pointure" ne peut pas être négatif.');
+        $this->service()->submit($this->article, $this->form(), [$field], null, null, 1, 'b@test.com', [$fieldId => '-2'], null);
+    }
+
+    public function testAQuantityIsStoredInItsCanonicalForm(): void
+    {
+        $fieldId = $this->fieldRepository->create($this->formId, 0, FormField::TYPE_NUMBER, 'Adultes', false, null, null, null, 18.0, null);
+
+        $response = $this->service()->submit($this->article, $this->form(), [$this->fieldRepository->findById($fieldId)],
+            null, null, 1, 'a@test.com', [$fieldId => '007'], null);
+
+        $this->assertSame('7', $this->service()->getAnswers($response->id)[$fieldId]);
+    }
+
+    /**
+     * An uncapped priced field is bounded per response: `1e5` once put
+     * 1 800 000 € « à recevoir » for an 18 € meal.
+     */
+    public function testAnUncappedQuantityIsBoundedPerResponse(): void
+    {
+        $fieldId = $this->fieldRepository->create($this->formId, 0, FormField::TYPE_NUMBER, 'Adultes', false, null, null, null, 18.0, null);
+        $field = $this->fieldRepository->findById($fieldId);
+
+        $response = $this->service()->submit($this->article, $this->form(), [$field], null, null, 1, 'a@test.com',
+            [$fieldId => (string) ResponseService::MAX_QUANTITY_PER_RESPONSE], null);
+        $this->assertSame('999', $this->service()->getAnswers($response->id)[$fieldId]);
+
+        foreach (['1000', '100000', '99999999999999999999999'] as $value) {
+            try {
+                $this->service()->submit($this->article, $this->form(), [$field], null, null, 1, 'b@test.com', [$fieldId => $value], null);
+                $this->fail($value . ' must be refused.');
+            } catch (NewsException $e) {
+                $this->assertSame('Le champ "Adultes" ne peut pas dépasser 999 par réponse.', $e->getMessage());
+            }
+        }
+    }
+
+    /** A capped field is bounded by its capacity, with the capacity's own sentence. */
+    public function testACappedQuantityAboveItsCapacityIsRefusedAsFull(): void
+    {
+        $fieldId = $this->fieldRepository->create($this->formId, 0, FormField::TYPE_NUMBER, 'Places', false, null, null, 100, null, null);
+
+        $this->expectException(NewsException::class);
+        $this->expectExceptionMessage('Il n\'y a plus assez de places disponibles pour "Places".');
+        $this->service()->submit($this->article, $this->form(), [$this->fieldRepository->findById($fieldId)],
+            null, null, 1, 'a@test.com', [$fieldId => '100000'], null);
+    }
+
+    /**
+     * « Adultes = −60 » on a field capped at 100 once took the running
+     * total down by 60, and sixty places were sold twice.
+     */
+    public function testCapacityUsedNeverDecreasesAsTheResultOfASubmission(): void
+    {
+        $fieldId = $this->fieldRepository->create($this->formId, 0, FormField::TYPE_NUMBER, 'Adultes', false, null, null, 100, 18.0, null);
+        $this->service()->submit($this->article, $this->form(), [$this->fieldRepository->findById($fieldId)],
+            null, null, 1, 'a@test.com', [$fieldId => '4'], null);
+
+        try {
+            $this->service()->submit($this->article, $this->form(), [$this->fieldRepository->findById($fieldId)],
+                null, null, 1, 'b@test.com', [$fieldId => '-60'], null);
+            $this->fail('A negative must be refused.');
+        } catch (NewsException) {
+        }
+        $this->service()->submit($this->article, $this->form(), [$this->fieldRepository->findById($fieldId)],
+            null, null, 1, 'c@test.com', [$fieldId => '0'], null);
+
+        $this->assertSame(4.0, $this->fieldRepository->usedCapacity($fieldId));
+    }
+
+    /**
+     * And a negative already stored, from before: the reprise gives no
+     * place back for it.
+     */
+    public function testTheRecomputedTotalCountsAStoredNegativeAsNothing(): void
+    {
+        $fieldId = $this->fieldRepository->create($this->formId, 0, FormField::TYPE_NUMBER, 'Adultes', false, null, null, 100, 18.0, null);
+        $this->responseRepository->create($this->formId, null, null, 'a@test.com', [$fieldId => '4'], null, null);
+        $this->responseRepository->create($this->formId, null, null, 'b@test.com', [$fieldId => '-60'], null, null);
+
+        $this->fieldRepository->recomputeUsedCapacities($this->responseRepository);
+
+        $this->assertSame(4.0, $this->fieldRepository->usedCapacity($fieldId));
+        $this->assertSame(96, $this->service()->remainingCapacity($this->fieldRepository->findById($fieldId)));
+    }
+
+    /**
+     * Whole quantities can still add up below zero through a negative unit
+     * price (a « réduction » field): a total owed TO the respondent is not
+     * something a form creates.
+     */
+    public function testANegativeTotalIsRefusedOnSubmissionAndOnAnEdit(): void
+    {
+        $mealId = $this->fieldRepository->create($this->formId, 0, FormField::TYPE_NUMBER, 'Repas', false, null, null, null, 9.0, null);
+        $discountId = $this->fieldRepository->create($this->formId, 1, FormField::TYPE_NUMBER, 'Réduction', false, null, null, null, -5.0, null);
+        $fields = [$this->fieldRepository->findById($mealId), $this->fieldRepository->findById($discountId)];
+
+        try {
+            $this->service()->submit($this->article, $this->form(), $fields, null, null, 1, 'a@test.com',
+                [$mealId => '1', $discountId => '2'], null);
+            $this->fail('A negative total must be refused.');
+        } catch (NewsException $e) {
+            $this->assertStringContainsString('ne peut pas être négatif', $e->getMessage());
+        }
+        $this->assertSame([], $this->responseRepository->findByFormId($this->formId));
+
+        $response = $this->service()->submit($this->article, $this->form(), $fields, null, null, 1, 'a@test.com',
+            [$mealId => '1', $discountId => '1'], null);
+        $this->expectException(NewsException::class);
+        $this->service()->update($response, $this->form(), $fields, 'a@test.com', [$mealId => '0', $discountId => '1'], null, 1);
+    }
+
+    private function makeFormPaying(): void
+    {
+        $this->formRepository->update(
+            $this->formId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', null, 7,
+            financeCategoryId: 9
+        );
+    }
+
+    private function payingService(ExpectedReceivableInterface $expectedReceivable): ResponseService
+    {
+        $structuredCommunication = $this->createStub(StructuredCommunicationInterface::class);
+        $structuredCommunication->method('generate')->willReturn('+++100/0000/00034+++');
+        $sepaQrCode = $this->createStub(SepaQrCodeInterface::class);
+        $sepaQrCode->method('generatePng')->willReturn('png-bytes');
+        $financeAccount = $this->createStub(FinanceAccountInterface::class);
+        $financeAccount->method('getConfiguredAccounts')->willReturn([
+            ['id' => 7, 'name' => 'Compte', 'iban' => 'BE68539007547034', 'holder_name' => 'Unité', 'section_id' => null],
+        ]);
+
+        return $this->service($structuredCommunication, $expectedReceivable, $sepaQrCode, $financeAccount);
+    }
+
+    private static function standing(int $dueCents, int $receivedCents): ReceivableStanding
+    {
+        return new ReceivableStanding(
+            amountDueCents: $dueCents,
+            amountReceivedCents: $receivedCents,
+            amountRefundedCents: 0,
+            amountOverpaidCents: max(0, $receivedCents - $dueCents),
+            amountRemainingCents: max(0, $dueCents - $receivedCents),
+            status: $receivedCents === 0 ? 'unpaid' : ($receivedCents >= $dueCents ? 'paid' : 'partial')
+        );
+    }
+
+    /**
+     * previous quantity, receivable due and received (null: no receivable),
+     * new quantity, then what finance must be asked: the method, the
+     * amount and whether it is told it goes below what came in.
+     *
+     * @return array<string, array{0: string, 1: ?array{0: int, 1: int}, 2: string, 3: string, 4: ?int, 5: ?bool}>
+     */
+    public static function editsOfAPricedAnswer(): array
+    {
+        return [
+            'up, on a paid response' => ['1', [1800, 1800], '10', 'update', 18000, false],
+            'down, still above what came in' => ['10', [18000, 1800], '5', 'update', 9000, false],
+            'down, below what came in' => ['10', [18000, 18000], '2', 'update', 3600, true],
+            'from zero to a price' => ['0', null, '2', 'create', 3600, null],
+            // Kept at zero, never deleted: a transfer still on its way
+            // must find it (an import lags by days).
+            'to zero, nothing paid yet' => ['2', [3600, 0], '0', 'update', 0, false],
+            'to zero, already paid' => ['2', [3600, 3600], '0', 'update', 0, true],
+            'unchanged' => ['2', [3600, 0], '2', 'none', null, null],
+        ];
+    }
+
+    /**
+     * The maintainer's decision on issue #1525: the amount due follows the
+     * edit, through finance's Api\ only, inside the edit's transaction.
+     *
+     * @param ?array{0: int, 1: int} $receivable
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('editsOfAPricedAnswer')]
+    public function testEditingAPricedAnswerMovesTheReceivable(
+        string $previous,
+        ?array $receivable,
+        string $new,
+        string $expectedCall,
+        ?int $expectedCents,
+        ?bool $expectedBelowReceived
+    ): void {
+        $this->makeFormPaying();
+        $fieldId = $this->fieldRepository->create($this->formId, 0, FormField::TYPE_NUMBER, 'Adultes', false, null, null, null, 18.0, null);
+        $field = $this->fieldRepository->findById($fieldId);
+        $responseId = $this->responseRepository->create(
+            $this->formId, 42, null, 'a@test.com', [$fieldId => $previous],
+            $receivable !== null ? '+++090/9337/55493+++' : null,
+            $receivable !== null ? 55 : null
+        );
+
+        $finance = $this->createMock(ExpectedReceivableInterface::class);
+        $finance->method('getReceivableStanding')->willReturnCallback(
+            static fn (string $module, int $id): ?ReceivableStanding => $module === 'news' && $id === 55 && $receivable !== null
+                ? self::standing($receivable[0], $receivable[1])
+                : null
+        );
+        $finance->expects($expectedCall === 'update' ? $this->once() : $this->never())
+            ->method('updateReceivableAmount')
+            ->with(55, $expectedCents, $expectedBelowReceived);
+        $finance->expects($expectedCall === 'create' ? $this->once() : $this->never())
+            ->method('createReceivable')
+            ->with('news', $this->formId, 7, $expectedCents, '+++100/0000/00034+++', 'a@test.com', 9)
+            ->willReturn(77);
+
+        $updated = $this->payingService($finance)->update(
+            $this->responseRepository->findById($responseId), $this->form(), [$field], 'a@test.com', [$fieldId => $new], null, 1
+        );
+
+        $this->assertSame($new, $this->service()->getAnswers($responseId)[$fieldId]);
+        match ($expectedCall) {
+            'create' => $this->assertSame([77, '+++100/0000/00034+++'], [$updated->receivableId, $updated->structuredCommunication]),
+            default => $this->assertSame(55, $updated->receivableId, 'the receivable moves in place, communication kept'),
+        };
+    }
+
+    /** Finance refusing the move leaves the answers as they were. */
+    public function testAnEditFinanceRefusesToPriceIsNotSaved(): void
+    {
+        $this->makeFormPaying();
+        $fieldId = $this->fieldRepository->create($this->formId, 0, FormField::TYPE_NUMBER, 'Adultes', false, null, null, 100, 18.0, null);
+        $field = $this->fieldRepository->findById($fieldId);
+        $responseId = $this->responseRepository->create($this->formId, 42, null, 'a@test.com', [$fieldId => '1'], '+++090/9337/55493+++', 55);
+        $this->fieldRepository->recomputeUsedCapacities($this->responseRepository);
+
+        $finance = $this->createStub(ExpectedReceivableInterface::class);
+        $finance->method('getReceivableStanding')->willReturn(self::standing(1800, 0));
+        $finance->method('updateReceivableAmount')->willThrowException(new FinanceException("Cette créance n'existe pas."));
+
+        try {
+            $this->payingService($finance)->update(
+                $this->responseRepository->findById($responseId), $this->form(), [$field], 'a@test.com', [$fieldId => '3'], null, 1
+            );
+            $this->fail('The edit must be refused.');
+        } catch (NewsException $e) {
+            $this->assertStringContainsString("Votre modification n'a pas été enregistrée.", $e->getMessage());
+            $this->assertInstanceOf(FinanceException::class, $e->getPrevious());
+        }
+
+        $this->assertSame([$fieldId => '1'], $this->service()->getAnswers($responseId));
+        $this->assertSame(1.0, $this->fieldRepository->usedCapacity($fieldId));
+        $this->assertFalse($this->pdo->inTransaction());
+    }
+
+    /**
+     * An edit that moves the amount tells the respondent what is LEFT to
+     * pay, and how — not the whole new price, which they would pay again.
+     */
+    public function testAnEditThatRaisesTheAmountMailsWhatIsLeftToPay(): void
+    {
+        $this->makeFormPaying();
+        $fieldId = $this->fieldRepository->create($this->formId, 0, FormField::TYPE_NUMBER, 'Adultes', false, null, null, null, 18.0, null);
+        $field = $this->fieldRepository->findById($fieldId);
+        $responseId = $this->responseRepository->create($this->formId, 42, null, 'a@test.com', [$fieldId => '1'], '+++090/9337/55493+++', 55);
+
+        $moved = false;
+        $finance = $this->createStub(ExpectedReceivableInterface::class);
+        $finance->method('getReceivableStanding')->willReturnCallback(
+            static function () use (&$moved): ReceivableStanding {
+                return $moved ? self::standing(18000, 1800) : self::standing(1800, 1800);
+            }
+        );
+        $finance->method('updateReceivableAmount')->willReturnCallback(static function () use (&$moved): void {
+            $moved = true;
+        });
+
+        $this->mailService->expects($this->once())->method('send')->with(
+            $this->identicalTo('a@test.com'),
+            $this->anything(),
+            $this->callback(static fn (string $html): bool => str_contains($html, 'Montant à payer : 162,00 €')
+                && str_contains($html, 'Déjà reçu : 18,00 €'))
+        );
+
+        $this->payingService($finance)->update(
+            $this->responseRepository->findById($responseId), $this->form(), [$field], 'a@test.com', [$fieldId => '10'], null, 1, $this->article
+        );
+    }
+
+    /** An edit that changes nothing owed sends nothing. */
+    public function testAnEditThatLeavesTheAmountAloneSendsNoMail(): void
+    {
+        $fieldId = $this->fieldRepository->create($this->formId, 0, FormField::TYPE_SHORT_TEXT, 'Nom', false, null, null, null, null, null);
+        $responseId = $this->responseRepository->create($this->formId, 42, null, 'a@test.com', [$fieldId => 'Old'], null, null);
+        $this->mailService->expects($this->never())->method('send');
+
+        $this->service()->update($this->responseRepository->findById($responseId), $this->form(),
+            [$this->fieldRepository->findById($fieldId)], 'a@test.com', [$fieldId => 'New'], null, 1, $this->article);
+    }
+
+    public function testThePaymentSummaryAsksOnlyForWhatIsLeftAndNothingOnceSettled(): void
+    {
+        $this->makeFormPaying();
+        $responseId = $this->responseRepository->create($this->formId, 42, null, 'a@test.com', [], '+++090/9337/55493+++', 55);
+        $response = $this->responseRepository->findById($responseId);
+
+        $partial = $this->createStub(ExpectedReceivableInterface::class);
+        $partial->method('getReceivableStanding')->willReturn(self::standing(18000, 1800));
+        $summary = $this->payingService($partial)->buildPaymentSummary($this->form(), $response, 180.0);
+        $this->assertSame(162.0, $summary['total'] ?? null);
+        $this->assertSame(18.0, $summary['received'] ?? null);
+
+        $overpaid = $this->createStub(ExpectedReceivableInterface::class);
+        $overpaid->method('getReceivableStanding')->willReturn(self::standing(3600, 18000));
+        $this->assertNull($this->payingService($overpaid)->buildPaymentSummary($this->form(), $response, 36.0));
+        $this->assertSame(14400, $this->payingService($overpaid)->amountOwedBackCents($response));
+    }
+
+    /**
+     * The reprise: every response holding a quantity the server now
+     * refuses is marked, and nothing else.
+     */
+    public function testTheRepriseMarksTheResponsesHoldingAnInvalidQuantity(): void
+    {
+        $adultsId = $this->fieldRepository->create($this->formId, 0, FormField::TYPE_NUMBER, 'Adultes', false, null, null, null, 18.0, null);
+        $ageId = $this->fieldRepository->create($this->formId, 1, FormField::TYPE_NUMBER, 'Âge', false, null, null, null, null, null);
+        $clean = $this->responseRepository->create($this->formId, null, null, 'a@test.com', [$adultsId => '4', $ageId => '7.5'], null, null);
+        $negative = $this->responseRepository->create($this->formId, null, null, 'b@test.com', [$adultsId => '-8'], null, null);
+        $fraction = $this->responseRepository->create($this->formId, null, null, 'c@test.com', [$adultsId => '0.5'], null, null);
+        $negativeAge = $this->responseRepository->create($this->formId, null, null, 'd@test.com', [$adultsId => '1', $ageId => '-3'], null, null);
+
+        $this->assertSame(3, $this->service()->flagResponsesWithInvalidQuantities());
+
+        $flagged = array_map(
+            fn (int $id): bool => $this->responseRepository->findById($id)?->hasInvalidQuantity() ?? false,
+            [$clean, $negative, $fraction, $negativeAge]
+        );
+        $this->assertSame([false, true, true, true], $flagged);
+
+        // Correcting the response clears the mark.
+        $this->service()->update($this->responseRepository->findById($negative), $this->form(),
+            [$this->fieldRepository->findById($adultsId)], 'b@test.com', [$adultsId => '2'], null, 1);
+        $this->assertFalse($this->responseRepository->findById($negative)?->hasInvalidQuantity());
+    }
+
+    /**
+     * Two edits of one response, both loaded while it had no receivable:
+     * the second decides on the link as stored, never on its own stale
+     * copy, so it moves the receivable the first raised instead of raising
+     * another.
+     */
+    public function testAnEditDecidesOnTheStoredReceivableLinkNotOnAStaleCopy(): void
+    {
+        $this->makeFormPaying();
+        $fieldId = $this->fieldRepository->create($this->formId, 0, FormField::TYPE_NUMBER, 'Adultes', false, null, null, null, 18.0, null);
+        $field = $this->fieldRepository->findById($fieldId);
+        $responseId = $this->responseRepository->create($this->formId, 42, null, 'a@test.com', [$fieldId => '0'], null, null);
+        $stale = $this->responseRepository->findById($responseId);
+        // The competing edit committed its receivable meanwhile.
+        $this->responseRepository->setReceivable($responseId, '+++090/9337/55493+++', 55);
+
+        $finance = $this->createMock(ExpectedReceivableInterface::class);
+        $finance->method('getReceivableStanding')->willReturn(self::standing(1800, 0));
+        $finance->expects($this->never())->method('createReceivable');
+        $finance->expects($this->once())->method('updateReceivableAmount')->with(55, 3600, false);
+
+        $updated = $this->payingService($finance)->update($stale, $this->form(), [$field], 'a@test.com', [$fieldId => '2'], null, 1);
+
+        $this->assertSame(55, $updated->receivableId);
+    }
+
+    /**
+     * The reprise flags what the door would call invalid, the same rule
+     * throughout: a fraction, a figure above the per-response ceiling, and
+     * an answer that can no longer be read.
+     */
+    public function testTheRepriseFlagsAboveTheCeilingAndUnreadableAnswersToo(): void
+    {
+        $boxesId = $this->fieldRepository->create($this->formId, 0, FormField::TYPE_NUMBER, 'Boîtes', false, null, null, null, 6.0, null);
+        $tooMany = $this->responseRepository->create($this->formId, null, null, 'a@test.com', [$boxesId => '1000'], null, null);
+        $unreadable = $this->responseRepository->create($this->formId, null, null, 'b@test.com', [$boxesId => '2'], null, null);
+        $clean = $this->responseRepository->create($this->formId, null, null, 'c@test.com', [$boxesId => '999'], null, null);
+        // Accepted by is_numeric() before #1525, refused now, and invalid
+        // at the door too (ScanServiceTest).
+        $spaced = $this->responseRepository->create($this->formId, null, null, 'd@test.com', [$boxesId => ' 3'], null, null);
+        $this->pdo->prepare('UPDATE news_form_response_values SET value = ? WHERE response_id = ?')->execute(['corrompu', $unreadable]);
+
+        $this->assertSame(3, $this->service()->flagResponsesWithInvalidQuantities());
+        $this->assertTrue($this->responseRepository->findById($spaced)?->hasInvalidQuantity());
+        $this->assertTrue($this->responseRepository->findById($tooMany)?->hasInvalidQuantity());
+        $this->assertTrue($this->responseRepository->findById($unreadable)?->hasInvalidQuantity());
+        $this->assertFalse($this->responseRepository->findById($clean)?->hasInvalidQuantity());
+    }
+
+    /** The reprise's recompute gives no place to a fraction stored before #1525. */
+    public function testTheRecomputedTotalCountsAStoredFractionAsNothing(): void
+    {
+        $fieldId = $this->fieldRepository->create($this->formId, 0, FormField::TYPE_NUMBER, 'Places', false, null, null, 100, null, null);
+        $this->responseRepository->create($this->formId, null, null, 'a@test.com', [$fieldId => '2'], null, null);
+        $this->responseRepository->create($this->formId, null, null, 'b@test.com', [$fieldId => '1.5'], null, null);
+
+        $this->fieldRepository->recomputeUsedCapacities($this->responseRepository);
+
+        $this->assertSame(2.0, $this->fieldRepository->usedCapacity($fieldId));
+    }
+
+    /**
+     * A capacity lowered after people booked does not void their bookings:
+     * 8 written when the field was capped at 10 still holds its places in
+     * the recomputed total, and the reprise does not flag it. Only the
+     * per-answer ceiling (999) voids a stored answer.
+     */
+    public function testABookingAboveALoweredCapacityStillCountsAndIsNotFlagged(): void
+    {
+        $fieldId = $this->fieldRepository->create($this->formId, 0, FormField::TYPE_NUMBER, 'Places', false, null, null, 10, null, null);
+        $booked = $this->responseRepository->create($this->formId, 42, null, 'a@test.com', [$fieldId => '8'], null, null);
+        $this->responseRepository->create($this->formId, null, null, 'b@test.com', [$fieldId => '1'], null, null);
+        $this->pdo->prepare('UPDATE news_form_fields SET capacity_max = 5 WHERE id = ?')->execute([$fieldId]);
+
+        $this->fieldRepository->recomputeUsedCapacities($this->responseRepository);
+        $this->assertSame(9.0, $this->fieldRepository->usedCapacity($fieldId));
+
+        $this->assertSame(0, $this->service()->flagResponsesWithInvalidQuantities());
+        $this->assertFalse($this->responseRepository->findById($booked)?->hasInvalidQuantity());
+        $this->assertSame(0, $this->service()->remainingCapacity($this->fieldRepository->findById($fieldId)));
+    }
+
     // --------------------------------------------- a cap set afterwards (#1465)
 
     /**
@@ -797,7 +1286,7 @@ class ResponseServiceTest extends TestCase
         $fieldId = $this->fieldRepository->create($this->formId, 0, FormField::TYPE_NUMBER, 'Places', false, null, null, null, null, null);
         $this->submitPlaces($fieldId, '30', 'a');
         $failing = new class ($this->pdo, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))) extends FormResponseRepository {
-            public function sumFieldValues(int $fieldId, ?int $excludeResponseId = null, bool $lockForUpdate = false): float
+            public function sumFieldValues(FormField $field, ?int $excludeResponseId = null, bool $lockForUpdate = false): float
             {
                 throw new \PDOException('deliberate failure while counting');
             }

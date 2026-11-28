@@ -71,11 +71,11 @@ final class FormFieldRepositoryOnMysqlTest extends TestCase
         $counting = new class ($this->pdo, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))) extends FormResponseRepository {
             public bool $counted = false;
 
-            public function sumFieldValues(int $fieldId, ?int $excludeResponseId = null, bool $lockForUpdate = false): float
+            public function sumFieldValues(FormField $field, ?int $excludeResponseId = null, bool $lockForUpdate = false): float
             {
                 $this->counted = true;
 
-                return parent::sumFieldValues($fieldId, $excludeResponseId, $lockForUpdate);
+                return parent::sumFieldValues($field, $excludeResponseId, $lockForUpdate);
             }
         };
         try {

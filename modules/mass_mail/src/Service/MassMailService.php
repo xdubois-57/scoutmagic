@@ -43,6 +43,13 @@ use Modules\MassMail\Repository\TargetRepository;
  */
 class MassMailService
 {
+    /**
+     * Why a message to an address on the suppression list is not sent —
+     * the same words at the freeze, before each send and on « Renvoyer »
+     * (issue #1437).
+     */
+    public const REASON_UNSUBSCRIBED = 'Adresse désinscrite des emails groupés';
+
     private const SCHEDULER_TASK_KEY = 'send_batch';
     private const SCHEDULER_MODULE_ID = 'mass_mail';
 
@@ -323,6 +330,26 @@ class MassMailService
             $deliveryId,
             $memberIds,
             ['reason' => $reason]
+        );
+    }
+
+    /**
+     * The batch's line for a message it did not send because its address
+     * unsubscribed after the freeze (issue #1437): `info`, the two ids and
+     * nothing else, as the issue asks — and the email's number at the head
+     * of the description like every other line of this module, which is
+     * what a search of the journal for one mailing matches on.
+     */
+    public function journalDeliverySkippedUnsubscribed(int $emailId, int $deliveryId): void
+    {
+        $this->journalService->log(
+            'mass_mail',
+            'delivery_skipped_unsubscribed',
+            'info',
+            self::emailPrefix($emailId) . ' : message #' . $deliveryId
+                . ' non envoyé, l\'adresse s\'est désinscrite des emails groupés',
+            ['email_id' => $emailId, 'delivery_id' => $deliveryId],
+            null
         );
     }
 
@@ -1274,7 +1301,7 @@ class MassMailService
             return 'Adresse invalide';
         }
         if ($this->suppressedAddressRepository->isSuppressed($address)) {
-            return 'Adresse désinscrite des emails groupés';
+            return self::REASON_UNSUBSCRIBED;
         }
         if ($this->bounces?->isBlocked($address) === true) {
             return 'Adresse suspendue après des refus répétés';
@@ -1319,7 +1346,7 @@ class MassMailService
         $hasInactiveAddress = false;
         foreach ($this->memberEmailService->listForMember($memberId, $deskEmail) as $row) {
             if ($this->suppressedAddressRepository->isSuppressed($row->email)) {
-                return 'Adresse désinscrite des emails groupés';
+                return self::REASON_UNSUBSCRIBED;
             }
             $hasInactiveAddress = $hasInactiveAddress || $row->isInactive();
         }
@@ -1524,6 +1551,16 @@ class MassMailService
         }
         if ($delivery->status === Delivery::STATUS_UNKNOWN) {
             throw new MassMailException('Ce message ne peut pas être renvoyé.');
+        }
+        // Somebody who unsubscribed is not written to again by hand
+        // either (issue #1437): « Renvoyer » used to put their message
+        // back in the queue, weeks later, with no check at all. The batch
+        // would now refuse it anyway; refusing here says so to the person
+        // who clicked, instead of a line that silently turns to error.
+        if ($this->suppressedAddressRepository->isSuppressed($delivery->emailAddress)) {
+            throw new MassMailException(
+                'Cette adresse s\'est désinscrite des emails groupés : le message ne peut pas être renvoyé.'
+            );
         }
 
         $this->deliveryRepository->resend($deliveryId);

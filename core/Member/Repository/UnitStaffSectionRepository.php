@@ -49,9 +49,10 @@ class UnitStaffSectionRepository
     }
 
     /**
-     * Forces the section active — it must survive
-     * `ImportSectionRepository::deactivateAll()`, since no Desk CSV row ever
-     * names it and membership comes from the sync alone.
+     * Forces the section active — no Desk CSV row ever names it and
+     * membership comes from the sync alone, so it is never left to
+     * `ImportSectionRepository::recomputeActive()`, which keeps it active
+     * by its desk code.
      */
     public function activateSection(int $sectionId): void
     {

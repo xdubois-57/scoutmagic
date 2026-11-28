@@ -30,6 +30,7 @@ class MagicLinkRepositoryTest extends TestCase
                 confirmed_at DATETIME,
                 match_code_hash VARCHAR(255),
                 match_attempts INTEGER NOT NULL DEFAULT 0,
+                collected_at DATETIME,
                 created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
             )
         ');

@@ -3185,6 +3185,55 @@ class NewsIntegrationTest extends TestCase
     }
 
     /**
+     * Staff correcting somebody else's response go back to the responses
+     * list with a confirmation, never to the family's own confirmation
+     * page — and the family's response is not remembered in their session.
+     */
+    public function testStaffEditingSomebodyElsesResponseGoBackToTheResponsesList(): void
+    {
+        $articleId = NewsTestHelper::publish($this->pdo, $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId));
+        $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', null, null);
+        $fieldId = $this->fieldRepository->create($formId, 0, FormField::TYPE_SHORT_TEXT, 'Nom', true, null, null, null, null, null);
+        $responseId = $this->responseRepository->create($formId, null, null, 'parent@test.com', [$fieldId => 'Alice'], null, null);
+        AuthSession::login($this->chiefAccountId, 'admin@test.com', 'admin');
+
+        $response = $this->formController->updateResponse(
+            new Request('POST', '/news/' . $articleId . '/form/responses/' . $responseId . '/edit', [], [
+                '_csrf_token' => CsrfGuard::generateToken(),
+                'contact_email' => 'parent@test.com',
+                'field_' . $fieldId => 'Alicia',
+            ], [], []),
+            ['id' => (string) $articleId, 'response_id' => (string) $responseId]
+        );
+
+        $this->assertSame('/news/' . $articleId . '/form/responses', $response->getHeaders()['Location'] ?? null);
+        $this->assertSame('La réponse a été modifiée.', \Core\Http\FlashMessage::get()['message'] ?? null);
+        $this->assertArrayNotHasKey('news_form_confirmation', $_SESSION);
+    }
+
+    /** The respondent editing their own response lands on its confirmation page, as after submitting. */
+    public function testARespondentEditingTheirOwnResponseLandsOnItsConfirmation(): void
+    {
+        $articleId = NewsTestHelper::publish($this->pdo, $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId));
+        $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', null, null);
+        $fieldId = $this->fieldRepository->create($formId, 0, FormField::TYPE_SHORT_TEXT, 'Nom', true, null, null, null, null, null);
+        $responseId = $this->responseRepository->create($formId, $this->chiefAccountId, null, 'parent@test.com', [$fieldId => 'Alice'], null, null);
+        AuthSession::login($this->chiefAccountId, 'parent@test.com', 'chief');
+
+        $response = $this->formController->updateResponse(
+            new Request('POST', '/news/' . $articleId . '/form/responses/' . $responseId . '/edit', [], [
+                '_csrf_token' => CsrfGuard::generateToken(),
+                'contact_email' => 'parent@test.com',
+                'field_' . $fieldId => 'Alicia',
+            ], [], []),
+            ['id' => (string) $articleId, 'response_id' => (string) $responseId]
+        );
+
+        $this->assertSame('/news/' . $articleId . '/form/confirmation', $response->getHeaders()['Location'] ?? null);
+        $this->assertSame([$articleId => $responseId], $_SESSION['news_form_confirmation'] ?? null);
+    }
+
+    /**
      * An edit asking more places than the others left: refused on the
      * edit form itself, with the reason, the stored answer untouched and
      * the transaction the check ran in rolled back — not left open under

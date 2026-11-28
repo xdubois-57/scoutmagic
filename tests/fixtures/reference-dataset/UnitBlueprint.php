@@ -108,7 +108,7 @@ final class UnitBlueprint
      * A section absent from a year's row does not exist that year:
      *   - bal2 is missing from 2024-2025 — a section that only appears in A2.
      *   - iam1 is [0, 0] in 2026-2027 — a section emptied but never deleted,
-     *     which MappingResolver::deactivateAllSections() must leave inactive.
+     *     which ImportSectionRepository::recomputeActive() must leave inactive.
      * Those two are scenarios 16 and 15; the zero row and the missing row are
      * deliberately different shapes, because they exercise different code.
      *

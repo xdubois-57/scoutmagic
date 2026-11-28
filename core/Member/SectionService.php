@@ -57,8 +57,8 @@ class SectionService
 
     /**
      * Get sections with their branch info, ordered by branch sort_order then
-     * desk_code. Inactive sections (is_active = false — no members this
-     * scout year, see MappingResolver::deactivateAllSections()) are ALWAYS
+     * desk_code. Inactive sections (is_active = false — no members from the
+     * public year on, see ImportSectionRepository::recomputeActive()) are ALWAYS
      * excluded, everywhere, including the Correspondances Desk admin page: an inactive
      * section is never deleted, but never shown either, until a later import
      * gives it members again. Hidden sections (is_visible = false, the

@@ -112,7 +112,7 @@ class DeskImportServiceTest extends TestCase
     /**
      * The site policy on a given day, with 2025-2026 as the public year.
      */
-    private function sitePolicy(string $today): \Core\Import\DeskImportYearPolicy
+    private function sitePolicy(string $today, bool $configurationMode = false): \Core\Import\DeskImportYearPolicy
     {
         $settings = new \Core\Config\SettingService(new \Core\Config\SettingRepository($this->pdo));
         $settings->register('current_scout_year_id', '0', 'number', 'L', 'D', null, null, null, false);
@@ -124,7 +124,7 @@ class DeskImportServiceTest extends TestCase
             $scoutYears,
             $settings,
             static fn(): \DateTimeImmutable => new \DateTimeImmutable($today),
-            static fn(): bool => false
+            static fn(): bool => $configurationMode
         );
     }
 
@@ -176,11 +176,212 @@ class DeskImportServiceTest extends TestCase
         $this->assertSame(3, $result->memberCount);
     }
 
+    // ------------------------------------------------- section activity (#1460)
+
+    /**
+     * July: the public year is 2025-2026 and next year's file may already
+     * be imported. A section nobody is in YET next year — closing, or not
+     * encoded so far — stays on every list of the year still being served,
+     * in the middle of the camps.
+     */
+    public function testImportingNextYearWithoutASectionLeavesItVisibleThisYear(): void
+    {
+        $next = $this->scoutYear('2026-2027', '2026-09-01', '2026-08-31');
+        $service = $this->createService($this->sitePolicy('2026-07-20'));
+
+        $service->import($this->sectionRows(['SV025L1', 'SV025L2']), $this->scoutYearId, 1, false, $this->scoutYearId);
+        $service->import($this->sectionRows(['SV025L1']), $next, 1);
+
+        $this->assertTrue($this->sectionIsActive('SV025L1'));
+        $this->assertTrue($this->sectionIsActive('SV025L2'), 'a section of the public year was hidden by next year\'s file');
+        $this->assertTrue($this->sectionIsActive(UnitStaffSectionService::DESK_CODE));
+    }
+
+    /**
+     * The other way round: re-importing the public year after next year's
+     * file keeps the sections that only exist next year, which the staff
+     * preparing it is working on.
+     */
+    public function testReimportingThisYearKeepsNextYearsOwnSections(): void
+    {
+        $next = $this->scoutYear('2026-2027', '2026-09-01', '2026-08-31');
+        $service = $this->createService($this->sitePolicy('2026-07-20'));
+
+        $service->import($this->sectionRows(['SV025L1', 'SV025L3']), $next, 1);
+        $service->import($this->sectionRows(['SV025L1']), $this->scoutYearId, 1, false, $this->scoutYearId);
+
+        $this->assertTrue($this->sectionIsActive('SV025L1'));
+        $this->assertTrue($this->sectionIsActive('SV025L3'), 'a section of next year was hidden by the public year\'s file');
+    }
+
+    /**
+     * A past year replayed in configuration mode changes nothing the
+     * public year shows — and a section only that past year had does not
+     * reappear on the public lists either.
+     */
+    public function testImportingAPastYearChangesNothingForThePublicYear(): void
+    {
+        $past = $this->scoutYear('2024-2025', '2024-09-01', '2025-08-31');
+        $service = $this->createService($this->sitePolicy('2026-03-01', true));
+
+        $service->import($this->sectionRows(['SV025L1', 'SV025L2']), $this->scoutYearId, 1);
+        $service->import($this->sectionRows(['SV025L4']), $past, 1, false, $past);
+
+        $this->assertTrue($this->sectionIsActive('SV025L1'));
+        $this->assertTrue($this->sectionIsActive('SV025L2'));
+        $this->assertFalse($this->sectionIsActive('SV025L4'), 'a past-year-only section came back on the public lists');
+        $this->assertTrue($this->sectionIsActive(UnitStaffSectionService::DESK_CODE));
+    }
+
+    /**
+     * What still deactivates: a section emptied in the public year and in
+     * every later one. Kept, never deleted, and the import's journal line
+     * says how many sections it turned on and off.
+     */
+    public function testASectionEmptiedEverywhereFromThePublicYearOnGoesInactiveAndTheJournalCountsIt(): void
+    {
+        $service = $this->createService($this->sitePolicy('2026-03-01'));
+
+        $service->import($this->sectionRows(['SV025L1', 'SV025L2']), $this->scoutYearId, 1);
+        // Half the roster gone: the replacement barrier asks, and is told yes.
+        $service->import($this->sectionRows(['SV025L1']), $this->scoutYearId, 1, true);
+
+        $this->assertFalse($this->sectionIsActive('SV025L2'));
+        $this->assertSame(1, (int) $this->pdo->query("SELECT COUNT(*) FROM sections WHERE desk_code = 'SV025L2'")->fetchColumn());
+
+        $contexts = array_map(
+            static fn(string $json): array => (array) json_decode($json, true),
+            $this->pdo->query("SELECT context FROM event_log WHERE event_type = 'roster_snapshot_taken' ORDER BY id")
+                ->fetchAll(\PDO::FETCH_COLUMN)
+        );
+        $this->assertCount(2, $contexts);
+        $this->assertSame($this->scoutYearId, $contexts[1]['scout_year_id']);
+        $this->assertSame(0, $contexts[1]['sections_activated']);
+        $this->assertSame(1, $contexts[1]['sections_deactivated']);
+        // The first import turned on the two sections it created and
+        // Staff d'U — created active, but not active BEFORE the import.
+        $this->assertSame(0, $contexts[0]['sections_deactivated']);
+    }
+
+    private function scoutYear(string $label, string $start, string $end): int
+    {
+        $stmt = $this->pdo->prepare('INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES (?, ?, ?, 0)');
+        $stmt->execute([$label, $start, $end]);
+
+        return (int) $this->pdo->lastInsertId();
+    }
+
+    /**
+     * A Desk file with one animé in each of $sectionCodes.
+     *
+     * @param list<string> $sectionCodes
+     */
+    private function sectionRows(array $sectionCodes): string
+    {
+        $rows = [];
+        foreach ($sectionCodes as $i => $code) {
+            $rows[] = $this->row([
+                'Tiers' => 'T7' . str_pad((string) $i, 2, '0', STR_PAD_LEFT),
+                'Nom' => 'Section' . $i,
+                'Section' => $code,
+                'SECTION' => 'Section ' . $code,
+                // Valid in whichever year the file is imported into.
+                'Date début' => '',
+            ]);
+        }
+
+        return $this->writeRows($rows);
+    }
+
+    private function sectionIsActive(string $deskCode): bool
+    {
+        $stmt = $this->pdo->prepare('SELECT is_active FROM sections WHERE desk_code = ?');
+        $stmt->execute([$deskCode]);
+        $value = $stmt->fetchColumn();
+        $this->assertNotFalse($value, "section {$deskCode} does not exist");
+
+        return (bool) $value;
+    }
+
     private function importFixture(): \Core\Import\ImportResult
     {
         $tmpFile = tempnam(sys_get_temp_dir(), 'csv');
         copy($this->fixturePath, $tmpFile);
         return $this->service->import($tmpFile, $this->scoutYearId, 1);
+    }
+
+    private function importFixtureInto(int $scoutYearId): void
+    {
+        $tmpFile = tempnam(sys_get_temp_dir(), 'csv');
+        copy($this->fixturePath, $tmpFile);
+        $this->service->import($tmpFile, $scoutYearId, 1);
+    }
+
+    private function createScoutYear(string $label, string $startDate, string $endDate): int
+    {
+        $this->pdo->prepare('INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES (?, ?, ?, 0)')
+            ->execute([$label, $startDate, $endDate]);
+
+        return (int) $this->pdo->lastInsertId();
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    private function sectionPeriodsClosedLines(): array
+    {
+        $rows = $this->pdo->query(
+            "SELECT level, context FROM event_log WHERE category = 'core'
+             AND event_type = 'section_periods_closed_by_import' ORDER BY id"
+        )->fetchAll(\PDO::FETCH_ASSOC);
+
+        // Keys sorted: MySQL 8 stores a JSON column with its keys reordered.
+        return array_map(static function (array $row): array {
+            $line = ['level' => $row['level']] + json_decode((string) $row['context'], true);
+            ksort($line);
+
+            return $line;
+        }, $rows);
+    }
+
+    /**
+     * Issue #1461: the periods an earlier year left open, closed by the
+     * import of a later one, are journalled once per import — a count
+     * and a year.
+     */
+    public function testImportingALaterYearJournalsThePeriodsItClosed(): void
+    {
+        $this->importFixture();
+        $openPeriods = (int) $this->pdo->query(
+            'SELECT COUNT(*) FROM member_section_periods WHERE end_date IS NULL'
+        )->fetchColumn();
+        $this->assertGreaterThan(0, $openPeriods);
+
+        $nextYearId = $this->createScoutYear('2026-2027', '2026-09-01', '2027-08-31');
+        $this->importFixtureInto($nextYearId);
+
+        $this->assertSame(
+            [['closed' => $openPeriods, 'level' => 'info', 'scout_year_id' => $nextYearId]],
+            $this->sectionPeriodsClosedLines()
+        );
+    }
+
+    /**
+     * Issue #1461: re-importing an earlier year after a later one closes
+     * nothing of the later year, so no line is written.
+     */
+    public function testReImportingAnEarlierYearClosesNothingAndWritesNoLine(): void
+    {
+        $nextYearId = $this->createScoutYear('2026-2027', '2026-09-01', '2027-08-31');
+        $this->importFixtureInto($nextYearId);
+
+        $this->importFixture();
+
+        $this->assertSame([], $this->sectionPeriodsClosedLines());
+        $this->assertSame(0, (int) $this->pdo->query(
+            'SELECT COUNT(*) FROM member_section_periods
+             WHERE scout_year_id = ' . $nextYearId . ' AND end_date IS NOT NULL'
+        )->fetchColumn());
     }
 
     public function testFullImportCycleCreatesMembersAndFunctions(): void

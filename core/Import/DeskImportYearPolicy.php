@@ -101,6 +101,24 @@ final class DeskImportYearPolicy
     }
 
     /**
+     * The first day from which a section's members keep it active, after
+     * an import of $importedYearStart (issue #1460): the start of the
+     * PUBLIC year — the one everybody is served — so that importing the
+     * next year, or replaying a past one, changes nothing the public year
+     * shows. The unrestricted policy knows no public year: the year being
+     * imported is its reference, as the reference-dataset replay, which
+     * imports its years in order, expects.
+     */
+    public function sectionActivityFrom(string $importedYearStart): string
+    {
+        if ($this->resolver === null) {
+            return $importedYearStart;
+        }
+
+        return $this->resolver->getCurrentPublicYear()['start_date'];
+    }
+
+    /**
      * What may be imported today.
      *
      * Reads only: the next year is looked up by label, never created —

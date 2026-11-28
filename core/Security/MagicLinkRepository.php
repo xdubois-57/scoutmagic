@@ -71,14 +71,38 @@ class MagicLinkRepository
      * Mark a magic link as used. Only an unused link is claimed, in one
      * statement: of two requests racing on the same link, exactly one
      * gets `true` and goes on to log somebody in.
+     *
+     * $collect also marks it collected, in that same statement: the
+     * confirming browser is the session that asked, and signs in there and
+     * then — so there is no instant at which the link is confirmed and a
+     * poll could still collect it (issue #1530).
      */
-    public function markUsed(int $id): bool
+    public function markUsed(int $id, bool $collect = false): bool
     {
         $now = (new \DateTimeImmutable())->format('Y-m-d H:i:s');
         $stmt = $this->pdo->prepare(
-            'UPDATE magic_links SET used = TRUE, confirmed_at = ? WHERE id = ? AND used = FALSE'
+            'UPDATE magic_links SET used = TRUE, confirmed_at = ?, collected_at = ? WHERE id = ? AND used = FALSE'
         );
-        $stmt->execute([$now, $id]);
+        $stmt->execute([$now, $collect ? $now : null, $id]);
+
+        return $stmt->rowCount() > 0;
+    }
+
+    /**
+     * Takes the right to open a session with a confirmed, unexpired link —
+     * once (issue #1530). One conditional UPDATE: of any number of requests
+     * collecting the same link at once, exactly one gets `true`, and a link
+     * markUsed() collected on confirmation gives `false` to every one.
+     */
+    public function collect(int $id): bool
+    {
+        $now = (new \DateTimeImmutable())->format('Y-m-d H:i:s');
+        $stmt = $this->pdo->prepare(
+            'UPDATE magic_links SET collected_at = ?
+             WHERE id = ? AND used = TRUE AND confirmed_at IS NOT NULL
+               AND collected_at IS NULL AND expires_at >= ?'
+        );
+        $stmt->execute([$now, $id, $now]);
 
         return $stmt->rowCount() > 0;
     }
@@ -170,7 +194,10 @@ class MagicLinkRepository
             confirmedAt: DateInput::fromStorage($row['confirmed_at'] === null ? null : (string) $row['confirmed_at']),
             createdAt: DateInput::requireFromStorage((string) $row['created_at'], 'created_at'),
             matchCodeHash: isset($row['match_code_hash']) ? (string) $row['match_code_hash'] : null,
-            matchAttempts: (int) ($row['match_attempts'] ?? 0)
+            matchAttempts: (int) ($row['match_attempts'] ?? 0),
+            collectedAt: DateInput::fromStorage(
+                isset($row['collected_at']) ? (string) $row['collected_at'] : null
+            )
         );
     }
 }

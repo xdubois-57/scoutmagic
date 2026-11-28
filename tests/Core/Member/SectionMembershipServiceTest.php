@@ -161,6 +161,226 @@ class SectionMembershipServiceTest extends TestCase
         $this->assertSame('2026-08-31', $closed[0]->endDate);
     }
 
+    private function createNextYear(): int
+    {
+        $this->pdo->exec(
+            "INSERT INTO scout_years (label, start_date, end_date, is_current)
+             VALUES ('2026-2027', '2026-09-01', '2027-08-31', 0)"
+        );
+
+        return (int) $this->pdo->lastInsertId();
+    }
+
+    private function setFunctionSection(int $memberYearId, ?int $sectionId): void
+    {
+        $this->pdo->exec('DELETE FROM member_functions WHERE member_year_id = ' . $memberYearId);
+        if ($sectionId !== null) {
+            $this->pdo->prepare(
+                'INSERT INTO member_functions (member_year_id, function_id, section_id, is_main_function)
+                 VALUES (?, ?, ?, 1)'
+            )->execute([$memberYearId, $this->functionId, $sectionId]);
+        }
+    }
+
+    private function sync(int $memberYearId, int $scoutYearId, string $date): int
+    {
+        $asOf = new \DateTimeImmutable($date);
+
+        return $this->service->syncForMember($this->memberId, $memberYearId, $scoutYearId, $asOf);
+    }
+
+    /**
+     * @return array<int, array{int, string, ?string}> [section_id, start_date, end_date], in order
+     */
+    private function periodsOf(int $scoutYearId): array
+    {
+        return array_map(
+            static fn($p): array => [$p->sectionId, $p->startDate, $p->endDate],
+            $this->repository->findAllForMemberAndYear($this->memberId, $scoutYearId)
+        );
+    }
+
+    private function insertPeriod(int $sectionId, int $scoutYearId, string $start, ?string $end): void
+    {
+        $this->pdo->prepare(
+            'INSERT INTO member_section_periods (member_id, section_id, scout_year_id, start_date, end_date)
+             VALUES (?, ?, ?, ?, ?)'
+        )->execute([$this->memberId, $sectionId, $scoutYearId, $start, $end]);
+    }
+
+    /**
+     * Issue #1461: July, the next year is imported; August, the current
+     * one is re-imported; September, the next one again. The re-import
+     * of the current year closes nothing of the next one, and the next
+     * year ends with one period per section.
+     */
+    public function testAlternatingImportsLeaveTheLaterYearAloneAndCreateNoDuplicate(): void
+    {
+        $nextYearId = $this->createNextYear();
+        $nextMemberYearId = $this->ensureMemberYear($nextYearId);
+        $this->setFunctionSection($nextMemberYearId, $this->sectionA);
+        $this->setFunctionSection($this->memberYearId, $this->sectionA);
+
+        $this->sync($nextMemberYearId, $nextYearId, '2026-07-01');
+        $closed = $this->sync($this->memberYearId, $this->scoutYearId, '2026-08-01');
+
+        $this->assertSame(0, $closed);
+        $this->assertSame([[$this->sectionA, '2026-07-01', null]], $this->periodsOf($nextYearId));
+
+        $this->sync($nextMemberYearId, $nextYearId, '2026-09-15');
+
+        $this->assertSame([[$this->sectionA, '2026-07-01', null]], $this->periodsOf($nextYearId));
+    }
+
+    /**
+     * Issue #1461: after the same alternation, a member who changed
+     * section has the old period closed on the day of the import, and is
+     * no longer in it at the reference date.
+     */
+    public function testASectionChangeAfterTheAlternationClosesTheOldPeriodThatDay(): void
+    {
+        $nextYearId = $this->createNextYear();
+        $nextMemberYearId = $this->ensureMemberYear($nextYearId);
+        $this->setFunctionSection($nextMemberYearId, $this->sectionA);
+        $this->setFunctionSection($this->memberYearId, $this->sectionA);
+
+        $this->sync($nextMemberYearId, $nextYearId, '2026-07-01');
+        $this->sync($this->memberYearId, $this->scoutYearId, '2026-08-01');
+        $this->setFunctionSection($nextMemberYearId, $this->sectionB);
+        $this->sync($nextMemberYearId, $nextYearId, '2026-09-15');
+
+        $this->assertSame(
+            [[$this->sectionA, '2026-07-01', '2026-09-15'], [$this->sectionB, '2026-09-15', null]],
+            $this->periodsOf($nextYearId)
+        );
+        $covers = fn(int $sectionId): bool
+            => $this->repository->hasPeriodCovering($this->memberId, $sectionId, $nextYearId, '2026-10-01');
+        $this->assertFalse($covers($this->sectionA));
+        $this->assertTrue($covers($this->sectionB));
+    }
+
+    /**
+     * The safety net closes an earlier year's period at that year's own
+     * end: re-importing that year afterwards recognises it as the year's
+     * period instead of opening a second one.
+     */
+    public function testAPeriodClosedAtItsOwnYearsEndIsNotRecreated(): void
+    {
+        $nextYearId = $this->createNextYear();
+        $nextMemberYearId = $this->ensureMemberYear($nextYearId);
+        $this->setFunctionSection($this->memberYearId, $this->sectionA);
+        $this->setFunctionSection($nextMemberYearId, $this->sectionA);
+
+        $this->sync($this->memberYearId, $this->scoutYearId, '2025-10-01');
+        $this->assertSame(1, $this->sync($nextMemberYearId, $nextYearId, '2026-07-01'));
+        $this->sync($this->memberYearId, $this->scoutYearId, '2026-08-01');
+
+        $this->assertSame([[$this->sectionA, '2025-10-01', '2026-08-31']], $this->periodsOf($this->scoutYearId));
+    }
+
+    /**
+     * A year re-imported after its end never has a period stretched past
+     * that end by a section change.
+     */
+    public function testLeavingASectionOnAReImportAfterTheYearsEndClosesItAtThatEnd(): void
+    {
+        $this->setFunctionSection($this->memberYearId, $this->sectionA);
+        $this->sync($this->memberYearId, $this->scoutYearId, '2025-10-01');
+
+        $this->setFunctionSection($this->memberYearId, null);
+        $this->sync($this->memberYearId, $this->scoutYearId, '2026-09-20');
+
+        $this->assertSame([[$this->sectionA, '2025-10-01', '2026-08-31']], $this->periodsOf($this->scoutYearId));
+    }
+
+    /**
+     * An ended year imported again in configuration mode opens a period
+     * after the year's end; leaving the section on the next such import
+     * closes it on the day it started, never before, and coming back
+     * opens a new one.
+     */
+    public function testAPeriodOpenedAfterTheYearsEndIsNeverClosedBeforeItStarts(): void
+    {
+        $this->setFunctionSection($this->memberYearId, $this->sectionA);
+        $this->sync($this->memberYearId, $this->scoutYearId, '2026-09-20');
+
+        $this->setFunctionSection($this->memberYearId, null);
+        $this->sync($this->memberYearId, $this->scoutYearId, '2026-09-25');
+
+        $this->assertSame([[$this->sectionA, '2026-09-20', '2026-09-20']], $this->periodsOf($this->scoutYearId));
+
+        $this->setFunctionSection($this->memberYearId, $this->sectionA);
+        $this->sync($this->memberYearId, $this->scoutYearId, '2026-09-30');
+
+        $this->assertSame(
+            [[$this->sectionA, '2026-09-20', '2026-09-20'], [$this->sectionA, '2026-09-30', null]],
+            $this->periodsOf($this->scoutYearId)
+        );
+    }
+
+    /**
+     * The same late period, left open, is closed by the next year's
+     * import on the day it started — never at its year's end, before it.
+     */
+    public function testTheSafetyNetNeverClosesALatePeriodBeforeItStarts(): void
+    {
+        $this->setFunctionSection($this->memberYearId, $this->sectionA);
+        $this->sync($this->memberYearId, $this->scoutYearId, '2026-09-20');
+
+        $nextYearId = $this->createNextYear();
+        $nextMemberYearId = $this->ensureMemberYear($nextYearId);
+        $this->setFunctionSection($nextMemberYearId, $this->sectionA);
+        $this->sync($nextMemberYearId, $nextYearId, '2026-09-25');
+
+        $this->assertSame([[$this->sectionA, '2026-09-20', '2026-09-20']], $this->periodsOf($this->scoutYearId));
+    }
+
+    /**
+     * What the old safety net left on an install: the later year's period
+     * closed at its own end, a duplicate opened next to it, and the old
+     * section of a member who moved still valid all year. The next import
+     * of the year folds the duplicate and closes the old section.
+     */
+    public function testTheNextImportRepairsWhatTheOldSafetyNetLeft(): void
+    {
+        $nextYearId = $this->createNextYear();
+        $nextMemberYearId = $this->ensureMemberYear($nextYearId);
+        $this->insertPeriod($this->sectionA, $nextYearId, '2026-07-01', '2027-08-31');
+        $this->insertPeriod($this->sectionA, $nextYearId, '2026-09-15', null);
+        $this->insertPeriod($this->sectionB, $nextYearId, '2026-07-01', '2027-08-31');
+        $this->setFunctionSection($nextMemberYearId, $this->sectionA);
+
+        $this->sync($nextMemberYearId, $nextYearId, '2026-10-01');
+
+        $this->assertSame(
+            [[$this->sectionA, '2026-07-01', null], [$this->sectionB, '2026-07-01', '2026-10-01']],
+            $this->periodsOf($nextYearId)
+        );
+    }
+
+    /**
+     * Leaving a section and coming back in the same year is two periods
+     * that do not overlap: they are history, not a duplicate.
+     */
+    public function testLeavingAndComingBackInTheSameYearKeepsBothPeriods(): void
+    {
+        $this->insertPeriod($this->sectionA, $this->scoutYearId, '2025-10-01', '2026-01-10');
+        $this->insertPeriod($this->sectionB, $this->scoutYearId, '2026-01-10', '2026-03-01');
+        $this->insertPeriod($this->sectionA, $this->scoutYearId, '2026-03-01', null);
+        $this->setFunctionSection($this->memberYearId, $this->sectionA);
+
+        $this->sync($this->memberYearId, $this->scoutYearId, '2026-04-01');
+
+        $this->assertSame(
+            [
+                [$this->sectionA, '2025-10-01', '2026-01-10'],
+                [$this->sectionA, '2026-03-01', null],
+                [$this->sectionB, '2026-01-10', '2026-03-01'],
+            ],
+            $this->periodsOf($this->scoutYearId)
+        );
+    }
+
     public function testLeavingASectionEntirelyClosesThePeriodWithNoNewOne(): void
     {
         $this->setMemberFunctionSection($this->sectionA);
