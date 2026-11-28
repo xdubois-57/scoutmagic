@@ -137,8 +137,13 @@ class HealthSheetRepository
      */
     public function mergeMember(int $keptMemberId, int $duplicateMemberId): string
     {
+        // Locked: a family's save or a document's touch() committing
+        // between this read and the delete below would otherwise have the
+        // newer sheet deleted in favour of the older one. The caller — the
+        // merge, or its catch-up — owns the transaction.
         $stmt = $this->pdo->prepare(
-            'SELECT member_id, last_used_at FROM official_documents_health_sheets WHERE member_id IN (?, ?)'
+            'SELECT member_id, last_used_at FROM official_documents_health_sheets
+             WHERE member_id IN (?, ?) FOR UPDATE'
         );
         $stmt->execute([$keptMemberId, $duplicateMemberId]);
         $lastUsed = [];

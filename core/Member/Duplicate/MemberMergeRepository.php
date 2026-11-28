@@ -278,6 +278,23 @@ class MemberMergeRepository
     }
 
     /**
+     * What the merges done so far look like, in one short string: how many
+     * identities are merged and the latest merge's date. It changes with
+     * every merge, so a module's catch-up runs again when there is one it
+     * has not seen — made while the module was disabled, or concurrently
+     * with its last catch-up (issue #1462).
+     */
+    public function mergeSignature(): string
+    {
+        $stmt = $this->pdo->query(
+            'SELECT COUNT(*), MAX(merged_at) FROM members WHERE merged_into_member_id IS NOT NULL'
+        );
+        $row = $stmt !== false ? $stmt->fetch(\PDO::FETCH_NUM) : false;
+
+        return $row === false ? '0|' : (int) $row[0] . '|' . (string) ($row[1] ?? '');
+    }
+
+    /**
      * Runs $listener over every merge already done, in one transaction:
      * the rows a module wrote under identities merged before it could
      * follow a merge are brought to the kept identity. Returns how many.
