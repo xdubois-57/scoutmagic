@@ -25,14 +25,19 @@ use Core\Journal\JournalService;
  * catch-up — never an ordinary merge. Replaying a merge the module already
  * followed finds nothing to move, so a re-run is harmless.
  *
- * The catch-up runs from the composition root: a failure is journalled and
- * swallowed, never left to 500 every page (the admin included, from where
- * the module could be disabled). It is retried on the next request, and
- * journalled once per signature, not once per request.
+ * The catch-up runs from the composition root of ordinary requests, so it
+ * is kept from weighing on them: one request at a time runs it (the others
+ * stand down, {@see MemberMergeRepository::catchUpAlone()}), and a failure
+ * is journalled and swallowed, never left to 500 every page — the admin
+ * included, from where the module could be disabled. After a failure the
+ * setting holds `échec|<signature>|<time>`: the catch-up is retried only
+ * once RETRY_AFTER_SECONDS have passed, and journalled once per signature.
  */
 class MemberMergeListenerRegistrar
 {
     private const FAILED_PREFIX = 'échec|';
+
+    private const RETRY_AFTER_SECONDS = 900;
 
     private ?string $signature = null;
 
@@ -61,6 +66,10 @@ class MemberMergeListenerRegistrar
 
             return;
         }
+        $failedAt = $this->failedAt($stored);
+        if ($failedAt !== null && time() - $failedAt < self::RETRY_AFTER_SECONDS) {
+            return;
+        }
 
         $this->settings->register(
             $key,
@@ -76,10 +85,13 @@ class MemberMergeListenerRegistrar
         );
 
         try {
-            $handled = $this->merges->catchUp($listener);
+            $handled = $this->merges->catchUpAlone($listener);
         } catch (\Throwable $e) {
             $this->recordFailure($module, $key, $stored, $e);
 
+            return;
+        }
+        if ($handled === null) {
             return;
         }
 
@@ -121,24 +133,36 @@ class MemberMergeListenerRegistrar
     private function recordFailure(string $module, string $key, string $stored, \Throwable $e): void
     {
         error_log('Member merge catch-up failed for ' . $module . ': ' . $e->getMessage());
-        $failed = self::FAILED_PREFIX . $this->signature;
-        if ($stored === $failed) {
-            return;
-        }
+        $alreadyJournalled = $this->failedAt($stored) !== null;
         try {
+            $this->settings->replaceIfUnchanged($key, $stored, self::FAILED_PREFIX . $this->signature . '|' . time());
+            if ($alreadyJournalled) {
+                return;
+            }
             $this->journal->log(
                 $module,
                 'member_merge_catch_up_failed',
                 'error',
                 'Les fusions de fiches déjà faites n\'ont pas pu être appliquées aux données du module ; '
-                    . 'nouvel essai à la prochaine page',
+                    . 'nouvel essai dans un quart d\'heure',
                 ['error' => $e::class]
             );
-            $this->settings->replaceIfUnchanged($key, $stored, $failed);
         } catch (\Throwable) {
             // The journal or the settings are what failed: error_log() above
             // is all that is left, and the page must still render.
         }
+    }
+
+    /** When the catch-up last failed for the current signature, or null. */
+    private function failedAt(string $stored): ?int
+    {
+        $prefix = self::FAILED_PREFIX . $this->signature . '|';
+        if (!str_starts_with($stored, $prefix)) {
+            return null;
+        }
+        $time = substr($stored, strlen($prefix));
+
+        return ctype_digit($time) ? (int) $time : null;
     }
 
     private static function settingKey(string $module): string
