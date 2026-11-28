@@ -248,6 +248,25 @@ final class ReconcileRedirectHandlerTest extends TestCase
     }
 
     /**
+     * Issue #1448: on duty, but with a GSM that is no number (#1260) — the
+     * calls go to the default number, and the journal says how that was
+     * resolved rather than « planning ».
+     */
+    public function testAnUnreachableMemberOnDutyJournalsTheDefaultNumbersResolution(): void
+    {
+        $this->onDuty('unusable', '0470');
+        $this->queueNow(ReconcileRedirectHandler::REFERENCE_HOURLY, []);
+
+        $this->runner->processOverdue();
+
+        self::assertSame([self::DEFAULT_NUMBER], $this->changes);
+        $context = json_decode((string) $this->pdo->query(
+            "SELECT context FROM event_log WHERE category = 'sos_staff' AND event_type = 'redirect_drift_detected'"
+        )->fetchColumn(), true);
+        self::assertSame('explicit', $context['resolution']);
+    }
+
+    /**
      * Issue #1125: the operator answers in its own spelling (« 0032… ») — the
      * line is where it should be, and the hourly check leaves it alone
      * rather than « correcting » it every hour.

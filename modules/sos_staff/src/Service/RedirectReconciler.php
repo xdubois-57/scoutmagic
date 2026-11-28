@@ -234,7 +234,10 @@ class RedirectReconciler
                 // that answered — the page and the scheduled path resolve
                 // it the same way, and this is what lets a correction that
                 // looks wrong be read. Ids and a word, never a number.
-                'resolution' => $expected['member_id'] !== null
+                // A planned member whose GSM is no number (#1260) keeps
+                // member_id, but the calls go to the default number: its
+                // resolution is what explains where the line goes.
+                'resolution' => $expected['member_id'] !== null && $expected['unreachable_member_id'] === null
                     ? 'planning'
                     : ($this->settingsService->resolveDefaultNumber($scoutYearId)['resolution'] ?? null),
             ]
