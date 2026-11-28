@@ -1044,23 +1044,18 @@ class RestoreBackupHandler implements TaskHandlerInterface
 
     /**
      * The tasks of the restored database start from a clean state (#847,
-     * part 3), right after it is put in place.
+     * part 3), right after it is put in place — the reset
+     * {@see SchedulerRepository::startCleanAfterDatabaseReplaced()}
+     * documents, shared with the automatic rollback of an update (#1463).
      *
-     * - A task that was running at the restored date is not running now:
-     *   left `processing`, it would be reclaimed and replayed against a
-     *   database it was never meant for. Every live row is canceled.
-     * - A recurring chain (a row with a reference) is re-armed at once with
-     *   a fresh row: same task, same reference, same date, and an empty
-     *   payload — what a run carried then (an off-site archive being sent,
-     *   a cursor) describes files and rows that are not today's.
-     * - A one-shot task of the restored date is abandoned, as are today's
-     *   ({@see oneShotTasks()}); both are counted in the journal.
-     *
-     * - The row of THIS restore comes back under its own id, still
-     *   running: the scheduler marks it done by that id once this pass
-     *   returns, and in the restored table the id was free — a re-armed
-     *   chain or the resume pass would have taken it and been marked done
-     *   without ever running.
+     * A task that was running at the restored date is not running now:
+     * left `processing`, it would be reclaimed and replayed against a
+     * database it was never meant for. Every live row is canceled, each
+     * recurring chain re-armed once with an empty payload, and the
+     * one-shot tasks of the restored date are abandoned, as are today's
+     * ({@see oneShotTasks()}); both are counted in the journal. The row of
+     * THIS restore keeps its id, still running: the scheduler marks it done
+     * by that id once this pass returns.
      *
      * @param array<string, int> $todaysOneShots
      */
@@ -1070,46 +1065,9 @@ class RestoreBackupHandler implements TaskHandlerInterface
         ?int $requestedBy,
         int $runningTaskId
     ): void {
-        $pdo = $context->connection->getPdo();
-        $stmt = $pdo->query(
-            "SELECT id, module_id, task_key, reference, run_at FROM scheduled_actions
-             WHERE status IN ('pending', 'processing') ORDER BY id"
-        );
-        $live = $stmt !== false ? $stmt->fetchAll(\PDO::FETCH_ASSOC) : [];
-
-        $chains = [];
-        $restoredOneShots = [];
-        foreach ($live as $row) {
-            $key = $row['module_id'] . '/' . $row['task_key'];
-            if ($row['reference'] !== null) {
-                // One fresh row per chain, even where the restored date
-                // had a duplicate.
-                $chains[$key . '/' . $row['reference']] ??= $row;
-            } else {
-                $restoredOneShots[$key] = ($restoredOneShots[$key] ?? 0) + 1;
-            }
-        }
-
-        $pdo->exec("UPDATE scheduled_actions SET status = 'canceled' WHERE status IN ('pending', 'processing')");
-        if ($runningTaskId > 0) {
-            $taken = $pdo->prepare('SELECT 1 FROM scheduled_actions WHERE id = ?');
-            $taken->execute([$runningTaskId]);
-            if ($taken->fetchColumn() === false) {
-                // Long-standing columns only: this runs on the restored
-                // schema, before any migration.
-                $pdo->prepare(
-                    "INSERT INTO scheduled_actions (id, module_id, task_key, run_at, status)
-                     VALUES (?, 'core', 'restore_backup', ?, 'processing')"
-                )->execute([$runningTaskId, date('Y-m-d H:i:s')]);
-            }
-        }
-        $rearm = $pdo->prepare(
-            "INSERT INTO scheduled_actions (module_id, task_key, reference, payload, run_at, status)
-             VALUES (?, ?, ?, NULL, ?, 'pending')"
-        );
-        foreach ($chains as $row) {
-            $rearm->execute([$row['module_id'], $row['task_key'], $row['reference'], $row['run_at']]);
-        }
+        $reset = (new SchedulerRepository($context->connection->getPdo()))
+            ->startCleanAfterDatabaseReplaced($runningTaskId, 'core', 'restore_backup');
+        $restoredOneShots = $reset['abandoned'];
 
         $context->journal->log(
             'core',
@@ -1117,7 +1075,7 @@ class RestoreBackupHandler implements TaskHandlerInterface
             $todaysOneShots === [] && $restoredOneShots === [] ? 'info' : 'warning',
             'Tâches planifiées remises à zéro par la restauration',
             [
-                'chains_rearmed' => count($chains),
+                'chains_rearmed' => $reset['rearmed'],
                 'todays_tasks_lost' => $todaysOneShots,
                 'restored_tasks_abandoned' => $restoredOneShots,
             ],
