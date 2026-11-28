@@ -743,12 +743,15 @@ class InstallUpdateHandler implements TaskHandlerInterface
             . 'd\'attente de GitHub Actions était pleine et la construction a abouti un peu plus tard. Rien n\'a '
             . 'été modifié, et le prochain envoi de code installera la version la plus récente.'
         );
-        // `warning` and not `error`: nothing was touched, and the next push
-        // installs the latest version without anybody stepping in (#1450).
+        // `error`, not `warning` (#1450 review): nothing was touched, but
+        // nothing retries either — no task is queued past the deadline, and
+        // this version is installed only if somebody pushes again. A build
+        // whose archive never appeared must be found by a filter on
+        // « Erreur ».
         $context->journal->log(
             'core',
             'update_failed',
-            'warning',
+            'error',
             'Artefact de mise à jour pas publié avant la fin du délai — installation abandonnée',
             [
                 'history_id' => $historyId,

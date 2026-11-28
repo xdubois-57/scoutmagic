@@ -430,9 +430,9 @@ class InstallUpdateHandlerTest extends TestCase
             "SELECT level, context FROM event_log WHERE event_type = 'update_failed' ORDER BY id DESC LIMIT 1"
         )->fetch(\PDO::FETCH_ASSOC);
         $this->assertNotFalse($row);
-        // `warning`, not `error`: nothing was touched and the next push
-        // installs the latest version by itself (issue #1450).
-        $this->assertSame('warning', $row['level']);
+        // `error`, not `warning`: past the deadline nothing is retried, so
+        // this version waits for somebody to push again (#1559 review).
+        $this->assertSame('error', $row['level']);
         $context = json_decode((string) $row['context'], true);
         $this->assertSame(self::DEV_ARTIFACT_URL, $context['download_url']);
         $this->assertSame(404, $context['http_status']);

@@ -440,6 +440,8 @@ class BoardServiceTest extends TestCase
         }
         $this->assertNotNull($failure, 'a failed close notification must leave a journal trace');
         $this->assertStringContainsString('SMTP down', (string) $failure['context']);
+        // Nothing resends the digest: `error`, never `info` (issue #1450).
+        $this->assertSame('error', $failure['level']);
     }
 
     public function testCreateRejectsAnInvalidNotificationEmail(): void

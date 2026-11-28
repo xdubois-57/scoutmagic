@@ -688,22 +688,6 @@ class SchedulerRunnerTest extends TestCase
         $this->assertSame('done', $this->repo->findById($first)['status']);
         $this->assertSame('done', $this->repo->findById($second)['status']);
     }
-}
-
-/**
- * Named (not anonymous) because the runner instantiates it from its class
- * NAME with no arguments — exactly what auto-resolution does to a real
- * module handler.
- */
-final class ModuleResolvedFixtureHandler implements TaskHandlerInterface
-{
-    /** @var list<array<string, mixed>> */
-    public static array $payloads = [];
-
-    public function handle(array $payload, TaskContext $context): void
-    {
-        self::$payloads[] = $payload;
-    }
 
     /**
      * A start stamp that fails for any reason other than a missing column
@@ -772,5 +756,21 @@ final class ModuleResolvedFixtureHandler implements TaskHandlerInterface
             0,
             (int) $this->pdo->query("SELECT COUNT(*) FROM event_log WHERE event_type = 'scheduler_task_done'")->fetchColumn()
         );
+    }
+}
+
+/**
+ * Named (not anonymous) because the runner instantiates it from its class
+ * NAME with no arguments — exactly what auto-resolution does to a real
+ * module handler.
+ */
+final class ModuleResolvedFixtureHandler implements TaskHandlerInterface
+{
+    /** @var list<array<string, mixed>> */
+    public static array $payloads = [];
+
+    public function handle(array $payload, TaskContext $context): void
+    {
+        self::$payloads[] = $payload;
     }
 }

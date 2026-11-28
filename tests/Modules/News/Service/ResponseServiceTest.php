@@ -542,10 +542,12 @@ class ResponseServiceTest extends TestCase
         $this->assertFalse($this->responseRepository->findById($response->id)?->hasTicket());
         $this->assertSame(['Roskam'], array_values($this->responseRepository->getValues($response->id)));
         $this->assertSame(['a@test.com'], $sentTo);
-        $stmt = $this->pdo->prepare('SELECT description, context FROM event_log WHERE event_type = ?');
+        $stmt = $this->pdo->prepare('SELECT description, context, level FROM event_log WHERE event_type = ?');
         $stmt->execute(['ticket_reference_failed']);
         $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
         $this->assertCount(1, $rows);
+        // The family has no ticket until somebody steps in: `error` (#1450).
+        $this->assertSame('error', $rows[0]['level']);
         $this->assertSame(
             'Échec de la génération de la référence de billet pour une réponse de formulaire',
             $rows[0]['description']

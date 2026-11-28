@@ -310,13 +310,15 @@ class SendPendingTicketsHandlerTest extends TestCase
         $this->handle([$responseId]);
 
         $statement = $this->pdo->prepare(
-            'SELECT event_type, description, context FROM event_log WHERE category = ?'
+            'SELECT event_type, description, context, level FROM event_log WHERE category = ?'
         );
         $statement->execute(['news']);
         $entries = $statement->fetchAll(\PDO::FETCH_ASSOC);
 
         $this->assertCount(1, $entries);
         $this->assertSame('ticket_email_failed', $entries[0]['event_type']);
+        // Nothing resends the ticket: `error`, never `info` (issue #1450).
+        $this->assertSame('error', $entries[0]['level']);
         // The decoded key, not a substring of the JSON: with one article,
         // one form and one response in a fresh database, every identifier
         // is 1, so « le contexte contient "1" » holds just as well when
