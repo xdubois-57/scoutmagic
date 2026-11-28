@@ -197,6 +197,28 @@ function scoutmagicBootstrapScheduler(
         )
     );
 
+    // The one CORE hook (§7.4) a scheduled task needs, under the same
+    // live enablement guard as the Api\ capabilities: the Staff d'U
+    // section's responsable, which the SOS page resolves the default
+    // number to (issue #1448). Without it the hourly correction resolved
+    // the same setting to somebody else, and moved the line away from the
+    // person the page showed. Built exactly as public/index.php builds it.
+    $capabilities->register(
+        \Core\Module\SectionResponsableProvider::class,
+        'trombinoscope',
+        static fn (): object => new \Modules\Trombinoscope\Service\TrombinoscopeService(
+            new \Modules\Trombinoscope\Repository\TrombinoscopeRepository($connection),
+            new \Core\Member\SectionService(
+                new \Core\Member\Repository\SectionRepository($connection),
+                new \Core\Member\Repository\MemberProfileRepository(
+                    $connection,
+                    $encryptionService,
+                    new \Core\Badge\MemberBadgeRepository($pdo)
+                )
+            )
+        )
+    );
+
     $capabilities->register(
         \Modules\InboundMail\Api\InboundMailInterface::class,
         'inbound_mail',

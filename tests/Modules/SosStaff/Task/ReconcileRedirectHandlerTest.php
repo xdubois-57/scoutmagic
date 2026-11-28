@@ -17,7 +17,12 @@ use Core\Journal\JournalService;
 use Core\Mail\MailService;
 use Core\Member\Repository\UnitStaffSectionRepository;
 use Core\Member\UnitStaffSectionService;
+use Core\Member\MemberProfile;
+use Core\Member\Repository\MemberProfileRepository;
+use Core\Member\Repository\SectionRepository;
+use Core\Member\SectionService;
 use Core\Module\ModuleManager;
+use Core\Module\SectionResponsableProvider;
 use Core\Scheduler\SchedulerRepository;
 use Core\Scheduler\SchedulerRunner;
 use Core\Scheduler\SchedulerService;
@@ -31,6 +36,8 @@ use Modules\SosStaff\Api\ProviderException;
 use Modules\SosStaff\Repository\OnCallAssignment;
 use Modules\SosStaff\Repository\OnCallRepository;
 use Modules\SosStaff\Repository\SosSettingsRepository;
+use Modules\SosStaff\Service\SosSettingsService;
+use Modules\SosStaff\Task\SosTaskServices;
 use Modules\SosStaff\Task\ApplyRedirectHandler;
 use Modules\SosStaff\Task\ReconcileRedirectHandler;
 use PHPUnit\Framework\Attributes\Group;
@@ -61,6 +68,10 @@ final class ReconcileRedirectHandlerTest extends TestCase
     private int $year;
     private ForwardingState $forwarding;
     private bool $refuse = false;
+    private TaskContext $context;
+    private SectionResponsableProvider $responsables;
+    /** The member year of the Staff d'U responsable, null for none. */
+    private ?int $responsableMemberYearId = null;
     private bool $unreadable = false;
     /** @var list<string> */
     private array $changes = [];
@@ -102,9 +113,13 @@ final class ReconcileRedirectHandlerTest extends TestCase
             $this->forwarding = new ForwardingState(true, $number);
         });
         $modules = $this->createStub(ModuleManager::class);
-        $modules->method('getEnabledModuleIds')->willReturn(['test_tools']);
+        $modules->method('getEnabledModuleIds')->willReturn(['test_tools', 'trombinoscope']);
         $capabilities = new TaskCapabilities($modules);
         $capabilities->register(PhoneProviderInterface::class, 'test_tools', fn() => $provider);
+        // The Staff d'U responsable (issue #1448), as the trombinoscope
+        // designates one. Nobody until a test names somebody.
+        $this->responsables = $this->responsableProvider();
+        $capabilities->register(SectionResponsableProvider::class, 'trombinoscope', fn() => $this->responsables);
 
         $mail = $this->createStub(MailService::class);
         $mail->method('send')->willReturnCallback(function (string $to): void {
@@ -112,7 +127,7 @@ final class ReconcileRedirectHandlerTest extends TestCase
         });
 
         $this->runner = new SchedulerRunner($this->tasks, $journal);
-        $this->runner->setTaskContext(new TaskContext(
+        $this->runner->setTaskContext($this->context = new TaskContext(
             Connection::withPdo($this->pdo),
             $this->encryption,
             $mail,
@@ -159,6 +174,77 @@ final class ReconcileRedirectHandlerTest extends TestCase
 
         self::assertSame([], $this->changes);
         self::assertSame([], $this->journal('redirect_drift_detected'));
+    }
+
+    /**
+     * Issue #1448: nothing chosen, a responsable designated for the Staff
+     * d'U. The page resolves the default number to them, and so must the
+     * hourly check — a line already on their GSM is left alone, instead of
+     * being « corrected » to the first member of the roster.
+     */
+    public function testALineOnTheResponsableIsLeftAloneWhenNothingWasChosen(): void
+    {
+        $this->pdo->exec('UPDATE sos_settings SET default_number_member_id = NULL');
+        $this->designateResponsable('lead', '+32470000055');
+        $this->forwarding = new ForwardingState(true, '+32470000055');
+        $this->queueNow(ReconcileRedirectHandler::REFERENCE_HOURLY, []);
+
+        $this->runner->processOverdue();
+
+        self::assertSame([], $this->changes);
+        self::assertSame([], $this->journal('redirect_drift_detected'));
+    }
+
+    /**
+     * Issue #1448: the page and the scheduled path, given the same
+     * situation, resolve the same default number — the page's graph is the
+     * one public/index.php builds, the other the one SosTaskServices builds.
+     */
+    public function testThePageAndTheScheduledPathResolveTheSameDefaultNumber(): void
+    {
+        $this->pdo->exec('UPDATE sos_settings SET default_number_member_id = NULL');
+        $leadId = $this->designateResponsable('lead', '+32470000055');
+
+        $page = new SosSettingsService(
+            new \Modules\SosStaff\Repository\ExcludedSectionRepository($this->pdo),
+            new SosSettingsRepository($this->pdo),
+            $this->sectionService(),
+            new \Core\Import\MemberYearRepository($this->pdo),
+            new UnitStaffSectionService(new UnitStaffSectionRepository($this->pdo)),
+            $this->settings,
+            $this->responsables
+        );
+        $scheduled = SosTaskServices::build($this->context)->reconciler->expectedDestination($this->year);
+
+        self::assertSame($leadId, $page->resolveDefaultNumberMemberId($this->year));
+        self::assertSame($page->getDefaultNumber($this->year), $scheduled['number']);
+        self::assertSame('+32470000055', $scheduled['number']);
+    }
+
+    /**
+     * Issue #1448: the correction says why the line goes where it goes —
+     * which step of the resolution answered, and who the line is leaving.
+     * Ids and a word, never a number.
+     */
+    public function testTheCorrectionJournalsItsResolution(): void
+    {
+        $this->pdo->exec('UPDATE sos_settings SET default_number_member_id = NULL');
+        $leaving = $this->member('leaving', '+32470000077', 'leaving@example.test');
+        $this->designateResponsable('lead', '+32470000055');
+        $this->forwarding = new ForwardingState(true, '+32470000077');
+        $this->queueNow(ReconcileRedirectHandler::REFERENCE_HOURLY, []);
+
+        $this->runner->processOverdue();
+
+        self::assertSame(['+32470000055'], $this->changes);
+        $row = $this->pdo->query(
+            "SELECT context FROM event_log WHERE category = 'sos_staff' AND event_type = 'redirect_drift_detected'"
+        )->fetchColumn();
+        $context = json_decode((string) $row, true);
+        self::assertSame('responsable', $context['resolution']);
+        self::assertSame($leaving, $context['previous_member_id']);
+        self::assertNull($context['expected_member_id']);
+        self::assertStringNotContainsString('+3247', (string) $row);
     }
 
     /**
@@ -496,6 +582,56 @@ final class ReconcileRedirectHandlerTest extends TestCase
         $stmt->execute([$type]);
 
         return $stmt->fetchAll(\PDO::FETCH_KEY_PAIR);
+    }
+
+    private function sectionService(): SectionService
+    {
+        $connection = Connection::withPdo($this->pdo);
+
+        return new SectionService(
+            new SectionRepository($connection),
+            new MemberProfileRepository($connection, $this->encryption)
+        );
+    }
+
+    /** The Staff d'U responsable the trombinoscope would designate: a member of it, with a GSM. */
+    private function designateResponsable(string $code, string $mobile): int
+    {
+        $memberId = $this->member($code, $mobile, $code . '@example.test');
+        $this->responsableMemberYearId = (int) $this->pdo->query(
+            'SELECT id FROM member_years WHERE member_id = ' . $memberId
+        )->fetchColumn();
+
+        return $memberId;
+    }
+
+    private function responsableProvider(): SectionResponsableProvider
+    {
+        $test = $this;
+
+        return new class ($test) implements SectionResponsableProvider {
+            public function __construct(private ReconcileRedirectHandlerTest $test)
+            {
+            }
+
+            public function getResponsable(int $sectionId, int $scoutYearId): ?MemberProfile
+            {
+                return $this->test->responsableProfile();
+            }
+
+            public function getResponsables(array $sectionIds, int $scoutYearId): array
+            {
+                return array_fill_keys($sectionIds, $this->test->responsableProfile());
+            }
+        };
+    }
+
+    /** @internal for the provider above */
+    public function responsableProfile(): ?MemberProfile
+    {
+        return $this->responsableMemberYearId === null
+            ? null
+            : $this->sectionService()->hydrateMemberProfile($this->responsableMemberYearId);
     }
 
     /** A member of the Staff d'U planned on duty yesterday and today, so the duty is current. */
