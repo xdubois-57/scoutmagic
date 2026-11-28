@@ -397,6 +397,133 @@ class CampaignServiceTest extends TestCase
         $this->assertSame(7, $notified->notifiedBy);
     }
 
+    /**
+     * Issue #1436: « Les rappels s'arrêtent » used to be a promise nothing
+     * kept. Each gesture that asks a family for money is refused, journalled
+     * with its action and the acting account.
+     */
+    public function testAClosedCampaignRefusesEveryGestureThatAsksForMoneyAndJournalsIt(): void
+    {
+        $campaignId = $this->create('Cotisations', [[$this->memberIds['D-100'], '45,00']]);
+        $this->service->close($campaignId, Role::INTENDANT, 7);
+
+        $refusals = [];
+        foreach ([CampaignService::ACTION_REMINDER, CampaignService::ACTION_NOTIFY, CampaignService::ACTION_LABELS] as $action) {
+            try {
+                $this->service->requireOpenCampaign($campaignId, Role::INTENDANT, $action, 7);
+                $this->fail("A closed campaign accepted « {$action} ».");
+            } catch (FinanceException $e) {
+                $refusals[$action] = $e->getMessage();
+            }
+        }
+
+        $this->assertStringContainsString('brouillon de rappel', $refusals[CampaignService::ACTION_REMINDER]);
+        $this->assertStringContainsString('notifie plus', $refusals[CampaignService::ACTION_NOTIFY]);
+        $this->assertStringContainsString("d'étiquettes", $refusals[CampaignService::ACTION_LABELS]);
+        foreach ($refusals as $message) {
+            $this->assertStringStartsWith('Cette campagne est clôturée', $message);
+            $this->assertStringContainsString('Rouvrez-la', $message, 'a refusal names the way back');
+        }
+
+        $this->assertSame(
+            [
+                ['finance', 'info', 7, ['campaign_id' => $campaignId, 'action' => 'reminder']],
+                ['finance', 'info', 7, ['campaign_id' => $campaignId, 'action' => 'notify']],
+                ['finance', 'info', 7, ['campaign_id' => $campaignId, 'action' => 'labels']],
+            ],
+            $this->refusalJournal()
+        );
+    }
+
+    public function testMarkingAClosedCampaignNotifiedIsRefusedAndMarksNothing(): void
+    {
+        $campaignId = $this->create('Cotisations', [[$this->memberIds['D-100'], '45,00']]);
+        $this->service->close($campaignId, Role::INTENDANT, 7);
+
+        try {
+            $this->service->markNotified($campaignId, Role::INTENDANT, 7);
+            $this->fail('A closed campaign was marked notified.');
+        } catch (FinanceException $e) {
+            $this->assertStringContainsString('notifie plus', $e->getMessage());
+        }
+
+        $campaign = $this->campaigns->findById($campaignId);
+        $this->assertNotNull($campaign);
+        $this->assertFalse($campaign->isNotified());
+        $this->assertSame(
+            [['finance', 'info', 7, ['campaign_id' => $campaignId, 'action' => 'notify']]],
+            $this->refusalJournal()
+        );
+    }
+
+    public function testReopeningAcceptsTheGesturesAgainWithoutJournallingARefusal(): void
+    {
+        $campaignId = $this->create('Cotisations', [[$this->memberIds['D-100'], '45,00']]);
+        $this->service->close($campaignId, Role::INTENDANT, 7);
+        $this->service->reopen($campaignId, Role::INTENDANT, 7);
+
+        $campaign = $this->service->requireOpenCampaign($campaignId, Role::INTENDANT, CampaignService::ACTION_REMINDER, 7);
+
+        $this->assertSame($campaignId, $campaign->id);
+        $this->assertTrue($this->service->markNotified($campaignId, Role::INTENDANT, 7)->isNotified());
+        $this->assertSame([], $this->refusalJournal());
+    }
+
+    /**
+     * Closing is not a way past the account rule: a campaign out of reach
+     * is « n'existe pas » whether or not it is closed, and leaves no
+     * refusal line naming it.
+     */
+    public function testAClosedCampaignOutOfReachIsUnknownRatherThanClosed(): void
+    {
+        $campaignId = $this->create('Réservé', [[$this->memberIds['D-100'], '45,00']], null, $this->otherAccountId, Role::ADMIN);
+        $this->service->close($campaignId, Role::ADMIN, 7);
+
+        try {
+            $this->service->requireOpenCampaign($campaignId, Role::INTENDANT, CampaignService::ACTION_LABELS, 7);
+            $this->fail('A campaign out of reach answered.');
+        } catch (FinanceException $e) {
+            $this->assertSame("Cette campagne n'existe pas.", $e->getMessage());
+        }
+        $this->assertSame([], $this->refusalJournal());
+    }
+
+    /**
+     * What closing leaves alone: the note (and, in CampaignControllerTest,
+     * the abandon) — settling the leftovers is what happens after a close.
+     */
+    public function testTheNoteStaysWritableOnAClosedCampaign(): void
+    {
+        $campaignId = $this->create('Cotisations', [[$this->memberIds['D-100'], '45,00']]);
+        $rowId = $this->rows->findByCampaignId($campaignId)[0]->id;
+        $this->service->close($campaignId, Role::INTENDANT, 7);
+
+        $this->service->setNote($rowId, 'Dispense accordée après la clôture.', Role::INTENDANT, 7);
+
+        $this->assertSame('Dispense accordée après la clôture.', $this->rows->findById($rowId)?->note);
+    }
+
+    /**
+     * @return list<array{0: string, 1: string, 2: ?int, 3: array<string, mixed>}>
+     */
+    private function refusalJournal(): array
+    {
+        $rows = $this->pdo->query(
+            "SELECT category, level, user_account_id, context FROM event_log
+             WHERE event_type = 'campaign_action_refused_closed' ORDER BY id"
+        )->fetchAll(\PDO::FETCH_ASSOC);
+
+        return array_map(
+            static fn(array $row): array => [
+                (string) $row['category'],
+                (string) $row['level'],
+                $row['user_account_id'] !== null ? (int) $row['user_account_id'] : null,
+                json_decode((string) $row['context'], true),
+            ],
+            $rows
+        );
+    }
+
     public function testTheNoteIsStoredEncryptedWithItsAuthorAndDate(): void
     {
         $campaignId = $this->create('Cotisations', [[$this->memberIds['D-100'], '45,00']]);

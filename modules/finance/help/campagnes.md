@@ -21,10 +21,9 @@ Chaque membre de la liste reçoit **sa** demande, avec **sa**
 communication structurée. Une famille de trois enfants reçoit donc trois
 demandes, et pas une seule au nom du foyer.
 
-C'est ce qui rend chaque virement identifiable à son arrivée. Demandez
-aux familles **un virement par créance** : c'est la phrase à mettre dans
-le rappel, avec sa raison. Un virement groupé se répartit ensuite à la
-main, mais c'est du travail que la consigne évite.
+C'est ce qui rend chaque virement identifiable à son arrivée : demandez
+aux familles **un virement par créance**, et dites-leur pourquoi dans le
+rappel.
 
 ## Préparer le fichier
 
@@ -57,15 +56,13 @@ celles d'un même foyer se suivent. Le filtre par défaut, « À traiter »,
 montre les impayées, les partielles, et les payées qui portent un
 trop-perçu non réglé — celles-là appellent encore un geste.
 
-**L'export reprend exactement les créances affichées.** Le bouton porte
-leur nombre : si vous regardez les 41 impayées, vous exportez 41 lignes,
-pas la campagne entière. Changez de filtre avant d'exporter si ce n'est
-pas ce que vous voulez.
+**L'export reprend exactement les créances affichées**, et le bouton
+porte leur nombre : changez de filtre avant d'exporter si ce n'est pas
+ce que vous voulez.
 
 Rien ne se coche à la main : un statut vient des relevés bancaires
-importés. Abandonner une créance — une dispense, un geste commercial, une
-erreur de facturation — la solde sans qu'aucun paiement n'entre en
-caisse, et reste donc distinct d'un encaissement.
+importés. Abandonner une créance — une dispense, une erreur de facturation — la
+solde sans qu'aucun paiement n'entre en caisse.
 
 ## Les étiquettes à découper
 
@@ -81,5 +78,11 @@ rappel.
 
 ## Clôturer
 
-Clôturer une campagne arrête les rappels et la fige. Elle reste
-consultable, et peut être rouverte.
+Une campagne clôturée cesse de réclamer : plus de brouillon de rappel,
+plus de notification aux familles, plus d'étiquettes, et ses créances
+impayées disparaissent de la page d'accueil et de la page des membres,
+code QR compris.
+
+Elle reste consultable. Un paiement qui arrive encore est rattaché à sa
+créance, et la note comme l'abandon restent possibles. La rouvrir rétablit
+tout.

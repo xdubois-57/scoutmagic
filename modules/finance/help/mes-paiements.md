@@ -43,7 +43,8 @@ l'unité. Un virement met généralement un à deux jours ouvrables à
 apparaître : entre le moment où vous payez et celui où le site le voit,
 il est normal que la demande reste affichée.
 
-Le bandeau disparaît de lui-même quand tout est réglé. Rien ne se coche
+Le bandeau disparaît de lui-même quand tout est réglé, ou quand l'unité
+clôture la demande. Rien ne se coche
 à la main, ni de votre côté ni du nôtre.
 
 > Le code QR ne s'affiche pas dans votre logiciel de messagerie ? Il
