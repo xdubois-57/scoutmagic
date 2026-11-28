@@ -86,6 +86,7 @@ final class UserFacingExceptionInventoryTest extends TestCase
         \Modules\Documents\Service\DocumentException::class,
         \Modules\Gallery\Api\GalleryException::class,
         \Modules\Gallery\Service\GalleryLocationException::class,
+        \Modules\Gallery\Service\PhotoMemoryRefusedException::class,
         \Modules\Groups\Service\GroupsException::class,
         \Modules\Groups\Api\GroupPublishException::class,
         \Modules\InboundMail\Client\MailboxConnectionException::class,

@@ -36,7 +36,10 @@ album) sont réglées par l'administration du site.
 Après l'envoi, les vignettes se fabriquent en arrière-plan : une roue
 tourne le temps du traitement, et le média n'apparaît dans les
 téléchargements qu'une fois prêt. Rechargez la page pour voir arriver
-les vignettes.
+les vignettes. Un triangle rouge signale un traitement échoué, et sa
+raison s'affiche sous la vignette dans « Éditer l'album ». Une photo
+trop lourde pour la mémoire du serveur est ainsi refusée sans bloquer
+les autres : réduisez sa définition, puis envoyez-la à nouveau.
 
 ## Organiser
 

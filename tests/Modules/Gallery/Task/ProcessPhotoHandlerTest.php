@@ -18,6 +18,8 @@ use Modules\Gallery\Repository\Album;
 use Modules\Gallery\Repository\AlbumRepository;
 use Modules\Gallery\Repository\Media;
 use Modules\Gallery\Repository\MediaRepository;
+use Modules\Gallery\Service\ImageProcessingService;
+use Modules\Gallery\Service\PhotoMemoryBudget;
 use Core\Storage\Location\StorageLocation;
 use Core\Storage\Location\StorageLocationRepository;
 use Modules\Gallery\Task\ProcessPhotoHandler;
@@ -283,6 +285,104 @@ class ProcessPhotoHandlerTest extends TestCase
 
         // Still the original done values — never reprocessed.
         $this->assertSame('a', $this->mediaRepository->findById($mediaId)->thumbPath);
+    }
+
+    /**
+     * Issue #1449: a photo whose decode would exhaust memory_limit used to
+     * kill the process — a fatal, so the catch below never ran, the media
+     * stayed « en traitement » for good and the cron pass died. Refused
+     * before decoding, it becomes an ordinary failed media with a reason the
+     * animateur can read, a warning in the journal, and a handler that
+     * returns normally so the pass carries on.
+     */
+    public function testAPhotoTooHeavyForTheMemoryLeftIsFailedWithAReasonAndJournaled(): void
+    {
+        $fileId = $this->createOriginalFile();
+        $mediaId = $this->mediaRepository->create($this->albumId, Media::TYPE_PHOTO, $fileId, 0, 'test.jpg');
+        // 4 MB left under a simulated 64 MB limit; the 2000×1000 original
+        // needs 8 MB for its bitmap alone.
+        $handler = new ProcessPhotoHandler(
+            new ImageProcessingService(PhotoMemoryBudget::fixed('64M', 60 * 1024 * 1024))
+        );
+
+        $handler->handle(['media_id' => $mediaId], $this->buildContext());
+
+        $media = $this->mediaRepository->findById($mediaId);
+        $this->assertSame(Media::STATUS_FAILED, $media->processingStatus);
+        $this->assertNotNull($media->processingError);
+        $this->assertStringContainsString('trop lourde', $media->processingError);
+        $this->assertNull($media->thumbPath);
+        // Kept, as on every other failure: nothing was produced from it.
+        $this->assertFileExists($this->storagePath . '/gallery/' . $this->albumId . '/orig/test.jpg');
+
+        $row = $this->pdo->query(
+            "SELECT category, level, context FROM event_log WHERE event_type = 'photo_processing_refused_memory'"
+        )->fetchAll(\PDO::FETCH_ASSOC);
+        $this->assertCount(1, $row);
+        $this->assertSame('gallery', $row[0]['category']);
+        $this->assertSame('warning', $row[0]['level']);
+        $context = json_decode((string) $row[0]['context'], true);
+        $this->assertSame(
+            ['media_id', 'album_id', 'megapixels', 'required_bytes', 'available_bytes'],
+            array_keys($context)
+        );
+        $this->assertSame($mediaId, $context['media_id']);
+        $this->assertSame($this->albumId, $context['album_id']);
+        $this->assertEquals(2.0, $context['megapixels']);
+        $this->assertSame(4 * 1024 * 1024, $context['available_bytes']);
+        $this->assertGreaterThan($context['available_bytes'], $context['required_bytes']);
+        $this->assertStringNotContainsString('test.jpg', (string) $row[0]['context']);
+        // Not the generic failure line: one refusal, one line.
+        $this->assertSame(
+            0,
+            (int) $this->pdo->query("SELECT COUNT(*) FROM event_log WHERE event_type = 'photo_processing_failed'")->fetchColumn()
+        );
+    }
+
+    public function testAnOrdinaryPhotoIsProcessedUnderAnOrdinarySimulatedLimit(): void
+    {
+        $fileId = $this->createOriginalFile();
+        $mediaId = $this->mediaRepository->create($this->albumId, Media::TYPE_PHOTO, $fileId, 0, 'test.jpg');
+        $handler = new ProcessPhotoHandler(
+            new ImageProcessingService(PhotoMemoryBudget::fixed('256M', 32 * 1024 * 1024))
+        );
+
+        $handler->handle(['media_id' => $mediaId], $this->buildContext());
+
+        $media = $this->mediaRepository->findById($mediaId);
+        $this->assertSame(Media::STATUS_DONE, $media->processingStatus);
+        $this->assertNull($media->processingError);
+    }
+
+    /**
+     * The failed tile shows processing_error, so what reaches it is gated at
+     * the write site: a technical cause becomes the generic sentence, a
+     * GalleryException keeps its own.
+     */
+    public function testAFailureWithAUserFacingCauseKeepsItsSentence(): void
+    {
+        $fileRepository = new FileRepository($this->pdo);
+        $fileId = $fileRepository->create('gallery/999/orig/missing.jpg', 'missing.jpg', 'image/jpeg', 100, 'identified', 'gallery', null);
+        $mediaId = $this->mediaRepository->create($this->albumId, Media::TYPE_PHOTO, $fileId, 0, 'missing.jpg');
+
+        (new ProcessPhotoHandler())->handle(['media_id' => $mediaId], $this->buildContext());
+
+        $this->assertSame('Fichier original illisible.', $this->mediaRepository->findById($mediaId)->processingError);
+    }
+
+    public function testAFailureWithATechnicalCauseShowsTheGenericSentence(): void
+    {
+        $fileId = $this->createOriginalFile();
+        $mediaId = $this->mediaRepository->create($this->albumId, Media::TYPE_PHOTO, $fileId, 0, 'test.jpg');
+        $processing = $this->createStub(ImageProcessingService::class);
+        $processing->method('process')->willThrowException(new \RuntimeException('GD: out of something at /var/www/x.php'));
+
+        (new ProcessPhotoHandler($processing))->handle(['media_id' => $mediaId], $this->buildContext());
+
+        $this->assertSame(
+            ProcessPhotoHandler::GENERIC_FAILURE_MESSAGE,
+            $this->mediaRepository->findById($mediaId)->processingError
+        );
     }
 
     /**

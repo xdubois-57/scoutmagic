@@ -226,7 +226,20 @@ class RedirectReconciler
             [
                 'trigger' => $trigger,
                 'expected_member_id' => $expected['member_id'],
-                'live_member_id' => $previousMemberId,
+                // Who the line is leaving — null when it sat on the
+                // default number, or on nobody the roster knows.
+                'previous_member_id' => $previousMemberId,
+                // Why the line goes where it goes (issue #1448): the
+                // planning, or the step of the default number's resolution
+                // that answered — the page and the scheduled path resolve
+                // it the same way, and this is what lets a correction that
+                // looks wrong be read. Ids and a word, never a number.
+                // A planned member whose GSM is no number (#1260) keeps
+                // member_id, but the calls go to the default number: its
+                // resolution is what explains where the line goes.
+                'resolution' => $expected['member_id'] !== null && $expected['unreachable_member_id'] === null
+                    ? 'planning'
+                    : ($this->settingsService->resolveDefaultNumber($scoutYearId)['resolution'] ?? null),
             ]
         );
 
