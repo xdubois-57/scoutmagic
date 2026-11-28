@@ -339,8 +339,12 @@ class ExtractReceiptDataHandler implements TaskHandlerInterface
      *
      * @param 'warning'|'error' $level
      */
-    private function logFailure(TaskContext $context, int $attachmentId, string $reason, string $level = 'warning'): void
-    {
+    private function logFailure(
+        TaskContext $context,
+        int $attachmentId,
+        string $reason,
+        string $level = 'warning'
+    ): void {
         $context->journal->log(
             'finance',
             'receipt_extraction_failed',
