@@ -249,6 +249,8 @@ class MemberMergeRepository
                 $this->candidates->decide($candidateId, 'merged', $userAccountId);
             }
 
+            $this->listeners?->merged();
+
             $this->pdo->commit();
         } catch (\Throwable $e) {
             $this->pdo->rollBack();
