@@ -47,8 +47,10 @@ final class MailErrorRedaction
      * exists to fill ends up carrying nothing at all;
      * `Core\Support\SupportCollectorContext::collapseWhitespace()` had
      * already reached the same conclusion for the same reason. Without
-     * the flag the pattern is byte-oriented and cannot fail — and an
-     * address quoted in an SMTP error is ASCII, so nothing is lost.
+     * the flag the pattern is byte-oriented and cannot fail. The bytes
+     * \x80-\xFF are part of every class, so an internationalised address
+     * (`famille@exämple.be`, its UTF-8 bytes) is replaced as a whole too
+     * (#1522 review) — still without `/u`.
      */
     public static function withoutAddresses(string $text): string
     {
@@ -62,7 +64,7 @@ final class MailErrorRedaction
     public static function addressesRemoved(string $text): string
     {
         return (string) preg_replace(
-            '/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/',
+            '/[\w.+\x80-\xFF-]+@[\w\x80-\xFF-]+(?:\.[\w\x80-\xFF-]+)+/',
             '[adresse]',
             trim($text)
         );
