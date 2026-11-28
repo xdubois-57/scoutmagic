@@ -263,12 +263,7 @@ class FormResponseRepository
      * @param int|null $excludeResponseId when editing an existing response, its own previous value is excluded from the
      *     sum (module spec: "their own previous value is returned to the pool for the edit")
      */
-    public function sumFieldValues(
-        FormField $field,
-        ?int $excludeResponseId = null,
-        bool $lockForUpdate = false,
-        int $ceilingAtLeast = 0
-    ): float
+    public function sumFieldValues(FormField $field, ?int $excludeResponseId = null, bool $lockForUpdate = false): float
     {
         $sql = 'SELECT value, response_id FROM news_form_response_values WHERE field_id = ?';
         if ($lockForUpdate && $this->pdo->getAttribute(\PDO::ATTR_DRIVER_NAME) === 'mysql') {
@@ -303,8 +298,7 @@ class FormResponseRepository
             } catch (DecryptionException) {
                 continue;
             }
-            // $ceilingAtLeast: see FormField::storedQuantity().
-            $sum += $field->storedQuantity($value, $ceilingAtLeast) ?? 0;
+            $sum += $field->storedQuantity($value) ?? 0;
         }
 
         return (float) $sum;

@@ -451,7 +451,7 @@ class ResponseService
         // whole-column sum it replaces.
         if ($excludeResponseId !== null && $this->fieldRepository !== null) {
             $ownAnswer = $this->responseRepository->getValues($excludeResponseId)[$field->id] ?? null;
-            $used -= self::numericAnswer($field, $ownAnswer, $field->capacityUsed);
+            $used -= self::numericAnswer($field, $ownAnswer);
         }
 
         return max(0, (int) ($field->capacityMax - $used));
@@ -502,14 +502,10 @@ class ResponseService
      * exactly what that total counted for it — and the one rule for what a
      * new answer adds too, capped field or plain number (#1546 review):
      * a plain field's fraction adds nothing, as its recount would count it.
-     *
-     * $heldTotal: the running total that already counted $answer, which
-     * keeps it counting after its cap was lowered (FormField::
-     * storedQuantity()). Zero for an answer being added.
      */
-    private static function numericAnswer(FormField $field, ?string $answer, float $heldTotal = 0.0): float
+    private static function numericAnswer(FormField $field, ?string $answer): float
     {
-        return (float) ($field->storedQuantity($answer, (int) floor($heldTotal)) ?? 0);
+        return (float) ($field->storedQuantity($answer) ?? 0);
     }
 
     /**
@@ -1013,7 +1009,7 @@ class ResponseService
                     continue;
                 }
                 $requested = (float) ($normalizedAnswers[$field->id] ?? 0);
-                $previous = self::numericAnswer($field, $previousAnswers[$field->id] ?? null, $held[$field->id] ?? 0.0);
+                $previous = self::numericAnswer($field, $previousAnswers[$field->id] ?? null);
                 $used = $this->fieldRepository !== null
                     ? ($held[$field->id] ?? 0.0) - $previous
                     : $this->responseRepository->sumFieldValues($field, $response->id, lockForUpdate: true);
@@ -1032,7 +1028,7 @@ class ResponseService
                 $this->fieldRepository?->addUsedCapacity(
                     $field->id,
                     self::numericAnswer($field, $normalizedAnswers[$field->id] ?? null)
-                        - self::numericAnswer($field, $previousAnswers[$field->id] ?? null, $held[$field->id] ?? 0.0)
+                        - self::numericAnswer($field, $previousAnswers[$field->id] ?? null)
                 );
             }
 

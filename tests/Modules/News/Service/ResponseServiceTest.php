@@ -1286,7 +1286,7 @@ class ResponseServiceTest extends TestCase
         $fieldId = $this->fieldRepository->create($this->formId, 0, FormField::TYPE_NUMBER, 'Places', false, null, null, null, null, null);
         $this->submitPlaces($fieldId, '30', 'a');
         $failing = new class ($this->pdo, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))) extends FormResponseRepository {
-            public function sumFieldValues(FormField $field, ?int $excludeResponseId = null, bool $lockForUpdate = false, int $ceilingAtLeast = 0): float
+            public function sumFieldValues(FormField $field, ?int $excludeResponseId = null, bool $lockForUpdate = false): float
             {
                 throw new \PDOException('deliberate failure while counting');
             }
@@ -1323,21 +1323,71 @@ class ResponseServiceTest extends TestCase
     }
 
     /**
-     * The #1465 reprise keeps a booking a cap lowered before it would
-     * otherwise erase (#1546 review) — the total had kept it, as the
-     * editor did not recount then; the strict repair does not.
+     * The bound is the highest cap the field ever had, kept on the field
+     * (#1546 review): a booking taken under it survives every recount —
+     * the editor's, the strict reprises' — once the cap is lowered.
      */
-    public function testTheReprise1465KeepsABookingAboveACapLoweredBeforeIt(): void
+    public function testABookingUnderTheFieldsPeakCapSurvivesEveryRecount(): void
     {
         $fieldId = $this->fieldRepository->create($this->formId, 0, FormField::TYPE_NUMBER, 'Places', false, null, null, 2000, null, null);
         $this->submitPlaces($fieldId, '1500', 'a');
-        $this->pdo->exec('UPDATE news_form_fields SET capacity_max = 1000 WHERE id = ' . $fieldId);
+        $formService = $this->formService();
+        $this->saveCap($formService, $fieldId, 1000);
+        $this->saveCap($formService, $fieldId, 900);
 
-        $this->fieldRepository->recomputeUsedCapacities($this->responseRepository, keepCounted: true);
-        $this->assertSame(1500.0, $this->fieldRepository->usedCapacity($fieldId));
-
+        $this->assertSame(2000, $this->fieldRepository->findById($fieldId)?->capacityPeak);
         $this->fieldRepository->recomputeUsedCapacities($this->responseRepository);
-        $this->assertSame(0.0, $this->fieldRepository->usedCapacity($fieldId));
+        $this->assertSame(1500.0, $this->fieldRepository->usedCapacity($fieldId));
+        $this->assertSame(1500, $this->fieldRepository->findById($fieldId)?->storedQuantity('1500'));
+    }
+
+    /**
+     * An answer above every cap the field ever had was never taken by the
+     * server, and the rule says so whatever the running total holds
+     * (#1546 review): it counts nothing on a recount, and editing it away
+     * gives nothing back.
+     */
+    public function testAnAnswerAboveThePeakCountsNothingWhateverTheTotal(): void
+    {
+        $fieldId = $this->fieldRepository->create($this->formId, 0, FormField::TYPE_NUMBER, 'Places', false, null, null, 1000, null, null);
+        foreach (['600', '300', '1100'] as $i => $places) {
+            $this->responseRepository->create($this->formId, null, null, "r{$i}@test.com", [$fieldId => $places], null, null);
+        }
+        $this->fieldRepository->recomputeUsedCapacities($this->responseRepository);
+        $this->assertSame(900.0, $this->fieldRepository->usedCapacity($fieldId));
+
+        $invalid = $this->responseRepository->findByFormId($this->formId)[2];
+        $this->service()->update($invalid, $this->form(), [$this->fieldRepository->findById($fieldId)],
+            'r2@test.com', [$fieldId => '0'], null, 1);
+
+        $this->assertSame(900.0, $this->fieldRepository->usedCapacity($fieldId));
+    }
+
+    /** The peak only ever rises, and a field never capped has none. */
+    public function testTheCapacityPeakOnlyRises(): void
+    {
+        $fieldId = $this->fieldRepository->create($this->formId, 0, FormField::TYPE_NUMBER, 'Places', false, null, null, null, null, null);
+        $formService = $this->formService();
+        $this->assertNull($this->fieldRepository->findById($fieldId)?->capacityPeak);
+
+        $this->saveCap($formService, $fieldId, 1200);
+        $this->saveCap($formService, $fieldId, null);
+        $this->saveCap($formService, $fieldId, 1100);
+        $this->assertSame(1200, $this->fieldRepository->findById($fieldId)?->capacityPeak);
+
+        $this->saveCap($formService, $fieldId, 3000);
+        $this->assertSame(3000, $this->fieldRepository->findById($fieldId)?->capacityPeak);
+    }
+
+    /** A row from before the column starts from the cap it has. */
+    public function testALegacyRowStartsItsPeakFromItsCurrentCap(): void
+    {
+        $fieldId = $this->fieldRepository->create($this->formId, 0, FormField::TYPE_NUMBER, 'Places', false, null, null, 1500, null, null);
+        $this->pdo->exec('UPDATE news_form_fields SET capacity_peak = NULL WHERE id = ' . $fieldId);
+
+        $this->saveCap($this->formService(), $fieldId, 1000);
+
+        $this->assertSame(1500, $this->fieldRepository->findById($fieldId)?->capacityPeak);
     }
 
     /** The share an edit gives back is the one the total counted, whatever the cap became since. */

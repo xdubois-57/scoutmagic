@@ -46,12 +46,12 @@ class FormFieldRepository
     ): int {
         $stmt = $this->pdo->prepare(
             'INSERT INTO news_form_fields (form_id, sort_order, field_type, label, is_required, options_source, '
-                . 'options_manual, capacity_max, price_per_unit, confirmation_text)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                . 'options_manual, capacity_max, capacity_peak, price_per_unit, confirmation_text)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([
             $formId, $sortOrder, $fieldType, $label, $isRequired ? 1 : 0,
-            $optionsSource, $optionsManual, $capacityMax, $pricePerUnit, $confirmationText,
+            $optionsSource, $optionsManual, $capacityMax, $capacityMax, $pricePerUnit, $confirmationText,
         ]);
         return (int) $this->pdo->lastInsertId();
     }
@@ -62,6 +62,11 @@ class FormFieldRepository
      * re-inserting everything, so a field that already has responses
      * keeps its id — and their news_form_response_values rows, which
      * cascade-delete if the field itself is ever actually removed).
+     *
+     * `capacity_peak` only ever rises: the highest cap the field has had,
+     * the one FormField::storedQuantity() bounds every answer by (#1546
+     * review). A row written before the column starts from its current
+     * cap — what it had before cannot be known.
      */
     public function update(
         int $id,
@@ -77,11 +82,18 @@ class FormFieldRepository
     ): void {
         $stmt = $this->pdo->prepare(
             'UPDATE news_form_fields SET sort_order = ?, field_type = ?, label = ?, is_required = ?, options_source = '
-                . '?, options_manual = ?, capacity_max = ?, price_per_unit = ?, confirmation_text = ? WHERE id = ?'
+                . '?, options_manual = ?, '
+                . 'capacity_peak = CASE'
+                // `? + 0`: a bound parameter arrives as text, which SQLite
+                // would compare as greater than any number.
+                . ' WHEN COALESCE(capacity_peak, capacity_max, 0) >= COALESCE(? + 0, 0) THEN COALESCE(capacity_peak, capacity_max)'
+                . ' ELSE ? END, '
+                . 'capacity_max = ?, price_per_unit = ?, confirmation_text = ? WHERE id = ?'
         );
         $stmt->execute([
             $sortOrder, $fieldType, $label, $isRequired ? 1 : 0,
-            $optionsSource, $optionsManual, $capacityMax, $pricePerUnit, $confirmationText, $id,
+            $optionsSource, $optionsManual, $capacityMax, $capacityMax,
+            $capacityMax, $pricePerUnit, $confirmationText, $id,
         ]);
     }
 
@@ -129,7 +141,8 @@ class FormFieldRepository
             capacityMax: $row['capacity_max'] !== null ? (int) $row['capacity_max'] : null,
             pricePerUnit: $row['price_per_unit'] !== null ? (float) $row['price_per_unit'] : null,
             confirmationText: $row['confirmation_text'] !== null ? (string) $row['confirmation_text'] : null,
-            capacityUsed: (float) ($row['capacity_used'] ?? 0)
+            capacityUsed: (float) ($row['capacity_used'] ?? 0),
+            capacityPeak: isset($row['capacity_peak']) ? (int) $row['capacity_peak'] : null
         );
     }
 
@@ -249,20 +262,11 @@ class FormFieldRepository
      */
     public function recomputeUsedCapacity(int $fieldId, FormResponseRepository $responses): float
     {
-        return $this->recount($fieldId, $responses, keepCounted: true);
+        return $this->recount($fieldId, $responses);
     }
 
-    /**
-     * The recount itself, under the row lock.
-     *
-     * $keepCounted: the total held before the recount lifts the
-     * per-answer ceiling (FormField::storedQuantity()), so an answer taken
-     * under a higher cap keeps counting once the cap is lowered (#1546
-     * review). Off for the reprise, whose whole point is a total that may
-     * be wrong — an inflated one must not vouch for the answers it
-     * wrongly counted.
-     */
-    private function recount(int $fieldId, FormResponseRepository $responses, bool $keepCounted): float
+    /** The recount itself, under the row lock. */
+    private function recount(int $fieldId, FormResponseRepository $responses): float
     {
         // Under the row lock a submission's increment takes (#1546
         // review): one in flight either commits first — its answer is then
@@ -274,14 +278,11 @@ class FormFieldRepository
             $this->pdo->beginTransaction();
         }
         try {
-            $held = $this->usedCapacity($fieldId, lockForUpdate: true);
+            $this->usedCapacity($fieldId, lockForUpdate: true);
             // The field itself, so each answer counts what
             // FormField::storedQuantity() says it does (issue #1525).
             $field = $this->findById($fieldId);
-            $used = $field === null ? 0.0 : $responses->sumFieldValues(
-                $field,
-                ceilingAtLeast: $keepCounted ? (int) floor($held) : 0
-            );
+            $used = $field === null ? 0.0 : $responses->sumFieldValues($field);
             $stmt = $this->pdo->prepare('UPDATE news_form_fields SET capacity_used = ? WHERE id = ?');
             $stmt->execute([$used, $fieldId]);
             if ($ownTransaction) {
@@ -308,23 +309,16 @@ class FormFieldRepository
      * write would otherwise have its share erased, and the marker set
      * after this one run would keep the undercount for good.
      *
-     * $keepCounted as for recount(): off for a repair of totals that may
-     * be wrong. The #1465 reprise turns it on (#1546 review): it runs
-     * where the #1525 reprise has already rebuilt every total strictly, or
-     * just before it does — so the total it trusts is either clean or
-     * about to be rebuilt — and an earlier lowered cap must not make it
-     * erase a booking the total had kept.
-     *
      * @return int the number of fields recomputed
      */
-    public function recomputeUsedCapacities(FormResponseRepository $responses, bool $keepCounted = false): int
+    public function recomputeUsedCapacities(FormResponseRepository $responses): int
     {
         $stmt = $this->pdo->query('SELECT id FROM news_form_fields WHERE capacity_max IS NOT NULL');
         \assert($stmt !== false);
 
         $count = 0;
         foreach ($stmt->fetchAll(\PDO::FETCH_COLUMN) as $fieldId) {
-            $this->recount((int) $fieldId, $responses, $keepCounted);
+            $this->recount((int) $fieldId, $responses);
             $count++;
         }
 
