@@ -150,11 +150,12 @@ enum MailFailure
         // against a relay that will keep refusing it — the same cost as
         // any unknown failure, and the one this enum already chooses.
         //
-        // Bounded like the codes below (#1571 review): no letter, digit,
-        // underscore or dot before the class, so « server=v4.7.1 » — a
-        // version, not a policy refusal — does not turn a « 550 5.1.1 »
-        // into the relay's failure.
-        if (preg_match('/(?<![\w.])[45]\.7\.\d/', $haystack) === 1) {
+        // Bounded on both sides like the codes below (#1571 review): no
+        // letter, digit, underscore or dot before the class, and no digit
+        // — nor a dot followed by one — after the detail, so neither
+        // « server=v4.7.1 » (a version) nor « [4.7.1.9] » (an address)
+        // turns a « 550 5.1.1 » into the relay's failure.
+        if (preg_match('/(?<![\w.])[45]\.7\.\d{1,3}(?!\.?\d)/', $haystack) === 1) {
             return self::Provider;
         }
 
