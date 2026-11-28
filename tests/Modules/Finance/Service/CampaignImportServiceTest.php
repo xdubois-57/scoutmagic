@@ -7,7 +7,9 @@ namespace Tests\Modules\Finance\Service;
 use Modules\Finance\Repository\MemberLookupRepository;
 use Modules\Finance\Service\CampaignImportException;
 use Modules\Finance\Service\CampaignImportService;
+use PhpOffice\PhpSpreadsheet\Cell\DataType;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
+use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
@@ -258,6 +260,138 @@ class CampaignImportServiceTest extends TestCase
         $this->service->read($path);
     }
 
+    // ── numeric cells and text cells (issue #1472) ─────────────────────
+
+    /**
+     * The bug: a cell the workbook holds as the number 31,875 was read
+     * through its display, and the thousands rule made 31 875,00 € of it.
+     * A number is read as a number, rounded half up to the cent — and
+     * 31.875 * 100 sits exactly on the half, so this is the case a
+     * float rounding gets wrong.
+     */
+    public function testANumericCellIsReadAsItsValueRoundedToTheCent(): void
+    {
+        $result = $this->service->read($this->workbook(function (Worksheet $sheet): void {
+            $sheet->setCellValue('A1', 'ID interne');
+            $sheet->setCellValue('B1', 'Montant');
+            $sheet->setCellValue('A2', $this->memberIds['D-100']);
+            $sheet->setCellValueExplicit('B2', 31.875, DataType::TYPE_NUMERIC);
+            // Displayed with three decimals, the shape that went through
+            // the thousands rule before.
+            $sheet->getStyle('B2')->getNumberFormat()->setFormatCode('#,##0.000');
+            $sheet->setCellValue('A3', $this->memberIds['D-200']);
+            $sheet->setCellValueExplicit('B3', 45.0, DataType::TYPE_NUMERIC);
+            $sheet->getStyle('B3')->getNumberFormat()->setFormatCode('0.000');
+            $sheet->setCellValue('A4', $this->memberIds['D-300']);
+            $sheet->setCellValueExplicit('B4', 37.125, DataType::TYPE_NUMERIC);
+        }));
+
+        $this->assertSame(3188, $result->rows[0]['amount_cents']);
+        $this->assertSame(4500, $result->rows[1]['amount_cents']);
+        $this->assertSame(3713, $result->rows[2]['amount_cents']);
+    }
+
+    /**
+     * A number displayed with a thousands separator is the number, too:
+     * fifteen hundred stored and shown « 1,500 » is 1 500,00 €.
+     */
+    public function testANumericThousandIsReadAsItsValue(): void
+    {
+        $result = $this->service->read($this->workbook(function (Worksheet $sheet): void {
+            $sheet->setCellValue('A1', 'ID interne');
+            $sheet->setCellValue('B1', 'Montant');
+            $sheet->setCellValue('A2', $this->memberIds['D-100']);
+            $sheet->setCellValueExplicit('B2', 1500, DataType::TYPE_NUMERIC);
+            $sheet->getStyle('B2')->getNumberFormat()->setFormatCode('#,##0');
+        }));
+
+        $this->assertSame(150000, $result->rows[0]['amount_cents']);
+    }
+
+    /**
+     * The thousands rule still holds for what it was written for: a
+     * treasurer who typed « 1.500 » into a text cell meant fifteen
+     * hundred euros.
+     */
+    public function testATextCellKeepsTheThousandsReading(): void
+    {
+        $result = $this->service->read($this->workbook(function (Worksheet $sheet): void {
+            $sheet->setCellValue('A1', 'ID interne');
+            $sheet->setCellValue('B1', 'Montant');
+            $sheet->setCellValue('A2', $this->memberIds['D-100']);
+            $sheet->setCellValueExplicit('B2', '1.500', DataType::TYPE_STRING);
+        }));
+
+        $this->assertSame(150000, $result->rows[0]['amount_cents']);
+    }
+
+    /**
+     * What a text « 31,875 » meant for 31,88 € still reads as thousands —
+     * text cannot say which it was — so the ceiling refuses the line,
+     * names it, and says why, instead of billing 31 875 €.
+     */
+    public function testAnAmountAboveTheCeilingIsRefusedWithItsLineNumber(): void
+    {
+        try {
+            $this->service->read($this->workbook(function (Worksheet $sheet): void {
+                $sheet->setCellValue('A1', 'ID interne');
+                $sheet->setCellValue('B1', 'Montant');
+                $sheet->setCellValue('A2', $this->memberIds['D-100']);
+                $sheet->setCellValueExplicit('B2', '45,00', DataType::TYPE_STRING);
+                $sheet->setCellValue('A3', $this->memberIds['D-200']);
+                $sheet->setCellValueExplicit('B3', '31,875', DataType::TYPE_STRING);
+                $sheet->setCellValue('A4', $this->memberIds['D-300']);
+                $sheet->setCellValueExplicit('B4', 5000.01, DataType::TYPE_NUMERIC);
+            }));
+            $this->fail('An amount above the ceiling must refuse the file.');
+        } catch (CampaignImportException $e) {
+            $this->assertCount(2, $e->lines);
+            $this->assertSame(3, $e->lines[0]['line']);
+            $this->assertStringContainsString('31 875,00 €', $e->lines[0]['problem']);
+            $this->assertStringContainsString('plafond de 5 000,00 €', $e->lines[0]['problem']);
+            $this->assertSame(4, $e->lines[1]['line']);
+            $this->assertSame(3, $e->rowsRead);
+        }
+    }
+
+    public function testAnAmountExactlyAtTheCeilingIsAccepted(): void
+    {
+        $result = $this->service->read($this->spreadsheet(
+            ['ID interne', 'Montant'],
+            [[$this->memberIds['D-100'], '5 000,00']]
+        ));
+
+        $this->assertSame(CampaignImportService::MAX_AMOUNT_CENTS, $result->rows[0]['amount_cents']);
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('cellProvider')]
+    public function testACellIsReadByWhatItStores(mixed $raw, string $formatted, ?int $expected): void
+    {
+        $this->assertSame($expected, CampaignImportService::cellAmountCents($raw, $formatted));
+    }
+
+    /**
+     * @return array<string, array{mixed, string, ?int}>
+     */
+    public static function cellProvider(): array
+    {
+        return [
+            'on the half' => [31.875, '31,875', 3188],
+            'a half a float misses' => [1.005, '1,005', 101],
+            'below the half' => [31.874, '31,874', 3187],
+            'a formula result off by a float' => [31.874999999999996, '31,875', 3188],
+            'a sum of floats' => [0.1 + 0.2, '0,3', 30],
+            'an integer' => [45, '45', 4500],
+            'negative' => [-5.0, '-5', -500],
+            'a tiny number' => [0.0001, '0,0001', 0],
+            'infinity' => [INF, '', null],
+            'absurdly large' => [1.0E20, '1E+20', null],
+            'a boolean' => [true, 'VRAI', null],
+            'text keeps the text rule' => ['1.500', '1.500', 150000],
+            'empty' => [null, '', null],
+        ];
+    }
+
     // ── amounts, as Belgian spreadsheets actually write them ────────────
 
     /**
@@ -288,10 +422,30 @@ class CampaignImportServiceTest extends TestCase
             'a dotted thousand' => ['1.500', 150000],
             'empty' => ['', null],
             'words' => ['à définir', null],
+            'more digits than any amount' => ['12345678901234567890', null],
         ];
     }
 
     // ── helper ──────────────────────────────────────────────────────────
+
+    /**
+     * A workbook built cell by cell, for what {@see spreadsheet()} cannot
+     * say: a cell's stored type and its display format.
+     *
+     * @param callable(Worksheet): void $fill
+     */
+    private function workbook(callable $fill): string
+    {
+        $spreadsheet = new Spreadsheet();
+        $fill($spreadsheet->getActiveSheet());
+
+        $path = (tempnam(sys_get_temp_dir(), 'campaign_') ?: '') . '.xlsx';
+        $this->tempFiles[] = $path;
+        (new Xlsx($spreadsheet))->save($path);
+        $spreadsheet->disconnectWorksheets();
+
+        return $path;
+    }
 
     /**
      * @param string[] $headers

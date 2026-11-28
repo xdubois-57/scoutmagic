@@ -31,6 +31,7 @@ use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Finance\FinanceTestHelper;
+use Tests\NothingInClear;
 
 /**
  * @group database
@@ -443,6 +444,69 @@ class CampaignServiceTest extends TestCase
             $this->assertStringNotContainsString('Vandenbrande', (string) $entry['description']);
             $this->assertStringNotContainsString('Vandenbrande', (string) $entry['context']);
         }
+    }
+
+    /**
+     * The journal line of an import counts lines, and says nothing about
+     * any of them (issue #1472).
+     */
+    public function testTheCreationJournalLineCountsTheRowsAndNothingElse(): void
+    {
+        $campaignId = $this->create('Cotisations', [
+            [$this->memberIds['D-100'], '45,00'],
+            [$this->memberIds['D-200'], '38,25'],
+        ]);
+
+        $context = $this->journalContext('campaign_created');
+        $this->assertSame($campaignId, $context['campaign_id']);
+        $this->assertSame(2, $context['rows']);
+        $this->assertSame(0, $context['rows_refused']);
+        NothingInClear::inValuesOf($context)->assertAbsent('3825');
+    }
+
+    /**
+     * A file refused on its lines leaves a line in the journal with the
+     * counts — never the refused amount, never the content of a line.
+     */
+    public function testAFileRefusedOnItsLinesIsJournaledWithTheCountsOnly(): void
+    {
+        try {
+            $this->create('Cotisations', [
+                [$this->memberIds['D-100'], '45,00', 'Vandenbrande'],
+                [$this->memberIds['D-200'], '31,875', 'Vandenbrande'],
+                ['4821', '45,00', 'Inconnu'],
+            ], ['ID interne', 'Montant', 'Nom']);
+            $this->fail('An amount above the ceiling must refuse the file.');
+        } catch (CampaignImportException) {
+            // Expected.
+        }
+
+        $context = $this->journalContext('campaign_import_refused');
+        $this->assertSame(3, $context['rows']);
+        $this->assertSame(2, $context['rows_refused']);
+        $this->assertArrayNotHasKey('campaign_id', $context);
+        NothingInClear::inValuesOf($context)->assertAbsent('Vandenbrande', '31875', '3187500');
+        $this->assertSame(
+            'warning',
+            $this->pdo->query("SELECT level FROM event_log WHERE event_type = 'campaign_import_refused'")
+                ->fetchColumn()
+        );
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function journalContext(string $type): array
+    {
+        $stmt = $this->pdo->prepare('SELECT context FROM event_log WHERE event_type = ?');
+        $stmt->execute([$type]);
+        $rows = $stmt->fetchAll(\PDO::FETCH_COLUMN);
+        $this->assertCount(1, $rows, "exactly one {$type} line");
+        $context = json_decode((string) $rows[0], true);
+        $this->assertIsArray($context);
+
+        /** @var array<string, mixed> $context */
+        return $context;
     }
 
     // ── retention ───────────────────────────────────────────────────────

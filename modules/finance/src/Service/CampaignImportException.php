@@ -27,10 +27,13 @@ class CampaignImportException extends \Exception implements UserFacingException
 {
     /**
      * @param array<int, array{line: int, content: string, problem: string}> $lines
+     * @param int $rowsRead the data lines the file held, refused ones
+     *        included — 0 when the refusal is about the file as a whole
      */
     public function __construct(
         public readonly array $lines,
-        string $message = "Le chargement a été refusé : aucune campagne n'a été créée."
+        string $message = "Le chargement a été refusé : aucune campagne n'a été créée.",
+        public readonly int $rowsRead = 0
     ) {
         parent::__construct($message);
     }
