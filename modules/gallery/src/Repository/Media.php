@@ -33,7 +33,10 @@ final class Media
         public readonly ?int $durationSeconds,
         public readonly int $sortOrder,
         public readonly ?string $originalFilename,
-        public readonly string $createdAt
+        public readonly string $createdAt,
+        // Why processing failed, in French, for the animateur; null unless
+        // processingStatus is 'failed' (and on rows failed before it existed).
+        public readonly ?string $processingError = null
     ) {
     }
 

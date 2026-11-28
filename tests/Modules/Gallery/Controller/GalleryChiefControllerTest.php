@@ -388,6 +388,39 @@ class GalleryChiefControllerTest extends TestCase
     }
 
     /**
+     * A failed media kept its spinner on the edit page for good, which is
+     * exactly the « en traitement » the animateur was left with (issue
+     * #1449). It now shows the warning sign and the reason the task wrote.
+     */
+    public function testEditShowsWhyAMediaFailedInsteadOfASpinner(): void
+    {
+        $id = $this->createLocalAlbum();
+        $fileId = (new FileRepository($this->pdo))->create('gallery/x.jpg', 'x.jpg', 'image/jpeg', 1, 'identified', 'gallery', null);
+        $mediaId = $this->mediaRepository->create($id, 'photo', $fileId, 0, 'x.jpg');
+        $this->mediaRepository->markFailed($mediaId, 'Cette photo est trop lourde pour être traitée par le serveur.');
+
+        $html = $this->controller->edit(new Request('GET', '/gallery/' . $id . '/edit', [], [], [], []), ['id' => (string) $id])
+            ->getBody();
+
+        $this->assertStringContainsString('Cette photo est trop lourde pour être traitée par le serveur.', $html);
+        $this->assertStringContainsString('bi-exclamation-triangle', $html);
+        $this->assertStringNotContainsString('spinner-border', $html);
+    }
+
+    public function testEditShowsAGenericReasonForAMediaFailedWithoutOne(): void
+    {
+        $id = $this->createLocalAlbum();
+        $fileId = (new FileRepository($this->pdo))->create('gallery/x.jpg', 'x.jpg', 'image/jpeg', 1, 'identified', 'gallery', null);
+        $mediaId = $this->mediaRepository->create($id, 'video', $fileId, 0, 'x.mp4');
+        $this->mediaRepository->markFailed($mediaId);
+
+        $html = $this->controller->edit(new Request('GET', '/gallery/' . $id . '/edit', [], [], [], []), ['id' => (string) $id])
+            ->getBody();
+
+        $this->assertStringContainsString('<p class="small text-danger mt-1 mb-0">Échec du traitement</p>', $html);
+    }
+
+    /**
      * An album that pins no location sits on the default and has not been
      * told so. The edit page read the raw column, so it announced « Non
      * défini » about an album whose files are plainly somewhere — the

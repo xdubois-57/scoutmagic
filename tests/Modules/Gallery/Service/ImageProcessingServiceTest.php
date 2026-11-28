@@ -6,6 +6,8 @@ namespace Tests\Modules\Gallery\Service;
 
 use Modules\Gallery\Api\GalleryException;
 use Modules\Gallery\Service\ImageProcessingService;
+use Modules\Gallery\Service\PhotoMemoryBudget;
+use Modules\Gallery\Service\PhotoMemoryRefusedException;
 use PHPUnit\Framework\TestCase;
 
 class ImageProcessingServiceTest extends TestCase
@@ -206,5 +208,83 @@ class ImageProcessingServiceTest extends TestCase
 
         $this->assertSame(1, imagesx($thumb));
         $this->assertSame(1, imagesy($thumb));
+    }
+
+    /**
+     * A JPEG carrying an EXIF orientation tag, the way a phone writes one —
+     * the same construction as Tests\Core\File\UploadHandlerTest.
+     */
+    private function jpegWithOrientation(int $width, int $height, int $orientation): string
+    {
+        $jpeg = $this->fakeJpeg($width, $height);
+        $tiffHeader = 'II' . pack('v', 0x002A) . pack('V', 8);
+        $entry = pack('v', 0x0112) . pack('v', 3) . pack('V', 1) . pack('v', $orientation) . pack('v', 0);
+        $exifPayload = "Exif\x00\x00" . $tiffHeader . pack('v', 1) . $entry . pack('V', 0);
+        $app1 = "\xFF\xE1" . pack('n', strlen($exifPayload) + 2) . $exifPayload;
+
+        return substr($jpeg, 0, 2) . $app1 . substr($jpeg, 2);
+    }
+
+    /**
+     * Issue #1449: decoding a photo whose bitmap does not fit in what
+     * memory_limit leaves is a fatal no catch survives, so the refusal has
+     * to come first — as an exception the task can turn into a failed
+     * media.
+     */
+    public function testRefusesBeforeDecodingWhenTheEstimateExceedsTheSimulatedLimit(): void
+    {
+        // 4 MB left: a 2000×1000 bitmap alone is 8 MB.
+        $service = new ImageProcessingService(PhotoMemoryBudget::fixed('64M', 60 * 1024 * 1024));
+
+        try {
+            $service->process($this->fakeJpeg(2000, 1000), 'image/jpeg', 3000);
+            $this->fail('Expected a PhotoMemoryRefusedException.');
+        } catch (PhotoMemoryRefusedException $e) {
+            $this->assertSame(2000, $e->width);
+            $this->assertSame(1000, $e->height);
+            $this->assertSame(4 * 1024 * 1024, $e->availableBytes);
+            $this->assertGreaterThan($e->availableBytes, $e->requiredBytes);
+            $this->assertSame(2.0, $e->megapixels());
+            // GalleryException is user-facing: this sentence is what the
+            // animateur reads on the failed tile.
+            $this->assertInstanceOf(GalleryException::class, $e);
+            $this->assertStringContainsString('2,0 mégapixels', $e->getMessage());
+            $this->assertStringContainsString('réduisez sa définition', $e->getMessage());
+        }
+    }
+
+    public function testProcessesAnOrdinaryPhotoUnderAnOrdinaryLimit(): void
+    {
+        $service = new ImageProcessingService(PhotoMemoryBudget::fixed('256M', 32 * 1024 * 1024));
+
+        $result = $service->process($this->fakeJpeg(2000, 1000), 'image/jpeg', 3000);
+
+        $this->assertSame(2000, $result['width']);
+    }
+
+    /**
+     * The rotation's second bitmap is counted only when the EXIF tag says a
+     * rotation will happen: a limit just below the rotated need refuses the
+     * tagged photo and lets the same photo without the tag through.
+     */
+    public function testARotationIsCountedOnlyWhenTheExifTagAsksForOne(): void
+    {
+        $rotated = $this->jpegWithOrientation(2000, 1000, 6);
+        $limit = PhotoMemoryBudget::fixed('-1', 0)->requiredBytes(2000, 1000, strlen($rotated), true, 300) - 1;
+        $service = new ImageProcessingService(PhotoMemoryBudget::fixed((string) $limit, 0));
+
+        $result = $service->process($this->jpegWithOrientation(2000, 1000, 1), 'image/jpeg', 300);
+        $this->assertSame(2000, $result['width']);
+
+        $this->expectException(PhotoMemoryRefusedException::class);
+        $service->process($rotated, 'image/jpeg', 300);
+    }
+
+    public function testARotatedPhotoIsStillTurnedUpright(): void
+    {
+        $result = $this->service->process($this->jpegWithOrientation(200, 100, 6), 'image/jpeg', 3000);
+
+        $this->assertSame(100, $result['width']);
+        $this->assertSame(200, $result['height']);
     }
 }
