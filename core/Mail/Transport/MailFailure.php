@@ -149,10 +149,13 @@ enum MailFailure
         // The cost of this direction is a message retried for a day
         // against a relay that will keep refusing it — the same cost as
         // any unknown failure, and the one this enum already chooses.
-        foreach (['5.7.', '4.7.'] as $policy) {
-            if (str_contains($haystack, $policy)) {
-                return self::Provider;
-            }
+        //
+        // Bounded like the codes below (#1571 review): no letter, digit,
+        // underscore or dot before the class, so « server=v4.7.1 » — a
+        // version, not a policy refusal — does not turn a « 550 5.1.1 »
+        // into the relay's failure.
+        if (preg_match('/(?<![\w.])[45]\.7\.\d/', $haystack) === 1) {
+            return self::Provider;
         }
 
         // **An enhanced status code, when there is one, decides** (issue

@@ -116,6 +116,10 @@ class MailFailureTest extends TestCase
                 '550 5.1.1 Recipient unknown; server=v4.97.1',
                 MailFailure::Recipient,
             ],
+            'a recipient refusal next to a version that looks like a policy code' => [
+                '550 5.1.1 Recipient unknown; server=v4.7.1',
+                MailFailure::Recipient,
+            ],
             // ── the policy family, read first and unchanged ──
             'Gmail relay limit for the customer, under 5.7.1' => [
                 '550 5.7.1 Daily SMTP relay sending limit exceeded for this customer.',
