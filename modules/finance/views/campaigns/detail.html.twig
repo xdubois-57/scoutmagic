@@ -160,13 +160,13 @@
            receivables. What it does NOT do matters as much: a payment that
            still arrives is matched (ReceivableAllocationService knows
            nothing of campaigns), and the note and the abandon stay. #}
-        <div class="alert alert-secondary" role="status">
+        <output class="alert alert-secondary d-block">
             <i class="bi bi-lock" aria-hidden="true"></i>
             <strong>Campagne clôturée.</strong>
             Plus de rappel, de notification ni d'étiquettes, et ses créances impayées n'apparaissent plus
             aux familles. Un paiement qui arrive encore est rattaché comme d'habitude ; la note et l'abandon
             d'une créance restent possibles. Rouvrez la campagne pour reprendre les rappels.
-        </div>
+        </output>
     {% endif %}
 
     <div class="d-flex flex-wrap gap-2 mb-3">
